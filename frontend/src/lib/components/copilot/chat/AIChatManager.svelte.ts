@@ -4776,19 +4776,14 @@ export class AIChatManager {
 	}
 
 	/** What the transcript would be if the turn stopped here — for the writes that fire
-	 * mid-turn without ending it. Loading is a property of this page: reloading resolves
-	 * no card, so one stored still pending comes back asking for input nothing can
-	 * deliver. Settles the stored copy only; the live turn keeps its cards.
+	 * mid-turn without ending it. Loading is a property of this page: reloading resolves no
+	 * card, so one stored still pending comes back asking for input nothing can deliver.
+	 * Settles the stored copy only; the live turn keeps its cards.
 	 *
-	 * Except a card the poller resolves after a reload: settling that one stores an
-	 * "Interrupted" error, and the patch a completed job merges in carries no error to
-	 * clear it with. Which cards those are is loadPastChat's question, so ask it the same
-	 * way — a job still running inline is detached by the restore and polled like any
-	 * other.
-	 *
-	 * That exemption is a bet on the poller, and the poller only knows the jobs stored
-	 * in the same record — registering one does not write it. So the jobs come back
-	 * with the transcript that depends on them, and both go into the same saveChat. */
+	 * Except a card the poller will resolve after a reload: settling that one stores an
+	 * "Interrupted" error the patch a completed job merges in carries nothing to clear.
+	 * Which cards those are is loadPastChat's question, asked the same way — and the poller
+	 * only knows the jobs stored in the same record, so both go into the same saveChat. */
 	#interruptedSnapshot = (): { display: DisplayMessage[]; jobs: ChatJob[] } => {
 		const polled = this.#pollableToolCalls()
 		return {

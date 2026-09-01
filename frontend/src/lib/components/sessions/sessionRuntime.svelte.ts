@@ -519,9 +519,9 @@ function createRuntime(session: Session): SessionRuntime {
 		})
 	}
 
-	// And let a run card move its pending form here. Not a page: the tab mounts the chat's
-	// own form on the same tool call, so Run in the panel is Run in the chat, and the two
-	// share one draft rather than being two forms proposing two jobs.
+	// Not a page: the tab mounts the chat's own form on the same tool call, so Run in the
+	// panel is Run in the chat, and the two share one draft rather than being two forms
+	// proposing two jobs.
 	manager.openRunForm = ({ toolCallId, label }) => {
 		previewTabs.open({ type: 'runform', toolCallId, label })
 	}

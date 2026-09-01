@@ -70,7 +70,7 @@
 	// The card stores its result as text (see formatResult), so read it back into a
 	// value DisplayResult can render: a markdown, table or image result is what the
 	// pretty view buys. A string that happens to be JSON parses back as JSON, and the
-	// text it was stored as is one click away under { }.
+	// text it was stored as is one toggle away in the raw view.
 	const resultValue = $derived.by(() => {
 		if (message.result === undefined) return undefined
 		if (typeof message.result !== 'string') return message.result
@@ -235,8 +235,7 @@
 
 <!-- The run page's own status badge, so a run reads the same wherever it is met, with the
      time beside it: the badge says how it went, the number how long it took, and while it
-     runs that number is still moving. Ahead of the label, so the chevron stays next to what
-     it opens and the preview chip keeps the other end of the row to itself. -->
+     runs that number is still moving. -->
 {#snippet status()}
 	{#if !pending}
 		<span class="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-2xs text-hint">
@@ -280,12 +279,10 @@
 		     would not do it — the body is a scroll region, and a max-height silently beats
 		     flex-grow. -->
 		<div class="relative flex h-[20rem] flex-col">
-			<!-- The tabs go in raw view: they name the parts of the body, and the raw call is not
-			     one of them. The strip stays because the switch out of raw lives there — the run
-			     page's own JSON toggle, which carries its label and so does not read as a fourth
-			     tab. -->
-			<!-- The strip's own height, not one its contents happen to add up to: the tabs leave
-			     in raw view, and a row sized by what is in it would step every time they do. -->
+			<!-- The tabs go in raw view — they name the parts of the body, and the raw call is not
+			     one of them — while the strip stays, since the JSON toggle lives there. Hence its
+			     fixed height: a row sized by its contents would step every time the tabs leave, and
+			     the tighter Tab padding below is what fits a label inside that height. -->
 			<Tabs
 				selected={activeTab}
 				on:selected={(e) => (userTab = e.detail)}
@@ -294,9 +291,6 @@
 			>
 				{#if !jsonView}
 					{#each tabs as tab (tab.value)}
-						<!-- leading-4 and the tighter padding are the strip's height: text-2xs
-						     inherits a 22px line box, which with Tab's own padding puts 12px of air
-						     above and below a 11px label. -->
 						<Tab
 							value={tab.value}
 							label={tab.label}
@@ -349,9 +343,9 @@
 							/>
 						</div>
 					{:else if activeTab === 'input'}
-						<!-- What the runs page shows a finished job's arguments as, for the same reason the
-					     Result tab is DisplayResult: the operator has already read this table. The job id
-					     is what lets it fetch arguments too big to have been persisted with the card. -->
+						<!-- What the runs page shows a finished job's arguments as: the operator has already
+					     read this table. The job id is what lets it fetch arguments too big to have been
+					     persisted with the card. -->
 						<JobArgs
 							args={parameters}
 							id={chatJob?.jobId}
@@ -394,13 +388,11 @@
 							hideAsJson
 						/>
 					{:else if resultValue !== undefined}
-						<!-- The run page's own renderer, not a second one invented for the chat: it is
-					     what the result already looks like everywhere else, and it is the only thing
-					     that handles markdown, tables, images, S3 files and deep nesting without the
-					     card guessing at the shape. `disableExpand` drops its whole toolbar and
-					     `hideAsJson` its Pretty/JSON switch: the row already owns both, opening it
-					     bigger and reading it raw. jobId and workspace still let it reach the job for
-					     an S3 preview. -->
+						<!-- The run page's own renderer, not a second one invented for the chat: it handles
+					     markdown, tables, images and deep nesting without the card guessing at the
+					     shape, and reaches the job through jobId/workspace for an S3 preview.
+					     `disableExpand` drops its toolbar and `hideAsJson` its Pretty/JSON switch,
+					     which the row already owns. -->
 						<DisplayResult
 							result={resultValue}
 							jobId={chatJob?.jobId}
