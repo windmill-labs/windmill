@@ -6,6 +6,22 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Full Code UI builder Beta',
+		href: 'https://www.windmill.dev/changelog/full-code-ui-builder',
+		date: '2026-01-22'
+	},
+	{
+		label: 'Hashicorp Vault integration',
+		href: 'https://www.windmill.dev/changelog/hashicorp-vault-integration',
+		date: '2026-01-22'
+	},
+	{
+		label: 'Interactive script debugger',
+		href: 'https://www.windmill.dev/changelog/interactive-debugger',
+		date: '2026-01-22'
+	},
+
+	{
 		label: 'AWS Bedrock support for Windmill AI',
 		href: 'https://www.windmill.dev/changelog/aws-bedrock',
 		date: '2025-11-19'
