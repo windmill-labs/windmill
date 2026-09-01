@@ -283,7 +283,15 @@
 					placeholder: '12345',
 					disabled: fieldsDisabled
 				}}
-				bind:value={$values['github_enterprise_app'].app_id}
+				bind:value={
+					() => $values['github_enterprise_app'].app_id,
+					(v) => {
+						// The backend expects app_id as a number (i64) — never store the raw input string
+						const parsed = typeof v === 'string' ? parseInt(v, 10) : v
+						$values['github_enterprise_app'].app_id =
+							typeof parsed === 'number' && !isNaN(parsed) ? parsed : undefined
+					}
+				}
 			/>
 		</div>
 		<div class="flex flex-col gap-1">
