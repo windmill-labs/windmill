@@ -3289,17 +3289,32 @@ async fn test_deno_job_non_error_throws(db: Pool<Postgres>) -> anyhow::Result<()
         json!("nur ein string")
     );
 
-    // An object carrying none of message/name/stack is described by its contents rather
-    // than collapsing to an empty error object.
+    // Wrapping a library error (`catch (e) { throw { cause: e } }`) leaves a thrown object
+    // with none of message/name/stack. Reporting it must stay a type tag: rendering its
+    // contents would carry the wrapped client's credentials into the only record Deno
+    // keeps, since these wrappers have no `console.error`.
     let job = RunJob::from(deno_job(
-        r#"export function main() { throw { code: 42, hint: "kein Error" }; }"#,
+        r#"
+export function main() {
+    const config: any = { headers: { Authorization: "Bearer sentinel-tkn" } };
+    const request: any = { path: "/x" };
+    const response: any = { status: 401, config, request };
+    request.res = response;
+    const inner: any = new Error("Request failed with status code 401");
+    inner.config = config;
+    inner.response = response;
+    throw { cause: inner };
+}
+"#,
     ))
     .run_until_complete(&db, false, port)
     .await;
     assert!(!job.success);
-    assert_eq!(
-        job.json_result().unwrap()["error"]["message"],
-        json!(r#"{"code":42,"hint":"kein Error"}"#)
+    let error = job.json_result().unwrap()["error"].clone();
+    assert_eq!(error["message"], json!("[object Object]"));
+    assert!(
+        !error.to_string().contains("sentinel-tkn"),
+        "credential reached the result: {error}"
     );
 
     // Deno reports only message/name/stack. Collecting the thrown value's own properties

@@ -79,15 +79,11 @@ pub const DEV_CONF_NSJAIL: &str = "";
 /// Enabling it there would newly persist whatever an HTTP client hangs off its errors,
 /// credential-bearing headers included, into existing scripts' run history.
 ///
-/// `extra` is reported only when it serializes on its own, which is exactly when the
-/// pre-existing bare `JSON.stringify` would have succeeded. Anything else is what used to
-/// crash, so persisting it now would be new exposure: an HTTP client hangs its whole
-/// request off a cyclic error, credentials and mTLS keys included, and no blocklist of key
-/// names can be complete. Keeping the condition rather than the key list is what bounds it.
-///
-/// `wmErrDescribe` also renders a thrown object's contents, so it stays behind the same
-/// line: it fills a message only for a value that yielded no field at all, never for one
-/// carrying `message`/`name`/`stack` or reportable `extra`.
+/// What a thrown object holds is reported only through the one plain `JSON.stringify`
+/// the wrappers already did, so it reaches a result exactly when it did before. What used
+/// to crash instead reports the thrown value's own strings and a marker: an HTTP client
+/// hangs its whole request off a cyclic error, credentials and mTLS keys included, and
+/// nothing may render that graph, no blocklist of key names being complete enough to.
 ///
 /// Comment-free on purpose: it is written into each job's wrapper source.
 pub const JS_ERROR_SERIALIZER: &str = r#"
@@ -110,24 +106,6 @@ function wmErrProp(e, key) {
     }
 }
 
-function wmErrSerializable(v) {
-    try {
-        return JSON.stringify(v) !== undefined;
-    } catch (_) {
-        return false;
-    }
-}
-
-function wmErrDescribe(v) {
-    if (v === null || typeof v !== 'object') return wmErrString(v);
-    let s;
-    try {
-        s = wmSerializeError(v);
-    } catch (_) {}
-    if (s === undefined || s === '{}') return wmErrString(v);
-    return s.length > 10000 ? s.slice(0, 10000) + '...[truncated]' : s;
-}
-
 function wmToErrorObject(e, collectExtra) {
     if (e === null || typeof e !== 'object') {
         return { message: wmErrString(e), name: 'ThrownValue' };
@@ -148,29 +126,34 @@ function wmToErrorObject(e, collectExtra) {
             const v = wmErrProp(e, key);
             if (v !== undefined) extra[key] = v;
         }
-        if (Object.keys(extra).length > 0) {
-            err.extra = wmErrSerializable(extra) ? extra : '[extra omitted: not serializable]';
-        }
+        if (Object.keys(extra).length > 0) err.extra = extra;
     }
     if (Object.keys(err).length === 0) {
-        err.message = wmErrDescribe(e);
         err.name = 'ThrownValue';
+        try {
+            err.message = Object.prototype.toString.call(e);
+        } catch (_) {
+            err.message = '[unstringifiable object]';
+        }
     }
     return err;
 }
 
 function wmSerializeError(err) {
-    const ancestors = [];
     try {
-        return JSON.stringify(err, function (key, v) {
-            if (v === null || typeof v !== 'object') return v;
-            while (ancestors.length > 0 && ancestors[ancestors.length - 1] !== this) ancestors.pop();
-            if (ancestors.indexOf(v) !== -1) return '[Circular]';
-            ancestors.push(v);
-            return v;
-        });
-    } catch (_) {
+        const s = JSON.stringify(err);
+        if (s !== undefined) return s;
+    } catch (_) {}
+    if (err !== null && typeof err === 'object' && err.extra !== undefined) {
+        try {
+            const s = JSON.stringify(Object.assign({}, err, { extra: '[extra omitted: not serializable]' }));
+            if (s !== undefined) return s;
+        } catch (_) {}
+    }
+    try {
         return JSON.stringify({ message: err.message, name: err.name, stack: err.stack, step_id: err.step_id, line: err.line });
+    } catch (_) {
+        return JSON.stringify({ message: '[unserializable error]', name: 'ThrownValue' });
     }
 }
 "#;
