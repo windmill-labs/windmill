@@ -79,6 +79,10 @@ pub const DEV_CONF_NSJAIL: &str = "";
 /// Enabling it there would newly persist whatever an HTTP client hangs off its errors,
 /// credential-bearing headers included, into existing scripts' run history.
 ///
+/// `wmErrDescribe` renders a thrown object's contents, so it stays behind the same line:
+/// it runs only for a value exposing none of message/name/stack, which an HTTP client's
+/// error never is, and only to fill a message that would otherwise be `[object Object]`.
+///
 /// Comment-free on purpose: it is written into each job's wrapper source.
 pub const JS_ERROR_SERIALIZER: &str = r#"
 const wmErrOwnKeys = ['line', 'name', 'stack', 'column', 'message', 'sourceURL', 'originalLine', 'originalColumn'];
@@ -101,19 +105,18 @@ function wmErrProp(e, key) {
 }
 
 function wmErrDescribe(v) {
+    if (v === null || typeof v !== 'object') return wmErrString(v);
     let s;
-    if (v !== null && typeof v === 'object') {
-        try {
-            s = wmSerializeError(v);
-        } catch (_) {}
-    }
-    if (s === undefined || s === '{}') s = wmErrString(v);
+    try {
+        s = wmSerializeError(v);
+    } catch (_) {}
+    if (s === undefined || s === '{}') return wmErrString(v);
     return s.length > 10000 ? s.slice(0, 10000) + '...[truncated]' : s;
 }
 
 function wmToErrorObject(e, collectExtra) {
     if (e === null || typeof e !== 'object') {
-        return { message: wmErrDescribe(e), name: 'ThrownValue' };
+        return { message: wmErrString(e), name: 'ThrownValue' };
     }
     const err = {};
     for (const field of ['message', 'name', 'stack']) {
