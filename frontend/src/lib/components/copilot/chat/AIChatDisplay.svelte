@@ -37,6 +37,7 @@
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
 	import McpConnections from './McpConnections.svelte'
 	import SkillsPicker from './SkillsPicker.svelte'
+	import AgentContextPanel from './AgentContextPanel.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
@@ -1127,6 +1128,10 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						<ContextUsageIndicator />
 						<AIChatModelSettings />
 						{#if aiChatManager.mode === AIMode.GLOBAL}
+							<AgentContextPanel
+								onManageSkills={() => skillsPicker?.open()}
+								onManageMcp={() => mcpConnections?.open()}
+							/>
 							<SkillsPicker bind:this={skillsPicker} />
 							<McpConnections bind:this={mcpConnections} />
 						{/if}
