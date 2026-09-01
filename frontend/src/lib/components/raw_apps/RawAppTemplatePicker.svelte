@@ -282,33 +282,33 @@
 										<label class="text-xs text-emphasis font-semibold" for="datatable"
 											>Datatable</label
 										>
-										<Select
-											id="datatable"
-											disablePortal
-											items={datatableItems}
-											bind:value={selectedDatatable}
-											placeholder="Datatable"
-											size="sm"
-											class="w-40"
-										/>
-									</div>
-									{#if showRolePicker}
-										<div class="flex flex-col gap-1">
-											<label class="text-xs text-emphasis font-semibold" for="datatable-role"
-												>Role</label
-											>
+										<div class="flex flex-row items-center gap-2">
 											<Select
-												id="datatable-role"
+												id="datatable"
 												disablePortal
-												items={availableRoles.map((r) => ({ value: r, label: r }))}
-												bind:value={selectedRole}
-												clearable={false}
-												placeholder="Role"
+												items={datatableItems}
+												bind:value={selectedDatatable}
+												placeholder="Datatable"
 												size="sm"
 												class="w-40"
 											/>
+											{#if showRolePicker}
+												<!-- Reads as one phrase — "main as admin" — so the role needs no
+												     label of its own. -->
+												<span class="text-xs text-secondary">as</span>
+												<Select
+													id="datatable-role"
+													disablePortal
+													items={availableRoles.map((r) => ({ value: r, label: r }))}
+													bind:value={selectedRole}
+													clearable={false}
+													placeholder="Role"
+													size="sm"
+													class="w-40"
+												/>
+											{/if}
 										</div>
-									{/if}
+									</div>
 									<div>
 										<span class="text-xs text-emphasis font-semibold">Schema</span>
 										<div class="flex flex-row gap-1 w-full items-center">
