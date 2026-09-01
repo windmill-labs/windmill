@@ -30,6 +30,7 @@ import {
 	type ChatJobStatus,
 	completedJobToolStatus,
 	backgroundJobCompletionNote,
+	createJobUpdateReader,
 	deriveChatJobStatus,
 	pendingToolImagesMessage,
 	trimJob
@@ -502,6 +503,10 @@ export class AIChatManager {
 	// Consecutive getJob failures per background job, so a vanished/404 job can be
 	// drained instead of polled forever. Ephemeral, keyed by jobId.
 	#jobPollFailures = new Map<string, number>()
+	// Incremental log/result-stream readers, keyed by jobId. A job that detaches out of
+	// the inline wait keeps streaming into its card through these; each holds its own
+	// offsets, so one created after a reload refetches from the start.
+	#jobUpdateReaders = new Map<string, ReturnType<typeof createJobUpdateReader>>()
 	/** Opens a run in the sessions preview pane. Set by the session runtime;
 	 * undefined in the global side-panel chat, where the tray falls back to opening
 	 * the run in a new browser tab. */
@@ -519,12 +524,11 @@ export class AIChatManager {
 		workspace: string
 		label: string
 	}) => void
-	/** Whether the panel holds this call: its pending form, and with a `jobId`, the run that
-	 * form started. Answered off the session's tab list, so it stays true while the user is on
-	 * another tab, and per call rather than "the open one". Read from a `$derived` — the reader
-	 * subscribes to the tab list through the call. The card collapses on it, which is what keeps
-	 * one form mounted per call and the panel from repeating what the card shows. */
-	isCallInPreview?: (a: { toolCallId: string; jobId?: string }) => boolean
+	/** Whether the panel holds this call's pending form. Answered off the session's tab list,
+	 * so it stays true while the user is on another tab, and per call rather than "the open
+	 * one". Read from a `$derived` — the reader subscribes to the tab list through the call.
+	 * The card hides its form on it, which is what keeps exactly one mounted per call. */
+	isRunFormInPreview?: (toolCallId: string) => boolean
 	openArtifact?: (artifactId: string, name: string, version?: ArtifactVersionTarget) => void
 	closeArtifact?: (artifactId: string) => void
 	#loading = $state<boolean>(false)
@@ -886,8 +890,7 @@ export class AIChatManager {
 		]
 		// The panel was holding this call's form and the call now has a job: the tab follows
 		// the call rather than being left on a form that has already run.
-		// No jobId here on purpose: the question is whether the form is still the tab.
-		if (this.isCallInPreview?.({ toolCallId: init.toolCallId })) {
+		if (this.isRunFormInPreview?.(init.toolCallId)) {
 			this.showRunInPlaceOfForm?.({
 				toolCallId: init.toolCallId,
 				jobId: init.jobId,
@@ -1008,6 +1011,21 @@ export class AIChatManager {
 		let anyTerminal = false
 		for (const job of pending) {
 			try {
+				// Its own output first, so a run that detached out of the inline wait keeps
+				// filling its card. `getJob` alone would freeze a streamed result until the
+				// job landed — the partial is only on the updates endpoint.
+				let reader = this.#jobUpdateReaders.get(job.jobId)
+				if (!reader) {
+					reader = createJobUpdateReader(job.jobId, job.workspace)
+					this.#jobUpdateReaders.set(job.jobId, reader)
+				}
+				const update = await reader.poll()
+				if (gen !== this.#jobPollGeneration) return
+				this.applyToolStatus(job.toolCallId, {
+					logs: update.logs || undefined,
+					resultStream: update.resultStream || undefined
+				})
+
 				const fetched = await JobService.getJob({
 					workspace: job.workspace,
 					id: job.jobId,
@@ -1021,6 +1039,7 @@ export class AIChatManager {
 				this.#jobPollFailures.delete(job.jobId)
 				if (fetched.type === 'CompletedJob') {
 					anyTerminal = true
+					this.#jobUpdateReaders.delete(job.jobId)
 					this.#onBackgroundJobComplete(job, fetched as CompletedJob)
 				} else {
 					// Store the derived status and the trimmed Job together so the tray
@@ -1042,6 +1061,7 @@ export class AIChatManager {
 				this.#jobPollFailures.set(job.jobId, failures)
 				if (httpStatus === 404 || failures >= 5) {
 					this.#jobPollFailures.delete(job.jobId)
+					this.#jobUpdateReaders.delete(job.jobId)
 					// Vanished (404) or unreachable after repeated polls. Mark it failed WITH
 					// a snapshot + tool-card patch (mirroring #onBackgroundJobComplete) so
 					// neither the tray badge nor the launching tool card stays frozen on
@@ -1200,6 +1220,7 @@ export class AIChatManager {
 		this.#jobPollGeneration++
 		clearTimeout(this.#autoResumeRetry)
 		this.#autoResumeRetry = undefined
+		this.#jobUpdateReaders.clear()
 		this.backgroundJobs = []
 		this.pendingJobNotes = []
 	}

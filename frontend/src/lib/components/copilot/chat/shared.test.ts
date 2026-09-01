@@ -38,7 +38,7 @@ vi.mock('$lib/components/flows/flowTree', () => ({
 vi.mock('$lib/gen', () => ({
 	ScriptService: {},
 	FlowService: {},
-	JobService: { getJob: vi.fn() },
+	JobService: { getJob: vi.fn(), getJobUpdates: vi.fn() },
 	ScheduleService: {
 		previewSchedule: vi.fn(),
 		createSchedule: vi.fn()
@@ -1406,6 +1406,9 @@ describe('pollJobCompletion detach', () => {
 			const getJob = vi.mocked(JobService.getJob)
 			getJob.mockReset()
 			getJob.mockResolvedValue({ type: 'QueuedJob', running: true } as any)
+			const getJobUpdates = vi.mocked(JobService.getJobUpdates)
+			getJobUpdates.mockReset()
+			getJobUpdates.mockResolvedValue({ running: true, completed: false } as any)
 			const cbs = makeCallbacks()
 
 			// detachAfterMs 2000 → 2 polls at 1s each, then detach.
@@ -1433,6 +1436,11 @@ describe('pollJobCompletion detach', () => {
 			getJob.mockReset()
 			const completed = { type: 'CompletedJob', success: true, result: 42 }
 			getJob.mockResolvedValue(completed as any)
+			// The updates endpoint is what says the job landed; the whole job is then
+			// fetched once, with its logs.
+			const getJobUpdates = vi.mocked(JobService.getJobUpdates)
+			getJobUpdates.mockReset()
+			getJobUpdates.mockResolvedValue({ completed: true } as any)
 			const cbs = makeCallbacks()
 
 			const promise = pollJobCompletion('job1', 'w', 'tool1', cbs as any, { detachAfterMs: 15000 })
@@ -1452,6 +1460,9 @@ describe('pollJobCompletion detach', () => {
 			const getJob = vi.mocked(JobService.getJob)
 			getJob.mockReset()
 			getJob.mockResolvedValue({ type: 'QueuedJob', running: true } as any)
+			const getJobUpdates = vi.mocked(JobService.getJobUpdates)
+			getJobUpdates.mockReset()
+			getJobUpdates.mockResolvedValue({ running: true, completed: false } as any)
 			const cbs = makeCallbacks()
 
 			const promise = pollJobCompletion('job1', 'w', 'tool1', cbs as any)

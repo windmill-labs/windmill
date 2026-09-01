@@ -13,6 +13,9 @@
 		streaming?: boolean
 		toolName?: string
 		showFade?: boolean
+		/** Open on the end of the content instead of its start, and stay there as it grows.
+		 * For logs, whose last lines are the ones being looked for. */
+		tail?: boolean
 	}
 
 	let {
@@ -24,7 +27,8 @@
 		showWhileLoading = true,
 		streaming = false,
 		toolName,
-		showFade = false
+		showFade = false,
+		tail = false
 	}: Props = $props()
 	let copied = $state(false)
 
@@ -82,6 +86,12 @@
 	// max-h-28 as well as the first paint.
 	const fades = scrollFades()
 	const { container: fadeContainer, content: fadeContent, measure: measureFades } = fades
+
+	let scroller = $state<HTMLDivElement | undefined>()
+	$effect(() => {
+		void content
+		if (tail && scroller) scroller.scrollTop = scroller.scrollHeight
+	})
 </script>
 
 {#if showWhileLoading || (!loading && hasContent) || streaming}
@@ -117,6 +127,7 @@
 		{:else if hasContent}
 			<div class="relative">
 				<div
+					bind:this={scroller}
 					use:fadeContainer
 					onscroll={measureFades}
 					class="overflow-x-auto max-h-28 overflow-y-auto"
@@ -127,7 +138,7 @@
 				</div>
 				{#if showFade && fades.bottom}
 					<div
-						class="absolute bottom-0 left-0 right-0 h-16 pointer-events-none bg-gradient-to-t from-surface via-surface/70 via-surface/40 to-transparent"
+						class="absolute bottom-0 left-0 right-0 h-[min(2rem,25%)] pointer-events-none bg-gradient-to-t from-surface via-surface/70 via-surface/40 to-transparent"
 					></div>
 				{/if}
 			</div>
