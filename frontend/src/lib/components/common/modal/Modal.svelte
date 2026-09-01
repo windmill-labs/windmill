@@ -31,9 +31,11 @@
 		style?: string
 		cancelText?: string | undefined
 		kind?: 'button' | 'X'
-		/** Where you are inside the dialog, as a breadcrumb replacing the title: the whole path,
-		 * the dialog's own root first. A dialog at its root passes nothing (or one level) and keeps
-		 * its plain title; ancestors with an `onclick` are the way back, which Escape also takes. */
+		/** Where you are inside the dialog: the whole path, the dialog's own root first. Below the
+		 * root the last level becomes the heading and the ones above it the line under it, with a
+		 * back control for the nearest. A dialog at its root passes nothing (or one level) and
+		 * keeps its plain title; ancestors with an `onclick` are the way back, which Escape also
+		 * takes. */
 		trail?: ModalTrailSegment[]
 		/** A line under the title saying what the dialog is for; in the header so it does not
 		 * scroll away with the body. */
@@ -51,9 +53,12 @@
 		 * side panel when it is open. Pass an explicit value to stack above other
 		 * surfaces (e.g. a modal opened over the /sessions preview-pane editor). */
 		minZIndex?: number
-		/** Rendered against the dialog's own name, before any level below it: what it marks is the
-		 * dialog rather than wherever in it you have navigated to. */
+		/** Rendered against the dialog's own name, wherever that name is: the heading at the root,
+		 * the first level of the way back below it. */
 		titleBadge?: import('svelte').Snippet
+		/** Rendered against the level you are on, which below the root is the heading. Nothing at
+		 * the root, where that level is the dialog and `titleBadge` already names it. */
+		levelBadge?: import('svelte').Snippet
 		settings?: import('svelte').Snippet
 		children?: import('svelte').Snippet
 		actions?: import('svelte').Snippet
@@ -72,6 +77,7 @@
 		enterConfirms = true,
 		minZIndex: minZIndexProp = undefined,
 		titleBadge,
+		levelBadge,
 		settings,
 		children: children_render,
 		actions
@@ -88,7 +94,9 @@
 
 	// A trail of one level is the dialog at its root, which the plain title already shows.
 	const crumbs = $derived(trail && trail.length > 1 ? trail : undefined)
-	// The level under the one you are on: what Escape and the back chevron return to.
+	// The level you are on, which is the heading below the root.
+	const current = $derived(crumbs?.[crumbs.length - 1])
+	// The level under it: what Escape and the back control return to.
 	const back = $derived(crumbs?.[crumbs.length - 2])
 
 	const dispatch = createEventDispatcher()
@@ -147,22 +155,12 @@
 
 <svelte:window onkeydowncapture={onKeyDown} />
 
-<!-- The level you would return to wears the back chevron; there is no separate back control. -->
-{#snippet crumb(segment: ModalTrailSegment, isBack: boolean)}
-	<Button
-		variant="subtle"
-		unifiedSize="sm"
-		title={isBack ? `Back to ${segment.label}` : undefined}
-		onClick={segment.onclick}
-		wrapperClasses="min-w-0 shrink"
-		btnClasses="group !px-0 !font-normal text-secondary hover:text-emphasis hover:!bg-transparent gap-0.5 min-w-0"
-	>
-		{#if isBack}
-			<!-- Pulled left so the label stays about where the title sits at the root. -->
-			<ChevronLeft size={18} class="shrink-0 -ml-1" />
-		{/if}
-		<span class="truncate group-hover:underline">{segment.label}</span>
-	</Button>
+<!-- The heading names the level you are on; where it sits within the dialog goes under it. -->
+{#snippet heading(label: string, badge?: import('svelte').Snippet)}
+	<h3 class="text-emphasis text-lg font-semibold leading-7 flex items-center gap-1 min-w-0">
+		<span class="truncate">{label}</span>
+		{@render badge?.()}
+	</h3>
 {/snippet}
 
 <Disposable bind:open bind:this={disposable} preventEscape {minZIndex}>
@@ -217,73 +215,63 @@
 									<!-- min-w-0: without it this flex item takes its content's min-content width and
 									     stretches the modal past its max-width instead of letting content shrink. -->
 									<div class="text-left flex-1 min-w-0 {fillHeight ? 'flex flex-col min-h-0' : ''}">
-										{#if crumbs}
-											<!-- pr-8 under `kind="X"`: the close button is absolutely positioned, so a
-											     long trail would otherwise run under it. -->
-											<div
-												class="flex flex-row items-center justify-between gap-2 min-w-0 {kind ===
-												'X'
-													? 'pr-8'
-													: ''}"
-											>
-												<!-- leading-7 on the row and the heading alike, so the header is the same
-												     height at the root as one level in. -->
-												<nav
-													aria-label="Breadcrumb"
-													class="flex flex-row items-center gap-1 min-w-0 text-lg font-semibold leading-7"
-												>
-													{#each crumbs as segment, i (i)}
-														{#if i === 1}
-															{@render titleBadge?.()}
-														{/if}
-														{#if i > 0}
-															<ChevronRight size={18} class="text-tertiary shrink-0" />
-														{/if}
-														{#if i === 0}
-															<!-- flex: an inline child holding an icon sits on the baseline and adds
-														     descender room, which would make the row taller than at the root. -->
-															<h3
-																class="shrink-0 leading-7 flex items-center {segment.onclick
-																	? ''
-																	: 'text-emphasis'}"
-															>
-																{#if segment.onclick}
-																	{@render crumb(segment, i === crumbs.length - 2)}
-																{:else}
-																	{segment.label}
+										<!-- pr-8 under `kind="X"`: the close button is absolutely positioned, so a long
+										     heading or the header actions would otherwise run under it. -->
+										<div
+											class="flex flex-row items-start justify-between gap-2 min-w-0 {kind === 'X'
+												? 'pr-8'
+												: ''}"
+										>
+											{#if crumbs && current}
+												<div class="flex flex-row items-start gap-1 min-w-0">
+													{#if back?.onclick}
+														<!-- Pulled left so the heading lands about where the title sits at the
+														     root, and up so it reads against that heading rather than against
+														     the two lines together. -->
+														<Button
+															variant="subtle"
+															unifiedSize="sm"
+															iconOnly
+															startIcon={{ icon: ChevronLeft }}
+															title="Back to {back.label}"
+															onClick={back.onclick}
+															wrapperClasses="shrink-0 -ml-1 -mt-0.5"
+														/>
+													{/if}
+													<div class="flex flex-col min-w-0">
+														{@render heading(current.label, levelBadge)}
+														<!-- The way back in full: the control above carries one level of it. -->
+														<nav
+															aria-label="Breadcrumb"
+															class="flex flex-row items-center gap-0.5 min-w-0 text-xs text-secondary"
+														>
+															{#each crumbs.slice(0, -1) as segment, i (i)}
+																{#if i > 0}
+																	<ChevronRight size={12} class="text-tertiary shrink-0" />
 																{/if}
-															</h3>
-														{:else if segment.onclick}
-															{@render crumb(segment, i === crumbs.length - 2)}
-														{:else}
-															<span class="text-emphasis truncate" aria-current="page">
-																{segment.label}
-															</span>
-														{/if}
-													{/each}
-												</nav>
-												{@render settings?.()}
-											</div>
-										{:else}
-											<!-- pr-8 under `kind="X"`, as on the trail row: the close button is absolutely
-											     positioned, so a long title or the header actions would run under it. -->
-											<div
-												class="flex flex-row items-center justify-between gap-2 min-w-0 {kind ===
-												'X'
-													? 'pr-8'
-													: ''}"
-											>
-												<h3
-													class="text-emphasis text-lg font-semibold truncate {titleBadge
-														? 'flex items-center gap-1'
-														: ''}"
-												>
-													{title}
-													{@render titleBadge?.()}
-												</h3>
-												{@render settings?.()}
-											</div>
-										{/if}
+																{#if segment.onclick}
+																	<button
+																		type="button"
+																		class="truncate hover:text-emphasis hover:underline"
+																		onclick={segment.onclick}
+																	>
+																		{segment.label}
+																	</button>
+																{:else}
+																	<span class="truncate">{segment.label}</span>
+																{/if}
+																{#if i === 0}
+																	{@render titleBadge?.()}
+																{/if}
+															{/each}
+														</nav>
+													</div>
+												</div>
+											{:else}
+												{@render heading(title, titleBadge)}
+											{/if}
+											{@render settings?.()}
+										</div>
 
 										{#if description}
 											<p class="mt-1 text-xs text-secondary">{description}</p>

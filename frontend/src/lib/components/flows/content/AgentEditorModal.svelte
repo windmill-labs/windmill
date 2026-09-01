@@ -68,8 +68,6 @@
 	})
 
 	const AGENT_DESCRIPTION = 'Changes here update the saved agent, and every flow that links to it.'
-	const EVALS_DESCRIPTION =
-		'Each run answers a dataset of cases with this agent and scores the answers, so runs can be compared.'
 
 	let root = $derived<ModalTrailSegment>({
 		label: target?.path ?? 'Agent',
@@ -86,9 +84,9 @@
 					]
 				: [root]
 	)
-	let description = $derived(
-		inEvals ? (evalsLocation ? undefined : EVALS_DESCRIPTION) : AGENT_DESCRIPTION
-	)
+	// The root's alone: below it the header's second line is the way back, and what a level is for
+	// belongs to that level rather than to the dialog's own name.
+	let description = $derived(openTool || inEvals ? undefined : AGENT_DESCRIPTION)
 
 	/** The unsaved edits, in the shape the server builds from a deployed config
 	 *  (`ai_evals/run.rs` `config_to_draft`), so a draft run's hash can be recognised as equal to
@@ -139,19 +137,25 @@
 			on:canceled={closeAgentEditor}
 		>
 			{#snippet titleBadge()}
+				<!-- Against the agent's own name wherever it appears, as the linked-agent card in the
+				     step panel has it. -->
 				{#if version != undefined}
 					<Badge color="gray" class="shrink-0" title="The version runs are recorded against">
 						v{version}
 					</Badge>
 				{/if}
 			{/snippet}
+			{#snippet levelBadge()}
+				<!-- Marks evals, not the agent, so it sits against that level's own name. Dropped a
+				     level deeper, where it would read as marking the run rather than the feature it
+				     belongs to. -->
+				{#if inEvals && !evalsLocation}
+					<Badge color="blue" small class="shrink-0 !py-0 leading-4">Beta</Badge>
+				{/if}
+			{/snippet}
 			{#snippet settings()}
 				<div class="flex flex-row items-center gap-2 shrink-0">
-					{#if inEvals}
-						<!-- Marks the level, not the agent, so it sits with the actions rather than in
-						     `titleBadge`, which names the dialog. -->
-						<Badge color="blue" small class="shrink-0 !py-0 leading-4">Beta</Badge>
-					{:else}
+					{#if !inEvals}
 						<Button
 							unifiedSize="sm"
 							variant="default"
