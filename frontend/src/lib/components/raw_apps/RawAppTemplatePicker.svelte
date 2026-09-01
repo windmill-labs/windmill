@@ -21,9 +21,9 @@
 	import type { Runnable } from './rawAppPolicy'
 	import { type DataTableRef, type RawAppData, formatDataTableRef } from './dataTableRefUtils'
 	import {
+		createDatatableAccessResource,
 		createDatatablesResource,
 		createRolesResource,
-		createSchemasResource,
 		rolesWorthPicking,
 		toDatatableItems,
 		toSchemaItems
@@ -70,8 +70,10 @@
 	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
 
 	const datatables = createDatatablesResource(() => opWs)
-	const schemas = createSchemasResource(
+	// What the picked role can reach, which is not what the data table holds.
+	const access = createDatatableAccessResource(
 		() => selectedDatatable,
+		() => (showRolePicker ? selectedRole : undefined),
 		() => opWs
 	)
 	const roles = createRolesResource(
@@ -95,7 +97,14 @@
 	})
 
 	const availableDatatables = $derived(datatables.current)
-	const availableSchemas = $derived(schemas.current)
+	const availableSchemas = $derived(access.current.schemas)
+	const canCreateSchema = $derived(access.current.canCreateSchema)
+
+	// A role that cannot create schemas has nothing to name, so the mode goes
+	// back to the one every role has.
+	$effect(() => {
+		if (schemaMode === 'new' && !canCreateSchema) schemaMode = 'none'
+	})
 
 	let hasAutoSelected = false
 	$effect(() => {
@@ -316,7 +325,17 @@
 												<ToggleButtonGroup bind:selected={schemaMode} noWFull>
 													{#snippet children({ item })}
 														<ToggleButton value="none" label="None" icon={Ban} {item} size="sm" />
-														<ToggleButton value="new" label="New" icon={Plus} {item} size="sm" />
+														<ToggleButton
+															value="new"
+															label="New"
+															icon={Plus}
+															disabled={!canCreateSchema}
+															tooltip={canCreateSchema
+																? undefined
+																: `${selectedRole ?? 'This role'} cannot create schemas in ${selectedDatatable}`}
+															{item}
+															size="sm"
+														/>
 														<ToggleButton
 															value="existing"
 															label="Existing"

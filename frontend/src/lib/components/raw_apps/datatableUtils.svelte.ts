@@ -88,6 +88,46 @@ export function createRolesResource(
 }
 
 /**
+ * Creates a resource that loads, for one data table read as one role, the
+ * schemas that role can reach and whether it may create more.
+ *
+ * Both answers are the connected role's, and one call carries them: asking the
+ * schema list of a role that cannot see a schema is the same question as asking
+ * what it may create in.
+ */
+export function createDatatableAccessResource(
+	getDatatable: () => string | undefined,
+	getRole: () => string | undefined,
+	getWorkspace: () => string | undefined = () => get(workspaceStore)
+) {
+	return resource(
+		() => [getDatatable() ?? '', getRole() ?? '', getWorkspace() ?? ''] as const,
+		async ([datatable, role, workspace]): Promise<{
+			schemas: string[]
+			canCreateSchema: boolean
+		}> => {
+			if (!datatable || !workspace) return { schemas: [], canCreateSchema: false }
+			try {
+				const tables = await WorkspaceService.listDataTableTables({
+					workspace,
+					roleFor: datatable,
+					role: role || undefined
+				})
+				const entry = tables.find((t) => t.datatable_name === datatable)
+				return {
+					schemas: Object.keys(entry?.schemas ?? {}).sort(),
+					canCreateSchema: !!entry?.can_create_schema
+				}
+			} catch (e) {
+				console.error('Failed to load datatable access:', e)
+				return { schemas: [], canCreateSchema: false }
+			}
+		},
+		{ initialValue: { schemas: [], canCreateSchema: false } }
+	)
+}
+
+/**
  * Whether naming a role says anything here: a data table without permissions has
  * none to pick, and one whose single role is the implicit `admin` has no choice
  * to offer.
