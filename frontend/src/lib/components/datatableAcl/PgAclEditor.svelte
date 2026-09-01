@@ -14,6 +14,7 @@
 	import { Trash2 } from 'lucide-svelte'
 	import PgGrantBuilder from './PgGrantBuilder.svelte'
 	import { grantScopeLabel, groupGrants, revokeScopeOf } from './aclScopes'
+	import { ADMIN_DATATABLE_ROLE } from '../dbTypes'
 
 	let {
 		workspace,
@@ -192,8 +193,10 @@
 								<Cell last>
 									{@const revokeScope = revokeScopeOf(grant)}
 									<!-- Reading a target's access needs no ownership of it, so a row
-										on one the caller does not own has nothing to offer. -->
-									{#if info.roles.includes(grant.grantee) && revokeScope && info.can_manage}
+										on one the caller does not own has nothing to offer. And the
+										database's own grants to `admin` are what every role here
+										connects with, so they are not the drawer's to take away. -->
+									{#if info.roles.includes(grant.grantee) && revokeScope && info.can_manage && !(target.kind === 'database' && grant.grantee === ADMIN_DATATABLE_ROLE)}
 										<Button
 											unifiedSize="xs"
 											variant="default"

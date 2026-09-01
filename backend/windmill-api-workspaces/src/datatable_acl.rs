@@ -980,6 +980,18 @@ async fn build_acl_plan(
         AclChange::Grant { role, .. } | AclChange::Revoke { role, .. } => role,
     };
     let pg_role = pg_role_of(&roles, role_name)?;
+    // `admin` is the login the data table itself reaches Postgres through, so a
+    // revoke on the database would take away what every role here connects with
+    // — including the one that would have to grant it back.
+    if matches!(req.change, AclChange::Revoke { .. })
+        && matches!(req.target, AclTarget::Database)
+        && role_name == ADMIN_DATATABLE_ROLE
+    {
+        return Err(Error::BadRequest(format!(
+            "'{ADMIN_DATATABLE_ROLE}' is how this data table reaches its database; \
+             revoking on the database itself would lock every role out of it"
+        )));
+    }
     // The roles a plan may also write about: what a schema's new owner is kept
     // in reach of, and whose future objects a `created later` grant covers. Both
     // are `ALTER DEFAULT PRIVILEGES FOR ROLE <other>`, which speaks for that role
@@ -1125,10 +1137,17 @@ mod tests {
             grant(GrantScope::FutureSequences),
             grant(GrantScope::FutureFunctions),
         ] {
-            assert_eq!(reached_object_classes(&schema(), &change), None, "{change:?}");
+            assert_eq!(
+                reached_object_classes(&schema(), &change),
+                None,
+                "{change:?}"
+            );
         }
         assert_eq!(
-            reached_object_classes(&table(), &AclChange::SetOwner { role: "analyst".to_string() }),
+            reached_object_classes(
+                &table(),
+                &AclChange::SetOwner { role: "analyst".to_string() }
+            ),
             None
         );
 
@@ -1149,6 +1168,9 @@ mod tests {
             reached_object_classes(&schema(), &revoke(GrantScope::AllTables)),
             Some((["r", "p", "v", "m", "f"].as_slice(), false))
         );
-        assert_eq!(reached_object_classes(&schema(), &revoke(GrantScope::Target)), None);
+        assert_eq!(
+            reached_object_classes(&schema(), &revoke(GrantScope::Target)),
+            None
+        );
     }
 }
