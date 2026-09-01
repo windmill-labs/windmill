@@ -139,7 +139,15 @@
 	let nameInput: TextInput | undefined = $state(undefined)
 
 	let baseline: FolderDraft | undefined = $state(undefined)
-	let draft: FolderDraft = $state(emptyDraft())
+	// Empty, not `emptyDraft()`: that one seeds the caller as an admin, which is true of a
+	// folder being created and a lie about one whose read failed. Every path that wants the
+	// seeded row calls `emptyDraft()` itself.
+	let draft: FolderDraft = $state({
+		summary: '',
+		labels: [],
+		defaultPermissionedAs: [],
+		perms: []
+	})
 	let labelsInput: LabelsInput | undefined = $state()
 	let pendingLabel = $state('')
 	let folderNotFound: boolean | undefined = $state(undefined)

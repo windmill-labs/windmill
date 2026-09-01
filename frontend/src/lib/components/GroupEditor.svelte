@@ -87,7 +87,10 @@
 	let nameInput: TextInput | undefined = $state(undefined)
 
 	let baseline: GroupDraft | undefined = $state(undefined)
-	let draft: GroupDraft = $state(emptyDraft())
+	// Empty, not `emptyDraft()`: that one seeds the caller as an admin, which is true of a
+	// group being created and a lie about one whose read failed. Every path that wants the
+	// seeded row calls `emptyDraft()` itself.
+	let draft: GroupDraft = $state({ summary: '', members: [] })
 
 	let memberToAdd: string = $state('')
 	let newMemberRole: GroupRole = $state('member')
