@@ -30,6 +30,12 @@ import { copilotWorkspace } from '$lib/aiStore'
 import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { emptySchema, type StateStore } from '$lib/utils'
 import {
+	localRunEnded,
+	localRunStarted,
+	onRemoteTurnEnd,
+	runHeldElsewhere
+} from './sessionSync.svelte'
+import {
 	commitSessionWorkspace,
 	deleteSession as deleteSessionState,
 	ensureChatIdsSeeded,
@@ -338,6 +344,15 @@ function createRuntime(session: Session): SessionRuntime {
 	// Carried into the tool helpers so this session's preview/deploy tool calls
 	// dispatch to THIS session even when another session is the UI-active one.
 	manager.sessionId = session.id
+	// Cross-tab awareness: heartbeat while this tab runs a turn, composer lock
+	// (and send refusal) while another tab does. The chat id is read at turn
+	// end, not captured at start — the turn may have rotated it, and the other
+	// tabs re-read whichever record it ended on.
+	manager.runHeldElsewhereResolver = () => runHeldElsewhere(session.id)
+	manager.onRunningChanged = (running) => {
+		if (running) localRunStarted(session.id, manager.historyManager.getCurrentChatId())
+		else localRunEnded(session.id, manager.historyManager.getCurrentChatId())
+	}
 	// The chat targets the session's OWN (possibly forked) workspace without
 	// switching the global workspaceStore. Resolved live from the session record
 	// so it tracks the pending → committed (and staged-fork) transitions.
@@ -956,6 +971,43 @@ export function listRuntimes(): SessionRuntime[] {
 
 export function getRuntime(sessionId: string): SessionRuntime | undefined {
 	return runtimes.get(sessionId)
+}
+
+// ---------------------------------------------------------------------------
+// Cross-tab catch-up
+// ---------------------------------------------------------------------------
+
+// Chained per session so two turn-ends close together (a turn plus its queued
+// follow-up) re-read sequentially: the later read starts after the earlier
+// one's loadPastChat, so the newest record is what ends up on screen.
+const catchUps = new Map<string, Promise<void>>()
+
+onRemoteTurnEnd((sessionId, chatId) => {
+	const next = (catchUps.get(sessionId) ?? Promise.resolve())
+		.then(() => applyRemoteTurnEnd(sessionId, chatId))
+		.catch((e) => console.error('Failed to catch up on a turn from another tab', e))
+	catchUps.set(sessionId, next)
+	void next.finally(() => {
+		if (catchUps.get(sessionId) === next) catchUps.delete(sessionId)
+	})
+	// Awaited by the caller: the composer unlock rides on this settling.
+	return next
+})
+
+async function applyRemoteTurnEnd(sessionId: string, chatId: string): Promise<void> {
+	const runtime = runtimes.get(sessionId)
+	if (!runtime) return
+	const m = runtime.manager
+	// A turn started in THIS tab meanwhile — it owns the transcript now, and
+	// commits into it at its end (loadPastChat refuses under it anyway).
+	if (m.loading || m.sendInFlight) return
+	if ((await m.historyManager.reloadChat(chatId)) !== 'loaded') return
+	// Disposed (session deleted, teardown) while the read was in flight.
+	if (runtimes.get(sessionId) !== runtime) return
+	await m.loadPastChat(chatId)
+	// loadPastChat's own artifact sync no-ops for an unchanged session id, so
+	// artifacts the driver wrote during the turn need this forced re-read.
+	await m.artifacts.resyncFromStore()
 }
 
 // Point a session's preview at a single seed tab. For re-pointing an existing

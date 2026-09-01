@@ -90,6 +90,15 @@ export class SessionArtifactsStore {
 		await this.#load()
 	}
 
+	/** Re-read the loaded session's artifacts from the store, for records another
+	 *  tab wrote after this one loaded. Forces the read setSession skips: that
+	 *  skip protects local edits whose best-effort persist failed, while a tab
+	 *  catching up on another tab's finished turn wants the store's truth. */
+	async resyncFromStore(): Promise<void> {
+		if (this.#sessionId === undefined) return
+		await this.#load()
+	}
+
 	async #load(): Promise<void> {
 		const token = ++this.#seq
 		const id = this.#sessionId

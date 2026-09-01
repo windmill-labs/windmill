@@ -129,6 +129,12 @@
 
 	// Generate mode-specific placeholder
 	const modePlaceholder = $derived.by(() => {
+		// The composer unlocks by itself when the other tab's turn ends, so the
+		// placeholder names what it is waiting on (the typing indicator says
+		// where the run is).
+		if (aiChatManager.runHeldElsewhere) {
+			return 'Waiting for the turn in the other tab to finish'
+		}
 		if (pendingQuestionToolCallId !== undefined) {
 			return 'Answer the question above'
 		}

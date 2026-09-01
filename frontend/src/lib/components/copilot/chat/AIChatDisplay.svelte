@@ -312,7 +312,10 @@
 		}
 	})
 
-	const showTypingIndicator = $derived(aiChatManager.loading)
+	// Also shown for a run held by another tab, labeled with where it is: the
+	// dots say a turn is in flight even before the reader reaches the footer
+	// note. Remote runs pause nothing and offer no Stop — this tab can't cancel.
+	const showTypingIndicator = $derived(aiChatManager.loading || aiChatManager.runHeldElsewhere)
 
 	// The manual `@` context-picker button. Shown in SCRIPT/FLOW (workspace items +
 	// code blocks) and APP (datatables, frontend files). Hidden in GLOBAL — there
@@ -767,17 +770,19 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							)}
 						>
 							<ChatTypingIndicator
-								loading={aiChatManager.loading}
+								loading={showTypingIndicator}
 								paused={waitingForUserAction}
-								label={aiChatManager.loadingLabel
-									? aiChatManager.loadingLabel
-									: aiChatManager.compacting
-										? 'Compacting conversation'
-										: aiChatManager.currentReasoningActive &&
-											  !aiChatManager.currentReply &&
-											  !aiChatManager.currentReasoning
-											? (aiChatManager.reasoningHiddenIndicatorLabel ?? 'Thinking')
-											: undefined}
+								label={aiChatManager.runHeldElsewhere
+									? 'Running in another tab'
+									: aiChatManager.loadingLabel
+										? aiChatManager.loadingLabel
+										: aiChatManager.compacting
+											? 'Compacting conversation'
+											: aiChatManager.currentReasoningActive &&
+												  !aiChatManager.currentReply &&
+												  !aiChatManager.currentReasoning
+												? (aiChatManager.reasoningHiddenIndicatorLabel ?? 'Thinking')
+												: undefined}
 							/>
 						</div>
 					{/if}

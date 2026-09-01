@@ -3754,3 +3754,80 @@ describe('AIChatManager reasoning duration', () => {
 		expect(assistantDurations(manager)).toEqual([3_000, 7_000])
 	})
 })
+
+describe('AIChatManager cross-tab run seams', () => {
+	// The whole cross-tab feature hangs off these two seams: `loading`'s edges
+	// are the "running here" / "safe to re-read" signals, and the resolver is
+	// the advisory lock. Reverting `loading` to a plain $state field would
+	// silently disconnect every tab.
+	it('reports loading transitions, and only transitions, through onRunningChanged', () => {
+		const manager = new AIChatManager()
+		const seen: boolean[] = []
+		manager.onRunningChanged = (running) => seen.push(running)
+		manager.loading = true
+		manager.loading = true
+		manager.loading = false
+		manager.loading = false
+		expect(seen).toEqual([true, false])
+	})
+
+	it('refuses a send while another tab holds the run, keeping the draft', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.runHeldElsewhereResolver = () => true
+
+		const accepted = await manager.sendRequest({ instructions: 'race loser' })
+
+		expect(accepted).toBe(false)
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(manager.loading).toBe(false)
+		// restoreToInput falls back to the queued draft when no composer is
+		// mounted, so the refused text must surface there rather than vanish.
+		expect(manager.queuedMessage).toBe('race loser')
+	})
+
+	// The wrapper's check runs before the attachment upkeep awaits; a run
+	// announced by another tab during that upkeep must still be refused before
+	// the turn takes visible effect.
+	it('refuses a run announced by another tab during the preflight awaits', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		let held = false
+		manager.runHeldElsewhereResolver = () => held
+		let releaseUpkeep: (() => void) | undefined
+		vi.spyOn(manager.attachedFiles, 'refreshFolders').mockImplementation(
+			() => new Promise<void>((resolve) => (releaseUpkeep = resolve))
+		)
+
+		const sending = manager.sendRequest({ instructions: 'racing turn' })
+		await vi.waitFor(() => expect(manager.sendInFlight).toBe(true))
+		held = true
+		releaseUpkeep?.()
+
+		expect(await sending).toBe(false)
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(manager.loading).toBe(false)
+	})
+
+	it('refuses a retry/edit while another tab holds the run, before mutating the transcript', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.displayMessages = [
+			{ role: 'user', content: 'original prompt', index: 0 },
+			{ role: 'assistant', content: 'original reply' }
+		] as DisplayMessage[]
+		manager.messages = [
+			{ role: 'user', content: 'original prompt' }
+		] as ChatCompletionMessageParam[]
+		manager.runHeldElsewhereResolver = () => true
+
+		await manager.restartGeneration(0, 'edited prompt')
+
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(manager.displayMessages).toHaveLength(2)
+		expect(manager.messages).toHaveLength(1)
+		// The edited text survives the refusal via restoreToInput's queued-draft
+		// fallback.
+		expect(manager.queuedMessage).toBe('edited prompt')
+	})
+})

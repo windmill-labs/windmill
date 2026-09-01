@@ -500,7 +500,23 @@ export class AIChatManager {
 	openRunInPreview?: (a: { jobId: string; workspace: string; label: string }) => void
 	openArtifact?: (artifactId: string, name: string, version?: ArtifactVersionTarget) => void
 	closeArtifact?: (artifactId: string) => void
-	loading = $state<boolean>(false)
+	#loading = $state<boolean>(false)
+	get loading(): boolean {
+		return this.#loading
+	}
+	// An accessor so every run bracket — the send turn, manual compaction, a
+	// rollback — reports its transitions through one place, synchronously:
+	// the cross-tab "running here" signal must leave before the turn's first
+	// await, and `loading` only falls after the turn's last saveChat, so the
+	// falling edge is also the "safe to re-read the record" signal.
+	set loading(v: boolean) {
+		if (v === this.#loading) return
+		this.#loading = v
+		this.onRunningChanged?.(v)
+	}
+	/** Sessions wiring (see sessionRuntime); undefined for the global
+	 *  side-panel chat, whose transcript no other tab renders. */
+	onRunningChanged: ((running: boolean) => void) | undefined = undefined
 	currentReply = $state<string>('')
 	currentReasoning = $state<string>('')
 	currentReasoningActive = $state<boolean>(false)
@@ -676,6 +692,14 @@ export class AIChatManager {
 	// sessions modules — and re-read on every system-message rebuild; the send
 	// path rebuilds after beforeSend, so a fork committed there is picked up.
 	sessionContextResolver: (() => SessionPromptContext | undefined) | undefined = undefined
+	// Whether another tab is running a turn on this session right now (sessions
+	// wiring, same seam as above). The composer locks on it, and sendRequest
+	// refuses on it — the refusal covers the send already in flight when the
+	// other tab's run signal arrives, which no disabled input can stop.
+	runHeldElsewhereResolver: (() => boolean) | undefined = undefined
+	get runHeldElsewhere(): boolean {
+		return this.runHeldElsewhereResolver?.() ?? false
+	}
 	// The page the side panel shows, stamped on each user message. Same seam as above:
 	// a page tab is an iframe in its own realm, so the tab model is the only place the
 	// chat can learn it. Undefined for a live editor — ACTIVE EDITOR covers those.
@@ -2793,6 +2817,14 @@ export class AIChatManager {
 			sendUserToast('This action needs the AI chat. Start an AI session to continue.', true)
 			return
 		}
+		// Refused before anything mutates, so there is nothing to unwind: the
+		// draft (already taken by the composer) goes back where the user can see
+		// it, and the turn never starts.
+		if (this.runHeldElsewhere) {
+			this.restoreToInput(options.instructions ?? '', options.images, options.files)
+			sendUserToast('This session is running in another tab. Your message was kept.', true)
+			return false
+		}
 		this.#sendsInFlight++
 		try {
 			return await this.sendRequestImpl(options)
@@ -3001,6 +3033,19 @@ export class AIChatManager {
 			)
 		}
 		const images = modelIsBlind ? [] : requestedImages
+		// The wrapper's remote-run check ran before the attachment upkeep awaited
+		// above; a run announced by another tab during that upkeep would slip past
+		// it and interleave two turns into one chat id. Re-checked after the last
+		// await before the turn takes visible effect, so the unguarded window is
+		// broadcast latency alone.
+		if (this.runHeldElsewhere) {
+			this.#releaseOutgoingReservation(reservationKey)
+			if (!options.queued) {
+				this.aiChatInput?.restoreInstructions(this.instructions, pastes, images, files)
+			}
+			sendUserToast('This session is running in another tab. Your message was kept.', true)
+			return false
+		}
 		const optimisticIndex = this.displayMessages.length
 		this.loading = true
 		// Create the abort controller before the (possibly slow) beforeSend pre-flight,
@@ -3828,6 +3873,17 @@ export class AIChatManager {
 
 		if (!userMessage || userMessage.role !== 'user') {
 			throw new Error('No user message found at the specified index')
+		}
+
+		// Refused before anything mutates: past this point the transcript is
+		// sliced and resend bytes are reserved, and the sendRequest guard could
+		// only refuse AFTER that damage — restoring nothing, since this path
+		// carries its text in `this.instructions`, not the options. The retry and
+		// edit controls check only local `loading`, so a remote run reaches here.
+		if (this.runHeldElsewhere) {
+			if (newContent) this.restoreToInput(newContent, images ?? [], files ?? [])
+			sendUserToast('This session is running in another tab. Your message was kept.', true)
+			return
 		}
 
 		// Resolve the API restart point BEFORE reserving bytes or truncating: a
