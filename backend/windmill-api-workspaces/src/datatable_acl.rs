@@ -980,16 +980,16 @@ async fn build_acl_plan(
         AclChange::Grant { role, .. } | AclChange::Revoke { role, .. } => role,
     };
     let pg_role = pg_role_of(&roles, role_name)?;
-    // `admin` is the login the data table itself reaches Postgres through, so a
-    // revoke on the database would take away what every role here connects with
-    // — including the one that would have to grant it back.
-    if matches!(req.change, AclChange::Revoke { .. })
-        && matches!(req.target, AclTarget::Database)
-        && role_name == ADMIN_DATATABLE_ROLE
-    {
+    // `admin` is the login the data table itself reaches Postgres through — the
+    // one migrations, schema browsing and every other role's creation run as. Its
+    // own access is not the drawer's to take away, on any target: the grants an
+    // instance database is provisioned with cover the database and schema
+    // `public` alike, and a revoke that lands leaves nothing able to grant it
+    // back.
+    if matches!(req.change, AclChange::Revoke { .. }) && role_name == ADMIN_DATATABLE_ROLE {
         return Err(Error::BadRequest(format!(
             "'{ADMIN_DATATABLE_ROLE}' is how this data table reaches its database; \
-             revoking on the database itself would lock every role out of it"
+             its own access is not revocable from here"
         )));
     }
     // The roles a plan may also write about: what a schema's new owner is kept

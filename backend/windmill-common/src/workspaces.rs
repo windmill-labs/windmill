@@ -1111,6 +1111,66 @@ pub fn redact_datatable_settings_for_export(
     Some(datatable)
 }
 
+/// Refuse a resource edit that would move a permissioned data table onto another
+/// database.
+///
+/// The roles of such a data table live in the database it points at: their logins
+/// were created there and every grant they hold is recorded there. The path in
+/// the config staying the same says nothing — the resource behind it can be
+/// edited — so the identity the connection resolves to is what has to hold
+/// still. A password rotation is not an identity change and stays allowed.
+pub async fn ensure_resource_identity_change_allowed(
+    db: &DB,
+    w_id: &str,
+    path: &str,
+    old_value: Option<&serde_json::Value>,
+    new_value: Option<&serde_json::Value>,
+) -> Result<()> {
+    let (Some(old_value), Some(new_value)) = (old_value, new_value) else {
+        return Ok(());
+    };
+    let identity = |v: &serde_json::Value| {
+        (
+            v.get("host").cloned(),
+            v.get("port").cloned(),
+            v.get("dbname").cloned(),
+            v.get("user").cloned(),
+        )
+    };
+    if identity(old_value) == identity(new_value) {
+        return Ok(());
+    }
+
+    let datatables: std::collections::HashMap<String, DataTable> = sqlx::query_scalar!(
+        "SELECT ws.datatable->'datatables' FROM workspace_settings ws WHERE ws.workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .and_then(|v| serde_json::from_value(v).ok())
+    .unwrap_or_default();
+
+    let permissioned: Vec<&str> = datatables
+        .iter()
+        .filter(|(_, dt)| {
+            dt.database.resource_type == DataTableCatalogResourceType::Postgresql
+                && dt.database.resource_path == path
+                && dt.permissions.as_ref().is_some_and(|p| p.enabled)
+        })
+        .map(|(name, _)| name.as_str())
+        .collect();
+    if permissioned.is_empty() {
+        return Ok(());
+    }
+    Err(Error::BadRequest(format!(
+        "This resource backs data table {} with permissions enabled, so the database it points \
+         at cannot be changed: disable them first, which drops the roles from the database they \
+         were created in.",
+        permissioned.join(", ")
+    )))
+}
+
 /// The data table settings as one audit parameter, which is stored and traced
 /// in the clear — so it goes through the same redaction as any other export.
 pub fn datatable_settings_for_audit(settings: &impl Serialize) -> String {

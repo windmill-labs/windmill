@@ -193,10 +193,10 @@
 								<Cell last>
 									{@const revokeScope = revokeScopeOf(grant)}
 									<!-- Reading a target's access needs no ownership of it, so a row
-										on one the caller does not own has nothing to offer. And the
-										database's own grants to `admin` are what every role here
-										connects with, so they are not the drawer's to take away. -->
-									{#if info.roles.includes(grant.grantee) && revokeScope && info.can_manage && !(target.kind === 'database' && grant.grantee === ADMIN_DATATABLE_ROLE)}
+										on one the caller does not own has nothing to offer. And what
+										`admin` holds is what every role here connects through, so it
+										is not the drawer's to take away wherever it appears. -->
+									{#if info.roles.includes(grant.grantee) && revokeScope && info.can_manage && grant.grantee !== ADMIN_DATATABLE_ROLE}
 										<Button
 											unifiedSize="xs"
 											variant="default"
