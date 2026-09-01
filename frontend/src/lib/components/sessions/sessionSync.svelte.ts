@@ -178,9 +178,12 @@ export function localRunEnded(sessionId: string, chatId: string): void {
 if (BROWSER) {
 	// The run dies with the page, so watchers are told instead of being left to
 	// the STALE_MS window. A turn-end (not a bespoke goodbye) also has them
-	// re-read whatever the interrupted turn last checkpointed. Fires on bfcache
-	// navigation too; a page restored mid-run re-arms on its next turn.
-	window.addEventListener('pagehide', () => {
+	// re-read whatever the interrupted turn last checkpointed. A bfcache
+	// navigation (persisted) is a freeze, not a death: the turn resumes with
+	// the page and nothing would re-arm a farewelled heartbeat, so the frozen
+	// interval is kept and staleness covers a freeze that outlasts it.
+	window.addEventListener('pagehide', (ev) => {
+		if (ev.persisted) return
 		for (const [sessionId, entry] of [...heartbeats]) {
 			localRunEnded(sessionId, entry.chatId)
 		}

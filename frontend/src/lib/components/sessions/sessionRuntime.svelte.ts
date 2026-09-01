@@ -1004,6 +1004,12 @@ async function applyRemoteTurnEnd(sessionId: string, chatId: string): Promise<vo
 	if ((await m.historyManager.reloadChat(chatId)) !== 'loaded') return
 	// Disposed (session deleted, teardown) while the read was in flight.
 	if (runtimes.get(sessionId) !== runtime) return
+	// Adopts the driver's chat unconditionally, current view included: watching
+	// a session means following where its activity is, and it is also how tabs
+	// converge after an unsynced /clear rotation. A watcher browsing an older
+	// conversation is pulled along — deliberate, and the price of not syncing
+	// rotation as its own message.
+	//
 	// preserveQueue: this reload is a catch-up, not a conversation switch — a
 	// draft queued here (a refused send's kept message, a failed turn's card)
 	// is unsent user input the re-read must not destroy.

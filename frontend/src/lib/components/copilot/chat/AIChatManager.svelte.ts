@@ -1079,6 +1079,8 @@ export class AIChatManager {
 	 * doesn't spawn a new job leaves nothing to re-trigger on. A turn that DOES
 	 * spawn another job resumes again when that one finishes, which is the point.
 	 */
+	#autoResumeRetry: ReturnType<typeof setTimeout> | undefined
+
 	async #maybeAutoResumeFromJobs() {
 		if (this.#autoResuming) return
 		// Global/sessions chat only (the only mode with a jobs tray + preamble).
@@ -1091,9 +1093,19 @@ export class AIChatManager {
 		if (this.messages.length === 0 || this.instructions.trim()) return
 		// Another tab is driving: the synthetic send would only be refused, and
 		// the instructions staged below would then block every later auto-resume
-		// in this tab. The notes stay pending and ride the next real turn, as
-		// they do mid-turn.
-		if (this.runHeldElsewhere) return
+		// in this tab. The notes stay pending; re-checked shortly, because the
+		// hold can clear silently (staleness after a driver crash) with nothing
+		// else to fire this. When the driver instead ends its turn normally, its
+		// own resume carries the notes and this tab's catch-up clears the local
+		// copy — the re-check then finds nothing and stands down.
+		if (this.runHeldElsewhere) {
+			clearTimeout(this.#autoResumeRetry)
+			this.#autoResumeRetry = setTimeout(() => {
+				this.#autoResumeRetry = undefined
+				void this.#maybeAutoResumeFromJobs()
+			}, 5_000)
+			return
+		}
 		this.#autoResuming = true
 		try {
 			const count = this.pendingJobNotes.length
@@ -1132,6 +1144,8 @@ export class AIChatManager {
 		// Invalidate any in-flight poll so its post-await continuation can't write
 		// into the conversation we're switching to.
 		this.#jobPollGeneration++
+		clearTimeout(this.#autoResumeRetry)
+		this.#autoResumeRetry = undefined
 		this.backgroundJobs = []
 		this.pendingJobNotes = []
 	}
@@ -3911,7 +3925,8 @@ export class AIChatManager {
 					files ?? []
 				)
 			}
-			sendUserToast('This session is running in another tab. Your message was kept.', true)
+			// "Text", not "message": chip edits are the part that does not survive.
+			sendUserToast('This session is running in another tab. Your text was kept.', true)
 			return
 		}
 

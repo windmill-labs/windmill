@@ -571,8 +571,12 @@
 		(aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false) &&
 			!aiChatManager.autoAcceptEditsActive
 	)
+	// A remote hold is the one disabled state that toggles on every turn, so it
+	// keeps the footer toolbar in place — hiding it would make the model/mode
+	// row flash out and back for the length of each turn. Only the input locks.
+	const remoteHold = $derived(aiChatManager.runHeldElsewhere)
 	const showFooterLeftControls = $derived(
-		!disabled &&
+		(!disabled || remoteHold) &&
 			(showContextPicker ||
 				showAutonomyModeSelector ||
 				(aiChatManager.mode === AIMode.SCRIPT && hasDiff))
@@ -1094,7 +1098,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{/if}
 					</div>
 				{/if}
-				{#if disabled}
+				{#if disabled && !remoteHold}
 					<div class="text-primary text-xs my-2 px-2">
 						<Markdown md={disabledMessage} />
 					</div>

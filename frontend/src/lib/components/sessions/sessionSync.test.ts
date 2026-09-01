@@ -59,6 +59,11 @@ describe('sessionSync receive-side state', () => {
 		onRemoteTurnEnd(() => new Promise<void>((resolve) => (releaseCatchUp = resolve)))
 
 		__receiveForTest({ kind: 'turn-end', sessionId: 's1', chatId: 'c1' })
+		// Flush so the catch-up handler has started (releaseCatchUp is assigned)
+		// before the follow-up arrives — otherwise the release below no-ops and
+		// the lock would survive for the wrong reason (a catch-up that never
+		// settled), passing even with the identity comparison broken.
+		await vi.advanceTimersByTimeAsync(0)
 		// The queued-follow-up sequence: the next turn's first heartbeat lands
 		// while this tab's catch-up is still reading — in the same millisecond,
 		// which is why the cleanup must compare identity, not timestamps.

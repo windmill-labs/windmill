@@ -7,6 +7,7 @@ import type { ChatCompletionMessageParam } from 'openai/resources/chat/completio
 import type { DisplayMessage } from './shared'
 import type { AttachedImage } from './imageUtils'
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
+import { makePasteToken } from './pasteTokens'
 import { chatState } from './sharedChatState.svelte'
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
 import { runChatLoop } from './chatLoop'
@@ -3784,6 +3785,22 @@ describe('AIChatManager cross-tab run seams', () => {
 		// restoreToInput falls back to the queued draft when no composer is
 		// mounted, so the refused text must surface there rather than vanish.
 		expect(manager.queuedMessage).toBe('race loser')
+	})
+
+	// The restore lanes carry no pastes, so a refusal must expand the tokens
+	// into the text — dangling markers with the content gone otherwise.
+	it('expands paste tokens into the text a refusal hands back', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.runHeldElsewhereResolver = () => true
+		const paste = { id: 1, lines: 1, content: 'the pasted block' }
+
+		await manager.sendRequest({
+			instructions: `see ${makePasteToken(paste)}`,
+			pastes: [paste]
+		})
+
+		expect(manager.queuedMessage).toBe('see the pasted block')
 	})
 
 	// The wrapper's check runs before the attachment upkeep awaits; a run
