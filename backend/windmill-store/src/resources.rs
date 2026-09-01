@@ -1335,6 +1335,7 @@ async fn delete_resource(
     {
         return Err(Error::PermissionDenied(msg));
     }
+    windmill_common::workspaces::ensure_resource_removal_allowed(&db, &w_id, path).await?;
     let mut tx = user_db.begin(&authed).await?;
 
     // Capture resource data for trashbin before deleting
@@ -1641,6 +1642,9 @@ async fn delete_resources_bulk(
     {
         return Err(Error::PermissionDenied(msg));
     }
+    for path in &request.paths {
+        windmill_common::workspaces::ensure_resource_removal_allowed(&db, &w_id, path).await?;
+    }
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -1832,6 +1836,10 @@ async fn update_resource(
         return Err(Error::PermissionDenied(msg));
     }
 
+    // A rename takes the resource out from under whatever names its path.
+    if ns.path.as_deref().is_some_and(|npath| npath != path) {
+        windmill_common::workspaces::ensure_resource_removal_allowed(&db, &w_id, path).await?;
+    }
     // Same as `set_resource_value`: the identity a permissioned data table's
     // roles were created against is not free to move underneath them.
     if let Some(nvalue) = ns.value.as_ref() {

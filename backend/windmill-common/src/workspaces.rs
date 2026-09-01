@@ -1111,36 +1111,9 @@ pub fn redact_datatable_settings_for_export(
     Some(datatable)
 }
 
-/// Refuse a resource edit that would move a permissioned data table onto another
-/// database.
-///
-/// The roles of such a data table live in the database it points at: their logins
-/// were created there and every grant they hold is recorded there. The path in
-/// the config staying the same says nothing — the resource behind it can be
-/// edited — so the identity the connection resolves to is what has to hold
-/// still. A password rotation is not an identity change and stays allowed.
-pub async fn ensure_resource_identity_change_allowed(
-    db: &DB,
-    w_id: &str,
-    path: &str,
-    old_value: Option<&serde_json::Value>,
-    new_value: Option<&serde_json::Value>,
-) -> Result<()> {
-    let (Some(old_value), Some(new_value)) = (old_value, new_value) else {
-        return Ok(());
-    };
-    let identity = |v: &serde_json::Value| {
-        (
-            v.get("host").cloned(),
-            v.get("port").cloned(),
-            v.get("dbname").cloned(),
-            v.get("user").cloned(),
-        )
-    };
-    if identity(old_value) == identity(new_value) {
-        return Ok(());
-    }
-
+/// The data tables with permissions enabled that reach their database through
+/// this resource.
+async fn datatables_permissioned_on_resource(db: &DB, w_id: &str, path: &str) -> Result<Vec<String>> {
     let datatables: std::collections::HashMap<String, DataTable> = sqlx::query_scalar!(
         "SELECT ws.datatable->'datatables' FROM workspace_settings ws WHERE ws.workspace_id = $1",
         w_id
@@ -1151,24 +1124,80 @@ pub async fn ensure_resource_identity_change_allowed(
     .and_then(|v| serde_json::from_value(v).ok())
     .unwrap_or_default();
 
-    let permissioned: Vec<&str> = datatables
-        .iter()
+    let mut names: Vec<String> = datatables
+        .into_iter()
         .filter(|(_, dt)| {
             dt.database.resource_type == DataTableCatalogResourceType::Postgresql
                 && dt.database.resource_path == path
                 && dt.permissions.as_ref().is_some_and(|p| p.enabled)
         })
-        .map(|(name, _)| name.as_str())
+        .map(|(name, _)| name)
         .collect();
-    if permissioned.is_empty() {
+    names.sort();
+    Ok(names)
+}
+
+fn resource_backs_permissioned_datatable(names: &[String]) -> Error {
+    Error::BadRequest(format!(
+        "This resource is how data table {} reaches its database, and it has permissions \
+         enabled: its roles were created in that database and every grant they hold is \
+         recorded there. Disable them first, which drops the roles from it.",
+        names.join(", ")
+    ))
+}
+
+/// Refuse a resource edit that would move a permissioned data table onto another
+/// database.
+///
+/// The roles of such a data table live in the database it points at: their logins
+/// were created there and every grant they hold is recorded there. The path in
+/// the config staying the same says nothing — the resource behind it can be
+/// edited — so the identity the connection resolves to is what has to hold
+/// still. A password rotation is not an identity change and stays allowed.
+///
+/// `new_value` absent means the value is being cleared, which is a change like
+/// any other: the next write would land on a resource with no identity to
+/// compare against.
+pub async fn ensure_resource_identity_change_allowed(
+    db: &DB,
+    w_id: &str,
+    path: &str,
+    old_value: Option<&serde_json::Value>,
+    new_value: Option<&serde_json::Value>,
+) -> Result<()> {
+    // Nothing to protect until there is a previous identity to move away from.
+    let Some(old_value) = old_value else {
+        return Ok(());
+    };
+    let identity = |v: &serde_json::Value| {
+        (
+            v.get("host").cloned(),
+            v.get("port").cloned(),
+            v.get("dbname").cloned(),
+            v.get("user").cloned(),
+        )
+    };
+    if new_value.is_some_and(|new_value| identity(old_value) == identity(new_value)) {
         return Ok(());
     }
-    Err(Error::BadRequest(format!(
-        "This resource backs data table {} with permissions enabled, so the database it points \
-         at cannot be changed: disable them first, which drops the roles from the database they \
-         were created in.",
-        permissioned.join(", ")
-    )))
+
+    let names = datatables_permissioned_on_resource(db, w_id, path).await?;
+    if names.is_empty() {
+        return Ok(());
+    }
+    Err(resource_backs_permissioned_datatable(&names))
+}
+
+/// Refuse to take a resource out from under a permissioned data table: deleting
+/// it, or moving it to another path, leaves the config naming something that is
+/// not there — and the next resource created at that path answers for roles it
+/// never had.
+pub async fn ensure_resource_removal_allowed(db: &DB, w_id: &str, path: &str) -> Result<()> {
+    let names = datatables_permissioned_on_resource(db, w_id, path).await?;
+    if names.is_empty() {
+        return Ok(());
+    }
+    Err(resource_backs_permissioned_datatable(&names))
 }
 
 /// The data table settings as one audit parameter, which is stored and traced
