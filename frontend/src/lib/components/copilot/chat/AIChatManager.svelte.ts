@@ -3074,14 +3074,10 @@ export class AIChatManager {
 			)
 		}
 		const images = modelIsBlind ? [] : requestedImages
-		// The wrapper's remote-run check ran before the attachment upkeep awaited
-		// above; a run announced by another tab during that upkeep would slip past
-		// it and interleave two turns into one chat id. Re-checked after the last
-		// await before the turn takes visible effect, so the unguarded window is
-		// broadcast latency alone. Resends are exempt: restartGeneration already
-		// truncated the transcript for them, and refusing here would leave it
-		// truncated with no turn to recommit it — so one that loses this race
-		// runs as the documented advisory race instead.
+		// Re-checks the wrapper's remote-run guard: a run announced by another tab
+		// during the upkeep awaits above would otherwise interleave two turns into
+		// one chat id. Resends are exempt — restartGeneration already truncated
+		// the transcript, so they run as the documented advisory race instead.
 		if (this.runHeldElsewhere && !options.resendReservationKey) {
 			this.#releaseOutgoingReservation(reservationKey)
 			if (options.synthetic) {
@@ -3090,8 +3086,11 @@ export class AIChatManager {
 				this.instructions = ''
 				this.#scheduleAutoResumeRetry()
 			} else {
+				// restoreToInput, not restoreInstructions: a draft typed during the
+				// awaits above occupies the composer, and this restore must merge
+				// into it (or queue), never be refused by it.
 				if (!options.queued) {
-					this.aiChatInput?.restoreInstructions(this.instructions, pastes, images, files)
+					this.restoreToInput(expanded(chatDraft(this.instructions, pastes)), images, files)
 				}
 				sendUserToast('This session is running in another tab. Your message was kept.', true)
 			}
@@ -3931,13 +3930,13 @@ export class AIChatManager {
 		// only refuse AFTER that damage — restoring nothing, since this path
 		// carries its text in `this.instructions`, not the options. The retry and
 		// edit controls check only local `loading`, so a remote run reaches here.
-		// An edit's pastes are expanded into the restored text (the restore lanes
-		// carry none); a bare retry mutates nothing yet and its message is still
-		// in place, so there is nothing to restore. Un-submitted context-chip
+		// An edit (newContent defined, even '': attachment-only edits exist) is
+		// restored with its pastes expanded into the text; a bare retry mutates
+		// nothing yet, so there is nothing to restore. Un-submitted context-chip
 		// edits are the one loss — the chips re-seed from the untouched message
 		// on the next edit.
 		if (this.runHeldElsewhere) {
-			if (newContent) {
+			if (newContent !== undefined) {
 				this.restoreToInput(
 					expanded(chatDraft(newContent, pastes ?? [])),
 					images ?? [],

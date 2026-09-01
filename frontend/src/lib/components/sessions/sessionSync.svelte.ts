@@ -3,20 +3,11 @@ import { SvelteMap } from 'svelte/reactivity'
 import { onUserChange, scopedKey } from '$lib/userScopedStorage'
 import { randomUUID } from '$lib/utils/uuid'
 
-// Cross-tab awareness for AI sessions, deliberately minimal. Two facts cross
-// the channel: "a turn is running here" (a repeated heartbeat) and "the turn
-// ended" (posted after its last IndexedDB write). Watching tabs lock the
-// session's composer while the first holds, and re-read the shared chat record
-// on the second — no transcript, run state, or session record ever rides a
-// message, so tabs converge on what the store holds rather than on delivery
-// order.
-//
-// The lock is advisory: nothing arbitrates two sends racing inside broadcast
-// latency, and the loser's IndexedDB write stands until the next turn-end
-// re-read — the same last-writer-wins two tabs had before any channel existed.
-//
-// The channel is per-user (same email scoping as the IndexedDB stores), so a
-// browser shared by two accounts never crosses them.
+// Cross-tab awareness for AI sessions. Invariant: no message carries state —
+// a heartbeat is presence, turn-end triggers an idempotent re-read of the
+// shared IndexedDB record — so tabs converge on the store, never on delivery
+// order. The lock is advisory (a broadcast-latency race stays last-writer-
+// wins, as with no channel), and the channel is per-user like the stores.
 
 const CHANNEL_BASE = 'windmill-sessions-sync'
 
