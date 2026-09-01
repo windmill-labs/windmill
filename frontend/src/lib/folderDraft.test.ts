@@ -52,6 +52,24 @@ describe('folderPermissionDiff', () => {
 		expect(folderPermissionDiff([member(role)], [member(role)])).toEqual([])
 	})
 
+	// The caller is a folder admin only through `g/ops`. Giving that up before the other
+	// calls leaves them outside `owners`, which the update policy matches on, so the rest is
+	// filtered out by RLS and reported as success.
+	it('gives up the caller own admin last', () => {
+		const prev: FolderMember[] = [
+			{ owner_name: 'g/ops', role: 'admin' },
+			{ owner_name: 'u/bob', role: 'viewer' }
+		]
+		const next: FolderMember[] = [
+			{ owner_name: 'g/ops', role: 'viewer' },
+			{ owner_name: 'u/bob', role: 'admin' }
+		]
+		expect(folderPermissionDiff(prev, next, ['u/alice', 'g/ops'])).toEqual([
+			{ kind: 'grantAdmin', owner: 'u/bob' },
+			{ kind: 'demoteAdmin', owner: 'g/ops', write: false }
+		])
+	})
+
 	it('touches only the members that changed', () => {
 		const prev: FolderMember[] = [
 			{ owner_name: 'u/admin', role: 'admin' },

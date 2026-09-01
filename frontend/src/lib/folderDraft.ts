@@ -39,10 +39,17 @@ export type FolderPermissionCall =
 	 *  them, so the ACL delete is not optional. */
 	| { kind: 'remove'; owner: string }
 
-/** The calls that turn `prev` into `next`. Members whose role is unchanged produce none. */
+/** The calls that turn `prev` into `next`. Members whose role is unchanged produce none.
+ *
+ *  `callerOwners` is every `owners` entry the caller holds admin through — their own
+ *  `u/name` and their groups. Taking one out goes last: the folder update policy matches on
+ *  the live `owners`, so the rest of the save is filtered out by RLS, while `require_is_owner`
+ *  reads a cached copy and still passes. The handlers discard the empty `UPDATE ... RETURNING`,
+ *  so those calls report success having changed nothing. */
 export function folderPermissionDiff(
 	prev: FolderMember[],
-	next: FolderMember[]
+	next: FolderMember[],
+	callerOwners?: string[]
 ): FolderPermissionCall[] {
 	const previousRole = new Map(prev.map((p) => [p.owner_name, p.role]))
 	const calls: FolderPermissionCall[] = []
@@ -69,5 +76,8 @@ export function folderPermissionDiff(
 		calls.push({ kind: 'remove', owner: member.owner_name })
 	}
 
-	return calls
+	const revokesCaller = (call: FolderPermissionCall) =>
+		(call.kind === 'demoteAdmin' || call.kind === 'remove') &&
+		(callerOwners?.includes(call.owner) ?? false)
+	return [...calls.filter((c) => !revokesCaller(c)), ...calls.filter(revokesCaller)]
 }

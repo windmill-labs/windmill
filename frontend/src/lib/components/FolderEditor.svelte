@@ -71,6 +71,9 @@
 		 * this stays true for edits that cannot be saved yet (an invalid rule, a name
 		 * already taken) — closing would still throw them away. */
 		onUnsavedChange?: (unsaved: boolean) => void
+		/** False while Save would create rather than update, which an `edit` drawer reaches
+		 * when the folder turns out not to exist. The drawer labels itself from this. */
+		onExistsChange?: (exists: boolean) => void
 		/** Edit a folder of this workspace rather than the active one. The folder picker
 		 * can be aimed elsewhere (the project import wizard picks a destination workspace
 		 * before entering it), and the folder must be written where it was listed. */
@@ -82,6 +85,7 @@
 		mode = 'edit',
 		onCanSaveChange,
 		onUnsavedChange,
+		onExistsChange,
 		workspace
 	}: Props = $props()
 
@@ -302,10 +306,15 @@
 		draft.defaultPermissionedAs[idx].permissioned_as = prefix + name
 	}
 
+	// Only blocks a save for someone who can see the rules. The backend accepts values this
+	// rejects (`u/` alone passes `validate_default_permissioned_as`), so a folder admin who
+	// is not a workspace admin could otherwise meet a permanently disabled Save with no rule
+	// on screen to explain it.
 	const defaultRulesInvalid = $derived(
-		draft.defaultPermissionedAs.some(
-			(r) => !isValidGlob(r.path_glob) || !isValidPermissionedAs(r.permissioned_as)
-		)
+		canEditDefaults &&
+			draft.defaultPermissionedAs.some(
+				(r) => !isValidGlob(r.path_glob) || !isValidPermissionedAs(r.permissioned_as)
+			)
 	)
 
 	function addDefaultRule() {
@@ -415,6 +424,10 @@
 		onUnsavedChange?.(unsaved)
 	})
 
+	$effect(() => {
+		onExistsChange?.(!isNew)
+	})
+
 	/** Replays the permission rows the user changed. `updateFolder` could write
 	 * `owners`/`extra_perms` wholesale in the same call as the settings, but it only
 	 * logs a single "update owners"/"update acl" entry, so the permission history
@@ -425,7 +438,12 @@
 		onApplied: () => void
 	) {
 		const workspace = targetWorkspace
-		for (const call of folderPermissionDiff(prev, next)) {
+		// Every `owners` entry this caller is an admin through, so the diff can send the call
+		// that gives one up last.
+		const callerOwners = membership
+			? ['u/' + membership.username, ...(membership.pgroups ?? [])]
+			: []
+		for (const call of folderPermissionDiff(prev, next, callerOwners)) {
 			switch (call.kind) {
 				case 'grantAdmin':
 					await FolderService.addOwnerToFolder({

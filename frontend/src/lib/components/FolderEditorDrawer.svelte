@@ -23,6 +23,9 @@
 	let name: string = $state('')
 	let canSave = $state(false)
 	let unsaved = $state(false)
+	// An `edit` drawer whose folder turns out not to exist saves by creating it. Calling that
+	// Save would promise an update the click does not perform.
+	let exists = $state(false)
 	let saving = $state(false)
 	let confirmDiscardOpen = $state(false)
 	let discarding = $state(false)
@@ -38,6 +41,7 @@
 		name = folderName
 		discarding = false
 		confirmDiscardOpen = false
+		exists = nextMode === 'edit'
 		instance++
 		drawer?.openDrawer()
 	}
@@ -108,10 +112,7 @@
 		}
 	}}
 >
-	<DrawerContent
-		title={mode === 'new' ? 'Create folder' : `Folder ${name}`}
-		on:close={requestClose}
-	>
+	<DrawerContent title={exists ? `Folder ${name}` : 'Create folder'} on:close={requestClose}>
 		<!-- `save()` snapshots the draft and then awaits several requests. An edit landing in
 		     that window would not be in the snapshot, and the drawer closes on success — so
 		     it would be lost without ever being offered as unsaved. `inert` keeps the form
@@ -125,6 +126,7 @@
 					{workspace}
 					onCanSaveChange={(v) => (canSave = v)}
 					onUnsavedChange={(v) => (unsaved = v)}
+					onExistsChange={(v) => (exists = v)}
 				/>
 			{/key}
 		</div>
@@ -137,7 +139,7 @@
 				loading={saving}
 				on:click={save}
 			>
-				{mode === 'new' ? 'Create' : 'Save'}
+				{exists ? 'Save' : 'Create'}
 			</Button>
 		{/snippet}
 	</DrawerContent>
