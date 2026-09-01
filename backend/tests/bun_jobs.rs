@@ -442,7 +442,11 @@ export function main() {
         let job = bun_job(
             r#"
 export function main() {
-    const config: any = { url: "/x", headers: { Authorization: "Bearer sentinel-tkn" } };
+    const config: any = {
+        url: "/x",
+        headers: { Authorization: "Bearer sentinel-tkn" },
+        auth: { username: "svc", password: "sentinel-tkn" },
+    };
     const request: any = { path: "/x", _header: "GET /x HTTP/1.1\r\nAuthorization: Bearer sentinel-tkn\r\n\r\n" };
     const response: any = { status: 401, config, request };
     request.res = response;

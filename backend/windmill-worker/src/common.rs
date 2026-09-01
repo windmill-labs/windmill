@@ -91,7 +91,7 @@ pub const DEV_CONF_NSJAIL: &str = "";
 /// Comment-free on purpose: it is written into each job's wrapper source.
 pub const JS_ERROR_SERIALIZER: &str = r#"
 const wmErrOwnKeys = ['line', 'name', 'stack', 'column', 'message', 'sourceURL', 'originalLine', 'originalColumn'];
-const wmErrSecretKeys = /^(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api[-_]?key|_header)$/i;
+const wmErrSecretKeys = /^(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api[-_]?key|auth|passphrase|_header)$/i;
 const wmErrMaxExtra = 100000;
 
 function wmErrString(v) {
