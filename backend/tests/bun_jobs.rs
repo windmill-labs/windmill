@@ -401,29 +401,6 @@ async fn test_bun_job_non_error_throws(db: Pool<Postgres>) -> anyhow::Result<()>
         assert_eq!(result["error"]["message"], serde_json::json!("null"));
     }
 
-    // Circular object: several HTTP clients throw errors that link two objects
-    // both ways, which a plain JSON.stringify cannot serialize.
-    {
-        let job = bun_job(
-            r#"
-export function main() {
-    const a: any = { name: "circular", message: "boom" };
-    a.self = a;
-    throw a;
-}
-"#,
-        );
-        let completed = run_job_in_new_worker_until_complete(&db, false, job, port).await;
-        assert!(!completed.success);
-        let result = completed.json_result().unwrap();
-        let error = &result["error"];
-        assert_eq!(error["message"], serde_json::json!("boom"));
-        assert_eq!(
-            error["extra"]["self"]["self"],
-            serde_json::json!("[Circular]")
-        );
-    }
-
     // A thrown string is a string, not an index map of its characters.
     {
         let job = bun_job(r#"export function main() { throw "nur ein string"; }"#);
@@ -436,8 +413,10 @@ export function main() {
         );
     }
 
-    // Serializing a cycle is what first brings an HTTP client's whole request into
-    // `extra`, so the transport credentials on it must not reach the stored result.
+    // An HTTP client links its errors both ways, which is what a plain JSON.stringify
+    // could not serialize. `extra` is reported only when it serializes on its own, so the
+    // request the client hangs off the error, credentials included, stays out of the
+    // result exactly as it did when the wrapper crashed.
     {
         let job = bun_job(
             r#"
@@ -446,6 +425,7 @@ export function main() {
         url: "/x",
         headers: { Authorization: "Bearer sentinel-tkn" },
         auth: { username: "svc", password: "sentinel-tkn" },
+        httpsAgent: { options: { key: "-----BEGIN PRIVATE KEY-----sentinel-tkn" } },
     };
     const request: any = { path: "/x", _header: "GET /x HTTP/1.1\r\nAuthorization: Bearer sentinel-tkn\r\n\r\n" };
     const response: any = { status: 401, config, request };
@@ -467,10 +447,26 @@ export function main() {
             error["message"],
             serde_json::json!("Request failed with status code 401")
         );
-        assert_eq!(error["extra"]["response"]["status"], serde_json::json!(401));
+        assert_eq!(error["name"], serde_json::json!("AxiosError"));
+        assert_eq!(
+            error["extra"],
+            serde_json::json!("[extra omitted: not serializable]")
+        );
         assert!(
             !error.to_string().contains("sentinel-tkn"),
             "credential reached the result: {error}"
+        );
+    }
+
+    // An acyclic thrown object still reports its own properties, unchanged.
+    {
+        let job = bun_job(r#"export function main() { throw { code: 42, hint: "kein Error" }; }"#);
+        let completed = run_job_in_new_worker_until_complete(&db, false, job, port).await;
+        assert!(!completed.success);
+        let result = completed.json_result().unwrap();
+        assert_eq!(
+            result["error"]["extra"],
+            serde_json::json!({ "code": 42, "hint": "kein Error" })
         );
     }
 

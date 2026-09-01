@@ -79,20 +79,19 @@ pub const DEV_CONF_NSJAIL: &str = "";
 /// Enabling it there would newly persist whatever an HTTP client hangs off its errors,
 /// credential-bearing headers included, into existing scripts' run history.
 ///
-/// `wmErrDescribe` renders a thrown object's contents, so it stays behind the same line:
-/// it runs only for a value exposing none of message/name/stack, which an HTTP client's
-/// error never is, and only to fill a message that would otherwise be `[object Object]`.
+/// `extra` is reported only when it serializes on its own, which is exactly when the
+/// pre-existing bare `JSON.stringify` would have succeeded. Anything else is what used to
+/// crash, so persisting it now would be new exposure: an HTTP client hangs its whole
+/// request off a cyclic error, credentials and mTLS keys included, and no blocklist of key
+/// names can be complete. Keeping the condition rather than the key list is what bounds it.
 ///
-/// Making a cyclic graph serializable is what puts an HTTP client's whole request under
-/// `extra` for the first time, so the replacer drops transport-credential keys and the
-/// walk is capped: `console.error` prints those nested objects as `[Object ...]`, and the
-/// crash kept them out of the result entirely, so neither had reached a stored result.
+/// `wmErrDescribe` also renders a thrown object's contents, so it stays behind the same
+/// line: it fills a message only for a value that yielded no field at all, never for one
+/// carrying `message`/`name`/`stack` or reportable `extra`.
 ///
 /// Comment-free on purpose: it is written into each job's wrapper source.
 pub const JS_ERROR_SERIALIZER: &str = r#"
 const wmErrOwnKeys = ['line', 'name', 'stack', 'column', 'message', 'sourceURL', 'originalLine', 'originalColumn'];
-const wmErrSecretKeys = /^(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api[-_]?key|auth|passphrase|_header)$/i;
-const wmErrMaxExtra = 100000;
 
 function wmErrString(v) {
     if (typeof v === 'string') return v;
@@ -108,6 +107,14 @@ function wmErrProp(e, key) {
         return e[key];
     } catch (_) {
         return undefined;
+    }
+}
+
+function wmErrSerializable(v) {
+    try {
+        return JSON.stringify(v) !== undefined;
+    } catch (_) {
+        return false;
     }
 }
 
@@ -142,8 +149,7 @@ function wmToErrorObject(e, collectExtra) {
             if (v !== undefined) extra[key] = v;
         }
         if (Object.keys(extra).length > 0) {
-            const s = wmSerializeError(extra);
-            err.extra = s !== undefined && s.length <= wmErrMaxExtra ? extra : '[extra omitted: too large]';
+            err.extra = wmErrSerializable(extra) ? extra : '[extra omitted: not serializable]';
         }
     }
     if (Object.keys(err).length === 0) {
@@ -157,7 +163,6 @@ function wmSerializeError(err) {
     const ancestors = [];
     try {
         return JSON.stringify(err, function (key, v) {
-            if (wmErrSecretKeys.test(key)) return '[redacted]';
             if (v === null || typeof v !== 'object') return v;
             while (ancestors.length > 0 && ancestors[ancestors.length - 1] !== this) ancestors.pop();
             if (ancestors.indexOf(v) !== -1) return '[Circular]';
