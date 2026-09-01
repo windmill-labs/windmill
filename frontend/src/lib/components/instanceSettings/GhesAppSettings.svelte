@@ -283,7 +283,17 @@
 					placeholder: '12345',
 					disabled: fieldsDisabled
 				}}
-				bind:value={$values['github_enterprise_app'].app_id}
+				bind:value={
+					() => $values['github_enterprise_app'].app_id,
+					(v) => {
+						// The backend expects app_id as a positive integer (i64). Reject
+						// fractional/out-of-range values instead of truncating them, and store
+						// undefined (never a string or 0) so the config omits the key when unset.
+						const n = typeof v === 'string' ? Number(v.trim() || NaN) : (v ?? NaN)
+						$values['github_enterprise_app'].app_id =
+							Number.isSafeInteger(n) && n > 0 ? n : undefined
+					}
+				}
 			/>
 		</div>
 		<div class="flex flex-col gap-1">
