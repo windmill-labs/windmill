@@ -30,7 +30,7 @@ const HEARTBEAT_MS = 3_000
 const STALE_MS = 90_000
 const PRUNE_MS = 2_000
 
-type SyncMsg =
+export type SyncMsg =
 	| { kind: 'run-heartbeat'; sessionId: string }
 	| { kind: 'turn-end'; sessionId: string; chatId: string }
 
@@ -185,4 +185,21 @@ if (BROWSER) {
 			localRunEnded(sessionId, entry.chatId)
 		}
 	})
+}
+
+/** Test seam: deliver a message as if it arrived on the channel. */
+export function __receiveForTest(msg: SyncMsg): void {
+	receive(msg)
+}
+
+/** Test seam: clear the module's state between tests. */
+export function __resetForTest(): void {
+	remoteRuns.clear()
+	if (pruneTimer) {
+		clearInterval(pruneTimer)
+		pruneTimer = undefined
+	}
+	for (const entry of heartbeats.values()) clearInterval(entry.timer)
+	heartbeats.clear()
+	remoteTurnEnd = undefined
 }

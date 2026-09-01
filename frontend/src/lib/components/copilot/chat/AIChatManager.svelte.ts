@@ -1089,6 +1089,11 @@ export class AIChatManager {
 		// Nothing to continue (empty chat), or the user is mid-compose — don't
 		// clobber their draft or auto-send it. Their eventual send carries the notes.
 		if (this.messages.length === 0 || this.instructions.trim()) return
+		// Another tab is driving: the synthetic send would only be refused, and
+		// the instructions staged below would then block every later auto-resume
+		// in this tab. The notes stay pending and ride the next real turn, as
+		// they do mid-turn.
+		if (this.runHeldElsewhere) return
 		this.#autoResuming = true
 		try {
 			const count = this.pendingJobNotes.length
@@ -2819,9 +2824,19 @@ export class AIChatManager {
 		}
 		// Refused before anything mutates, so there is nothing to unwind: the
 		// draft (already taken by the composer) goes back where the user can see
-		// it, and the turn never starts.
+		// it, and the turn never starts. Only the message's own send restores it
+		// — a refused queued flush is re-queued by its caller (`accepted ===
+		// false`), and a copy here would double it. Paste tokens are expanded
+		// into the text, as the queue does, because the restore lanes carry no
+		// pastes.
 		if (this.runHeldElsewhere) {
-			this.restoreToInput(options.instructions ?? '', options.images, options.files)
+			if (!options.queued) {
+				this.restoreToInput(
+					expanded(chatDraft(options.instructions ?? '', options.pastes ?? [])),
+					options.images,
+					options.files
+				)
+			}
 			sendUserToast('This session is running in another tab. Your message was kept.', true)
 			return false
 		}
@@ -3037,8 +3052,11 @@ export class AIChatManager {
 		// above; a run announced by another tab during that upkeep would slip past
 		// it and interleave two turns into one chat id. Re-checked after the last
 		// await before the turn takes visible effect, so the unguarded window is
-		// broadcast latency alone.
-		if (this.runHeldElsewhere) {
+		// broadcast latency alone. Resends are exempt: restartGeneration already
+		// truncated the transcript for them, and refusing here would leave it
+		// truncated with no turn to recommit it — so one that loses this race
+		// runs as the documented advisory race instead.
+		if (this.runHeldElsewhere && !options.resendReservationKey) {
 			this.#releaseOutgoingReservation(reservationKey)
 			if (!options.queued) {
 				this.aiChatInput?.restoreInstructions(this.instructions, pastes, images, files)
@@ -3880,8 +3898,19 @@ export class AIChatManager {
 		// only refuse AFTER that damage — restoring nothing, since this path
 		// carries its text in `this.instructions`, not the options. The retry and
 		// edit controls check only local `loading`, so a remote run reaches here.
+		// An edit's pastes are expanded into the restored text (the restore lanes
+		// carry none); a bare retry mutates nothing yet and its message is still
+		// in place, so there is nothing to restore. Un-submitted context-chip
+		// edits are the one loss — the chips re-seed from the untouched message
+		// on the next edit.
 		if (this.runHeldElsewhere) {
-			if (newContent) this.restoreToInput(newContent, images ?? [], files ?? [])
+			if (newContent) {
+				this.restoreToInput(
+					expanded(chatDraft(newContent, pastes ?? [])),
+					images ?? [],
+					files ?? []
+				)
+			}
 			sendUserToast('This session is running in another tab. Your message was kept.', true)
 			return
 		}
