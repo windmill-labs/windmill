@@ -41,10 +41,10 @@ export type FolderPermissionCall =
 
 /** The calls that turn `prev` into `next`. Members whose role is unchanged produce none.
  *
- *  `callerOwners` is every `owners` entry the caller is an admin through. Giving up the last
- *  one goes last: the write policy checks the row the update would produce, so that call is
- *  refused for anyone but a workspace admin, and sent early it takes the rest of the save
- *  with it. */
+ *  `callerOwners` is the caller's own `u/name` plus every group they belong to. Giving up the
+ *  last of those that is in `owners` goes last: the write policy checks the row the update
+ *  would produce, so that call is refused for anyone but a workspace admin, and sent early it
+ *  takes the rest of the save with it. */
 export function folderPermissionDiff(
 	prev: FolderMember[],
 	next: FolderMember[],
