@@ -61,10 +61,19 @@ export async function listSkillResources(
 	}))
 }
 
-/** Cut `text` to `max` characters, marking the cut so a reader (the model
- * included) can tell truncation from a body that simply ends there. */
-export function truncateForPrompt(text: string, max: number): string {
-	return text.length <= max ? text : `${text.slice(0, max)}… [truncated]`
+/** Cut `text` to `maxBytes` of UTF-8, marking the cut so a reader (the model
+ * included) can tell truncation from a body that simply ends there.
+ *
+ * Bounded in bytes, not code units: the caps this enforces are byte budgets, and
+ * 64k CJK characters are ~192 KiB, so a code-unit cut would let three times the
+ * intended payload through. Cutting on a code point keeps the result valid. */
+export function truncateForPrompt(text: string, maxBytes: number): string {
+	const encoded = new TextEncoder().encode(text)
+	if (encoded.byteLength <= maxBytes) return text
+	// `fatal: false` replaces the partial code point a byte-aligned cut can leave
+	// with U+FFFD; dropping it keeps the tail clean.
+	const cut = new TextDecoder('utf-8').decode(encoded.slice(0, maxBytes)).replace(/�$/, '')
+	return `${cut}… [truncated]`
 }
 
 /** The SKILL.md body of one skill. Throws rather than returning `''` when the

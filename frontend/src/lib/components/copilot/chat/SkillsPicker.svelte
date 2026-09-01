@@ -8,10 +8,11 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Path from '$lib/components/Path.svelte'
+	import FileInput from '$lib/components/common/fileInput/FileInput.svelte'
+	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import { markdownProse } from '$lib/components/markdownProse'
-	import autosize from '$lib/autosize'
 	import { workspaceStore, userStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
@@ -21,7 +22,6 @@
 		BookOpen,
 		ClipboardPaste,
 		Eye,
-		FolderUp,
 		List,
 		Pencil,
 		Plus,
@@ -95,7 +95,7 @@ What the assistant should do when this skill applies.
 	let loadError = $state<string | undefined>(undefined)
 	let saving = $state(false)
 	let toDelete: Row | undefined = $state(undefined)
-	let dirInput: HTMLInputElement | undefined = $state(undefined)
+	let importFiles = $state<File[] | undefined>(undefined)
 
 	// Paste/edit modal. `editing` is the row being edited (undefined while
 	// creating), held so a path change can be applied as a move.
@@ -276,10 +276,12 @@ What the assistant should do when this skill applies.
 	 * it is narrowed the same way Path.svelte narrows it. */
 	function defaultOwner() {
 		const username = $userStore?.username ?? 'user'
-		const owner = username.includes('@')
+		const narrowed = username.includes('@')
 			? username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
 			: username
-		return `u/${owner}`
+		// Narrowing can empty the string outright (an all-punctuation local part),
+		// and `u//name` fails the path CHECK with nothing to explain it.
+		return `u/${narrowed || 'user'}`
 	}
 
 	function openCreate() {
@@ -396,6 +398,12 @@ What the assistant should do when this skill applies.
 		await aiChatManager.refreshGlobalSkills(target)
 	}
 
+	/** Where the file sat in the chosen folder. Clicking through sets
+	 * `webkitRelativePath`; dropping sets `path`, which the picker's tree walk fills. */
+	function relativePathOf(f: File & { path?: string }): string {
+		return f.webkitRelativePath || f.path || f.name
+	}
+
 	/**
 	 * Filter a folder's files down to in-depth SKILL.md, read them, and stage the
 	 * result for confirmation.
@@ -406,7 +414,7 @@ What the assistant should do when this skill applies.
 		const skipped: string[] = []
 		const eligible: File[] = []
 		for (const f of files) {
-			const filePath = f.webkitRelativePath || f.name
+			const filePath = relativePathOf(f)
 			const segments = filePath.split('/')
 			if (segments[segments.length - 1]?.toLowerCase() !== 'skill.md') continue
 			if (segments.length > MAX_SKILL_DEPTH) {
@@ -436,7 +444,7 @@ What the assistant should do when this skill applies.
 		const collected: SkillUpload[] = []
 		const parseSkipped: string[] = []
 		for (const f of eligible) {
-			const filePath = f.webkitRelativePath || f.name
+			const filePath = relativePathOf(f)
 			const segments = filePath.split('/')
 			// The skill's id is the folder holding its SKILL.md, which is what
 			// becomes the resource path's name segment.
@@ -475,12 +483,12 @@ What the assistant should do when this skill applies.
 		pendingImport = collected
 	}
 
-	async function onDirSelected(event: Event) {
-		const target = event.target as HTMLInputElement
-		const files = Array.from(target.files ?? [])
-		// Reset early so re-selecting the same folder re-fires `change`.
-		if (dirInput) dirInput.value = ''
-		await processFolderFiles(files)
+	async function onDirSelected(event: CustomEvent<File[] | undefined>) {
+		const files = event.detail ?? []
+		// Clearing lets the same folder be chosen again — the component keeps the
+		// last selection on screen otherwise, and re-picking would look inert.
+		importFiles = undefined
+		if (files.length) await processFolderFiles(files)
 	}
 
 	/** `overwrite` is granted only for destinations the confirmation listed as an
@@ -529,15 +537,6 @@ What the assistant should do when this skill applies.
 	>
 		{#snippet actions()}
 			<Button
-				variant="default"
-				unifiedSize="sm"
-				startIcon={{ icon: FolderUp }}
-				disabled={saving}
-				onclick={() => dirInput?.click()}
-			>
-				Import a folder
-			</Button>
-			<Button
 				variant="accent"
 				unifiedSize="sm"
 				startIcon={{ icon: ClipboardPaste }}
@@ -547,6 +546,19 @@ What the assistant should do when this skill applies.
 				New skill
 			</Button>
 		{/snippet}
+
+		<FileInput
+			folderOnly
+			bind:files={importFiles}
+			on:change={onDirSelected}
+			class="mb-4 !py-5"
+			iconSize={20}
+		>
+			<span class="text-xs text-secondary">
+				Drop a folder of <span class="font-mono">SKILL.md</span> files to import, or click to choose
+				one
+			</span>
+		</FileInput>
 
 		{#if loading}
 			<div class="text-xs text-secondary p-4 text-center">Loading skills…</div>
@@ -678,15 +690,6 @@ What the assistant should do when this skill applies.
 	</DrawerContent>
 </Drawer>
 
-<!-- Hidden folder picker fired by "Import a folder". -->
-<input
-	bind:this={dirInput}
-	type="file"
-	style="display: none;"
-	onchange={onDirSelected}
-	{...{ webkitdirectory: true, directory: true }}
-/>
-
 <Modal2
 	title={editing ? editing.name : 'New skill'}
 	bind:isOpen={editorOpen}
@@ -729,13 +732,18 @@ What the assistant should do when this skill applies.
 				workspaceOverride={ws}
 				autofocus={false}
 			/>
-			<textarea
-				bind:value={content}
-				placeholder={SKILL_TEMPLATE}
-				class="w-full min-h-24 p-2 border border-border-light rounded-md bg-surface text-primary font-mono text-xs resize-y"
-				rows="5"
-				use:autosize
-			></textarea>
+			<!-- The same editor `/resources` gives these resources, so a skill reads the
+			     same in both places. `fixedOverflowWidgets` off keeps its autocomplete
+			     inside the modal instead of clipped behind it. -->
+			<div class="border border-border-light rounded-md overflow-hidden">
+				<SimpleEditor
+					autoHeight
+					lang="md"
+					bind:code={content}
+					fixedOverflowWidgets={false}
+					class="min-h-24"
+				/>
+			</div>
 			<div class="flex items-center justify-between gap-2">
 				<span class="text-2xs text-red-500 min-w-0">{contentError ?? ''}</span>
 				<div class="flex items-center gap-2">

@@ -2138,8 +2138,14 @@ async fn sync_cached_resource_types(
              VALUES ('admins', $1, $2, $3, $4, now())
              ON CONFLICT (workspace_id, name) DO UPDATE
              SET schema = EXCLUDED.schema, description = EXCLUDED.description,
-                 format_extension = CASE WHEN $5 THEN EXCLUDED.format_extension
-                                         ELSE resource_type.format_extension END,
+                 -- A fileset is a set of files, so it cannot also be one file.
+                 -- Create and update reject the pair; this writer bypasses both, so
+                 -- it declines the extension rather than persisting the forbidden
+                 -- combination onto a same-named local fileset.
+                 format_extension = CASE
+                     WHEN resource_type.is_fileset THEN NULL
+                     WHEN $5 THEN EXCLUDED.format_extension
+                     ELSE resource_type.format_extension END,
                  edited_at = now()",
             &rt.name,
             rt.schema.as_ref(),

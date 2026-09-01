@@ -7,14 +7,14 @@
  */
 use anyhow::Context;
 use monitor::{
-    load_base_url, load_otel, reload_critical_alerts_on_db_oversize,
-    reload_delete_logs_periodically_setting, reload_indexer_config,
-    reload_instance_python_version_setting, reload_maven_repos_setting,
+    flush_pending_log_files_to_object_store, load_base_url, load_otel,
+    reload_critical_alerts_on_db_oversize, reload_delete_logs_periodically_setting,
+    reload_indexer_config, reload_instance_python_version_setting, reload_maven_repos_setting,
     reload_maven_settings_xml_setting, reload_no_default_maven_setting,
     reload_nuget_config_setting, reload_powershell_repo_pat_setting,
     reload_powershell_repo_url_setting, reload_ruby_repos_setting,
     reload_timeout_wait_result_setting, reload_workspace_registries_setting,
-    flush_pending_log_files_to_object_store, send_logs_to_object_store, WORKERS_NAMES,
+    send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
 use sqlx::{Pool, Postgres};
@@ -406,6 +406,9 @@ struct HubResourceTypeRaw {
     pub schema: Option<String>,
     pub app: String,
     pub description: Option<String>,
+    /// Absent from hubs predating the column, and from caches written before it.
+    #[serde(default)]
+    pub format_extension: Option<String>,
 }
 
 /// Processed resource type with parsed schema
@@ -416,6 +419,8 @@ pub struct HubResourceType {
     pub schema: Option<serde_json::Value>,
     pub app: String,
     pub description: Option<String>,
+    #[serde(default)]
+    pub format_extension: Option<String>,
 }
 
 const HUB_RT_CACHE_FILE: &str = "resource_types.json";
@@ -462,6 +467,7 @@ async fn cache_hub_resource_types() -> anyhow::Result<()> {
                 schema,
                 app: rt.app,
                 description: rt.description,
+                format_extension: rt.format_extension,
             })
         })
         .collect();
@@ -533,14 +539,20 @@ pub async fn sync_cached_resource_types(db: &sqlx::Pool<sqlx::Postgres>) -> anyh
 
         // Insert or update resource type
         sqlx::query(
-            "INSERT INTO resource_type (workspace_id, name, schema, description, edited_at)
-             VALUES ('admins', $1, $2, $3, now())
+            // `format_extension` is only written when it is actually known: a cache
+            // file written before the column carries none, and taking that as
+            // "clear it" would strip the extension off a file type on every boot.
+            "INSERT INTO resource_type (workspace_id, name, schema, description, format_extension, edited_at)
+             VALUES ('admins', $1, $2, $3, $4, now())
              ON CONFLICT (workspace_id, name) DO UPDATE
-             SET schema = EXCLUDED.schema, description = EXCLUDED.description, edited_at = now()",
+             SET schema = EXCLUDED.schema, description = EXCLUDED.description,
+                 format_extension = COALESCE(EXCLUDED.format_extension, resource_type.format_extension),
+                 edited_at = now()",
         )
         .bind(&rt.name)
         .bind(&rt.schema)
         .bind(&rt.description)
+        .bind(&rt.format_extension)
         .execute(db)
         .await
         .with_context(|| format!("Failed to upsert resource type {}", rt.name))?;

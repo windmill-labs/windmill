@@ -2204,9 +2204,10 @@ export class AIChatManager {
 		}
 		// Accepts a bare name or a whole resource path: names are what people type,
 		// but the picker inserts the path when two folders answer to the same name.
-		// `[\w-]` rather than the stricter SKILL.md name syntax, since a path segment
-		// admits `_` and uppercase.
-		const match = /^\/([\w\-/]+)(?:\s+([\s\S]*))?$/.exec(instructions)
+		// Unicode-aware rather than `\w`, which is ASCII-only — a resource path may
+		// hold any word character, and the picker can insert one the user must then
+		// be able to send (`f/équipe/deploy`).
+		const match = /^\/([\p{L}\p{N}_\-/]+)(?:\s+([\s\S]*))?$/u.exec(instructions)
 		if (!match) {
 			return instructions
 		}
