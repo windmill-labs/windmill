@@ -4009,7 +4009,7 @@ export class AIChatManager {
 		this.onChatRotated?.(this.historyManager.getCurrentChatId())
 	}
 
-	loadPastChat = async (id: string) => {
+	loadPastChat = async (id: string, { preserveQueue = false } = {}) => {
 		// A turn commits into whatever transcript it finds when it ends, so swapping
 		// one in underneath it misfiles the turn — or duplicates it, when the loaded
 		// chat already carries the turn's own checkpoint. Gated on `sendInFlight`
@@ -4019,7 +4019,10 @@ export class AIChatManager {
 		if (chat) {
 			// Drop any message queued in the current conversation so it doesn't
 			// auto-send into the loaded one or linger as a card across the switch.
-			this.#clearQueue()
+			// `preserveQueue` is for reloads that are NOT a switch — a cross-tab
+			// catch-up re-reading the conversation on screen — where the queued
+			// draft is unsent user input the reload must not destroy.
+			if (!preserveQueue) this.#clearQueue()
 			// Stop the poller for the conversation being left before swapping in the
 			// loaded chat's jobs below.
 			this.clearBackgroundJobs()

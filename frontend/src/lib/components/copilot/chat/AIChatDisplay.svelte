@@ -673,10 +673,14 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 									{#each pastChats as chat (chat.id)}
 										<button
 											class="text-left flex flex-row items-center gap-2 justify-between hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md p-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
-											disabled={aiChatManager.loading || aiChatManager.sendInFlight}
-											title={aiChatManager.loading || aiChatManager.sendInFlight
-												? 'Stop the current answer to switch conversation'
-												: undefined}
+											disabled={aiChatManager.loading ||
+												aiChatManager.sendInFlight ||
+												aiChatManager.runHeldElsewhere}
+											title={aiChatManager.runHeldElsewhere
+												? 'Wait for the turn in the other tab to switch conversation'
+												: aiChatManager.loading || aiChatManager.sendInFlight
+													? 'Stop the current answer to switch conversation'
+													: undefined}
 											onclick={() => {
 												loadPastChat(chat.id)
 												close()

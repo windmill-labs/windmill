@@ -3830,4 +3830,27 @@ describe('AIChatManager cross-tab run seams', () => {
 		// fallback.
 		expect(manager.queuedMessage).toBe('edited prompt')
 	})
+
+	// A cross-tab catch-up re-reads the conversation on screen; the queued
+	// draft is unsent user input (possibly the refusal's kept message) that
+	// this non-switch reload must not destroy — while a real conversation
+	// switch still drops it.
+	it('keeps the queued draft when a catch-up reload preserves it', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		vi.spyOn(manager.historyManager, 'loadPastChat').mockResolvedValue({
+			id: 'c1',
+			actualMessages: [],
+			displayMessages: [],
+			title: '',
+			lastModified: 1
+		} as never)
+
+		manager.queueMessage('kept across catch-up')
+		await manager.loadPastChat('c1', { preserveQueue: true })
+		expect(manager.queuedMessage).toBe('kept across catch-up')
+
+		await manager.loadPastChat('c1')
+		expect(manager.queuedMessage).toBe('')
+	})
 })

@@ -1004,7 +1004,10 @@ async function applyRemoteTurnEnd(sessionId: string, chatId: string): Promise<vo
 	if ((await m.historyManager.reloadChat(chatId)) !== 'loaded') return
 	// Disposed (session deleted, teardown) while the read was in flight.
 	if (runtimes.get(sessionId) !== runtime) return
-	await m.loadPastChat(chatId)
+	// preserveQueue: this reload is a catch-up, not a conversation switch — a
+	// draft queued here (a refused send's kept message, a failed turn's card)
+	// is unsent user input the re-read must not destroy.
+	await m.loadPastChat(chatId, { preserveQueue: true })
 	// loadPastChat's own artifact sync no-ops for an unchanged session id, so
 	// artifacts the driver wrote during the turn need this forced re-read.
 	await m.artifacts.resyncFromStore()

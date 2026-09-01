@@ -37,8 +37,12 @@ type SyncMsg =
 // Sessions running in OTHER tabs, by last heartbeat arrival. A tab never
 // receives its own posts (BroadcastChannel does not echo to the poster), so
 // presence alone means another tab; reactive readers (the composer lock)
-// re-evaluate on every map change, the pruner's deletes included.
-const remoteRuns = new SvelteMap<string, number>()
+// re-evaluate on every map change, the pruner's deletes included. The value
+// is a fresh object per message on purpose: turn-end's deferred cleanup asks
+// "is this entry still mine?" by identity, which a timestamp cannot answer —
+// a follow-up heartbeat in the same millisecond would compare equal and be
+// deleted, unlocking the composer under the driver's next turn.
+const remoteRuns = new SvelteMap<string, { at: number }>()
 
 export function runHeldElsewhere(sessionId: string): boolean {
 	return remoteRuns.has(sessionId)
@@ -86,7 +90,7 @@ if (BROWSER) {
 function receive(msg: SyncMsg): void {
 	switch (msg.kind) {
 		case 'run-heartbeat':
-			remoteRuns.set(msg.sessionId, Date.now())
+			remoteRuns.set(msg.sessionId, { at: Date.now() })
 			ensurePruner()
 			break
 		case 'turn-end': {
@@ -94,16 +98,17 @@ function receive(msg: SyncMsg): void {
 			// open a gap where a send from this tab starts from history missing the
 			// very turn that just ended. So the entry is refreshed for the reload's
 			// duration and dropped only once the catch-up settles — unless a newer
-			// heartbeat (the driver's next turn) has taken the slot meanwhile. The
-			// pruner still caps a wedged reload at STALE_MS.
-			const heldAt = Date.now()
-			remoteRuns.set(msg.sessionId, heldAt)
+			// message (the driver's next turn) has replaced the slot meanwhile,
+			// detected by object identity (see remoteRuns). The pruner still caps
+			// a wedged reload at STALE_MS.
+			const hold = { at: Date.now() }
+			remoteRuns.set(msg.sessionId, hold)
 			ensurePruner()
 			Promise.resolve()
 				.then(() => remoteTurnEnd?.(msg.sessionId, msg.chatId))
 				.catch((e) => console.error('sessionSync: turn-end handler failed', e))
 				.finally(() => {
-					if (remoteRuns.get(msg.sessionId) === heldAt) remoteRuns.delete(msg.sessionId)
+					if (remoteRuns.get(msg.sessionId) === hold) remoteRuns.delete(msg.sessionId)
 				})
 			break
 		}
@@ -126,8 +131,8 @@ function ensurePruner(): void {
 	if (pruneTimer) return
 	pruneTimer = setInterval(() => {
 		const cutoff = Date.now() - STALE_MS
-		for (const [id, at] of remoteRuns) {
-			if (at < cutoff) remoteRuns.delete(id)
+		for (const [id, entry] of remoteRuns) {
+			if (entry.at < cutoff) remoteRuns.delete(id)
 		}
 		if (remoteRuns.size === 0) {
 			clearInterval(pruneTimer)
