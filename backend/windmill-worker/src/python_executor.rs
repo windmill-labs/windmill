@@ -1878,6 +1878,9 @@ pub(crate) async fn handle_python_deps(
     job_id: &Uuid,
     conn: &Connection,
     worker_name: &str,
+    // The worker's own directory, never a job dir nested under it: with sandboxing on, the
+    // uv-install nsjail config bind-mounts `{worker_dir}/download_deps.py.sh`, and the worker
+    // writes that script only there, once, at startup.
     worker_dir: &str,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
