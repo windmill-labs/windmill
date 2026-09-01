@@ -237,6 +237,9 @@
 	/** Whether the connected role may change access on an object: Postgres asks
 	 * for membership of its owner, so for the rest the entry is not offered. */
 	function canManage(datatable: string | undefined, schemaKey: string, table?: string): boolean {
+		// A workspace admin manages the data table itself, so nothing in it is
+		// hidden from them — `public` is owned by neither Windmill nor its roles.
+		if (canManageDatatable) return true
 		const entry = datatableTree?.find((d) => d.datatable_name === datatable)
 		if (!entry?.manageable_schemas) return true
 		return table === undefined

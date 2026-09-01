@@ -721,8 +721,10 @@ async fn get_datatable_acl(
     let owner: String = owner_row.get(0);
     // Membership in the owning role is what Postgres asks for before an ALTER
     // ... OWNER or a GRANT on something you do not own; `admin` holds every role
-    // this feature creates, so it passes everywhere.
-    let can_manage: bool = owner_row.get(1);
+    // this feature creates, so it passes everywhere. A workspace admin manages
+    // the data table itself and is never shut out of it — a schema Windmill did
+    // not create, `public` above all, is owned by neither.
+    let can_manage: bool = authed.is_admin || owner_row.get::<_, bool>(1);
 
     let mut grants = read_grants(&client, &target, &roles).await?;
     grants.sort_by(|a, b| {
@@ -904,7 +906,7 @@ async fn build_acl_plan(
     // want on its own — handing an object to a role you are not a member of is
     // refused outright, and granting on one you own needs the grant option — so
     // this is the check, and the statements run as the data table's admin below.
-    if !can_manage_target(&client, &req.target).await? {
+    if !authed.is_admin && !can_manage_target(&client, &req.target).await? {
         return Err(Error::NotAuthorized(format!(
             "{} is owned by a role you are not a member of",
             req.target.label(&conn.dbname)
