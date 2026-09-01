@@ -46,7 +46,9 @@ _Avoid_: participant, collaborator, owner, ACL entry, permission (that names the
 
 **Role**:
 The access level a member holds: viewer, writer or admin on a folder; member or admin on a group.
-Viewers read, writers also edit, admins also manage the members.
+Viewers read, writers also edit, admins also manage the members. A group role of **manager** —
+manages the group without belonging to it — is a legacy state the UI shows and can leave, but
+offers no way to enter.
 _Avoid_: permission level, access level, rank
 
 **Owner**:
