@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { superadmin, userStore, type DBSchema } from '$lib/stores'
+	import { enterpriseLicense, superadmin, userStore, type DBSchema } from '$lib/stores'
 	import {
 		ChevronDownIcon,
 		EditIcon,
@@ -237,6 +237,8 @@
 	/** Whether the connected role may change access on an object: Postgres asks
 	 * for membership of its owner, so for the rest the entry is not offered. */
 	function canManage(datatable: string | undefined, schemaKey: string, table?: string): boolean {
+		// The server refuses to plan any of it without a license.
+		if (!$enterpriseLicense) return false
 		// A workspace admin manages the data table itself, so nothing in it is
 		// hidden from them — `public` is owned by neither Windmill nor its roles.
 		if (canManageDatatable) return true
@@ -688,7 +690,7 @@
 											icon: HistoryIcon,
 											action: () => onDatatableAction?.(dt, 'migrations')
 										},
-										...(canManageDatatable
+										...(canManageDatatable && $enterpriseLicense
 											? [
 													{
 														displayName: 'Roles',
