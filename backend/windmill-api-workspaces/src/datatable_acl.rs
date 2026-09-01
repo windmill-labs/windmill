@@ -1041,13 +1041,16 @@ async fn apply_datatable_acl(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Json(req): Json<AclChangeRequest>,
 ) -> Result<String> {
+    // Authorization first: the repair below opens a connection as the instance's
+    // own Postgres user, which is not something a request that is about to be
+    // refused gets to reach.
+    let (mut client, plan, dbname) =
+        build_acl_plan(&db, &authed, &w_id, &datatable_name, &req).await?;
+
     // Granting is passing a privilege on, which this connection cannot do for a
     // privilege it holds without the grant option.
     crate::datatable_permissions::ensure_instance_db_can_delegate(&db, &w_id, &datatable_name)
         .await;
-
-    let (mut client, plan, dbname) =
-        build_acl_plan(&db, &authed, &w_id, &datatable_name, &req).await?;
 
     // One transaction: a half-applied ownership transfer leaves objects of one
     // schema owned by two different roles.

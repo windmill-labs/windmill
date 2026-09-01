@@ -950,7 +950,15 @@
 			{#if aclDrawer && workspace}
 				{@const dt = aclDrawer.datatable ?? currentDatatable}
 				{#if dt}
-					<PgAclEditor {workspace} datatable={dt} target={aclDrawer.target} role={currentRole} />
+					<!-- Roles are per data table: the one the manager is connected as
+						 says nothing about a row under another data table, so that one
+						 is read as its own default role. -->
+					<PgAclEditor
+						{workspace}
+						datatable={dt}
+						target={aclDrawer.target}
+						role={dt === currentDatatable ? currentRole : undefined}
+					/>
 				{/if}
 			{/if}
 		</DrawerContent>

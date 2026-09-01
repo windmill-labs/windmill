@@ -346,6 +346,8 @@ pub struct WorkspacePublicSettings {
     pub deploy_ui: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub large_file_storage: Option<serde_json::Value>,
+    /// Carries each data table role's generated login as stored, so it only
+    /// leaves the server through `redact_datatable_settings_for_export`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub datatable: Option<serde_json::Value>,
 }
@@ -1130,8 +1132,12 @@ async fn get_public_settings(
     .await
     .map_err(|e| Error::internal_err(format!("getting public settings: {e:#}")))?;
 
-    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+    let mut settings = not_found_if_none(settings, "workspace settings", &w_id)?;
     tx.commit().await?;
+
+    // Every workspace member reads this one, so the generated role logins go
+    // through the same redaction as the admin settings and the tarball.
+    settings.datatable = redact_datatable_settings_for_export(settings.datatable);
 
     Ok(Json(settings))
 }

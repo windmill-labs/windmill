@@ -1451,14 +1451,21 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Resu
 /// privilege it cannot pass on is one those roles can never receive. The
 /// database and schema `public` are owned by the instance's own Postgres user,
 /// not by this one, so re-granting is the only way it can reach them.
+/// The grants naming schema `public` are conditional on it being there: dropping
+/// it is ordinary hardening, and a GRANT on a schema that is absent is an error
+/// that would take the whole repair — and every grant after it — down with it.
 fn instance_db_grants(dbname: &str) -> String {
     format!(
         "GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user WITH GRANT OPTION;
-         GRANT USAGE ON SCHEMA public TO custom_instance_user WITH GRANT OPTION;
-         GRANT CREATE ON SCHEMA public TO custom_instance_user WITH GRANT OPTION;
          GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user WITH GRANT OPTION;
-         ALTER DEFAULT PRIVILEGES IN SCHEMA public
-             GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;"
+         DO $$ BEGIN
+           IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'public') THEN
+             GRANT USAGE ON SCHEMA public TO custom_instance_user WITH GRANT OPTION;
+             GRANT CREATE ON SCHEMA public TO custom_instance_user WITH GRANT OPTION;
+             ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;
+           END IF;
+         END $$;"
     )
 }
 
@@ -1530,10 +1537,7 @@ pub async fn create_custom_instance_database(
     let (client, connection) = new_pg_creds.connect(Some(db)).await?;
     let join_handle = tokio::spawn(async move { connection.await });
 
-    if let Err(e) = client
-        .batch_execute(&instance_db_grants(dbname))
-        .await
-    {
+    if let Err(e) = client.batch_execute(&instance_db_grants(dbname)).await {
         tracing::warn!(
             "Failed to grant permissions on '{}': {}. Continuing.",
             dbname,
