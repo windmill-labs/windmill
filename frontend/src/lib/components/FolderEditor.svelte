@@ -19,7 +19,7 @@
 	import GroupEditorDrawer from './GroupEditorDrawer.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import { ArrowDown, ArrowUp, Eye, Plus, Trash } from 'lucide-svelte'
+	import { ArrowDown, ArrowUp, Eye, Pen, Plus, Trash } from 'lucide-svelte'
 	import Label from './Label.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { onMount, tick, untrack } from 'svelte'
@@ -336,9 +336,17 @@
 	let ownerKind: 'user' | 'group' = $state('user')
 	let newMemberRole: Role = $state('viewer')
 
-	/** Editing a group is a detour from adding a member: the picker is reopened on that group
-	 *  so the interrupted job can be finished, instead of leaving the user to reopen the form
-	 *  and find the group again. */
+	// Set when the group editor is opened from the add-member form, so that saving returns
+	// there. Opened from a member row instead, that group is already a member and reopening
+	// the form on it would offer to add it twice.
+	let groupEditorInterruptedPicker = false
+
+	function openGroupEditor(groupName: string, fromPicker: boolean) {
+		groupEditorInterruptedPicker = fromPicker
+		if (groupName) groupEditorDrawer?.initEdit(groupName)
+		else groupEditorDrawer?.initNew()
+	}
+
 	async function onGroupSaved(groupName: string) {
 		// The group has to be in `groups` before the picker reopens, or the value set below
 		// has no matching item to show.
@@ -347,6 +355,9 @@
 		} catch (e) {
 			sendUserToast(e?.body ?? String(e), true)
 		}
+		if (!groupEditorInterruptedPicker) return
+		// Editing a group was a detour from adding a member: come back to the form on that
+		// group so the interrupted job can be finished.
 		ownerKind = 'group'
 		ownerItem = groupName
 		addMemberPopover?.open()
@@ -661,7 +672,7 @@
 														onClick={() => {
 															closeSelect()
 															close()
-															groupEditorDrawer?.initEdit(item.value ?? '')
+															openGroupEditor(item.value ?? '', true)
 														}}
 														startIcon={{ icon: Eye }}
 														iconOnly
@@ -679,7 +690,7 @@
 														onClick={() => {
 															closeSelect()
 															close()
-															groupEditorDrawer?.initNew()
+															openGroupEditor('', true)
 														}}
 													>
 														New group
@@ -811,6 +822,20 @@
 								</Cell>
 								<Cell last actions>
 									<div class="flex items-center justify-end">
+										<!-- The group editor reads `$workspaceStore`, so it can only be opened for the
+										     workspace the app is in — see the picker's own buttons. It decides on its
+										     own whether the group is editable here; a member with no write on it still
+										     gets to see who is in it. -->
+										{#if ownerKindOf(perm.owner_name) === 'group' && !aimedElsewhere}
+											<Button
+												title="Manage group"
+												variant="subtle"
+												unifiedSize="sm"
+												startIcon={{ icon: Pen }}
+												iconOnly
+												onclick={() => openGroupEditor(ownerNameOf(perm.owner_name), false)}
+											/>
+										{/if}
 										{#if !isFixedCreatorRow(perm.owner_name) && ((can_write && perm.owner_name != 'u/' + membership?.username) || membership?.is_admin)}
 											<Button
 												variant="subtle"
