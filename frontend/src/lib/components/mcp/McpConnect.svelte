@@ -27,9 +27,12 @@
 		/** Required: a caller that forgot it would create the connection in whichever
 		 * workspace the ui happens to be showing, not the one it operates on. */
 		workspace: string
+		/** Off where the surface around it already draws a card — a popover panel —
+		 * so the two do not stack a border and a background on each other. */
+		bordered?: boolean
 	}
 
-	let { onConnected, onCancel, workspace }: Props = $props()
+	let { onConnected, onCancel, workspace, bordered = true }: Props = $props()
 
 	let ws = $derived(workspace)
 	// Any URL is connectable; a suggestion is a shortcut that also pins how the
@@ -338,7 +341,11 @@
 	}
 </script>
 
-<div class="border rounded p-4 bg-surface-tertiary flex flex-col gap-4">
+<div
+	class={bordered
+		? 'border rounded p-4 bg-surface-tertiary flex flex-col gap-4'
+		: 'flex flex-col gap-4'}
+>
 	<div class="flex justify-between items-center">
 		<span class="text-sm font-semibold text-emphasis">Connect an MCP server</span>
 		{#if onCancel}

@@ -6,8 +6,6 @@
 
 	interface Props {
 		label: string
-		/** Lucide icon rendered before the label. Typed loosely, the way `Item.icon` is. */
-		icon?: any
 		expanded: boolean
 		onToggle: () => void
 		// A card with nothing to reveal keeps the header inert (no chevron, no
@@ -28,7 +26,6 @@
 
 	let {
 		label,
-		icon: Icon = undefined,
 		expanded,
 		onToggle,
 		toggleable = true,
@@ -66,9 +63,6 @@
 			disabled={!toggleable}
 			aria-expanded={toggleable ? expanded : undefined}
 		>
-			{#if Icon}
-				<Icon size={14} class="shrink-0 text-tertiary" />
-			{/if}
 			{#if shimmer}
 				<span class="shimmer inline-flex items-center min-w-0">
 					{@render labelText(false)}

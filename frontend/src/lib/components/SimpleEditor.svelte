@@ -63,6 +63,10 @@
 	/** Trailing debounce window (ms) on Monaco's onDidChangeModelContent. */
 	const CHANGE_TIMEOUT = 200
 
+	/** Gap between the line numbers and the first character. Zero puts them flush,
+	 * so a two-digit line reads as one token with the code. */
+	const LINE_DECORATIONS_WIDTH = 6
+
 	let changeTimeoutId: number | undefined = undefined
 	// Monaco fires onDidChangeModelContent synchronously from within `setValue`, so without
 	// this an authoritative overwrite reads as a user edit on the `input` event.
@@ -112,7 +116,8 @@
 		minHeight = 1000,
 		renderLineHighlight = 'none',
 		suggestion,
-		leadingChangeSync = false
+		leadingChangeSync = false,
+		lineNumbersMinChars = 3
 	}: {
 		lang: string
 		code?: string
@@ -149,6 +154,9 @@
 		 * `code`; leave it off where each extra sync costs work downstream (an app
 		 * code input feeding an autoRefresh runnable re-runs a job per sync). */
 		leadingChangeSync?: boolean
+		/** Width of the line-number gutter, in characters. Same name, and same
+		 * default, as `Editor`, so the two render line numbers alike. */
+		lineNumbersMinChars?: number
 	} = $props()
 
 	let yPadding = MONACO_Y_PADDING
@@ -312,10 +320,12 @@
 			if (model.getLanguageId() !== lang) {
 				const currentCode = model.getValue()
 				const uri = `file:///${hash}.${langToExt(lang)}`
-				const oldModel = model
-				const newModel = meditor.createModel(currentCode, lang, mUri.parse(uri))
-				editor?.setModel(newModel)
-				oldModel.dispose()
+				// The old model goes first: `langToExt` maps anything it does not know to
+				// `unknown`, so the new uri is usually the one this model already holds,
+				// and creating over an occupied uri throws ("model already exists").
+				editor?.setModel(null)
+				model.dispose()
+				editor?.setModel(meditor.createModel(currentCode, lang, mUri.parse(uri)))
 			}
 
 			// Update editor options for suggestions, validation decorations, and line numbers
@@ -334,8 +344,8 @@
 					snippetsPreventQuickSuggestions: disableSuggestions
 				},
 				lineNumbers: hideLineNumbers ? 'off' : 'on',
-				lineDecorationsWidth: hideLineNumbers ? 0 : 6,
-				lineNumbersMinChars: hideLineNumbers ? 0 : 2,
+				lineDecorationsWidth: hideLineNumbers ? 0 : LINE_DECORATIONS_WIDTH,
+				lineNumbersMinChars: hideLineNumbers ? 0 : lineNumbersMinChars,
 				// Hide validation squiggles and decorations
 				renderValidationDecorations: disableLinting ? 'off' : 'on',
 				// Hide the validation margin indicators
@@ -397,8 +407,8 @@
 				...(yPadding !== undefined ? { padding: { bottom: yPadding, top: yPadding } } : {}),
 				readOnly,
 				renderLineHighlight,
-				lineDecorationsWidth: 0,
-				lineNumbersMinChars: 2,
+				lineDecorationsWidth: LINE_DECORATIONS_WIDTH,
+				lineNumbersMinChars,
 				fontSize: fontSize,
 				quickSuggestions: disableSuggestions
 					? { other: false, comments: false, strings: false }
