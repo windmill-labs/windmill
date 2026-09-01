@@ -1434,19 +1434,50 @@ describe('pollJobCompletion detach', () => {
 			const { JobService } = await import('$lib/gen')
 			const getJob = vi.mocked(JobService.getJob)
 			getJob.mockReset()
-			const completed = { type: 'CompletedJob', success: true, result: 42 }
+			const completed = { type: 'CompletedJob', success: true, result: 42, logs: 'ran' }
 			getJob.mockResolvedValue(completed as any)
-			// The updates endpoint is what says the job landed; the whole job is then
-			// fetched once, with its logs.
+			// Still landing on a tick the updates endpoint calls unfinished: the job can
+			// complete between the two calls, and `getJob` is what says so.
 			const getJobUpdates = vi.mocked(JobService.getJobUpdates)
 			getJobUpdates.mockReset()
-			getJobUpdates.mockResolvedValue({ completed: true } as any)
+			getJobUpdates.mockResolvedValue({ completed: false, running: true } as any)
 			const cbs = makeCallbacks()
 
 			const promise = pollJobCompletion('job1', 'w', 'tool1', cbs as any, { detachAfterMs: 15000 })
 			await vi.advanceTimersByTimeAsync(1000)
 
-			expect(await promise).toBe(completed)
+			const landed = await promise
+			expect(landed).toBe(completed)
+			// Fetched again with its logs rather than settled on the logless tick fetch,
+			// which would reach the model as "No logs available".
+			expect((landed as any).logs).toBe('ran')
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	// Streaming rides on a second endpoint; landing the job must not. A failing updates
+	// endpoint costs live logs, never the run.
+	it('returns the completed job with its logs when the updates endpoint fails', async () => {
+		vi.useFakeTimers()
+		try {
+			const { pollJobCompletion } = await import('./shared')
+			const { JobService } = await import('$lib/gen')
+			const getJob = vi.mocked(JobService.getJob)
+			getJob.mockReset()
+			const completed = { type: 'CompletedJob', success: true, result: 42, logs: 'ran' }
+			getJob.mockResolvedValue(completed as any)
+			const getJobUpdates = vi.mocked(JobService.getJobUpdates)
+			getJobUpdates.mockReset()
+			getJobUpdates.mockRejectedValue(new Error('updates unavailable'))
+			const cbs = makeCallbacks()
+
+			const promise = pollJobCompletion('job1', 'w', 'tool1', cbs as any, { detachAfterMs: 15000 })
+			await vi.advanceTimersByTimeAsync(1000)
+
+			const landed = await promise
+			expect(landed).toBe(completed)
+			expect((landed as any).logs).toBe('ran')
 		} finally {
 			vi.useRealTimers()
 		}

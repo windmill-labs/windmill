@@ -1021,10 +1021,12 @@ export class AIChatManager {
 				}
 				const update = await reader.poll()
 				if (gen !== this.#jobPollGeneration) return
-				this.applyToolStatus(job.toolCallId, {
-					logs: update.logs || undefined,
-					resultStream: update.resultStream || undefined
-				})
+				if (update) {
+					this.applyToolStatus(job.toolCallId, {
+						logs: update.logs || undefined,
+						resultStream: update.resultStream || undefined
+					})
+				}
 
 				const fetched = await JobService.getJob({
 					workspace: job.workspace,

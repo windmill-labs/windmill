@@ -36,6 +36,7 @@ const mocks = vi.hoisted(() => ({
 	runChatLoop: vi.fn(),
 	listResource: vi.fn(),
 	getJob: vi.fn(),
+	getJobUpdates: vi.fn(),
 	whoami: vi.fn(),
 	workspace: 'test_workspace' as string | undefined,
 	// The workspace being browsed, which a session chat's own workspace need not be.
@@ -60,7 +61,8 @@ vi.mock('$lib/gen', () => ({
 		whoami: mocks.whoami
 	},
 	JobService: {
-		getJob: mocks.getJob
+		getJob: mocks.getJob,
+		getJobUpdates: mocks.getJobUpdates
 	}
 }))
 
@@ -172,6 +174,10 @@ beforeEach(() => {
 	mocks.getOpenaiClient.mockReturnValue({})
 	mocks.getAnthropicClient.mockReturnValue({})
 	mocks.listResource.mockResolvedValue([])
+	// Re-seeded here rather than in the factory: clearAllMocks keeps implementations, so a
+	// test that makes the updates endpoint fail would otherwise leave it failing for the rest
+	// of the file. Neutral by default — completion is getJob's answer.
+	mocks.getJobUpdates.mockResolvedValue({ completed: false, running: true })
 	mocks.workspace = 'test_workspace'
 	mocks.runChatLoop.mockResolvedValue({
 		addedMessages: [],
@@ -3984,6 +3990,20 @@ describe('AIChatManager background job completion', () => {
 		await completeDetachedJob(manager)
 
 		expect((manager.displayMessages[0] as any).isLoading).toBe(false)
+	})
+
+	// Streaming rides on a second endpoint; landing the job must not. A poll that always
+	// fails would otherwise spend the failure budget and drain a job that finished, leaving
+	// the card on "unreachable".
+	it('completes a job whose updates endpoint keeps failing', async () => {
+		const manager = new AIChatManager()
+		manager.registerJob(datatableJob)
+		mocks.getJobUpdates.mockRejectedValue(new Error('updates unavailable'))
+		mocks.getJob.mockResolvedValue(completed({ result: [{ n: 1 }] }))
+
+		await completeDetachedJob(manager)
+
+		expect(manager.backgroundJobs[0]?.status).toBe('success')
 	})
 
 	it('reconstructs the datatable result contract from the persisted resultFormat', async () => {
