@@ -79,11 +79,11 @@ pub const DEV_CONF_NSJAIL: &str = "";
 /// Enabling it there would newly persist whatever an HTTP client hangs off its errors,
 /// credential-bearing headers included, into existing scripts' run history.
 ///
-/// What a thrown object holds is reported only through the one plain `JSON.stringify`
-/// the wrappers already did, so it reaches a result exactly when it did before. What used
-/// to crash instead reports the thrown value's own strings and a marker: an HTTP client
-/// hangs its whole request off a cyclic error, credentials and mTLS keys included, and
-/// nothing may render that graph, no blocklist of key names being complete enough to.
+/// What a thrown object holds is reported only through the one plain `JSON.stringify` the
+/// wrappers already did, so nothing reaches a result that the bare call did not already put
+/// there. What used to crash reports the thrown value's own strings and a marker instead:
+/// an HTTP client hangs its whole request off a cyclic error, credentials and mTLS keys
+/// included, and no blocklist of key names is complete enough to render that graph safely.
 ///
 /// Comment-free on purpose: it is written into each job's wrapper source.
 pub const JS_ERROR_SERIALIZER: &str = r#"
@@ -111,9 +111,21 @@ function wmToErrorObject(e, collectExtra) {
         return { message: wmErrString(e), name: 'ThrownValue' };
     }
     const err = {};
+    let identified = false;
     for (const field of ['message', 'name', 'stack']) {
         const v = wmErrProp(e, field);
-        if (v != null) err[field] = wmErrString(v);
+        if (v != null) {
+            err[field] = wmErrString(v);
+            identified = true;
+        }
+    }
+    if (!identified) {
+        err.name = 'ThrownValue';
+        try {
+            err.message = Object.prototype.toString.call(e);
+        } catch (_) {
+            err.message = '[unstringifiable object]';
+        }
     }
     if (collectExtra) {
         let keys = [];
@@ -127,14 +139,6 @@ function wmToErrorObject(e, collectExtra) {
             if (v !== undefined) extra[key] = v;
         }
         if (Object.keys(extra).length > 0) err.extra = extra;
-    }
-    if (Object.keys(err).length === 0) {
-        err.name = 'ThrownValue';
-        try {
-            err.message = Object.prototype.toString.call(e);
-        } catch (_) {
-            err.message = '[unstringifiable object]';
-        }
     }
     return err;
 }

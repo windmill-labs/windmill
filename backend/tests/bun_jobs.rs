@@ -414,9 +414,9 @@ async fn test_bun_job_non_error_throws(db: Pool<Postgres>) -> anyhow::Result<()>
     }
 
     // An HTTP client links its errors both ways, which is what a plain JSON.stringify
-    // could not serialize. `extra` is reported only when it serializes on its own, so the
-    // request the client hangs off the error, credentials included, stays out of the
-    // result exactly as it did when the wrapper crashed.
+    // could not serialize. Only that same stringify reports `extra`, so the request the
+    // client hangs off the error, credentials included, stays out of the result exactly as
+    // it did when the wrapper crashed.
     {
         let job = bun_job(
             r#"
