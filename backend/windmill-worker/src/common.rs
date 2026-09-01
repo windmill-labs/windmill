@@ -83,9 +83,16 @@ pub const DEV_CONF_NSJAIL: &str = "";
 /// it runs only for a value exposing none of message/name/stack, which an HTTP client's
 /// error never is, and only to fill a message that would otherwise be `[object Object]`.
 ///
+/// Making a cyclic graph serializable is what puts an HTTP client's whole request under
+/// `extra` for the first time, so the replacer drops transport-credential keys and the
+/// walk is capped: `console.error` prints those nested objects as `[Object ...]`, and the
+/// crash kept them out of the result entirely, so neither had reached a stored result.
+///
 /// Comment-free on purpose: it is written into each job's wrapper source.
 pub const JS_ERROR_SERIALIZER: &str = r#"
 const wmErrOwnKeys = ['line', 'name', 'stack', 'column', 'message', 'sourceURL', 'originalLine', 'originalColumn'];
+const wmErrSecretKeys = /^(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api[-_]?key|_header)$/i;
+const wmErrMaxExtra = 100000;
 
 function wmErrString(v) {
     if (typeof v === 'string') return v;
@@ -134,7 +141,10 @@ function wmToErrorObject(e, collectExtra) {
             const v = wmErrProp(e, key);
             if (v !== undefined) extra[key] = v;
         }
-        if (Object.keys(extra).length > 0) err.extra = extra;
+        if (Object.keys(extra).length > 0) {
+            const s = wmSerializeError(extra);
+            err.extra = s !== undefined && s.length <= wmErrMaxExtra ? extra : '[extra omitted: too large]';
+        }
     }
     if (Object.keys(err).length === 0) {
         err.message = wmErrDescribe(e);
@@ -147,6 +157,7 @@ function wmSerializeError(err) {
     const ancestors = [];
     try {
         return JSON.stringify(err, function (key, v) {
+            if (wmErrSecretKeys.test(key)) return '[redacted]';
             if (v === null || typeof v !== 'object') return v;
             while (ancestors.length > 0 && ancestors[ancestors.length - 1] !== this) ancestors.pop();
             if (ancestors.indexOf(v) !== -1) return '[Circular]';

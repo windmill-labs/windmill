@@ -436,6 +436,40 @@ export function main() {
         );
     }
 
+    // Serializing a cycle is what first brings an HTTP client's whole request into
+    // `extra`, so the transport credentials on it must not reach the stored result.
+    {
+        let job = bun_job(
+            r#"
+export function main() {
+    const config: any = { url: "/x", headers: { Authorization: "Bearer sentinel-tkn" } };
+    const request: any = { path: "/x", _header: "GET /x HTTP/1.1\r\nAuthorization: Bearer sentinel-tkn\r\n\r\n" };
+    const response: any = { status: 401, config, request };
+    request.res = response;
+    const e: any = new Error("Request failed with status code 401");
+    e.name = "AxiosError";
+    e.config = config;
+    e.request = request;
+    e.response = response;
+    throw e;
+}
+"#,
+        );
+        let completed = run_job_in_new_worker_until_complete(&db, false, job, port).await;
+        assert!(!completed.success);
+        let result = completed.json_result().unwrap();
+        let error = &result["error"];
+        assert_eq!(
+            error["message"],
+            serde_json::json!("Request failed with status code 401")
+        );
+        assert_eq!(error["extra"]["response"]["status"], serde_json::json!(401));
+        assert!(
+            !error.to_string().contains("sentinel-tkn"),
+            "credential reached the result: {error}"
+        );
+    }
+
     Ok(())
 }
 
