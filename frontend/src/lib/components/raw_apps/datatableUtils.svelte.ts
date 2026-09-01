@@ -2,6 +2,7 @@ import { resource } from 'runed'
 import { workspaceStore, dbSchemas } from '$lib/stores'
 import { WorkspaceService } from '$lib/gen'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/metadata'
+import { ADMIN_DATATABLE_ROLE } from '$lib/components/dbTypes'
 import { get } from 'svelte/store'
 
 /**
@@ -57,6 +58,42 @@ export function createSchemasResource(
 		if (!dbSchema?.schema) return []
 		return Object.keys(dbSchema.schema)
 	})
+}
+
+/**
+ * Creates a resource that loads the roles the caller may use on a datatable,
+ * and the one it defaults to.
+ */
+export function createRolesResource(
+	getDatatable: () => string | undefined,
+	getWorkspace: () => string | undefined = () => get(workspaceStore)
+) {
+	return resource(
+		() => [getDatatable() ?? '', getWorkspace() ?? ''] as const,
+		async ([datatableName, workspace]): Promise<{ roles: string[]; defaultRole: string }> => {
+			if (!datatableName || !workspace) return { roles: [], defaultRole: ADMIN_DATATABLE_ROLE }
+			try {
+				const res = await WorkspaceService.listUsableDatatableRoles({ workspace, datatableName })
+				return {
+					roles: res.enabled ? res.roles : [],
+					defaultRole: res.default_role
+				}
+			} catch (e) {
+				console.error('Failed to load datatable roles:', e)
+				return { roles: [], defaultRole: ADMIN_DATATABLE_ROLE }
+			}
+		},
+		{ initialValue: { roles: [], defaultRole: ADMIN_DATATABLE_ROLE } }
+	)
+}
+
+/**
+ * Whether naming a role says anything here: a data table without permissions has
+ * none to pick, and one whose single role is the implicit `admin` has no choice
+ * to offer.
+ */
+export function rolesWorthPicking(roles: string[]): boolean {
+	return roles.length > 1 || (roles.length === 1 && roles[0] !== ADMIN_DATATABLE_ROLE)
 }
 
 /**

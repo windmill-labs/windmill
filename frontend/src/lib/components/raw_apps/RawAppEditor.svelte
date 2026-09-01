@@ -878,7 +878,8 @@
 		aiChatManager.datatableCreationPolicy = {
 			enabled: data.datatable !== undefined,
 			datatable: data.datatable,
-			schema: data.schema
+			schema: data.schema,
+			role: data.role
 		}
 
 		// Start auto-snapshot
@@ -900,9 +901,14 @@
 		// Read the current policy from aiChatManager
 		const policy = aiChatManager.datatableCreationPolicy
 		// Only update if different to avoid infinite loops
-		if (data.datatable !== policy.datatable || data.schema !== policy.schema) {
+		if (
+			data.datatable !== policy.datatable ||
+			data.schema !== policy.schema ||
+			data.role !== policy.role
+		) {
 			data.datatable = policy.datatable
 			data.schema = policy.schema
+			data.role = policy.role
 		}
 	})
 

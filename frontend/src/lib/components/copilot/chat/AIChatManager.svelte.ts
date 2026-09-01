@@ -647,12 +647,14 @@ export class AIChatManager {
 	scriptEditorGetLintErrors = $state<(() => ScriptLintResult) | undefined>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	appAiChatHelpers = $state<AppAIChatHelpers | undefined>(undefined)
-	/** Datatable creation policy: enabled flag, datatable name, and optional schema */
+	/** Datatable creation policy: enabled flag, datatable name, optional schema,
+	 * and the role the app's queries run as. */
 	datatableCreationPolicy = $state<{
 		enabled: boolean
 		datatable: string | undefined
 		schema: string | undefined
-	}>({ enabled: false, datatable: undefined, schema: undefined })
+		role?: string | undefined
+	}>({ enabled: false, datatable: undefined, schema: undefined, role: undefined })
 	pendingNewCode = $state<string | undefined>(undefined)
 	apiTools = $state<Tool<any>[]>([])
 	aiChatInput = $state<AIChatInput | null>(null)

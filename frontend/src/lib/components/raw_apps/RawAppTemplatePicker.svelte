@@ -22,7 +22,9 @@
 	import { type DataTableRef, type RawAppData, formatDataTableRef } from './dataTableRefUtils'
 	import {
 		createDatatablesResource,
+		createRolesResource,
 		createSchemasResource,
+		rolesWorthPicking,
 		toDatatableItems,
 		toSchemaItems
 	} from './datatableUtils.svelte'
@@ -72,6 +74,25 @@
 		() => selectedDatatable,
 		() => opWs
 	)
+	const roles = createRolesResource(
+		() => selectedDatatable,
+		() => opWs
+	)
+
+	let selectedRole = $state<string | undefined>(undefined)
+	const availableRoles = $derived(roles.current.roles)
+	const showRolePicker = $derived(rolesWorthPicking(availableRoles))
+
+	// The picked role belongs to the data table it was picked on, and the one it
+	// defaults to is what the app gets without saying anything.
+	$effect(() => {
+		const available = roles.current.roles
+		if (selectedRole === undefined || !available.includes(selectedRole)) {
+			selectedRole = available.includes(roles.current.defaultRole)
+				? roles.current.defaultRole
+				: available[0]
+		}
+	})
 
 	const availableDatatables = $derived(datatables.current)
 	const availableSchemas = $derived(schemas.current)
@@ -148,7 +169,8 @@
 					input: {
 						type: 'database',
 						resourceType: 'postgresql',
-						resourcePath: `datatable://${selectedDatatable}`
+						resourcePath: `datatable://${selectedDatatable}`,
+						role: showRolePicker ? selectedRole : undefined
 					}
 				})
 				await dbOps.onCreateSchema({ schema: newSchemaName })
@@ -164,9 +186,10 @@
 				? {
 						tables: formattedTables,
 						datatable: selectedDatatable,
-						schema: effectiveSchema
+						schema: effectiveSchema,
+						role: showRolePicker ? selectedRole : undefined
 					}
-				: { tables: formattedTables, datatable: undefined, schema: undefined }
+				: { tables: formattedTables, datatable: undefined, schema: undefined, role: undefined }
 
 		const policy: Policy = {
 			on_behalf_of: $userStore?.username.includes('@')
@@ -269,6 +292,23 @@
 											class="w-40"
 										/>
 									</div>
+									{#if showRolePicker}
+										<div class="flex flex-col gap-1">
+											<label class="text-xs text-emphasis font-semibold" for="datatable-role"
+												>Role</label
+											>
+											<Select
+												id="datatable-role"
+												disablePortal
+												items={availableRoles.map((r) => ({ value: r, label: r }))}
+												bind:value={selectedRole}
+												clearable={false}
+												placeholder="Role"
+												size="sm"
+												class="w-40"
+											/>
+										</div>
+									{/if}
 									<div>
 										<span class="text-xs text-emphasis font-semibold">Schema</span>
 										<div class="flex flex-row gap-1 w-full items-center">
