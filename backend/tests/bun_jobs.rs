@@ -458,7 +458,8 @@ export function main() {
         );
     }
 
-    // An acyclic thrown object still reports its own properties, unchanged.
+    // An acyclic thrown object still reports its own properties, unchanged. Carrying
+    // `extra` does not stand in for identifying the throw, so the type tag reports it too.
     {
         let job = bun_job(r#"export function main() { throw { code: 42, hint: "kein Error" }; }"#);
         let completed = run_job_in_new_worker_until_complete(&db, false, job, port).await;
@@ -468,6 +469,11 @@ export function main() {
             result["error"]["extra"],
             serde_json::json!({ "code": 42, "hint": "kein Error" })
         );
+        assert_eq!(
+            result["error"]["message"],
+            serde_json::json!("[object Object]")
+        );
+        assert_eq!(result["error"]["name"], serde_json::json!("ThrownValue"));
     }
 
     Ok(())
