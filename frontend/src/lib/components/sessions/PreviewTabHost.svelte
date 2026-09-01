@@ -329,8 +329,16 @@
 		{/if}
 	</div>
 {:else if slot.kind === 'runform' && mounted}
-	<div class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}" aria-hidden={!active}>
-		{#if runtime}
+	<div
+		bind:this={overlayHostEl}
+		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
+		aria-hidden={!active}
+	>
+		<!-- Waits for the host element itself: Drawer portals when it mounts, and the portal
+		     action reads its target once, so a form mounted in the same pass as this div would
+		     resolve no host and open against the viewport. The branches above are async
+		     (a dynamic import, a loaded artifact), which is what spares them this. -->
+		{#if runtime && overlayHostEl}
 			<RunFormPreviewSlot manager={runtime.manager} toolCallId={slot.toolCallId} />
 		{/if}
 	</div>

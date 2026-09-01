@@ -1633,7 +1633,11 @@ export type BackgroundJobFormatter = (job: CompletedJob) => {
 /** Reads a running job's output incrementally through `getJobUpdates`, the only endpoint
  * carrying `new_result_stream`: `getJob` returns logs but never the partial result. Both the
  * inline wait and the background poller drive one, so a detached run keeps streaming, and
- * each keeps its own offsets so one starting over refetches from zero. */
+ * each keeps its own offsets so one starting over refetches from zero.
+ *
+ * Best-effort by construction: a poll that fails answers `undefined` rather than throwing, so
+ * a run always lands on `getJob` alone. Nothing is mutated before the response arrives, so the
+ * next poll resumes from the same offsets. */
 export function createJobUpdateReader(jobId: string, workspace: string) {
 	let logs = ''
 	let resultStream = ''
@@ -1641,14 +1645,19 @@ export function createJobUpdateReader(jobId: string, workspace: string) {
 	let streamOffset = 0
 	let started = false
 	return {
-		async poll(): Promise<{ completed: boolean; logs: string; resultStream: string }> {
-			const update = await JobService.getJobUpdates({
-				workspace,
-				id: jobId,
-				running: started,
-				logOffset,
-				streamOffset
-			})
+		async poll(): Promise<{ completed: boolean; logs: string; resultStream: string } | undefined> {
+			let update: Awaited<ReturnType<typeof JobService.getJobUpdates>>
+			try {
+				update = await JobService.getJobUpdates({
+					workspace,
+					id: jobId,
+					running: started,
+					logOffset,
+					streamOffset
+				})
+			} catch {
+				return undefined
+			}
 			started ||= update.running ?? false
 			// Both kept as a tail: the offsets come from the server, so dropping the head
 			// costs nothing here, and neither is the record of the run — the logs are on the
@@ -1694,36 +1703,43 @@ export async function pollJobCompletion(
 			// The tray's snapshot is trimmed of logs (it is persisted), so the card is the
 			// only place a running job's output can land. Cards that hide their logs while
 			// loading are unaffected; the run card follows them line by line.
-			toolCallbacks.setToolStatus(toolId, {
-				logs: formatLogs(update.logs),
-				resultStream: update.resultStream || undefined
-			})
-
-			if (update.completed) {
-				// Fetched whole rather than assembled from the ticks: the reader stops at
-				// whatever the last one saw, and the tail written between then and the job
-				// landing is only on the job itself.
-				const completed = await JobService.getJob({
-					workspace: workspace,
-					id: jobId,
-					noLogs: false,
-					noCode: true
+			if (update) {
+				toolCallbacks.setToolStatus(toolId, {
+					logs: formatLogs(update.logs),
+					resultStream: update.resultStream || undefined
 				})
-				if (completed.type === 'CompletedJob') {
-					job = completed
-					break
-				}
 			}
 
-			// Keeps the tray's status + Job snapshot fresh during the inline wait. Its logs
-			// are skipped because the reader above already has them; the badge needs the real
-			// Job to tell running from suspended or scheduled, which the updates do not say.
+			// Ask for the logs when the run may be over — the tail written between the last
+			// poll and the end is only on the job itself — or when there is no reader output
+			// to have collected them.
+			const wantLogs = !update || update.completed
 			const fetchedJob = await JobService.getJob({
 				workspace: workspace,
 				id: jobId,
-				noLogs: true,
+				noLogs: !wantLogs,
 				noCode: true
 			})
+			if (fetchedJob.type === 'CompletedJob') {
+				// The updates can still call a landed job unfinished, so a completion seen on
+				// a logless fetch is fetched again rather than settled without them: the model
+				// reads these logs, and their absence is indistinguishable from a silent run.
+				job = wantLogs
+					? fetchedJob
+					: ((await JobService.getJob({
+							workspace: workspace,
+							id: jobId,
+							noLogs: false,
+							noCode: true
+						})) as CompletedJob)
+				break
+			}
+			// With no reader, this is the only place the card's logs can come from.
+			if (!update) {
+				toolCallbacks.setToolStatus(toolId, { logs: formatLogs(fetchedJob.logs) })
+			}
+			// The badge needs the real Job to tell running from suspended or scheduled, which
+			// the updates do not say.
 			toolCallbacks.onJobStatus?.(jobId, {
 				status: deriveChatJobStatus(fetchedJob),
 				job: trimJob(fetchedJob)
