@@ -46,15 +46,13 @@ where
 {
     #[derive(Deserialize)]
     #[serde(untagged)]
-    enum NumericOrString<'a, T> {
+    enum NumericOrString<T> {
         String(String),
-        Str(&'a str),
         RawT(T),
     }
 
     match NumericOrString::<T>::deserialize(deserializer)? {
         NumericOrString::String(s) => T::from_str(&s).map_err(serde::de::Error::custom),
-        NumericOrString::Str(s) => T::from_str(s).map_err(serde::de::Error::custom),
         NumericOrString::RawT(i) => Ok(i),
     }
 }
