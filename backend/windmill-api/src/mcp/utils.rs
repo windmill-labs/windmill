@@ -972,6 +972,29 @@ mod tests {
         );
     }
 
+    /// `authorization` is withheld above because the hop owns that header, not
+    /// because it is a credential. Every other credential the caller sends
+    /// travels, matching what a webhook hands its preprocessor — the deliberate
+    /// answer to "should MCP filter credentials", and the one a future change
+    /// could quietly reverse by reaching for a deny list again.
+    #[test]
+    fn a_caller_credential_that_is_not_the_hops_own_still_travels() {
+        let headers = header_map(&[
+            ("cookie", "session=secret"),
+            ("proxy-authorization", "Basic Zm9v"),
+        ]);
+
+        let forwarded = forwardable_headers(&headers);
+
+        assert_eq!(
+            forwarded,
+            vec![
+                ("cookie".to_string(), "session=secret".to_string()),
+                ("proxy-authorization".to_string(), "Basic Zm9v".to_string()),
+            ]
+        );
+    }
+
     /// The hop describes its own body, so the caller's framing headers must not
     /// be copied onto it — a `content-length` from the caller's request would
     /// describe the wrong body, and hop-by-hop fields are per-connection by

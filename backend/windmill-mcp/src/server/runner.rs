@@ -679,6 +679,7 @@ impl<B: McpBackend> Runner<B> {
             if read_only && !crate::server::is_endpoint_read_only(&endpoint_tool) {
                 continue;
             }
+
             tools.push(endpoint_tool_to_mcp_tool(&endpoint_tool));
         }
 
@@ -871,6 +872,7 @@ impl<B: McpBackend> Runner<B> {
             if read_only && !crate::server::is_endpoint_read_only(&endpoint_tool) {
                 continue;
             }
+
             tools.push(endpoint_tool_to_mcp_tool_multi(&endpoint_tool));
         }
 
