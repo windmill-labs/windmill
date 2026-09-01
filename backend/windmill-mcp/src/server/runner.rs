@@ -511,7 +511,6 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
                     read_only,
                     request.name.clone(),
                     args,
-                    &mcp_request,
                 )
                 .await
             }
@@ -713,7 +712,7 @@ impl<B: McpBackend> Runner<B> {
                 // arguments the endpoint rejected.
                 let result = self
                     .backend
-                    .call_endpoint(auth, workspace_id, endpoint_tool, args, request)
+                    .call_endpoint(auth, workspace_id, endpoint_tool, args)
                     .await?;
 
                 return Ok(CallToolResult::success(vec![ContentBlock::text(
@@ -892,7 +891,6 @@ impl<B: McpBackend> Runner<B> {
         read_only: bool,
         name: std::borrow::Cow<'static, str>,
         mut args: Value,
-        request: &McpRequest<'_>,
     ) -> Result<CallToolResult, ErrorData> {
         if name.as_ref() == "list_workspaces" {
             let workspaces = self
@@ -969,7 +967,7 @@ impl<B: McpBackend> Runner<B> {
 
         let result = self
             .backend
-            .call_endpoint(&resolved_auth, &workspace_id, endpoint_tool, args, request)
+            .call_endpoint(&resolved_auth, &workspace_id, endpoint_tool, args)
             .await?;
 
         Ok(CallToolResult::success(vec![ContentBlock::text(

@@ -646,18 +646,12 @@ fn selects_endpoint_tool(caller_scopes: &[String], tool: &str) -> bool {
 }
 
 /// Create HTTP request with authentication.
-///
-/// `forwarded` carries headers copied verbatim from the MCP request. Only the
-/// proxied run route sends any: the caller's headers are not otherwise on the
-/// request that route sees, so a preprocessor reached through it would receive
-/// this proxy's request rather than the caller's.
 pub async fn create_http_request(
     method: &str,
     url: &str,
     workspace_id: &str,
     api_authed: &ApiAuthed,
     body_json: Option<Value>,
-    forwarded: &[(String, String)],
 ) -> BackendResult<reqwest::Response> {
     let client = &HTTP_CLIENT;
     let mut request_builder = match method {
@@ -699,13 +693,6 @@ pub async fn create_http_request(
     .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
     request_builder = request_builder.header("Authorization", format!("Bearer {}", token));
 
-    // Never before the Authorization header above: the proxy JWT is scoped to
-    // this route, and letting a forwarded name overwrite it would hand the
-    // proxied call whatever credential the caller sent instead.
-    for (name, value) in forwarded {
-        request_builder = request_builder.header(name, value);
-    }
-
     // Add body if present
     if let Some(body) = body_json {
         request_builder = request_builder
@@ -732,113 +719,6 @@ struct McpPreprocessorEvent<'a> {
     body: Box<serde_json::value::RawValue>,
     headers: HashMap<String, Box<serde_json::value::RawValue>>,
     tool_name: &'a str,
-}
-
-/// Headers the proxied hop owns, never copied from the caller's request.
-///
-/// Two kinds. `authorization` and `host` address the hop itself: the proxied call
-/// carries a route-scoped JWT this server mints, and copying the caller's would
-/// leave the run route reading one of two credentials. The rest describe *this*
-/// connection's framing — hop-by-hop fields (RFC 9110 §7.6.1) plus the
-/// `content-*` and `accept-encoding` values `reqwest` sets for the body it is
-/// actually sending. Copying those across a hop corrupts it: a `content-length`
-/// from the caller's body does not describe the proxied one.
-const PROXY_OWNED_HEADERS: &[&str] = &[
-    "authorization",
-    "host",
-    "content-type",
-    "content-length",
-    "accept-encoding",
-    "connection",
-    "keep-alive",
-    "proxy-connection",
-    "te",
-    "trailer",
-    "transfer-encoding",
-    "upgrade",
-];
-
-/// Whether this endpoint tool hands the proxied request to a runnable, and so
-/// could need the caller's headers copied onto it.
-///
-/// Derived from the catalogue's own path rather than a list of names: the two
-/// run routes are the only ones whose request becomes a runnable's event. Preview
-/// is deliberately not one — it pushes `JobPayload::Code`, which skips the
-/// preprocessor, so a forwarded header would have nowhere to arrive.
-pub fn delivers_request_to_runnable(tool: &EndpointTool) -> bool {
-    tool.path.contains("/jobs/run/")
-}
-
-/// The caller's headers to copy onto a proxied run, or nothing.
-///
-/// An unresolvable format is an error rather than a run without the headers: a
-/// preprocessor that defaults a missing one would otherwise succeed under the
-/// wrong identity, which is worse than a refused call.
-///
-/// Gated on the *target* having a preprocessor, not just on the route being a run
-/// route. The proxied webhook path binds headers as ordinary parameters when the
-/// runnable has no preprocessor — `build_headers`' no-preprocessor branch unions
-/// the instance-wide `INCLUDE_HEADERS` — so forwarding unconditionally would put
-/// a header into a `main` argument on an instance that configured one for
-/// webhooks. That is both the parameter binding this design exists to avoid and
-/// an inheritance MCP deliberately does not take.
-pub async fn headers_for_proxied_run(
-    db: &DB,
-    w_id: &str,
-    tool: &EndpointTool,
-    args: &serde_json::Map<String, Value>,
-    request: &McpRequest<'_>,
-) -> BackendResult<Vec<(String, String)>> {
-    if !delivers_request_to_runnable(tool) {
-        return Ok(Vec::new());
-    }
-    let Some(path) = args.get("path").and_then(Value::as_str) else {
-        return Ok(Vec::new());
-    };
-    let runnable_id = if tool.path.contains("/jobs/run/f/") {
-        RunnableId::from_flow_path(path)
-    } else {
-        RunnableId::from_script_path(path)
-    };
-    let format = get_runnable_format(runnable_id, w_id, db, &TriggerKind::Webhook)
-        .await
-        .map_err(|err| {
-            ErrorData::internal_error(
-                format!("Could not resolve the format of '{path}': {err}"),
-                None,
-            )
-        })?;
-
-    Ok(if format.has_preprocessor {
-        forwardable_headers(request.headers)
-    } else {
-        // The proxied route binds headers as ordinary parameters when the runnable
-        // has no preprocessor, so there is nothing safe to send it.
-        Vec::new()
-    })
-}
-
-/// The caller's headers that can ride the proxied webhook call.
-///
-/// Run-by-path reaches a runnable over a second HTTP hop, so the caller's
-/// headers are not on the request the proxied route sees unless they are copied
-/// onto it. Copying them is what lets a preprocessor invoked that way — the only
-/// way multi-workspace mode reaches a runnable at all — see the same request the
-/// direct path shows it.
-pub fn forwardable_headers(headers: &http::HeaderMap) -> Vec<(String, String)> {
-    headers
-        .iter()
-        .filter_map(|(name, value)| {
-            let name = name.as_str();
-            if PROXY_OWNED_HEADERS.contains(&name) {
-                return None;
-            }
-            value
-                .to_str()
-                .ok()
-                .map(|v| (name.to_string(), v.to_string()))
-        })
-        .collect()
 }
 
 /// Build the job arguments for a script or flow run as an MCP tool.
@@ -939,82 +819,6 @@ mod tests {
 
     fn scopes(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| s.to_string()).collect()
-    }
-
-    fn header_map(pairs: &[(&str, &str)]) -> http::HeaderMap {
-        let mut headers = http::HeaderMap::new();
-        for (name, value) in pairs {
-            headers.insert(
-                http::HeaderName::from_bytes(name.as_bytes()).unwrap(),
-                http::HeaderValue::from_str(value).unwrap(),
-            );
-        }
-        headers
-    }
-
-    /// Run-by-path proxies over a second HTTP hop that carries a route-scoped JWT
-    /// this server mints, and framing headers describing its own body. Neither
-    /// may be copied from the caller: a duplicated `authorization` would leave the
-    /// run route reading one of two credentials, and a stale `content-length`
-    /// would describe the wrong body.
-    #[test]
-    fn the_proxy_hop_never_forwards_its_own_credential_header() {
-        let headers = header_map(&[
-            ("authorization", "Bearer caller-token"),
-            ("x-user-id", "alice@corp.example"),
-        ]);
-
-        let forwarded = forwardable_headers(&headers);
-
-        assert_eq!(
-            forwarded,
-            vec![("x-user-id".to_string(), "alice@corp.example".to_string())]
-        );
-    }
-
-    /// `authorization` is withheld above because the hop owns that header, not
-    /// because it is a credential. Every other credential the caller sends
-    /// travels, matching what a webhook hands its preprocessor — the deliberate
-    /// answer to "should MCP filter credentials", and the one a future change
-    /// could quietly reverse by reaching for a deny list again.
-    #[test]
-    fn a_caller_credential_that_is_not_the_hops_own_still_travels() {
-        let headers = header_map(&[
-            ("cookie", "session=secret"),
-            ("proxy-authorization", "Basic Zm9v"),
-        ]);
-
-        let forwarded = forwardable_headers(&headers);
-
-        assert_eq!(
-            forwarded,
-            vec![
-                ("cookie".to_string(), "session=secret".to_string()),
-                ("proxy-authorization".to_string(), "Basic Zm9v".to_string()),
-            ]
-        );
-    }
-
-    /// The hop describes its own body, so the caller's framing headers must not
-    /// be copied onto it — a `content-length` from the caller's request would
-    /// describe the wrong body, and hop-by-hop fields are per-connection by
-    /// definition.
-    #[test]
-    fn the_proxy_hop_never_forwards_this_connections_framing() {
-        let headers = header_map(&[
-            ("content-length", "512"),
-            ("transfer-encoding", "chunked"),
-            ("connection", "keep-alive"),
-            ("host", "mcp.example"),
-            ("x-user-id", "alice@corp.example"),
-        ]);
-
-        let forwarded = forwardable_headers(&headers);
-
-        assert_eq!(
-            forwarded,
-            vec![("x-user-id".to_string(), "alice@corp.example".to_string())]
-        );
     }
 
     #[test]
@@ -1157,21 +961,6 @@ mod tests {
             .into_iter()
             .find(|t| t.name.as_ref() == name)
             .unwrap_or_else(|| panic!("{name} must be a generated endpoint tool"))
-    }
-
-    /// `delivers_request_to_runnable` keys on a path substring, so a catalogue
-    /// that renames the run routes would silently stop forwarding rather than
-    /// fail — and the only symptom would be a preprocessor quietly losing the
-    /// caller's headers. Pinned to the exact pair it must match.
-    #[test]
-    fn exactly_the_run_routes_deliver_the_request_to_a_runnable() {
-        let matched: Vec<String> = crate::mcp::auto_generated_endpoints::all_tools()
-            .into_iter()
-            .filter(delivers_request_to_runnable)
-            .map(|t| t.name.to_string())
-            .collect();
-
-        assert_eq!(matched, vec!["runScriptByPath", "runFlowByPath"]);
     }
 
     /// A script/flow tool the URL addresses by path, but `endpoint_path_policy` does
@@ -1651,7 +1440,7 @@ mod tests {
         });
 
         let url = format!("http://{addr}/");
-        create_http_request("GET", &url, "test-workspace", caller, None, &[])
+        create_http_request("GET", &url, "test-workspace", caller, None)
             .await
             .expect("proxied request should succeed");
 

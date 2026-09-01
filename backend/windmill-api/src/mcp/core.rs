@@ -26,7 +26,7 @@ use super::auto_generated_endpoints::all_tools;
 use super::utils::{
     build_query_string, build_request_body, create_http_request, get_hub_script_schema,
     get_item_schema, get_items, get_resources, get_resources_types, get_scripts_from_hub,
-    headers_for_proxied_run, parse_response_body, prepare_push_args, substitute_path_params,
+    parse_response_body, prepare_push_args, substitute_path_params,
 };
 
 use std::sync::Arc;
@@ -270,7 +270,6 @@ impl McpBackend for WindmillBackend {
         workspace_id: &str,
         endpoint_tool: &EndpointTool,
         args: Value,
-        request: &McpRequest<'_>,
     ) -> BackendResult<Value> {
         let args_map = match &args {
             Value::Object(map) => map,
@@ -299,15 +298,6 @@ impl McpBackend for WindmillBackend {
             self.base_internal_url, path_template, query_string
         );
 
-        // The proxied call is a second HTTP hop, so the caller's headers are not
-        // on the request the run route sees unless they are copied onto it.
-        // Without this a preprocessor reached through run-by-path — the only way
-        // multi-workspace mode reaches a runnable — would see the proxy's own
-        // request instead of the caller's.
-        let forwarded =
-            headers_for_proxied_run(&self.db, workspace_id, endpoint_tool, args_map, request)
-                .await?;
-
         // Prepare request body
         let body_json = build_request_body(endpoint_tool, args_map)?;
 
@@ -318,7 +308,6 @@ impl McpBackend for WindmillBackend {
             workspace_id,
             auth,
             body_json,
-            &forwarded,
         )
         .await?;
 
