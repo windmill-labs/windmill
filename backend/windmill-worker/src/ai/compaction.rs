@@ -25,6 +25,10 @@ const COMPACTION_TRIGGER_RATIO: f64 = 0.8;
 const COMPACTION_TARGET_RATIO: f64 = 0.7;
 /// Room left inside the target for the summary itself, which is prepended to the tail.
 const SUMMARY_OUTPUT_RESERVE_TOKENS: usize = 8000;
+/// Ceiling on that reserve as a share of the window. A flat 8000 eats the whole target
+/// on a small window, which would collapse the tail to one message and summarize the
+/// rest — a context wipe rather than a compaction.
+const MAX_SUMMARY_RESERVE_SHARE: usize = 10;
 /// Summarizing fewer messages than this costs a full model call to save almost nothing.
 const MIN_PREFIX_MESSAGES_TO_SUMMARIZE: usize = 4;
 /// After this many failed summarizations the step stops trying, so a provider that
@@ -138,6 +142,30 @@ fn estimate_conversation_tokens(messages: &[OpenAIMessage]) -> usize {
     messages.iter().map(estimate_message_tokens).sum()
 }
 
+/// What the provider said about the most recent request of the agent loop.
+#[derive(Clone, Copy)]
+pub struct LastRequest {
+    /// Prompt tokens the provider counted, `None` when it reported no usage.
+    pub prompt_tokens: Option<i32>,
+    /// How many messages that request carried. The assistant turn it produced and the
+    /// tool results that followed sit past this index and are not in `prompt_tokens`.
+    pub message_count: usize,
+}
+
+/// Size of the prompt the *next* request would carry: what the provider counted for the
+/// last one plus an estimate of everything appended since. A single large tool result
+/// can be most of a context window, so measuring only the last request would let the
+/// conversation blow past the window without ever tripping the trigger.
+fn projected_prompt_tokens(messages: &[OpenAIMessage], last_request: LastRequest) -> usize {
+    match last_request.prompt_tokens {
+        Some(counted) => {
+            let appended = last_request.message_count.min(messages.len());
+            (counted.max(0) as usize) + estimate_conversation_tokens(&messages[appended..])
+        }
+        None => estimate_conversation_tokens(messages),
+    }
+}
+
 /// First message that may be summarized away. The leading system messages carry the
 /// step's own system prompt, which has to survive compaction.
 fn summarizable_start(messages: &[OpenAIMessage]) -> usize {
@@ -156,8 +184,8 @@ fn summarizable_start(messages: &[OpenAIMessage]) -> usize {
 fn plan_tail_start(messages: &[OpenAIMessage], context_window: usize) -> Option<usize> {
     let prefix_start = summarizable_start(messages);
 
-    let budget = ((context_window as f64 * COMPACTION_TARGET_RATIO) as usize)
-        .saturating_sub(SUMMARY_OUTPUT_RESERVE_TOKENS);
+    let reserve = SUMMARY_OUTPUT_RESERVE_TOKENS.min(context_window / MAX_SUMMARY_RESERVE_SHARE);
+    let budget = ((context_window as f64 * COMPACTION_TARGET_RATIO) as usize) - reserve;
 
     let mut tail_start = messages.len();
     let mut tail_tokens = 0usize;
@@ -182,29 +210,38 @@ fn plan_tail_start(messages: &[OpenAIMessage], context_window: usize) -> Option<
 
 /// Strips the `<analysis>` drafting scratchpad and unwraps the `<summary>` block.
 /// Falls back to the trimmed raw text when the model did not use the tags, so a
-/// well-formed-but-untagged summary is still usable.
+/// well-formed-but-untagged summary is still usable, and to the empty string — which
+/// the caller counts as a failure — when the response stopped inside the scratchpad.
 fn format_compact_summary(raw: &str) -> String {
     // Strip the analysis scratchpad first: it precedes the summary and may itself
     // mention <summary>/<analysis> tokens that would otherwise be mistaken for the real
     // summary boundary.
-    let mut formatted = ANALYSIS_BLOCK_REGEX.replace_all(raw, "").into_owned();
+    let without_analysis = ANALYSIS_BLOCK_REGEX.replace_all(raw, "");
 
-    if let Some(captures) = SUMMARY_BLOCK_REGEX.captures(&formatted) {
-        formatted = captures
+    let summary = if let Some(captures) = SUMMARY_BLOCK_REGEX.captures(&without_analysis) {
+        captures
             .get(1)
-            .map(|m| m.as_str().trim().to_string())
-            .unwrap_or_default();
-    } else if let Some(opener) = SUMMARY_OPENER_REGEX.find(&formatted) {
+            .map(|m| m.as_str())
+            .unwrap_or_default()
+            .to_string()
+    } else if let Some(opener) = SUMMARY_OPENER_REGEX.find(&without_analysis) {
         // A truncated response or a weaker model sometimes opens <summary> without
         // closing it. The text after the opener is still the summary.
-        formatted = formatted[opener.start()..].to_string();
-    }
+        without_analysis[opener.end()..].to_string()
+    } else if ANALYSIS_OPENER_REGEX.is_match(&without_analysis) {
+        // An unclosed <analysis> means the response ran out before it reached the
+        // summary. Its draft notes are not one, and handing them over would put the
+        // model's own scratchpad into the conversation as fact.
+        return String::new();
+    } else {
+        without_analysis.to_string()
+    };
 
     // An orphaned opener or closer left by either branch must never reach the model.
-    let formatted = STRAY_TAG_REGEX.replace_all(&formatted, "");
+    let summary = STRAY_TAG_REGEX.replace_all(&summary, "");
     // Collapse the blank-line runs left behind by stripping the analysis block.
     BLANK_LINE_RUN_REGEX
-        .replace_all(&formatted, "\n\n")
+        .replace_all(&summary, "\n\n")
         .trim()
         .to_string()
 }
@@ -212,6 +249,8 @@ fn format_compact_summary(raw: &str) -> String {
 lazy_static::lazy_static! {
     static ref ANALYSIS_BLOCK_REGEX: regex::Regex =
         regex::Regex::new(r"(?is)<analysis>.*?</analysis>").unwrap();
+    static ref ANALYSIS_OPENER_REGEX: regex::Regex =
+        regex::Regex::new(r"(?i)<analysis>").unwrap();
     static ref SUMMARY_BLOCK_REGEX: regex::Regex =
         regex::Regex::new(r"(?is)<summary>(.*?)</summary>").unwrap();
     static ref SUMMARY_OPENER_REGEX: regex::Regex =
@@ -246,6 +285,10 @@ pub struct CompactionRequest<'a> {
     pub timeout: std::time::Duration,
     pub client: &'a AuthedClient,
     pub workspace_id: &'a str,
+    /// Whether the endpoint accepts the usage-tracking request shape. The agent loop
+    /// learns this from a rejection; sending it again here would make every
+    /// summarization fail on an endpoint the agent itself runs fine against.
+    pub include_usage: bool,
 }
 
 /// Per-step compaction state: the configured window and how many summarizations in a
@@ -260,7 +303,7 @@ impl Compactor {
         Self { context_window, consecutive_failures: 0 }
     }
 
-    /// Summarizes the older part of `messages` in place when the last request's prompt
+    /// Summarizes the older part of `messages` in place when the conversation has
     /// crossed the trigger threshold. Returns the summarization call's own token usage
     /// so the step can bill it.
     ///
@@ -269,17 +312,16 @@ impl Compactor {
     pub async fn maybe_compact(
         &mut self,
         messages: &mut Vec<OpenAIMessage>,
-        last_prompt_tokens: Option<i32>,
+        last_request: LastRequest,
         request: &CompactionRequest<'_>,
     ) -> Option<TokenUsage> {
         if self.consecutive_failures >= MAX_CONSECUTIVE_COMPACTION_FAILURES {
             return None;
         }
 
-        let prompt_tokens = last_prompt_tokens
-            .map(|tokens| tokens.max(0) as usize)
-            .unwrap_or_else(|| estimate_conversation_tokens(messages));
-        if (prompt_tokens as f64) < self.context_window as f64 * COMPACTION_TRIGGER_RATIO {
+        if (projected_prompt_tokens(messages, last_request) as f64)
+            < self.context_window as f64 * COMPACTION_TRIGGER_RATIO
+        {
             return None;
         }
 
@@ -300,9 +342,9 @@ impl Compactor {
                 let compacted = messages.drain(prefix_start..tail_start).count();
                 messages.insert(prefix_start, build_summary_message(&formatted));
                 tracing::info!(
-                    "AI agent compacted {} messages into a summary at {} prompt tokens",
+                    "AI agent compacted {} messages into a summary, {} messages left",
                     compacted,
-                    prompt_tokens
+                    messages.len()
                 );
                 usage
             }
@@ -395,10 +437,17 @@ async fn summarize_prefix(
     } else {
         let base_url = &request.credentials.base_url;
         let api_key = request.credentials.api_key.as_deref().unwrap_or("");
-        let body = request
-            .query_builder
-            .build_request(&build_args, request.client, request.workspace_id)
-            .await?;
+        let body = if request.include_usage {
+            request
+                .query_builder
+                .build_request(&build_args, request.client, request.workspace_id)
+                .await?
+        } else {
+            request
+                .query_builder
+                .build_request_without_usage(&build_args, request.client, request.workspace_id)
+                .await?
+        };
         let endpoint =
             request
                 .query_builder
@@ -478,6 +527,13 @@ mod tests {
         assert_eq!(format_compact_summary(raw), "cut off mid");
     }
 
+    /// Draft notes are not a summary: passing them on would insert the model's own
+    /// scratchpad into the conversation as the record of what happened.
+    #[test]
+    fn format_compact_summary_rejects_a_response_cut_off_inside_the_analysis() {
+        assert_eq!(format_compact_summary("<analysis>ran out of tokens"), "");
+    }
+
     /// A tail opening on a tool message loses the `tool_calls` that produced it, which
     /// every provider rejects.
     #[test]
@@ -495,6 +551,25 @@ mod tests {
         let tail_start = plan_tail_start(&messages, 32000).expect("should compact");
         assert_ne!(messages[tail_start].role, "tool");
         assert!(tail_start >= 1, "the system message is never summarized");
+    }
+
+    /// A single oversized tool result can fill the window on its own; measuring only
+    /// the last request would leave the trigger below threshold until the next request
+    /// has already been refused.
+    #[test]
+    fn projected_prompt_tokens_counts_what_arrived_after_the_last_request() {
+        let messages = vec![
+            message("system", "sys"),
+            message("user", "hi"),
+            message("assistant", "calling a tool"),
+            message("tool", &"x".repeat(40000)),
+        ];
+        let last_request = LastRequest { prompt_tokens: Some(500), message_count: 2 };
+
+        assert_eq!(
+            projected_prompt_tokens(&messages, last_request),
+            500 + 10003
+        );
     }
 
     #[test]

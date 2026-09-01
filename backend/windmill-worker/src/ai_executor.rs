@@ -1,4 +1,4 @@
-use crate::ai::compaction::{CompactionRequest, Compactor};
+use crate::ai::compaction::{CompactionRequest, Compactor, LastRequest};
 use crate::ai::tools::{execute_tool_calls, ToolAbortHandles, ToolExecutionContext};
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
@@ -106,6 +106,56 @@ fn prepare_auto_memory_messages_for_persistence(
     let non_system_messages = strip_system_messages(all_messages);
     let start_idx = non_system_messages.len().saturating_sub(context_length);
     non_system_messages[start_idx..].to_vec()
+}
+
+/// Everything the two compaction sites of the agent loop share. Only the query builder
+/// and `include_usage` differ between them, since both can change mid-run.
+struct CompactionContext<'a> {
+    compactor: Option<&'a mut Compactor>,
+    timeout: Option<std::time::Duration>,
+    credentials: &'a windmill_ai::credentials::ProviderCredentials,
+    args: &'a AIAgentArgs,
+    client: &'a AuthedClient,
+    workspace_id: &'a str,
+}
+
+/// Compacts when the conversation has outgrown the window, billing the summarization
+/// call to the step.
+async fn compact_if_needed(
+    ctx: CompactionContext<'_>,
+    query_builder: &dyn windmill_ai::query_builder::QueryBuilder,
+    include_usage: bool,
+    messages: &mut Vec<OpenAIMessage>,
+    last_request: LastRequest,
+    final_usage: &mut Option<TokenUsage>,
+) {
+    let (Some(compactor), Some(timeout)) = (ctx.compactor, ctx.timeout) else {
+        return;
+    };
+    let usage = compactor
+        .maybe_compact(
+            messages,
+            last_request,
+            &CompactionRequest {
+                query_builder,
+                credentials: ctx.credentials,
+                model: ctx.args.provider.get_model(),
+                temperature: ctx.args.temperature,
+                reasoning_effort: ctx.args.provider.get_reasoning_effort(),
+                max_tokens: ctx.args.max_completion_tokens,
+                timeout,
+                client: ctx.client,
+                workspace_id: ctx.workspace_id,
+                include_usage,
+            },
+        )
+        .await;
+    if let Some(usage) = usage {
+        match final_usage {
+            Some(existing) => existing.accumulate(&usage),
+            None => *final_usage = Some(usage),
+        }
+    }
 }
 
 fn find_module_by_id(
@@ -1153,6 +1203,7 @@ pub async fn run_agent(
         ),
         None => None,
     };
+    let mut last_request = LastRequest { prompt_tokens: None, message_count: 0 };
 
     // Main agent loop
     for i in 0..max_iterations {
@@ -1164,6 +1215,10 @@ pub async fn run_agent(
         if used_structured_output_tool {
             break;
         }
+
+        // How many messages this request carries, so the provider's prompt count can
+        // later be told apart from what the response and its tool results add.
+        let request_message_count = messages.len();
 
         // Handle AWS Bedrock provider specially using the official SDK
         let parsed = if credentials.provider == AIProvider::AWSBedrock {
@@ -1388,7 +1443,10 @@ pub async fn run_agent(
             } => {
                 // What this one request's prompt occupied. `final_usage` sums every
                 // iteration, so it says nothing about how full the context is.
-                let iteration_prompt_tokens = usage.as_ref().and_then(|u| u.prompt_tokens());
+                last_request = LastRequest {
+                    prompt_tokens: usage.as_ref().and_then(|u| u.prompt_tokens()),
+                    message_count: request_message_count,
+                };
 
                 // Accumulate usage from this iteration
                 if let Some(u) = usage {
@@ -1582,31 +1640,22 @@ pub async fn run_agent(
 
                 // Compact between iterations rather than mid-request: the next iteration
                 // is what would carry the grown conversation to the provider.
-                if let (Some(compactor), Some(timeout)) = (compactor.as_mut(), compaction_timeout) {
-                    let compaction_usage = compactor
-                        .maybe_compact(
-                            &mut messages,
-                            iteration_prompt_tokens,
-                            &CompactionRequest {
-                                query_builder: query_builder.as_ref(),
-                                credentials: &credentials,
-                                model: args.provider.get_model(),
-                                temperature: args.temperature,
-                                reasoning_effort: args.provider.get_reasoning_effort(),
-                                max_tokens: args.max_completion_tokens,
-                                timeout,
-                                client,
-                                workspace_id: &job.workspace_id,
-                            },
-                        )
-                        .await;
-                    if let Some(u) = compaction_usage {
-                        match &mut final_usage {
-                            Some(existing) => existing.accumulate(&u),
-                            None => final_usage = Some(u),
-                        }
-                    }
-                }
+                compact_if_needed(
+                    CompactionContext {
+                        compactor: compactor.as_mut(),
+                        timeout: compaction_timeout,
+                        credentials: &credentials,
+                        args,
+                        client,
+                        workspace_id: &job.workspace_id,
+                    },
+                    query_builder.as_ref(),
+                    include_usage,
+                    &mut messages,
+                    last_request,
+                    &mut final_usage,
+                )
+                .await;
             }
             ParsedResponse::Image { base64_data } => {
                 // For image output, upload to S3 and track in conversation
@@ -1659,6 +1708,27 @@ pub async fn run_agent(
             }
         }
     }
+
+    // A turn the model answers without calling a tool leaves the loop on its first
+    // iteration, so this is the only compaction a chat-shaped step ever gets: without it
+    // the conversation is persisted whole and every later turn reloads it, until the
+    // provider refuses the request outright.
+    compact_if_needed(
+        CompactionContext {
+            compactor: compactor.as_mut(),
+            timeout: compaction_timeout,
+            credentials: &credentials,
+            args,
+            client,
+            workspace_id: &job.workspace_id,
+        },
+        query_builder.as_ref(),
+        include_usage,
+        &mut messages,
+        last_request,
+        &mut final_usage,
+    )
+    .await;
 
     // Return the final result
     let final_messages: Vec<Message> = messages

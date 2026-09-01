@@ -12,10 +12,12 @@ const DEFAULT_CONTEXT_WINDOW = 128000
  * Memory an AI agent gets when chat mode configures it: a chat conversation is
  * open-ended, so it keeps everything and summarizes the older part rather than
  * dropping messages off the front.
+ *
+ * A fresh object per call — the step form binds this value and edits it in place, so a
+ * shared one would carry one flow's context_window and memory_id into the next.
  */
-export const DEFAULT_CHAT_MEMORY: MemoryConfig = {
-	kind: 'autocompacted',
-	context_window: DEFAULT_CONTEXT_WINDOW
+export function defaultChatMemory(): MemoryConfig {
+	return { kind: 'autocompacted', context_window: DEFAULT_CONTEXT_WINDOW }
 }
 
 export const AI_AGENT_SCHEMA: Schema = {
@@ -120,7 +122,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 					},
 					required: ['kind'],
 					'x-no-s3-storage-workspace-warning':
-						'When no S3 storage is configured in your workspace settings, memory will be stored in database, which implies a limit of 100KB per memory entry. If you need to store more messages, you should use S3 storage in your workspace settings.'
+						'When no S3 storage is configured in your workspace settings, memory will be stored in database, which implies a limit of 100KB per memory entry. Conversations that grow past it are cut from the oldest message, including the summary, before they ever reach the context window. Configure S3 storage in your workspace settings to keep summarization in charge of what is dropped.'
 				},
 				{
 					type: 'object',

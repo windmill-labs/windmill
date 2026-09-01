@@ -74,8 +74,10 @@ impl Default for OutputType {
     }
 }
 
-/// Context window assumed when the step does not declare one. Every model an AI agent
-/// step can currently be pointed at holds at least this much.
+/// Context window assumed when the step does not declare one, matching the flow editor's
+/// default. A step pointed at a smaller model has to say so: the assumed window is what
+/// compaction measures against, so too large a one never trips and the provider raises
+/// the context error itself.
 const DEFAULT_CONTEXT_WINDOW: usize = 128000;
 
 fn default_context_window() -> usize {

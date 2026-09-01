@@ -47,7 +47,7 @@
 	import type { AiAgent, InputTransform, ScriptLang } from '$lib/gen'
 	import { deepEqual } from 'fast-equals'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { AI_AGENT_SCHEMA, DEFAULT_CHAT_MEMORY } from '../flowInfers'
+	import { AI_AGENT_SCHEMA, defaultChatMemory } from '../flowInfers'
 	import { nextId } from '../flowModuleNextId'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import FlowChat from '../conversations/FlowChat.svelte'
@@ -580,7 +580,7 @@
 								if (key === 'user_message') {
 									accu[key] = { type: 'javascript', expr: 'flow_input.user_message' }
 								} else if (key === 'memory') {
-									accu[key] = { type: 'static', value: DEFAULT_CHAT_MEMORY }
+									accu[key] = { type: 'static', value: defaultChatMemory() }
 								} else {
 									accu[key] = {
 										type: 'static',
@@ -629,7 +629,7 @@
 			if (isUnconfigured(value.input_transforms['memory'])) {
 				value.input_transforms['memory'] = {
 					type: 'static',
-					value: DEFAULT_CHAT_MEMORY
+					value: defaultChatMemory()
 				}
 				applied.push('compacted context memory')
 			}
