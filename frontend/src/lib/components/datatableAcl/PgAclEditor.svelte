@@ -183,7 +183,7 @@
 					</Head>
 					<tbody class="divide-y">
 						{#each grantRows as grant (grant.grantee + grant.objects
-								.map((o) => o.name)
+								.map((o) => `${o.name}(${o.args ?? ''})`)
 								.join() + (grant.future ?? ''))}
 							<Row>
 								<Cell first>{grant.grantee}</Cell>
@@ -192,9 +192,8 @@
 								<Cell last>
 									{#if info.roles.includes(grant.grantee)}
 										<Button
-											size="xs"
-											color="light"
-											variant="border"
+											unifiedSize="xs"
+											variant="default"
 											iconOnly
 											startIcon={{ icon: Trash2 }}
 											title="Revoke"

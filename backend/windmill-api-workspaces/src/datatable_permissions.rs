@@ -27,10 +27,10 @@ use std::collections::{BTreeMap, HashSet};
 use windmill_api_auth::ApiAuthed;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
+use windmill_common::ensure_instance_db_grant_options;
 use windmill_common::error::{pg_error_message, Error, JsonResult, Result};
 use windmill_common::query_builders::{render_db_quoted_identifier, DbType};
 use windmill_common::utils::{rd_string, require_admin};
-use windmill_common::ensure_instance_db_grant_options;
 use windmill_common::workspaces::{
     can_use_datatable_role, datatable_pg_role_name, get_datatable_resource_from_db_unchecked,
     DataTable, DataTableCatalogResourceType, DataTablePermissions, DataTableRole,
@@ -182,6 +182,7 @@ fn plan_role_changes(
     req: &SetDatatablePermissions,
     existing_pg_roles: &HashSet<String>,
     public_schema_is_open: bool,
+    default_acl_rules: &[DefaultAclRule],
 ) -> Result<RolePlan> {
     // A disabled data table has no Postgres roles, whatever its config says, so
     // re-enabling always plans every role as a creation.
@@ -390,9 +391,14 @@ fn plan_role_changes(
                             "Role '{from}' was expected to exist in the database as '{old_pg}' but does not; it will be created as '{pg_rolename}'."
                         ));
                         creates_sql.push(create_role_statement(&pg_rolename, &password));
-                        creates_sql.push(grant_role_to_admin_statement(&pg_rolename, admin_pg_role));
+                        creates_sql
+                            .push(grant_role_to_admin_statement(&pg_rolename, admin_pg_role));
                         creates_sql.push(revoke_public_create_statement(&pg_rolename));
                         creates_sql.push(grant_connect_statement(&pg_rolename, dbname));
+                        creates_sql.extend(replay_default_acl_statements(
+                            &pg_rolename,
+                            default_acl_rules,
+                        ));
                     }
                 }
                 roles.insert(
@@ -429,6 +435,10 @@ fn plan_role_changes(
                 creates_sql.push(grant_role_to_admin_statement(&pg_rolename, admin_pg_role));
                 creates_sql.push(revoke_public_create_statement(&pg_rolename));
                 creates_sql.push(grant_connect_statement(&pg_rolename, dbname));
+                creates_sql.extend(replay_default_acl_statements(
+                    &pg_rolename,
+                    default_acl_rules,
+                ));
                 roles.insert(
                     name.clone(),
                     DataTableRole {
@@ -591,11 +601,7 @@ fn grant_connect_statement(pg_rolename: &str, dbname: &str) -> PlannedStatement 
     ))
 }
 
-pub(crate) async fn read_datatable(
-    db: &DB,
-    w_id: &str,
-    datatable_name: &str,
-) -> Result<DataTable> {
+pub(crate) async fn read_datatable(db: &DB, w_id: &str, datatable_name: &str) -> Result<DataTable> {
     let value = sqlx::query_scalar!(
         "SELECT ws.datatable->'datatables'->$2 FROM workspace_settings ws WHERE ws.workspace_id = $1",
         w_id,
@@ -628,9 +634,7 @@ pub(crate) async fn ensure_instance_db_can_delegate(db: &DB, w_id: &str, datatab
     if datatable.database.resource_type != DataTableCatalogResourceType::Instance {
         return;
     }
-    if let Err(e) =
-        ensure_instance_db_grant_options(db, &datatable.database.resource_path).await
-    {
+    if let Err(e) = ensure_instance_db_grant_options(db, &datatable.database.resource_path).await {
         tracing::warn!(
             "Could not refresh the grant options of instance database '{}': {}. Continuing.",
             datatable.database.resource_path,
@@ -651,6 +655,98 @@ pub(crate) struct AdminConnection {
     /// Whether `PUBLIC` holds CREATE on schema `public`, i.e. every role in this
     /// database — including the ones created here — can make objects in it.
     pub(crate) public_schema_is_open: bool,
+    /// The default-privilege rules already in force for this data table's roles.
+    pub(crate) default_acl_rules: Vec<DefaultAclRule>,
+}
+
+/// One `ALTER DEFAULT PRIVILEGES` rule as the catalog has it.
+///
+/// Postgres records such a rule per creating role, so a role added later is not
+/// covered by any of them: a grant on "future tables" would quietly stop
+/// applying to whatever that new role creates. Replaying the existing rules for
+/// each new role is what keeps the policy whole.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct DefaultAclRule {
+    /// `None` for a rule that is not scoped to a schema.
+    pub(crate) schema: Option<String>,
+    /// `TABLES`, `SEQUENCES`, `FUNCTIONS` or `TYPES`.
+    pub(crate) objects: String,
+    /// Postgres role the privileges go to, or `PUBLIC`.
+    pub(crate) grantee: String,
+    pub(crate) privileges: Vec<String>,
+}
+
+async fn read_default_acl_rules(client: &tokio_postgres::Client) -> Result<Vec<DefaultAclRule>> {
+    // Only the rules of this feature's own roles — and of the data table's
+    // connection — are replayed; the rest of the cluster's policy is not ours to
+    // copy onto a new role.
+    let rows = client
+        .query(
+            "SELECT n.nspname,
+                    CASE d.defaclobjtype
+                        WHEN 'r' THEN 'TABLES' WHEN 'S' THEN 'SEQUENCES'
+                        WHEN 'f' THEN 'FUNCTIONS' ELSE 'TYPES' END,
+                    CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+                    a.privilege_type
+             FROM pg_default_acl d
+             LEFT JOIN pg_namespace n ON n.oid = d.defaclnamespace,
+                  aclexplode(d.defaclacl) a
+             WHERE pg_get_userbyid(d.defaclrole) LIKE 'wm\\_%'
+                OR pg_get_userbyid(d.defaclrole) = current_user",
+            &[],
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to read the default privileges: {}",
+                pg_error_message(&e)
+            ))
+        })?;
+    let mut folded: BTreeMap<(Option<String>, String, String), Vec<String>> = BTreeMap::new();
+    for row in rows {
+        folded
+            .entry((row.get(0), row.get(1), row.get(2)))
+            .or_default()
+            .push(row.get(3));
+    }
+    Ok(folded
+        .into_iter()
+        .map(|((schema, objects, grantee), mut privileges)| {
+            privileges.sort();
+            privileges.dedup();
+            DefaultAclRule { schema, objects, grantee, privileges }
+        })
+        .collect())
+}
+
+/// Put a role that did not exist when a default-privilege rule was written under
+/// that same rule, for what it creates from here on.
+fn replay_default_acl_statements(
+    pg_rolename: &str,
+    rules: &[DefaultAclRule],
+) -> Vec<PlannedStatement> {
+    rules
+        .iter()
+        .filter(|rule| rule.grantee != pg_rolename && !rule.privileges.is_empty())
+        .map(|rule| {
+            let grantee = if rule.grantee == "PUBLIC" {
+                "PUBLIC".to_string()
+            } else {
+                quote_ident(&rule.grantee)
+            };
+            PlannedStatement::plain(format!(
+                "ALTER DEFAULT PRIVILEGES FOR ROLE {}{} GRANT {} ON {} TO {};",
+                quote_ident(pg_rolename),
+                rule.schema
+                    .as_ref()
+                    .map(|s| format!(" IN SCHEMA {}", quote_ident(s)))
+                    .unwrap_or_default(),
+                rule.privileges.join(", "),
+                rule.objects,
+                grantee
+            ))
+        })
+        .collect()
 }
 
 pub(crate) async fn connect_as_admin(
@@ -717,9 +813,17 @@ pub(crate) async fn connect_as_admin(
         })?
         .get(0);
 
+    let default_acl_rules = read_default_acl_rules(&client).await?;
+
     Ok((
         client,
-        AdminConnection { dbname, admin_pg_role, existing_pg_roles, public_schema_is_open },
+        AdminConnection {
+            dbname,
+            admin_pg_role,
+            existing_pg_roles,
+            public_schema_is_open,
+            default_acl_rules,
+        },
     ))
 }
 
@@ -740,6 +844,7 @@ async fn build_plan(
         req,
         &conn.existing_pg_roles,
         conn.public_schema_is_open,
+        &conn.default_acl_rules,
     )?;
     Ok((client, plan))
 }
@@ -1022,6 +1127,16 @@ mod tests {
         existing: &[&str],
         public_schema_is_open: bool,
     ) -> Result<RolePlan> {
+        plan_with_default_acls(old, req, existing, public_schema_is_open, &[])
+    }
+
+    fn plan_with_default_acls(
+        old: Option<&DataTablePermissions>,
+        req: &SetDatatablePermissions,
+        existing: &[&str],
+        public_schema_is_open: bool,
+        default_acl_rules: &[DefaultAclRule],
+    ) -> Result<RolePlan> {
         plan_role_changes(
             W_ID,
             DT,
@@ -1031,6 +1146,7 @@ mod tests {
             req,
             &existing.iter().map(|r| r.to_string()).collect(),
             public_schema_is_open,
+            default_acl_rules,
         )
     }
 
@@ -1071,6 +1187,29 @@ mod tests {
         assert!(plan.permissions.roles[ADMIN_DATATABLE_ROLE]
             .pg_rolename
             .is_none());
+    }
+
+    /// A default-privilege rule binds only the roles it was written for, so a
+    /// role added later would create tables no one else can read.
+    #[test]
+    fn a_new_role_inherits_the_default_privileges_already_in_force() {
+        let req = SetDatatablePermissions {
+            enabled: true,
+            roles: vec![role("admin", &[]), role("writer", &[])],
+            default_role: None,
+            renames: vec![],
+        };
+        let rules = vec![DefaultAclRule {
+            schema: Some("analytics".to_string()),
+            objects: "TABLES".to_string(),
+            grantee: "wm_analyst".to_string(),
+            privileges: vec!["SELECT".to_string()],
+        }];
+        let plan = plan_with_default_acls(None, &req, &[], false, &rules).unwrap();
+        let pg_role = datatable_pg_role_name(W_ID, DT, "writer");
+        assert!(sql(&plan).contains(&format!(
+            "ALTER DEFAULT PRIVILEGES FOR ROLE \"{pg_role}\" IN SCHEMA \"analytics\" GRANT SELECT ON TABLES TO \"wm_analyst\";"
+        ).as_str()));
     }
 
     /// A role-scoped REVOKE cannot take back what PUBLIC holds, so the plan has
@@ -1239,7 +1378,11 @@ mod tests {
         let old_pg = datatable_pg_role_name(W_ID, DT, "analyst");
         let req = SetDatatablePermissions {
             enabled: true,
-            roles: vec![role("admin", &[]), role("reader", &[]), role("analyst", &[])],
+            roles: vec![
+                role("admin", &[]),
+                role("reader", &[]),
+                role("analyst", &[]),
+            ],
             default_role: None,
             renames: vec![DatatableRoleRename {
                 from: "analyst".to_string(),

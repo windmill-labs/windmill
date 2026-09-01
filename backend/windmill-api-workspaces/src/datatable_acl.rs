@@ -58,8 +58,13 @@ pub enum AclTarget {
     /// The data table's own database — where the privilege to create schemas
     /// lives.
     Database,
-    Schema { schema: String },
-    Table { schema: String, table: String },
+    Schema {
+        schema: String,
+    },
+    Table {
+        schema: String,
+        table: String,
+    },
 }
 
 impl AclTarget {
@@ -110,9 +115,9 @@ impl TryFrom<AclTargetQuery> for AclTarget {
             ("database", _, _) => Ok(AclTarget::Database),
             ("schema", Some(schema), _) => Ok(AclTarget::Schema { schema }),
             ("table", Some(schema), Some(table)) => Ok(AclTarget::Table { schema, table }),
-            ("schema" | "table", None, _) => Err(Error::BadRequest(
-                "This target needs a schema".to_string(),
-            )),
+            ("schema" | "table", None, _) => {
+                Err(Error::BadRequest("This target needs a schema".to_string()))
+            }
             ("table", _, None) => Err(Error::BadRequest(
                 "A table target needs a table".to_string(),
             )),
@@ -237,6 +242,10 @@ pub struct AclObject {
     pub name: String,
     /// `TABLE`, `SEQUENCE`, ... — what the object is, since the keyword differs.
     pub kind: String,
+    /// A routine is identified by its argument types, not by its name: two
+    /// `f` in one schema are two objects. Absent for everything else.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub args: Option<String>,
 }
 
 /// A grant as the database has it, in Windmill's vocabulary where it can be.
@@ -461,10 +470,9 @@ fn plan_statements(
             statements.push(format!("ALTER {} OWNER TO {}", target.object(dbname), role));
             for object in existing_objects {
                 statements.push(format!(
-                    "ALTER {} {}.{} OWNER TO {}",
+                    "ALTER {} {} OWNER TO {}",
                     object.keyword,
-                    schema,
-                    quote_ident(&object.name),
+                    object_ref(&schema, &object.name, object.args.as_deref()),
                     role
                 ));
             }
@@ -552,11 +560,10 @@ fn plan_statements(
                 (_, None) if !objects.is_empty() => {
                     for object in objects {
                         statements.push(format!(
-                            "REVOKE {} ON {} {}.{} FROM {}",
+                            "REVOKE {} ON {} {} FROM {}",
                             privileges,
                             object_keyword(&object.kind)?,
-                            schema,
-                            quote_ident(&object.name),
+                            object_ref(&schema, &object.name, object.args.as_deref()),
                             role
                         ));
                     }
@@ -609,6 +616,21 @@ struct OwnedObject {
     name: String,
     /// The keyword `ALTER ... OWNER TO` takes for this kind of object.
     keyword: &'static str,
+    /// Identity arguments of a routine, which is what tells two of the same
+    /// name apart. `None` for a relation.
+    args: Option<String>,
+}
+
+/// `"schema"."name"` — with `(args)` for a routine, which is not identified
+/// without them. `quoted_schema` comes quoted already, being the same for a
+/// whole plan.
+fn object_ref(quoted_schema: &str, name: &str, args: Option<&str>) -> String {
+    format!(
+        "{}.{}{}",
+        quoted_schema,
+        quote_ident(name),
+        args.map(|a| format!("({a})")).unwrap_or_default()
+    )
 }
 
 fn keyword_of_relkind(relkind: i8) -> Option<&'static str> {
@@ -643,13 +665,40 @@ async fn read_owned_objects(
                 pg_error_message(&e)
             ))
         })?;
-    Ok(rows
+    let mut objects: Vec<OwnedObject> = rows
         .into_iter()
         .filter_map(|row| {
-            keyword_of_relkind(row.get::<_, i8>(1))
-                .map(|keyword| OwnedObject { name: row.get(0), keyword })
+            keyword_of_relkind(row.get::<_, i8>(1)).map(|keyword| OwnedObject {
+                name: row.get(0),
+                keyword,
+                args: None,
+            })
         })
-        .collect())
+        .collect();
+    // Routines live in `pg_proc`, not `pg_class`, and would keep the previous
+    // owner while the schema they are in changes hands. `ALTER ROUTINE` covers
+    // functions, procedures and aggregates alike.
+    let routines = client
+        .query(
+            "SELECT p.proname, pg_get_function_identity_arguments(p.oid)
+             FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+             WHERE n.nspname = $1
+             ORDER BY p.proname",
+            &[&schema],
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to list the routines of schema '{schema}': {}",
+                pg_error_message(&e)
+            ))
+        })?;
+    objects.extend(routines.into_iter().map(|row| OwnedObject {
+        name: row.get(0),
+        keyword: "ROUTINE",
+        args: Some(row.get(1)),
+    }));
+    Ok(objects)
 }
 
 async fn get_datatable_acl(
@@ -660,8 +709,8 @@ async fn get_datatable_acl(
 ) -> JsonResult<DatatableAclInfo> {
     let role = query.role.clone();
     let target: AclTarget = query.try_into()?;
-    let (client, conn) = connect_as_caller(&db, &authed, &w_id, &datatable_name, role.as_deref())
-        .await?;
+    let (client, conn) =
+        connect_as_caller(&db, &authed, &w_id, &datatable_name, role.as_deref()).await?;
     let roles = role_map(
         &db,
         &w_id,
@@ -716,8 +765,8 @@ async fn get_datatable_acl(
                 ))
             })?,
     };
-    let owner_row =
-        owner_row.ok_or_else(|| Error::NotFound(format!("{} not found", target.label(&conn.dbname))))?;
+    let owner_row = owner_row
+        .ok_or_else(|| Error::NotFound(format!("{} not found", target.label(&conn.dbname))))?;
     let owner: String = owner_row.get(0);
     // Membership in the owning role is what Postgres asks for before an ALTER
     // ... OWNER or a GRANT on something you do not own; `admin` holds every role
@@ -789,7 +838,7 @@ async fn read_grants(
         AclTarget::Database => client
             .query(
                 "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
-                        a.privilege_type, NULL::text, NULL::text, NULL::text
+                        a.privilege_type, NULL::text, NULL::text, NULL::text, NULL::text
                  FROM pg_database d, aclexplode(d.datacl) a
                  WHERE d.datname = current_database()",
                 &[],
@@ -800,7 +849,7 @@ async fn read_grants(
             let mut out = client
                 .query(
                     "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
-                            a.privilege_type, NULL::text, NULL::text, NULL::text
+                            a.privilege_type, NULL::text, NULL::text, NULL::text, NULL::text
                      FROM pg_namespace n, aclexplode(n.nspacl) a
                      WHERE n.nspname = $1",
                     &[schema],
@@ -812,10 +861,29 @@ async fn read_grants(
                     .query(
                         "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
                                 a.privilege_type, c.relname, NULL::text,
-                                CASE c.relkind WHEN 'S' THEN 'SEQUENCE' ELSE 'TABLE' END
+                                CASE c.relkind WHEN 'S' THEN 'SEQUENCE' ELSE 'TABLE' END,
+                                NULL::text
                          FROM pg_class c
                          JOIN pg_namespace n ON n.oid = c.relnamespace,
                               aclexplode(c.relacl) a
+                         WHERE n.nspname = $1",
+                        &[schema],
+                    )
+                    .await
+                    .map_err(grant_read_error)?,
+            );
+            out.extend(
+                client
+                    .query(
+                        // Routines carry their own acl in `pg_proc`; without this
+                        // a grant made here would vanish on the next read and
+                        // could never be revoked back.
+                        "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+                                a.privilege_type, p.proname, NULL::text, 'FUNCTION',
+                                pg_get_function_identity_arguments(p.oid)
+                         FROM pg_proc p
+                         JOIN pg_namespace n ON n.oid = p.pronamespace,
+                              aclexplode(p.proacl) a
                          WHERE n.nspname = $1",
                         &[schema],
                     )
@@ -829,7 +897,7 @@ async fn read_grants(
                                 a.privilege_type, NULL::text,
                                 CASE d.defaclobjtype
                                     WHEN 'r' THEN 'TABLES' WHEN 'S' THEN 'SEQUENCES'
-                                    WHEN 'f' THEN 'FUNCTIONS' ELSE 'TYPES' END, NULL::text
+                                    WHEN 'f' THEN 'FUNCTIONS' ELSE 'TYPES' END, NULL::text, NULL::text
                          FROM pg_default_acl d
                          JOIN pg_namespace n ON n.oid = d.defaclnamespace,
                               aclexplode(d.defaclacl) a
@@ -844,7 +912,7 @@ async fn read_grants(
         AclTarget::Table { schema, table } => client
             .query(
                 "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
-                        a.privilege_type, NULL::text, NULL::text, NULL::text
+                        a.privilege_type, NULL::text, NULL::text, NULL::text, NULL::text
                  FROM pg_class c
                  JOIN pg_namespace n ON n.oid = c.relnamespace,
                       aclexplode(c.relacl) a
@@ -857,18 +925,31 @@ async fn read_grants(
 
     // One row per privilege — and, for default privileges, one per creating
     // role. Fold them back into one entry per grantee and object.
-    let mut folded: BTreeMap<(String, Option<(String, String)>, Option<String>), Vec<String>> =
-        BTreeMap::new();
+    let mut folded: BTreeMap<
+        (
+            String,
+            Option<(String, String, Option<String>)>,
+            Option<String>,
+        ),
+        Vec<String>,
+    > = BTreeMap::new();
     for row in rows.drain(..) {
         let grantee: String = row.get(0);
         let privilege: String = row.get(1);
         let object: Option<String> = row.get(2);
         let future: Option<String> = row.get(3);
         let object_kind: Option<String> = row.get(4);
+        let object_args: Option<String> = row.get(5);
         folded
             .entry((
                 windmill_role_of(roles, &grantee),
-                object.map(|name| (name, object_kind.unwrap_or_else(|| "TABLE".to_string()))),
+                object.map(|name| {
+                    (
+                        name,
+                        object_kind.unwrap_or_else(|| "TABLE".to_string()),
+                        object_args,
+                    )
+                }),
                 future,
             ))
             .or_default()
@@ -882,7 +963,7 @@ async fn read_grants(
             AclGrant {
                 grantee,
                 privileges,
-                object: object.map(|(name, kind)| AclObject { name, kind }),
+                object: object.map(|(name, kind, args)| AclObject { name, kind, args }),
                 future,
             }
         })
@@ -967,7 +1048,8 @@ async fn apply_datatable_acl(
 ) -> Result<String> {
     // Granting is passing a privilege on, which this connection cannot do for a
     // privilege it holds without the grant option.
-    crate::datatable_permissions::ensure_instance_db_can_delegate(&db, &w_id, &datatable_name).await;
+    crate::datatable_permissions::ensure_instance_db_can_delegate(&db, &w_id, &datatable_name)
+        .await;
 
     let (mut client, plan, dbname) =
         build_acl_plan(&db, &authed, &w_id, &datatable_name, &req).await?;
@@ -1020,8 +1102,13 @@ mod tests {
     #[test]
     fn set_owner_covers_the_schema_and_what_is_in_it() {
         let objects = vec![
-            OwnedObject { name: "orders".to_string(), keyword: "TABLE" },
-            OwnedObject { name: "orders_id_seq".to_string(), keyword: "SEQUENCE" },
+            OwnedObject { name: "orders".to_string(), keyword: "TABLE", args: None },
+            OwnedObject { name: "orders_id_seq".to_string(), keyword: "SEQUENCE", args: None },
+            OwnedObject {
+                name: "total".to_string(),
+                keyword: "ROUTINE",
+                args: Some("integer, text".to_string()),
+            },
         ];
         let plan = plan_statements(
             &schema(),
@@ -1033,11 +1120,14 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            plan.statements[..3],
+            plan.statements[..4],
             [
                 r#"ALTER SCHEMA "analytics" OWNER TO "wm_analyst_1""#.to_string(),
                 r#"ALTER TABLE "analytics"."orders" OWNER TO "wm_analyst_1""#.to_string(),
                 r#"ALTER SEQUENCE "analytics"."orders_id_seq" OWNER TO "wm_analyst_1""#.to_string(),
+                // A routine is only named by its arguments.
+                r#"ALTER ROUTINE "analytics"."total"(integer, text) OWNER TO "wm_analyst_1""#
+                    .to_string(),
             ]
         );
         // What the other roles create later stays within the owner's reach.
@@ -1151,6 +1241,7 @@ mod tests {
                 objects: vec![AclObject {
                     name: "orders".to_string(),
                     kind: "TABLE".to_string(),
+                    args: None,
                 }],
             },
             "dt_probe",
@@ -1244,8 +1335,8 @@ mod tests {
                 privileges: vec!["SELECT".to_string()],
                 scope: GrantScope::Target,
                 objects: vec![
-                    AclObject { name: "a".to_string(), kind: "TABLE".to_string() },
-                    AclObject { name: "b".to_string(), kind: "TABLE".to_string() },
+                    AclObject { name: "a".to_string(), kind: "TABLE".to_string(), args: None },
+                    AclObject { name: "b".to_string(), kind: "TABLE".to_string(), args: None },
                 ],
             },
             "dt_probe",

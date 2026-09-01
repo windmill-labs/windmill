@@ -34197,6 +34197,9 @@ components:
         kind:
           type: string
           description: TABLE, SEQUENCE, ... — the keyword a REVOKE on it takes
+        args:
+          type: string
+          description: identity arguments of a routine, which is what tells two of the same name apart
 
     AclGrant:
       type: object

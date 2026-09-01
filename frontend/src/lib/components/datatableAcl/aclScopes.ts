@@ -133,8 +133,13 @@ export function groupGrants(grants: AclGrant[]): GroupedGrant[] {
 /** How a row reads back: what it covers, in one phrase. */
 export function grantScopeLabel(grant: GroupedGrant): string {
 	if (grant.future) return `${grant.future.toLowerCase()} created later`
-	if (grant.objects.length === 1)
-		return `${grant.objects[0].kind.toLowerCase()} ${grant.objects[0].name}`
+	if (grant.objects.length === 1) {
+		const object = grant.objects[0]
+		// A routine's arguments are part of what it is, so two of the same name
+		// would otherwise read as one row twice.
+		const args = object.args !== undefined ? `(${object.args})` : ''
+		return `${object.kind.toLowerCase()} ${object.name}${args}`
+	}
 	if (grant.objects.length > 1)
 		return `${grant.objects.length} ${grant.objects[0].kind.toLowerCase()}s`
 	return 'itself'
