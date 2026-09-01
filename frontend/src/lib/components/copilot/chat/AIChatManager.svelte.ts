@@ -2857,8 +2857,11 @@ export class AIChatManager {
 				this.#scheduleAutoResumeRetry()
 			} else {
 				if (!options.queued) {
+					// Programmatic prompts (askAi, fix) stage their text in
+					// `this.instructions` and pass no option — fall back to it so
+					// they are handed back too.
 					this.restoreToInput(
-						expanded(chatDraft(options.instructions ?? '', options.pastes ?? [])),
+						expanded(chatDraft(options.instructions ?? this.instructions, options.pastes ?? [])),
 						options.images,
 						options.files
 					)

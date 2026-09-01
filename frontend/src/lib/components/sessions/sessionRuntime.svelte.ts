@@ -998,10 +998,23 @@ async function applyRemoteTurnEnd(sessionId: string, chatId: string): Promise<vo
 	const runtime = runtimes.get(sessionId)
 	if (!runtime) return
 	const m = runtime.manager
-	// A turn started in THIS tab meanwhile — it owns the transcript now, and
-	// commits into it at its end (loadPastChat refuses under it anyway).
-	if (m.loading || m.sendInFlight) return
-	if ((await m.historyManager.reloadChat(chatId)) !== 'loaded') return
+	// Two transient states get a short retry rather than a skip, because the
+	// composer unlocks when this promise settles and a skip would unlock it on
+	// stale history: a send of this tab's own still in preflight (it may yet be
+	// refused, leaving no turn to converge on), and a store that failed to
+	// open. A turn actually running here owns the transcript instead — its own
+	// end converges — and the pruner caps the whole hold at STALE_MS anyway.
+	for (let attempt = 0; ; attempt++) {
+		if (m.loading) return
+		if (!m.sendInFlight) {
+			const res = await m.historyManager.reloadChat(chatId)
+			if (res === 'missing') return
+			if (res === 'loaded') break
+		}
+		if (attempt >= 7) return
+		await new Promise((r) => setTimeout(r, 500))
+		if (runtimes.get(sessionId) !== runtime) return
+	}
 	// Disposed (session deleted, teardown) while the read was in flight.
 	if (runtimes.get(sessionId) !== runtime) return
 	// Adopts the driver's chat unconditionally, current view included: watching

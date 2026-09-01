@@ -1175,9 +1175,10 @@ async function patchStoredSessionChatId(s: Session, chatId: string): Promise<voi
 			return
 		}
 		await tx.done
-		// Not yet persisted: the in-memory record is the whole truth (putSession
-		// re-applies the transient/tombstone/workspace guards).
-		await putSession(s)
+		// No stored row: either the record is not yet persisted — its own
+		// materialization writes it later with the chatId already set in memory —
+		// or another tab deleted it, and an upsert here would resurrect it. No
+		// write either way.
 	} catch (e) {
 		console.error('Failed to persist session chat id', e)
 	}

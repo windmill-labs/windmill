@@ -716,7 +716,10 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					{/snippet}
 				</Popover>
 				<Button
-					title="New chat"
+					title={aiChatManager.runHeldElsewhere
+						? 'Wait for the turn in the other tab to start a new chat'
+						: 'New chat'}
+					disabled={aiChatManager.runHeldElsewhere}
 					on:click={() => {
 						saveAndClear()
 					}}
@@ -1095,7 +1098,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								{/snippet}
 							</Tooltip>
 						{/if}
-						{#if aiChatManager.mode === AIMode.SCRIPT && hasDiff}
+						{#if aiChatManager.mode === AIMode.SCRIPT && hasDiff && !disabled}
 							<ChatQuickActions {askAi} {diffMode} />
 						{/if}
 					</div>
