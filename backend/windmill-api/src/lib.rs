@@ -454,11 +454,11 @@ pub async fn run_server(
     // one every other route shares. (`Mcp-Param-*` is only sent for tool inputs
     // annotated with `x-mcp-header`, which no tool here declares.)
     //
-    // The request's own header list is mirrored rather than enumerated, because
-    // every request header reaches a runnable's preprocessor: a browser MCP client
-    // may send any custom name, and no fixed list could cover them. Nothing is
-    // granted by echoing it: the origin is `Any`, so browsers never attach
-    // credentials, and the endpoint authenticates each request on its own.
+    // The request's own header list is mirrored rather than enumerated: a browser
+    // MCP client may send any custom name for a preprocessor to read, and no fixed
+    // list could cover them. Nothing is granted by echoing it: the origin is
+    // `Any`, so browsers never attach credentials, and the endpoint authenticates
+    // each request on its own.
     let mcp_cors = CorsLayer::new()
         .allow_methods([http::Method::GET, http::Method::POST, http::Method::DELETE])
         .allow_headers(tower_http::cors::AllowHeaders::mirror_request())

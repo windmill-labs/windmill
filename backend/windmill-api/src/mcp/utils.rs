@@ -721,15 +721,11 @@ struct McpPreprocessorEvent<'a> {
     tool_name: &'a str,
 }
 
-/// Headers withheld from a preprocessor because they authenticate the connection
-/// itself.
+/// Headers withheld from a preprocessor because they authenticate the connection.
 ///
-/// Not a security boundary — a webhook preprocessor receives all three, and the
-/// asymmetry that would justify withholding them here does not survive scrutiny.
-/// They are withheld because nothing needs them yet and this is the direction
-/// that stays reversible: releasing one later is additive, while withdrawing one
-/// after a runnable reads it is not. `cookie` has the strongest case, since a
-/// same-origin browser client attaches it without the caller choosing to.
+/// Not a security boundary: a webhook preprocessor receives all three. Withheld
+/// because nothing needs them yet, and releasing one later is additive while
+/// withdrawing one after runnables read it is not.
 const WITHHELD_FROM_PREPROCESSOR: &[&str] = &["authorization", "cookie", "proxy-authorization"];
 
 /// Every header a preprocessor may see.

@@ -130,7 +130,15 @@ async fn test_mcp_preprocessor_receives_the_callers_headers(
         async {
             mcp_post(
                 port,
-                &[("X-User-Id", "alice@corp.example")],
+                // Every name the withheld list covers has to be on the wire, or
+                // asserting its absence proves nothing. `Authorization` is already
+                // set by `mcp_post`, and `extract_token` reads it before the
+                // cookie, so sending one does not disturb auth.
+                &[
+                    ("X-User-Id", "alice@corp.example"),
+                    ("Cookie", "session=secret"),
+                    ("Proxy-Authorization", "Basic Zm9v"),
+                ],
                 json!({
                     "jsonrpc": "2.0", "id": 2, "method": "tools/call",
                     // The model names the header it wants to spoof. Its value is an
