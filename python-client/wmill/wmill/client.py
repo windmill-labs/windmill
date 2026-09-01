@@ -2369,6 +2369,11 @@ def stream_result(stream) -> None:
     for text in stream:
         append_to_result_stream(text)
 
+#: Role names the server accepts, so a value carrying a newline cannot close the
+#: annotation and append statements of its own.
+_ROLE_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,63}$")
+
+
 class DataTableClient:
     """Client for executing SQL queries against Windmill DataTables."""
 
@@ -2381,6 +2386,10 @@ class DataTableClient:
             role: DataTable role to run as, on a datatable with permissions
                 enabled (default: the data table's default role)
         """
+        if role is not None and not _ROLE_NAME_RE.match(role):
+            raise ValueError(
+                f"Invalid data table role '{role}': must be 1-63 characters of letters, digits, '_' or '-'"
+            )
         self.client = client
         self.role = role
         self.name, self.schema = parse_sql_client_name(name)

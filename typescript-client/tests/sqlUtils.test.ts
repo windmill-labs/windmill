@@ -38,11 +38,18 @@ interface SqlProvider {
   providerName: string;
 }
 
+const ROLE_NAME_RE = /^[A-Za-z0-9_-]{1,63}$/;
+
 function datatableProvider(
   name: string,
   schema?: string,
   role?: string
 ): SqlProvider {
+  if (role !== undefined && !ROLE_NAME_RE.test(role)) {
+    throw new Error(
+      `Invalid data table role '${role}': must be 1-63 characters of letters, digits, '_' or '-'`
+    );
+  }
   return {
     providerName: "datatable",
     language: "postgresql",
@@ -544,6 +551,15 @@ describe("datatable() — template tag", () => {
   test("query() also emits the role annotation first", () => {
     const out = datatableQuery("main", "analyst")("SELECT $1", 42);
     expect(out.content.split("\n")[0]).toBe("-- role analyst");
+  });
+
+  test("a role that is not a role name is refused, not annotated", () => {
+    // The annotation is a comment line: a newline in the value would end it and
+    // leave the rest as SQL running under whatever role the first line named.
+    expect(() => dt("main", "admin\nDELETE FROM customers")).toThrow(
+      /Invalid data table role/
+    );
+    expect(() => dt("main", "operator-1")).not.toThrow();
   });
 });
 

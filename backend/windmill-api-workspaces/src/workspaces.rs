@@ -3712,7 +3712,13 @@ async fn edit_datatable_config(
             .and_then(|old| old.permissions.clone());
     }
 
-    let args_for_audit = format!("{:?}", new_config.settings);
+    // The settings carry each role's generated login password, and an audit
+    // parameter is stored in the clear and traced.
+    let args_for_audit = serde_json::to_value(&new_config.settings)
+        .ok()
+        .and_then(|v| redact_datatable_settings_for_export(Some(v)))
+        .map(|v| v.to_string())
+        .unwrap_or_default();
     audit_log(
         &mut *tx,
         &authed,

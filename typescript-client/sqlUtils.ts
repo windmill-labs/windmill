@@ -134,11 +134,20 @@ interface SqlProvider {
   providerName: string;
 }
 
+/** Role names the server accepts, so a value carrying a newline cannot close the
+ * annotation and append statements of its own. */
+const ROLE_NAME_RE = /^[A-Za-z0-9_-]{1,63}$/;
+
 function datatableProvider(
   name: string,
   schema?: string,
   role?: string
 ): SqlProvider {
+  if (role !== undefined && !ROLE_NAME_RE.test(role)) {
+    throw new Error(
+      `Invalid data table role '${role}': must be 1-63 characters of letters, digits, '_' or '-'`
+    );
+  }
   return {
     providerName: "datatable",
     language: "postgresql",
