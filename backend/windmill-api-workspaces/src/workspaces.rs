@@ -3712,13 +3712,9 @@ async fn edit_datatable_config(
             .and_then(|old| old.permissions.clone());
     }
 
-    // The settings carry each role's generated login password, and an audit
-    // parameter is stored in the clear and traced.
-    let args_for_audit = serde_json::to_value(&new_config.settings)
-        .ok()
-        .and_then(|v| redact_datatable_settings_for_export(Some(v)))
-        .map(|v| v.to_string())
-        .unwrap_or_default();
+    // The settings carry each role's generated login password.
+    let args_for_audit =
+        windmill_common::workspaces::datatable_settings_for_audit(&new_config.settings);
     audit_log(
         &mut *tx,
         &authed,

@@ -1111,6 +1111,16 @@ pub fn redact_datatable_settings_for_export(
     Some(datatable)
 }
 
+/// The data table settings as one audit parameter, which is stored and traced
+/// in the clear — so it goes through the same redaction as any other export.
+pub fn datatable_settings_for_audit(settings: &impl Serialize) -> String {
+    serde_json::to_value(settings)
+        .ok()
+        .and_then(|v| redact_datatable_settings_for_export(Some(v)))
+        .map(|v| v.to_string())
+        .unwrap_or_default()
+}
+
 /// Postgres caps identifiers at 63 bytes (NAMEDATALEN - 1) and silently
 /// truncates past it, which would collapse two distinct roles onto one.
 const PG_IDENTIFIER_MAX_LEN: usize = 63;
@@ -2846,9 +2856,11 @@ mod tests {
         assert!(datatable_role_entry(&dt, "main", Some("analyst")).is_err());
         // admin and "no role" both mean the existing connection, so they are fine.
         assert!(datatable_role_entry(&dt, "main", None).unwrap().is_none());
-        assert!(datatable_role_entry(&dt, "main", Some(ADMIN_DATATABLE_ROLE))
-            .unwrap()
-            .is_none());
+        assert!(
+            datatable_role_entry(&dt, "main", Some(ADMIN_DATATABLE_ROLE))
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
@@ -2865,6 +2877,8 @@ mod tests {
                 "other": { "database": { "resource_type": "instance", "resource_path": "db2" } }
             }
         });
+        // The audit parameter is that same redaction, not a Debug of the settings.
+        assert!(!datatable_settings_for_audit(&settings).contains("s3cret"));
         let redacted = redact_datatable_settings_for_export(Some(settings)).unwrap();
         let analyst = &redacted["datatables"]["main"]["permissions"]["roles"]["analyst"];
         assert!(analyst.get("pg_password").is_none());
