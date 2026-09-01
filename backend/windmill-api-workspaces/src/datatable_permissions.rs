@@ -120,7 +120,10 @@ pub(crate) struct PlannedStatement {
 
 impl PlannedStatement {
     /// Only the planner builds these, and that is the enterprise module.
-    #[cfg_attr(not(feature = "private"), allow(dead_code))]
+    #[cfg_attr(
+        not(all(feature = "private", feature = "enterprise")),
+        allow(dead_code)
+    )]
     pub(crate) fn plain(sql: String) -> Self {
         Self { display: sql.clone(), sql }
     }
@@ -134,9 +137,10 @@ pub(crate) struct RolePlan {
     pub(crate) warnings: Vec<String>,
 }
 
-/// Refuse to plan a change on a binary that carries the enterprise modules but
-/// no active plan. Without them there is no planner at all, so this is the whole
-/// gate on an enterprise build.
+/// Refuse to plan a change on an enterprise binary whose plan does not cover it.
+/// A build that is not enterprise has no planner at all — see
+/// [`crate::datatable_permissions_oss`] — so this only has the licensed
+/// editions left to tell apart.
 pub(crate) async fn require_datatable_permissions_license() -> Result<()> {
     #[cfg(feature = "enterprise")]
     if !matches!(
@@ -151,7 +155,10 @@ pub(crate) async fn require_datatable_permissions_license() -> Result<()> {
 }
 
 /// Only the planners quote identifiers, and those are the enterprise modules.
-#[cfg_attr(not(feature = "private"), allow(dead_code))]
+#[cfg_attr(
+    not(all(feature = "private", feature = "enterprise")),
+    allow(dead_code)
+)]
 pub(crate) fn quote_ident(ident: &str) -> String {
     render_db_quoted_identifier(ident, DbType::Postgresql)
 }
@@ -223,29 +230,36 @@ pub(crate) struct DefaultAclRule {
     pub(crate) schema: Option<String>,
     /// `TABLES`, `SEQUENCES`, `FUNCTIONS` or `TYPES`.
     pub(crate) objects: String,
-    /// Postgres role the privileges go to, or `PUBLIC`.
+    /// Postgres role the privileges go to, always one of this data table's own.
     pub(crate) grantee: String,
     pub(crate) privileges: Vec<String>,
 }
 
-async fn read_default_acl_rules(client: &tokio_postgres::Client) -> Result<Vec<DefaultAclRule>> {
-    // Only the rules of this feature's own roles — and of the data table's
-    // connection — are replayed; the rest of the cluster's policy is not ours to
-    // copy onto a new role.
+/// The rules this data table's own roles wrote, which are the only ones a role
+/// of this data table inherits.
+///
+/// Scoped to `own_pg_roles` on both sides. Two data tables can point at one
+/// physical database — and share its administrative login — so a rule is ours
+/// only when both the role that wrote it and the role it grants to are.
+async fn read_default_acl_rules(
+    client: &tokio_postgres::Client,
+    own_pg_roles: &[String],
+) -> Result<Vec<DefaultAclRule>> {
     let rows = client
         .query(
             "SELECT n.nspname,
                     CASE d.defaclobjtype
                         WHEN 'r' THEN 'TABLES' WHEN 'S' THEN 'SEQUENCES'
                         WHEN 'f' THEN 'FUNCTIONS' ELSE 'TYPES' END,
-                    CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+                    pg_get_userbyid(a.grantee),
                     a.privilege_type
              FROM pg_default_acl d
              LEFT JOIN pg_namespace n ON n.oid = d.defaclnamespace,
                   aclexplode(d.defaclacl) a
-             WHERE pg_get_userbyid(d.defaclrole) LIKE 'wm\\_%'
-                OR pg_get_userbyid(d.defaclrole) = current_user",
-            &[],
+             WHERE pg_get_userbyid(d.defaclrole) = ANY($1)
+               AND a.grantee <> 0
+               AND pg_get_userbyid(a.grantee) = ANY($1)",
+            &[&own_pg_roles],
         )
         .await
         .map_err(|e| {
@@ -338,7 +352,19 @@ pub(crate) async fn connect_as_admin(
         })?
         .get(0);
 
-    let default_acl_rules = read_default_acl_rules(&client).await?;
+    // The roles a rule of this data table can be written by or granted to: its
+    // own, plus the connection they were all created from.
+    let mut own_pg_roles = vec![admin_pg_role.clone()];
+    own_pg_roles.extend(
+        read_datatable(db, w_id, datatable_name)
+            .await?
+            .permissions
+            .filter(|p| p.enabled)
+            .into_iter()
+            .flat_map(|p| p.roles.into_values())
+            .filter_map(|role| role.pg_rolename),
+    );
+    let default_acl_rules = read_default_acl_rules(&client, &own_pg_roles).await?;
 
     Ok((
         client,

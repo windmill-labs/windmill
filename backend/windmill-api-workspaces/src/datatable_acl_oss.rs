@@ -9,20 +9,21 @@
 //! Where the ACL planner comes from: the enterprise one, or a refusal.
 //!
 //! Reading who owns what stays open; every owner change and every grant is the
-//! plan this returns, so an edition without the enterprise module cannot make
-//! one.
+//! plan this returns, so an edition that is not enterprise cannot make one.
+//! `private` alone is not that edition: community builds carry it, so the
+//! planner is behind `enterprise` as well.
 
-#[cfg(feature = "private")]
+#[cfg(all(feature = "private", feature = "enterprise"))]
 #[allow(unused)]
 pub(crate) use crate::datatable_acl_ee::*;
 
-#[cfg(not(feature = "private"))]
+#[cfg(not(all(feature = "private", feature = "enterprise")))]
 use {
     crate::datatable_acl::{AclChange, AclPlan, AclTarget, OwnedObject},
     windmill_common::error::{Error, Result},
 };
 
-#[cfg(not(feature = "private"))]
+#[cfg(not(all(feature = "private", feature = "enterprise")))]
 pub(crate) fn plan_statements(
     _target: &AclTarget,
     _change: &AclChange,

@@ -2515,7 +2515,8 @@ async fn get_datatable_schema(
     datatable_name: &str,
 ) -> Result<SchemaMap> {
     // Get the datatable resource (connection credentials)
-    let db_resource = get_datatable_resource_as_default_role(db, authed, w_id, datatable_name).await?;
+    let db_resource =
+        get_datatable_resource_as_default_role(db, authed, w_id, datatable_name).await?;
 
     // Parse the resource as PgDatabase
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
@@ -2764,7 +2765,8 @@ async fn get_datatable_table_columns(
         )));
     }
 
-    let db_resource = get_datatable_resource_as_default_role(db, authed, w_id, datatable_name).await?;
+    let db_resource =
+        get_datatable_resource_as_default_role(db, authed, w_id, datatable_name).await?;
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
     let (client, connection) = pg_db.connect(Some(db)).await?;

@@ -68,6 +68,15 @@ pub enum AclTarget {
 }
 
 impl AclTarget {
+    /// The schema the target is in, absent for the database itself.
+    pub(crate) fn schema(&self) -> Option<&str> {
+        match self {
+            AclTarget::Database => None,
+            AclTarget::Schema { schema } => Some(schema),
+            AclTarget::Table { schema, .. } => Some(schema),
+        }
+    }
+
     /// What it is called in a message.
     pub(crate) fn label(&self, dbname: &str) -> String {
         match self {
@@ -438,6 +447,89 @@ async fn read_owned_objects(
     Ok(objects)
 }
 
+/// The keyword a `REVOKE ... ON` takes for one object, checked rather than
+/// interpolated: it lands in SQL unquoted.
+pub(crate) fn object_keyword(kind: &str) -> Result<&'static str> {
+    match kind.to_uppercase().as_str() {
+        "TABLE" | "VIEW" | "MATERIALIZED VIEW" | "FOREIGN TABLE" => Ok("TABLE"),
+        "SEQUENCE" => Ok("SEQUENCE"),
+        "FUNCTION" => Ok("FUNCTION"),
+        other => Err(Error::BadRequest(format!("Unknown object kind '{other}'"))),
+    }
+}
+
+/// Every object of a schema, named the way the catalog names it.
+async fn read_schema_objects(
+    client: &tokio_postgres::Client,
+    schema: &str,
+) -> Result<Vec<AclObject>> {
+    let rows = client
+        .query(
+            "SELECT CASE c.relkind WHEN 'S' THEN 'SEQUENCE' ELSE 'TABLE' END, c.relname, NULL::text
+             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE n.nspname = $1 AND c.relkind = ANY(ARRAY['r','p','v','m','S','f']::\"char\"[])
+             UNION ALL
+             SELECT 'FUNCTION', p.proname, pg_get_function_identity_arguments(p.oid)
+             FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+             WHERE n.nspname = $1",
+            &[&schema],
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to list the objects of schema '{schema}': {}",
+                pg_error_message(&e)
+            ))
+        })?;
+    Ok(rows
+        .into_iter()
+        .map(|row| AclObject { kind: row.get(0), name: row.get(1), args: row.get(2) })
+        .collect())
+}
+
+/// Replace the objects a revoke names with the catalog's own entry for each.
+///
+/// A routine is identified by its argument types, and those go into the
+/// statement as written — there is no quoting for them — so the request may name
+/// an object but never spell one: what reaches the SQL is read back from
+/// Postgres. An object that resolves to nothing is refused rather than dropped,
+/// since a revoke that silently covers less than it says is worse than an error.
+async fn resolve_acl_objects(
+    client: &tokio_postgres::Client,
+    target: &AclTarget,
+    objects: &[AclObject],
+) -> Result<Vec<AclObject>> {
+    if objects.is_empty() {
+        return Ok(vec![]);
+    }
+    let Some(schema) = target.schema() else {
+        return Err(Error::BadRequest(
+            "A database has no objects of its own to revoke on".to_string(),
+        ));
+    };
+    let known = read_schema_objects(client, schema).await?;
+    objects
+        .iter()
+        .map(|requested| {
+            let keyword = object_keyword(&requested.kind)?;
+            known
+                .iter()
+                .find(|k| {
+                    k.name == requested.name
+                        && k.args == requested.args
+                        && object_keyword(&k.kind).is_ok_and(|k| k == keyword)
+                })
+                .cloned()
+                .ok_or_else(|| {
+                    Error::NotFound(format!(
+                        "'{}' is not an object of schema '{schema}'",
+                        requested.name
+                    ))
+                })
+        })
+        .collect()
+}
+
 async fn get_datatable_acl(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -754,9 +846,20 @@ async fn build_acl_plan(
         }
         _ => vec![],
     };
+    // The objects a revoke names come from the request; the ones it plans with
+    // come from the catalog.
+    let change = match &req.change {
+        AclChange::Revoke { role, privileges, scope, objects } => AclChange::Revoke {
+            role: role.clone(),
+            privileges: privileges.clone(),
+            scope: *scope,
+            objects: resolve_acl_objects(&client, &req.target, objects).await?,
+        },
+        change => change.clone(),
+    };
     let plan = crate::datatable_acl_oss::plan_statements(
         &req.target,
-        &req.change,
+        &change,
         &conn.dbname,
         &pg_role,
         &other_pg_roles,

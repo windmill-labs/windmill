@@ -9,9 +9,11 @@ pub mod workspaces;
 pub mod workspaces_extra;
 pub mod workspaces_oss;
 
-#[cfg(feature = "private")]
+// Community builds carry `private`, so the data table planners take the
+// enterprise feature too: what they plan is enterprise-only.
+#[cfg(all(feature = "private", feature = "enterprise"))]
 pub mod datatable_acl_ee;
-#[cfg(feature = "private")]
+#[cfg(all(feature = "private", feature = "enterprise"))]
 pub mod datatable_permissions_ee;
 #[cfg(feature = "private")]
 pub mod workspaces_ee;
