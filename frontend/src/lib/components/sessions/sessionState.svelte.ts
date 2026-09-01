@@ -1151,7 +1151,33 @@ export function setSessionChatId(sessionId: string, chatId: string) {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
 	if (s && s.chatId !== chatId) {
 		s.chatId = chatId
-		void putSession(s)
+		void patchStoredSessionChatId(s, chatId)
+	}
+}
+
+// Persists the pointer through the STORED row, not this tab's copy: another
+// tab may have written newer fields (summary, tabs, archive state) since this
+// tab last read the record, and a whole-object put would roll them back — a
+// watcher adopting the driver's rotation reaches here with exactly that copy.
+async function patchStoredSessionChatId(s: Session, chatId: string): Promise<void> {
+	if (!BROWSER || s.transient || deletedSessionIds.has(s.id)) return
+	const db = await sessionsDb.whenReady()
+	if (!db) return
+	try {
+		const tx = db.transaction('sessions', 'readwrite')
+		const stored = await tx.store.get(s.id)
+		if (stored && !deletedSessionIds.has(s.id)) {
+			stored.chatId = chatId
+			await tx.store.put(stored)
+			await tx.done
+			return
+		}
+		await tx.done
+		// Not yet persisted: the in-memory record is the whole truth (putSession
+		// re-applies the transient/tombstone/workspace guards).
+		await putSession(s)
+	} catch (e) {
+		console.error('Failed to persist session chat id', e)
 	}
 }
 

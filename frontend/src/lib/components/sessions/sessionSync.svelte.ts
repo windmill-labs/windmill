@@ -148,9 +148,9 @@ function ensurePruner(): void {
 // (the re-read is idempotent and the next turn-end names the right one).
 const heartbeats = new Map<string, { timer: ReturnType<typeof setInterval>; chatId: string }>()
 
-/** Posted synchronously from the run's first state change, before its first
- *  await, so the window in which another tab can start a competing send is
- *  broadcast latency alone. */
+/** Posted when the run's loading bracket opens — after the send's attachment
+ *  upkeep awaits, so a competing send can start during them; the sender's own
+ *  post-preflight re-check is what refuses one that did. */
 export function localRunStarted(sessionId: string, chatId: string): void {
 	if (heartbeats.has(sessionId)) return
 	post({ kind: 'run-heartbeat', sessionId, from: TAB_ID })
