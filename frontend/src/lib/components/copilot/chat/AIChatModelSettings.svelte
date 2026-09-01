@@ -192,6 +192,10 @@
 				delete prompts[activeMode]
 			}
 			setUserCustomPrompts(prompts)
+			// These live in localStorage, which nothing observes, so the chat is told
+			// rather than left to pick them up on its next send. `update_user_instructions`
+			// already rebuilds this way when the assistant edits the same block.
+			aiChatManager.rebuildGlobalSystemMessage()
 			initialPrompt = value
 			customPrompts = { [activeMode]: value }
 			sendUserToast('User AI prompt saved')
