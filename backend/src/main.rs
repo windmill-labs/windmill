@@ -422,11 +422,24 @@ pub struct HubResourceType {
     pub description: Option<String>,
     /// Doubly optional on purpose. A cache written before this column has no key at
     /// all (`None`) and must leave the stored extension alone; one written since
-    /// always has the key, so an explicit null (`Some(None)`) is the hub genuinely
+    /// always writes the key, so an explicit null (`Some(None)`) is the hub genuinely
     /// dropping it and must clear. A single `Option` conflates the two, and picking
-    /// either meaning breaks the other.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// either meaning breaks the other — as does plain serde, which folds `null`
+    /// into the outer `None`, hence the wrapping deserializer.
+    #[serde(default, deserialize_with = "deserialize_optional_field")]
     pub format_extension: Option<Option<String>>,
+}
+
+/// `None` for an absent field, `Some(None)` for an explicit `null`.
+fn deserialize_optional_field<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<Option<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Some(<Option<String> as serde::Deserialize>::deserialize(
+        deserializer,
+    )?))
 }
 
 const HUB_RT_CACHE_FILE: &str = "resource_types.json";
@@ -545,9 +558,6 @@ pub async fn sync_cached_resource_types(db: &sqlx::Pool<sqlx::Postgres>) -> anyh
     let mut skipped_count = 0;
 
     for rt in cached_types {
-        // A fileset is a set of files, so it cannot also be one file. Create, update
-        // and the manual sync all reject the pair; this writer would otherwise
-        // persist it onto a same-named local fileset.
         let existing = existing_map.get(&rt.name);
         let is_fileset = existing.map(|(_, _, _, f)| *f).unwrap_or(false);
         let stored_extension = existing.and_then(|(_, _, e, _)| e.clone());

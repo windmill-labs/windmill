@@ -575,7 +575,10 @@
 
 	function getCommandFilter(text: string): string | undefined {
 		if (aiChatManager.mode !== AIMode.GLOBAL || !aiChatManager.isSessionChat) return undefined
-		const match = /^\/([a-z0-9-]*)$/.exec(text)
+		// Same character set the submit path expands, so a name the picker can insert
+		// does not close the picker as soon as it is typed. Paths reach here too, via
+		// the row inserted for an ambiguous name.
+		const match = /^\/([\p{L}\p{N}_\-/]*)$/u.exec(text)
 		return match?.[1]
 	}
 
