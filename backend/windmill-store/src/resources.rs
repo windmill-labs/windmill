@@ -1187,6 +1187,27 @@ async fn create_resource(
         .await?;
     }
     if update_if_exists {
+        // An upsert over an existing row is an edit, so it answers to the same
+        // rule: a permissioned data table's roles live in the database its
+        // resource names, and that is not free to move while they exist.
+        let previous = sqlx::query_scalar!(
+            "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
+            resource.path,
+            w_id
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten();
+        let nvalue: serde_json::Value = serde_json::from_str(raw_json.0.get())
+            .map_err(|e| Error::BadRequest(format!("Invalid resource value: {e}")))?;
+        windmill_common::workspaces::ensure_resource_identity_change_allowed(
+            &db,
+            &w_id,
+            &resource.path,
+            previous.as_ref(),
+            Some(&nvalue),
+        )
+        .await?;
         sqlx::query!(
             "INSERT INTO resource
                 (workspace_id, path, value, description, resource_type, created_by, edited_at, labels)
