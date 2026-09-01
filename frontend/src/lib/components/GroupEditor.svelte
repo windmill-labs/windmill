@@ -315,11 +315,16 @@
 			return { name, created }
 		} catch (e) {
 			sendUserToast(e.body ?? String(e), true)
-			// A rejected create is left as a rejected create. `create_group` commits before a
-			// git-sync step that can still fail it, so the group may exist — but probing for it
-			// cannot tell that apart from the name being taken by someone else's group, and
-			// mistaking one for the other would point this draft's writes at that group. The
-			// cost of not probing is narrower: reopen the drawer and edit the group.
+			// `create_group` commits before a git-sync step that can still fail the request, so
+			// a create that did not reject the name may have saved the group anyway. Say so
+			// rather than resolving it here: existence cannot be told apart from the name simply
+			// belonging to someone else, and adopting the wrong one would point this draft's
+			// writes at their group. A 4xx is the name being refused, which is unambiguous.
+			// Not `>= 500`: a response that never arrived throws without a status at all.
+			const nameRefused = e?.status >= 400 && e?.status < 500
+			if (created && !nameRefused) {
+				sendUserToast(`Group ${name} may have been created anyway — reopen it to check`, true)
+			}
 			// The calls are sequential, so a rejection can land with earlier ones committed. Move
 			// the baseline to what the server now holds and keep the draft: what was applied
 			// stops being dirty, what was not stays dirty, and a retry re-sends only that.
