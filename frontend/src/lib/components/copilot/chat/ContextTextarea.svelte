@@ -736,9 +736,9 @@
 		textarea?.focus()
 	}
 
-	// Wipe after dispatching a send: pre-zero `prevMentionedTitles` so the
-	// effect above sees no diff when `value` clears, leaving `selectedContext`
-	// untouched until `AIChatManager.beforeSend` snapshots it. A manual
+	// Wipe after dispatching a send: pre-zero `prevMentionedTitles` so the effect
+	// above sees no diff when `value` clears, leaving `selectedContext` for the
+	// send that is already carrying it to settle (see the caller). A manual
 	// textarea clear by the user keeps the old behaviour (badges drop).
 	export function clearForSend() {
 		prevMentionedTitles = new Set()

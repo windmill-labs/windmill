@@ -2164,6 +2164,98 @@ describe('AIChatManager queued messages', () => {
 		expect(chips.map((c) => c.selector)).toEqual(['div.card'])
 	})
 
+	// The composer consumes an `@` mention on send, so a send that never became a
+	// turn has to give it back — otherwise the restored text keeps its `@` token
+	// with nothing behind it.
+	it('restores a cancelled GLOBAL send’s @ mentions', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		const cm = manager.contextManager
+		const mention = {
+			type: 'workspace_script' as const,
+			path: 'f/etl/sync',
+			title: 'f/etl/sync'
+		}
+		// What the composer does at submit: pin what it carries, then consume.
+		const carried = [mention]
+		cm.setSelectedContext([])
+		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
+			abortController.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+
+		await manager.sendRequest({
+			instructions: 'why does this retry',
+			contextOverride: carried,
+			contextOverrideOrigin: 'pinned'
+		})
+
+		expect(cm.getSelectedContext()).toEqual([mention])
+	})
+
+	// The mode switcher stays live while a turn streams, so the restore is keyed
+	// to the mode the send was submitted in. Reading the mode at rollback time
+	// would strand the mention behind a `@` token that resolves to nothing.
+	it('restores a GLOBAL send’s @ mentions after a mid-turn switch to SCRIPT', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		const cm = manager.contextManager
+		const mention = { type: 'workspace_script' as const, path: 'f/etl/sync', title: 'f/etl/sync' }
+		cm.setSelectedContext([])
+		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
+			// The user navigates to a script editor while the turn is streaming.
+			manager.mode = AIMode.SCRIPT
+			abortController.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+
+		await manager.sendRequest({
+			instructions: 'why does this retry',
+			contextOverride: [mention],
+			contextOverrideOrigin: 'pinned'
+		})
+
+		expect(cm.getSelectedContext()).toEqual([mention])
+	})
+
+	// Attachments are refused outside GLOBAL, and the refusal sits past the
+	// preflight awaits — so it is reached exactly when a GLOBAL submit's mode
+	// changed underneath it, and owes that send its mentions back.
+	it('restores mentions when a GLOBAL send is refused for switching modes with attachments', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		const cm = manager.contextManager
+		const mention = { type: 'workspace_script' as const, path: 'f/etl/sync', title: 'f/etl/sync' }
+		cm.setSelectedContext([])
+
+		const pending = manager.sendRequest({
+			instructions: 'describe this image',
+			images: [{ id: 'img-1', dataUrl: 'data:image/png;base64,AAAA' } as any],
+			contextOverride: [mention],
+			contextOverrideOrigin: 'pinned'
+		})
+		manager.mode = AIMode.SCRIPT
+		await pending
+
+		expect(cm.getSelectedContext()).toEqual([mention])
+	})
+
+	// The editor modes show mentions as chips the user deletes by hand, so the
+	// restore must never re-add one they removed.
+	it('leaves an editor mode’s context alone when a queued draft comes back', () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.SCRIPT
+		const cm = manager.contextManager
+		const mention = { type: 'workspace_script' as const, path: 'f/etl/sync', title: 'f/etl/sync' }
+		manager.queueMessage('fix this', [], [mention])
+		// The user deletes the chip while the turn streams.
+		cm.setSelectedContext([])
+
+		manager.dequeueMessage()
+
+		expect(cm.getSelectedContext()).toEqual([])
+	})
+
 	it('restores a dequeued inline prompt’s pinned DOM context, replacing the live selection', () => {
 		const manager = createManager(createInputMock())
 		const cm = manager.contextManager
@@ -2279,6 +2371,90 @@ describe('AIChatManager queued messages', () => {
 		expect(input.restoreInstructions).toHaveBeenCalledWith('look', [], [img('a')], [])
 		// the optimistic bubble is rolled back
 		expect(manager.displayMessages).toHaveLength(0)
+	})
+
+	// The composer consumes mentions before calling in, so a send that never left
+	// the preflight has to give them back with the text. GLOBAL renders no chip for
+	// them, so a mention lost here is invisible: the restored `@` token silently
+	// resolves to nothing, and a mention-only draft comes back empty.
+	it('restores consumed mentions when beforeSend rejects a GLOBAL send', async () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		manager.mode = AIMode.GLOBAL
+		const mention = { type: 'workspace_script' as const, path: 'f/etl/sync', title: 'f/etl/sync' }
+		manager.contextManager.setSelectedContext([])
+		manager.beforeSend = vi.fn().mockRejectedValue(new Error('workspace fork failed'))
+
+		const accepted = await manager.sendRequest({
+			instructions: '@f/etl/sync fix this',
+			contextOverride: [mention],
+			contextOverrideOrigin: 'pinned'
+		})
+
+		expect(accepted).toBe(false)
+		expect(manager.contextManager.getSelectedContext()).toEqual([mention])
+	})
+
+	it('restores consumed mentions when a GLOBAL send is cancelled during the preflight', async () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		manager.mode = AIMode.GLOBAL
+		const mention = { type: 'workspace_script' as const, path: 'f/etl/sync', title: 'f/etl/sync' }
+		manager.contextManager.setSelectedContext([])
+		// Stop/Escape while "Creating workspace fork..." is showing.
+		manager.beforeSend = vi.fn().mockImplementation(async () => {
+			manager.cancel('user_cancelled')
+		})
+
+		await manager.sendRequest({
+			instructions: '@f/etl/sync fix this',
+			contextOverride: [mention],
+			contextOverrideOrigin: 'pinned'
+		})
+
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(manager.contextManager.getSelectedContext()).toEqual([mention])
+	})
+
+	// The gate, and the reason the restore is not unconditional: an occupied
+	// composer declines the dead draft's text, and its mentions would then ride the
+	// draft the user is writing now and every turn after it.
+	it('does not restore mentions into a draft the composer kept', async () => {
+		const input = createInputMock()
+		input.restoreInstructions.mockReturnValue(false)
+		const manager = createManager(input)
+		manager.mode = AIMode.GLOBAL
+		const mention = { type: 'workspace_script' as const, path: 'f/etl/sync', title: 'f/etl/sync' }
+		manager.contextManager.setSelectedContext([])
+		manager.beforeSend = vi.fn().mockRejectedValue(new Error('workspace fork failed'))
+
+		await manager.sendRequest({
+			instructions: '@f/etl/sync fix this',
+			contextOverride: [mention],
+			contextOverrideOrigin: 'pinned'
+		})
+
+		expect(manager.contextManager.getSelectedContext()).toEqual([])
+	})
+
+	// The bit-identity tripwire: an editor mode reaches these same bailouts with a
+	// contextOverride (a replay, a queued flush) and must come out of them with the
+	// selection main would have left.
+	it('leaves an editor mode’s selection untouched through the same bailout', async () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		manager.mode = AIMode.SCRIPT
+		const mention = { type: 'workspace_script' as const, path: 'f/etl/sync', title: 'f/etl/sync' }
+		manager.contextManager.setSelectedContext([])
+		manager.beforeSend = vi.fn().mockRejectedValue(new Error('workspace fork failed'))
+
+		await manager.sendRequest({
+			instructions: 'fix this',
+			contextOverride: [mention],
+			contextOverrideOrigin: 'pinned'
+		})
+
+		expect(manager.contextManager.getSelectedContext()).toEqual([])
 	})
 
 	it('drops the queued message when switching conversations (no cross-chat leak)', async () => {
