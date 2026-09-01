@@ -19,7 +19,7 @@ use crate::{
 };
 
 /// Whether `label` denotes a user-created token rather than a system token
-/// (`session`, `ephemeral*`, `debugger-token`, `mcp-oauth-*`). System-token
+/// (`session`, `guest_session`, `ephemeral*`, `debugger-token`, `mcp-oauth-*`). System-token
 /// labels are load-bearing — session cleanup, super_admin propagation, expiry
 /// notifications and username overrides all key off them — so they must not be
 /// user-editable. `None` (no label) is treated as a user token.
@@ -36,6 +36,7 @@ pub fn is_user_token(label: Option<&str>) -> bool {
             // frontend mirror (`label.toLowerCase().startsWith('ephemeral')`) and
             // the SQL `lower(label) NOT LIKE 'ephemeral%'` guard.
             l != "session"
+                && l != GUEST_SESSION_LABEL
                 && !l.to_lowercase().starts_with("ephemeral")
                 && l != "debugger-token"
                 && !l.starts_with("mcp-oauth-")
@@ -72,6 +73,11 @@ pub fn is_server_minted_label(label: &str) -> bool {
 pub const GUEST_SESSION_LABEL: &str = "guest_session";
 
 /// Whether `label` marks a guest session. See [`GUEST_SESSION_LABEL`].
+///
+/// Reserved in [`is_user_token`] as well as [`is_server_minted_label`]: the former
+/// gates relabelling, and a user token that could be relabelled *into* this
+/// namespace would become a guest session with no workspace pin — one that
+/// authenticates everywhere.
 pub fn is_guest_session_label(label: Option<&str>) -> bool {
     label == Some(GUEST_SESSION_LABEL)
 }

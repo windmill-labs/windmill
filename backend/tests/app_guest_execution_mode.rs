@@ -255,6 +255,37 @@ async fn a_self_declared_guest_scope_grants_nothing(db: Pool<Postgres>) -> anyho
         "the guest session label must be server-minted only"
     );
 
+    // ...and so must relabelling an ordinary token into it, or the pin-less user
+    // token would become a guest session that authenticates in every workspace.
+    let resp = authed(
+        client().post(format!("http://localhost:{port}/api/users/tokens/create")),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({ "label": "mine", "scopes": guest_scopes() }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    let prefix: String = sqlx::query_scalar(
+        "SELECT token_prefix FROM token WHERE email = 'test@windmill.dev' AND label = 'mine'",
+    )
+    .fetch_one(&db)
+    .await?;
+    let resp = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/users/tokens/update_label/{prefix}"
+        )),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({ "label": "guest_session" }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "relabelling into the guest namespace must be refused: {}",
+        resp.text().await?
+    );
+
     // ...and a token that carries the scopes under any other label authenticates as
     // nothing in a workspace its owner is not a member of.
     // An email with no `usr` row anywhere: exactly the identity the guest arm exists
@@ -277,6 +308,124 @@ async fn a_self_declared_guest_scope_grants_nothing(db: Pool<Postgres>) -> anyho
         resp.status(),
         401,
         "declaring the guest scope must not turn a non-member into an identity"
+    );
+
+    Ok(())
+}
+
+/// A guest-mode policy that names one runnable, so an `execute_component` request
+/// gets past the triggerables lookup and reaches the guest gate.
+fn guest_app_with_runnable(path: &str) -> serde_json::Value {
+    json!({
+        "path": path,
+        "summary": "Guest app",
+        "value": {},
+        "policy": {
+            "execution_mode": "guest",
+            "triggerables_v2": {
+                "script/u/test-user/noop": { "static_inputs": {}, "one_of_inputs": {} }
+            }
+        }
+    })
+}
+
+fn execute(port: u16, ws: &str, app: &str, token: &str) -> reqwest::RequestBuilder {
+    authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/{ws}/apps_u/execute_component/{app}"
+        )),
+        token,
+    )
+    .json(&json!({
+        "component": "a",
+        "path": "script/u/test-user/noop",
+        "args": {}
+    }))
+}
+
+/// The run path re-reads the workspace switch instead of trusting mint time. This is
+/// the only thing standing between a `guest` policy pushed by git-sync and execution
+/// once an admin has turned guests off.
+#[sqlx::test(fixtures("base"))]
+async fn execute_component_re_checks_the_workspace_switch(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
+        .json(&guest_app_with_runnable(APP_PATH))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    insert_guest_token(&db, "test-workspace").await?;
+
+    // Switch off: refused at the gate, even though the app's policy says guest and
+    // the session was (in this fixture) issued regardless.
+    let resp = execute(port, "test-workspace", APP_PATH, GUEST_TOKEN)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "a guest must not run components while the workspace has guests off"
+    );
+
+    // Switch on: past the gate. What follows is the runnable lookup, which fails on
+    // the nonexistent script — the point is that it is no longer a 403.
+    authed(
+        client().post(format!("{ws}/workspaces/edit_guest_access")),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({ "guest_access_enabled": true }))
+    .send()
+    .await?;
+    let resp = execute(port, "test-workspace", APP_PATH, GUEST_TOKEN)
+        .send()
+        .await?;
+    assert_ne!(
+        resp.status(),
+        403,
+        "with guests on, the guest gate must let the run through: {}",
+        resp.text().await?
+    );
+
+    Ok(())
+}
+
+/// The path scope is what keeps a guest to the one app it was let in for: the route
+/// layer is resource-blind for `apps:run`, so this line is drawn in the handler.
+#[sqlx::test(fixtures("base"))]
+async fn guest_cannot_run_another_guest_app(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    authed(
+        client().post(format!("{ws}/workspaces/edit_guest_access")),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({ "guest_access_enabled": true }))
+    .send()
+    .await?;
+    let other = "u/test-user/other_guest_app";
+    let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
+        .json(&guest_app_with_runnable(other))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    insert_guest_token(&db, "test-workspace").await?; // scoped to APP_PATH, not `other`
+
+    let resp = execute(port, "test-workspace", other, GUEST_TOKEN)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "a guest session scoped to one app must not run another, even one open to guests"
     );
 
     Ok(())

@@ -467,7 +467,7 @@
 						value="guest"
 						disabled={(!canSetGuest || !$enterpriseLicense) && policy.execution_mode != 'guest'}
 						tooltip={$enterpriseLicense
-							? 'Anyone who signs in through your identity provider. No workspace membership, no seat.'
+							? 'Anyone your identity provider authenticates who has no Windmill account, plus workspace members. No membership, no seat.'
 							: 'Guest sign-in is a Windmill Enterprise Edition feature.'}
 						{item}
 					/>
@@ -492,8 +492,8 @@
 					Guests are turned off for this workspace, so this app still admits members only. A
 					workspace admin can turn them on in the workspace settings.
 				{:else}
-					Anyone your identity provider authenticates can open this app. They join no workspace and
-					take no seat.
+					Anyone your identity provider authenticates can open this app without a Windmill account.
+					They join no workspace and take no seat. Members of this workspace can open it too.
 				{/if}
 			{:else}
 				Only workspace members with read access on this app can open it.

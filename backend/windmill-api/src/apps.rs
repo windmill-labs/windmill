@@ -335,8 +335,12 @@ fn deployment_rule_for_mode(mode: ExecutionMode) -> Option<ProtectionRuleKind> {
 /// A guest is authorized by its token's scope and never by an ACL probe: it holds no
 /// `usr` row, so RLS finds nothing for it and every guest would read as having no
 /// access. That scope is also what keeps a guest session to the one app it was minted
-/// for, even though the mode itself admits anyone signed in.
-pub fn authorize_non_member_viewer(
+/// for, even though the mode itself admits anyone signed in. The workspace switch is
+/// re-read for a guest here as it is on the run path, so turning guests off closes
+/// the app to sessions already issued rather than waiting out their expiry.
+pub async fn authorize_non_member_viewer(
+    db: &DB,
+    w_id: &str,
     mode: ExecutionMode,
     app_path: &str,
     opt_authed: &Option<ApiAuthed>,
@@ -352,6 +356,11 @@ pub fn authorize_non_member_viewer(
     let is_guest = windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref());
     if matches!(mode, ExecutionMode::Guest) {
         if is_guest {
+            if !windmill_common::workspaces::is_guest_access_enabled(db, w_id).await? {
+                return Err(Error::PermissionDenied(format!(
+                    "app {app_path} is not open to guests"
+                )));
+            }
             check_scopes(authed, || format!("apps:read:{}", app_path))?;
         }
         return Ok(true);
@@ -367,6 +376,7 @@ pub fn authorize_non_member_viewer(
 /// [`authorize_non_member_viewer`] plus the member read-access probe, for the
 /// entry points that address an app by id.
 async fn authorize_app_viewer(
+    db: &DB,
     mode: ExecutionMode,
     app_path: &str,
     app_id: i64,
@@ -374,7 +384,7 @@ async fn authorize_app_viewer(
     user_db: &UserDB,
     opt_authed: &Option<ApiAuthed>,
 ) -> Result<()> {
-    if authorize_non_member_viewer(mode, app_path, opt_authed)? {
+    if authorize_non_member_viewer(db, w_id, mode, app_path, opt_authed).await? {
         return Ok(());
     }
     let authed = opt_authed
@@ -1320,6 +1330,7 @@ async fn get_public_app_by_secret(
     let policy = serde_json::from_str::<Policy>(app.policy.0.get()).map_err(to_anyhow)?;
 
     authorize_app_viewer(
+        &db,
         policy.execution_mode(),
         &app.path,
         id,
@@ -1666,8 +1677,18 @@ pub async fn mint_app_embed_token(
         // guest session is. `mint_raw_app_sdk_token` has the same shape.
         ensure_scopes_within_caller(authed, Some(&scopes))?;
         scopes.push(windmill_api_auth::scopes::APP_EMBED_SENTINEL.to_string());
+        // An embed token minted by a guest has to resolve the same way the guest's
+        // own session does — through the label, since there is no `usr` row behind
+        // the email. With the ordinary label the iframe's every request would 401.
+        // The `app_embed` sentinel pushed above still confines it more tightly than
+        // the session that minted it.
+        let label = if windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref()) {
+            windmill_common::auth::GUEST_SESSION_LABEL.to_string()
+        } else {
+            format!("embed_app:{app_path}")
+        };
         let token_config = NewToken::new(
-            Some(format!("embed_app:{app_path}")),
+            Some(label),
             Some(expiration),
             None,
             Some(scopes),
@@ -1698,8 +1719,11 @@ pub async fn mint_app_embed_token(
 
 #[derive(Serialize)]
 pub struct GuestEntry {
-    /// The app path to name when starting a guest sign-in.
-    app_path: String,
+    /// The workspace and app path to name when starting a guest sign-in. The
+    /// workspace is redundant on the secret route and load-bearing on the custom-path
+    /// one, which may not carry it in its URL.
+    pub workspace_id: String,
+    pub app_path: String,
 }
 
 /// Whether the app behind this share secret admits guests, and under what path.
@@ -1727,7 +1751,7 @@ async fn get_guest_entry(
     {
         return Err(Error::NotFound("App is not open to guests".to_string()));
     }
-    Ok(Json(GuestEntry { app_path: app.path }))
+    Ok(Json(GuestEntry { workspace_id: w_id, app_path: app.path }))
 }
 
 /// Issue an embed token for a public app addressed by its (secret) share id.
@@ -1783,7 +1807,7 @@ async fn get_app_embed_token(
         } else {
             ExecutionMode::Publisher
         };
-        authorize_app_viewer(mode, &app.path, id, &w_id, &user_db, &opt_authed).await?;
+        authorize_app_viewer(&db, mode, &app.path, id, &w_id, &user_db, &opt_authed).await?;
         opt_authed
     };
 
@@ -3996,8 +4020,16 @@ async fn execute_component(
         }
     };
 
-    // Check rate limit for anonymous (public) executions
-    if matches!(policy.execution_mode(), ExecutionMode::Anonymous) && opt_authed.is_none() {
+    // Rate limit for executions by callers the workspace does not know: anonymous
+    // viewers, and guests — on an instance whose provider accepts any consumer
+    // account, "anyone the IdP authenticates" is close to the anonymous population,
+    // and each run costs a job as the publisher.
+    let is_guest_caller = opt_authed
+        .as_ref()
+        .is_some_and(|a| windmill_api_auth::scopes::has_guest_sentinel(a.scopes.as_deref()));
+    if (matches!(policy.execution_mode(), ExecutionMode::Anonymous) && opt_authed.is_none())
+        || is_guest_caller
+    {
         if let Some(limit) = crate::workspaces::get_public_app_rate_limit(&db, &w_id).await? {
             if limit > 0 {
                 crate::public_app_rate_limit::check_and_increment(&w_id, limit)?;
@@ -4012,10 +4044,7 @@ async fn execute_component(
     // The workspace switch is re-read here rather than trusted from mint time, so
     // turning guests off stops them running code within the request, not within the
     // session's remaining lifetime. One indexed lookup, and only on the guest path.
-    if let Some(authed) = opt_authed
-        .as_ref()
-        .filter(|a| windmill_api_auth::scopes::has_guest_sentinel(a.scopes.as_deref()))
-    {
+    if let Some(authed) = opt_authed.as_ref().filter(|_| is_guest_caller) {
         if !matches!(policy.execution_mode(), ExecutionMode::Guest)
             || !windmill_common::workspaces::is_guest_access_enabled(&db, &w_id).await?
         {

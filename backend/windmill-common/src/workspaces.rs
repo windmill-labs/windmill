@@ -794,6 +794,28 @@ pub async fn is_guest_access_enabled(db: &crate::DB, w_id: &str) -> Result<bool>
     .unwrap_or(false))
 }
 
+/// Both gates at once: the workspace admits guests and `app_path` is in `guest`
+/// execution mode. The single answer to "may a guest session be minted for this app",
+/// used by the mint itself and by the sign-in branch that decides whether to call it.
+/// A missing app or a policy with no stated mode reads as "no".
+pub async fn guest_app_admits<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(
+    executor: E,
+    w_id: &str,
+    app_path: &str,
+) -> Result<bool> {
+    let admits: Option<bool> = sqlx::query_scalar(
+        "SELECT COALESCE(ws.guest_access_enabled AND app.policy->>'execution_mode' = 'guest', false)
+         FROM app JOIN workspace_settings ws ON ws.workspace_id = app.workspace_id
+         WHERE app.workspace_id = $1 AND app.path = $2",
+    )
+    .bind(w_id)
+    .bind(app_path)
+    .fetch_optional(executor)
+    .await
+    .map_err(|e| Error::internal_err(format!("checking guest access to {w_id}/{app_path}: {e:#}")))?;
+    Ok(admits.unwrap_or(false))
+}
+
 /// Billable members of `w_id` and the seats they cost, as `ceil(developers + operators/2)`. Service
 /// accounts cannot log in and do not take a seat; a disabled member is not billed either.
 ///

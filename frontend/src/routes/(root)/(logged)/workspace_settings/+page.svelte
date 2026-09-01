@@ -2177,7 +2177,7 @@ export async function main(
 
 							<SettingCard
 								label="Guests"
-								description="Let anyone your identity provider authenticates open the apps set to Guests. They join no workspace, see nothing else, and take no seat. Off by default. Turning it off stops new guests from signing in even for apps already set to Guests; sessions already open run out on their own."
+								description="Let anyone your identity provider authenticates open the apps set to Guests without a Windmill account. They join no workspace, see nothing else, and take no seat. Off by default. Turning it off stops guests immediately, even for apps already set to Guests."
 								class="mt-6"
 							>
 								<Toggle

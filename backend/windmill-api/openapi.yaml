@@ -8846,6 +8846,27 @@ paths:
                 required:
                   - app
 
+  /apps_u/guest_entry_by_custom_path/{custom_path}:
+    get:
+      summary: whether the app behind a custom path admits guests
+      description: >-
+        The custom-path counterpart of `getGuestEntry`. Unauthenticated; 404 unless
+        the app's execution mode is `guest` AND its workspace has
+        `guest_access_enabled`. Returns the workspace too, since a custom URL may not
+        carry it.
+      operationId: getGuestEntryByCustomPath
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/CustomPath"
+      responses:
+        "200":
+          description: the app is open to guests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuestEntry"
+
   /apps_u/public_app_by_custom_path/{custom_path}:
     get:
       summary: get public app by custom path
@@ -13027,12 +13048,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  app_path:
-                    type: string
-                required:
-                  - app_path
+                $ref: "#/components/schemas/GuestEntry"
 
   /w/{workspace}/apps_u/public_app/{path}:
     get:
@@ -35071,6 +35087,17 @@ components:
       description: Configuration of protection restrictions
       items:
         $ref: "#/components/schemas/ProtectionRuleKind"
+    GuestEntry:
+      type: object
+      description: What a signed-out visitor needs to start a guest sign-in.
+      properties:
+        workspace_id:
+          type: string
+        app_path:
+          type: string
+      required:
+        - workspace_id
+        - app_path
     ProtectionRuleKind:
       type: string
       enum:

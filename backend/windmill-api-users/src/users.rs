@@ -2970,11 +2970,11 @@ fn guest_session_scopes(app_path: &str) -> Vec<String> {
 /// chrome-less public app page calls none of them; a page that needs one for a guest
 /// has to become workspace-scoped rather than the pin being loosened.
 ///
-/// Refuses unless `app_path` is currently in `guest` execution mode, so no caller can
-/// mint a guest session for an app that does not admit one. The caller still owes the
-/// workspace switch ([`windmill_common::workspaces::is_guest_access_enabled`]) and the
-/// authentication of `email` — this function trusts neither the path nor the workspace
-/// on its own, only that the identity provider vouched for who is asking.
+/// Refuses unless both gates say yes — the workspace admits guests and `app_path` is
+/// currently in `guest` execution mode — so no caller can mint a guest session where
+/// one is not wanted, whatever it believed when it decided to call. The one thing left
+/// to the caller is the authentication of `email`: this function trusts only that the
+/// identity provider vouched for who is asking.
 pub async fn create_guest_session_token<'c>(
     email: &str,
     w_id: &str,
@@ -2994,14 +2994,7 @@ pub async fn create_guest_session_token<'c>(
     };
     let scopes = guest_session_scopes(app_path);
 
-    let mode: Option<Option<String>> = sqlx::query_scalar(
-        "SELECT policy->>'execution_mode' FROM app WHERE workspace_id = $1 AND path = $2",
-    )
-    .bind(w_id)
-    .bind(app_path)
-    .fetch_optional(&mut **tx)
-    .await?;
-    if mode.flatten().as_deref() != Some("guest") {
+    if !windmill_common::workspaces::guest_app_admits(&mut **tx, w_id, app_path).await? {
         return Err(Error::NotAuthorized(format!(
             "app {app_path} is not open to guests"
         )));
@@ -3401,6 +3394,7 @@ async fn update_token_label(
            WHERE email = $2 AND token_prefix = $3
              AND (label IS NULL OR (
                  label <> 'session'
+                 AND label <> 'guest_session'
                  AND lower(label) NOT LIKE 'ephemeral%'
                  AND label <> 'debugger-token'
                  AND label NOT LIKE 'mcp-oauth-%'

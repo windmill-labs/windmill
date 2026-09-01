@@ -58,6 +58,20 @@
 
 	let workspace: string | undefined = $state(undefined)
 	let refresh: (() => void) | undefined
+	/** `<workspace>/<app_path>` when this app is open to guests. Resolved eagerly:
+	 * PublicAppFrame renders its sign-in gate before `onViewerReady` fires. */
+	let guestAppPath: string | undefined = $state(undefined)
+
+	async function loadGuestEntry() {
+		try {
+			const entry = await AppService.getGuestEntryByCustomPath({
+				customPath: parsedCustomPath.path
+			})
+			guestAppPath = `${entry.workspace_id}/${entry.app_path}`
+		} catch {
+			guestAppPath = undefined
+		}
+	}
 
 	// Embedder side: validate access (main session cookie or shared JWT) and mint
 	// a scoped embed token for the opaque iframe (WIN-2006).
@@ -113,17 +127,26 @@
 			} else {
 				notExists = true
 			}
+			// The app exists and admits guests; the load failed only for want of a
+			// session, so offer one instead of the not-found page.
+			await loadGuestEntry()
+			if (guestAppPath) {
+				notExists = false
+				noPermission = true
+			}
 		}
 	}
 
 	if (BROWSER) {
 		setLicense()
+		loadGuestEntry()
 	}
 </script>
 
 <PublicAppFrame
 	{fetchEmbedToken}
 	{viewerUrl}
+	{guestAppPath}
 	onViewerReady={(_token, requestTokenRefresh) => {
 		refresh = requestTokenRefresh
 		loadApp()
@@ -135,6 +158,7 @@
 			{notExists}
 			{noPermission}
 			{jwtError}
+			{guestAppPath}
 			{app}
 			onLoginSuccess={() => loadApp()}
 		></PublicApp>
