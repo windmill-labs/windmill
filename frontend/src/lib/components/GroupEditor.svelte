@@ -320,7 +320,7 @@
 			// conflict says it was never written. Report rather than resolve — a group found by
 			// name may be someone else's, and adopting it would send this draft's writes there.
 			const nameTaken = String(e?.body ?? '').includes('already exists')
-			if (created && !nameTaken) {
+			if (created && !alreadyCreated && !nameTaken) {
 				sendUserToast(`Group ${name} may have been created anyway — reopen it to check`, true)
 			}
 			// The calls are sequential, so a rejection can land with earlier ones committed. Move
