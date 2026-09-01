@@ -134,6 +134,8 @@
 
 	/** Shown on the entries the server refuses to plan without a license. */
 	const EE_PERMISSIONS_TOOLTIP = 'Data table permissions require an Enterprise license'
+	/** A disabled entry has to say why it is disabled, not just that it is. */
+	const eeSuffixed = (name: string) => name + ($enterpriseLicense ? '' : ' (EE)')
 
 	const sameTable = (a: SelectedTable, b: SelectedTable) =>
 		a.datatable === b.datatable && a.schema === b.schema && a.table === b.table
@@ -694,7 +696,7 @@
 										...(canManageDatatable
 											? [
 													{
-														displayName: 'Roles',
+														displayName: eeSuffixed('Roles'),
 														icon: KeyRoundIcon,
 														disabled: !$enterpriseLicense,
 														tooltip: EE_PERMISSIONS_TOOLTIP,
@@ -754,7 +756,7 @@
 												...(canManage(root.datatable, sc.schemaKey)
 													? [
 															{
-																displayName: 'Permissions',
+																displayName: eeSuffixed('Permissions'),
 																icon: KeyRoundIcon,
 																disabled: !$enterpriseLicense,
 																tooltip: EE_PERMISSIONS_TOOLTIP,
@@ -842,7 +844,7 @@
 														...(canManage(root.datatable, sc.schemaKey, tableKey)
 															? [
 																	{
-																		displayName: 'Permissions',
+																		displayName: eeSuffixed('Permissions'),
 																		icon: KeyRoundIcon,
 																		disabled: !$enterpriseLicense,
 																		tooltip: EE_PERMISSIONS_TOOLTIP,

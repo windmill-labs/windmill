@@ -470,7 +470,7 @@
 								action: () => migrationsButtons[dataTable.name]?.open()
 							},
 							{
-								displayName: 'Permissions',
+								displayName: 'Permissions' + ($enterpriseLicense ? '' : ' (EE)'),
 								icon: KeyRound,
 								// The server refuses to plan a permissions change without a
 								// license, so the entry says so rather than failing later.
