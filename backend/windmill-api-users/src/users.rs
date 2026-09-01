@@ -3542,6 +3542,9 @@ async fn overwrite_global_users(
     require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
+    // Replaces the account table, so — unlike the paths that remove one account — it deliberately
+    // does not call `delete_drafts_of_email`: the addresses are about to be reinstated, and
+    // dropping every draft on the instance to restore accounts would be pure collateral.
     sqlx::query!("DELETE FROM password")
         .execute(&mut *tx)
         .await?;

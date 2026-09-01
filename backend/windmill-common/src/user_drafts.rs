@@ -245,7 +245,9 @@ async fn fetch_other_drafts_users(
     // row: fall back to their instance-derived username (`password.username`), or
     // their email when derivation is disabled. Else a real teammate's draft renders
     // as a phantom "Legacy draft". The genuine NULL-email legacy row keeps
-    // `username = None` (no `usr`/`password` match and `d.email` is NULL).
+    // `username = None` (no `usr`/`password` match and `d.email` is NULL), which is
+    // why an owner that resolves to no name at all — an external JWT's subject has
+    // neither row — is dropped instead: `None` is taken to mean "legacy" downstream.
     let rows = sqlx::query_as!(
         OtherDraftUser,
         r#"SELECT COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END) as "username?",
@@ -261,6 +263,7 @@ async fn fetch_other_drafts_users(
              AND d.path = $2
              AND d.typ = $3
              AND (d.email IS NULL OR d.email <> $4)
+             AND (d.email IS NULL OR u.username IS NOT NULL OR p.email IS NOT NULL)
            ORDER BY d.email NULLS LAST"#,
         w_id,
         path,
@@ -426,12 +429,17 @@ pub async fn overlay_or_draft_only<T: serde::Serialize + Send + 'static>(
     }
 }
 
-/// Delete the drafts an address owns.
+/// Delete the drafts an address owns, across every workspace.
 ///
 /// `draft.email` carries no foreign key to `password`: a draft's owner is any principal the
 /// instance authenticates, and an external JWT's subject never has a `password` row. Deleting an
 /// account is therefore what has to delete its drafts — a delete path that skips this leaves them
-/// behind forever, addressed to someone who no longer exists.
+/// behind forever, addressed to someone who no longer exists. Call it in the same transaction as
+/// the account removal.
+///
+/// No authorization of its own: it acts instance-wide on whatever address it is handed, so the
+/// caller must already have authorized removing that account (superadmin, the account's own
+/// holder, or SCIM).
 pub async fn delete_drafts_of_email<'c>(
     executor: impl sqlx::PgExecutor<'c>,
     email: &str,
@@ -443,19 +451,36 @@ pub async fn delete_drafts_of_email<'c>(
 }
 
 /// Move the drafts an address owns onto its new address, for the same reason
-/// [`delete_drafts_of_email`] exists: no foreign key follows the rename, so drafts left behind
-/// are stranded on an address that no longer authenticates.
-pub async fn rename_drafts_of_email<'c>(
-    executor: impl sqlx::PgExecutor<'c>,
+/// [`delete_drafts_of_email`] exists: no foreign key follows the rename, so drafts left behind are
+/// stranded on an address that no longer authenticates. Same authorization contract, for a rename.
+///
+/// The two addresses may each already hold a draft of the same item, since the destination can
+/// belong to a principal with no account and so is not covered by the caller's "address is free"
+/// check. `draft_pkey_with_user` admits only one, so the moving account's wins.
+pub async fn rename_drafts_of_email(
+    conn: &mut sqlx::PgConnection,
     old_email: &str,
     new_email: &str,
 ) -> Result<()> {
+    sqlx::query!(
+        "DELETE FROM draft dest
+         WHERE dest.email = $1
+           AND EXISTS (SELECT 1 FROM draft src
+                       WHERE src.email = $2
+                         AND src.workspace_id = dest.workspace_id
+                         AND src.path = dest.path
+                         AND src.typ = dest.typ)",
+        new_email,
+        old_email
+    )
+    .execute(&mut *conn)
+    .await?;
     sqlx::query!(
         "UPDATE draft SET email = $1 WHERE email = $2",
         new_email,
         old_email
     )
-    .execute(executor)
+    .execute(&mut *conn)
     .await?;
     Ok(())
 }

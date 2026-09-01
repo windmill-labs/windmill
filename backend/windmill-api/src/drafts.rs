@@ -214,6 +214,9 @@ fn list_drafts_query(all_users: bool) -> String {
     // row: fall back to their instance-derived username (`password.username`), or
     // their email when derivation is disabled (`password.username` is NULL). This
     // keeps the raw email out of the payload whenever a derived username exists.
+    // A null username means the legacy row downstream, so an owner that resolves to
+    // no name at all — an external JWT's subject has neither row — is dropped rather
+    // than surfaced as a second legacy entry.
     let draft_users = r#"CASE WHEN d.typ::text IN ('script', 'flow', 'app', 'raw_app') THEN (
                       SELECT json_agg(json_build_object('username', COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN du.email END))
                                       ORDER BY COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN du.email END) NULLS LAST)
@@ -221,6 +224,7 @@ fn list_drafts_query(all_users: bool) -> String {
                       LEFT JOIN usr u ON u.workspace_id = du.workspace_id AND u.email = du.email
                       LEFT JOIN password p ON p.email = du.email AND p.super_admin = true
                       WHERE du.workspace_id = d.workspace_id AND du.path = d.path AND du.typ = d.typ
+                        AND (du.email IS NULL OR u.username IS NOT NULL OR p.email IS NOT NULL)
                     ) ELSE NULL END"#;
     // Default lists the user's own drafts AND the legacy NULL-email rows; with
     // `all_users` the filter is dropped to list every workspace draft.

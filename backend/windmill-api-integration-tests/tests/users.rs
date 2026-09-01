@@ -918,9 +918,8 @@ async fn test_change_user_email_leaves_group_identities(db: Pool<Postgres>) -> a
     Ok(())
 }
 
-/// `draft.email` carries no foreign key to `password`: a draft's owner is any principal the
-/// instance authenticates, including an external JWT's subject, which has no account row at all.
-/// The delete and rename that constraint used to cascade are the account paths' own work.
+/// An address with no `password` row can own a draft, and the account paths carry the delete and
+/// rename that no foreign key does any more.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_drafts_follow_their_owner_without_a_fkey(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -928,10 +927,13 @@ async fn test_drafts_follow_their_owner_without_a_fkey(db: Pool<Postgres>) -> an
     let port = server.addr.port();
     let global_base = format!("http://localhost:{port}/api/users");
 
+    // The destination of the rename below already holds a draft of the same item — it belongs to
+    // an accountless principal, so `change_email`'s "address is free" check does not see it.
     sqlx::query!(
         "INSERT INTO draft(workspace_id, path, typ, value, email) VALUES
             ('test-workspace', 'u/ext/s', 'script', '{}'::json, 'ext-jwt@windmill.dev'),
-            ('test-workspace', 'u/two/s', 'script', '{}'::json, 'test2@windmill.dev'),
+            ('test-workspace', 'u/two/s', 'script', '{\"summary\": \"moving\"}'::json, 'test2@windmill.dev'),
+            ('test-workspace', 'u/two/s', 'script', '{\"summary\": \"displaced\"}'::json, 'renamed@windmill.dev'),
             ('test-workspace', 'u/three/s', 'script', '{}'::json, 'test3@windmill.dev')"
     )
     .execute(&db)
@@ -943,10 +945,19 @@ async fn test_drafts_follow_their_owner_without_a_fkey(db: Pool<Postgres>) -> an
         .await
         .unwrap();
     assert_eq!(resp.status(), 200, "change_email: {}", resp.text().await?);
-    let owner = sqlx::query_scalar!("SELECT email FROM draft WHERE path = 'u/two/s'")
-        .fetch_one(&db)
-        .await?;
-    assert_eq!(owner.as_deref(), Some("renamed@windmill.dev"));
+    let moved = sqlx::query!(
+        "SELECT email, value->>'summary' AS summary FROM draft WHERE path = 'u/two/s'"
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        moved
+            .iter()
+            .map(|r| (r.email.as_deref(), r.summary.as_deref()))
+            .collect::<Vec<_>>(),
+        vec![(Some("renamed@windmill.dev"), Some("moving"))],
+        "the moving account's draft wins the unique index it now collides on"
+    );
 
     let resp = authed(client().delete(format!("{global_base}/delete/test3@windmill.dev")))
         .send()
