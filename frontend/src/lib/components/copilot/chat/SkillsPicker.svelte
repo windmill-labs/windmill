@@ -186,6 +186,7 @@ What the assistant should do when this skill applies.
 		untrack(() => {
 			loadSeq++
 			skills = []
+			listNotice = undefined
 			toDelete = undefined
 			pendingImport = undefined
 			// The editor holds one workspace's skill but saves to whatever `ws` is by
@@ -207,6 +208,7 @@ What the assistant should do when this skill applies.
 		// blank for the workspace actually on screen.
 		if (!target || target !== ws) return
 		refreshForkPending()
+		listNotice = undefined
 		const seq = ++loadSeq
 		loading = true
 		loadError = undefined
@@ -318,9 +320,9 @@ What the assistant should do when this skill applies.
 			key: enabled ? 'on' : 'off',
 			workspace: target
 		})
-		if (target !== ws) return
 		// The prompt lists exactly the enabled skills, so it has to be rebuilt
-		// before the next message rather than on the next mode change.
+		// before the next message rather than on the next mode change. A workspace
+		// switch during that rebuild is discarded inside refreshGlobalSkills.
 		await aiChatManager.refreshGlobalSkills(target)
 	}
 

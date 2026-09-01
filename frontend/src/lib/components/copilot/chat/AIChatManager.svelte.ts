@@ -2114,7 +2114,11 @@ export class AIChatManager {
 		if (refreshId !== this.globalSkillsRefreshId) {
 			return
 		}
-		this.globalSkills = skills
+		// Newest-wins is not enough: a refresh for the workspace just left can still
+		// hold the newest id, and installing it would advertise that workspace's
+		// skills to a chat now acting elsewhere. Same check the identity and MCP
+		// refreshes make.
+		this.globalSkills = workspace === (this.operatingWorkspace ?? '') ? skills : []
 		if (this.mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
 		}
