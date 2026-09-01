@@ -294,6 +294,34 @@ async fn connect_as_caller(
     Ok((client, CallerConnection { dbname, current_user }))
 }
 
+/// The classes of object a change reaches beyond the target itself: `relkind`s,
+/// and whether routines are included. `None` when it reaches nothing else, which
+/// is what [`can_manage_target`] has already answered for.
+fn reached_object_classes(
+    target: &AclTarget,
+    change: &AclChange,
+) -> Option<(&'static [&'static str], bool)> {
+    match change {
+        // A schema changing hands takes everything in it along.
+        AclChange::SetOwner { .. } if matches!(target, AclTarget::Schema { .. }) => {
+            Some((&["r", "p", "v", "m", "S", "f"], true))
+        }
+        AclChange::SetOwner { .. } => None,
+        AclChange::Grant { scope, .. } | AclChange::Revoke { scope, .. } => match scope {
+            // `ON ALL TABLES` covers views, materialized views and foreign
+            // tables too — everything Postgres treats as a table for grants.
+            GrantScope::AllTables => Some((&["r", "p", "v", "m", "f"], false)),
+            GrantScope::AllSequences => Some((&["S"], false)),
+            GrantScope::AllFunctions => Some((&[], true)),
+            // A future grant says nothing about an object that exists.
+            GrantScope::FutureTables
+            | GrantScope::FutureSequences
+            | GrantScope::FutureFunctions
+            | GrantScope::Target => None,
+        },
+    }
+}
+
 /// The first object a change reaches that the connection's role does not own, if
 /// any — the reason a caller may be refused even on a target they do own.
 ///
@@ -347,25 +375,8 @@ async fn first_unmanageable_object(
         }
     }
 
-    // The object classes the change touches, as `relkind`s and whether routines
-    // are included — Postgres groups views and foreign tables under TABLES.
-    let (relkinds, routines): (&[&str], bool) = match change {
-        AclChange::SetOwner { .. } if matches!(target, AclTarget::Schema { .. }) => {
-            (&["r", "p", "v", "m", "S", "f"], true)
-        }
-        AclChange::SetOwner { .. } => return Ok(None),
-        AclChange::Grant { scope, .. } | AclChange::Revoke { scope, .. } => match scope {
-            // `ON ALL TABLES` covers views, materialized views and foreign
-            // tables too — everything Postgres treats as a table for grants.
-            GrantScope::AllTables => (&["r", "p", "v", "m", "f"], false),
-            GrantScope::AllSequences => (&["S"], false),
-            GrantScope::AllFunctions => (&[], true),
-            // A future grant creates no statement about an existing object.
-            GrantScope::FutureTables
-            | GrantScope::FutureSequences
-            | GrantScope::FutureFunctions
-            | GrantScope::Target => return Ok(None),
-        },
+    let Some((relkinds, routines)) = reached_object_classes(target, change) else {
+        return Ok(None);
     };
 
     let relkinds: Vec<String> = relkinds.iter().map(|k| k.to_string()).collect();
@@ -1059,4 +1070,64 @@ async fn apply_datatable_acl(
     .await?;
 
     Ok(format!("Updated access on {}", req.target.label(&dbname)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn schema() -> AclTarget {
+        AclTarget::Schema { schema: "analytics".to_string() }
+    }
+    fn table() -> AclTarget {
+        AclTarget::Table { schema: "analytics".to_string(), table: "orders".to_string() }
+    }
+    fn grant(scope: GrantScope) -> AclChange {
+        AclChange::Grant {
+            role: "analyst".to_string(),
+            privileges: vec!["SELECT".to_string()],
+            scope,
+        }
+    }
+
+    /// What the ownership check runs over. A scope missing from here is a scope
+    /// whose objects nobody checks the owner of, and the statements it plans run
+    /// as the data table's admin.
+    #[test]
+    fn a_schema_wide_change_reaches_past_its_target() {
+        // `ON ALL TABLES` is every relation Postgres treats as a table.
+        assert_eq!(
+            reached_object_classes(&schema(), &grant(GrantScope::AllTables)),
+            Some((["r", "p", "v", "m", "f"].as_slice(), false))
+        );
+        assert_eq!(
+            reached_object_classes(&schema(), &grant(GrantScope::AllSequences)),
+            Some((["S"].as_slice(), false))
+        );
+        assert_eq!(
+            reached_object_classes(&schema(), &grant(GrantScope::AllFunctions)),
+            Some(([].as_slice(), true))
+        );
+        // Handing a schema over takes everything in it, routines included.
+        let set_owner = AclChange::SetOwner { role: "analyst".to_string() };
+        assert_eq!(
+            reached_object_classes(&schema(), &set_owner),
+            Some((["r", "p", "v", "m", "S", "f"].as_slice(), true))
+        );
+
+        // The target itself is what `can_manage_target` already answered for,
+        // and a future grant names no object that exists.
+        for change in [
+            grant(GrantScope::Target),
+            grant(GrantScope::FutureTables),
+            grant(GrantScope::FutureSequences),
+            grant(GrantScope::FutureFunctions),
+        ] {
+            assert_eq!(reached_object_classes(&schema(), &change), None, "{change:?}");
+        }
+        assert_eq!(
+            reached_object_classes(&table(), &AclChange::SetOwner { role: "analyst".to_string() }),
+            None
+        );
+    }
 }
