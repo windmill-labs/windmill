@@ -82,6 +82,9 @@
 		/** Hide the static/expression switch, for a field that only ever holds one kind.
 		 *  The connect button and the AI helper stay. */
 		noDynamicToggle?: boolean
+		/** Hide the connect button, for a surface with nothing to connect to. Distinct from
+		 *  `noDynamicToggle`, which a field forced to an expression also sets. */
+		noConnect?: boolean
 		/** Replaces the default StepInputGen, for a field with its own AI helper. That
 		 *  helper drives `suggestion` (its ghost text) and `aiOnKeyUp` (Tab to accept),
 		 *  which the built-in one reaches through `stepInputGen` instead. */
@@ -127,6 +130,7 @@
 		variableEditor = undefined,
 		itemPicker = undefined,
 		noDynamicToggle = false,
+		noConnect = false,
 		aiGen = undefined,
 		suggestion = $bindable(),
 		focused = $bindable(),
@@ -660,7 +664,7 @@
 					/>
 				{/if}
 
-				{#if propPickerWrapperContext}
+				{#if propPickerWrapperContext && !noConnect}
 					<FlowPlugConnect
 						wrapperClasses={twMerge(
 							'group-hover:opacity-100 transition-opacity',

@@ -319,7 +319,9 @@
 {/snippet}
 
 <div class="w-full mb-6 {clazz}">
-	{#if enableAi}
+	<!-- Not offered on a static-only surface: what it fills a field with is a JavaScript
+	     expression, which such a store cannot hold. -->
+	{#if enableAi && !staticOnly}
 		<div class="pt-2">
 			<StepInputsGen {pickableProperties} argNames={emptyArgNames} {schema} />
 		</div>
@@ -365,6 +367,7 @@
 										{isAgentTool}
 										{allowedAiTransforms}
 										noDynamicToggle={staticOnly}
+										noConnect={staticOnly}
 										{s3StorageConfigured}
 										{chatInputEnabled}
 										{workspace}
