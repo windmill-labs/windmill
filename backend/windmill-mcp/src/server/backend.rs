@@ -9,8 +9,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use crate::common::types::{
-    FlowInfo, HubScriptInfo, McpIncludeHeaders, ResourceInfo, ResourceType, SchemaType, ScriptInfo,
-    WorkspaceInfo,
+    FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo, WorkspaceInfo,
 };
 use crate::server::endpoints::EndpointTool;
 
@@ -21,8 +20,6 @@ pub type BackendResult<T> = Result<T, ErrorData>;
 /// to hand a runnable the headers of the call that triggered it.
 pub struct McpRequest<'a> {
     pub headers: &'a http::HeaderMap,
-    /// The credential headers this connection releases to a preprocessor.
-    pub include_headers: &'a McpIncludeHeaders,
     /// The MCP tool name the caller invoked, reported to preprocessors.
     pub tool_name: &'a str,
 }

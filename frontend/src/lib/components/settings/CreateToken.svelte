@@ -10,7 +10,6 @@
 
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
-	import Tooltip from '../meltComponents/Tooltip.svelte'
 
 	interface Props {
 		showMcpMode?: boolean
@@ -53,7 +52,6 @@
 
 	let pickedScopes = $state<string[] | null>(null)
 	let readOnly = $state(false)
-	let includeHeaders = $state('')
 
 	function ensureCurrentWorkspaceIncluded(
 		workspacesList: UserWorkspace[],
@@ -72,7 +70,6 @@
 	function enterMcpMode() {
 		mcpCreationMode = true
 		newTokenExpiration = undefined
-		includeHeaders = ''
 		newTokenWorkspace = defaultNewTokenWorkspace ?? $workspaceStore
 		newToken = undefined
 		newMcpToken = undefined
@@ -88,7 +85,6 @@
 	function exitMcpMode() {
 		mcpCreationMode = false
 		newTokenExpiration = undefined
-		includeHeaders = ''
 		newTokenWorkspace = defaultNewTokenWorkspace
 		newMcpToken = undefined
 		readOnly = false
@@ -153,12 +149,6 @@
 			? `${window.location.origin}/api/mcp/gateway?token=`
 			: `${window.location.origin}/api/mcp/w/${newTokenWorkspace}/mcp?token=`
 	)
-	// Rides the URL rather than the token so the allowlist is fixed by whoever
-	// configures the MCP client, out of reach of the model driving the session.
-	const mcpIncludeHeaderParam = $derived(
-		includeHeaders.trim() ? `&include_header=${encodeURIComponent(includeHeaders.trim())}` : ''
-	)
-
 	$effect(() => {
 		const requestedMcpMode = mcpOnly || openWithMcpMode
 		if (requestedMcpMode === lastRequestedMcpMode) {
@@ -268,35 +258,6 @@
 						{/if}
 					</div>
 				{/if}
-
-				<div>
-					<span class="block mb-1 text-emphasis text-xs font-semibold"
-						>Forward authentication headers <span class="text-xs text-primary">(optional)</span>
-						<Tooltip>
-							{#snippet text()}
-								A script or flow with a preprocessor already receives every request header, keyed by
-								the original name, under <code>event.headers</code> for a v2 preprocessor and
-								<code>wm_trigger.mcp.headers</code> for a v1 one. Nothing needs configuring for
-								that.
-								<br /><br />
-								Authentication headers are the exception: <code>Authorization</code>,
-								<code>Cookie</code> and <code>Proxy-Authorization</code> are withheld unless you
-								name one here, because on MCP they carry the caller's own Windmill credential.
-								Running a script by path goes through Windmill's webhook route, so a preprocessor
-								there receives a webhook event rather than an MCP one, and a named
-								<code>Authorization</code> is not forwarded to it.
-							{/snippet}
-						</Tooltip></span
-					>
-					<TextInput
-						inputProps={{ type: 'text', placeholder: 'authorization' }}
-						bind:value={includeHeaders}
-						class="w-full"
-					/>
-					<p class="mt-1 text-xs text-tertiary">
-						Comma separated. Leave empty unless a runnable needs the caller's credential.
-					</p>
-				</div>
 			{/if}
 
 			{#if !mcpOnly}
@@ -358,9 +319,6 @@
 	{/if}
 
 	{#if newMcpToken && displayCreateToken}
-		<TokenDisplay
-			token={newMcpToken}
-			mcpUrl={`${mcpBaseUrl}${newMcpToken}${mcpIncludeHeaderParam}`}
-		/>
+		<TokenDisplay token={newMcpToken} mcpUrl={`${mcpBaseUrl}${newMcpToken}`} />
 	{/if}
 </div>

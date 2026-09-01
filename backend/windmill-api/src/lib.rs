@@ -455,9 +455,9 @@ pub async fn run_server(
     // annotated with `x-mcp-header`, which no tool here declares.)
     //
     // The request's own header list is mirrored rather than enumerated, because
-    // `?include_header=` lets an operator name any header for their scripts and a
-    // fixed list would silently fail every browser client that sends one. Nothing
-    // is granted by echoing it: the origin is `Any`, so browsers never attach
+    // every request header reaches a runnable's preprocessor: a browser MCP client
+    // may send any custom name, and no fixed list could cover them. Nothing is
+    // granted by echoing it: the origin is `Any`, so browsers never attach
     // credentials, and the endpoint authenticates each request on its own.
     let mcp_cors = CorsLayer::new()
         .allow_methods([http::Method::GET, http::Method::POST, http::Method::DELETE])
@@ -554,7 +554,7 @@ pub async fn run_server(
         if server_mode || mcp_mode {
             use mcp::{
                 add_www_authenticate_header, add_www_authenticate_header_gateway,
-                extract_include_headers, extract_workspace_from_token,
+                extract_workspace_from_token,
             };
             let (mcp_router, mcp_cancellation_token) = setup_mcp_server(
                 db.clone(),
@@ -568,7 +568,6 @@ pub async fn run_server(
                 .clone()
                 .route_layer(from_extractor::<ApiAuthed>())
                 .layer(axum::middleware::from_fn(add_www_authenticate_header))
-                .layer(axum::middleware::from_fn(extract_include_headers))
                 .layer(axum::middleware::from_fn(extract_and_store_workspace_id));
             // Gateway MCP router — resolves workspace from token
             let gateway_mcp_router = mcp_router
@@ -576,7 +575,6 @@ pub async fn run_server(
                 .layer(axum::middleware::from_fn(
                     add_www_authenticate_header_gateway,
                 ))
-                .layer(axum::middleware::from_fn(extract_include_headers))
                 .layer(axum::middleware::from_fn(extract_workspace_from_token));
             (
                 workspaced_mcp_router,

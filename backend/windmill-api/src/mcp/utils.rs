@@ -19,8 +19,7 @@ use windmill_common::utils::{query_elems_from_hub, StripPath};
 use windmill_common::worker::to_raw_value;
 use windmill_common::{DB, HUB_BASE_URL};
 use windmill_mcp::server::{
-    non_empty_body_fields, BackendResult, EndpointTool, ErrorData, McpIncludeHeaders, McpRequest,
-    PathFilter,
+    non_empty_body_fields, BackendResult, EndpointTool, ErrorData, McpRequest, PathFilter,
 };
 use windmill_mcp::{HubResponse, HubScriptInfo, ItemSchema, ResourceInfo, ResourceType};
 use windmill_trigger::trigger_helpers::{get_runnable_format, RunnableId};
@@ -736,17 +735,6 @@ struct McpPreprocessorEvent<'a> {
     tool_name: &'a str,
 }
 
-/// Headers that authenticate the connection itself. Withheld from a runnable
-/// unless `?include_header=` names one — see [`preprocessor_headers`] for why
-/// "unasked" is the line rather than "never".
-const CREDENTIAL_HEADERS: &[&str] = &["authorization", "cookie", "proxy-authorization"];
-
-fn is_credential_header(name: &str) -> bool {
-    CREDENTIAL_HEADERS
-        .iter()
-        .any(|candidate| candidate.eq_ignore_ascii_case(name))
-}
-
 /// Headers the proxied hop owns, never copied from the caller's request.
 ///
 /// Two kinds. `authorization` and `host` address the hop itself: the proxied call
@@ -784,6 +772,10 @@ pub fn delivers_request_to_runnable(tool: &EndpointTool) -> bool {
 
 /// The caller's headers to copy onto a proxied run, or nothing.
 ///
+/// An unresolvable format is an error rather than a run without the headers: a
+/// preprocessor that defaults a missing one would otherwise succeed under the
+/// wrong identity, which is worse than a refused call.
+///
 /// Gated on the *target* having a preprocessor, not just on the route being a run
 /// route. The proxied webhook path binds headers as ordinary parameters when the
 /// runnable has no preprocessor — `build_headers`' no-preprocessor branch unions
@@ -797,30 +789,34 @@ pub async fn headers_for_proxied_run(
     tool: &EndpointTool,
     args: &serde_json::Map<String, Value>,
     request: &McpRequest<'_>,
-) -> Vec<(String, String)> {
+) -> BackendResult<Vec<(String, String)>> {
     if !delivers_request_to_runnable(tool) {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let Some(path) = args.get("path").and_then(Value::as_str) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     let runnable_id = if tool.path.contains("/jobs/run/f/") {
         RunnableId::from_flow_path(path)
     } else {
         RunnableId::from_script_path(path)
     };
-    match get_runnable_format(runnable_id, w_id, db, &TriggerKind::Webhook).await {
-        Ok(RunnableFormat { has_preprocessor: true, .. }) => {
-            forwardable_headers(request.headers, request.include_headers)
-        }
-        Ok(_) => Vec::new(),
-        Err(err) => {
-            // Fail closed: an unknown format is not a reason to hand a runnable
-            // headers it may bind as parameters.
-            tracing::warn!("MCP could not resolve the format of '{path}': {err}");
-            Vec::new()
-        }
-    }
+    let format = get_runnable_format(runnable_id, w_id, db, &TriggerKind::Webhook)
+        .await
+        .map_err(|err| {
+            ErrorData::internal_error(
+                format!("Could not resolve the format of '{path}': {err}"),
+                None,
+            )
+        })?;
+
+    Ok(if format.has_preprocessor {
+        forwardable_headers(request.headers)
+    } else {
+        // The proxied route binds headers as ordinary parameters when the runnable
+        // has no preprocessor, so there is nothing safe to send it.
+        Vec::new()
+    })
 }
 
 /// The caller's headers that can ride the proxied webhook call.
@@ -830,18 +826,12 @@ pub async fn headers_for_proxied_run(
 /// onto it. Copying them is what lets a preprocessor invoked that way — the only
 /// way multi-workspace mode reaches a runnable at all — see the same request the
 /// direct path shows it.
-pub fn forwardable_headers(
-    headers: &http::HeaderMap,
-    include_headers: &McpIncludeHeaders,
-) -> Vec<(String, String)> {
+pub fn forwardable_headers(headers: &http::HeaderMap) -> Vec<(String, String)> {
     headers
         .iter()
         .filter_map(|(name, value)| {
             let name = name.as_str();
             if PROXY_OWNED_HEADERS.contains(&name) {
-                return None;
-            }
-            if is_credential_header(name) && !include_headers.names(name) {
                 return None;
             }
             value
@@ -850,25 +840,6 @@ pub fn forwardable_headers(
                 .map(|v| (name.to_string(), v.to_string()))
         })
         .collect()
-}
-
-/// Every header a preprocessor may see — the whole request, minus the
-/// credentials that authenticate the connection unless `?include_header=` names
-/// one.
-///
-/// Webhooks forward a credential on request too, so naming one keeps that
-/// parity; what MCP cannot copy is forwarding it *unasked*. On a webhook the
-/// caller chooses which script runs, while here the model does, so an
-/// unconditional forward would hand the caller's Windmill token to whichever
-/// workspace script the model routes to — including one chosen by prompt
-/// injection.
-fn preprocessor_headers(
-    headers: &http::HeaderMap,
-    include_headers: &McpIncludeHeaders,
-) -> HashMap<String, Box<serde_json::value::RawValue>> {
-    let mut selected = build_headers(headers, None, true);
-    selected.retain(|name, _| !is_credential_header(name) || include_headers.names(name));
-    selected
 }
 
 /// Build the job arguments for a script or flow run as an MCP tool.
@@ -913,7 +884,9 @@ pub async fn prepare_push_args(
             windmill_queue::PushArgsOwned { args: main_args, extra: None }
         }
         RunnableFormat { has_preprocessor: true, version } => {
-            let headers = preprocessor_headers(request.headers, request.include_headers);
+            // The whole request, the way every other trigger hands one to a
+            // preprocessor.
+            let headers = build_headers(request.headers, None, true);
             log_feature_usage("mcp", "header_passthrough", "preprocessor");
             match version {
                 RunnableFormatVersion::V2 => {
@@ -981,32 +954,6 @@ mod tests {
         headers
     }
 
-    /// A credential travels only when the operator names it. Naming one keeps
-    /// webhook parity (`?include_header=authorization` binds the caller's token
-    /// there too); what MCP cannot copy is forwarding it unasked, because here
-    /// the *model* picks which script runs.
-    #[test]
-    fn a_credential_header_travels_only_when_named() {
-        let headers = header_map(&[
-            ("authorization", "Bearer caller-token"),
-            ("cookie", "session=secret"),
-            ("x-user-id", "alice@corp.example"),
-        ]);
-
-        // Unasked: withheld from the preprocessor, while everything else reaches it.
-        let unasked = preprocessor_headers(&headers, &McpIncludeHeaders::default());
-        assert!(!unasked.contains_key("authorization"));
-        assert!(!unasked.contains_key("cookie"));
-        assert!(unasked.contains_key("x-user-id"));
-
-        // Named: present in the event.
-        let include = McpIncludeHeaders::parse("authorization").unwrap();
-        let asked = preprocessor_headers(&headers, &include);
-        assert!(asked.contains_key("authorization"));
-        // Still withheld: naming one credential does not release the others.
-        assert!(!asked.contains_key("cookie"));
-    }
-
     /// Run-by-path proxies over a second HTTP hop that carries a route-scoped JWT
     /// this server mints, and framing headers describing its own body. Neither
     /// may be copied from the caller: a duplicated `authorization` would leave the
@@ -1019,10 +966,7 @@ mod tests {
             ("x-user-id", "alice@corp.example"),
         ]);
 
-        let forwarded = forwardable_headers(
-            &headers,
-            &McpIncludeHeaders::parse("authorization, x-user-id").unwrap(),
-        );
+        let forwarded = forwardable_headers(&headers);
 
         assert_eq!(
             forwarded,
@@ -1044,22 +988,12 @@ mod tests {
             ("x-user-id", "alice@corp.example"),
         ]);
 
-        let forwarded = forwardable_headers(&headers, &McpIncludeHeaders::default());
+        let forwarded = forwardable_headers(&headers);
 
         assert_eq!(
             forwarded,
             vec![("x-user-id".to_string(), "alice@corp.example".to_string())]
         );
-    }
-
-    /// An entry that can never match a header must be reported rather than
-    /// silently ignored: an operator who mistyped it would otherwise believe a
-    /// credential was being forwarded when it was not.
-    #[test]
-    fn a_malformed_allowlist_entry_is_rejected() {
-        assert!(McpIncludeHeaders::parse("x-user-id;x-tenant").is_err());
-        assert!(McpIncludeHeaders::parse("x user id").is_err());
-        assert!(McpIncludeHeaders::parse("x-user-id, x-tenant").is_ok());
     }
 
     #[test]

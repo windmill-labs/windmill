@@ -10,8 +10,7 @@ use crate::common::transform::{
     reverse_transform, reverse_transform_key,
 };
 use crate::common::types::{
-    McpIncludeHeaders, McpToken, MultiWorkspaceMcp, ResourceInfo, SchemaType, ToolableItem,
-    WorkspaceId,
+    McpToken, MultiWorkspaceMcp, ResourceInfo, SchemaType, ToolableItem, WorkspaceId,
 };
 use crate::server::backend::{McpAuth, McpBackend, McpRequest, PathFilter};
 use crate::server::endpoints::{
@@ -109,7 +108,6 @@ struct McpContext<A> {
     auth: A,
     mode: McpMode,
     headers: http::HeaderMap,
-    include_headers: McpIncludeHeaders,
 }
 
 impl<B: McpBackend> Runner<B> {
@@ -160,18 +158,7 @@ impl<B: McpBackend> Runner<B> {
             McpMode::Single(workspace_id)
         };
 
-        let include_headers = http_parts
-            .extensions
-            .get::<McpIncludeHeaders>()
-            .cloned()
-            .unwrap_or_default();
-
-        Ok(McpContext {
-            auth: auth.clone(),
-            mode,
-            headers: http_parts.headers.clone(),
-            include_headers,
-        })
+        Ok(McpContext { auth: auth.clone(), mode, headers: http_parts.headers.clone() })
     }
 }
 
@@ -490,7 +477,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        let McpContext { auth, mode, headers, include_headers } = Self::extract_context(&context)?;
+        let McpContext { auth, mode, headers } = Self::extract_context(&context)?;
 
         // Parse MCP scopes for authorization
         let scopes = auth.scopes().unwrap_or(&[]);
@@ -499,11 +486,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         let read_only = auth.read_only();
 
         let args = request.arguments.map(Value::Object).unwrap_or(Value::Null);
-        let mcp_request = McpRequest {
-            headers: &headers,
-            include_headers: &include_headers,
-            tool_name: request.name.as_ref(),
-        };
+        let mcp_request = McpRequest { headers: &headers, tool_name: request.name.as_ref() };
 
         // Every tool here runs to completion in one round trip: none of them ask the
         // client for input, so the MRTR variants of `CallToolResponse` are never built.
@@ -1001,24 +984,6 @@ mod tests {
     use crate::common::scope::{parse_mcp_scopes, McpScopeConfig};
     use serde_json::json;
     use std::borrow::Cow;
-
-    /// The parse runs ahead of authentication, so its cost is reachable by anyone
-    /// who can open a connection. An oversized allowlist has to be refused before
-    /// the work, not absorbed.
-    #[test]
-    fn an_oversized_allowlist_is_refused() {
-        let too_long = format!("x-{}", "a".repeat(1024));
-        assert!(McpIncludeHeaders::parse(&too_long).is_err());
-
-        let too_many = (0..64)
-            .map(|i| format!("x-h{i}"))
-            .collect::<Vec<_>>()
-            .join(",");
-        assert!(McpIncludeHeaders::parse(&too_many).is_err());
-
-        let realistic = "x-user-id,x-tenant,x-request-id";
-        assert_eq!(McpIncludeHeaders::parse(realistic).unwrap().0.len(), 3);
-    }
 
     fn cfg(scopes: &[&str]) -> McpScopeConfig {
         parse_mcp_scopes(&scopes.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap()

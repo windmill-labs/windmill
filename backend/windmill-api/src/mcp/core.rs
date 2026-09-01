@@ -13,7 +13,7 @@ use windmill_mcp::common::types::{
     FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo, WorkspaceInfo,
 };
 use windmill_mcp::server::{
-    BackendResult, EndpointTool, ErrorData, McpBackend, McpIncludeHeaders, McpRequest, PathFilter,
+    BackendResult, EndpointTool, ErrorData, McpBackend, McpRequest, PathFilter,
 };
 
 use windmill_common::feature_usage::log_feature_usage;
@@ -42,7 +42,7 @@ use windmill_mcp::server::{
 use windmill_mcp::WorkspaceId;
 
 use axum::{
-    extract::{Extension, Path, Query},
+    extract::{Extension, Path},
     http::Request,
     middleware::Next,
     response::Response,
@@ -52,13 +52,6 @@ use axum::{
 use windmill_common::{auth::hash_token, db::GatewayWorkspaceId, error::JsonResult};
 
 // McpAuth impl for ApiAuthed is in windmill-api-auth (same crate as the type)
-
-/// The MCP connection URL's own query parameters. `token` is consumed by the
-/// auth extractor; only the credential-header list is read here.
-#[derive(serde::Deserialize)]
-struct McpRequestQuery {
-    include_header: Option<String>,
-}
 
 /// Windmill's MCP backend implementation
 #[derive(Clone)]
@@ -314,7 +307,8 @@ impl McpBackend for WindmillBackend {
         // multi-workspace mode reaches a runnable — would see the proxy's own
         // request instead of the caller's.
         let forwarded =
-            headers_for_proxied_run(&self.db, workspace_id, endpoint_tool, args_map, request).await;
+            headers_for_proxied_run(&self.db, workspace_id, endpoint_tool, args_map, request)
+                .await?;
         if !forwarded.is_empty() {
             // Counted here as well as in `prepare_push_args`: this is the only
             // route multi-workspace mode has to a runnable, so leaving it out
@@ -423,50 +417,6 @@ pub async fn extract_and_store_workspace_id(
 ) -> Response {
     let workspace_id = params;
     request.extensions_mut().insert(WorkspaceId(workspace_id));
-    next.run(request).await
-}
-
-/// Middleware that records which credential headers this connection releases to a
-/// runnable's preprocessor, from `?include_header=` on the MCP URL.
-///
-/// Read off the connection URL rather than an instance setting because that URL
-/// is configured out of band, by whoever wires up the MCP client: the model
-/// driving the session cannot reach it, so releasing a credential stays a
-/// deliberate act of the operator's.
-pub async fn extract_include_headers(
-    mut request: Request<axum::body::Body>,
-    next: Next,
-) -> Response {
-    // Rejected rather than ignored: an operator who mistyped this would otherwise
-    // believe a credential was reaching their preprocessor when it was not.
-    let include_header = match Query::<McpRequestQuery>::try_from_uri(request.uri()) {
-        Ok(query) => query.0.include_header,
-        Err(err) => {
-            use axum::response::IntoResponse;
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                format!("Invalid MCP URL query: {}", err.body_text()),
-            )
-                .into_response();
-        }
-    };
-
-    let include_headers = match include_header.as_deref().map(McpIncludeHeaders::parse) {
-        Some(Ok(parsed)) => parsed,
-        None => McpIncludeHeaders::default(),
-        Some(Err(err)) => {
-            use axum::response::IntoResponse;
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                format!("Invalid include_header: {}", err),
-            )
-                .into_response();
-        }
-    };
-
-    if !include_headers.0.is_empty() {
-        request.extensions_mut().insert(include_headers);
-    }
     next.run(request).await
 }
 
