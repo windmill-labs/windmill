@@ -760,6 +760,7 @@
 						hideSidebar={true}
 						useStreaming={shouldUseStreaming}
 						inputSchema={flowStore.val.schema}
+					flowModules={flowStore.val.value?.modules}
 					/>
 				</div>
 			{:else}

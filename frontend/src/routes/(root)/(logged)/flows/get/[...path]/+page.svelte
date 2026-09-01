@@ -705,6 +705,7 @@
 								path={flow?.path ?? ''}
 								useStreaming={shouldUseStreaming}
 								inputSchema={flow?.schema}
+								flowModules={flow?.value?.modules}
 								wideLayout
 							/>
 						{:else}

@@ -5,6 +5,7 @@
 	import FlowChatInterface from './FlowChatInterface.svelte'
 	import { getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from '../types'
+	import type { FlowModule } from '$lib/gen'
 
 	interface Props {
 		onRunFlow: (
@@ -17,6 +18,8 @@
 		path: string
 		hideSidebar?: boolean
 		inputSchema?: Record<string, any>
+		/** The flow's modules, used to find which inputs an AI agent step reads directly. */
+		flowModules?: FlowModule[]
 		/** Wider centered column, for the full-page chat. */
 		wideLayout?: boolean
 	}
@@ -28,6 +31,7 @@
 		path,
 		hideSidebar = false,
 		inputSchema = undefined,
+		flowModules = undefined,
 		wideLayout = false
 	}: Props = $props()
 
@@ -56,17 +60,21 @@
 		}
 	})
 
-	// Derive additional inputs schema (excluding user_message) for chat mode
+	// Everything the chat asks for beyond the message itself. `user_message` is the
+	// composer: the server requires that exact argument on a chat-enabled flow and
+	// stores it as the conversation's message (execution.rs:644), so the name is a
+	// contract rather than the author's choice.
 	const additionalInputsSchema = $derived.by(() => {
 		const props = inputSchema?.properties ?? {}
-		const filtered = Object.fromEntries(Object.entries(props).filter(([k]) => k !== 'user_message'))
+		const messageInput = 'user_message'
+		const filtered = Object.fromEntries(Object.entries(props).filter(([k]) => k !== messageInput))
 		if (Object.keys(filtered).length === 0) return undefined
 		const required = inputSchema?.required
 		const requiredArray: string[] = Array.isArray(required) ? required : []
 		return {
 			...inputSchema,
 			properties: filtered,
-			required: requiredArray.filter((k: string) => k !== 'user_message')
+			required: requiredArray.filter((k: string) => k !== messageInput)
 		}
 	})
 </script>
@@ -79,6 +87,7 @@
 		{manager}
 		{deploymentInProgress}
 		{additionalInputsSchema}
+		{flowModules}
 		{path}
 		{wideLayout}
 	/>

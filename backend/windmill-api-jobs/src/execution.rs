@@ -632,6 +632,7 @@ pub async fn handle_chat_conversation_messages(
     flow_path: &str,
     run_query: &RunJobQuery,
     user_message_raw: Option<&Box<serde_json::value::RawValue>>,
+    job_id: Uuid,
 ) -> error::Result<()> {
     let memory_id = run_query.memory_id.ok_or_else(|| {
         windmill_common::error::Error::BadRequest(
@@ -662,10 +663,13 @@ pub async fn handle_chat_conversation_messages(
     )
     .await?;
 
+    // The run this message started. Its args are the only record of what the message
+    // carried besides its text — attachments and every other flow input — and nothing
+    // written later points at them: an assistant row holds the AI agent step's job.
     add_message_to_conversation_tx(
         tx,
         memory_id,
-        None,
+        Some(job_id),
         &user_message,
         MessageType::User,
         None,
@@ -790,6 +794,7 @@ pub async fn run_flow<'c>(
             &flow_path.to_string(),
             &run_query,
             args.args.get("user_message"),
+            uuid,
         )
         .await?;
     }

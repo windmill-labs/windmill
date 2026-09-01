@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { Loader2, MessageCircle, Settings2 } from 'lucide-svelte'
+	import { Loader2, MessageCircle } from 'lucide-svelte'
 	import { FlowChatManager } from './FlowChatManager.svelte'
 	import { FlowChatViewHost } from './flowChatViewHost.svelte'
 	import AIChatDisplay from '$lib/components/copilot/chat/AIChatDisplay.svelte'
@@ -8,11 +8,23 @@
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { type DynamicInput } from '$lib/utils'
+	import { CancelError, WorkspaceService, type FlowModule } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
+	import { resource } from 'runed'
+	import FlowChatSettings from './FlowChatSettings.svelte'
+	import {
+		isEmptyAgentChatInputValue,
+		PER_TURN_AGENT_CHAT_INPUT_KEY,
+		resolveAgentChatInputs,
+		resolveStaticAgentModel
+	} from './agentChatInputs'
 
 	interface Props {
 		manager: FlowChatManager
 		deploymentInProgress?: boolean
 		additionalInputsSchema?: Record<string, any>
+		/** The flow's modules, used to find which inputs an AI agent step reads directly. */
+		flowModules?: FlowModule[]
 		path: string
 		wideLayout?: boolean
 	}
@@ -21,6 +33,7 @@
 		manager,
 		deploymentInProgress = false,
 		additionalInputsSchema,
+		flowModules,
 		path,
 		wideLayout = false
 	}: Props = $props()
@@ -35,14 +48,75 @@
 		return undefined
 	})
 
+	// Inputs an AI agent step reads straight out of the flow input get a composer chip
+	// instead of a modal field; the rest stay in the modal.
+	const agentChatInputs = $derived(resolveAgentChatInputs(flowModules, additionalInputsSchema))
+	// The composer's attachments feed this input; it never appears as a chip or a
+	// modal field, because the paperclip is its editor.
+	const attachmentsInput = $derived(
+		agentChatInputs.find((input) => input.key === PER_TURN_AGENT_CHAT_INPUT_KEY)
+	)
+	const attachmentsTarget = $derived(
+		attachmentsInput
+			? { name: attachmentsInput.name, multiple: attachmentsInput.property?.type === 'array' }
+			: undefined
+	)
+
+	const chatWorkspace = $derived(manager.operatingWorkspace?.() ?? $workspaceStore)
+
+	// Uploading needs the workspace's object storage; without one the `+` stays hidden
+	// rather than failing on drop. Assumed absent until this workspace's answer lands.
+	const settings = resource(
+		() => chatWorkspace,
+		async (ws, _previous, { onCleanup }) => {
+			if (!ws) return undefined
+			const req = WorkspaceService.getPublicSettings({ workspace: ws })
+			onCleanup(() => req.cancel())
+			try {
+				return { ws, settings: await req }
+			} catch (err) {
+				if (!(err instanceof CancelError)) {
+					console.error('Failed to fetch workspace settings:', err)
+				}
+				return undefined
+			}
+		}
+	)
+	const s3StorageConfigured = $derived.by(() => {
+		const loaded = settings.current
+		if (!loaded || loaded.ws !== chatWorkspace) return false
+		return loaded.settings.large_file_storage?.s3_resource_path !== undefined
+	})
+	const settingInputs = $derived(
+		agentChatInputs.filter((input) => input.key !== PER_TURN_AGENT_CHAT_INPUT_KEY)
+	)
+	const staticModel = $derived(resolveStaticAgentModel(flowModules))
+
+	const modalSchema = $derived.by(() => {
+		if (!additionalInputsSchema) return undefined
+		const promoted = new Set(agentChatInputs.map((input) => input.name))
+		const properties = Object.fromEntries(
+			Object.entries(additionalInputsSchema.properties ?? {}).filter(([key]) => !promoted.has(key))
+		)
+		if (Object.keys(properties).length === 0) return undefined
+		const required: string[] = Array.isArray(additionalInputsSchema.required)
+			? additionalInputsSchema.required
+			: []
+		return {
+			...additionalInputsSchema,
+			properties,
+			required: required.filter((key) => !promoted.has(key))
+		}
+	})
+
 	// LocalStorage helpers
 	const STORAGE_KEY_PREFIX = 'windmill_flow_chat_inputs_'
 
-	// State for additional inputs modal
 	let showInputsModal = $state(false)
-	let additionalInputsValues = $state<Record<string, any> | undefined>(
-		loadInputsFromStorage() ?? undefined
-	)
+	// Conversation settings, persisted per flow. Attachments are absent by construction:
+	// they ride the composer's own draft and are cleared with it on send.
+	let inputValues = $state<Record<string, any>>(loadInputsFromStorage() ?? {})
+	let modalDraft = $state<Record<string, any>>({})
 
 	function getStorageKey(): string {
 		return `${STORAGE_KEY_PREFIX}${path}`
@@ -66,20 +140,28 @@
 		}
 	}
 
+	function setInputValue(name: string, value: any) {
+		inputValues = { ...inputValues, [name]: value }
+		saveInputsToStorage(inputValues)
+	}
+
 	function handleModalConfirm() {
-		saveInputsToStorage(additionalInputsValues ?? {})
+		inputValues = { ...inputValues, ...modalDraft }
+		saveInputsToStorage(inputValues)
 		showInputsModal = false
 	}
 
 	function openInputsModal() {
-		const stored = loadInputsFromStorage()
-		if (stored) additionalInputsValues = stored
+		modalDraft = { ...(loadInputsFromStorage() ?? inputValues) }
 		showInputsModal = true
 	}
 
-	const chatHost = new FlowChatViewHost(manager, () =>
-		additionalInputsSchema ? (loadInputsFromStorage() ?? additionalInputsValues) : undefined
-	)
+	const chatHost = new FlowChatViewHost(manager, {
+		additionalInputs: () => (additionalInputsSchema ? { ...inputValues } : undefined),
+		attachmentsTarget: () => attachmentsTarget,
+		workspace: () => chatWorkspace,
+		canAttach: () => s3StorageConfigured
+	})
 	setChatViewHost(chatHost)
 
 	// A message typed mid-run is held by the host; send it once the run settles.
@@ -89,24 +171,21 @@
 		}
 	})
 
-	const hasMissingRequired = $derived.by(() => {
-		if (!additionalInputsSchema?.required?.length) return false
-		const values = additionalInputsValues ?? {}
-		return additionalInputsSchema.required.some(
-			(field: string) =>
-				values[field] === undefined || values[field] === '' || values[field] === null
+	const modalMissingRequired = $derived.by(() => {
+		if (!modalSchema?.required?.length) return false
+		return modalSchema.required.some((field: string) =>
+			isEmptyAgentChatInputValue(inputValues[field])
 		)
 	})
 </script>
 
-<!-- Additional Inputs Modal -->
-{#if additionalInputsSchema}
+{#if modalSchema}
 	<Modal title="Configure inputs" bind:open={showInputsModal}>
 		<SchemaForm
-			schema={additionalInputsSchema}
-			bind:args={additionalInputsValues}
+			schema={modalSchema}
+			bind:args={modalDraft}
 			helperScript={dynamicInputHelperScript}
-			workspace={manager.operatingWorkspace?.()}
+			workspace={chatWorkspace}
 		/>
 		{#snippet actions()}
 			<Button onClick={handleModalConfirm} variant="accent">Save</Button>
@@ -126,25 +205,17 @@
 	</div>
 {/snippet}
 
-{#snippet inputPreface()}
-	{#if additionalInputsSchema}
-		<div class="flex items-center justify-end w-full mb-1">
-			<div class="relative">
-				<Button
-					unifiedSize="xs"
-					variant="default"
-					startIcon={{ icon: Settings2 }}
-					title="Inputs"
-					onClick={openInputsModal}
-				>
-					Inputs
-				</Button>
-				{#if hasMissingRequired}
-					<span class="absolute -top-1 -right-1 w-2 h-2 bg-yellow-500 rounded-full"></span>
-				{/if}
-			</div>
-		</div>
-	{/if}
+{#snippet footerSettings()}
+	<FlowChatSettings
+		inputs={settingInputs}
+		values={inputValues}
+		onChange={setInputValue}
+		{staticModel}
+		onOpenInputs={modalSchema ? openInputsModal : undefined}
+		inputsMissingRequired={modalMissingRequired}
+		workspace={chatWorkspace}
+		helperScript={dynamicInputHelperScript}
+	/>
 {/snippet}
 
 <!-- The transcript scroller fills its flex row, which needs a height to resolve
@@ -167,7 +238,9 @@
 		hideModeSelector
 		{wideLayout}
 		{emptyHint}
-		{inputPreface}
+		footerSettings={settingInputs.length > 0 || modalSchema || staticModel
+			? footerSettings
+			: undefined}
 		placeholder="Send a message to run the flow"
 		disabled={deploymentInProgress}
 		disabledMessage="Deployment in progress"

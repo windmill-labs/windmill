@@ -411,6 +411,20 @@ export class AIChatManager implements ChatViewHost {
 	// affordances apply here. See ChatViewHost for hosts where they don't.
 	supportsModelSettings = true
 	supportsMessageEditing = true
+	// Attachments and linked folders are GLOBAL-mode affordances. Declared as
+	// getters because `mode` changes under a mounted composer.
+	get supportsMessageAttachments() {
+		return this.mode === AIMode.GLOBAL
+	}
+	get supportsLinkedFolders() {
+		return this.mode === AIMode.GLOBAL
+	}
+	// Steers the OS file picker toward text + image formats (soft hint; both attach
+	// to the message — text files after a content sniff).
+	// The copilot reads attachments in the browser, so non-image files decode to text.
+	attachmentsAsBlobs = false
+	attachmentAccept =
+		'image/*,text/*,.txt,.csv,.tsv,.json,.jsonl,.ndjson,.md,.markdown,.log,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.xml,.html,.htm,.css,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.rs,.go,.java,.kt,.c,.h,.cpp,.cc,.cs,.php,.sh,.bash,.zsh,.sql,.svelte,.vue,.dockerfile'
 	/** Files the user attached to the current GLOBAL-mode conversation. */
 	attachedFiles = new AttachedFilesStore()
 	/** Markdown artifacts the copilot created for the current session. */

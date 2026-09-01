@@ -50,6 +50,7 @@
 	import type { SelectedContext } from './app/core'
 	import { type FileToAttach } from './files/attachedFiles.svelte'
 	import { isImageFile } from './imageUtils'
+	import { matchesAccept } from './blobUtils'
 	import {
 		hasFileSystemAccess,
 		pickDirectory,
@@ -157,6 +158,8 @@
 		wideLayout = false,
 		emptyHint,
 		inputPreface,
+		footerControls,
+		footerSettings,
 		initialInstructions = undefined,
 		onDraftChange = undefined,
 		placeholder = undefined,
@@ -188,6 +191,11 @@
 		wideLayout?: boolean
 		emptyHint?: Snippet
 		inputPreface?: Snippet
+		/** Extra controls at the head of the composer's footer row. */
+		footerControls?: Snippet
+		/** The settings control at the footer's right edge, where the copilot puts its
+		 * model picker. A host that configures its turn elsewhere replaces it here. */
+		footerSettings?: Snippet
 		// Seed / observe the main composer's draft text (see AIChatInput).
 		initialInstructions?: string
 		onDraftChange?: (text: string) => void
@@ -319,12 +327,10 @@
 		chatHost.mode === AIMode.SCRIPT || chatHost.mode === AIMode.FLOW || chatHost.mode === AIMode.APP
 	)
 
-	// File attachment is GLOBAL-mode only.
-	const canAttachFiles = $derived(chatHost.mode === AIMode.GLOBAL && !disabled)
-	// Steers the OS file picker toward text + image formats (soft hint; both attach
-	// to the message — text files after a content sniff).
-	const TEXT_FILE_ACCEPT =
-		'image/*,text/*,.txt,.csv,.tsv,.json,.jsonl,.ndjson,.md,.markdown,.log,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.xml,.html,.htm,.css,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.rs,.go,.java,.kt,.c,.h,.cpp,.cc,.cs,.php,.sh,.bash,.zsh,.sql,.svelte,.vue,.dockerfile'
+	const canAttachFiles = $derived(chatHost.supportsMessageAttachments && !disabled)
+	// Folders are linked as session-wide assets, which only a host that reads files in
+	// the browser can do — a host running the turn server-side takes attachments only.
+	const canLinkFolders = $derived(chatHost.supportsLinkedFolders && !disabled)
 	let fileInputEl = $state<HTMLInputElement | null>(null)
 	let folderInputEl = $state<HTMLInputElement | null>(null)
 	let dragDepth = $state(0)
@@ -444,12 +450,16 @@
 				handles.length === 0
 					? flatFiles
 					: await Promise.all(handles.filter(isFileHandle).map((h) => h.getFile()))
-			// Loose text files attach to the message, like images.
-			const textFiles = looseFiles.filter((f) => !isImageFile(f))
-			if (textFiles.length > 0) await aiChatInput?.addTextFiles(textFiles)
+			// Loose files attach to the message, like images.
+			await attachNonImageFiles(looseFiles.filter((f) => !isImageFile(f)))
 			// Folders link as a live handle.
-			for (const h of handles.filter(isDirectoryHandle)) {
-				await addDirHandle(h)
+			const dirs = handles.filter(isDirectoryHandle)
+			if (dirs.length > 0 && !canLinkFolders) {
+				sendUserToast('Folders cannot be attached in this chat — drop individual files.', true)
+			} else {
+				for (const h of dirs) {
+					await addDirHandle(h)
+				}
 			}
 		} else {
 			// Fallback (no File System Access API): snapshot dropped files AND folders by walking
@@ -474,23 +484,51 @@
 					topLevelText.push(file)
 				}
 			}
-			if (folderEntries.length > 0) await handleAddFiles(folderEntries)
-			if (topLevelText.length > 0) await aiChatInput?.addTextFiles(topLevelText)
+			if (folderEntries.length > 0) {
+				if (canLinkFolders) await handleAddFiles(folderEntries)
+				else sendUserToast('Folders cannot be attached in this chat — drop individual files.', true)
+			}
+			await attachNonImageFiles(topLevelText)
 		}
 	}
 
 	async function onFileInputChange(e: Event) {
 		const input = e.currentTarget as HTMLInputElement
 		if (input.files && input.files.length > 0) {
-			const picked = Array.from(input.files)
-			const imageFiles = picked.filter(isImageFile)
-			const textFiles = picked.filter((f) => !isImageFile(f))
-			// Reserved before the text work is awaited — see onPanelDrop.
-			const imageWork = imageFiles.length > 0 ? aiChatInput?.addImages(imageFiles) : undefined
-			if (textFiles.length > 0) await aiChatInput?.addTextFiles(textFiles)
-			await imageWork
+			await attachPickedFiles(Array.from(input.files))
 		}
 		input.value = '' // allow re-selecting the same file
+	}
+
+	/**
+	 * Route non-image files to the lane the host reads. A host that decodes them
+	 * takes text; one that forwards them verbatim (to object storage, say) takes
+	 * blobs, and its narrower `accept` is re-applied here because a drop bypasses
+	 * the picker's own filtering.
+	 */
+	async function attachNonImageFiles(files: File[]) {
+		if (files.length === 0) return
+		if (chatHost.attachmentsAsBlobs) {
+			const allowed = files.filter((f) => matchesAccept(f, chatHost.attachmentAccept))
+			if (allowed.length < files.length) {
+				sendUserToast(
+					`${files.length - allowed.length} file(s) skipped — this chat accepts ${chatHost.attachmentAccept}.`,
+					true
+				)
+			}
+			await aiChatInput?.addBlobs(allowed)
+		} else {
+			await aiChatInput?.addTextFiles(files)
+		}
+	}
+
+	async function attachPickedFiles(picked: File[]) {
+		const imageFiles = picked.filter(isImageFile)
+		const others = picked.filter((f) => !isImageFile(f))
+		// Reserved before the other work is awaited — see onPanelDrop.
+		const imageWork = imageFiles.length > 0 ? aiChatInput?.addImages(imageFiles) : undefined
+		await attachNonImageFiles(others)
+		await imageWork
 	}
 
 	function onFolderInputChange(e: Event) {
@@ -562,9 +600,14 @@
 	const showFlowPendingActionControls = $derived(
 		(chatHost.flowAiChatHelpers?.hasPendingChanges() ?? false) && !chatHost.autoAcceptEditsActive
 	)
+	// Everything the left group can hold. `canAttachFiles` belongs here too: in GLOBAL
+	// mode the `+` always has the context picker or the autonomy selector beside it, but
+	// a host with attachments and nothing else would lose the group and the `+` with it.
 	const showFooterLeftControls = $derived(
 		!disabled &&
-			(showContextPicker ||
+			(footerControls !== undefined ||
+				canAttachFiles ||
+				showContextPicker ||
 				showAutonomyModeSelector ||
 				(chatHost.mode === AIMode.SCRIPT && hasDiff))
 	)
@@ -825,6 +868,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			>
 				{#if showFooterLeftControls}
 					<div class="flex flex-row items-center gap-x-1.5 min-w-0 flex-wrap">
+						{@render footerControls?.()}
 						{#if showContextPicker && !disabled}
 							<Popover placement="bottom-start">
 								{#snippet trigger()}
@@ -886,19 +930,23 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 											linkFiles()
 										}
 									},
-									{
-										// A real (live) link needs the File System Access API; without it the
-										// folder is only snapshotted, so call it "Add folder", not "Link folder".
-										displayName: canUseFsAccess ? 'Link folder' : 'Add folder',
-										icon: Folder,
-										tooltip: canUseFsAccess
-											? 'Linked live — the assistant reads the folder’s current files from disk and refreshes each turn.'
-											: 'Loaded as a snapshot — the folder’s files are copied into your browser (they won’t auto-update). For a live link that refreshes from disk, use a Chromium-based browser (Chrome, Edge).',
-										action: () => {
-											plusMenuOpen = false
-											linkFolder()
-										}
-									},
+									...(canLinkFolders
+										? [
+												{
+													// A real (live) link needs the File System Access API; without it the
+													// folder is only snapshotted, so call it "Add folder", not "Link folder".
+													displayName: canUseFsAccess ? 'Link folder' : 'Add folder',
+													icon: Folder,
+													tooltip: canUseFsAccess
+														? 'Linked live — the assistant reads the folder’s current files from disk and refreshes each turn.'
+														: 'Loaded as a snapshot — the folder’s files are copied into your browser (they won’t auto-update). For a live link that refreshes from disk, use a Chromium-based browser (Chrome, Edge).',
+													action: () => {
+														plusMenuOpen = false
+														linkFolder()
+													}
+												}
+											]
+										: []),
 									...(chatHost.mode === AIMode.GLOBAL && mcpConnections
 										? [
 												{
@@ -946,7 +994,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								bind:this={fileInputEl}
 								type="file"
 								multiple
-								accept={TEXT_FILE_ACCEPT}
+								accept={chatHost.attachmentAccept}
 								class="hidden no-default-style"
 								onchange={onFileInputChange}
 							/>
@@ -1050,6 +1098,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{#if chatHost.supportsModelSettings}
 							<AIChatModelSettings />
 						{/if}
+						{@render footerSettings?.()}
 						{#if chatHost.mode === AIMode.GLOBAL}
 							<McpConnections bind:this={mcpConnections} />
 						{/if}

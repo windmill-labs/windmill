@@ -3,6 +3,7 @@ import type { AIMode, AIAutonomyMode } from './AIChatManager.svelte'
 import { getAiChatManager } from './aiChatManagerContext'
 import type { DisplayMessage, Tool } from './shared'
 import type { ContextElement } from './context'
+import type { AttachedBlob } from './blobUtils'
 import type { AttachedImage } from './imageUtils'
 import type { AttachedTextFile } from './textFileUtils'
 import type { PasteAttachment } from './pasteTokens'
@@ -18,6 +19,7 @@ export type ChatSendRequestOptions = {
 	pastes?: PasteAttachment[]
 	images?: AttachedImage[]
 	files?: AttachedTextFile[]
+	blobs?: AttachedBlob[]
 }
 
 /**
@@ -92,6 +94,19 @@ export interface ChatViewHost {
 	/** Click a user message to edit and resend it. Needs a host that can rewind
 	 * its own transcript, which a host replaying a server-side run cannot. */
 	supportsMessageEditing: boolean
+	/** The `+` menu's file entry and drag-and-drop onto the panel. Attachments ride
+	 * one message; where they go afterwards is the host's business (see sendRequest). */
+	supportsMessageAttachments: boolean
+	/** The `+` menu's folder entries, backed by `attachedFiles`. A linked folder is a
+	 * live handle on the user's disk, so only a host reading files in the browser has one. */
+	supportsLinkedFolders: boolean
+	/** `accept` for the file picker, and the drop filter. A host whose consumer only
+	 * understands some formats narrows it so the rest are refused rather than ignored. */
+	attachmentAccept: string
+	/** Take non-image attachments verbatim (`blobs`) instead of decoding them to text.
+	 * True where the bytes are forwarded somewhere — object storage — rather than read
+	 * in the browser. */
+	attachmentsAsBlobs: boolean
 	tools: Tool<any>[]
 	autonomyMode: AIAutonomyMode
 	setAutonomyMode: (mode: AIAutonomyMode) => void

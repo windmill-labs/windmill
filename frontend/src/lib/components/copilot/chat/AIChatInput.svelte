@@ -41,6 +41,12 @@
 		textByteLength,
 		type AttachedTextFile
 	} from './textFileUtils'
+	import {
+		fileToAttachedBlob,
+		MAX_ATTACHED_BLOBS,
+		MAX_BLOB_BYTES,
+		type AttachedBlob
+	} from './blobUtils'
 	import { MessageDraft } from './messageDraft.svelte'
 	import ExpandableImage, {
 		isImageViewerOpen
@@ -208,19 +214,24 @@
 	// against a concurrent drop.
 	let pendingImages = $state(0)
 
-	/** Attach dropped/pasted image files (downscaled + bounded). GLOBAL mode only. */
+	/** Attach dropped/pasted image files (downscaled + bounded). */
 	export async function addImages(files: (File | Blob)[]) {
-		if (chatHost.mode !== AIMode.GLOBAL) return
+		if (!chatHost.supportsMessageAttachments) return
 		const imageFiles = files.filter(isImageFile)
 		if (imageFiles.length === 0) return
-		// tryGetCurrentModel returns undefined instead of throwing: this runs from a
-		// drop/paste handler that can't surface a rejection.
-		const model = tryGetCurrentModel()
-		// Only known text-only models fail this, so attaching would certainly 400 the
-		// next turn — refuse rather than warn and send it anyway.
-		if (model && !modelSupportsVision(model.provider, model.model)) {
-			sendUserToast(`${model.model} can't read images. Switch to a vision model first.`, true)
-			return
+		// The vision check is about the model this composer's own turn will hit, so it
+		// only applies to a host that picks that model. Elsewhere the model is chosen
+		// in the flow and tryGetCurrentModel would answer for the wrong one.
+		if (chatHost.supportsModelSettings) {
+			// tryGetCurrentModel returns undefined instead of throwing: this runs from a
+			// drop/paste handler that can't surface a rejection.
+			const model = tryGetCurrentModel()
+			// Only known text-only models fail this, so attaching would certainly 400 the
+			// next turn — refuse rather than warn and send it anyway.
+			if (model && !modelSupportsVision(model.provider, model.model)) {
+				sendUserToast(`${model.model} can't read images. Switch to a vision model first.`, true)
+				return
+			}
 		}
 		// Count decodes already in flight: two drops that both read the image count
 		// before either resolves would each claim the same free slots and overshoot
@@ -309,7 +320,7 @@
 
 	/** Attach dropped/picked text files (sniffed + bounded). GLOBAL mode only. */
 	export async function addTextFiles(candidates: File[]) {
-		if (chatHost.mode !== AIMode.GLOBAL) return
+		if (!chatHost.supportsMessageAttachments) return
 		if (candidates.length === 0) return
 		const remaining = MAX_ATTACHED_FILES - draft.files.length - pendingFiles
 		if (remaining <= 0) {
@@ -405,6 +416,53 @@
 		draft.files = draft.files.filter((_, i) => i !== index)
 	}
 
+	// Blobs being read right now — same send-hold/slot-reservation role as pendingImages.
+	let pendingBlobs = $state(0)
+
+	/** Attach files the host takes verbatim (a PDF, say). Kept out of addTextFiles:
+	 * that one decodes to a string and drops anything the binary sniff rejects. */
+	export async function addBlobs(candidates: File[]) {
+		if (!chatHost.supportsMessageAttachments) return
+		if (candidates.length === 0) return
+		const oversized = candidates.filter((f) => f.size > MAX_BLOB_BYTES)
+		if (oversized.length > 0) {
+			const mb = Math.round(MAX_BLOB_BYTES / 1_000_000)
+			sendUserToast(`${oversized.length} file(s) over ${mb}MB were skipped.`, true)
+		}
+		const usable = candidates.filter((f) => f.size <= MAX_BLOB_BYTES)
+		if (usable.length === 0) return
+		const remaining = MAX_ATTACHED_BLOBS - draft.blobs.length - pendingBlobs
+		if (remaining <= 0) {
+			sendUserToast(`You can attach up to ${MAX_ATTACHED_BLOBS} files.`, true)
+			return
+		}
+		const batch = usable.slice(0, remaining)
+		if (batch.length < usable.length) {
+			sendUserToast(
+				`You can attach up to ${MAX_ATTACHED_BLOBS} files; ${usable.length - batch.length} were skipped.`,
+				true
+			)
+		}
+		pendingBlobs += batch.length
+		try {
+			const added: AttachedBlob[] = []
+			for (const file of batch) {
+				try {
+					added.push(await fileToAttachedBlob(file))
+				} catch (e) {
+					sendUserToast(`Could not read ${file.name}`, true)
+				}
+			}
+			if (added.length > 0) draft.addBlobs(added)
+		} finally {
+			pendingBlobs -= batch.length
+		}
+	}
+
+	function removeBlob(index: number) {
+		draft.blobs = draft.blobs.filter((_, i) => i !== index)
+	}
+
 	// App mode @ mention state
 	let showAppContextTooltip = $state(false)
 	let appContextTooltipWord = $state('')
@@ -486,7 +544,7 @@
 		// Attachments still decoding/reading (or mid-drop-routing) count as
 		// occupancy too — they belong to a draft the user started even though
 		// their lane is still empty.
-		if (pendingImages > 0 || pendingFiles > 0 || ingestionHolds > 0) return false
+		if (pendingImages > 0 || pendingFiles > 0 || pendingBlobs > 0 || ingestionHolds > 0) return false
 		if (
 			!draft.replaceIfEmpty({
 				text: value,
@@ -691,7 +749,7 @@
 	function sendRequest() {
 		// The send button is disabled while decoding, but Enter reaches here directly.
 		// Sending now would drop the in-flight attachments onto the following message.
-		if (pendingImages > 0 || pendingFiles > 0 || ingestionHolds > 0) {
+		if (pendingImages > 0 || pendingFiles > 0 || pendingBlobs > 0 || ingestionHolds > 0) {
 			return
 		}
 		// Read before `take()` empties the draft the id derives from, and only take
@@ -752,7 +810,8 @@
 				instructions: sent.text,
 				pastes: sent.pastes,
 				images: sent.images,
-				files: sent.files
+				files: sent.files,
+				blobs: sent.blobs
 			})
 			// clearForSend() pre-zaps the textarea's mention-sync so the wipe
 			// doesn't drop `selectedContext` before `AIChatManager.beforeSend`
@@ -987,6 +1046,7 @@
 		disabled ||
 		pendingImages > 0 ||
 		pendingFiles > 0 ||
+		pendingBlobs > 0 ||
 		ingestionHolds > 0 ||
 		(emptyDraft &&
 			(onSendRequest !== undefined ||
@@ -1015,7 +1075,7 @@
      thumbnails get their own row (different height). -->
 {#snippet badgeRow()}
 	{@const contextChips = showContext ? selectedContext : domSelectorChips}
-	{#if contextChips.length > 0 || draft.files.length > 0 || pendingFiles > 0}
+	{#if contextChips.length > 0 || draft.files.length > 0 || pendingFiles > 0 || draft.blobs.length > 0 || pendingBlobs > 0}
 		<div class="flex flex-row flex-wrap items-center gap-1 px-2.5 pt-2">
 			{#each contextChips as element (contextKey(element))}
 				<ContextElementBadge
@@ -1034,7 +1094,19 @@
 					onDelete={() => removeFile(i)}
 				/>
 			{/each}
-			{#each { length: pendingFiles } as _, i (i)}
+			<!-- Blobs are shown by the same badge as text files. Their preview line stands
+			     in for content the badge cannot render (a PDF has no text to show). -->
+			{#each draft.blobs as blob, i (i)}
+				<ContextElementBadge
+					contextElement={createAttachedFileContextElement(
+						blob.name,
+						`${blob.mediaType} · ${Math.max(1, Math.round(blob.size / 1024))} KB`
+					)}
+					deletable
+					onDelete={() => removeBlob(i)}
+				/>
+			{/each}
+			{#each { length: pendingFiles + pendingBlobs } as _, i (i)}
 				<div
 					class="h-6 w-24 rounded-md border bg-surface flex items-center justify-center"
 					title="Reading file..."
@@ -1099,6 +1171,7 @@
 			draft.isEmpty &&
 			pendingImages === 0 &&
 			pendingFiles === 0 &&
+			pendingBlobs === 0 &&
 			ingestionHolds === 0
 		) {
 			// Shell-style recall: ArrowUp in the empty main composer pulls the
@@ -1135,10 +1208,10 @@
 				bind:this={contextTextareaComponent}
 				bind:value={draft.text}
 				bind:pastes={draft.pastes}
-				onImageFiles={chatHost.mode === AIMode.GLOBAL
+				onImageFiles={chatHost.supportsMessageAttachments
 					? (pasted) => void addImages(pasted)
 					: undefined}
-				onTextFiles={chatHost.mode === AIMode.GLOBAL
+				onTextFiles={chatHost.supportsMessageAttachments
 					? (pasted) => void addTextFiles(pasted)
 					: undefined}
 				{availableContext}
@@ -1236,30 +1309,46 @@
 			</Portal>
 		{/if}
 	{:else}
-		<div class={twMerge('relative w-full scroll-pb-2 pt-2', className)}>
-			<textarea
-				bind:this={instructionsTextareaComponent}
-				bind:value={draft.text}
-				use:autosize={{ maxHeight: '40vh' }}
-				onkeydown={(e) => {
-					if (onKeyDown) {
-						onKeyDown(e)
-					}
-					if (e.key === 'Enter' && !e.shiftKey) {
-						e.preventDefault()
-						sendRequest()
-					}
-				}}
-				rows={1}
-				placeholder={modePlaceholder}
-				class={twMerge('resize-none', CHAT_INPUT_PADDING)}
-				{disabled}
-			></textarea>
-			{#if !bottomRightSnippet}
-				<div class="absolute bottom-1 right-1">
-					{@render sendStopButton()}
-				</div>
-			{/if}
+		<!-- Mirrors ContextTextarea's box: border + rounded on the wrapper, not on the
+		     textarea, so the same chip rows sit INSIDE the box above the text. Without
+		     this the rows would float on the page background and read as a different
+		     composer from the session chat's. -->
+		<div
+			class="w-full scroll-pb-2 bg-surface-input rounded-md border border-border-light focus-within:border-border-selected transition-colors"
+		>
+			{@render badgeRow()}
+			{@render imageChipsRow()}
+			<div class={twMerge('relative w-full', className)}>
+				<textarea
+					bind:this={instructionsTextareaComponent}
+					bind:value={draft.text}
+					use:autosize={{ maxHeight: '40vh' }}
+					onkeydown={(e) => {
+						if (onKeyDown) {
+							onKeyDown(e)
+						}
+						if (e.key === 'Enter' && !e.shiftKey) {
+							e.preventDefault()
+							sendRequest()
+						}
+					}}
+					rows={1}
+					placeholder={modePlaceholder}
+					class={twMerge(
+						'resize-none',
+						// The box lives on the wrapper; kill the textarea's own forms border,
+						// focus ring and background so only the wrapper reads as the field.
+						'!border-transparent !bg-transparent !shadow-none focus:!border-transparent focus:!ring-0',
+						CHAT_INPUT_PADDING
+					)}
+					{disabled}
+				></textarea>
+				{#if !bottomRightSnippet}
+					<div class="absolute bottom-1 right-1">
+						{@render sendStopButton()}
+					</div>
+				{/if}
+			</div>
 		</div>
 	{/if}
 	{#if bottomRightSnippet}
