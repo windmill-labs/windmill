@@ -3,8 +3,13 @@ import {
 	attachmentStatusLabel,
 	attachmentValue,
 	contextGlanceLine,
-	filterTools
+	filterTools,
+	summarizeTools
 } from './agentContext'
+import type { Tool } from './shared'
+
+const tool = (name: string, description?: string) =>
+	({ def: { type: 'function', function: { name, description } } }) as unknown as Tool<{}>
 
 const NOTHING = {
 	tools: 0,
@@ -38,6 +43,17 @@ describe('filterTools', () => {
 
 	it('returns everything for a blank query', () => {
 		expect(filterTools(tools, '  ')).toHaveLength(2)
+	})
+})
+
+describe('summarizeTools', () => {
+	// The panel re-derives this on every turn, so an unsorted list would reshuffle
+	// under the reader as tools come and go.
+	it('sorts by name and tolerates a tool with no description', () => {
+		expect(summarizeTools([tool('run_script', 'Run it.'), tool('deploy')])).toEqual([
+			{ name: 'deploy', description: '' },
+			{ name: 'run_script', description: 'Run it.' }
+		])
 	})
 })
 

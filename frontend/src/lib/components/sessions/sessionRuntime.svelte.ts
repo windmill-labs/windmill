@@ -505,10 +505,9 @@ function createRuntime(session: Session): SessionRuntime {
 	void manager.artifacts.setSession(session.id)
 
 	// Assigning `manager.mode` above only records the mode; this builds the tool set
-	// and system prompt from it. Keep it after the resolvers and the artifact store,
-	// which that build reads, and keep it off `changeMode`: a runtime is created for
-	// every session the picker lists, so changeMode's network refreshes would fire
-	// once per listed session. Those stay on activation and send.
+	// and system prompt from it. Keep it here, after the resolvers and the artifact
+	// store it reads, and not on `changeMode`: a runtime exists per session the
+	// picker lists, so changeMode's network refreshes would fire once per listing.
 	manager.configureGlobalMode()
 
 	// Pipeline target state lives on the runtime (not the PipelineEditorView

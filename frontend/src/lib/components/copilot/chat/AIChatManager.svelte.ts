@@ -2052,11 +2052,8 @@ export class AIChatManager {
 	// so changeMode, refreshGlobalSkills, and setPipelineHelpers stay consistent —
 	// each rebuild would otherwise drop the pipeline augmentation the others added.
 	//
-	// Purely local, unlike `changeMode(GLOBAL)`, which also fires the three network
-	// refreshes. That is why a caller holding a mode this chat never leaves can call
-	// this directly: a session sets `mode` itself, and its runtime is created for
-	// every session the picker shows, so going through changeMode there would turn
-	// mounting the picker into a burst of identity/skill/MCP requests per session.
+	// Public because it is purely local, unlike `changeMode(GLOBAL)`, which also
+	// fires the three network refreshes.
 	configureGlobalMode = () => {
 		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 			previewTools: this.isSessionChat,

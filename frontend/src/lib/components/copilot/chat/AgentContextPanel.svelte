@@ -75,14 +75,18 @@ each one. It reports, and never changes what the chat carries.
 	let attachmentCount = $derived(folders.length + attachedFiles.length)
 	let attachmentLabel = $derived(attachmentValue(readyAttachments, attachmentCount))
 
-	// Both bare reads below are the dependencies of this derived, since the getter
-	// takes neither: the workspace half of the prompts follows `copilotInfo`, while
-	// the user half sits in localStorage with no signal at all, so `promptsSeq`
-	// stands in for one and is bumped whenever the panel opens.
+	// The three bare reads below are this derived's dependencies, since the getter
+	// takes none of them. Between them they keep the panel at least as current as
+	// the prompt it reports on: `copilotInfo` backs the workspace half and is the
+	// same store the system message is built from; `systemMessage` is reassigned
+	// whenever the manager re-reads the prompts (what `update_user_instructions`
+	// does), which is the only signal the localStorage-backed user half has; and
+	// `promptsSeq` re-reads it on open for the writes that go through neither.
 	let promptsSeq = $state(0)
 	let instructions = $derived.by(() => {
 		promptsSeq
 		$copilotInfo
+		aiChatManager.systemMessage
 		return getCustomPromptParts(AIMode.GLOBAL)
 	})
 	let instructionSources = $derived(
