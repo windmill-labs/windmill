@@ -721,6 +721,30 @@ struct McpPreprocessorEvent<'a> {
     tool_name: &'a str,
 }
 
+/// Headers withheld from a preprocessor because they authenticate the connection
+/// itself.
+///
+/// Not a security boundary — a webhook preprocessor receives all three, and the
+/// asymmetry that would justify withholding them here does not survive scrutiny.
+/// They are withheld because nothing needs them yet and this is the direction
+/// that stays reversible: releasing one later is additive, while withdrawing one
+/// after a runnable reads it is not. `cookie` has the strongest case, since a
+/// same-origin browser client attaches it without the caller choosing to.
+const WITHHELD_FROM_PREPROCESSOR: &[&str] = &["authorization", "cookie", "proxy-authorization"];
+
+/// Every header a preprocessor may see.
+fn preprocessor_headers(
+    headers: &http::HeaderMap,
+) -> HashMap<String, Box<serde_json::value::RawValue>> {
+    let mut selected = build_headers(headers, None, true);
+    selected.retain(|name, _| {
+        !WITHHELD_FROM_PREPROCESSOR
+            .iter()
+            .any(|withheld| withheld.eq_ignore_ascii_case(name))
+    });
+    selected
+}
+
 /// Build the job arguments for a script or flow run as an MCP tool.
 ///
 /// Shaped by the runnable's own format: a preprocessor receives the request as
@@ -763,9 +787,7 @@ pub async fn prepare_push_args(
             windmill_queue::PushArgsOwned { args: main_args, extra: None }
         }
         RunnableFormat { has_preprocessor: true, version } => {
-            // The whole request, the way every other trigger hands one to a
-            // preprocessor.
-            let headers = build_headers(request.headers, None, true);
+            let headers = preprocessor_headers(request.headers);
             match version {
                 RunnableFormatVersion::V2 => {
                     let event = McpPreprocessorEvent {
