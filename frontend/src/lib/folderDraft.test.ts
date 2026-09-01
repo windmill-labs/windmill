@@ -52,9 +52,8 @@ describe('folderPermissionDiff', () => {
 		expect(folderPermissionDiff([member(role)], [member(role)])).toEqual([])
 	})
 
-	// The caller is a folder admin only through `g/ops`. Giving that up before the other
-	// calls leaves them outside `owners`, which the update policy matches on, so the rest is
-	// filtered out by RLS and reported as success.
+	// The caller is a folder admin only through `g/ops`, so that demotion is the one the write
+	// policy refuses. Sent first it takes the rest of the save down with it.
 	it('gives up the caller own admin last', () => {
 		const prev: FolderMember[] = [
 			{ owner_name: 'g/ops', role: 'admin' },

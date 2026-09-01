@@ -468,10 +468,10 @@
 					})
 					break
 				case 'remove':
-					// Sequential, and `removeowner` first: it is the one the write policy refuses
-					// when the member being removed is what makes the caller an admin. Failing it
-					// before the ACL delete leaves the folder untouched, where the other order
-					// strands a member with no grant but still in `owners`.
+					// Sequential, and `removeowner` first: the write policy refuses it when the
+					// member being removed is the caller's last admin handle. Failing there leaves
+					// the folder untouched, where the other order strands a member with no grant
+					// but still in `owners`.
 					await FolderService.removeOwnerToFolder({
 						workspace,
 						name,
