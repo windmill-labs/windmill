@@ -5799,9 +5799,8 @@ async fn clone_workspace_data(
     // Clone the forker's own per-user drafts (plus the legacy NULL-email
     // workspace draft, if any) so they keep their pending edits in the
     // fork. Other users' drafts are intentionally NOT cloned — they don't
-    // own a `usr` row in the fork (see `clone_workspace_full`) so their
-    // drafts would dangle and the home-page `draft_users` aggregate would
-    // surface them as duplicate legacy entries.
+    // own a `usr` row in the fork (see `clone_workspace_full`), so those
+    // drafts would belong to someone the fork holds no membership for.
     clone_drafts(tx, source_workspace_id, target_workspace_id, &authed.email).await?;
 
     // Clone workspace runnable dependencies and dependency map
