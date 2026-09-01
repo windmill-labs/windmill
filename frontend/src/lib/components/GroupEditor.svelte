@@ -177,7 +177,9 @@
 			// The draft must survive a failed read: overwriting it here would discard the
 			// user's edits and clear `unsaved` with them.
 			sendUserToast(e?.body ?? String(e), true)
-			can_write = false
+			// Only the opening read decides this. Revoking it on a failed reconcile would
+			// disable Save against a draft that is still dirty, with nothing left to reload.
+			if (!opts?.baselineOnly) can_write = false
 		} finally {
 			loaded = true
 		}
@@ -317,11 +319,10 @@
 			if (created && !alreadyCreated && !nameTaken) {
 				sendUserToast(`Group ${name} may have been created anyway — reopen it to check`, true)
 			}
-			// Reconcile after any edit-path failure rather than tracking which calls landed: the
-			// same post-commit window means a rejection is not proof nothing was written. The
-			// baseline moves to what the server now holds and the draft stays, so a retry
-			// re-sends only what is missing. `isNew` is read after the create, so a group that
-			// now exists reconciles too.
+			// Reconcile after any edit-path failure: the post-commit window means a rejection is
+			// not proof nothing was written. The baseline moves to server truth and the draft
+			// stays, so a retry re-sends only what is missing. `isNew` is read after the create,
+			// so a group that now exists reconciles too.
 			if (!isNew) await loadGroup({ baselineOnly: true })
 			return undefined
 		}
