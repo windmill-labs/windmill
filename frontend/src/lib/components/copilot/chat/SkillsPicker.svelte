@@ -117,6 +117,7 @@ What the assistant should do when this skill applies.
 	let skills = $state<Row[]>([])
 	let loading = $state(false)
 	let loadError = $state<string | undefined>(undefined)
+	let listNotice = $state<string | undefined>(undefined)
 	let saving = $state(false)
 	let toDelete: Row | undefined = $state(undefined)
 	let importFiles = $state<File[] | undefined>(undefined)
@@ -200,19 +201,28 @@ What the assistant should do when this skill applies.
 	})
 
 	async function loadSkills(target = ws) {
-		if (!target) return
+		// Checked before the sequence is taken, not only after the await: a stale
+		// action calling refresh(A) would otherwise claim the newest sequence and
+		// make the legitimate load for B discard its own result, leaving the drawer
+		// blank for the workspace actually on screen.
+		if (!target || target !== ws) return
 		refreshForkPending()
 		const seq = ++loadSeq
 		loading = true
 		loadError = undefined
 		try {
-			const found = await listSkillResources(target, $userStore ?? undefined)
+			const { skills: found, truncated } = await listSkillResources(target, $userStore ?? undefined)
 			// Newest-request-wins is not enough on its own: an action started in A and
 			// finishing after a switch to B holds the newest sequence, and would put
 			// A's rows on screen under B — where the next row action would edit or
 			// delete that path in B. The workspace has to still be the one asked for.
 			if (seq !== loadSeq || target !== ws) return
 			skills = found.map((s) => ({ ...s, enabled: isSkillEnabled(target, s.path) }))
+			// A notice, not `loadError`: that one replaces the list, and a truncated
+			// read still has skills worth showing.
+			listNotice = truncated
+				? `Showing the first ${found.length} skills; this workspace has more. Delete unused ones so the rest can be selected.`
+				: undefined
 		} catch (e) {
 			if (seq !== loadSeq || target !== ws) return
 			// Without this the drawer would render the empty state, which reads as
@@ -292,7 +302,11 @@ What the assistant should do when this skill applies.
 
 	async function toggle(p: string, enabled: boolean) {
 		if (blockedByPendingFork()) return
-		if (!setSkillEnabled(ws, p, enabled)) {
+		// Pinned for the whole call, like the other actions: the selection is stored
+		// per workspace, and the refresh below must not hand these skills to a chat
+		// that has since moved on.
+		const target = ws
+		if (!setSkillEnabled(target, p, enabled)) {
 			sendUserToast('Could not save the selection for this account.', true)
 			return
 		}
@@ -300,10 +314,14 @@ What the assistant should do when this skill applies.
 		if (skill) skill.enabled = enabled
 		// Whether people select skills at all. Never the skill itself: a path is
 		// workspace-authored text.
-		logFeatureUsage('ai_session', 'skill_toggle', { key: enabled ? 'on' : 'off', workspace: ws })
+		logFeatureUsage('ai_session', 'skill_toggle', {
+			key: enabled ? 'on' : 'off',
+			workspace: target
+		})
+		if (target !== ws) return
 		// The prompt lists exactly the enabled skills, so it has to be rebuilt
 		// before the next message rather than on the next mode change.
-		await aiChatManager.refreshGlobalSkills(ws)
+		await aiChatManager.refreshGlobalSkills(target)
 	}
 
 	/** Personal folder the folder import writes into. The username is not always a
@@ -595,10 +613,17 @@ What the assistant should do when this skill applies.
 			</Button>
 		{/snippet}
 
+		{#if listNotice}
+			<Alert type="warning" title="Not all skills are shown" size="xs" class="mb-4">
+				{listNotice}
+			</Alert>
+		{/if}
+
 		{#if forkPending}
 			<Alert type="info" title="This session has no workspace yet" size="xs" class="mb-4">
-				Skills are read-only until the first message creates this session's fork. Editing one now
-				would change the parent workspace instead.
+				Skills are read-only until the first message creates this session's fork. Editing or
+				selecting one now would apply to the parent workspace and stop applying once the fork is
+				created.
 			</Alert>
 		{/if}
 
@@ -641,6 +666,7 @@ What the assistant should do when this skill applies.
 						</div>
 						<Toggle
 							size="xs"
+							disabled={forkPending}
 							checked={skill.enabled}
 							on:change={async (e) => await toggle(skill.path, e.detail)}
 						/>
@@ -656,7 +682,7 @@ What the assistant should do when this skill applies.
 									displayName: 'Delete',
 									icon: Trash2,
 									type: 'delete',
-									disabled: !skill.canWrite,
+									disabled: !skill.canWrite || forkPending,
 									action: () => (toDelete = skill)
 								}
 							]}

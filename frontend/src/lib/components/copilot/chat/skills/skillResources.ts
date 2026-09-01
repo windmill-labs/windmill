@@ -39,8 +39,14 @@ const SKILLS_PAGE_SIZE = 100
 /** Pages to walk before giving up. Ordinary resources and repeated imports can
  * make any number of skills, and a single page would drop the rest — including a
  * selected one, which would then vanish from the prompt with nothing to explain
- * it. This bounds the walk without pretending there is a server-side cap. */
-const MAX_SKILLS_PAGES = 20
+ * it. The bound is a guard against a paging bug looping forever, not a product
+ * cap, so reaching it is reported rather than passed off as the whole set. */
+const MAX_SKILLS_PAGES = 100
+
+/** The rows read, and whether the walk stopped at the bound rather than the end.
+ * Reported rather than thrown: a truncated read is still most of the skills, and
+ * dropping them all would take every selected skill out of the prompt at once. */
+export type SkillListing = { skills: SkillResource[]; truncated: boolean }
 
 /** Every skill resource readable in the workspace.
  *
@@ -51,8 +57,8 @@ const MAX_SKILLS_PAGES = 20
 export async function listSkillResources(
 	workspace: string,
 	user?: UserExt
-): Promise<SkillResource[]> {
-	if (!workspace) return []
+): Promise<SkillListing> {
+	if (!workspace) return { skills: [], truncated: false }
 	const rows: SkillResource[] = []
 	for (let page = 1; page <= MAX_SKILLS_PAGES; page++) {
 		const resources = await ResourceService.listResource({
@@ -70,9 +76,9 @@ export async function listSkillResources(
 				canWrite: canWrite(r.path, r.extra_perms ?? {}, user)
 			}))
 		)
-		if (resources.length < SKILLS_PAGE_SIZE) break
+		if (resources.length < SKILLS_PAGE_SIZE) return { skills: rows, truncated: false }
 	}
-	return rows
+	return { skills: rows, truncated: true }
 }
 
 /** Cut `text` to `maxChars` code points. For the description, whose cap is stated
