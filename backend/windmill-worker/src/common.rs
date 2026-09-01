@@ -67,22 +67,19 @@ mount {
 #[cfg(not(debug_assertions))]
 pub const DEV_CONF_NSJAIL: &str = "";
 
-/// Helpers the Bun/Deno wrappers use to turn a thrown value into the error object
-/// they report, injected into the generated wrapper source.
+/// Error-serialization helpers injected into every generated Bun/Deno wrapper.
 ///
-/// A script can throw anything, so neither reading `e.message` nor calling
-/// `JSON.stringify` on the result is safe: `throw null`, and errors that link two
-/// objects both ways (an axios error hangs `response` off `request` and back), both
-/// abort the wrapper itself, and the job then reports a stack trace from the wrapper
-/// instead of what the script threw.
+/// A script can throw anything, so neither reading `e.message` nor a bare
+/// `JSON.stringify` is safe: `throw null` and errors that link two objects both ways
+/// (axios hangs `response` off `request` and back) abort the wrapper itself, and the
+/// job then reports the wrapper's own stack instead of what the script threw.
 ///
-/// `collectExtra` is true only where the wrapper already reported the thrown value's own
-/// properties, which is the Bun main and Bun WAC v2 wrappers alone. Turning it on for the
-/// other three would newly persist whatever an HTTP client hangs off its errors,
-/// credential-bearing headers included, into the run history of every existing script on
-/// those paths; that parity is its own decision, not part of stopping a crash.
+/// `collectExtra` must stay false on every wrapper that did not already report the
+/// thrown value's own properties, which is all of them but the two Bun script wrappers.
+/// Enabling it there would newly persist whatever an HTTP client hangs off its errors,
+/// credential-bearing headers included, into existing scripts' run history.
 ///
-/// Kept comment-free, since it is written out per job.
+/// Comment-free on purpose: it is written into each job's wrapper source.
 pub const JS_ERROR_SERIALIZER: &str = r#"
 const wmErrOwnKeys = ['line', 'name', 'stack', 'column', 'message', 'sourceURL', 'originalLine', 'originalColumn'];
 
@@ -103,9 +100,20 @@ function wmErrProp(e, key) {
     }
 }
 
+function wmErrDescribe(v) {
+    let s;
+    if (v !== null && typeof v === 'object') {
+        try {
+            s = wmSerializeError(v);
+        } catch (_) {}
+    }
+    if (s === undefined || s === '{}') s = wmErrString(v);
+    return s.length > 10000 ? s.slice(0, 10000) + '...[truncated]' : s;
+}
+
 function wmToErrorObject(e, collectExtra) {
     if (e === null || typeof e !== 'object') {
-        return { message: wmErrString(e), name: 'ThrownValue' };
+        return { message: wmErrDescribe(e), name: 'ThrownValue' };
     }
     const err = {};
     for (const field of ['message', 'name', 'stack']) {
@@ -120,12 +128,13 @@ function wmToErrorObject(e, collectExtra) {
         const extra = {};
         for (const key of keys) {
             if (wmErrOwnKeys.includes(key)) continue;
-            extra[key] = wmErrProp(e, key);
+            const v = wmErrProp(e, key);
+            if (v !== undefined) extra[key] = v;
         }
         if (Object.keys(extra).length > 0) err.extra = extra;
     }
     if (Object.keys(err).length === 0) {
-        err.message = wmErrString(e);
+        err.message = wmErrDescribe(e);
         err.name = 'ThrownValue';
     }
     return err;

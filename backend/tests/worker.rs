@@ -3277,8 +3277,7 @@ async fn test_deno_job_non_error_throws(db: Pool<Postgres>) -> anyhow::Result<()
         json!("null")
     );
 
-    // A thrown string reaches the result as a string; reading `message` off it yields
-    // nothing, which used to leave an empty error object.
+    // A thrown string reaches the result as a string, not an empty error object.
     let job = RunJob::from(deno_job(
         r#"export function main() { throw "nur ein string"; }"#,
     ))
@@ -3288,6 +3287,19 @@ async fn test_deno_job_non_error_throws(db: Pool<Postgres>) -> anyhow::Result<()
     assert_eq!(
         job.json_result().unwrap()["error"]["message"],
         json!("nur ein string")
+    );
+
+    // An object carrying none of message/name/stack is described by its contents rather
+    // than collapsing to an empty error object.
+    let job = RunJob::from(deno_job(
+        r#"export function main() { throw { code: 42, hint: "kein Error" }; }"#,
+    ))
+    .run_until_complete(&db, false, port)
+    .await;
+    assert!(!job.success);
+    assert_eq!(
+        job.json_result().unwrap()["error"]["message"],
+        json!(r#"{"code":42,"hint":"kein Error"}"#)
     );
 
     // Deno reports only message/name/stack. Collecting the thrown value's own properties
