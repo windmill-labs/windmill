@@ -37,6 +37,7 @@ import { z } from 'zod'
 import {
 	ScriptService,
 	FlowService,
+	IntegrationService,
 	JobService,
 	type Job,
 	type CompletedJob,
@@ -1343,13 +1344,22 @@ function hasOptionalProperties(schema: Record<string, any> | undefined): boolean
 const searchHubScriptsSchema = z.object({
 	query: z
 		.string()
-		.describe('The query to search for, e.g. send email, list stripe invoices, etc..')
+		.optional()
+		.describe(
+			'What you want the script to do, e.g. "send email", "list stripe invoices". Semantic search, so describe the intent. Omit when browsing with `integration` alone.'
+		),
+	integration: z
+		.string()
+		.optional()
+		.describe(
+			'Integration slug (e.g. "stripe") from a previous result\'s `integration` or `suggested_integrations`. Alone, lists that integration\'s scripts with descriptions, including ones that do not match your task but show how the integration is used. With `query`, narrows the search to it.'
+		)
 })
 
 const searchHubScriptsToolDef = createToolDef(
 	searchHubScriptsSchema,
 	'search_hub_scripts',
-	'Search for scripts in the hub'
+	"Search the Windmill Hub for prebuilt integration scripts, or list one integration's scripts with `integration`."
 )
 
 /** The hub resolves a script by its version id alone; the app and summary
@@ -1364,28 +1374,340 @@ export function isHubPath(path: string): boolean {
 	return path.startsWith('hub/')
 }
 
+const MAX_BROWSED_HUB_SCRIPTS = 20
+const MAX_MENTIONED_INTEGRATION_HITS = 3
+const MAX_FETCHED_HUB_SCRIPTS = 3
+const MAX_SUGGESTED_INTEGRATIONS = 5
+
+/** Common shape of the two hub listings. Both carry a description, but the hub has
+ * none for roughly a fifth of its scripts, and says so as a null rather than by
+ * omitting the key. */
+type HubScriptHit = {
+	version_id: number
+	app: string
+	summary: string
+	description?: string | null
+}
+
+type HubIntegration = { name: string; documented: boolean }
+
+/** The integration slugs are a large but static list, so one fetch per session
+ * is enough. Only matched slugs ever reach the model, never the whole list. */
+let hubIntegrationsCache: HubIntegration[] | undefined
+
+/** An unreachable hub must degrade to "no suggestions" rather than turn the search
+ * into a tool error, so a failed or empty response is left uncached and retried. */
+async function loadHubIntegrations(): Promise<HubIntegration[]> {
+	if (!hubIntegrationsCache?.length) {
+		try {
+			const integrations = await IntegrationService.listHubIntegrations({ kind: 'script' })
+			hubIntegrationsCache = integrations.map((i) => ({
+				name: i.name,
+				// A hub predating the flag omits it, and so does one with no authored
+				// notes. Both mean the same thing: nothing to read beyond what the
+				// metadata call returns for every integration.
+				documented: i.documented === true
+			}))
+		} catch (err) {
+			console.error('Could not list hub integrations', err)
+			return []
+		}
+	}
+	return hubIntegrationsCache
+}
+
+/** Which integrations carry provider knowledge checked against the live API,
+ * lowercased because a hub slug is case-sensitive and both casings can exist. The
+ * mark means there is more to read, never that the call is skippable elsewhere. */
+async function documentedIntegrations(): Promise<Set<string>> {
+	const available = await loadHubIntegrations()
+	return new Set(available.filter((i) => i.documented).map((i) => i.name.toLowerCase()))
+}
+
+async function suggestHubIntegrations(query: string): Promise<string[]> {
+	const available = await loadHubIntegrations()
+	const tokens = query
+		.toLowerCase()
+		.split(/[^a-z0-9]+/)
+		.filter((t) => t.length >= 2)
+	return available
+		.map((i) => i.name)
+		.filter((name) => tokens.some((t) => tokenMatchesSlug(t, name.toLowerCase())))
+		.slice(0, MAX_SUGGESTED_INTEGRATIONS)
+}
+
+/** Matches a query word against a slug on word boundaries. A bare substring test
+ * makes every three-letter English word a hit — `for` in sales*for*ce, `the` in
+ * basis_*the*ory. Short tokens must equal a slug or a part, which is also what
+ * reaches the two-character slugs (`s3`, `wiz`) a length floor would hide. */
+function tokenMatchesSlug(token: string, slug: string): boolean {
+	const parts = slug.split(/[_-]/).filter(Boolean)
+	if (slug === token || parts.includes(token)) {
+		return true
+	}
+	if (token.length < 4) {
+		return false
+	}
+	const extends_ = (a: string, b: string) => a.startsWith(b) || b.startsWith(a)
+	return (
+		parts.some((p) => p.length >= 4 && extends_(p, token)) ||
+		(slug.length >= 4 && extends_(slug, token)) ||
+		// A whole family of slugs compresses the vendor to one letter in front of the
+		// product word, so the word the user actually says starts one character in:
+		// "google sheet" has to reach `gsheets`, "google drive" `gdrive`.
+		parts.some((p) => p.length >= 5 && extends_(p.slice(1), token))
+	)
+}
+
+/** The slug of an integration the query names outright, when it names exactly one.
+ * Exact only: fuzzily, `send` in "send an invoice" reads as sendgrid. Even exact, a
+ * match is weak evidence of intent — `monday`, `box` and `linear` are ordinary words
+ * — so callers must treat it as a hint, never as a filter. */
+async function integrationNamedIn(query: string): Promise<string | undefined> {
+	const list = await loadHubIntegrations()
+	const words = new Set(
+		query
+			.toLowerCase()
+			.split(/[^a-z0-9]+/)
+			.filter(Boolean)
+	)
+	const named = list.filter(({ name }) => {
+		const slug = name.toLowerCase()
+		return words.has(slug) || slug.split(/[_-]/).some((part) => part && words.has(part))
+	})
+	return named.length === 1 ? named[0].name : undefined
+}
+
+export const clearHubIntegrationsCache = () => {
+	hubIntegrationsCache = undefined
+}
+
+const getHubIntegrationSchema = z.object({
+	integration: z
+		.string()
+		.describe(
+			'Integration slug, e.g. "stripe". Take it from a search_hub_scripts result\'s `integration`, or guess the vendor name: a wrong guess comes back with the closest real slugs.'
+		)
+})
+
+const getHubIntegrationToolDef = createToolDef(
+	getHubIntegrationSchema,
+	'get_hub_integration',
+	'Read how one integration works before writing code against it: the resource type it takes, its auth fields, and its most-used scripts as examples. For an integration a search marked `documented` it also returns provider knowledge checked against the live API: pagination, enums, error codes and gotchas.'
+)
+
+/** Enough to show the integration's idiom; search_hub_scripts is the way to find
+ * a specific one. */
+const MAX_INTEGRATION_EXAMPLES = 5
+
+/** How the authored notes were checked — method, per-surface confidence, the instance
+ * used — is provenance for a human reviewing the hub, and up to a third of the
+ * document. The verdict and any fields it flags as shaky are the parts a caller can
+ * act on, so those stay. */
+function withoutProvenance(meta: unknown): unknown {
+	if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) {
+		return meta
+	}
+	const { validation, ...rest } = meta as Record<string, unknown>
+	const kept = Object.fromEntries(
+		Object.entries((validation as Record<string, unknown> | undefined) ?? {}).filter(
+			([key]) => key === 'status' || key === 'low_confidence_fields'
+		)
+	)
+	return Object.keys(kept).length ? { ...rest, validation: kept } : rest
+}
+
+/** The hub keeps a resource type's schema in a text column and hands it back as a
+ * JSON string, so parse it rather than passing an escaped blob to the model.
+ * Anything already structured goes through untouched. */
+function parseResourceTypeSchema(schema: unknown): unknown {
+	if (typeof schema !== 'string') {
+		return schema
+	}
+	try {
+		return JSON.parse(schema)
+	} catch {
+		return schema
+	}
+}
+
+export const getHubIntegrationTool = {
+	def: getHubIntegrationToolDef,
+	// Reads one hub document over a GET and writes nothing, so planning may use it.
+	planModeSafe: true,
+	fn: async ({ args, toolId, toolCallbacks }) => {
+		const { integration } = getHubIntegrationSchema.parse(args)
+		toolCallbacks.setToolStatus(toolId, { content: `Reading the ${integration} integration...` })
+
+		let doc: Awaited<ReturnType<typeof IntegrationService.getHubIntegrationMeta>>
+		try {
+			doc = await IntegrationService.getHubIntegrationMeta({ app: integration })
+		} catch (err) {
+			// Only a 404 means the integration is absent — an unknown slug, or a hub
+			// predating the endpoint. Reporting a timeout the same way would teach the
+			// model that a real integration does not exist for the rest of the chat.
+			const absent = (err as { status?: number } | undefined)?.status === 404
+			const label = absent
+				? `No hub integration named ${integration}`
+				: `Could not reach the hub for ${integration}`
+			toolCallbacks.setToolStatus(toolId, { content: label })
+			const suggested = await suggestHubIntegrations(integration)
+			return JSON.stringify({
+				error: absent
+					? `No hub metadata for "${integration}".`
+					: `Could not reach the hub for "${integration}"; it may still exist. Read its scripts instead, or try again.`,
+				suggested_integrations: suggested
+			})
+		}
+
+		toolCallbacks.setToolStatus(toolId, { content: `Read the ${doc.display_name} integration` })
+		// The hub owns this response's shape and can be older than this client, so
+		// every section is read as optional: a hub that sends less should return less,
+		// not fail the call.
+		const derived = doc.derived
+		return JSON.stringify({
+			integration: doc.app,
+			display_name: doc.display_name,
+			...(doc.description ? { description: doc.description } : {}),
+			...(doc.docs_url ? { docs_url: doc.docs_url } : {}),
+			// Authored provider knowledge and facts inferred from the scripts stay
+			// separate: only the former was checked against the live API.
+			...(doc.meta ? { verified_provider_notes: withoutProvenance(doc.meta) } : {}),
+			...(derived
+				? {
+						observed_from_scripts: {
+							api_hosts: derived.api_hosts?.map((h) => h.host) ?? [],
+							style: derived.style,
+							languages: Object.keys(derived.languages ?? {}),
+							script_counts: derived.script_counts
+						}
+					}
+				: {}),
+			// `curated` is three-state: only an integration's own meta.json asserts it, and
+			// anything else means nobody has assessed the script set. Speak only for a
+			// positive assertion, so an unassessed integration is never characterised
+			// either way; `script_counts` below is the factual signal for the rest.
+			...(doc.curated === true
+				? {
+						scripts_note:
+							'These scripts were pruned to idiomatic actions rather than generated one per API endpoint, so they are worth following as style examples.'
+					}
+				: {}),
+			resource_types: (doc.resource_types ?? []).map((rt) => ({
+				name: rt.name,
+				...(rt.description ? { description: rt.description } : {}),
+				schema: parseResourceTypeSchema(rt.schema)
+			})),
+			example_scripts: (derived?.top_scripts ?? []).slice(0, MAX_INTEGRATION_EXAMPLES).map((s) => ({
+				path: s.path,
+				summary: s.summary,
+				...(s.description ? { description: s.description } : {}),
+				...(s.language ? { language: s.language } : {})
+			}))
+		})
+	}
+} satisfies Tool<{}>
+
 export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 	def: searchHubScriptsToolDef,
 	planModeSafe: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {
-		toolCallbacks.setToolStatus(toolId, {
-			content: 'Searching for hub scripts related to "' + args.query + '"...'
-		})
 		const parsedArgs = searchHubScriptsSchema.parse(args)
-		const scripts = await ScriptService.queryHubScripts({
-			text: parsedArgs.query,
-			kind: 'script'
-		})
-		// Each result costs a content fetch, so cap the fan-out when content is wanted.
-		const matches = withContent ? scripts.slice(0, 3) : scripts
+		// The hub's own query param is `app`; the tool exposes it as `integration`,
+		// since `app` already means a Windmill app everywhere else in this surface.
+		const { query, integration: app } = parsedArgs
+		if (!query && !app) {
+			return 'Pass query (what the script should do), integration (a slug to list), or both.'
+		}
+		const subject = query ? `"${query}"` : `the ${app} integration`
+		toolCallbacks.setToolStatus(toolId, { content: `Searching hub scripts for ${subject}...` })
+		// Started alongside the search, not after it: this is where the model learns a
+		// slug exists, so it is where it has to learn how much get_hub_integration has
+		// to add for that slug. One cached fetch per session either way.
+		const documented = documentedIntegrations()
+
+		// Listing an integration goes through the hub's top-scripts endpoint rather
+		// than the semantic one: it takes no query, and it applies no similarity
+		// floor, so the near-misses worth reading as examples of how the integration
+		// is used survive instead of being cut.
+		let ranked: HubScriptHit[]
+		// Kept apart from the ranked hits rather than counted off the end, so capping
+		// below can keep the best of each instead of whatever the tail happens to hold.
+		let mentioned: HubScriptHit[] = []
+		let namedSlug: string | undefined
+		if (query) {
+			ranked = await ScriptService.queryHubScripts({ text: query, kind: 'script', app })
+			// Ranking can bury an integration the query names: "look up an account in
+			// salesforce" returns none of Salesforce's scripts, because Pinterest's say
+			// "Salesforce" too. Add its own hits rather than filtering to it, so a word
+			// that merely looks like a slug costs a few rows instead of the whole result.
+			if (!app) {
+				namedSlug = await integrationNamedIn(query)
+				if (namedSlug && !ranked.some((s) => s.app === namedSlug)) {
+					const own = await ScriptService.queryHubScripts({
+						text: query,
+						kind: 'script',
+						app: namedSlug
+					})
+					mentioned = own.slice(0, MAX_MENTIONED_INTEGRATION_HITS)
+				}
+			}
+		} else {
+			ranked =
+				(
+					await ScriptService.getTopHubScripts({
+						app,
+						kind: 'script',
+						limit: MAX_BROWSED_HUB_SCRIPTS
+					})
+				).asks ?? []
+		}
+		const scripts = [...ranked, ...mentioned]
+
+		if (scripts.length === 0) {
+			// A whiffed search still leaves the integration browsable, which is what
+			// turns "no exact match" into a worked example to follow. Suggest against
+			// the slug too, so a browse for a misremembered one lands on the real name
+			// instead of dead-ending on an empty list.
+			const suggested = await suggestHubIntegrations(query ?? app ?? '')
+			toolCallbacks.setToolStatus(toolId, { content: `No hub script found for ${subject}` })
+			return JSON.stringify({ results: [], suggested_integrations: suggested })
+		}
+
+		// Each result costs a content fetch, so cap the fan-out when content is wanted,
+		// keeping the best of both lists — dropping the named integration's hits would
+		// undo the reason they were fetched.
+		let matches = scripts
+		if (withContent && scripts.length > MAX_FETCHED_HUB_SCRIPTS) {
+			const keep = mentioned.slice(0, MAX_FETCHED_HUB_SCRIPTS - 1)
+			let head = ranked.slice(0, MAX_FETCHED_HUB_SCRIPTS - keep.length)
+			// Ranking can place the named integration just below the cap, in which case
+			// no hits were fetched for it and trimming would drop it altogether.
+			const buried =
+				!keep.length && namedSlug && !head.some((s) => s.app === namedSlug)
+					? ranked.find((s) => s.app === namedSlug)
+					: undefined
+			if (buried) {
+				head = [...head.slice(0, head.length - 1), buried]
+			}
+			matches = [...head, ...keep]
+		}
 		toolCallbacks.setToolStatus(toolId, {
-			content: `Found ${matches.length} script${matches.length === 1 ? '' : 's'} in the hub related to "${parsedArgs.query}"`
+			content: `Found ${matches.length} hub script${matches.length === 1 ? '' : 's'} for ${subject}`
 		})
+		const documentedSlugs = await documented
 		const results = await Promise.all(
 			matches.map(async (s) => {
 				const path = hubScriptPath(s)
+				const base = {
+					path,
+					summary: s.summary,
+					integration: s.app,
+					...(documentedSlugs.has(s.app.toLowerCase()) ? { documented: true } : {}),
+					...(s.description ? { description: s.description } : {})
+				}
 				if (!withContent) {
-					return { path, summary: s.summary }
+					return base
 				}
 				// The content fetch, not the listing above: these are the few candidates
 				// the AI pulled to choose between, which is the closest signal we have.
@@ -1394,18 +1716,17 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 					// get_full, not the raw content endpoint: callers are told to match the
 					// script's language, which raw content does not carry.
 					const hub = await ScriptService.getHubScriptByPath({ path })
-					return { path, summary: s.summary, language: hub.language, content: hub.content }
+					return { ...base, language: hub.language, content: hub.content }
 				} catch (err) {
 					// One unreachable script must not sink the whole search.
 					return {
-						path,
-						summary: s.summary,
+						...base,
 						error: `Could not fetch content: ${err instanceof Error ? err.message : String(err)}`
 					}
 				}
 			})
 		)
-		return JSON.stringify(results)
+		return JSON.stringify({ results })
 	}
 })
 

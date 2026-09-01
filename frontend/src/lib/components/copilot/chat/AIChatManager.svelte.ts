@@ -2054,7 +2054,8 @@ export class AIChatManager {
 			previewTools: this.isSessionChat,
 			user: this.globalIdentity,
 			skills: this.globalSkills,
-			mcpServers: this.mcpServers
+			mcpServers: this.mcpServers,
+			webSearch: this.globalWebSearchAdvertised
 		})
 		const sessionCtx = this.sessionContextResolver?.()
 		if (sessionCtx) {
@@ -2116,6 +2117,21 @@ export class AIChatManager {
 		if (this.mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
 		}
+	}
+
+	/** Web-search availability the GLOBAL system message was last built against. */
+	private globalWebSearchAdvertised: boolean | undefined = undefined
+
+	/** Keep the GLOBAL prompt's web-search guidance matching what the loop will
+	 * actually hand the model. `available` is the loop's effective value, so this
+	 * covers a mid-conversation provider switch and the runtime rejection probe
+	 * alike — neither of which the prompt could observe on its own. */
+	private syncGlobalWebSearchGuidance = (available: boolean) => {
+		if (this.mode !== AIMode.GLOBAL || available === this.globalWebSearchAdvertised) {
+			return
+		}
+		this.globalWebSearchAdvertised = available
+		this.rebuildGlobalSystemMessage()
 	}
 
 	// Same shape as refreshGlobalSkills. An identity that resolves after the operating
@@ -2180,7 +2196,10 @@ export class AIChatManager {
 			previewTools: this.isSessionChat,
 			user: this.globalIdentity,
 			skills: this.globalSkills,
-			mcpServers: this.mcpServers
+			mcpServers: this.mcpServers,
+			// Carry the loop's observed availability: re-deriving would lose a runtime
+			// rejection, which the static provider/settings gates cannot see.
+			webSearch: this.globalWebSearchAdvertised
 		})
 		// Preserve the session-state and active pipeline-editor augmentations that
 		// configureGlobalMode adds — otherwise update_user_instructions (which calls
@@ -2653,8 +2672,9 @@ export class AIChatManager {
 						console.error('Failed to record AI usage', e)
 					}
 				},
-				onBeforeIteration: async (tools, _helpers, modelProvider) => {
+				onBeforeIteration: async (tools, _helpers, modelProvider, webSearch) => {
 					this.lastIterationModel = modelProvider
+					this.syncGlobalWebSearchGuidance(webSearch)
 					for (const tool of tools) {
 						if (tool.setSchema) {
 							await tool.setSchema(this.helpers)
@@ -3549,6 +3569,9 @@ export class AIChatManager {
 				addedMessages: collectedMessages,
 				onWebSearchUnavailable: () => {
 					webSearchUnavailable = true
+					// The loop drops the tool for the rest of this workspace+model; drop the
+					// guidance with it so the retry and later turns stop advertising it.
+					this.syncGlobalWebSearchGuidance(false)
 				}
 			})
 			stopCheckpoints()

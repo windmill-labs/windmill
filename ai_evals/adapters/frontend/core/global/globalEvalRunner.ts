@@ -3,6 +3,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
 import type { AIProvider } from "$lib/gen/types.gen";
+import { providerSupportsWebSearch } from "../../../../../frontend/src/lib/components/copilot/lib";
 import {
   globalToolsFor,
   prepareGlobalSystemMessage,
@@ -183,6 +184,10 @@ export async function runGlobalEval(
     const baseSystemMessage = prepareGlobalSystemMessage(undefined, {
       user: options.user,
       previewTools: options.sessionChat ?? false,
+      // Mirrors runChatLoop's gate. The production default reads the copilot model
+      // store, which the harness leaves empty, so it would hide guidance every
+      // benchmarked provider actually serves.
+      webSearch: providerSupportsWebSearch(options.provider),
     });
     const rawResult = await runEval({
       userPrompt,

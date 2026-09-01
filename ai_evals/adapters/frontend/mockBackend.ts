@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto'
+import confluenceFixture from '../../fixtures/frontend/global/hub/confluence.json'
+import servicenowFixture from '../../fixtures/frontend/global/hub/servicenow.json'
+import outreachFixture from '../../fixtures/frontend/global/hub/outreach.json'
 import type {
 	AppWithLastVersion,
 	CompletedJob,
@@ -228,9 +231,7 @@ export function listBenchmarkApps(workspace: string): ListableApp[] | null {
 }
 
 export function getBenchmarkAppByPath(workspace: string, path: string): AppWithLastVersion | null {
-	const app = benchmarkWorkspaceRunnables
-		.get(workspace)
-		?.apps?.find((entry) => entry.path === path)
+	const app = benchmarkWorkspaceRunnables.get(workspace)?.apps?.find((entry) => entry.path === path)
 
 	return app ? buildBenchmarkApp(app) : null
 }
@@ -370,7 +371,10 @@ export function createBenchmarkCompletedJob(input: {
 		labels: input.label ? [input.label] : undefined
 	}
 
-	benchmarkJobs.set(benchmarkJobKey(input.workspace, jobId), { workspace: input.workspace, job })
+	benchmarkJobs.set(benchmarkJobKey(input.workspace, jobId), {
+		workspace: input.workspace,
+		job
+	})
 	return jobId
 }
 
@@ -427,7 +431,13 @@ export function getBenchmarkJobLogs(workspace: string, jobId: string): string {
  */
 const benchmarkDrafts = new Map<
 	string,
-	{ workspace: string; kind: UserDraftItemKind; path: string; value: unknown; createdAt: string }
+	{
+		workspace: string
+		kind: UserDraftItemKind
+		path: string
+		value: unknown
+		createdAt: string
+	}
 >()
 
 // Counter-based timestamps: deterministic run-to-run (same event order → same
@@ -509,7 +519,9 @@ export function getBenchmarkDraftForUser(input: {
 }): GetDraftForUserResponse {
 	const entry = benchmarkDrafts.get(benchmarkDraftKey(input.workspace, input.kind, input.path))
 	if (!entry) {
-		throw Object.assign(new Error(`no draft for "${input.path}"`), { status: 404 })
+		throw Object.assign(new Error(`no draft for "${input.path}"`), {
+			status: 404
+		})
 	}
 	return { value: entry.value, created_at: entry.createdAt }
 }
@@ -530,7 +542,11 @@ export function getBenchmarkOwnDraft(input: {
 
 /** Whether a deployed benchmark item exists for a draft row's kind+path —
  * drives `draft_only`, which production computes against the deployed tables. */
-function benchmarkDeployedExists(workspace: string, kind: UserDraftItemKind, path: string): boolean {
+function benchmarkDeployedExists(
+	workspace: string,
+	kind: UserDraftItemKind,
+	path: string
+): boolean {
 	if (kind === 'script') return Boolean(getBenchmarkScriptByPath(workspace, path))
 	if (kind === 'flow') return Boolean(getBenchmarkFlowByPath(workspace, path))
 	if (kind === 'app' || kind === 'raw_app') return Boolean(getBenchmarkAppByPath(workspace, path))
@@ -636,10 +652,11 @@ export function runBenchmarkDatatableSql(input: {
  * shape `pollJobResult` consumes. The job is created synchronously before
  * polling, so it is always present and completed.
  */
-export function getBenchmarkCompletedJobResultMaybe(input: {
-	workspace: string
-	id: string
-}): { success: boolean; completed: boolean; result: unknown } {
+export function getBenchmarkCompletedJobResultMaybe(input: { workspace: string; id: string }): {
+	success: boolean
+	completed: boolean
+	result: unknown
+} {
 	const job = getBenchmarkCompletedJob(input.workspace, input.id)
 	if (!job) {
 		throw new Error(`Job "${input.id}" not found in benchmark workspace`)
@@ -747,7 +764,9 @@ export function previewBenchmarkSchedule(input: {
 }): Record<string, unknown> {
 	const schedule = input.requestBody?.schedule
 	if (typeof schedule !== 'string' || schedule.trim().split(/\s+/).length !== 6) {
-		throw new Error(`schedule must use a six-field cron expression, got ${JSON.stringify(schedule)}`)
+		throw new Error(
+			`schedule must use a six-field cron expression, got ${JSON.stringify(schedule)}`
+		)
 	}
 
 	return {
@@ -779,7 +798,9 @@ export function createBenchmarkHttpTrigger(input: {
 		typeof input.requestBody.route_path === 'string' &&
 		input.requestBody.route_path.startsWith('/')
 	) {
-		throw new Error(`HTTP trigger route_path must not start with /, got "${input.requestBody.route_path}"`)
+		throw new Error(
+			`HTTP trigger route_path must not start with /, got "${input.requestBody.route_path}"`
+		)
 	}
 	return {
 		path: input.requestBody.path,
@@ -908,7 +929,10 @@ const BENCHMARK_MCP_TOOLS: EndpointTool[] = [
 		method: 'GET',
 		path_params_schema: {
 			type: 'object',
-			properties: { workspace: { type: 'string' }, id: { type: 'string', format: 'uuid' } },
+			properties: {
+				workspace: { type: 'string' },
+				id: { type: 'string', format: 'uuid' }
+			},
 			required: ['workspace', 'id']
 		},
 		query_params_schema: {
@@ -988,7 +1012,39 @@ export function listBenchmarkMcpTools(): EndpointTool[] {
  * hub tools throw and no case can exercise hub reuse. Serving fixtures rather
  * than the live hub also keeps assertions on script content stable as the real
  * hub republishes new versions. */
+const BENCHMARK_INTEGRATION_META_PATH = /^\/api\/integrations\/hub\/([^/]+)\/meta$/
+
+/** One integration lifted verbatim from the content repo — its shipped scripts, its
+ * authored meta.json and its resource type. Hand-written fixtures make both routes to
+ * an integration's conventions look equally cheap; a real one is the only way to tell
+ * whether reading the metadata beats reading a script. */
+const REAL_HUB_INTEGRATIONS = [
+	confluenceFixture,
+	servicenowFixture,
+	outreachFixture
+] as unknown as Array<{
+	app: string
+	display_name: string
+	description: string
+	docs_url: string
+	curated: boolean | null
+	meta: unknown
+	resource_type: { name: string; description: string; schema: unknown }
+	scripts: Array<{
+		version_id: number
+		app: string
+		summary: string
+		description: string
+		terms: string
+		kind: string
+		language: string
+		content: string
+		schema: unknown
+	}>
+}>
+
 const BENCHMARK_HUB_SCRIPTS = [
+	...REAL_HUB_INTEGRATIONS.flatMap((integration) => integration.scripts),
 	{
 		version_id: 22235,
 		app: 'holded',
@@ -1076,6 +1132,87 @@ export async function main(discord_webhook: DiscordWebhook, message: string) {
 				message: { type: 'string' }
 			}
 		}
+	},
+	// Baremetrics carries no annotation script, on purpose: it stands for an
+	// integration whose conventions (an `apiKey` resource, bearer auth, the /v1
+	// base) are only learnable by reading a script that does something else.
+	{
+		version_id: 8995,
+		app: 'baremetrics',
+		summary: 'List Sources',
+		description: 'List all the sources attached to a Baremetrics account.',
+		terms: 'baremetrics sources list revenue metrics',
+		language: 'bunnative',
+		content: `//native
+type Baremetrics = {
+  apiKey: string;
+};
+export async function main(resource: Baremetrics) {
+  const response = await fetch("https://api.baremetrics.com/v1/sources", {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      Authorization: \`Bearer \${resource.apiKey}\`,
+    },
+  });
+  if (!response.ok) {
+    throw new Error(\`\${response.status} \${await response.text()}\`);
+  }
+  return await response.json();
+}
+`,
+		schema: {
+			type: 'object',
+			required: ['resource'],
+			properties: {
+				resource: { type: 'object', format: 'resource-baremetrics' }
+			}
+		}
+	},
+	{
+		version_id: 8996,
+		app: 'baremetrics',
+		summary: 'Create Customer',
+		description: 'Create a customer on a Baremetrics source.',
+		terms: 'baremetrics customer create source',
+		language: 'bunnative',
+		content: `//native
+type Baremetrics = {
+  apiKey: string;
+};
+export async function main(
+  resource: Baremetrics,
+  sourceId: string,
+  body: { oid: string; name?: string; email?: string },
+) {
+  const response = await fetch(
+    \`https://api.baremetrics.com/v1/\${sourceId}/customers\`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: \`Bearer \${resource.apiKey}\`,
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(\`\${response.status} \${await response.text()}\`);
+  }
+  return await response.json();
+}
+`,
+		schema: {
+			type: 'object',
+			required: ['resource', 'sourceId', 'body'],
+			properties: {
+				resource: { type: 'object', format: 'resource-baremetrics' },
+				sourceId: { type: 'string' },
+				body: { type: 'object' }
+			}
+		}
 	}
 ]
 
@@ -1085,20 +1222,26 @@ export async function main(discord_webhook: DiscordWebhook, message: string) {
  * integration, or overlapping on three meaningful words. A looser bar answers
  * "send a Slack message" with the Discord fixture, handing an unrelated case a
  * plausible-looking wrong integration. */
-function searchBenchmarkHubScripts(text: string) {
+function searchBenchmarkHubScripts(text: string, app: string | null, kind: string | null) {
 	const tokens = new Set(
 		text
 			.toLowerCase()
 			.split(/[^a-z0-9]+/)
 			.filter((token) => token.length > 2)
 	)
-	return BENCHMARK_HUB_SCRIPTS.map((script) => {
-		const words = new Set(
-			`${script.app} ${script.summary} ${script.terms}`.toLowerCase().split(/[^a-z0-9]+/)
-		)
-		const score = [...tokens].filter((token) => words.has(token)).length
-		return { script, score, namesApp: tokens.has(script.app) }
-	})
+	// The real endpoint filters by app and kind before ranking, so honour both here —
+	// otherwise a narrowed search silently returns other integrations' scripts, and a
+	// trigger answers a search production would never have shown it to.
+	return BENCHMARK_HUB_SCRIPTS.filter(
+		(script) => (!app || script.app === app) && (!kind || (script.kind ?? 'script') === kind)
+	)
+		.map((script) => {
+			const words = new Set(
+				`${script.app} ${script.summary} ${script.terms}`.toLowerCase().split(/[^a-z0-9]+/)
+			)
+			const score = [...tokens].filter((token) => words.has(token)).length
+			return { script, score, namesApp: tokens.has(script.app) }
+		})
 		.filter((entry) => entry.namesApp || entry.score >= 3)
 		.sort((a, b) => b.score - a.score)
 		.map(({ script }, index) => ({
@@ -1106,10 +1249,102 @@ function searchBenchmarkHubScripts(text: string) {
 			id: script.version_id,
 			version_id: script.version_id,
 			summary: script.summary,
+			description: script.description ?? '',
 			app: script.app,
-			kind: 'script',
+			kind: script.kind ?? 'script',
 			score: 1 - index * 0.01
 		}))
+}
+
+/** Listing an integration is unranked and description-bearing, matching the hub's
+ * top-scripts endpoint — that asymmetry with the semantic search is the whole
+ * reason the chat browses by app when no script matches the task. */
+function listBenchmarkHubScriptsByApp(app: string | null, kind: string | null) {
+	return BENCHMARK_HUB_SCRIPTS.filter(
+		(script) => (!app || script.app === app) && (!kind || (script.kind ?? 'script') === kind)
+	).map((script) => ({
+		id: script.version_id,
+		ask_id: script.version_id,
+		version_id: script.version_id,
+		summary: script.summary,
+		description: script.description ?? '',
+		app: script.app,
+		kind: script.kind ?? 'script',
+		views: 0,
+		votes: 0
+	}))
+}
+
+/** What `/integrations/hub/<app>/meta` serves. Carries the integration's conventions
+ * and none of the endpoints a case asks the model to write, so the tool shortens the
+ * path to that knowledge without supplying answers. */
+/** The integrations a case writes against, none of which the content repo documents —
+ * the same majority shape as the live hub, where 18 of ~216 carry a meta.json. Their
+ * conventions live in their shipped scripts, which is what these cases exercise. */
+const BENCHMARK_HUB_INTEGRATION_META: Record<
+	string,
+	{
+		display_name: string
+		description: string
+		docs_url: string
+		curated: boolean | null
+		meta: unknown
+	}
+> = {
+	baremetrics: {
+		display_name: 'Baremetrics',
+		description: 'Subscription analytics for recurring-revenue businesses.',
+		docs_url: 'https://developers.baremetrics.com/reference',
+		curated: null,
+		meta: null
+	},
+	holded: {
+		display_name: 'Holded',
+		description: 'Invoicing, accounting and CRM for small businesses.',
+		docs_url: 'https://developers.holded.com/reference',
+		curated: null,
+		meta: null
+	}
+}
+
+/** Mirrors the hub's own derivation: hosts seen in the shipped scripts, whether they
+ * call the provider directly, and how many there are of each kind. */
+function benchmarkDerivedFacts(app: string) {
+	const scripts = BENCHMARK_HUB_SCRIPTS.filter((script) => script.app === app)
+	const hosts = new Map<string, number>()
+	const languages: Record<string, number> = {}
+	for (const script of scripts) {
+		languages[script.language] = (languages[script.language] ?? 0) + 1
+		for (const match of script.content.matchAll(/https?:\/\/([a-zA-Z0-9._-]+)/g)) {
+			hosts.set(match[1], (hosts.get(match[1]) ?? 0) + 1)
+		}
+	}
+	return {
+		api_hosts: [...hosts.entries()]
+			.sort((a, b) => b[1] - a[1])
+			.map(([host, count]) => ({ host, count })),
+		style: 'fetch',
+		languages,
+		script_counts: {
+			total: scripts.length,
+			by_kind: scripts.reduce<Record<string, number>>((acc, script) => {
+				const kind = script.kind ?? 'script'
+				acc[kind] = (acc[kind] ?? 0) + 1
+				return acc
+			}, {})
+		},
+		top_scripts: scripts.map((script) => ({
+			path: `hub/${script.version_id}/${script.app}/${script.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
+			ask_id: script.version_id,
+			version_id: script.version_id,
+			summary: script.summary,
+			description: script.description ?? null,
+			kind: script.kind ?? 'script',
+			language: script.language,
+			views: 0,
+			votes: 0
+		}))
+	}
 }
 
 /** The hub keys a script by its version id; the app and slug segments that
@@ -1177,6 +1412,9 @@ export function hasBenchmarkApiHandler(url: string): boolean {
 		BENCHMARK_RUN_BY_PATH.test(path) ||
 		/^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path) ||
 		path === '/api/embeddings/query_hub_scripts' ||
+		path === '/api/scripts/hub/top' ||
+		path === '/api/integrations/hub/list' ||
+		BENCHMARK_INTEGRATION_META_PATH.test(path) ||
 		path.startsWith('/api/scripts/hub/get_full/') ||
 		BENCHMARK_AI_MODELS_PATH.test(path)
 	)
@@ -1234,8 +1472,81 @@ export function handleBenchmarkApiFetch(url: string, init?: RequestInit): Respon
 		)
 	}
 	if (path === '/api/embeddings/query_hub_scripts') {
-		const text = new URLSearchParams(url.split('?')[1] ?? '').get('text') ?? ''
-		return Response.json(searchBenchmarkHubScripts(text))
+		const params = new URLSearchParams(url.split('?')[1] ?? '')
+		return Response.json(
+			searchBenchmarkHubScripts(params.get('text') ?? '', params.get('app'), params.get('kind'))
+		)
+	}
+	if (path === '/api/scripts/hub/top') {
+		const params = new URLSearchParams(url.split('?')[1] ?? '')
+		return Response.json({
+			asks: listBenchmarkHubScriptsByApp(params.get('app'), params.get('kind'))
+		})
+	}
+	const integrationMeta = BENCHMARK_INTEGRATION_META_PATH.exec(path)
+	if (integrationMeta) {
+		const app = decodeURIComponent(integrationMeta[1])
+		const real = REAL_HUB_INTEGRATIONS.find((integration) => integration.app === app)
+		if (real) {
+			return Response.json({
+				app,
+				display_name: real.display_name,
+				description: real.description,
+				docs_url: real.docs_url,
+				curated: real.curated,
+				metadata_source: real.meta ? 'curated' : 'derived',
+				meta: real.meta,
+				meta_updated_at: null,
+				derived: benchmarkDerivedFacts(app),
+				resource_types: [{ id: 1, ...real.resource_type }]
+			})
+		}
+		const entry = BENCHMARK_HUB_INTEGRATION_META[app]
+		if (!entry) {
+			return Response.json({ error: 'integration not found' }, { status: 404 })
+		}
+		return Response.json({
+			app,
+			display_name: entry.display_name,
+			description: entry.description,
+			docs_url: entry.docs_url,
+			curated: entry.curated,
+			metadata_source: entry.meta ? 'curated' : 'derived',
+			meta: entry.meta,
+			meta_updated_at: null,
+			derived: benchmarkDerivedFacts(app),
+			resource_types: [
+				{
+					id: 1,
+					name: app,
+					description: `${entry.display_name} credentials`,
+					schema: {
+						type: 'object',
+						required: ['apiKey'],
+						properties: {
+							apiKey: {
+								type: 'string',
+								description: `${entry.display_name} API key`
+							}
+						}
+					}
+				}
+			]
+		})
+	}
+	if (path === '/api/integrations/hub/list') {
+		const apps = [...new Set(BENCHMARK_HUB_SCRIPTS.map((script) => script.app))].sort()
+		// Read off both fixtures the metadata endpoint serves from, or the list would
+		// call an integration undocumented and then hand back its authored notes.
+		const documented = new Set([
+			...REAL_HUB_INTEGRATIONS.filter((integration) => integration.meta).map(
+				(integration) => integration.app
+			),
+			...Object.entries(BENCHMARK_HUB_INTEGRATION_META)
+				.filter(([, entry]) => entry.meta)
+				.map(([app]) => app)
+		])
+		return Response.json(apps.map((name) => ({ name, documented: documented.has(name) })))
 	}
 	if (path.startsWith('/api/scripts/hub/get_full/')) {
 		const script = getBenchmarkHubScript(path)
