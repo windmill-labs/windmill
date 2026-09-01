@@ -655,8 +655,13 @@
 			return
 		}
 		if (hash === handledHash || !resourceEditor) return
+		// The type decides which editor opens, so wait for the list that carries it. Opening the
+		// generic form on an `ai_agent` renders its config as raw JSON, and the fields it fills in
+		// on the way become a draft that turns streaming off.
+		if (!resources) return
 		handledHash = hash
-		resourceEditor.initEdit(hash.slice(11))
+		const path = hash.slice(11)
+		openResourceEditor(path, resources.find((r) => r.path === path)?.resource_type)
 	})
 
 	let showTable = $derived(
