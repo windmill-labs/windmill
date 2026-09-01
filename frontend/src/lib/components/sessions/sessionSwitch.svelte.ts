@@ -83,7 +83,11 @@ export async function openEditorInSession(
 	previewParams?: Record<string, string>,
 	opts?: { seedPrompt?: string; autoSend?: boolean }
 ): Promise<void> {
-	await openInSession(withPreviewParams(sessionTargetHref(target), previewParams), workspaceId, opts)
+	await openInSession(
+		withPreviewParams(sessionTargetHref(target), previewParams),
+		workspaceId,
+		opts
+	)
 }
 
 // Open a fresh AI session showing a workspace page (Runs, a trigger list) in its

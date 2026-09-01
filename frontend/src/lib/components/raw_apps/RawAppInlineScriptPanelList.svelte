@@ -13,12 +13,16 @@
 	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
+		/** Read-only; the editor switches selection through `onSelect`. */
 		selectedRunnable: string | undefined
 		runnables: Record<string, Runnable>
 		onSelect?: (id: string) => void
+		/** The editor deletes and moves the selection off it in one tick. Required:
+		 * the row's Delete does nothing without it. */
+		onDelete: (id: string) => void
 	}
 
-	let { selectedRunnable = $bindable(), runnables, onSelect }: Props = $props()
+	let { selectedRunnable, runnables, onSelect, onDelete }: Props = $props()
 
 	let editingId: string | undefined = $state(undefined)
 
@@ -54,7 +58,6 @@
 		delete runnables[oldId]
 
 		if (selectedRunnable === oldId) {
-			selectedRunnable = newId
 			onSelect?.(newId)
 		}
 		editingId = undefined
@@ -86,7 +89,6 @@
 			type: 'inline'
 		}
 
-		selectedRunnable = nid
 		onSelect?.(nid)
 	}
 </script>
@@ -125,16 +127,8 @@
 								{runnable}
 								isSelected={selectedRunnable === id}
 								isEditing={editingId === id}
-								onSelect={() => {
-									selectedRunnable = id
-									onSelect?.(id)
-								}}
-								onDelete={() => {
-									delete runnables[id]
-									if (selectedRunnable === id) {
-										selectedRunnable = undefined
-									}
-								}}
+								onSelect={() => onSelect?.(id)}
+								onDelete={() => onDelete(id)}
 								onRename={(newId) => renameRunnable(id, newId)}
 								onRequestEdit={() => (editingId = id)}
 								onCancelEdit={() => (editingId = undefined)}

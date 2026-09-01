@@ -7,6 +7,7 @@
 		AlertTriangle,
 		ArrowDown,
 		AtSign,
+		BookOpen,
 		ChevronDown,
 		ChevronsRight,
 		CheckIcon,
@@ -15,6 +16,7 @@
 		Folder,
 		Hand,
 		HistoryIcon,
+		KeyRound,
 		MousePointer2,
 		Plug,
 		Plus,
@@ -34,6 +36,7 @@
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
 	import McpConnections from './McpConnections.svelte'
+	import SkillsPicker from './SkillsPicker.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
@@ -59,9 +62,22 @@
 		readDroppedEntries
 	} from './files/fsAccess'
 	import { sendUserToast } from '$lib/toast'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import { copilotInfo } from '$lib/aiStore'
+	import { base } from '$lib/base'
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
 	const aiChatManager = getAiChatManager()
+
+	// The user spent their one-time free Windmill AI grant: there is no model left to send
+	// to, so say so in the thread itself rather than only failing on send.
+	let freeTierExhausted = $derived($copilotInfo.freeTier?.exhausted === true)
+	// Still on the free grant: keep how much is left in view right above the composer, so
+	// running out isn't a surprise. Once spent, the exhausted banner replaces it.
+	let freeTier = $derived($copilotInfo.freeTier)
+	let freeTierUsedPct = $derived(Math.min(100, Math.round((freeTier?.used_ratio ?? 0) * 100)))
+	let showFreeTierUsage = $derived(!!freeTier && !freeTier.exhausted)
+
 	// One row per autonomy posture, in picker order, so adding one touches only this
 	// table. `isAvailable` hides the postures that would do nothing in the current AI
 	// mode, which is why the picker can be shorter than this list.
@@ -192,6 +208,7 @@
 
 	let aiChatInput: AIChatInput | undefined = $state()
 	let mcpConnections: McpConnections | undefined = $state()
+	let skillsPicker: SkillsPicker | undefined = $state()
 	let plusMenuOpen = $state(false)
 	let editingMessageIndex = $state<number | null>(null)
 
@@ -562,6 +579,44 @@
 	)
 </script>
 
+{#snippet freeTierExhaustedBanner()}
+	<div class="my-2">
+		<Alert type="info" size="xs" title="Free Windmill AI used up">
+			<div class="flex flex-col items-start gap-2">
+				<span>
+					You have used all of your free Windmill AI tokens. Add your own API key to keep using AI.
+				</span>
+				<Button
+					unifiedSize="2xs"
+					variant="accent"
+					startIcon={{ icon: KeyRound }}
+					href="{base}/workspace_settings?tab=ai"
+				>
+					Add your own API key
+				</Button>
+			</div>
+		</Alert>
+	</div>
+{/snippet}
+
+{#snippet freeTierUsageBanner()}
+	<div
+		class="my-1 flex items-center justify-between gap-2 rounded-md border bg-surface-secondary px-2 py-1"
+	>
+		<span class="text-xs text-secondary tabular-nums">
+			{freeTierUsedPct}% of your free Windmill AI used
+		</span>
+		<Button
+			unifiedSize="2xs"
+			variant="default"
+			startIcon={{ icon: KeyRound }}
+			href="{base}/workspace_settings?tab=ai"
+		>
+			Configure your API key
+		</Button>
+	</div>
+{/snippet}
+
 <!-- tabindex="-1": clicks on non-focusable chat content must move focus into
 the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 <div
@@ -675,6 +730,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				script editor to modify selected lines.</span
 			>
 		{/if}
+		{#if freeTierExhausted}
+			<div class={wideLayout ? 'w-full max-w-3xl mx-auto px-7' : 'w-full max-w-2xl mx-auto px-3'}>
+				{@render freeTierExhaustedBanner()}
+			</div>
+		{/if}
 	{/if}
 
 	{#if messages.length > 0}
@@ -699,6 +759,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							isLast={messageIndex === messages.length - 1}
 						/>
 					{/each}
+					{#if freeTierExhausted}
+						{@render freeTierExhaustedBanner()}
+					{/if}
 					{#if showTypingIndicator}
 						<div
 							class={twMerge(
@@ -798,6 +861,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			{#if inputPreface}
 				{@render inputPreface()}
 			{/if}
+			{#if showFreeTierUsage}
+				{@render freeTierUsageBanner()}
+			{/if}
 			<AIChatInput
 				bind:this={aiChatInput}
 				bind:selectedContext
@@ -868,39 +934,60 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{/if}
 						{#if canAttachFiles}
 							<DropdownV2
-								items={async () => [
-									{
-										displayName: 'Attach file or image',
-										icon: FileText,
-										action: () => {
-											plusMenuOpen = false
-											linkFiles()
-										}
-									},
-									{
-										// A real (live) link needs the File System Access API; without it the
-										// folder is only snapshotted, so call it "Add folder", not "Link folder".
-										displayName: canUseFsAccess ? 'Link folder' : 'Add folder',
-										icon: Folder,
-										tooltip: canUseFsAccess
-											? 'Linked live — the assistant reads the folder’s current files from disk and refreshes each turn.'
-											: 'Loaded as a snapshot — the folder’s files are copied into your browser (they won’t auto-update). For a live link that refreshes from disk, use a Chromium-based browser (Chrome, Edge).',
-										action: () => {
-											plusMenuOpen = false
-											linkFolder()
-										}
-									},
-									...(aiChatManager.mode === AIMode.GLOBAL && mcpConnections
-										? [
-												{
-													displayName: 'MCP connections',
-													icon: Plug,
-													separatorTop: true,
-													submenuItems: await mcpConnections.menuItems(() => (plusMenuOpen = false))
-												}
-											]
-										: [])
-								]}
+								items={async () => {
+									// Both submenus fetch on the menu's first open, so they start
+									// together: awaited inline they queue, and the whole menu —
+									// attachments included — waits out two round trips.
+									const closeMenu = () => (plusMenuOpen = false)
+									const inGlobal = aiChatManager.mode === AIMode.GLOBAL
+									const [skillItems, mcpItems] = await Promise.all([
+										inGlobal ? skillsPicker?.menuItems(closeMenu) : undefined,
+										inGlobal ? mcpConnections?.menuItems(closeMenu) : undefined
+									])
+									return [
+										{
+											displayName: 'Attach file or image',
+											icon: FileText,
+											action: () => {
+												plusMenuOpen = false
+												linkFiles()
+											}
+										},
+										{
+											// A real (live) link needs the File System Access API; without it the
+											// folder is only snapshotted, so call it "Add folder", not "Link folder".
+											displayName: canUseFsAccess ? 'Link folder' : 'Add folder',
+											icon: Folder,
+											tooltip: canUseFsAccess
+												? 'Linked live — the assistant reads the folder’s current files from disk and refreshes each turn.'
+												: 'Loaded as a snapshot — the folder’s files are copied into your browser (they won’t auto-update). For a live link that refreshes from disk, use a Chromium-based browser (Chrome, Edge).',
+											action: () => {
+												plusMenuOpen = false
+												linkFolder()
+											}
+										},
+										...(skillItems
+											? [
+													{
+														displayName: 'Skills',
+														icon: BookOpen,
+														separatorTop: true,
+														submenuItems: skillItems
+													}
+												]
+											: []),
+										...(mcpItems
+											? [
+													{
+														displayName: 'MCP connections',
+														icon: Plug,
+														separatorTop: !skillItems,
+														submenuItems: mcpItems
+													}
+												]
+											: [])
+									]
+								}}
 								placement="bottom-start"
 								fixedHeight={false}
 								closeOnItemClick={false}
@@ -1040,6 +1127,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						<ContextUsageIndicator />
 						<AIChatModelSettings />
 						{#if aiChatManager.mode === AIMode.GLOBAL}
+							<SkillsPicker bind:this={skillsPicker} />
 							<McpConnections bind:this={mcpConnections} />
 						{/if}
 

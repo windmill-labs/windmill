@@ -21,6 +21,8 @@
 		FolderService,
 		OauthService,
 		ResourceService,
+		UserService,
+		type User,
 		VariableService,
 		WorkspaceService
 	} from '$lib/gen'
@@ -85,6 +87,38 @@
 		customInstanceDbs: ResourceReturn<ListCustomInstanceDbsResponse>
 		confirmationModal: ConfirmationModalHandle
 		defaultInstanceDbName: () => string
+		/** Name to open with, when the caller needs a table of a particular name rather
+		 * than whatever the user picks — the import wizard configures the one a project's
+		 * migrations target.
+		 *
+		 * Locked when `onFinishAlso` is also given, because that work targets this name and
+		 * nothing carries an edit through to it: renaming `main` to `other` would create
+		 * `other`, then run the migrations against `main`, fail, and leave a data table
+		 * nobody asked for. Editable without one, where the name is only a name. */
+		initialName?: string
+		/** Where the dialog portals to. `#content` is the app shell's scroll container,
+		 * which only exists inside the `(logged)` layout; a page reparented out of it
+		 * (the hub import wizard) has to say `body` or the portal finds nothing and the
+		 * dialog never appears. */
+		modalTarget?: string
+		/** What the caller does once the table exists, named on the final button so the
+		 * user is told before pressing it — the import wizard runs the project's
+		 * migrations, which is otherwise invisible until it has already happened. */
+		finishAlso?: string
+		/** The work `finishAlso` names. Run as the last checklist step, so it reports
+		 * where the rest of the run does instead of starting after the dialog closes.
+		 * Throwing marks that step failed; the table itself is already made either way. */
+		onFinishAlso?: () => Promise<void>
+		/** The workspace everything here is created in and checked against.
+		 *
+		 * Defaults to `$workspaceStore`, which is right for the settings page — it is the
+		 * workspace being looked at. The import wizard is the exception: its page is
+		 * reparented out of `(logged)`, so nothing re-runs the layout's workspace
+		 * persistence, and after a reload the store still names whatever workspace the
+		 * user came from while the plan in the URL names the destination. Left ambient,
+		 * this would create the data table in one workspace and run the project's
+		 * migrations in the other. */
+		workspace?: string
 	}
 
 	let {
@@ -95,8 +129,61 @@
 		onDone,
 		customInstanceDbs,
 		confirmationModal,
-		defaultInstanceDbName
+		defaultInstanceDbName,
+		initialName,
+		modalTarget = '#content',
+		finishAlso,
+		onFinishAlso,
+		workspace: workspaceProp
 	}: Props = $props()
+
+	/**
+	 * The caller needs this exact table, and has follow-up work bound to its name.
+	 *
+	 * Captured when the dialog opens rather than read live: `initialName` is the caller's
+	 * `wizardFor`, which it clears from `onDone` — and that fires after a *failed* run too,
+	 * while the dialog stays up offering Back. Reading it live releases the lock exactly when
+	 * the user is most likely to edit, which is the divergence the lock exists to stop.
+	 */
+	let nameLocked = $state(false)
+
+	/** Every write and every check goes through this, never `$workspaceStore` directly. */
+	const targetWorkspace = $derived(workspaceProp ?? $workspaceStore ?? '')
+
+	/**
+	 * Who the caller is *in the destination*, which is not who `$userStore` describes.
+	 *
+	 * `$userStore` is the membership of the workspace the app is in. Routing the API calls
+	 * elsewhere without routing this leaves the username behind: after a reload on the import
+	 * wizard's step 4 it names the workspace the user came from, and a resource path built
+	 * from it lands on `u/<someone-else>` inside the destination — failing an ownership check,
+	 * or for an admin, quietly putting database credentials in another member's namespace.
+	 */
+	let targetUser = $state<User | undefined>(undefined)
+	const aimedElsewhere = $derived(!!workspaceProp && workspaceProp !== $workspaceStore)
+	const ambientUsername = $derived($userStore?.username ?? '')
+	const targetUsername = $derived(aimedElsewhere ? (targetUser?.username ?? '') : ambientUsername)
+	/** The destination's membership could not be read, so nothing here knows who the user is. */
+	let membershipFailed = $state(false)
+
+	async function loadTargetUser(): Promise<void> {
+		const ws = workspaceProp
+		if (!ws || ws === $workspaceStore) {
+			targetUser = undefined
+			membershipFailed = false
+			return
+		}
+		try {
+			targetUser = await UserService.whoami({ workspace: ws })
+			membershipFailed = false
+		} catch {
+			// Recorded rather than swallowed: an unknown username silently becomes `admin` in
+			// the default path, which is the wrong namespace to write credentials into. Setup
+			// is blocked instead.
+			targetUser = undefined
+			membershipFailed = true
+		}
+	}
 
 	const STEPS = ['Choose a database', 'Set it up', 'Review']
 
@@ -146,7 +233,7 @@
 		}
 		clearTimeout(variableCheck)
 		variableCheck = setTimeout(async () => {
-			const taken = await VariableService.existsVariable({ workspace: $workspaceStore!, path })
+			const taken = await VariableService.existsVariable({ workspace: targetWorkspace, path })
 			// Two checks can be in flight at once and resolve out of order. A `false` for a path
 			// nobody is on any more would clear the error guarding the one about to be written;
 			// a `true` would disable Finish over a path this run stopped caring about.
@@ -163,7 +250,7 @@
 	 * in flight when Finish is pressed.
 	 */
 	async function pathConflictMessage(path: string): Promise<string | undefined> {
-		const workspace = $workspaceStore!
+		const workspace = targetWorkspace
 		// Each namespace answers to its own claim. Holding the secret says nothing about who owns
 		// the resource beside it, so one claim must not wave the other's check through.
 		const [variable, resource] = await Promise.all([
@@ -178,11 +265,14 @@
 	let maxStep = $state(1)
 
 	function defaultProjectName(): string {
-		return `windmill-${$workspaceStore ?? 'workspace'}`
+		return `windmill-${targetWorkspace || 'workspace'}`
 	}
 
 	function defaultTableName(): string {
-		return existingNames.includes('main') ? `${$workspaceStore ?? 'data'}_datatable` : 'main'
+		// A caller that needs a specific name wins over the usual "main, unless taken":
+		// the import wizard's migrations only apply to a table of the name they target.
+		if (initialName) return initialName
+		return existingNames.includes('main') ? `${targetWorkspace || 'data'}_datatable` : 'main'
 	}
 
 	// Takes the list rather than reading it, so the fetch that loads it can seed off its own
@@ -190,7 +280,7 @@
 	function defaultFolder(list: string[] = folders): string {
 		// The first folder this admin can write to, so the resource lands somewhere the team
 		// can find and repair. A workspace with no folders falls back to the personal space.
-		return list.length ? `f/${list[0]}` : `u/${$userStore?.username ?? 'admin'}`
+		return list.length ? `f/${list[0]}` : `u/${targetUsername || 'admin'}`
 	}
 
 	// A row this run wrote and could not take back out is still its own: `removeRow` reports
@@ -236,7 +326,7 @@
 	)
 
 	const pgResources = resource(
-		() => (opened && wiz.provider === 'resource' ? ($workspaceStore ?? '') : ''),
+		() => (opened && wiz.provider === 'resource' ? targetWorkspace : ''),
 		async (workspace) => {
 			if (!workspace) return undefined
 			const list = await ResourceService.listResource({ workspace, resourceType: 'postgresql' })
@@ -330,7 +420,7 @@
 	)
 
 	const folderNames = resource(
-		() => (opened ? ($workspaceStore ?? '') : ''),
+		() => (opened ? targetWorkspace : ''),
 		async (workspace) => {
 			if (!workspace) return []
 			const all = await FolderService.listFolderNames({ workspace })
@@ -374,7 +464,11 @@
 	let resumedPath = $state<string | undefined>(undefined)
 
 	function reset(from: WizardResume | undefined) {
+		nameLocked = !!initialName && !!onFinishAlso
 		resumedPath = from?.resourcePath
+		// A pending confirmation that never settled leaves `dismissing` true, and `finally`
+		// cannot clear what never resolves — so a fresh open always starts dismissable.
+		dismissing = false
 		wiz = newWizardState({
 			name: from?.name || defaultTableName(),
 			projectName: from?.projectName || defaultProjectName(),
@@ -391,6 +485,7 @@
 		createdProjects = []
 		nameConflictFor = undefined
 		lastFailure = ''
+		finishAlsoFailed = false
 		pathTakenError = ''
 		poolerUnavailable = undefined
 		if (from) {
@@ -424,7 +519,11 @@
 	 * what keeps the restore independent of when the prop it was assigned to reaches this
 	 * component.
 	 */
-	export function open(parked?: WizardResume) {
+	export async function open(parked?: WizardResume) {
+		// Awaited before `reset`, which seeds the resource path from `defaultFolder()` and so
+		// needs the destination's username. Seeding first and correcting later loses whenever
+		// the folder list resolves first, and never corrects at all if `whoami` fails.
+		await loadTargetUser()
 		reset(parked ?? resume)
 		opened = true
 	}
@@ -472,12 +571,14 @@
 		// Also retires any check still in flight, so its answer cannot land on the edited value.
 		probeToken++
 		clearProbe(wiz)
-		// Read off one attempt against one project; the review step would otherwise warn about
-		// a limitation that no longer applies while claiming session pooling right above it.
+		// Read off one attempt against one project, so it does not survive a change of inputs:
+		// the review step would otherwise warn about a limitation that does not apply to what
+		// it is describing, while claiming session pooling right above it.
 		poolerUnavailable = undefined
 		// Same for the failure carried back to the review step: it names inputs that have since
 		// been edited, so it would describe a run nobody can still act on.
 		lastFailure = ''
+		finishAlsoFailed = false
 		if (maxStep > wiz.step) maxStep = wiz.step
 	}
 
@@ -527,7 +628,7 @@
 				settle({ checking: false, report: undefined, error: undefined })
 				return
 			}
-			const report = await probeDatatableConnection($workspaceStore!, database)
+			const report = await probeDatatableConnection(targetWorkspace, database)
 			settle({ checking: false, report, error: undefined })
 		} catch (err: any) {
 			settle({
@@ -579,6 +680,13 @@
 	)
 	/** Why the last run failed, kept on the review step after the checklist is dropped. */
 	let lastFailure = $state('')
+	/**
+	 * The appended `onFinishAlso` step failed while `runSetup` itself succeeded. Tracked apart
+	 * from `run.result`, which stays the setup's own verdict: the data table really was
+	 * created, so a retry must re-run only this last step. Re-running the setup would ask for
+	 * the table name it has just taken, and be refused as a duplicate.
+	 */
+	let finishAlsoFailed = $state(false)
 
 	/**
 	 * A refused pre-flight means nothing ran, so the checklist from a previous attempt has to
@@ -631,7 +739,7 @@
 		const name = wiz.review.name.trim()
 		try {
 			if (claimedName !== name) {
-				const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+				const settings = await WorkspaceService.getSettings({ workspace: targetWorkspace })
 				if (settings.datatable?.datatables?.[name]) {
 					nameConflictFor = {
 						name,
@@ -666,6 +774,7 @@
 		}
 		run = { steps: planSteps(wiz), running: true }
 		lastFailure = ''
+		finishAlsoFailed = false
 		// The database is registered by the call whatever it answers, so asking for one is
 		// already leaving something behind.
 		if (wiz.provider === 'instance' && wiz.instance.mode === 'create') {
@@ -675,7 +784,7 @@
 		let result: RunResult | undefined = undefined
 		try {
 			result = await runSetup(wiz, {
-				workspace: $workspaceStore!,
+				workspace: targetWorkspace,
 				supabaseToken: supaOauth.token,
 				onInstanceDbsChanged: async () => {
 					await customInstanceDbs.refetch()
@@ -684,9 +793,27 @@
 				onPoolerUnavailable: (reason) => (poolerUnavailable = reason),
 				createdProjects,
 				claims,
-				username: $userStore?.username ?? ''
+				username: targetUsername
 			})
 		} finally {
+			// The caller's own finishing work, appended to the same checklist. It only runs
+			// on a clean setup: there is no table for it to act on otherwise.
+			if (result?.ok && onFinishAlso && finishAlso) {
+				const title = finishAlso.charAt(0).toUpperCase() + finishAlso.slice(1)
+				run.steps = [...run.steps, { title, status: 'running' }]
+				try {
+					await onFinishAlso()
+					run.steps = run.steps.map((s, i) =>
+						i === run.steps.length - 1 ? { ...s, status: 'done' as const } : s
+					)
+				} catch (err: any) {
+					const description = err?.body ?? err?.message ?? String(err)
+					run.steps = run.steps.map((s, i) =>
+						i === run.steps.length - 1 ? { ...s, status: 'failed' as const, description } : s
+					)
+					finishAlsoFailed = true
+				}
+			}
 			// `runSetup` catches per step, but anything escaping it would otherwise leave the
 			// button spinning with a page reload the only way out.
 			// Kept, not replaced: what an earlier attempt wrote is still out there, so a later
@@ -713,7 +840,10 @@
 	/**
 	 * Whether closing would throw away work. A failed run counts: its inputs are still editable
 	 * and it may have left something behind. A run in flight cannot be closed at all, and one
-	 * that succeeded has nothing left to lose.
+	 * that made its data table has nothing left to lose — including when `onFinishAlso` failed
+	 * afterwards, because the table is real and working and the caller owns what is left. The
+	 * import step, the only caller that passes one, shows that failure on its own row with a
+	 * way to run it again and will not let Finish through while it stands.
 	 */
 	function hasUnfinishedIntent(): boolean {
 		return wiz.provider !== undefined && !run.running && !run.result?.ok
@@ -730,19 +860,52 @@
 			return
 		}
 		dismissing = true
-		const confirmed = await confirmationModal.ask({
-			title: 'Leave without adding a data table?',
-			// A run that failed and was sent back to be edited leaves whatever it got through
-			// behind it, so promising otherwise would be a lie exactly when it matters most.
-			children: leftBehind
-				? 'The setup that already ran left what it created behind, and what you have filled in here will be lost.'
-				: 'Nothing has been created yet, and what you have filled in here will be lost.',
-			confirmationText: 'Discard'
-		})
-		dismissing = false
-		// Re-read rather than trust the entry check: a run can start while the dialog is up, and
-		// answering Discard would otherwise tear the modal down in the middle of it.
-		if (confirmed && !preventClose) close()
+		// `finally`, because the flag is what blocks a second attempt: an `ask` that throws
+		// would otherwise leave the dialog permanently undismissable — the backdrop, Escape
+		// and the close button all return early here, so the only way out would be a reload.
+		try {
+			const confirmed = await confirmationModal.ask({
+				title: 'Leave without adding a data table?',
+				// A run that failed and was sent back to be edited leaves whatever it got through
+				// behind it, so promising otherwise would be a lie exactly when it matters most.
+				children: leftBehind
+					? 'The setup that already ran left what it created behind, and what you have filled in here will be lost.'
+					: 'Nothing has been created yet, and what you have filled in here will be lost.',
+				confirmationText: 'Discard'
+			})
+			// Re-read rather than trust the entry check: a run can start while the dialog is up, and
+			// answering Discard would otherwise tear the modal down in the middle of it.
+			if (confirmed && !preventClose) close()
+		} finally {
+			dismissing = false
+		}
+	}
+
+	/** Re-runs only the appended step, which is the only thing that failed. */
+	async function retryFinishAlso() {
+		if (!onFinishAlso || !finishAlso) return
+		const title = finishAlso.charAt(0).toUpperCase() + finishAlso.slice(1)
+		finishAlsoFailed = false
+		run = {
+			...run,
+			running: true,
+			steps: [...run.steps.slice(0, -1), { title, status: 'running' as const }]
+		}
+		try {
+			await onFinishAlso()
+			run.steps = run.steps.map((s, i) =>
+				i === run.steps.length - 1 ? { ...s, status: 'done' as const } : s
+			)
+		} catch (err: any) {
+			const description = err?.body ?? err?.message ?? String(err)
+			run.steps = run.steps.map((s, i) =>
+				i === run.steps.length - 1 ? { ...s, status: 'failed' as const, description } : s
+			)
+			finishAlsoFailed = true
+		} finally {
+			run = { ...run, running: false }
+			onDone()
+		}
 	}
 
 	function close() {
@@ -752,10 +915,18 @@
 	// The single primary action. Its label says what it is about to do, and doing it is what
 	// moves the wizard on.
 	let primary = $derived.by(() => {
+		// Ahead of everything: without the destination's membership the resource path would be
+		// guessed, and a guess here writes database credentials into somebody else's namespace.
+		if (aimedElsewhere && membershipFailed)
+			return { label: 'Cannot read your access to this workspace', disabled: true }
 		if (submitting && !run.running)
 			return { label: 'Setting things up', disabled: true, busy: true }
 		if (run.steps.length) {
 			if (run.running) return { label: 'Setting things up', disabled: true, busy: true }
+			// Before the `ok` check: the setup succeeded and the step after it did not, so
+			// "Done" would be offered over a failed row.
+			if (finishAlsoFailed)
+				return { label: 'Try again', disabled: false, act: retryFinishAlso }
 			if (run.result?.ok) return { label: 'Done', disabled: false, act: close }
 			// A run that died because the Supabase token expired would retry into the same 401
 			// forever; authorizing again is the only thing that can move it on.
@@ -809,11 +980,12 @@
 				act: enterReview
 			}
 		}
+		const created =
+			wiz.provider === 'supabase' && wiz.supabase.mode === 'create'
+				? 'Create project and data table'
+				: 'Create data table'
 		return {
-			label:
-				wiz.provider === 'supabase' && wiz.supabase.mode === 'create'
-					? 'Create project and data table'
-					: 'Create data table',
+			label: finishAlso ? `${created} and ${finishAlso}` : created,
 			disabled:
 				// Guards the way back as well as the way forward: the stepper can return to step 2,
 				// and not every control there invalidates the review it just made stale.
@@ -842,7 +1014,7 @@
 			else opened = v
 		}
 	}
-	target="#content"
+	target={modalTarget}
 	formStyling
 	title="Add a data table"
 	contentClasses="flex flex-col"
@@ -1034,7 +1206,7 @@
 	{#if wiz.instance.mode === 'existing'}
 		{@const shared = (
 			customInstanceDbs.current?.[wiz.instance.dbName ?? '']?.used_by_workspaces ?? []
-		).filter((w) => w !== $workspaceStore)}
+		).filter((w) => w !== targetWorkspace)}
 		<!-- Above the list, not under it: the list scrolls, and a warning about sharing another
 		workspace's data is worthless if the user has to scroll to reach it. -->
 		{#if shared.length}
@@ -1047,7 +1219,7 @@
 		<div class="flex flex-col gap-2 overflow-y-auto flex-1 min-h-24 pr-1">
 			{#each instanceDbs as { name, db } (name)}
 				{@const selected = wiz.instance.dbName === name}
-				{@const others = (db.used_by_workspaces ?? []).filter((w) => w !== $workspaceStore)}
+				{@const others = (db.used_by_workspaces ?? []).filter((w) => w !== targetWorkspace)}
 				<button
 					class="text-left border rounded-md p-3 flex gap-3 items-start transition-colors {selected
 						? 'border-border-selected/50 bg-surface-accent-selected'
@@ -1325,8 +1497,14 @@
 		<TextInput
 			bind:value={wiz.review.name}
 			error={!!nameError || !!nameConflict}
-			inputProps={{ placeholder: 'main' }}
+			inputProps={{ placeholder: 'main', disabled: nameLocked }}
 		/>
+		{#if nameLocked}
+			<p class="text-2xs text-secondary">
+				Fixed: the project's migrations target this name, and they run against it whatever
+				this table ends up called.
+			</p>
+		{/if}
 		<InputError error={nameError ?? (nameConflict || undefined)} />
 	</Label>
 

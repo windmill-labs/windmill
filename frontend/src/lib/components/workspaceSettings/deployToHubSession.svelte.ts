@@ -198,8 +198,31 @@ export class DeployToHubSession {
 	// Whether the Hub currently has a custom logo for this project (from
 	// rehydration) — drives the "Remove current logo" affordance.
 	hubHasRemoteLogo = $state(false)
+	// A pipeline recording is attached on the Hub. An update inherits the published
+	// one, which is only a demo of the new version if nothing it runs changed.
+	hubHasPipelineRecording = $state(false)
+	// The Hub's own verdict: this update runs different content from the published
+	// version. False when there is no update in flight.
+	hubItemsChanged = $state(false)
+	// The attached pipeline recording is the published version's, copied when this
+	// update started, rather than one recorded for it. Authoritative across reloads,
+	// unlike `pipelineRecorded`, which only remembers this session.
+	hubPipelineRecordingInherited = $state(false)
 	effectiveSlug = $state('')
 	hubItemIds = $state<Record<string, number>>({})
+	// Set once the project is published: everything the wizard shows from here on
+	// describes an update to it, and the published version keeps serving until that
+	// update is approved. `phase` is the update's own status, not the project's.
+	liveOnHub = $state(false)
+	/** This Hub knows about pending updates — it answers rehydration with a `live`
+	 * key. An older one takes a project offline to republish and has neither the
+	 * withdraw nor the discard endpoint, so the actions built on them stay hidden. */
+	hubSupportsUpdates = $state(false)
+	// A reviewer's verdict on the current draft, shown so the publisher knows what
+	// to fix before resubmitting.
+	rejectionReason = $state<string | undefined>(undefined)
+	discardingUpdate = $state(false)
+	withdrawing = $state(false)
 
 	// Best-effort data table migrations for the bundle, editable in the drawer and
 	// pushed on deploy. Regenerated when the bundle drawer opens.
@@ -227,6 +250,10 @@ export class DeployToHubSession {
 
 	submitting = $state(false)
 	syncing = $state(false)
+
+	// Set from the Hub's answer to the draft request: this push went into an update
+	// rather than over the published project.
+	#publishedAsUpdate = false
 
 	// Intra-session tokens: latest call wins among competing calls on this session.
 	#triggerLoadTok = 0
@@ -316,6 +343,18 @@ export class DeployToHubSession {
 	)
 	pipelineScriptPathSet = $derived(new Set(this.pipelineScriptPaths))
 	isPipelineProject = $derived(this.pipelineScriptPaths.length > 0)
+	/** The pipeline replay this update carries came from the published version, and
+	 * something it runs has changed since — so it is a recording of another version.
+	 * `hubItemsChanged` is the Hub comparing content, not a guess from which items
+	 * carry recordings: an item nobody ever recorded has not changed. */
+	pipelineReplayMayBeStale = $derived(
+		this.liveOnHub &&
+			this.isPipelineProject &&
+			this.hubHasPipelineRecording &&
+			this.hubPipelineRecordingInherited &&
+			this.hubItemsChanged &&
+			!this.pipelineRecorded
+	)
 	hubSlug = $derived(this.effectiveSlug || sanitizeSlug(this.hubName))
 
 	relevantTriggers = $derived.by(() => {
@@ -573,6 +612,17 @@ export class DeployToHubSession {
 			this.hubSummary = p.summary ?? ''
 			this.hubReadme = p.readme ?? ''
 			this.hubHasRemoteLogo = p.has_logo === true
+			this.hubHasPipelineRecording = p.has_pipeline_recording === true
+			this.hubItemsChanged = p.items_changed === true
+			this.hubPipelineRecordingInherited = p.pipeline_recording_inherited === true
+			this.rejectionReason = p.rejection_reason ?? undefined
+			// `live` is a key this Hub always sends — null unless an update is in
+			// flight, in which case the fields above describe that update and the
+			// project itself is still published. Its absence means a Hub old enough to
+			// still take a project offline while it re-publishes, so the wizard must
+			// not promise otherwise.
+			this.hubSupportsUpdates = 'live' in p
+			this.liveOnHub = this.hubSupportsUpdates && (p.live?.approved === true || p.status === 'live')
 			this.phase =
 				p.status === 'live' ? 'live' : p.status === 'under_review' ? 'under_review' : 'draft'
 			const ids: Record<string, number> = {}
@@ -898,6 +948,9 @@ export class DeployToHubSession {
 			try {
 				const parsed = JSON.parse(text)
 				if (typeof parsed?.slug === 'string') returnedSlug = parsed.slug
+				// The Hub decides this: publishing over an approved project goes into a
+				// pending update instead, and the project keeps serving meanwhile.
+				this.#publishedAsUpdate = parsed?.pending_revision === true
 			} catch {}
 			if (!returnedSlug) {
 				sendUserToast(`Hub did not return a slug. Aborting publish to avoid path drift.`, true)
@@ -1252,8 +1305,13 @@ export class DeployToHubSession {
 			// UI stuck in `predeploy`; rehydrate then upgrades to authoritative state.
 			this.draftItems = itemsSnapshot.map((i) => ({ ...i, rec: 'none' }))
 			this.phase = 'draft'
+			const asUpdate = this.#publishedAsUpdate
 			await this.rehydrateFromHub()
-			sendUserToast(`Draft created on the Hub. Add recordings before submitting for review.`)
+			sendUserToast(
+				asUpdate
+					? `Update ready on the Hub. Your published project stays live until it is approved.`
+					: `Draft created on the Hub. Add recordings before submitting for review.`
+			)
 		} finally {
 			this.deploying = false
 		}
@@ -1313,10 +1371,80 @@ export class DeployToHubSession {
 		}
 	}
 
+	/** Go back to picking items, to publish again. Local only — nothing reaches the
+	 * Hub until the bundle is confirmed, and where the Hub supports updates the
+	 * published version keeps serving even then. */
 	startNewDraft = () => {
 		this.draftItems = []
 		this.recordings = {}
+		this.rejectionReason = undefined
+		// All of it belongs to the update just finished, not the one starting. The
+		// captured cascade especially: left in place, the next update could save a
+		// replay of the version it replaces. Bumping the token first abandons a run
+		// still in flight, which would otherwise write its result back over this.
+		this.#pipelineRunTok++
+		this.pipelineRecorded = false
+		this.pipelineRecordingResult = undefined
+		this.pipelineRunState = 'idle'
+		this.pipelineRunError = undefined
 		this.phase = 'predeploy'
+	}
+
+	/** Take the submission back out of review. Everything pushed for it is kept, so
+	 * it can be fixed and submitted again. */
+	cancelSubmission = async () => {
+		if (this.withdrawing) return
+		const slug = this.effectiveSlug
+		if (!slug) return
+		this.withdrawing = true
+		try {
+			const res = await fetch(
+				`/api/w/${this.workspace}/hub/projects/${encodeURIComponent(slug)}/withdraw${this.#folderQs()}`,
+				{ method: 'POST', credentials: 'include' }
+			)
+			if (!res.ok) {
+				sendUserToast(`Could not cancel the submission: ${await res.text()}`, true)
+				return
+			}
+			if (this.#disposed) return
+			this.phase = 'draft'
+			await this.rehydrateFromHub()
+			sendUserToast(`Submission cancelled. Everything you pushed is still here.`)
+		} catch (e: any) {
+			sendUserToast(`Could not cancel the submission: ${e?.message ?? e}`, true)
+		} finally {
+			this.withdrawing = false
+		}
+	}
+
+	/** Throw away an update in progress and go back to what is published. */
+	discardUpdate = async () => {
+		if (this.discardingUpdate) return
+		const slug = this.effectiveSlug
+		if (!slug) return
+		this.discardingUpdate = true
+		try {
+			const res = await fetch(
+				`/api/w/${this.workspace}/hub/projects/${encodeURIComponent(slug)}/discard_update${this.#folderQs()}`,
+				{ method: 'POST', credentials: 'include' }
+			)
+			if (!res.ok) {
+				sendUserToast(`Could not discard the update: ${await res.text()}`, true)
+				return
+			}
+			if (this.#disposed) return
+			this.draftItems = []
+			this.recordings = {}
+			this.deploymentStatus = {}
+			this.rejectionReason = undefined
+			this.phase = 'live'
+			await this.rehydrateFromHub()
+			sendUserToast(`Update discarded. The published project is unchanged.`)
+		} catch (e: any) {
+			sendUserToast(`Could not discard the update: ${e?.message ?? e}`, true)
+		} finally {
+			this.discardingUpdate = false
+		}
 	}
 
 	/** Reset record-drawer state and load the target's schema. */

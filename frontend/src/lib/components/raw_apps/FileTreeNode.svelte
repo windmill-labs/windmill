@@ -1,5 +1,15 @@
 <script lang="ts">
-	import { ChevronRight, ChevronDown, Folder, Pencil, Trash2, Lock, Ellipsis } from 'lucide-svelte'
+	import {
+		ChevronRight,
+		ChevronDown,
+		Folder,
+		FilePlus,
+		FolderPlus,
+		Pencil,
+		Trash2,
+		Lock,
+		Ellipsis
+	} from 'lucide-svelte'
 	import Self from './FileTreeNode.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import DropdownV2 from '../DropdownV2.svelte'
@@ -69,13 +79,13 @@
 	}
 
 	function handleClick() {
-		// Always notify about selection
-		onFileClick?.(node.path)
-
-		// Toggle expansion for folders
+		// A folder can't be opened in an editor, so clicking one only expands it —
+		// selecting it would highlight a row nothing on screen corresponds to.
 		if (node.isFolder) {
 			toggleExpanded()
+			return
 		}
+		onFileClick?.(node.path)
 	}
 
 	function handleEdit(e: MouseEvent) {
@@ -211,6 +221,20 @@
 				{#if !noEdit}
 					<DropdownV2
 						items={[
+							...(node.isFolder
+								? [
+										{
+											displayName: 'New file',
+											icon: FilePlus,
+											action: () => onAddFile?.(node.path)
+										},
+										{
+											displayName: 'New folder',
+											icon: FolderPlus,
+											action: () => onAddFolder?.(node.path)
+										}
+									]
+								: []),
 							{
 								displayName: 'Rename',
 								icon: Pencil,

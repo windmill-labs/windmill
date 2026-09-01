@@ -33,7 +33,7 @@ const mocks = vi.hoisted(() => ({
 	getAnthropicClient: vi.fn(),
 	getNonStreamingCompletion: vi.fn(),
 	runChatLoop: vi.fn(),
-	listAiSkills: vi.fn(),
+	listResource: vi.fn(),
 	getJob: vi.fn(),
 	whoami: vi.fn(),
 	workspace: 'test_workspace' as string | undefined,
@@ -49,8 +49,9 @@ vi.mock('monaco-editor', () => ({
 vi.mock('$lib/utils/featureUsage', () => ({ logFeatureUsage: vi.fn() }))
 
 vi.mock('$lib/gen', () => ({
-	WorkspaceService: {
-		listAiSkills: mocks.listAiSkills
+	WorkspaceService: {},
+	ResourceService: {
+		listResource: mocks.listResource
 	},
 	ScriptService: {},
 	FlowService: {},
@@ -169,7 +170,7 @@ beforeEach(() => {
 	mocks.isWebSearchEnabledForProvider.mockReturnValue(true)
 	mocks.getOpenaiClient.mockReturnValue({})
 	mocks.getAnthropicClient.mockReturnValue({})
-	mocks.listAiSkills.mockResolvedValue([])
+	mocks.listResource.mockResolvedValue([])
 	mocks.workspace = 'test_workspace'
 	mocks.runChatLoop.mockResolvedValue({
 		addedMessages: [],
@@ -330,17 +331,29 @@ describe('AIChatManager global skills', () => {
 		mocks.tryGetCurrentModel.mockReturnValue(model)
 	})
 
+	// Only selected skills reach the prompt, and the selection is keyed by
+	// workspace and account (see skills/enabledSkills.ts).
+	function selectSkills(workspace: string, ...paths: string[]) {
+		const stored = JSON.parse(localStorage.getItem('wm_skills_enabled') ?? '{}')
+		stored[`${workspace}:${TEST_EMAIL}`] = paths
+		localStorage.setItem('wm_skills_enabled', JSON.stringify(stored))
+	}
+
 	it('loads skills after beforeSend commits the session workspace', async () => {
-		let resolveParentSkills: ((skills: { name: string; description: string }[]) => void) | undefined
-		const parentSkills = new Promise<{ name: string; description: string }[]>((resolve) => {
+		let resolveParentSkills: ((skills: unknown[]) => void) | undefined
+		const parentSkills = new Promise<unknown[]>((resolve) => {
 			resolveParentSkills = resolve
 		})
 		mocks.workspace = 'parent'
-		mocks.listAiSkills.mockImplementation(({ workspace }: { workspace: string }) => {
+		selectSkills('parent', 'f/skills/parent-skill')
+		selectSkills('child', 'f/skills/child-skill')
+		mocks.listResource.mockImplementation(({ workspace }: { workspace: string }) => {
 			if (workspace === 'parent') {
 				return parentSkills
 			}
-			return Promise.resolve([{ name: 'child-skill', description: 'child workspace skill' }])
+			return Promise.resolve([
+				{ path: 'f/skills/child-skill', description: 'child workspace skill' }
+			])
 		})
 		mocks.runChatLoop.mockImplementation(async (config: any) => {
 			expect(config.workspace).toBe('child')
@@ -362,22 +375,45 @@ describe('AIChatManager global skills', () => {
 		}
 
 		await manager.sendRequest({ instructions: 'first', mode: AIMode.GLOBAL })
-		resolveParentSkills?.([{ name: 'parent-skill', description: 'parent workspace skill' }])
+		resolveParentSkills?.([
+			{ path: 'f/skills/parent-skill', description: 'parent workspace skill' }
+		])
 		await Promise.resolve()
 
-		expect(mocks.listAiSkills).toHaveBeenCalledWith({ workspace: 'parent' })
-		expect(mocks.listAiSkills).toHaveBeenCalledWith({ workspace: 'child' })
+		expect(mocks.listResource).toHaveBeenCalledWith(
+			expect.objectContaining({ workspace: 'parent', resourceType: 'ai_skill' })
+		)
+		expect(mocks.listResource).toHaveBeenCalledWith(
+			expect.objectContaining({ workspace: 'child', resourceType: 'ai_skill' })
+		)
 		expect(manager.systemMessage.content).toContain('child-skill')
 		expect(manager.systemMessage.content).not.toContain('parent-skill')
 	})
 
-	it('expands a leading slash skill command for the model while preserving the displayed text', async () => {
-		mocks.listAiSkills.mockResolvedValue([
-			{ name: 'review-code', description: 'review code for bugs' }
+	it('leaves a readable but unselected skill out of the prompt', async () => {
+		mocks.listResource.mockResolvedValue([
+			{ path: 'f/skills/selected', description: 'the one turned on' },
+			{ path: 'f/skills/unselected', description: 'readable but never turned on' }
 		])
+		selectSkills('test_workspace', 'f/skills/selected')
+
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		await manager.refreshGlobalSkills('test_workspace')
+		await manager.changeMode(AIMode.GLOBAL)
+
+		expect(manager.systemMessage.content).toContain('f/skills/selected')
+		expect(manager.systemMessage.content).not.toContain('f/skills/unselected')
+	})
+
+	it('expands a leading slash skill command for the model while preserving the displayed text', async () => {
+		mocks.listResource.mockResolvedValue([
+			{ path: 'u/admin/review-code', description: 'review code for bugs' }
+		])
+		selectSkills('test_workspace', 'u/admin/review-code')
 		mocks.runChatLoop.mockImplementation(async (config: any) => {
 			const userMessage = config.messages[config.messages.length - 1]
-			expect(userMessage.content).toContain('Use the "review-code" skill. find bugs')
+			expect(userMessage.content).toContain('Use the skill at "u/admin/review-code". find bugs')
 			expect(userMessage.content).not.toContain('/review-code find bugs')
 			const message = { role: 'assistant' as const, content: 'done' }
 			config.addedMessages?.push(message)
@@ -395,6 +431,33 @@ describe('AIChatManager global skills', () => {
 
 		expect(manager.displayMessages[0]?.content).toBe('/review-code find bugs')
 	})
+
+	it('does not expand a slash command two folders both answer to', async () => {
+		mocks.listResource.mockResolvedValue([
+			{ path: 'u/admin/deploy', description: 'personal deploy steps' },
+			{ path: 'f/team/deploy', description: 'the team deploy steps' }
+		])
+		selectSkills('test_workspace', 'u/admin/deploy', 'f/team/deploy')
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			// Picking either one would silently apply instructions the user did not
+			// choose, so the text is left alone for the model to ask about.
+			const userMessage = config.messages[config.messages.length - 1]
+			expect(userMessage.content).toContain('/deploy ship it')
+			expect(userMessage.content).not.toContain('Use the skill at')
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages?.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+
+		await manager.sendRequest({ instructions: '/deploy ship it', mode: AIMode.GLOBAL })
+	})
 })
 
 describe('AIChatManager global prompt identity', () => {
@@ -404,7 +467,7 @@ describe('AIChatManager global prompt identity', () => {
 		localStorage.clear()
 		mocks.getCurrentModel.mockReturnValue(model)
 		mocks.tryGetCurrentModel.mockReturnValue(model)
-		mocks.listAiSkills.mockResolvedValue([])
+		mocks.listResource.mockResolvedValue([])
 	})
 
 	afterEach(() => {
@@ -2164,6 +2227,98 @@ describe('AIChatManager queued messages', () => {
 		expect(chips.map((c) => c.selector)).toEqual(['div.card'])
 	})
 
+	// The composer consumes an `@` mention on send, so a send that never became a
+	// turn has to give it back — otherwise the restored text keeps its `@` token
+	// with nothing behind it.
+	it('restores a cancelled GLOBAL send’s @ mentions', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		const cm = manager.contextManager
+		const mention = {
+			type: 'workspace_script' as const,
+			path: 'f/etl/sync',
+			title: 'f/etl/sync'
+		}
+		// What the composer does at submit: pin what it carries, then consume.
+		const carried = [mention]
+		cm.setSelectedContext([])
+		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
+			abortController.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+
+		await manager.sendRequest({
+			instructions: 'why does this retry',
+			contextOverride: carried,
+			contextOverrideOrigin: 'pinned'
+		})
+
+		expect(cm.getSelectedContext()).toEqual([mention])
+	})
+
+	// The mode switcher stays live while a turn streams, so the restore is keyed
+	// to the mode the send was submitted in. Reading the mode at rollback time
+	// would strand the mention behind a `@` token that resolves to nothing.
+	it('restores a GLOBAL send’s @ mentions after a mid-turn switch to SCRIPT', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		const cm = manager.contextManager
+		const mention = { type: 'workspace_script' as const, path: 'f/etl/sync', title: 'f/etl/sync' }
+		cm.setSelectedContext([])
+		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
+			// The user navigates to a script editor while the turn is streaming.
+			manager.mode = AIMode.SCRIPT
+			abortController.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+
+		await manager.sendRequest({
+			instructions: 'why does this retry',
+			contextOverride: [mention],
+			contextOverrideOrigin: 'pinned'
+		})
+
+		expect(cm.getSelectedContext()).toEqual([mention])
+	})
+
+	// Attachments are refused outside GLOBAL, and the refusal sits past the
+	// preflight awaits — so it is reached exactly when a GLOBAL submit's mode
+	// changed underneath it, and owes that send its mentions back.
+	it('restores mentions when a GLOBAL send is refused for switching modes with attachments', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		const cm = manager.contextManager
+		const mention = { type: 'workspace_script' as const, path: 'f/etl/sync', title: 'f/etl/sync' }
+		cm.setSelectedContext([])
+
+		const pending = manager.sendRequest({
+			instructions: 'describe this image',
+			images: [{ id: 'img-1', dataUrl: 'data:image/png;base64,AAAA' } as any],
+			contextOverride: [mention],
+			contextOverrideOrigin: 'pinned'
+		})
+		manager.mode = AIMode.SCRIPT
+		await pending
+
+		expect(cm.getSelectedContext()).toEqual([mention])
+	})
+
+	// The editor modes show mentions as chips the user deletes by hand, so the
+	// restore must never re-add one they removed.
+	it('leaves an editor mode’s context alone when a queued draft comes back', () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.SCRIPT
+		const cm = manager.contextManager
+		const mention = { type: 'workspace_script' as const, path: 'f/etl/sync', title: 'f/etl/sync' }
+		manager.queueMessage('fix this', [], [mention])
+		// The user deletes the chip while the turn streams.
+		cm.setSelectedContext([])
+
+		manager.dequeueMessage()
+
+		expect(cm.getSelectedContext()).toEqual([])
+	})
+
 	it('restores a dequeued inline prompt’s pinned DOM context, replacing the live selection', () => {
 		const manager = createManager(createInputMock())
 		const cm = manager.contextManager
@@ -2279,6 +2434,90 @@ describe('AIChatManager queued messages', () => {
 		expect(input.restoreInstructions).toHaveBeenCalledWith('look', [], [img('a')], [])
 		// the optimistic bubble is rolled back
 		expect(manager.displayMessages).toHaveLength(0)
+	})
+
+	// The composer consumes mentions before calling in, so a send that never left
+	// the preflight has to give them back with the text. GLOBAL renders no chip for
+	// them, so a mention lost here is invisible: the restored `@` token silently
+	// resolves to nothing, and a mention-only draft comes back empty.
+	it('restores consumed mentions when beforeSend rejects a GLOBAL send', async () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		manager.mode = AIMode.GLOBAL
+		const mention = { type: 'workspace_script' as const, path: 'f/etl/sync', title: 'f/etl/sync' }
+		manager.contextManager.setSelectedContext([])
+		manager.beforeSend = vi.fn().mockRejectedValue(new Error('workspace fork failed'))
+
+		const accepted = await manager.sendRequest({
+			instructions: '@f/etl/sync fix this',
+			contextOverride: [mention],
+			contextOverrideOrigin: 'pinned'
+		})
+
+		expect(accepted).toBe(false)
+		expect(manager.contextManager.getSelectedContext()).toEqual([mention])
+	})
+
+	it('restores consumed mentions when a GLOBAL send is cancelled during the preflight', async () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		manager.mode = AIMode.GLOBAL
+		const mention = { type: 'workspace_script' as const, path: 'f/etl/sync', title: 'f/etl/sync' }
+		manager.contextManager.setSelectedContext([])
+		// Stop/Escape while "Creating workspace fork..." is showing.
+		manager.beforeSend = vi.fn().mockImplementation(async () => {
+			manager.cancel('user_cancelled')
+		})
+
+		await manager.sendRequest({
+			instructions: '@f/etl/sync fix this',
+			contextOverride: [mention],
+			contextOverrideOrigin: 'pinned'
+		})
+
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(manager.contextManager.getSelectedContext()).toEqual([mention])
+	})
+
+	// The gate, and the reason the restore is not unconditional: an occupied
+	// composer declines the dead draft's text, and its mentions would then ride the
+	// draft the user is writing now and every turn after it.
+	it('does not restore mentions into a draft the composer kept', async () => {
+		const input = createInputMock()
+		input.restoreInstructions.mockReturnValue(false)
+		const manager = createManager(input)
+		manager.mode = AIMode.GLOBAL
+		const mention = { type: 'workspace_script' as const, path: 'f/etl/sync', title: 'f/etl/sync' }
+		manager.contextManager.setSelectedContext([])
+		manager.beforeSend = vi.fn().mockRejectedValue(new Error('workspace fork failed'))
+
+		await manager.sendRequest({
+			instructions: '@f/etl/sync fix this',
+			contextOverride: [mention],
+			contextOverrideOrigin: 'pinned'
+		})
+
+		expect(manager.contextManager.getSelectedContext()).toEqual([])
+	})
+
+	// The bit-identity tripwire: an editor mode reaches these same bailouts with a
+	// contextOverride (a replay, a queued flush) and must come out of them with the
+	// selection main would have left.
+	it('leaves an editor mode’s selection untouched through the same bailout', async () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		manager.mode = AIMode.SCRIPT
+		const mention = { type: 'workspace_script' as const, path: 'f/etl/sync', title: 'f/etl/sync' }
+		manager.contextManager.setSelectedContext([])
+		manager.beforeSend = vi.fn().mockRejectedValue(new Error('workspace fork failed'))
+
+		await manager.sendRequest({
+			instructions: 'fix this',
+			contextOverride: [mention],
+			contextOverrideOrigin: 'pinned'
+		})
+
+		expect(manager.contextManager.getSelectedContext()).toEqual([])
 	})
 
 	it('drops the queued message when switching conversations (no cross-chat leak)', async () => {
@@ -2923,8 +3162,8 @@ describe('AIChatManager manual compaction', () => {
 		vi.clearAllMocks()
 		mocks.getCurrentModel.mockReturnValue(model)
 		mocks.tryGetCurrentModel.mockReturnValue(model)
-		// changeMode(GLOBAL) refreshes workspace skills; keep it a no-op here.
-		mocks.listAiSkills.mockResolvedValue([])
+		// changeMode(GLOBAL) refreshes the selected skills; keep it a no-op here.
+		mocks.listResource.mockResolvedValue([])
 	})
 
 	function seedExchange(manager: AIChatManager) {
@@ -3139,15 +3378,19 @@ describe('AIChatManager manual compaction', () => {
 		expect(mocks.getNonStreamingCompletion).not.toHaveBeenCalled()
 	})
 
-	it('shadows a workspace skill that collides with a built-in command', () => {
+	it('shadows a selected skill that collides with a built-in command', () => {
 		const manager = new AIChatManager()
 		manager.globalSkills = [
-			{ name: 'compact', description: 'a workspace skill that happens to be named compact' },
-			{ name: 'review-code', description: 'review code for bugs' }
+			{
+				path: 'u/admin/compact',
+				name: 'compact',
+				description: 'a skill that happens to be named compact'
+			},
+			{ path: 'u/admin/review-code', name: 'review-code', description: 'review code for bugs' }
 		]
 
-		// Built-ins come first and the colliding skill is dropped, so the picker
-		// never renders two leaves with the same `skill:compact` key.
+		// Built-ins come first and the colliding skill is dropped: the built-in
+		// wins at execution too, so listing both would offer a row that cannot run.
 		const names = manager.sessionCommands.map((c) => c.name)
 		expect(names).toEqual(['compact', 'clear', 'review-code'])
 		expect(manager.sessionCommands[0].description).toBe(

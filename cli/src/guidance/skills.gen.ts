@@ -7519,6 +7519,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - \`--include-groups\` - Include syncing groups
   - \`--include-settings\` - Include syncing workspace settings
   - \`--include-key\` - Include workspace encryption key
+  - \`--keep-deleted\` - Do not delete local files for items that no longer exist on the remote workspace. Only adds and updates.
   - \`--skip-branch-validation\` - Skip git branch validation and prompts
   - \`--json-output\` - Output results in JSON format
   - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Overrides wmill.yaml includes
@@ -7550,6 +7551,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - \`--include-settings\` - Include syncing workspace settings
   - \`--include-key\` - Include workspace encryption key
   - \`--skip-reencrypt-on-key-change\` - When the pushed encryption key differs from the remote, do NOT re-encrypt existing remote secrets. Only safe if they are already encrypted with the new key (e.g. workspace/instance migration). Default is to re-encrypt.
+  - \`--keep-deleted\` - Do not delete remote items that no longer exist locally. Only adds and updates.
   - \`--skip-branch-validation\` - Skip git branch validation and prompts
   - \`--json-output\` - Output results in JSON format
   - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)
@@ -7935,7 +7937,9 @@ properties:
           at once (1-65535)
   error_handler_path:
     type: string
-    description: Path to a script or flow to run when the triggered job fails
+    description: Path to a script to run when the triggered job fails. A bare path,
+      without the script/ or flow/ prefix a schedule error handler takes; it cannot
+      be a flow.
   error_handler_args:
     type: object
     description: The arguments to pass to the script or flow
@@ -8385,7 +8389,9 @@ properties:
       as JSON
   error_handler_path:
     type: string
-    description: Path to a script or flow to run when the triggered job fails
+    description: Path to a script to run when the triggered job fails. A bare path,
+      without the script/ or flow/ prefix a schedule error handler takes; it cannot
+      be a flow.
   error_handler_args:
     type: object
     description: The arguments to pass to the script or flow
@@ -8552,7 +8558,9 @@ properties:
       endpoint.
   error_handler_path:
     type: string
-    description: Path to a script or flow to run when the triggered job fails
+    description: Path to a script to run when the triggered job fails. A bare path,
+      without the script/ or flow/ prefix a schedule error handler takes; it cannot
+      be a flow.
   error_handler_args:
     type: object
     description: The arguments to pass to the script or flow
@@ -8676,7 +8684,9 @@ properties:
     - v5
   error_handler_path:
     type: string
-    description: Path to a script or flow to run when the triggered job fails
+    description: Path to a script to run when the triggered job fails. A bare path,
+      without the script/ or flow/ prefix a schedule error handler takes; it cannot
+      be a flow.
   error_handler_args:
     type: object
     description: The arguments to pass to the script or flow
@@ -8772,7 +8782,9 @@ properties:
     description: Array of NATS subjects to subscribe to
   error_handler_path:
     type: string
-    description: Path to a script or flow to run when the triggered job fails
+    description: Path to a script to run when the triggered job fails. A bare path,
+      without the script/ or flow/ prefix a schedule error handler takes; it cannot
+      be a flow.
   error_handler_args:
     type: object
     description: The arguments to pass to the script or flow
@@ -8862,7 +8874,9 @@ properties:
     description: Name of the PostgreSQL logical replication slot to use
   error_handler_path:
     type: string
-    description: Path to a script or flow to run when the triggered job fails
+    description: Path to a script to run when the triggered job fails. A bare path,
+      without the script/ or flow/ prefix a schedule error handler takes; it cannot
+      be a flow.
   error_handler_args:
     type: object
     description: The arguments to pass to the script or flow
@@ -9109,7 +9123,9 @@ properties:
     description: Array of SQS message attribute names to include with each message
   error_handler_path:
     type: string
-    description: Path to a script or flow to run when the triggered job fails
+    description: Path to a script to run when the triggered job fails. A bare path,
+      without the script/ or flow/ prefix a schedule error handler takes; it cannot
+      be a flow.
   error_handler_args:
     type: object
     description: The arguments to pass to the script or flow
@@ -9308,7 +9324,9 @@ properties:
           The extracted value replaces {{state}} in the heartbeat message.
   error_handler_path:
     type: string
-    description: Path to a script or flow to run when the triggered job fails
+    description: Path to a script to run when the triggered job fails. A bare path,
+      without the script/ or flow/ prefix a schedule error handler takes; it cannot
+      be a flow.
   error_handler_args:
     type: object
     description: The arguments to pass to the script or flow

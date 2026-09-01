@@ -19,7 +19,7 @@ use windmill_api_auth::ApiAuthed;
 
 pub use windmill_api_auth::Tokened;
 
-use argon2::{Argon2, PasswordHash, PasswordVerifier};
+use argon2::{Argon2, PasswordVerifier};
 use axum::{
     extract::{Extension, Path, Query},
     response::{IntoResponse, Response},
@@ -2680,10 +2680,8 @@ async fn login(
     .await?;
 
     if let Some((email, hash, super_admin)) = email_w_h {
-        let parsed_hash =
-            PasswordHash::new(&hash).map_err(|e| Error::internal_err(e.to_string()))?;
         if argon2
-            .verify_password(password.as_bytes(), &parsed_hash)
+            .verify_password(password.as_bytes(), hash.as_str())
             .is_err()
         {
             audit_log(
@@ -3710,3 +3708,23 @@ async fn request_password_reset(
 }
 
 // NOTE: reset_password is in windmill-api (depends on users_oss::hash_password EE dispatch)
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Stored hashes outlive the hashing crate: every instance still holds hashes minted by
+    /// older argon2 releases, and an upgrade that stopped reading them locks their users out.
+    #[test]
+    fn verifies_a_hash_minted_by_an_older_argon2() {
+        // The seeded admin hash from migration 20220508150023, m=4096,t=3,p=1.
+        let seeded = "$argon2id$v=19$m=4096,t=3,p=1$oLJo/lPn/gezXCuFOEyaNw$i0T2tCkw3xUFsrBIKZwr8jVNHlIfoxQe+HfDnLtd12I";
+
+        assert!(Argon2::default()
+            .verify_password(b"changeme", seeded)
+            .is_ok());
+        assert!(Argon2::default()
+            .verify_password(b"not-the-password", seeded)
+            .is_err());
+    }
+}

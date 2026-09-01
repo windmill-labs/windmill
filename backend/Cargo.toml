@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.796.0"
+version = "1.800.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -88,7 +88,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.796.0"
+version = "1.800.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -115,7 +115,7 @@ strip = "none"
 
 [features]
 default = []
-private = ["windmill-api/private", "windmill-api-agent-workers?/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-dep-map/private", "windmill-object-store/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-operator?/private", "windmill-queue/private", "windmill-worker/private", "windmill-test-utils/private"]
+private = ["windmill-api/private", "windmill-api-agent-workers?/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-dep-map/private", "windmill-object-store/private", "windmill-git-sync/private", "windmill-indexer?/private", "windmill-operator?/private", "windmill-queue/private", "windmill-worker/private", "windmill-test-utils/private"]
 agent_worker_server = ["windmill-api/agent_worker_server", "dep:windmill-api-agent-workers", "windmill-test-utils/agent_worker_server"]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-api-agent-workers?/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise", "windmill-object-store/enterprise", "license"]
 local_reports = ["windmill-common/local_reports"]
@@ -131,6 +131,10 @@ quickjs = ["windmill-worker/quickjs", "windmill-api/quickjs"]
 openidconnect = ["windmill-api/openidconnect", "windmill-common/openidconnect", "windmill-object-store/openidconnect"]
 cloud = ["windmill-queue/cloud", "windmill-worker/cloud", "windmill-common/cloud", "windmill-api/cloud"]
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
+# `tantivy` must stay the only feature that enables windmill-indexer: it is the only one that
+# also gives it `enterprise` + `parquet`, and its EE sources gate nearly everything on that
+# pair, so a bare windmill-indexer is a crate of dead code that `-D warnings` rejects. Any
+# other feature wanting one of its features has to use the optional `windmill-indexer?/` form.
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet", "windmill-common/tantivy", "enterprise", "parquet"]
 sqlx = ["windmill-worker/sqlx"]
 deno_core = ["windmill-worker/deno_core", "dep:windmill-runtime-nativets", "windmill-test-utils/deno_core"]
@@ -477,7 +481,10 @@ rust-embed = { version = "^6", features = ["interpolate-folder-path"] }
 mime_guess = "^2"
 hex = "^0"
 sql-builder = "^3"
-argon2 = "^0"
+# Minor-pinned rather than the `^0` used elsewhere in this file: argon2's 0.x
+# minors are API-breaking (0.6 moved `SaltString` into `phc`, put `rand_core`
+# behind a feature and changed `hash_password`), so a float breaks the build.
+argon2 = "0.6"
 quick_cache = "^0"
 rand = "=0.9.0"
 rand_core = { version = "^0", features = ["std"] }
@@ -697,7 +704,7 @@ tikv-jemalloc-ctl = { version = "^0.5" }
 triomphe = "^0"
 pin-project-lite = "^0"
 
-tantivy = { git="https://github.com/windmill-labs/tantivy", rev="6ae7c70bc603b8e69e27f3240e08bd00a93fb12c" }
+tantivy = { git="https://github.com/windmill-labs/tantivy", rev="ea3b818c7b93db0c2b5db4f5e7ffef38f339060a" }
 
 backon = "1.3.0"
 

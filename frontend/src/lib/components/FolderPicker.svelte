@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { FolderService } from '$lib/gen'
+	import { FolderService, UserService, type User } from '$lib/gen'
 	import { workspaceStore, userStore } from '$lib/stores'
 	import { isDemoWorkspaceRestricted } from '$lib/cloud'
 	import { ChevronDown, Pen, PlusIcon } from 'lucide-svelte'
@@ -13,10 +13,6 @@
 	import { sendUserToast } from '$lib/toast'
 
 	const VALID_FOLDER_NAME = /^[a-zA-Z_0-9-]+$/
-
-	const restricted = $derived(
-		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
-	)
 
 	let folders: { name: string; write: boolean }[] = $state([])
 	let filterText: string = $state('')
@@ -38,6 +34,10 @@
 		size?: 'sm' | 'md'
 		drawerOffset?: number
 		selectInputClass?: string
+		/** List and create folders in this workspace instead of the active one. For a
+		 * screen that targets a workspace it has not switched to — the project import
+		 * wizard picks a destination and only enters it when the import runs. */
+		workspace?: string
 	}
 
 	let {
@@ -47,8 +47,23 @@
 		disableEditing = $bindable(undefined),
 		size = 'md',
 		drawerOffset = 0,
-		selectInputClass
+		selectInputClass,
+		workspace
 	}: Props = $props()
+
+	const targetWorkspace = $derived(workspace ?? $workspaceStore ?? '')
+
+	// `$userStore` describes the workspace the app is *in*. When this picker is aimed
+	// somewhere else, those memberships answer the wrong question — and since a folder
+	// without write access renders disabled, a stale answer makes the real folders
+	// unpickable. Resolve the membership for the workspace actually being listed.
+	let targetUser: User | undefined = $state(undefined)
+	const aimedElsewhere = $derived(!!workspace && workspace !== $workspaceStore)
+	const membership = $derived(aimedElsewhere ? targetUser : ($userStore ?? undefined))
+
+	const restricted = $derived(
+		isDemoWorkspaceRestricted(targetWorkspace, membership?.is_admin, membership?.is_super_admin)
+	)
 
 	async function loadFolders(): Promise<void> {
 		loadingFolders = true
@@ -65,16 +80,16 @@
 			folders = initialFolders.concat(
 				(
 					await FolderService.listFolderNames({
-						workspace: $workspaceStore!
+						workspace: targetWorkspace
 					})
 				)
 					.filter((x) => !excludedFolders.includes(x))
 					.map((x) => ({
 						name: x,
 						write:
-							$userStore?.folders?.includes(x) == true ||
-							($userStore?.is_admin ?? false) ||
-							($userStore?.is_super_admin ?? false)
+							membership?.folders?.includes(x) == true ||
+							(membership?.is_admin ?? false) ||
+							(membership?.is_super_admin ?? false)
 					}))
 			)
 		} catch (e) {
@@ -97,20 +112,27 @@
 		creating = true
 		try {
 			await FolderService.createFolder({
-				workspace: $workspaceStore ?? '',
+				workspace: targetWorkspace,
 				requestBody: { name: newFolderName }
 			})
 			folderCreated = newFolderName
-			await loadFolders()
-			folderName = newFolderName
 
-			// Writing $userStore.folders = [...] would call userStore.set(),
-			// which re-triggers Path.svelte's $effect.pre and calls initPath()/reset(),
-			// switching the owner toggle from "Folder" back to "User".
-			if ($userStore) {
+			// The creator owns what they just created. Recorded on whichever membership
+			// this picker is reading, and *before* reloading, so the new folder comes
+			// back selectable rather than `(read-only)` — `loadFolders` derives `write`
+			// from exactly this.
+			if (aimedElsewhere) {
+				if (targetUser) targetUser.folders = [...(targetUser.folders ?? []), newFolderName]
+			} else if ($userStore) {
+				// Writing $userStore.folders = [...] would call userStore.set(),
+				// which re-triggers Path.svelte's $effect.pre and calls initPath()/reset(),
+				// switching the owner toggle from "Folder" back to "User".
 				if (!$userStore.folders) $userStore.folders = []
 				$userStore.folders.push(newFolderName)
 			}
+
+			await loadFolders()
+			folderName = newFolderName
 		} catch (e) {
 			sendUserToast(`Could not create folder: ${e}`, true)
 		} finally {
@@ -149,7 +171,18 @@
 		}
 	}
 
-	loadFolders()
+	async function loadTargetUser(): Promise<void> {
+		if (!workspace || workspace === $workspaceStore) return
+		try {
+			targetUser = await UserService.whoami({ workspace })
+		} catch {
+			// Not a member, or the call failed: every folder stays read-only, which is
+			// the safe reading — the import would be refused anyway.
+			targetUser = undefined
+		}
+	}
+
+	loadTargetUser().then(loadFolders)
 </script>
 
 <Drawer bind:this={newFolder} name="newFolder" offset={drawerOffset}>
