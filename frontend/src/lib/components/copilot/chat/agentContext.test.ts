@@ -3,6 +3,7 @@ import {
 	attachmentStatusLabel,
 	attachmentValue,
 	contextGlanceLine,
+	countReadyAttachments,
 	filterTools,
 	summarizeTools
 } from './agentContext'
@@ -54,6 +55,23 @@ describe('summarizeTools', () => {
 			{ name: 'deploy', description: '' },
 			{ name: 'run_script', description: 'Run it.' }
 		])
+	})
+})
+
+describe('countReadyAttachments', () => {
+	// A folder's own status is an aggregate, and its placeholder row is filtered out
+	// of readyFiles() — both directions of that have been got wrong here before.
+	it('counts a folder by its readable children, not by its aggregate status', () => {
+		const folders = [
+			{ files: [{ status: 'ready' }, { status: 'indexing' }] }, // partly readable
+			{ files: [] }, // empty or all-binary
+			{ files: [{ status: 'error' }] } // nothing readable
+		] as const
+		expect(countReadyAttachments(folders, [])).toBe(1)
+	})
+
+	it('counts standalone files only when ready', () => {
+		expect(countReadyAttachments([], [{ status: 'ready' }, { status: 'locked' }])).toBe(1)
 	})
 })
 

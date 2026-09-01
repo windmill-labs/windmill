@@ -25,6 +25,7 @@ each one. It reports, and never changes what the chat carries.
 		attachmentStatusLabel,
 		attachmentValue,
 		contextGlanceLine,
+		countReadyAttachments,
 		filterTools,
 		summarizeTools
 	} from './agentContext'
@@ -64,18 +65,8 @@ each one. It reports, and never changes what the chat carries.
 		...aiChatManager.attachedFiles.standalone,
 		...aiChatManager.attachedFiles.messageAttached
 	])
-	// Only `ready` rows are reachable — the file tools operate on `readyFiles()`, and
-	// a link that came back locked or failed to index is attached without being
-	// readable. Counting those would put them under a heading that says the opposite,
-	// so the count is what is usable and the total says what is merely attached.
-	//
-	// A folder needs a readable child, not just a `ready` aggregate: an empty or
-	// all-binary one keeps a placeholder row that `readyFiles()` filters out, so its
-	// status says ready while it exposes nothing to read or search.
-	let readyAttachments = $derived(
-		folders.filter((f) => f.status === 'ready' && f.files.length > 0).length +
-			attachedFiles.filter((f) => f.status === 'ready').length
-	)
+	// The count is what is usable; the total says what is merely attached.
+	let readyAttachments = $derived(countReadyAttachments(folders, attachedFiles))
 	let attachmentCount = $derived(folders.length + attachedFiles.length)
 	let attachmentLabel = $derived(attachmentValue(readyAttachments, attachmentCount))
 
@@ -122,18 +113,10 @@ each one. It reports, and never changes what the chat carries.
 	function onOpenChange(open: boolean) {
 		if (!open) return
 		promptsSeq++
-		// `globalSkills` and `mcpServers` are per-manager snapshots, and the enabled
-		// sets they derive from are shared: toggling a skill in one session leaves
-		// every other warm session's copy behind until its next send refreshes it.
-		// Opening the panel is the one moment those numbers have to be true, so it
-		// refreshes the same way the send path does — the active chat only.
-		//
-		// Never while a turn is in flight, though. These refreshes carry generation
-		// counters, so starting one invalidates the send's own: its `Promise.all`
-		// would return without applying results, and this one would then rewrite the
-		// tools and system prompt underneath a running turn. A panel that reports
-		// must not be able to change what it is reporting on. Mid-turn it shows the
-		// values the turn was actually given, which is the honest answer anyway.
+		// Refresh the per-manager skill/MCP snapshots, which a toggle in another
+		// session leaves behind — but never mid-turn: these carry generation counters,
+		// so one started here invalidates the send's own, whose `Promise.all` then
+		// returns without applying results and leaves this one rewriting a live turn.
 		if (!aiChatManager.loading && !aiChatManager.sendInFlight) {
 			void aiChatManager.refreshGlobalSkills()
 			void aiChatManager.refreshMcpServers()

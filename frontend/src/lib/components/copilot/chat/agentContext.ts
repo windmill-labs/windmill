@@ -56,6 +56,20 @@ export function attachmentStatusLabel(status: AttachedFileStatus): string | unde
 	}
 }
 
+/** How many attachments the assistant can actually read, mirroring `readyFiles()`.
+ *
+ * A folder is counted on its children, never on its own status: that status is an
+ * aggregate, so one indexing child would hide the readable rest, while an empty or
+ * all-binary folder keeps a `ready` placeholder that `readyFiles()` filters out and
+ * reads as usable while exposing nothing. */
+export function countReadyAttachments(
+	folders: readonly { files: readonly { status: AttachedFileStatus }[] }[],
+	files: readonly { status: AttachedFileStatus }[]
+): number {
+	const isReady = (f: { status: AttachedFileStatus }) => f.status === 'ready'
+	return folders.filter((d) => d.files.some(isReady)).length + files.filter(isReady).length
+}
+
 /** The Files & folders row's value: what is usable, and what is merely attached
  * when those differ. Collapsing to one number would count a locked folder under a
  * heading reading "Available to the assistant". */
