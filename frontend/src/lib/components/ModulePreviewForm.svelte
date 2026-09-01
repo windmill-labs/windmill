@@ -52,6 +52,14 @@
 		}
 	})
 
+	/** Whether re-evaluating has anything to restore. A field the step configures nothing for
+	 *  evaluates to blank, so the control would only clear what was typed to run with. */
+	function hasConfiguredInput(argName: string): boolean {
+		const transform = (mod.value as any)?.input_transforms?.[argName]
+		if (!transform) return false
+		return transform.type === 'javascript' ? !!transform.expr : transform.value !== undefined
+	}
+
 	function plugIt(argName: string) {
 		stepsInputArgs?.setEvaluatedStepArg(
 			mod.id,
@@ -158,7 +166,7 @@
 								workspace={opWs}
 							>
 								{#snippet fieldHeaderActions()}
-									{#if stepsInputArgs?.isArgManuallySet(mod.id, argName)}
+									{#if stepsInputArgs?.isArgManuallySet(mod.id, argName) && hasConfiguredInput(argName)}
 										<Button
 											on:click={() => {
 												plugIt(argName)

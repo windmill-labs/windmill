@@ -273,9 +273,11 @@
 				/>
 			</div>
 		{:else}
-			<div class="h-full min-h-0 flex flex-row">
-				<div class="w-2/3 min-w-0 flex flex-col min-h-0 border-r border-light">
-					<div class="flex-1 min-h-0 overflow-auto">
+			<!-- Resizable as the step panel's config and test are: a long system prompt and a long
+			     answer want opposite splits, and only the reader knows which they are on. -->
+			<Splitpanes class="h-full">
+				<Pane size={66} minSize={30}>
+					<div class="h-full min-h-0 overflow-auto">
 						<PropPickerWrapper
 							pickableProperties={stepPropPicker?.pickableProperties}
 							noPadding
@@ -303,11 +305,10 @@
 							/>
 						</PropPickerWrapper>
 					</div>
-				</div>
-				<!-- Laid out as the step panel's own test tab is, so running an agent here and running
-				     it from a flow step look like the same thing. Wrapped: Splitpanes sizes itself to
-				     its container, so a width on it is ignored. -->
-				<div class="w-1/3 min-w-0">
+				</Pane>
+				<!-- Laid out as the script editor's preview column is: what a run takes above what it
+				     produced, both alongside what is being edited. -->
+				<Pane size={34} minSize={20}>
 					<Splitpanes horizontal class="h-full">
 						<Pane size={40} minSize={15}>
 							<div class="h-full overflow-auto">
@@ -335,8 +336,8 @@
 							/>
 						</Pane>
 					</Splitpanes>
-				</div>
-			</div>
+				</Pane>
+			</Splitpanes>
 		{/if}
 	</div>
 {/if}
