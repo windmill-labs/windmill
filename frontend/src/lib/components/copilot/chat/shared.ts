@@ -1630,12 +1630,10 @@ export type BackgroundJobFormatter = (job: CompletedJob) => {
 	card: Partial<ToolDisplayMessage>
 }
 
-/** Reads a running job's output incrementally through `getJobUpdates`, which is the
- * only endpoint carrying `new_result_stream`: `getJob` returns logs but never the
- * partial result, so a script that streams would show nothing until it landed. Both
- * the inline wait and the background poller drive one of these, so a run that detaches
- * keeps streaming; each reader accumulates its own copy, so a poller that starts over
- * (after a reload) refetches from offset 0 rather than appending to what it cannot see. */
+/** Reads a running job's output incrementally through `getJobUpdates`, the only endpoint
+ * carrying `new_result_stream`: `getJob` returns logs but never the partial result. Both the
+ * inline wait and the background poller drive one, so a detached run keeps streaming, and
+ * each keeps its own offsets so one starting over refetches from zero. */
 export function createJobUpdateReader(jobId: string, workspace: string) {
 	let logs = ''
 	let resultStream = ''
@@ -1853,7 +1851,7 @@ export function completedJobToolStatus(job: CompletedJob): Partial<ToolDisplayMe
 		content: `Background job ${job.success ? 'completed successfully' : 'failed'}`,
 		result: formatResult(job.result),
 		logs: formatLogs(job.logs),
-		// The partial is the result now — see the inline terminal branch.
+		// The partial is the result now, so nothing streamed is kept beside it.
 		resultStream: undefined,
 		...(job.success ? {} : { error: getErrorMessage(job.result) })
 	}

@@ -31,11 +31,10 @@
 	// variables have to resolve there too.
 	const workspace = $derived(aiChatManager.operatingWorkspace)
 
-	// The manager's draft, not a copy of its own: this form is mounted either in the chat
-	// card or in the preview pane, and moving between the two has to keep what was typed.
-	// It is also where the deep copy off displayMessages happens — see runFormDraft.
-	// untrack: taken once, on purpose. The message is replaced on every patch to the card,
-	// and re-seeding from a later copy of it would throw away what has been typed.
+	// The manager's draft, not a copy of its own: the chat card and the preview pane are two
+	// views of one form, and moving between them has to keep what was typed. untrack because
+	// the message is replaced on every patch to the card, and re-seeding from a later copy of
+	// it would discard those edits.
 	const draft = untrack(() => aiChatManager.runFormDraft(toolCallId, runForm))
 
 	const properties = $derived(draft.schema?.properties ?? {})
@@ -194,11 +193,10 @@
 			<p class="text-2xs text-secondary">{PLAN_MODE_MESSAGES.runFormRefused}</p>
 		{/if}
 
-		<!-- Reject then confirm at the end of the row, as ToolConfirmationFooter puts them:
-		     this is a tool call being validated. Both rest while a submit is in flight, since
-		     the ephemeral variables exist by then and cancelling would settle the call as
-		     declined on a run already starting. Escape stops the turn from here and nowhere
-		     else in the form. -->
+		<!-- Reject then confirm at the end of the row, as ToolConfirmationFooter puts them: this
+		     is a tool call being validated. Both rest while a submit is in flight — the ephemeral
+		     variables exist by then, and cancelling would settle the call as declined on a run
+		     already starting. Escape stops the turn from here and nowhere else in the form. -->
 		<div class="flex items-center justify-end gap-2" data-run-form-actions>
 			<Button
 				variant="default"
