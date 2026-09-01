@@ -1081,6 +1081,14 @@ export class AIChatManager {
 	 */
 	#autoResumeRetry: ReturnType<typeof setTimeout> | undefined
 
+	#scheduleAutoResumeRetry() {
+		clearTimeout(this.#autoResumeRetry)
+		this.#autoResumeRetry = setTimeout(() => {
+			this.#autoResumeRetry = undefined
+			void this.#maybeAutoResumeFromJobs()
+		}, 5_000)
+	}
+
 	async #maybeAutoResumeFromJobs() {
 		if (this.#autoResuming) return
 		// Global/sessions chat only (the only mode with a jobs tray + preamble).
@@ -1099,11 +1107,7 @@ export class AIChatManager {
 		// own resume carries the notes and this tab's catch-up clears the local
 		// copy — the re-check then finds nothing and stands down.
 		if (this.runHeldElsewhere) {
-			clearTimeout(this.#autoResumeRetry)
-			this.#autoResumeRetry = setTimeout(() => {
-				this.#autoResumeRetry = undefined
-				void this.#maybeAutoResumeFromJobs()
-			}, 5_000)
+			this.#scheduleAutoResumeRetry()
 			return
 		}
 		this.#autoResuming = true
@@ -2844,14 +2848,22 @@ export class AIChatManager {
 		// into the text, as the queue does, because the restore lanes carry no
 		// pastes.
 		if (this.runHeldElsewhere) {
-			if (!options.queued) {
-				this.restoreToInput(
-					expanded(chatDraft(options.instructions ?? '', options.pastes ?? [])),
-					options.images,
-					options.files
-				)
+			if (options.synthetic) {
+				// Client-authored prompt (a job auto-resume), not user input: nothing
+				// to hand back and no toast. Releasing the staged text un-blocks the
+				// next auto-resume attempt, scheduled for when the hold clears.
+				this.instructions = ''
+				this.#scheduleAutoResumeRetry()
+			} else {
+				if (!options.queued) {
+					this.restoreToInput(
+						expanded(chatDraft(options.instructions ?? '', options.pastes ?? [])),
+						options.images,
+						options.files
+					)
+				}
+				sendUserToast('This session is running in another tab. Your message was kept.', true)
 			}
-			sendUserToast('This session is running in another tab. Your message was kept.', true)
 			return false
 		}
 		this.#sendsInFlight++
@@ -3072,10 +3084,17 @@ export class AIChatManager {
 		// runs as the documented advisory race instead.
 		if (this.runHeldElsewhere && !options.resendReservationKey) {
 			this.#releaseOutgoingReservation(reservationKey)
-			if (!options.queued) {
-				this.aiChatInput?.restoreInstructions(this.instructions, pastes, images, files)
+			if (options.synthetic) {
+				// Same as the wrapper guard: an internal prompt is released, not
+				// restored as a draft the user never wrote.
+				this.instructions = ''
+				this.#scheduleAutoResumeRetry()
+			} else {
+				if (!options.queued) {
+					this.aiChatInput?.restoreInstructions(this.instructions, pastes, images, files)
+				}
+				sendUserToast('This session is running in another tab. Your message was kept.', true)
 			}
-			sendUserToast('This session is running in another tab. Your message was kept.', true)
 			return false
 		}
 		const optimisticIndex = this.displayMessages.length

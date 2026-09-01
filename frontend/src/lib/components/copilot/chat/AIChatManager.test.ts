@@ -3787,6 +3787,22 @@ describe('AIChatManager cross-tab run seams', () => {
 		expect(manager.queuedMessage).toBe('race loser')
 	})
 
+	// A synthetic (auto-resume) prompt is client-authored: a refusal must
+	// release it rather than hand it back as a draft the user never wrote —
+	// staged instructions would otherwise block every later auto-resume.
+	it('releases a refused synthetic send instead of restoring it as a draft', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.runHeldElsewhereResolver = () => true
+		manager.instructions = 'A background job just finished.'
+
+		const accepted = await manager.sendRequest({ synthetic: true })
+
+		expect(accepted).toBe(false)
+		expect(manager.instructions).toBe('')
+		expect(manager.queuedMessage).toBe('')
+	})
+
 	// The restore lanes carry no pastes, so a refusal must expand the tokens
 	// into the text — dangling markers with the content gone otherwise.
 	it('expands paste tokens into the text a refusal hands back', async () => {
