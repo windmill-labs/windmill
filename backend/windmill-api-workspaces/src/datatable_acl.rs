@@ -338,8 +338,10 @@ async fn first_unmanageable_object(
         return Ok(None);
     };
 
-    // A revoke that names its objects reaches exactly those.
-    if let AclChange::Revoke { objects, .. } = change {
+    // A revoke that names its objects reaches exactly those — but only at
+    // `Target` scope, which is the only one the planner writes them into. Any
+    // other scope names the schema, so it is the classes below that answer.
+    if let AclChange::Revoke { objects, scope: GrantScope::Target, .. } = change {
         if !objects.is_empty() {
             let named: Vec<String> = objects
                 .iter()
@@ -1129,5 +1131,24 @@ mod tests {
             reached_object_classes(&table(), &AclChange::SetOwner { role: "analyst".to_string() }),
             None
         );
+
+        // A revoke naming objects still answers for its scope: the planner
+        // writes those objects only at `Target`, so any other scope reaches the
+        // schema whatever the request listed.
+        let revoke = |scope| AclChange::Revoke {
+            role: "analyst".to_string(),
+            privileges: vec!["SELECT".to_string()],
+            scope,
+            objects: vec![AclObject {
+                name: "mine".to_string(),
+                kind: "TABLE".to_string(),
+                args: None,
+            }],
+        };
+        assert_eq!(
+            reached_object_classes(&schema(), &revoke(GrantScope::AllTables)),
+            Some((["r", "p", "v", "m", "f"].as_slice(), false))
+        );
+        assert_eq!(reached_object_classes(&schema(), &revoke(GrantScope::Target)), None);
     }
 }
