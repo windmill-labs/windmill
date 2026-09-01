@@ -505,10 +505,11 @@ export class AIChatManager {
 		return this.#loading
 	}
 	// An accessor so every run bracket — the send turn, manual compaction, a
-	// rollback — reports its transitions through one place, synchronously:
-	// the cross-tab "running here" signal must leave before the turn's first
-	// await, and `loading` only falls after the turn's last saveChat, so the
-	// falling edge is also the "safe to re-read the record" signal.
+	// rollback — reports its transitions through one place, synchronously: the
+	// rising edge posts the cross-tab "running here" signal the moment the
+	// bracket opens (after the send's preflight awaits; the post-preflight
+	// guard covers that gap), and `loading` falls only after the turn's last
+	// saveChat, making the falling edge the "safe to re-read the record" signal.
 	set loading(v: boolean) {
 		if (v === this.#loading) return
 		this.#loading = v

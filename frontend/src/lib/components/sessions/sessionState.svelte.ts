@@ -437,10 +437,10 @@ async function deleteSessionRow(db: IDBPDatabase<SessionSchema>, id: string): Pr
 	await db.delete('sessions', id)
 }
 
-// The one way to write a session's record, and the other half of the invariant above:
-// every caller reaches its write across an await — putSession on the DB handle, the
-// reconcile and hydrate passes on a getAll() snapshot that an interleaved delete
-// invalidates — so the tombstone has to be consulted here, not only at the entry points.
+// The way a session record is written (patchStoredSessionChatId is the one
+// exception: it re-checks the tombstone inline to stay inside its own
+// transaction). Every caller reaches its write across an await, so the
+// tombstone has to be consulted here, not only at the entry points.
 async function putSessionRow(db: IDBPDatabase<SessionSchema>, s: Session): Promise<void> {
 	if (deletedSessionIds.has(s.id)) return
 	await db.put('sessions', s)
@@ -1166,6 +1166,8 @@ async function patchStoredSessionChatId(s: Session, chatId: string): Promise<voi
 	try {
 		const tx = db.transaction('sessions', 'readwrite')
 		const stored = await tx.store.get(s.id)
+		// Inline tombstone re-check in place of putSessionRow's: routing through
+		// it would put outside this transaction and lose the read's atomicity.
 		if (stored && !deletedSessionIds.has(s.id)) {
 			stored.chatId = chatId
 			await tx.store.put(stored)
