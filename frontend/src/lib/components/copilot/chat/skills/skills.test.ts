@@ -10,7 +10,7 @@ vi.mock('$lib/stores', () => ({
 }))
 
 import { enabledSkillPaths, isSkillEnabled, setSkillEnabled } from './enabledSkills'
-import { ambiguousSkillNames } from './skillResources'
+import { ambiguousSkillNames, truncateChars, truncateForPrompt } from './skillResources'
 
 describe('enabledSkills', () => {
 	beforeEach(() => {
@@ -45,5 +45,25 @@ describe('skill names', () => {
 			{ name: 'release' }
 		])
 		expect([...ambiguous]).toEqual(['deploy'])
+	})
+})
+
+describe('prompt truncation', () => {
+	// The two caps are stated in different units, and using one truncator for both
+	// either lets three times the payload through or cuts a legal value to a third.
+	it('bounds a skill body by utf-8 bytes, not code units', () => {
+		const body = '漢'.repeat(100) // 300 bytes
+		expect(truncateForPrompt(body, 3000)).toBe(body)
+		const cut = truncateForPrompt(body, 30)
+		expect(new TextEncoder().encode(cut.replace('… [truncated]', '')).byteLength).toBeLessThanOrEqual(30)
+		expect(cut).toContain('[truncated]')
+		// A byte-aligned cut must not leave a broken code point behind.
+		expect(cut).not.toContain('\ufffd')
+	})
+
+	it('bounds a description by code points, so a CJK one is not cut to a third', () => {
+		const description = '漢'.repeat(100)
+		expect(truncateChars(description, 100)).toBe(description)
+		expect([...truncateChars(description, 10)].slice(0, 10).join('')).toBe('漢'.repeat(10))
 	})
 })

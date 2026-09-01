@@ -163,6 +163,12 @@ What the assistant should do when this skill applies.
 			skills = []
 			toDelete = undefined
 			pendingImport = undefined
+			// The editor holds one workspace's skill but saves to whatever `ws` is by
+			// then, so a switch mid-edit would write A's body into B at the same path.
+			// Closing it is the honest outcome: there is no version of that save the
+			// user asked for.
+			editorOpen = false
+			editing = undefined
 			// A drawer already on screen is neither entry point, and would sit there
 			// reporting that the new workspace has no skills.
 			if (drawer?.isOpen()) void loadSkills(target)

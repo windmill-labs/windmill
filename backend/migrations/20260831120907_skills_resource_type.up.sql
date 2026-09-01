@@ -32,8 +32,11 @@ SELECT DISTINCT workspace_id, 'skills', 'Skills', ARRAY[]::TEXT[], '{"g/all": fa
 FROM ai_skill
 ON CONFLICT (workspace_id, name) DO NOTHING;
 
--- Copied only where the destination is free and the folder is the restrictive one
--- above. Anything else stays in `ai_skill` for an operator to place deliberately.
+-- Copied only where the destination is free and the folder matches the one above
+-- exactly, owners included: a pre-existing folder carrying the same ACL but an
+-- owner would hand that owner update and delete over skills the removed API let
+-- only workspace admins touch. Anything else stays in `ai_skill` for an operator
+-- to place deliberately.
 INSERT INTO resource (workspace_id, path, value, description, resource_type, created_by, edited_at)
 SELECT
     s.workspace_id,
@@ -48,4 +51,5 @@ JOIN folder f
     ON f.workspace_id = s.workspace_id
    AND f.name = 'skills'
    AND f.extra_perms = '{"g/all": false}'::jsonb
+   AND f.owners = ARRAY[]::TEXT[]
 ON CONFLICT (workspace_id, path) DO NOTHING;

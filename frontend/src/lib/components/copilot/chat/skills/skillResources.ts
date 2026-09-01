@@ -61,12 +61,19 @@ export async function listSkillResources(
 	}))
 }
 
+/** Cut `text` to `maxChars` code points. For the description, whose cap is stated
+ * in characters — cutting that one by bytes would reduce a legal 1,024-character
+ * CJK description to about a third of itself. */
+export function truncateChars(text: string, maxChars: number): string {
+	const points = [...text]
+	return points.length <= maxChars ? text : `${points.slice(0, maxChars).join('')}… [truncated]`
+}
+
 /** Cut `text` to `maxBytes` of UTF-8, marking the cut so a reader (the model
  * included) can tell truncation from a body that simply ends there.
  *
- * Bounded in bytes, not code units: the caps this enforces are byte budgets, and
- * 64k CJK characters are ~192 KiB, so a code-unit cut would let three times the
- * intended payload through. Cutting on a code point keeps the result valid. */
+ * For the body, whose cap is a byte budget: 64k CJK characters are ~192 KiB, so a
+ * code-unit cut would let three times the intended payload through. */
 export function truncateForPrompt(text: string, maxBytes: number): string {
 	const encoded = new TextEncoder().encode(text)
 	if (encoded.byteLength <= maxBytes) return text
