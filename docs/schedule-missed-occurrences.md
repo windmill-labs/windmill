@@ -25,9 +25,11 @@ scheduled_for: 08:20:20 → 08:20:50 → 08:21:20 → 08:21:50
 Every 30 s instead of every 10 s. Two of every three occurrences gone, with no
 log line, no column, and no job row.
 
-The two kinds degrade differently:
+The two kinds degrade differently. "Serialized" is a plain script schedule;
+"overlapping" is a flow, or a script carrying `retry` or `dynamic_skip` (see
+"Scope by runnable kind"):
 
-| cause | scripts | flows |
+| cause | serialized | overlapping |
 |---|---|---|
 | run overruns the interval | occurrences lost (serialized by construction) | none lost, occurrences overlap |
 | queue wait (workers busy) | occurrences lost | occurrences lost |
@@ -51,12 +53,38 @@ wait means not enough workers, a long run means the job outgrew its interval.
 No one-word label, because both usually contribute and any dominance rule would
 mislabel the mixed case.
 
-For **operators** (EE), an alert when a scheduled script is running and has
+For **operators** (EE), an alert when a scheduled run is still going and has
 already passed its own next occurrence, so a wedged schedule pages someone
 rather than waiting to be noticed.
 
 This is diagnosis only. Nothing starts overlapping, nothing is queued up, and no
 missed occurrence is retroactively fired.
+
+## Which cause is caught, and when
+
+Two things lose occurrences, and they are caught differently.
+
+| | overrun (ran longer than the interval) | late start (waited for a worker) |
+|---|---|---|
+| plain script schedule | counted | counted |
+| script with `retry` or `dynamic_skip` | nothing to catch | counted |
+| flow schedule | nothing to catch | counted |
+
+Where occurrences are **serialized**, the successor is pushed when the current
+run finishes, so the gap it opens is governed by wait and duration together.
+Reconstruction sees the gap whichever one caused it, and the editor splits it
+back into the two numbers.
+
+Where occurrences **overlap**, the successor is pushed when the current run
+*starts*, so only the wait can move the grid forward. A run longer than the
+interval loses nothing there, which is the design intent, so there is nothing to
+report.
+
+All of this is retrospective. A gap becomes visible only once the *next*
+occurrence exists, which needs the current one to finish (serialized) or start
+(overlapping). A schedule that is wedged right now — three hours into a run on a
+ten-minute cron, or still queued behind busy workers — shows nothing until it
+moves. That blind spot is what the live badge and the operator alert are for.
 
 ## What already exists
 
@@ -104,9 +132,27 @@ Three pieces, in three venues.
 ### Skipped-occurrence counting
 
 Server side, over the last N occurrences fetched per schedule: reconstruct each
-`S_i = find_next(created_at_i)`, then count cron occurrences strictly between
-consecutive `S_i`. The API returns the resulting counts and decomposition per
-schedule, never the raw occurrence rows.
+`S_i = find_next(created_at_i)`, then compare `find_next(S_i)` against
+`S_{i+1}`. The API returns the resulting counts and decomposition per schedule,
+never the raw occurrence rows.
+
+### Detection is cheap, counting is not
+
+Measured on croner 2.2.0, release build: parsing an expression costs ~0.9 µs,
+`find_next` 165–330 ns for ordinary expressions and 3.3 µs for the worst one
+tried (`0 0 3 29 2 *`), and walking 1000 consecutive occurrences 150–650 µs
+(5.7 ms for that same worst case).
+
+Deciding *whether* a run skipped anything is one `find_next` per gap. Across a
+full page — `list_with_jobs` returns up to 1000 schedules with 20 occurrences
+each — that is roughly 39 000 calls, about 10 ms, hard bounded and independent
+of how badly the schedules are behaving.
+
+Counting *how many* were skipped needs a walk, and 19 000 gaps of up to 1000
+steps each runs into seconds. So the two surfaces ask different questions. The
+list counts runs that skipped something (a boolean per gap). The editor counts
+occurrences, for one schedule at a time (at most 20 walks, ~6 ms worst case).
+Neither needs a step budget or a degradation heuristic.
 
 ### The one write: a watermark column
 
@@ -141,20 +187,39 @@ Found while validating the approach, each one handled:
   left exactly as it is.
 - **Order by `created_at`, not `completed_at`.** Flows overlap, so completion
   order is not creation order and consecutive-occurrence pairing would scramble.
+  This changes the existing `list_schedule_with_jobs` ordering, and with it the
+  order of the bars on the schedules row for overlapping schedules. The index it
+  needs, `ix_job_root_job_index_by_path_2`, already exists.
+- **Deliberate non-runs do not manufacture phantom skips.** `no_flow_overlap`
+  returns `PushNextFlowJob::Done` with `stop_early_override: Some(true)`
+  (`windmill-worker/src/worker_flow.rs:3311`), so the occurrence's job row exists
+  and completes normally; `dynamic_skip` completes its occurrence as
+  `status = 'skipped'`. Reconstruction reads both like any other row.
 - **A flow schedule holds two or more concurrent root rows in `v2_job_queue`**,
   since the successor is pushed at step 0 entry while its predecessor runs.
   Measured. The live join must aggregate per schedule rather than assume one row.
-- **The walk is capped at 1000 occurrences**, displayed as `1000+`. Uses the
-  existing bounded `ScheduleType::upcoming` primitive (`windmill-common/src/utils.rs:1082`).
+- **The counting walk is capped at 1000 occurrences per gap**, displayed as
+  `1000+`, and only ever runs in the editor. Uses the existing bounded
+  `ScheduleType::upcoming` primitive (`windmill-common/src/utils.rs:1082`).
 - **Clock-skew clamp** (`now_cutoff + 1s`) makes the reconstruction wrong in the
   backwards-clock case. Rare, already logged at ERROR, accepted.
 
 ## Scope by runnable kind
 
-The overrun signal (badge and alert) applies to **scripts only**. A flow that
-runs longer than its interval has its successor already queued and starting on
-time, which is the design intent, so alerting there would fire constantly on
-healthy schedules. Occurrences that flows lose to **late starts** are still
+The overrun signal (badge and alert) applies to schedules whose occurrences are
+**serialized**, which is `NOT is_flow AND retry IS NULL AND dynamic_skip IS NULL`
+rather than simply "scripts".
+
+A script schedule carrying `retry` or `dynamic_skip` is pushed as
+`JobPayload::SingleStepFlow` (`windmill-queue/src/schedule.rs:369` and `:245`),
+and `JobKind::SingleStepFlow.is_flow()` is true
+(`windmill-types/src/jobs.rs:209`). The completion-time re-arm at
+`windmill-queue/src/jobs.rs:1379` is therefore skipped for it and it re-arms at
+step 0 entry like a flow, so its occurrences overlap.
+
+For every overlapping kind, a run longer than the interval has its successor
+already queued and starting on time, so alerting there would fire constantly on
+healthy schedules. Occurrences those schedules lose to **late starts** are still
 counted by reconstruction, and that path is unaffected.
 
 ## Surfaces
@@ -173,12 +238,26 @@ Vocabulary: **occurrence**, matching `schedule.rs` throughout. Not "tick".
 
 - No events table, no retention job, no RLS policy
 - No change to `push_scheduled_job`
-- No per-schedule alert configuration. The predicate compares against each
-  schedule's own next occurrence, so it is self-calibrating across a daily and a
-  per-minute schedule and needs no thresholds.
+- No alert configuration, per-schedule or instance-wide. The predicate compares
+  against each schedule's own next occurrence, so it is self-calibrating across a
+  daily and a per-minute schedule and needs no thresholds; the only knob a
+  setting would add is on/off, which the critical alert channel already has.
 - No catch-up or overlap policy. Making the overrun behaviour configurable is a
   much larger change to the execution model, and it needs this diagnosis first
   to know which way people would want it to go.
+
+## Delivery
+
+Three pieces, three changes, in order. Each is useful on its own.
+
+1. **Skipped-occurrence counting** (CE): the migration, the pure reconstruction
+   function, the two API surfaces, the list badge and the editor detail. Carries
+   the whole user-facing story and touches no Enterprise file.
+2. **"Late right now" badge** (CE): the aggregating join on `v2_job_queue`.
+3. **Overrun alert** (EE): the monitor pass and its companion PR.
+
+The blind spot described under "Which cause is caught, and when" is closed by 2
+and 3, not by 1.
 
 ## Tests
 
