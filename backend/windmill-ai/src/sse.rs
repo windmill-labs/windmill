@@ -297,7 +297,16 @@ pub enum AnthropicDelta {
     Unknown,
 }
 
-/// Anthropic usage information from message_delta event
+/// The `message` envelope of a `message_start` event. Only its usage is read: the
+/// prompt-side counts appear here and nowhere else in the stream.
+#[derive(Deserialize, Debug)]
+pub struct AnthropicStreamMessage {
+    #[serde(default)]
+    pub usage: Option<AnthropicUsage>,
+}
+
+/// Anthropic usage information, reported across `message_start` (prompt side) and
+/// `message_delta` (completion side)
 #[derive(Deserialize, Debug, Clone)]
 pub struct AnthropicUsage {
     #[serde(default)]
@@ -315,7 +324,10 @@ pub struct AnthropicUsage {
 #[serde(tag = "type")]
 pub enum AnthropicSSEEvent {
     #[serde(rename = "message_start")]
-    MessageStart {},
+    MessageStart {
+        #[serde(default)]
+        message: Option<AnthropicStreamMessage>,
+    },
     #[serde(rename = "content_block_start")]
     ContentBlockStart { index: usize, content_block: AnthropicContentBlockStart },
     #[serde(rename = "content_block_delta")]
@@ -562,14 +574,35 @@ impl SSEParser for AnthropicSSEParser {
                     let error_msg = message.unwrap_or_else(|| "Unknown error".to_string());
                     tracing::error!("Anthropic streaming error: {}", error_msg);
                 }
+                AnthropicSSEEvent::MessageStart { message } => {
+                    // The only event carrying the prompt-side counts. `message_delta`
+                    // reports the completion, so dropping this one leaves the request
+                    // with no input token count at all.
+                    if let Some(usage) = message.and_then(|message| message.usage) {
+                        self.usage = Some(usage);
+                    }
+                }
                 AnthropicSSEEvent::MessageDelta { usage } => {
                     if let Some(u) = usage {
-                        self.usage = Some(u);
+                        match &mut self.usage {
+                            // Field by field, so the prompt counts from `message_start`
+                            // survive a delta that only reports the completion.
+                            Some(existing) => {
+                                existing.input_tokens = u.input_tokens.or(existing.input_tokens);
+                                existing.output_tokens = u.output_tokens.or(existing.output_tokens);
+                                existing.cache_read_input_tokens = u
+                                    .cache_read_input_tokens
+                                    .or(existing.cache_read_input_tokens);
+                                existing.cache_creation_input_tokens = u
+                                    .cache_creation_input_tokens
+                                    .or(existing.cache_creation_input_tokens);
+                            }
+                            None => self.usage = Some(u),
+                        }
                     }
                 }
                 // Ignore other events
-                AnthropicSSEEvent::MessageStart {}
-                | AnthropicSSEEvent::MessageStop {}
+                AnthropicSSEEvent::MessageStop {}
                 | AnthropicSSEEvent::Ping {}
                 | AnthropicSSEEvent::Unknown => {}
             }
@@ -987,6 +1020,23 @@ mod tests {
         assert_eq!(token_usage.cache_read_input_tokens, Some(4736));
         assert_eq!(token_usage.input_tokens, Some(4819));
         assert_eq!(token_usage.total_tokens, Some(4820));
+    }
+
+    /// The prompt-side counts arrive only on `message_start`; a parser that reads usage
+    /// from `message_delta` alone reports a request with no input tokens at all.
+    #[test]
+    fn anthropic_message_start_carries_the_prompt_usage() {
+        let event: AnthropicSSEEvent = serde_json::from_str(
+            r#"{"type":"message_start","message":{"id":"msg_1","role":"assistant","usage":{"input_tokens":4821,"output_tokens":1,"cache_read_input_tokens":4096,"cache_creation_input_tokens":128}}}"#,
+        )
+        .unwrap();
+        let AnthropicSSEEvent::MessageStart { message } = event else {
+            panic!("expected message_start")
+        };
+        let usage = message.and_then(|m| m.usage).expect("usage");
+        assert_eq!(usage.input_tokens, Some(4821));
+        assert_eq!(usage.cache_read_input_tokens, Some(4096));
+        assert_eq!(usage.cache_creation_input_tokens, Some(128));
     }
 
     #[test]

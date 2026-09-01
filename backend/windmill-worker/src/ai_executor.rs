@@ -142,7 +142,6 @@ async fn compact_if_needed(
                 model: ctx.args.provider.get_model(),
                 temperature: ctx.args.temperature,
                 reasoning_effort: ctx.args.provider.get_reasoning_effort(),
-                max_tokens: ctx.args.max_completion_tokens,
                 timeout,
                 client: ctx.client,
                 workspace_id: ctx.workspace_id,
@@ -1203,6 +1202,27 @@ pub async fn run_agent(
         ),
         None => None,
     };
+    // No provider count yet, so this pass measures the loaded conversation itself. It is
+    // what repairs a memory already over the window — a step whose `context_window` was
+    // lowered, or one switched over from `auto` — which would otherwise fail its first
+    // request on every run with no way back.
+    compact_if_needed(
+        CompactionContext {
+            compactor: compactor.as_mut(),
+            timeout: compaction_timeout,
+            credentials: &credentials,
+            args,
+            client,
+            workspace_id: &job.workspace_id,
+        },
+        query_builder.as_ref(),
+        include_usage,
+        &mut messages,
+        LastRequest { prompt_tokens: None, message_count: 0 },
+        &mut final_usage,
+    )
+    .await;
+
     let mut last_request = LastRequest { prompt_tokens: None, message_count: 0 };
 
     // Main agent loop
@@ -1447,6 +1467,9 @@ pub async fn run_agent(
                     prompt_tokens: usage.as_ref().and_then(|u| u.prompt_tokens()),
                     message_count: request_message_count,
                 };
+                if let Some(compactor) = compactor.as_mut() {
+                    compactor.record_response();
+                }
 
                 // Accumulate usage from this iteration
                 if let Some(u) = usage {

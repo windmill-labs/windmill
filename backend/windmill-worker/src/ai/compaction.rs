@@ -281,7 +281,6 @@ pub struct CompactionRequest<'a> {
     pub model: &'a str,
     pub temperature: Option<f32>,
     pub reasoning_effort: Option<&'a str>,
-    pub max_tokens: Option<u32>,
     pub timeout: std::time::Duration,
     pub client: &'a AuthedClient,
     pub workspace_id: &'a str,
@@ -296,11 +295,23 @@ pub struct CompactionRequest<'a> {
 pub struct Compactor {
     context_window: usize,
     consecutive_failures: usize,
+    /// Whether the current conversation has already been acted on. A compaction pass is
+    /// worth taking once per provider response: a loop that exits without issuing
+    /// another request — a structured-output turn does — otherwise reaches the post-loop
+    /// pass on the same conversation and summarizes it a second time, or retries a
+    /// failure with nothing changed.
+    measurement_spent: bool,
 }
 
 impl Compactor {
     pub fn new(context_window: usize) -> Self {
-        Self { context_window, consecutive_failures: 0 }
+        Self { context_window, consecutive_failures: 0, measurement_spent: false }
+    }
+
+    /// Arms the next compaction pass. Called for each provider response, whose token
+    /// count is what that pass measures.
+    pub fn record_response(&mut self) {
+        self.measurement_spent = false;
     }
 
     /// Summarizes the older part of `messages` in place when the conversation has
@@ -315,7 +326,9 @@ impl Compactor {
         last_request: LastRequest,
         request: &CompactionRequest<'_>,
     ) -> Option<TokenUsage> {
-        if self.consecutive_failures >= MAX_CONSECUTIVE_COMPACTION_FAILURES {
+        if self.consecutive_failures >= MAX_CONSECUTIVE_COMPACTION_FAILURES
+            || self.measurement_spent
+        {
             return None;
         }
 
@@ -326,8 +339,19 @@ impl Compactor {
         }
 
         let Some(tail_start) = plan_tail_start(messages, self.context_window) else {
+            // The trigger runs off the provider's count and the split off a character
+            // estimate; when they disagree the step keeps growing with nothing done, so
+            // say so rather than leaving the mode looking broken.
+            tracing::info!(
+                "AI agent is over its {} token context window but has nothing worth summarizing \
+                 ({} messages)",
+                self.context_window,
+                messages.len()
+            );
             return None;
         };
+
+        self.measurement_spent = true;
 
         match summarize_prefix(&messages[..tail_start], request).await {
             Ok((summary, usage)) => {
@@ -389,7 +413,10 @@ async fn summarize_prefix(
         model: request.model,
         temperature: request.temperature,
         reasoning_effort: request.reasoning_effort,
-        max_tokens: request.max_tokens,
+        // Deliberately not the step's `max_completion_tokens`: that bounds the answers
+        // the agent gives, and a low one truncates the summary inside its scratchpad,
+        // which counts as a failure and disables compaction after three of them.
+        max_tokens: None,
         output_schema: None,
         output_type: &OutputType::Text,
         system_prompt: None,
@@ -411,7 +438,7 @@ async fn summarize_prefix(
                     request.model,
                     request.temperature,
                     request.reasoning_effort,
-                    request.max_tokens,
+                    build_args.max_tokens,
                     request.credentials.api_key.as_deref().unwrap_or(""),
                     request
                         .credentials
