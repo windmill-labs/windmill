@@ -1,0 +1,37 @@
+[
+  {
+    "graph_title": "Cold Start Latency (3-step sequential workflow)",
+    "metric": "cold_start_ms",
+    "unit": "ms",
+    "lower_is_better": true,
+    "filename": "competitor_cold_start.svg"
+  },
+  {
+    "graph_title": "Single Execution Latency — Median (3-step sequential)",
+    "metric": "single_latency_median_ms",
+    "unit": "ms",
+    "lower_is_better": true,
+    "filename": "competitor_latency_median.svg"
+  },
+  {
+    "graph_title": "Single Execution Latency — P95 (3-step sequential)",
+    "metric": "single_latency_p95_ms",
+    "unit": "ms",
+    "lower_is_better": true,
+    "filename": "competitor_latency_p95.svg"
+  },
+  {
+    "graph_title": "Throughput (concurrent 3-step workflows)",
+    "metric": "throughput_per_second",
+    "unit": "workflows/s",
+    "lower_is_better": false,
+    "filename": "competitor_throughput.svg"
+  },
+  {
+    "graph_title": "Per-Step Orchestration Overhead",
+    "metric": "step_overhead_ms",
+    "unit": "ms",
+    "lower_is_better": true,
+    "filename": "competitor_step_overhead.svg"
+  }
+]
