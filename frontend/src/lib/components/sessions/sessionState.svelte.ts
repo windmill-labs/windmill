@@ -405,8 +405,9 @@ export function takeSessionAutoSend(sessionId: string): boolean {
 
 // Persist a session on a genuine user edit, promoting an in-memory-only
 // (transient) pending session to a durable IndexedDB record on first touch.
-// Non-touch writers (runtime chatId seeding, unread watermark) call putSession
-// directly, so an untouched draft stays in memory and vanishes on reload.
+// Non-touch writers (runtime chatId seeding via patchStoredSessionChatId, the
+// unread watermark via putSession) persist directly, so an untouched draft
+// stays in memory and vanishes on reload.
 function persistTouched(s: Session): void {
 	if (s.transient) delete s.transient
 	s.lastActivityAt = Date.now()
