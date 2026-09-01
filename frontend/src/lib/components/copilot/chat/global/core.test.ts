@@ -89,6 +89,14 @@ vi.mock('$lib/gen', async () => {
 				result: { ok: true },
 				logs: 'test logs'
 			})),
+			// What every job wait polls first; unmocked it reaches the real client and the
+			// wait never returns. Answers completed, so one tick settles the job.
+			getJobUpdates: vi.fn(async () => ({
+				completed: true,
+				running: false,
+				new_logs: 'test logs',
+				log_offset: 'test logs'.length
+			})),
 			getJobLogs: vi.fn(async () => 'job log line 1\njob log line 2'),
 			listJobs: vi.fn(async () => [
 				{
