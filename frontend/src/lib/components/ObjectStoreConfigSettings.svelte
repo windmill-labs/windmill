@@ -47,6 +47,9 @@
 		serviceAccountKey: Record<string, string> | undefined
 	}
 
+	type BucketConfig = S3Config | AzureConfig | AwsOidcConfig | GcsConfig
+	type BucketType = BucketConfig['type']
+
 	interface Props {
 		bucket_config?: S3Config | AzureConfig | AwsOidcConfig | GcsConfig | undefined
 	}
@@ -62,6 +65,41 @@
 	)
 
 	let loading = $state(false)
+
+	// Cache each storage type's config so switching tabs (e.g. S3 -> Azure -> S3)
+	// restores what was entered/loaded instead of resetting it to an empty config,
+	// which previously wiped a saved bucket and persisted the empty value on save
+	// (#6611).
+	let bucketConfigByType = $state<Partial<Record<BucketType, BucketConfig>>>({})
+
+	function defaultBucketConfig(type: BucketType): BucketConfig {
+		switch (type) {
+			case 'S3':
+				return {
+					type: 'S3',
+					bucket: '',
+					region: '',
+					access_key: '',
+					secret_key: '',
+					endpoint: '',
+					allow_http: true
+				}
+			case 'Azure':
+				return {
+					type: 'Azure',
+					accountName: '',
+					containerName: '',
+					useSSL: false,
+					tenantId: '',
+					clientId: '',
+					accessKey: ''
+				}
+			case 'AwsOidc':
+				return { type: 'AwsOidc', bucket: '', region: '', roleArn: '' }
+			case 'Gcs':
+				return { type: 'Gcs', bucket: '', serviceAccountKey: {} }
+		}
+	}
 
 	async function testConnection() {
 		loading = true
@@ -464,40 +502,14 @@
 		<Tabs
 			selected={bucket_config?.type ?? 'S3'}
 			on:selected={(e) => {
-				if (e.detail === 'S3' && bucket_config?.type !== 'S3') {
-					bucket_config = {
-						type: 'S3',
-						bucket: '',
-						region: '',
-						access_key: '',
-						secret_key: '',
-						endpoint: '',
-						allow_http: true
-					}
-				} else if (e.detail === 'Azure' && bucket_config?.type !== 'Azure') {
-					bucket_config = {
-						type: 'Azure',
-						accountName: '',
-						containerName: '',
-						useSSL: false,
-						tenantId: '',
-						clientId: '',
-						accessKey: ''
-					}
-				} else if (e.detail === 'Gcs' && bucket_config?.type !== 'Gcs') {
-					bucket_config = {
-						type: 'Gcs',
-						bucket: '',
-						serviceAccountKey: {}
-					}
-				} else if (e.detail === 'AwsOidc' && bucket_config?.type !== 'AwsOidc') {
-					bucket_config = {
-						type: 'AwsOidc',
-						bucket: '',
-						region: '',
-						roleArn: ''
-					}
+				const target = e.detail as BucketType
+				if (!bucket_config || bucket_config.type === target) {
+					return
 				}
+				// Remember the config we're leaving so returning to its tab restores it,
+				// then restore the target tab's config (or a default on first visit).
+				bucketConfigByType[bucket_config.type] = bucket_config
+				bucket_config = bucketConfigByType[target] ?? defaultBucketConfig(target)
 			}}
 		>
 			<Tab value="S3" label="S3" />
