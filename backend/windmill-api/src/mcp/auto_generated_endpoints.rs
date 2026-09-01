@@ -878,7 +878,7 @@ is, a different one moves it there and archives the old path"),
     EndpointTool {
         name: Cow::Borrowed("runScriptByPath"),
         description: Cow::Borrowed("run script by path"),
-        instructions: Cow::Borrowed("You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected."),
+        instructions: Cow::Borrowed("You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected. An argument typed as a resource (its schema has format `resource-<type>`) is passed as the bare string `$res:<path>`, which must be the whole value of that argument -- never an object wrapper keyed on $res, and never a plain path; a variable is passed the same way as `$var:<path>`."),
         path: Cow::Borrowed("/w/{workspace}/jobs/run/p/{path}"),
         method: Cow::Borrowed("POST"),
         path_params_schema: Some(serde_json::json!({
@@ -1419,7 +1419,7 @@ is, a different one moves it there and archives the old path"),
     EndpointTool {
         name: Cow::Borrowed("runFlowByPath"),
         description: Cow::Borrowed("run flow by path"),
-        instructions: Cow::Borrowed("You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected."),
+        instructions: Cow::Borrowed("You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected. An argument typed as a resource (its schema has format `resource-<type>`) is passed as the bare string `$res:<path>`, which must be the whole value of that argument -- never an object wrapper keyed on $res, and never a plain path; a variable is passed the same way as `$var:<path>`."),
         path: Cow::Borrowed("/w/{workspace}/jobs/run/f/{path}"),
         method: Cow::Borrowed("POST"),
         path_params_schema: Some(serde_json::json!({

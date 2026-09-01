@@ -498,6 +498,39 @@ Reference other resources:
 }
 \`\`\`
 
+## Passing a Resource or Variable as a Run Argument
+
+A script or flow argument typed as a resource (schema \`format: resource-<type>\`) is passed as
+the **bare string** \`$res:<path>\` — the whole argument value. Same for a variable, with
+\`$var:<path>\`. This applies everywhere job arguments are supplied: \`wmill script run/preview\`,
+\`wmill flow run/preview\`, the \`runScriptByPath\` / \`runFlowByPath\` API, a schedule's \`args\`, a
+trigger's payload.
+
+\`\`\`json
+{
+  "db": "$res:f/databases/postgres_prod",
+  "api_token": "$var:g/all/api_token"
+}
+\`\`\`
+
+The reference is resolved before the job starts, with the caller's permissions, so the run
+fails if the caller cannot read the referenced resource or variable.
+
+**Never wrap it in an object.** The resolver only rewrites a JSON value that *is* a string
+starting with \`$res:\` / \`$var:\`; keys are never inspected. These are all wrong and are passed
+through to the script unchanged:
+
+\`\`\`json
+{ "db": { "$res": "f/databases/postgres_prod" } }
+{ "db": { "resource": "f/databases/postgres_prod" } }
+{ "db": "f/databases/postgres_prod" }
+\`\`\`
+
+The string may sit anywhere a string can — a top-level argument, a nested object field
+(\`{ "gh_auth": { "token": "$var:g/all/gh_token" } }\`), or an array element (array elements are
+walked only while nested at most two levels deep, and only for arrays of at most 1000 items).
+The prefix must be on the string itself.
+
 ## Common Resource Types
 
 ### PostgreSQL
@@ -3226,11 +3259,11 @@ flow related commands
 - \`flow push <file_path:string> <remote_path:string>\` - push a local flow spec. This overrides any remote versions.
   - \`--message <message:string>\` - Deployment message
 - \`flow run <path:string>\` - run a flow by path.
-  - \`-d --data <data:string>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - \`-d --data <data:string>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value (a variable, $var:<path>) — not an object wrapper keyed on $res, and not a plain path.
   - \`-s --silent\` - Do not ouput anything other then the final output. Useful for scripting.
   - \`--tag <tag:string>\` - Override the worker tag the run is dispatched to (e.g. to route it to dev workers instead of the flow's default tag).
 - \`flow preview <flow_path:string>\` - preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default. Pass --step <id> to run only one module in isolation (resolves nested steps inside branchone/branchall/forloopflow/whileloopflow plus the special preprocessor/failure modules; supported step types: rawscript, script, flow).
-  - \`-d --data <data:string>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - \`-d --data <data:string>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value (a variable, $var:<path>) — not an object wrapper keyed on $res, and not a plain path.
   - \`-s --silent\` - Do not output anything other then the final output. Useful for scripting.
   - \`--remote\` - Use deployed workspace scripts for PathScript steps instead of local files.
   - \`--step <step_id:string>\` - Run only the named step instead of the whole flow. Honors --data as the step's args and --remote / local-PathScript resolution the same way the full-flow preview does.
@@ -3626,11 +3659,11 @@ script related commands
   - \`--json\` - Output as JSON (for piping to jq)
 - \`script show <path:file>\` - show a script's content (alias for get)
 - \`script run <path:file>\` - run a script by path
-  - \`-d --data <data:file>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - \`-d --data <data:file>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value (a variable, $var:<path>) — not an object wrapper keyed on $res, and not a plain path.
   - \`-s --silent\` - Do not output anything other then the final output. Useful for scripting.
   - \`--tag <tag:string>\` - Override the worker tag the run is dispatched to (e.g. to route it to dev workers instead of the script's default tag).
 - \`script preview <path:file>\` - preview a local script without deploying it. Supports both regular and codebase scripts.
-  - \`-d --data <data:file>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - \`-d --data <data:file>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value (a variable, $var:<path>) — not an object wrapper keyed on $res, and not a plain path.
   - \`-s --silent\` - Do not output anything other than the final output. Useful for scripting.
   - \`--tag <tag:string>\` - Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the script's default tag).
 - \`script new <path:file> <language:string>\` - create a new script

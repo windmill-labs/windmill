@@ -854,7 +854,9 @@ const testRunArgsSchema = z
 	.record(z.string(), z.any())
 	.nullable()
 	.optional()
-	.describe('Arguments to pass to the runnable. Omit or pass null when no arguments are needed.')
+	.describe(
+		'Arguments to pass to the runnable. Omit or pass null when no arguments are needed. An argument typed as a resource (format "resource-<type>" in the input schema) takes the bare string "$res:<path>" as its whole value — never an object wrapper like {"$res": "<path>"}, and never a plain path, both of which reach the runnable unresolved. Same for a variable, with "$var:<path>". The prefixed string can also sit in a nested field, e.g. {"gh_auth": {"token": "$var:g/all/gh_token"}}.'
+	)
 
 const backgroundArgSchema = z
 	.boolean()
@@ -2214,7 +2216,7 @@ function getResourceInstructions(): string {
 - Reading a variable returns \`{ type: 'variable', path, summary?, isSecret, isDraft }\` — never its value, secret or not. \`isSecret\` tells you whether the value is encrypted.
 - \`write_variable\` takes \`{ path, value?, is_secret?, description?, account?, is_oauth?, expires_at?, labels? }\`. Creating a variable needs \`value\` and \`is_secret\`; editing one needs only the fields you are changing. Omitting \`value\` keeps the stored value, which is the only way to edit a secret variable — you cannot read its value, so passing any \`value\` you did not get from the user destroys it.
 - For secret fields in a resource value, do NOT inline the raw secret. Create a Variable first with \`is_secret: true\`, then in the resource value reference it as \`"$var:path/to/variable"\`.
-- Reference formats inside resource values: \`$var:g/all/name\` (global), \`$var:u/user/name\` (user), \`$var:f/folder/name\` (folder). Reference another resource with \`$res:path/to/resource\`. These are references FROM a resource value; never store a \`$var:\` string as a variable's own value.
+- Reference formats inside resource values: \`$var:g/all/name\` (global), \`$var:u/user/name\` (user), \`$var:f/folder/name\` (folder). Reference another resource with \`$res:path/to/resource\`. The same strings are also how a resource or variable is passed as a run argument (see the run-argument rule in the resource reference below); what they are never valid as is a variable's own value.
 - When deploying drafts that depend on each other (e.g., a resource and the variables it references), deploy the variables first.
 - Use \`search_resource_types\` to discover valid \`resource_type\` names and their JSON Schemas. Match the resource value to that schema.
 - For OAuth resources, the \`is_oauth: true\` flag is managed by Windmill's OAuth flow; global mode generally creates manual resources, not OAuth ones.

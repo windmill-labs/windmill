@@ -2213,7 +2213,7 @@ const command = new Command()
   .arguments("<path:file>")
   .option(
     "-d --data <data:file>",
-    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-."
+    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value (a variable, $var:<path>) — not an object wrapper keyed on $res, and not a plain path."
   )
   .option(
     "-s --silent",
@@ -2231,7 +2231,7 @@ const command = new Command()
   .arguments("<path:file>")
   .option(
     "-d --data <data:file>",
-    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-."
+    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value (a variable, $var:<path>) — not an object wrapper keyed on $res, and not a plain path."
   )
   .option(
     "-s --silent",

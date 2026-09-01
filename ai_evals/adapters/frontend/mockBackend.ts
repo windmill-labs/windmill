@@ -7,6 +7,7 @@ import type {
 	ListableApp,
 	ListableResource,
 	ListableVariable,
+	Resource,
 	Script
 } from '../../../frontend/src/lib/gen'
 import type {
@@ -81,6 +82,15 @@ export interface BenchmarkWorkspaceAiProvider {
 	isDefault?: boolean
 }
 
+/** A plain (non-AI) resource of the benchmark workspace, for cases about referencing a
+ * credential — passing one as a run argument, say. `value` is what `get_resource` returns. */
+export interface BenchmarkWorkspaceResource {
+	path: string
+	resource_type: string
+	value?: Record<string, unknown>
+	description?: string
+}
+
 export interface BenchmarkWorkspaceJob {
 	/** Stable id so a case prompt can reference a specific run (e.g. for get_job_logs). */
 	id?: string
@@ -98,6 +108,7 @@ export interface BenchmarkWorkspaceRunnables {
 	apps?: BenchmarkWorkspaceApp[]
 	variables?: BenchmarkWorkspaceVariable[]
 	aiProviders?: BenchmarkWorkspaceAiProvider[]
+	resources?: BenchmarkWorkspaceResource[]
 	datatables?: BenchmarkDatatableSeed[]
 	jobs?: BenchmarkWorkspaceJob[]
 }
@@ -284,15 +295,58 @@ export function listBenchmarkAiProviderResources(workspace: string): ListableRes
 	}))
 }
 
-/** The value of a seeded AI provider resource. Only the endpoint fields are modelled — a key is
- * never needed, because no eval run calls the provider through this resource. */
+/** Plain seeded resources of a benchmark workspace, shaped like `ResourceService.listResource`
+ * rows. Null when the workspace is not a benchmark one. */
+export function listBenchmarkPlainResources(workspace: string): ListableResource[] | null {
+	const runnables = benchmarkWorkspaceRunnables.get(workspace)
+	if (!runnables) {
+		return null
+	}
+	return (runnables.resources ?? []).map((seed) => ({
+		workspace_id: workspace,
+		path: seed.path,
+		resource_type: seed.resource_type,
+		description: seed.description,
+		value: null,
+		is_oauth: false,
+		is_linked: false,
+		is_refreshed: false,
+		extra_perms: {},
+		edited_at: BENCHMARK_TIMESTAMP
+	}))
+}
+
+/** A seeded plain resource with its value, as `ResourceService.getResource` returns it. */
+export function getBenchmarkPlainResource(workspace: string, path: string): Resource | null {
+	const seed = benchmarkWorkspaceRunnables
+		.get(workspace)
+		?.resources?.find((entry) => entry.path === path)
+	if (!seed) {
+		return null
+	}
+	return {
+		workspace_id: workspace,
+		path: seed.path,
+		resource_type: seed.resource_type,
+		description: seed.description,
+		value: seed.value ?? {},
+		is_oauth: false,
+		extra_perms: {}
+	} as Resource
+}
+
+/** The value of a seeded resource. For an AI provider only the endpoint fields are modelled — a
+ * key is never needed, because no eval run calls the provider through this resource. */
 export function getBenchmarkResourceValue(
 	workspace: string,
 	path: string
 ): Record<string, unknown> | null {
-	const seed = benchmarkWorkspaceRunnables
-		.get(workspace)
-		?.aiProviders?.find((entry) => entry.path === path)
+	const runnables = benchmarkWorkspaceRunnables.get(workspace)
+	const plain = runnables?.resources?.find((entry) => entry.path === path)
+	if (plain) {
+		return plain.value ?? {}
+	}
+	const seed = runnables?.aiProviders?.find((entry) => entry.path === path)
 	if (!seed) {
 		return null
 	}

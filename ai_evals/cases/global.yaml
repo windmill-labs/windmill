@@ -2365,3 +2365,39 @@
     - the step uses the workspace's anthropic resource f/evals/global/anthropic_main
     - the model is the Opus one the user asked for, taken from the models that resource serves
     - the diff flow input reaches the agent
+
+# The failure this pins: passing a resource as `{"$res": "<path>"}` (or as a bare path), which
+# reaches the script unresolved because the backend only substitutes a string value that itself
+# starts with `$res:`. The mock preview echoes args back and reports success, so nothing in the
+# loop corrects a wrong shape — the arg form is the whole test.
+- id: global-run-arg-resource-reference
+  prompt: |-
+    Run `f/evals/global/github_repo_stats` against the `windmill-labs/windmill` repo, passing our
+    GitHub credentials at `f/evals/global/github_main` as its `gh_auth` input, and tell me whether
+    it went through.
+  initial: ai_evals/fixtures/frontend/global/initial/github_repo_stats_script.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - test_run_script
+    forbiddenToolsUsed:
+      - write_script
+      - deploy_workspace_item
+    toolCallArgs:
+      - tool: test_run_script
+        field: args.gh_auth
+        stringStartsWithAnyOf:
+          - "$res:"
+      - tool: test_run_script
+        field: args.gh_auth
+        stringIncludesAnyOf:
+          - f/evals/global/github_main
+  # The judge only sees drafts, and this case makes none — the deliverable is the shape of the
+  # run argument, checked deterministically above.
+  skipJudge: true
+  judgeChecklist:
+    - runs the existing script rather than rewriting it
+    - passes the GitHub resource as the bare string $res:f/evals/global/github_main

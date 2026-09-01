@@ -885,7 +885,7 @@ export const mcpEndpointTools: EndpointTool[] = [
     {
         name: "runScriptByPath",
         description: "run script by path",
-        instructions: "You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected.",
+        instructions: "You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected. An argument typed as a resource (its schema has format `resource-<type>`) is passed as the bare string `$res:<path>`, which must be the whole value of that argument -- never an object wrapper keyed on $res, and never a plain path; a variable is passed the same way as `$var:<path>`.",
         path: "/w/{workspace}/jobs/run/p/{path}",
         method: "POST",
         pathParamsSchema: {
@@ -1426,7 +1426,7 @@ export const mcpEndpointTools: EndpointTool[] = [
     {
         name: "runFlowByPath",
         description: "run flow by path",
-        instructions: "You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected.",
+        instructions: "You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected. An argument typed as a resource (its schema has format `resource-<type>`) is passed as the bare string `$res:<path>`, which must be the whole value of that argument -- never an object wrapper keyed on $res, and never a plain path; a variable is passed the same way as `$var:<path>`.",
         path: "/w/{workspace}/jobs/run/f/{path}",
         method: "POST",
         pathParamsSchema: {
