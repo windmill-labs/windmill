@@ -426,6 +426,40 @@ pub async fn overlay_or_draft_only<T: serde::Serialize + Send + 'static>(
     }
 }
 
+/// Delete the drafts an address owns.
+///
+/// `draft.email` carries no foreign key to `password`: a draft's owner is any principal the
+/// instance authenticates, and an external JWT's subject never has a `password` row. Deleting an
+/// account is therefore what has to delete its drafts — a delete path that skips this leaves them
+/// behind forever, addressed to someone who no longer exists.
+pub async fn delete_drafts_of_email<'c>(
+    executor: impl sqlx::PgExecutor<'c>,
+    email: &str,
+) -> Result<()> {
+    sqlx::query!("DELETE FROM draft WHERE email = $1", email)
+        .execute(executor)
+        .await?;
+    Ok(())
+}
+
+/// Move the drafts an address owns onto its new address, for the same reason
+/// [`delete_drafts_of_email`] exists: no foreign key follows the rename, so drafts left behind
+/// are stranded on an address that no longer authenticates.
+pub async fn rename_drafts_of_email<'c>(
+    executor: impl sqlx::PgExecutor<'c>,
+    old_email: &str,
+    new_email: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "UPDATE draft SET email = $1 WHERE email = $2",
+        new_email,
+        old_email
+    )
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
 /// Delete EVERY user's draft (and the legacy NULL-email row) at a path+kind.
 /// Use when the item is DELETED outright: it's gone for everyone, so leaving
 /// teammates' drafts behind would orphan them forever. Discarding one's OWN
