@@ -35,8 +35,14 @@ export function ambiguousSkillNames(skills: readonly { name: string }[]): Set<st
 	return new Set([...seen].filter(([, n]) => n > 1).map(([name]) => name))
 }
 
-/** Every skill resource readable in the workspace. The cap matches the resource
- * picker's: past it the list stops being something a person can choose from.
+const SKILLS_PAGE_SIZE = 100
+/** Pages to walk before giving up. Ordinary resources and repeated imports can
+ * make any number of skills, and a single page would drop the rest — including a
+ * selected one, which would then vanish from the prompt with nothing to explain
+ * it. This bounds the walk without pretending there is a server-side cap. */
+const MAX_SKILLS_PAGES = 20
+
+/** Every skill resource readable in the workspace.
  *
  * `user` decides which rows the drawer offers to edit rather than only view; pass
  * the account the workspace is being browsed as. Ownership is mostly implicit in
@@ -47,18 +53,26 @@ export async function listSkillResources(
 	user?: UserExt
 ): Promise<SkillResource[]> {
 	if (!workspace) return []
-	const resources = await ResourceService.listResource({
-		workspace,
-		resourceType: SKILLS_RESOURCE_TYPE,
-		perPage: 100
-	})
-	return resources.map((r) => ({
-		path: r.path,
-		name: skillNameFromPath(r.path),
-		description: r.description ?? '',
-		editedAt: r.edited_at,
-		canWrite: canWrite(r.path, r.extra_perms ?? {}, user)
-	}))
+	const rows: SkillResource[] = []
+	for (let page = 1; page <= MAX_SKILLS_PAGES; page++) {
+		const resources = await ResourceService.listResource({
+			workspace,
+			resourceType: SKILLS_RESOURCE_TYPE,
+			page,
+			perPage: SKILLS_PAGE_SIZE
+		})
+		rows.push(
+			...resources.map((r) => ({
+				path: r.path,
+				name: skillNameFromPath(r.path),
+				description: r.description ?? '',
+				editedAt: r.edited_at,
+				canWrite: canWrite(r.path, r.extra_perms ?? {}, user)
+			}))
+		)
+		if (resources.length < SKILLS_PAGE_SIZE) break
+	}
+	return rows
 }
 
 /** Cut `text` to `maxChars` code points. For the description, whose cap is stated

@@ -134,21 +134,8 @@ pub struct EditResourceType {
     /// `Option` conflates: an absent field leaves the extension alone, while an
     /// explicit `null` clears it. A hub pull relies on both — a type that stops
     /// being a file type has to stop being one locally too.
-    #[serde(default, deserialize_with = "deserialize_optional_field")]
+    #[serde(default, deserialize_with = "windmill_common::more_serde::double_option")]
     pub format_extension: Option<Option<String>>,
-}
-
-/// `None` for an absent field, `Some(None)` for an explicit `null`. Spelled with
-/// the std `Result` because this module's `Result` alias fixes the error type.
-fn deserialize_optional_field<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Option<Option<String>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Ok(Some(<Option<String> as serde::Deserialize>::deserialize(
-        deserializer,
-    )?))
 }
 
 #[derive(FromRow, Serialize, Deserialize)]

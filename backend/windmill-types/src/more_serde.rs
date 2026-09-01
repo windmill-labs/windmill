@@ -66,3 +66,22 @@ where
         NumericOrNull::Null => Ok(None),
     }
 }
+
+/// Deserializer for a doubly-optional field, so a struct can tell an absent key
+/// (`None`) from an explicit `null` (`Some(None)`).
+///
+/// Plain serde collapses both into the outer `None`, which makes the distinction
+/// unusable exactly where it matters: a payload that omits a field means "leave it
+/// alone", while one that sends `null` means "clear it".
+///
+/// ```ignore
+/// #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+/// pub field: Option<Option<String>>,
+/// ```
+pub fn double_option<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: serde::Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    serde::Deserialize::deserialize(deserializer).map(Some)
+}

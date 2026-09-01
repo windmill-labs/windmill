@@ -426,20 +426,12 @@ pub struct HubResourceType {
     /// dropping it and must clear. A single `Option` conflates the two, and picking
     /// either meaning breaks the other — as does plain serde, which folds `null`
     /// into the outer `None`, hence the wrapping deserializer.
-    #[serde(default, deserialize_with = "deserialize_optional_field")]
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub format_extension: Option<Option<String>>,
-}
-
-/// `None` for an absent field, `Some(None)` for an explicit `null`.
-fn deserialize_optional_field<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Option<Option<String>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Ok(Some(<Option<String> as serde::Deserialize>::deserialize(
-        deserializer,
-    )?))
 }
 
 const HUB_RT_CACHE_FILE: &str = "resource_types.json";

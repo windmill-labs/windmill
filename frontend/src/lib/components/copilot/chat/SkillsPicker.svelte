@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Drawer } from '$lib/components/common'
+	import { Alert, Button, Drawer } from '$lib/components/common'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
@@ -60,6 +60,30 @@
 		const active = $workspaceStore
 		return aiChatManager.operatingWorkspace ?? active!
 	})
+
+	// A session whose fork is still staged has no workspace of its own yet, so `ws`
+	// resolves to the PARENT. Authoring through the picker would then edit the live
+	// parent, and a toggle would be stored under it and quietly stop applying the
+	// moment the first send commits the fork. Read at use, not once: the fork
+	// commits mid-session.
+	function pendingForkParent(): string | undefined {
+		return aiChatManager.sessionContextResolver?.()?.pendingForkOf
+	}
+	let forkPending = $state(false)
+	function refreshForkPending() {
+		forkPending = pendingForkParent() !== undefined
+	}
+	/** Guards every mutating action. Returns true when the caller must not proceed. */
+	function blockedByPendingFork(): boolean {
+		const parent = pendingForkParent()
+		if (parent === undefined) return false
+		refreshForkPending()
+		sendUserToast(
+			`This session has not created its workspace yet, so a skill would be written to "${parent}" instead. Send a message first.`,
+			true
+		)
+		return true
+	}
 
 	// `<root>/<skill>/SKILL.md` is 3 path segments; SKILL.md files nested deeper
 	// are likely vendored/incidental and are skipped so importing a parent dir
@@ -177,15 +201,20 @@ What the assistant should do when this skill applies.
 
 	async function loadSkills(target = ws) {
 		if (!target) return
+		refreshForkPending()
 		const seq = ++loadSeq
 		loading = true
 		loadError = undefined
 		try {
 			const found = await listSkillResources(target, $userStore ?? undefined)
-			if (seq !== loadSeq) return
+			// Newest-request-wins is not enough on its own: an action started in A and
+			// finishing after a switch to B holds the newest sequence, and would put
+			// A's rows on screen under B — where the next row action would edit or
+			// delete that path in B. The workspace has to still be the one asked for.
+			if (seq !== loadSeq || target !== ws) return
 			skills = found.map((s) => ({ ...s, enabled: isSkillEnabled(target, s.path) }))
 		} catch (e) {
-			if (seq !== loadSeq) return
+			if (seq !== loadSeq || target !== ws) return
 			// Without this the drawer would render the empty state, which reads as
 			// "this workspace has no skills" rather than "we could not load them".
 			loadError = e.body ?? e.message
@@ -262,6 +291,7 @@ What the assistant should do when this skill applies.
 	}
 
 	async function toggle(p: string, enabled: boolean) {
+		if (blockedByPendingFork()) return
 		if (!setSkillEnabled(ws, p, enabled)) {
 			sendUserToast('Could not save the selection for this account.', true)
 			return
@@ -291,6 +321,7 @@ What the assistant should do when this skill applies.
 	}
 
 	function openCreate() {
+		if (blockedByPendingFork()) return
 		editing = undefined
 		content = SKILL_TEMPLATE
 		originalContent = SKILL_TEMPLATE
@@ -353,6 +384,7 @@ What the assistant should do when this skill applies.
 
 	async function submitEditor() {
 		if (!('skill' in validated) || !path || pathError) return
+		if (blockedByPendingFork()) return
 		const target = ws
 		saving = true
 		try {
@@ -391,6 +423,7 @@ What the assistant should do when this skill applies.
 	}
 
 	async function remove(skill: Row) {
+		if (blockedByPendingFork()) return
 		const target = ws
 		try {
 			await deleteSkillResource(target, skill.path)
@@ -406,6 +439,9 @@ What the assistant should do when this skill applies.
 
 	async function refresh(target = ws) {
 		await loadSkills(target)
+		// Same reason: refreshing the chat with a workspace it has since left would
+		// advertise A's skills to a session now acting on B.
+		if (target !== ws) return
 		await aiChatManager.refreshGlobalSkills(target)
 	}
 
@@ -420,6 +456,7 @@ What the assistant should do when this skill applies.
 	 * result for confirmation.
 	 */
 	async function processFolderFiles(files: File[]) {
+		if (blockedByPendingFork()) return
 		// Pick SKILL.md files within the depth limit BEFORE reading any content,
 		// so a huge tree never gets read in full.
 		const skipped: string[] = []
@@ -551,14 +588,22 @@ What the assistant should do when this skill applies.
 				variant="accent"
 				unifiedSize="sm"
 				startIcon={{ icon: ClipboardPaste }}
-				disabled={saving}
+				disabled={saving || forkPending}
 				onclick={openCreate}
 			>
 				New skill
 			</Button>
 		{/snippet}
 
+		{#if forkPending}
+			<Alert type="info" title="This session has no workspace yet" size="xs" class="mb-4">
+				Skills are read-only until the first message creates this session's fork. Editing one now
+				would change the parent workspace instead.
+			</Alert>
+		{/if}
+
 		<FileInput
+			disabled={forkPending}
 			folderOnly
 			bind:files={importFiles}
 			on:change={onDirSelected}

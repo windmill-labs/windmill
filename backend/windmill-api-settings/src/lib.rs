@@ -2008,20 +2008,8 @@ struct CachedResourceType {
     /// decodes the on-disk cache, where an absent key means "written before the
     /// column, leave the stored extension alone" and an explicit null means the hub
     /// dropped it. Plain serde folds both into `None`.
-    #[serde(default, deserialize_with = "deserialize_optional_field")]
+    #[serde(default, deserialize_with = "windmill_common::more_serde::double_option")]
     format_extension: Option<Option<String>>,
-}
-
-/// `None` for an absent field, `Some(None)` for an explicit `null`.
-fn deserialize_optional_field<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Option<Option<String>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Ok(Some(<Option<String> as serde::Deserialize>::deserialize(
-        deserializer,
-    )?))
 }
 
 #[derive(serde::Deserialize)]
