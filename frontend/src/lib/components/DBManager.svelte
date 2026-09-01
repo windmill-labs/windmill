@@ -443,12 +443,16 @@
 	// mounted against the data table it targeted.
 	$effect(() => {
 		const req = pendingAction
-		if (!req || !schemaKeys.length) return
-		pendingAction = undefined
+		if (!req) return
+		// Creating a schema is the one action a data table with none can still
+		// take, so it must not wait on a schema being there.
 		if (req.kind === 'create-schema') {
+			pendingAction = undefined
 			schemaDialog = { mode: 'create' }
 			return
 		}
+		if (!schemaKeys.length) return
+		pendingAction = undefined
 		if (!schemaKeys.includes(req.schema)) return
 		if (req.kind === 'create-table') startCreateTable(undefined, req.schema)
 		else if (req.kind === 'drop-schema') startDropSchema(undefined, req.schema)

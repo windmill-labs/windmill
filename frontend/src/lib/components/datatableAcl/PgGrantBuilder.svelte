@@ -72,9 +72,8 @@
 			class="w-40"
 		/>
 		<Button
-			size="xs"
-			color="light"
-			variant="border"
+			unifiedSize="xs"
+			variant="default"
 			startIcon={{ icon: Plus }}
 			disabled={disabled || !canAdd}
 			on:click={() => {

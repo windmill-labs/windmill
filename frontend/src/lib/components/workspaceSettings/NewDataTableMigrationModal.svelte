@@ -130,9 +130,7 @@
 		const prefillRole = prefill?.codeUp ? parseMigrationRole(prefill.codeUp) : undefined
 		codeUp = prefill?.codeUp
 			? withMigrationRole(
-					wrapInTransaction(
-						ensureTrailingSemicolon(withMigrationRole(prefill.codeUp, undefined))
-					),
+					wrapInTransaction(ensureTrailingSemicolon(withMigrationRole(prefill.codeUp, undefined))),
 					prefillRole
 				)
 			: PLACEHOLDER
@@ -261,7 +259,16 @@
 				<TabContent value="down" class="h-80">
 					<div class="flex flex-col gap-2 h-full">
 						<Toggle
-							bind:checked={enableDown}
+							bind:checked={
+								() => enableDown,
+								(checked) => {
+									enableDown = checked
+									// A down migration written after the role was picked would
+									// otherwise roll back as the default role. The editor is
+									// created by this same toggle, so it reads the new text.
+									if (checked) codeDown = withMigrationRole(codeDown, declaredRole)
+								}
+							}
 							options={{ right: 'Enable down migration' }}
 							size="sm"
 						/>

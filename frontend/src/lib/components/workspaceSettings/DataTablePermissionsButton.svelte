@@ -229,9 +229,8 @@
 
 {#if !hideTrigger}
 	<Button
-		size="xs"
-		color="light"
-		variant="border"
+		unifiedSize="xs"
+		variant="default"
 		startIcon={{ icon: KeyRound }}
 		iconOnly
 		{disabled}
@@ -334,7 +333,12 @@
 							<Row class="!border-0">
 								<Cell colspan={4} class="pt-0 pb-2">
 									<div class="flex justify-center">
-										<Button size="sm" btnClasses="max-w-fit" variant="default" on:click={addRole}>
+										<Button
+											unifiedSize="sm"
+											btnClasses="max-w-fit"
+											variant="default"
+											on:click={addRole}
+										>
 											<Plus /> New role
 										</Button>
 									</div>
@@ -357,8 +361,8 @@
 
 		{#snippet actions()}
 			<Button
-				color="dark"
-				size="xs"
+				variant="accent"
+				unifiedSize="xs"
 				disabled={!hasUnsavedChanges || loading || !!loadError || !!nameError}
 				loading={saving}
 				on:click={requestPreview}
