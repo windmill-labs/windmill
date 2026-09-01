@@ -149,6 +149,7 @@
 			? `${window.location.origin}/api/mcp/gateway?token=`
 			: `${window.location.origin}/api/mcp/w/${newTokenWorkspace}/mcp?token=`
 	)
+
 	$effect(() => {
 		const requestedMcpMode = mcpOnly || openWithMcpMode
 		if (requestedMcpMode === lastRequestedMcpMode) {
