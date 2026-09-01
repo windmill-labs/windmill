@@ -1,10 +1,13 @@
 import YAML from 'yaml'
 import { z } from 'zod'
 
+/** A SKILL.md split into the three parts a `skills` resource stores: `name`
+ * becomes the resource path's basename, `description` its description column,
+ * `instructions` its file body. */
 export type SkillUpload = { name: string; description: string; instructions: string }
 
-// `name` + `description` mirror the Claude SKILL.md spec (counted in characters);
-// the body is a byte-bounded payload. Keep these in sync with backend `validate_skill`.
+// `name` + `description` mirror the Claude SKILL.md spec (counted in characters),
+// so a skill stays portable with Claude Code; the body is a byte-bounded payload.
 export const MAX_SKILL_NAME_LENGTH = 64
 export const MAX_SKILL_DESCRIPTION_LENGTH = 1_024
 export const MAX_SKILL_INSTRUCTIONS_LENGTH = 64 * 1024
@@ -12,8 +15,8 @@ export const MAX_SKILL_INSTRUCTIONS_LENGTH = 64 * 1024
 const textEncoder = new TextEncoder()
 
 // Single source of truth for skill field validation, shared by the paste/edit
-// modal and the folder importer. Lengths are code-point / byte bounded to match
-// the backend, so `.refine` (not `.max`, which counts UTF-16 units) is used.
+// modal and the folder importer. Lengths are code-point / byte bounded, so
+// `.refine` (not `.max`, which counts UTF-16 units) is used.
 export const skillSchema = z.object({
 	name: z
 		.string()
