@@ -3749,9 +3749,24 @@ async fn edit_datatable_config(
             None => Some(true),
         };
         // Same for permissions, owned by the datatable_permissions endpoints.
-        dt.permissions = old_datatables
-            .get(lookup)
-            .and_then(|old| old.permissions.clone());
+        let old = old_datatables.get(lookup);
+        dt.permissions = old.and_then(|old| old.permissions.clone());
+        // The roles live in the database this data table points at: their logins
+        // were created there and every grant they hold is recorded there. Carried
+        // onto another database they authenticate against a cluster that never
+        // heard of the grants, so the switch has to go through opting out first —
+        // which is also what drops the roles from the database they belong to.
+        if let Some(old) = old.filter(|_| dt.permissions.as_ref().is_some_and(|p| p.enabled)) {
+            if old.database.resource_path != dt.database.resource_path
+                || old.database.resource_type != dt.database.resource_type
+            {
+                return Err(Error::BadRequest(format!(
+                    "Data table '{name}' has permissions enabled, so it cannot be pointed at \
+                     another database: disable them first, which drops its roles from the \
+                     database they were created in."
+                )));
+            }
+        }
     }
 
     // The settings carry each role's generated login password.

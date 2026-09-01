@@ -2599,25 +2599,46 @@ fn fork_defer_statements(
     Ok(stmts)
 }
 
-async fn transform_attach_datatable(
-    query: &str,
-    conn: &Connection,
-    hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
-    job: &MiniPulledJob,
-) -> Result<Option<Vec<String>>> {
+/// What an `ATTACH 'datatable…' AS x` names: the data table, the role it asks
+/// for, and the alias the rest of the query uses.
+#[derive(Debug, PartialEq)]
+struct AttachedDatatable {
+    name: String,
+    role: Option<String>,
+    alias: String,
+}
+
+/// Split an ATTACH reference, which is the syntax users type.
+fn parse_attach_datatable(query: &str) -> Option<AttachedDatatable> {
     lazy_static::lazy_static! {
         static ref RE: regex::Regex = regex::Regex::new(r"(?i)ATTACH\s*'datatable(://[^':]+)?(\?[^':]*)?'\s*AS\s+([^ ;]+)").unwrap();
     }
-    let Some(cap) = RE.captures(query) else {
-        return Ok(None);
-    };
+    let cap = RE.captures(query)?;
     let reference = format!(
         "{}{}",
         cap.get(1).map(|m| &m.as_str()[3..]).unwrap_or("main"),
         cap.get(2).map(|m| m.as_str()).unwrap_or("")
     );
     let (name, role) = parse_datatable_ref(&reference);
-    let alias_name = cap.get(3).map(|m| m.as_str()).unwrap_or("");
+    Some(AttachedDatatable {
+        name: name.to_string(),
+        role: role.map(|r| r.to_string()),
+        alias: cap.get(3).map(|m| m.as_str()).unwrap_or("").to_string(),
+    })
+}
+
+async fn transform_attach_datatable(
+    query: &str,
+    conn: &Connection,
+    hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
+    job: &MiniPulledJob,
+) -> Result<Option<Vec<String>>> {
+    let Some(attached) = parse_attach_datatable(query) else {
+        return Ok(None);
+    };
+    let name = attached.name.as_str();
+    let role = attached.role.as_deref();
+    let alias_name = attached.alias.as_str();
     let w_id = job.workspace_id.as_str();
 
     let db_resource = match conn {
@@ -2761,24 +2782,8 @@ pub struct Arg {
 mod tests {
     use super::*;
 
-    /// Reproduce how `transform_attach_datatable` splits an ATTACH reference,
-    /// which is the syntax users type.
     fn attach_ref(query: &str) -> Option<(String, Option<String>, String)> {
-        lazy_static::lazy_static! {
-            static ref RE: regex::Regex = regex::Regex::new(r"(?i)ATTACH\s*'datatable(://[^':]+)?(\?[^':]*)?'\s*AS\s+([^ ;]+)").unwrap();
-        }
-        let cap = RE.captures(query)?;
-        let reference = format!(
-            "{}{}",
-            cap.get(1).map(|m| &m.as_str()[3..]).unwrap_or("main"),
-            cap.get(2).map(|m| m.as_str()).unwrap_or("")
-        );
-        let (name, role) = parse_datatable_ref(&reference);
-        Some((
-            name.to_string(),
-            role.map(|r| r.to_string()),
-            cap.get(3).map(|m| m.as_str()).unwrap_or("").to_string(),
-        ))
+        parse_attach_datatable(query).map(|a| (a.name, a.role, a.alias))
     }
 
     #[test]
