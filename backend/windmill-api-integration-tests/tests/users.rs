@@ -939,6 +939,24 @@ async fn test_drafts_follow_their_owner_without_a_fkey(db: Pool<Postgres>) -> an
     .execute(&db)
     .await?;
 
+    // A null username is how the legacy workspace-level row is encoded, so an owner nobody can
+    // name must be absent from the owner circles rather than pose as one.
+    let resp = authed(client().get(format!(
+        "http://localhost:{port}/api/w/test-workspace/drafts/list?all_users=true"
+    )))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+    let listed = resp.json::<serde_json::Value>().await?;
+    let ext = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["path"] == "u/ext/s")
+        .expect("the accountless owner's draft is listed");
+    assert_eq!(ext.get("draft_users"), None);
+
     let resp = authed(client().post(format!("{global_base}/change_email/test2@windmill.dev")))
         .json(&json!({ "new_email": "renamed@windmill.dev" }))
         .send()

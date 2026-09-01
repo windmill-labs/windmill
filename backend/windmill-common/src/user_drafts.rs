@@ -456,12 +456,17 @@ pub async fn delete_drafts_of_email<'c>(
 ///
 /// The two addresses may each already hold a draft of the same item, since the destination can
 /// belong to a principal with no account and so is not covered by the caller's "address is free"
-/// check. `draft_pkey_with_user` admits only one, so the moving account's wins.
+/// check. `draft_pkey_with_user` admits only one, so the moving account's wins — which is also why
+/// a rename onto the same address returns early: every row would collide with itself and be
+/// cleared. Callers need not compare first (an IdP re-sending an unchanged `userName` does not).
 pub async fn rename_drafts_of_email(
     conn: &mut sqlx::PgConnection,
     old_email: &str,
     new_email: &str,
 ) -> Result<()> {
+    if old_email == new_email {
+        return Ok(());
+    }
     sqlx::query!(
         "DELETE FROM draft dest
          WHERE dest.email = $1
