@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO lock_hash (workspace_id, path, lockfile_hash)\n         SELECT $1, lh.path, lh.lockfile_hash\n         FROM lock_hash lh\n         JOIN script src ON src.workspace_id = lh.workspace_id AND src.path = lh.path\n              AND NOT src.archived AND NOT src.deleted\n         JOIN script cloned ON cloned.workspace_id = $1 AND cloned.path = lh.path\n              AND NOT cloned.archived AND NOT cloned.deleted\n         WHERE lh.workspace_id = $2 AND src.lock IS NOT NULL AND cloned.lock = src.lock",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4ef3d6febb651b18ae470390c7f2a3115419f3c34af3117d720f4e56af4568ad"
+}

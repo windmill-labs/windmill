@@ -1070,6 +1070,31 @@ fn modules_eq(
     }
 }
 
+/// Records what the lock now at `path` hashes to, which is one half of the comparison
+/// `try_skip_relock` makes against what each importer resolved against.
+///
+/// Called for the empty lock a codebase or a language with no lock generation carries as well as
+/// for a real one: the worker writes `hash_script("")` in the same situation, and a path going
+/// from a real lock to an empty one has to stop matching what its importers recorded, or they
+/// wrongly skip rather than merely relock too often.
+async fn record_lock_hash(
+    tx: &mut Transaction<'_, Postgres>,
+    w_id: &str,
+    path: &str,
+    lock: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO lock_hash (workspace_id, path, lockfile_hash) VALUES ($1, $2, $3) \
+         ON CONFLICT (workspace_id, path) DO UPDATE SET lockfile_hash = EXCLUDED.lockfile_hash",
+        w_id,
+        path,
+        hash_script(lock),
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 async fn create_script_internal<'c>(
     mut ns: NewScript,
     w_id: String,
@@ -1337,6 +1362,12 @@ async fn create_script_internal<'c>(
                     parent_hash = %p_hash.0,
                     "Skipping no-op script deploy (identical to parent)"
                 );
+                // The version is unchanged, but the row recording its lock's hash may never have
+                // been written — nothing else writes it for a supplied lock, and a path only ever
+                // pushed unchanged would otherwise keep its importers relocking forever.
+                if let Some(lock) = ps.lock.as_deref() {
+                    record_lock_hash(&mut tx, &w_id, &ns.path, lock).await?;
+                }
                 return Ok((p_hash.clone(), tx, None, Vec::new()));
             }
 
@@ -1883,6 +1914,13 @@ async fn create_script_internal<'c>(
     )
     .execute(&mut *tx)
     .await?;
+
+    // A lock that is not left to a dependency job queues none, so this is the only place its hash
+    // can be recorded. `try_skip_relock` treats a missing hash for an imported script as changed,
+    // so leaving the row out makes every importer of this path relock on every deploy of it.
+    if let Some(lock) = lock.as_deref() {
+        record_lock_hash(&mut tx, &w_id, &ns.path, lock).await?;
+    }
 
     // Update ci_test_reference table for test scripts
     // Delete by both new and old path to handle renames
