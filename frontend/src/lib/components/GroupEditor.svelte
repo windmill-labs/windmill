@@ -315,14 +315,12 @@
 			return { name, created }
 		} catch (e) {
 			sendUserToast(e.body ?? String(e), true)
-			// `create_group` commits before a git-sync step that can still fail the request, so
-			// a create that did not reject the name may have saved the group anyway. Say so
-			// rather than resolving it here: existence cannot be told apart from the name simply
-			// belonging to someone else, and adopting the wrong one would point this draft's
-			// writes at their group. A 4xx is the name being refused, which is unambiguous.
-			// Not `>= 500`: a response that never arrived throws without a status at all.
-			const nameRefused = e?.status >= 400 && e?.status < 500
-			if (created && !nameRefused) {
+			// A failed create is not proof the group is absent: `create_group` commits before a
+			// git-sync step that can still fail the request, including with a 4xx. Only the name
+			// conflict says it was never written. Report rather than resolve — a group found by
+			// name may be someone else's, and adopting it would send this draft's writes there.
+			const nameTaken = String(e?.body ?? '').includes('already exists')
+			if (created && !nameTaken) {
 				sendUserToast(`Group ${name} may have been created anyway — reopen it to check`, true)
 			}
 			// The calls are sequential, so a rejection can land with earlier ones committed. Move
