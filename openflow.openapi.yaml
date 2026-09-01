@@ -542,6 +542,23 @@ components:
       required:
         - kind
 
+    MemoryAutoCompacted:
+      type: object
+      description: Automatic context management with summary-based compaction
+      properties:
+        kind:
+          type: string
+          enum:
+            - autocompacted
+        context_window:
+          type: integer
+          description: The model's context window in tokens, used to decide when to summarize the older part of the conversation
+        memory_id:
+          type: string
+          description: Identifier for persistent memory across agent invocations
+      required:
+        - kind
+
     MemoryMessage:
       type: object
       description: A single message in conversation history
@@ -579,12 +596,14 @@ components:
       oneOf:
         - $ref: '#/components/schemas/MemoryOff'
         - $ref: '#/components/schemas/MemoryAuto'
+        - $ref: '#/components/schemas/MemoryAutoCompacted'
         - $ref: '#/components/schemas/MemoryManual'
       discriminator:
         propertyName: kind
         mapping:
           'off': '#/components/schemas/MemoryOff'
           auto: '#/components/schemas/MemoryAuto'
+          autocompacted: '#/components/schemas/MemoryAutoCompacted'
           manual: '#/components/schemas/MemoryManual'
 
     StaticMemoryTransform:

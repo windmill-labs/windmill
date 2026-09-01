@@ -1,3 +1,4 @@
+use crate::ai::compaction::{CompactionRequest, Compactor};
 use crate::ai::tools::{execute_tool_calls, ToolAbortHandles, ToolExecutionContext};
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
@@ -923,9 +924,10 @@ pub async fn run_agent(
         .as_ref()
         .and_then(|fs| fs.memory_id)
         .or_else(|| {
-            // Extract memory_id from Memory::Auto if present
+            // Extract memory_id from the automatic memory modes if present
             match &args.memory {
-                Some(Memory::Auto { memory_id, .. }) => *memory_id,
+                Some(Memory::Auto { memory_id, .. })
+                | Some(Memory::AutoCompacted { memory_id, .. }) => *memory_id,
                 _ => None,
             }
         });
@@ -939,7 +941,13 @@ pub async fn run_agent(
                     messages.extend(manual_messages.clone());
                 }
             }
-            Some(Memory::Auto { context_length, .. }) => {
+            // `auto` keeps only the last `context_length` messages; `autocompacted`
+            // loads the whole persisted history, which compaction has already bounded.
+            Some(Memory::Auto { .. }) | Some(Memory::AutoCompacted { .. }) => {
+                let context_length = match &args.memory {
+                    Some(Memory::Auto { context_length, .. }) => *context_length,
+                    _ => usize::MAX,
+                };
                 // Auto mode: load from memory
                 if let Some(step_id) = effective_flow_step_id {
                     if let Some(memory_id) = memory_id {
@@ -948,7 +956,7 @@ pub async fn run_agent(
                             Ok(Some(loaded_messages)) => {
                                 let messages_to_load = prepare_auto_memory_messages_for_request(
                                     &loaded_messages,
-                                    *context_length,
+                                    context_length,
                                 );
                                 messages.extend(messages_to_load);
                             }
@@ -1128,6 +1136,23 @@ pub async fn run_agent(
         .max_iterations
         .map(|m| m.clamp(1, HARD_MAX_AGENT_ITERATIONS))
         .unwrap_or(DEFAULT_MAX_AGENT_ITERATIONS);
+
+    let mut compactor = match &args.memory {
+        Some(Memory::AutoCompacted { context_window, .. }) if is_text_output => {
+            Some(Compactor::new(*context_window))
+        }
+        _ => None,
+    };
+    // The summarization call runs under the agent's own request timeout, which resolves
+    // from the job alone and so is the same for every iteration.
+    let compaction_timeout = match compactor {
+        Some(_) => Some(
+            resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
+                .await
+                .0,
+        ),
+        None => None,
+    };
 
     // Main agent loop
     for i in 0..max_iterations {
@@ -1361,6 +1386,10 @@ pub async fn run_agent(
                 used_websearch,
                 usage,
             } => {
+                // What this one request's prompt occupied. `final_usage` sums every
+                // iteration, so it says nothing about how full the context is.
+                let iteration_prompt_tokens = usage.as_ref().and_then(|u| u.prompt_tokens());
+
                 // Accumulate usage from this iteration
                 if let Some(u) = usage {
                     match &mut final_usage {
@@ -1550,6 +1579,34 @@ pub async fn run_agent(
                 if *cancel_rx.borrow() {
                     return Err(Error::ExecutionErr("Job cancelled".to_string()));
                 }
+
+                // Compact between iterations rather than mid-request: the next iteration
+                // is what would carry the grown conversation to the provider.
+                if let (Some(compactor), Some(timeout)) = (compactor.as_mut(), compaction_timeout) {
+                    let compaction_usage = compactor
+                        .maybe_compact(
+                            &mut messages,
+                            iteration_prompt_tokens,
+                            &CompactionRequest {
+                                query_builder: query_builder.as_ref(),
+                                credentials: &credentials,
+                                model: args.provider.get_model(),
+                                temperature: args.temperature,
+                                reasoning_effort: args.provider.get_reasoning_effort(),
+                                max_tokens: args.max_completion_tokens,
+                                timeout,
+                                client,
+                                workspace_id: &job.workspace_id,
+                            },
+                        )
+                        .await;
+                    if let Some(u) = compaction_usage {
+                        match &mut final_usage {
+                            Some(existing) => existing.accumulate(&u),
+                            None => final_usage = Some(u),
+                        }
+                    }
+                }
             }
             ParsedResponse::Image { base64_data } => {
                 // For image output, upload to S3 and track in conversation
@@ -1650,17 +1707,22 @@ pub async fn run_agent(
     // Skip memory persistence if using manual messages (bypass memory entirely)
     // final_messages contains the complete history (old messages + new ones)
     if matches!(output_type, OutputType::Text) && !use_manual_messages {
-        if let Some(Memory::Auto { context_length, .. }) = &args.memory {
+        let persisted_context_length = match &args.memory {
+            Some(Memory::Auto { context_length, .. }) => Some(*context_length),
+            // The compacted messages are the source of truth: truncating them again
+            // would drop the tail the summary was written to precede.
+            Some(Memory::AutoCompacted { .. }) => Some(usize::MAX),
+            _ => None,
+        };
+        if let Some(context_length) = persisted_context_length {
             if let Some(step_id) = effective_flow_step_id {
                 // Extract OpenAIMessages from final_messages
                 let all_messages: Vec<OpenAIMessage> =
                     final_messages.iter().map(|m| m.message.clone()).collect();
 
                 if !all_messages.is_empty() {
-                    let messages_to_persist = prepare_auto_memory_messages_for_persistence(
-                        &all_messages,
-                        *context_length,
-                    );
+                    let messages_to_persist =
+                        prepare_auto_memory_messages_for_persistence(&all_messages, context_length);
 
                     if let Some(memory_id) = memory_id {
                         if let Err(e) = write_to_memory(

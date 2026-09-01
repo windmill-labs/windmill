@@ -2,8 +2,21 @@ import { inferArgs, loadSchemaFromPath } from '$lib/infer'
 import { loadSchemaFlow } from '$lib/scripts'
 import type { Schema } from '$lib/common'
 import { emptySchema } from '$lib/utils'
-import type { FlowModule, InputTransform } from '$lib/gen'
+import type { FlowModule, InputTransform, MemoryConfig } from '$lib/gen'
 import { AGENT_FLOW_LOCAL_KEYS } from './agentResourceUtils'
+
+/** Matches the backend default in `windmill-ai`'s `Memory::AutoCompacted`. */
+const DEFAULT_CONTEXT_WINDOW = 128000
+
+/**
+ * Memory an AI agent gets when chat mode configures it: a chat conversation is
+ * open-ended, so it keeps everything and summarizes the older part rather than
+ * dropping messages off the front.
+ */
+export const DEFAULT_CHAT_MEMORY: MemoryConfig = {
+	kind: 'autocompacted',
+	context_window: DEFAULT_CONTEXT_WINDOW
+}
 
 export const AI_AGENT_SCHEMA: Schema = {
 	$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -37,7 +50,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 		memory: {
 			type: 'object',
 			description:
-				'Configure how conversation memory is managed. Choose "auto" to let Windmill automatically store and load messages (up to N last messages), or "manual" to provide an explicit array of conversation messages. The system_prompt and user_message are added to the messages if provided.',
+				'Configure how conversation memory is managed. Choose "auto" to let Windmill automatically store and load messages (up to N last messages), "autocompacted" to keep the whole conversation and summarize its older part as it approaches the context window, or "manual" to provide an explicit array of conversation messages. The system_prompt and user_message are added to the messages if provided.',
 			oneOf: [
 				{
 					type: 'object',
@@ -65,6 +78,36 @@ export const AI_AGENT_SCHEMA: Schema = {
 							description:
 								'Number of most recent messages to store and load. Set to 0 to disable memory.',
 							default: 5
+						},
+						memory_id: {
+							type: 'string',
+							format: 'uuid',
+							'x-auto-generate': true,
+							description:
+								'Custom memory identifier. Each unique ID maintains separate conversation history.',
+							hideWhenChatEnabled: true
+						}
+					},
+					required: ['kind'],
+					'x-no-s3-storage-workspace-warning':
+						'When no S3 storage is configured in your workspace settings, memory will be stored in database, which implies a limit of 100KB per memory entry. If you need to store more messages, you should use S3 storage in your workspace settings.'
+				},
+				{
+					type: 'object',
+					title: 'autocompacted',
+					properties: {
+						kind: {
+							type: 'string',
+							enum: ['autocompacted'],
+							default: 'autocompacted',
+							description:
+								'Keep the whole conversation and summarize its older part when it approaches the context window'
+						},
+						context_window: {
+							type: 'number',
+							description:
+								"The model's context window in tokens. Once a request fills 80% of it, the older messages are replaced by a summary and the recent ones are kept as they are.",
+							default: DEFAULT_CONTEXT_WINDOW
 						},
 						memory_id: {
 							type: 'string',
