@@ -438,8 +438,6 @@
 		onApplied: () => void
 	) {
 		const workspace = targetWorkspace
-		// Every `owners` entry this caller is an admin through, so the diff can send the call
-		// that gives one up last.
 		const callerOwners = membership
 			? ['u/' + membership.username, ...(membership.pgroups ?? [])]
 			: []
