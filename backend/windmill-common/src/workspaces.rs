@@ -71,6 +71,7 @@ bitflags::bitflags! {
         const RESTRICT_DEPLOY_TO_DEPLOYERS =        1 << 2;
         const RESTRICT_ANONYMOUS_APP_DEPLOYMENT =   1 << 3;
         const RESTRICT_PUBLIC_RUN_SHARING =         1 << 4;
+        const RESTRICT_GUEST_APP_DEPLOYMENT =       1 << 5;
     }
 }
 
@@ -83,6 +84,7 @@ pub enum ProtectionRuleKind {
     RestrictDeployToDeployers,
     RestrictAnonymousAppDeployment,
     RestrictPublicRunSharing,
+    RestrictGuestAppDeployment,
 }
 
 impl ProtectionRuleKind {
@@ -103,6 +105,9 @@ impl ProtectionRuleKind {
             ProtectionRuleKind::RestrictPublicRunSharing => {
                 ProtectionRules::RESTRICT_PUBLIC_RUN_SHARING
             }
+            ProtectionRuleKind::RestrictGuestAppDeployment => {
+                ProtectionRules::RESTRICT_GUEST_APP_DEPLOYMENT
+            }
         }
     }
 
@@ -120,6 +125,9 @@ impl ProtectionRuleKind {
             }
             ProtectionRuleKind::RestrictPublicRunSharing => {
                 "Sharing a run publicly (readable without login) is restricted in this workspace"
+            }
+            ProtectionRuleKind::RestrictGuestAppDeployment => {
+                "Opening an app to guests (anyone who can sign in) is restricted in this workspace"
             }
         }
     }
@@ -765,6 +773,25 @@ pub struct BillableSeats {
     pub developers: i64,
     pub operators: i64,
     pub seats: i64,
+}
+
+/// Whether `w_id` admits guest sessions — someone the identity provider authenticated
+/// who is a member of no workspace, and who therefore takes no seat.
+///
+/// Read uncached, and only where a guest session is minted. An app carries its own
+/// `execution_mode` in its definition, so git-sync and the CLI can push `guest` past
+/// every deploy-time gate; the switch is only meaningful if the door itself checks it.
+/// Turning it off does not invalidate sessions already handed out — they expire on
+/// their own, which is why a guest session's validity is short.
+pub async fn is_guest_access_enabled(db: &crate::DB, w_id: &str) -> Result<bool> {
+    Ok(sqlx::query_scalar!(
+        "SELECT guest_access_enabled FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("reading guest access of {w_id}: {e:#}")))?
+    .unwrap_or(false))
 }
 
 /// Billable members of `w_id` and the seats they cost, as `ceil(developers + operators/2)`. Service

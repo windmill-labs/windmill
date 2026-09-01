@@ -3667,8 +3667,12 @@ paths:
                     $ref: "#/components/schemas/WorkspaceDeployUISettings"
                   mute_critical_alerts:
                     type: boolean
+                  guest_access_enabled:
+                    type: boolean
+                    description: Whether this workspace admits guest sessions. An app's own `guest` execution mode is inert while this is false.
                 required:
                   - workspace_id
+                  - guest_access_enabled
 
   /w/{workspace}/workspaces/get_settings:
     get:
@@ -3750,6 +3754,9 @@ paths:
                   error_handler_fallback_to_instance_alerts:
                     type: boolean
                     description: Report failed jobs to the instance critical alert channels when no workspace error handler is set.
+                  guest_access_enabled:
+                    type: boolean
+                    description: Whether this workspace admits guest sessions. An app's own `guest` execution mode is inert while this is false.
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:
@@ -5731,6 +5738,39 @@ paths:
                 default_app_path:
                   type: string
 
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/edit_guest_access:
+    post:
+      summary: enable or disable guest sessions for this workspace
+      description: >-
+        Guests are people the identity provider authenticates who are members of no
+        workspace, so they take no seat. Off by default. Checked where a guest session
+        is minted, so turning it off stops new guests immediately even for apps whose
+        policy already says `guest`; sessions already handed out run out on their own.
+      operationId: editGuestAccess
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Whether guest sessions are admitted
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                guest_access_enabled:
+                  type: boolean
+              required:
+                - guest_access_enabled
       responses:
         "200":
           description: status
@@ -12965,6 +13005,34 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/apps_u/guest_entry/{path}:
+    get:
+      summary: whether the app behind a share secret admits guests
+      description: >-
+        Unauthenticated: what a signed-out visitor reads to learn that signing in
+        would let them in. 404 unless the app's execution mode is `guest` AND the
+        workspace has `guest_access_enabled`, so it says nothing about apps that are
+        not open to guests. Discloses only the app path, to a caller already holding
+        the share secret.
+      operationId: getGuestEntry
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: the app is open to guests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app_path:
+                    type: string
+                required:
+                  - app_path
 
   /w/{workspace}/apps_u/public_app/{path}:
     get:
@@ -33128,14 +33196,16 @@ components:
                 type: string
         execution_mode:
           type: string
-          enum: [viewer, publisher, anonymous]
+          enum: [viewer, publisher, guest, anonymous]
           description: >-
-            Who the app's runnables execute as. Optional, and what omitting it
-            means depends on the operation: creating an app defaults it to
-            `publisher` (runs on behalf of the app's publisher and requires an
-            authenticated viewer), while updating one keeps the mode the app is
-            already deployed under. Either way `anonymous`, which makes the app
-            publicly executable, is never assumed
+            Who may open the app, and who its runnables execute as. Optional, and
+            what omitting it means depends on the operation: creating an app
+            defaults it to `publisher` (runs on behalf of the app's publisher and
+            requires an authenticated viewer), while updating one keeps the mode
+            the app is already deployed under. Neither `anonymous`, which makes
+            the app publicly executable, nor `guest`, which opens it to anyone the
+            identity provider authenticates, is ever assumed. `guest` is
+            additionally inert unless the workspace has `guest_access_enabled`
         on_behalf_of:
           type: string
         on_behalf_of_email:
@@ -33186,7 +33256,7 @@ components:
           format: date-time
         execution_mode:
           type: string
-          enum: [viewer, publisher, anonymous]
+          enum: [viewer, publisher, guest, anonymous]
         raw_app:
           type: boolean
         labels:
@@ -35008,6 +35078,7 @@ components:
         - RestrictDeployToDeployers
         - RestrictAnonymousAppDeployment
         - RestrictPublicRunSharing
+        - RestrictGuestAppDeployment
     RuleBypasserGroups:
       type: array
       description: Groups that can bypass this ruleset

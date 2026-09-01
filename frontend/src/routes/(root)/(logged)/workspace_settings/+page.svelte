@@ -187,6 +187,8 @@
 	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let publicAppRateLimitPerMinute: number | undefined = $state(undefined)
+	let guestAccessEnabled: boolean = $state(false)
+	let initialGuestAccessEnabled: boolean = $state(false)
 	let initialPublicAppRateLimitPerMinute: number | undefined = $state(undefined)
 
 	let hasInstanceAiConfig = $state(false)
@@ -528,6 +530,22 @@
 		if (publicAppRateLimitPerMinute !== initialPublicAppRateLimitPerMinute) {
 			await editPublicAppRateLimit()
 		}
+		if (guestAccessEnabled !== initialGuestAccessEnabled) {
+			await editGuestAccess()
+		}
+	}
+
+	async function editGuestAccess(): Promise<void> {
+		await WorkspaceService.editGuestAccess({
+			workspace: $workspaceStore!,
+			requestBody: { guest_access_enabled: guestAccessEnabled }
+		})
+		initialGuestAccessEnabled = guestAccessEnabled
+		sendUserToast(
+			guestAccessEnabled
+				? 'Guests can now open apps set to Guests in this workspace'
+				: 'Guests can no longer sign in to this workspace'
+		)
 	}
 
 	async function loadWorkspaceEncryptionKey(): Promise<void> {
@@ -623,6 +641,8 @@
 		initialCriticalAlertUIMuted = settings.mute_critical_alerts
 		publicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
 		initialPublicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
+		guestAccessEnabled = settings.guest_access_enabled ?? false
+		initialGuestAccessEnabled = settings.guest_access_enabled ?? false
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
 		} else if (
@@ -1024,11 +1044,13 @@
 		return {
 			savedValue: {
 				defaultAppPath: initialWorkspaceDefaultAppPath,
-				publicAppRateLimitPerMinute: initialPublicAppRateLimitPerMinute
+				publicAppRateLimitPerMinute: initialPublicAppRateLimitPerMinute,
+				guestAccessEnabled: initialGuestAccessEnabled
 			},
 			modifiedValue: {
 				defaultAppPath: workspaceDefaultAppPath,
-				publicAppRateLimitPerMinute: publicAppRateLimitPerMinute
+				publicAppRateLimitPerMinute: publicAppRateLimitPerMinute,
+				guestAccessEnabled: guestAccessEnabled
 			}
 		}
 	}
@@ -1037,6 +1059,7 @@
 	function discardDefaultAppSettingsChanges() {
 		workspaceDefaultAppPath = initialWorkspaceDefaultAppPath
 		publicAppRateLimitPerMinute = initialPublicAppRateLimitPerMinute
+		guestAccessEnabled = initialGuestAccessEnabled
 	}
 
 	// Strip keys from extraArgs that are auto-managed by child components:
@@ -2150,6 +2173,17 @@ export async function main(
 									class="w-48"
 								/>
 								<span class="text-hint text-2xs">executions per minute per server</span>
+							</SettingCard>
+
+							<SettingCard
+								label="Guests"
+								description="Let anyone your identity provider authenticates open the apps set to Guests. They join no workspace, see nothing else, and take no seat. Off by default. Turning it off stops new guests from signing in even for apps already set to Guests; sessions already open run out on their own."
+								class="mt-6"
+							>
+								<Toggle
+									bind:checked={guestAccessEnabled}
+									options={{ right: 'Allow guests to open apps set to Guests' }}
+								/>
 							</SettingCard>
 
 							<SettingsFooter

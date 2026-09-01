@@ -500,6 +500,27 @@ pub fn check_route_access(
         }
     }
 
+    // A guest session carries the same broad read scopes as an embed token and for
+    // the same handful of routes, so it gets the same default-deny. The denial is
+    // `GuestPromotionRequired` rather than `PermissionDenied`: a guest is not short
+    // one grant, they are short an account, and that is fixable from the browser.
+    let is_guest = has_guest_sentinel(Some(token_scopes));
+    if is_guest {
+        if let Some(suffix) = route_suffix.as_deref() {
+            if guest_route_denied(required_domain, suffix) {
+                return Err(Error::GuestPromotionRequired(format!(
+                    "a guest session cannot access {route_path}"
+                )));
+            }
+            // Same rationale as the embed branch: re-running a component supersedes
+            // its in-flight run, and `cancel_job_api` confines this to the caller's
+            // own jobs.
+            if suffix.starts_with("jobs_u/queue/cancel/") {
+                return Ok(());
+            }
+        }
+    }
+
     // Each declared scope must grant what its prompt said and no more:
     // `jobs:run` only deployed runnables, `users:read` only the viewer's identity.
     if has_raw_app_sdk_sentinel(Some(token_scopes)) {
@@ -576,6 +597,12 @@ pub fn check_route_access(
     } else {
         format!("{}:{}", required_domain.as_str(), required_action.as_str())
     };
+
+    if is_guest {
+        return Err(Error::GuestPromotionRequired(format!(
+            "a guest session cannot access {route_path} (would need {scope_display})"
+        )));
+    }
 
     Err(Error::PermissionDenied(format!(
         "Access denied. Required scope: {}",
@@ -753,6 +780,19 @@ pub fn has_app_embed_sentinel(scopes: Option<&[String]>) -> bool {
     scopes.is_some_and(|s| s.iter().any(|x| x == APP_EMBED_SENTINEL))
 }
 
+/// Sentinel in a guest session token: someone the identity provider authenticated
+/// who is a member of no workspace. Grants nothing itself. It confines the session
+/// to the app surface the same way `app_embed` does, and it turns a denial into
+/// [`Error::GuestPromotionRequired`] so the frontend offers a real account instead
+/// of a dead end.
+pub const GUEST_SENTINEL: &str = "guest";
+
+/// True if a token is a guest session. Such a session has no `usr` row, so its
+/// scopes are its entire grant — every ACL check denies it on its own.
+pub fn has_guest_sentinel(scopes: Option<&[String]>) -> bool {
+    scopes.is_some_and(|s| s.iter().any(|x| x == GUEST_SENTINEL))
+}
+
 /// Sentinel in raw-app SDK tokens. Grants nothing; `check_route_access` uses it
 /// to narrow the declared scopes to what the viewer's prompt promised.
 pub const RAW_APP_SDK_SENTINEL: &str = "raw_app_sdk";
@@ -813,6 +853,19 @@ fn app_embed_apps_route_allowed(suffix: &str) -> bool {
         return false;
     }
     suffix.starts_with("apps/get/p/") || suffix.starts_with("apps_u/")
+}
+
+/// Routes a guest session is denied: the app-embed allowlist, plus the embed-token
+/// mint. A guest session is the *embedder* — the viewer's own browser rendering the
+/// app page — not the app's own JS, and the page mints the iframe's token from it.
+///
+/// Everything else stays default-denied, so a guest reaches the app it was let in
+/// for and nothing around it.
+fn guest_route_denied(domain: ScopeDomain, suffix: &str) -> bool {
+    if domain == ScopeDomain::Apps && suffix.starts_with("apps_u/embed_token") {
+        return false;
+    }
+    app_embed_route_denied(domain, suffix)
 }
 
 /// Job routes a running app uses (the by-id poll/cancel surface driven by the

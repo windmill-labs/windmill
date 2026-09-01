@@ -1,0 +1,234 @@
+//! Tests for the `guest` app execution mode.
+//!
+//! A guest is someone the identity provider authenticated who is a member of no
+//! workspace: no `usr` row, no `password` row, and so no seat on any counter. That
+//! absence is the whole point, and it means a guest session has no ACL of its own —
+//! its token's scopes are its entire grant. These tests pin the two things that
+//! would silently undo it:
+//!
+//!   * the confinement — a guest reaches the one app it was let in for and nothing
+//!     else, and is told its denial is fixable by signing up properly;
+//!   * the two gates — an app's own `execution_mode: guest` is inert unless the
+//!     workspace switch is on, checked at the door rather than only where a policy
+//!     is written (git-sync and the CLI push policies past every UI).
+//!
+//! The token is inserted directly: how a guest session is minted is the identity
+//! provider's business (EE), what one can do is this file's.
+//!
+//! Users from the `base` fixture:
+//!   test-user   (admin,     token SECRET_TOKEN)
+
+use serde_json::json;
+use sqlx::{Pool, Postgres};
+use windmill_test_utils::*;
+
+const ADMIN_TOKEN: &str = "SECRET_TOKEN";
+const GUEST_TOKEN: &str = "GUEST_SECRET_TOKEN";
+const APP_PATH: &str = "u/test-user/guest_app";
+
+fn client() -> reqwest::Client {
+    reqwest::Client::new()
+}
+
+fn authed(builder: reqwest::RequestBuilder, token: &str) -> reqwest::RequestBuilder {
+    builder.header("Authorization", format!("Bearer {}", token))
+}
+
+/// Insert a guest session for `test-workspace`, scoped to `APP_PATH`. Mirrors
+/// `create_guest_session_token`: the sentinel, the narrow reads, the two path-scoped
+/// app grants, and the workspace pin.
+async fn insert_guest_token(db: &Pool<Postgres>, workspace: &str) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, scopes, workspace_id)
+         VALUES (encode(sha256($1::bytea), 'hex'), 'GUEST_SECR', $2, 'guest@example.com',
+                 'session', $3, $4)",
+    )
+    .bind(GUEST_TOKEN.as_bytes())
+    .bind(GUEST_TOKEN)
+    .bind(vec![
+        "guest".to_string(),
+        "jobs:read".to_string(),
+        "resources:run".to_string(),
+        "users:read".to_string(),
+        "folders:read".to_string(),
+        format!("apps:read:{APP_PATH}"),
+        format!("apps:run:{APP_PATH}"),
+    ])
+    .bind(workspace)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn guest_session_is_confined_to_its_app(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    insert_guest_token(&db, "test-workspace").await?;
+
+    // Its own identity resolves, and reports the role rather than falling through to
+    // the non-member branch that hands out a `superadmin` shape.
+    let resp = authed(client().get(format!("{ws}/users/whoami")), GUEST_TOKEN)
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "guest whoami must resolve");
+    let me: serde_json::Value = resp.json().await?;
+    assert_eq!(
+        me["role"],
+        json!("guest"),
+        "guest must not read as superadmin"
+    );
+    assert_eq!(me["operator"], json!(true));
+    assert_eq!(me["is_admin"], json!(false));
+
+    // Everything outside the app surface is denied, and denied in a way the frontend
+    // can act on: `x-windmill-promote` is what turns a dead end into a sign-up.
+    // `resources/list_names` and the type schemas stay open — a guest drives an app,
+    // and app pickers need them — so the line to pin is the value-returning route.
+    for route in [
+        "jobs/list",
+        "scripts/list",
+        "flows/list",
+        "variables/list",
+        "resources/get_value/u/test-user/secret",
+        "apps/list",
+    ] {
+        let resp = authed(client().get(format!("{ws}/{route}")), GUEST_TOKEN)
+            .send()
+            .await?;
+        assert_eq!(
+            resp.status(),
+            403,
+            "guest must be denied {route}, got {}",
+            resp.status()
+        );
+        assert_eq!(
+            resp.headers()
+                .get("x-windmill-promote")
+                .map(|v| v.to_str().unwrap()),
+            Some("1"),
+            "denial of {route} must be marked promotable"
+        );
+    }
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn guest_token_does_not_cross_workspaces(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // A second workspace with an app at the SAME path: without the token's workspace
+    // pin, `apps:run:<path>` would unlock it too, since a path is not unique across
+    // workspaces.
+    sqlx::query(
+        "INSERT INTO workspace (id, name, owner) VALUES ('other-ws', 'other-ws', 'test-user')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query("INSERT INTO workspace_settings (workspace_id) VALUES ('other-ws')")
+        .execute(&db)
+        .await?;
+
+    insert_guest_token(&db, "test-workspace").await?;
+
+    let resp = authed(
+        client().get(format!(
+            "http://localhost:{port}/api/w/other-ws/apps/get/p/{APP_PATH}"
+        )),
+        GUEST_TOKEN,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "a guest token pinned to one workspace must not authenticate against another"
+    );
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn guest_entry_needs_both_the_app_mode_and_the_workspace_switch(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
+        .json(&json!({
+            "path": APP_PATH,
+            "summary": "Guest app",
+            "value": {},
+            "policy": { "execution_mode": "guest", "triggerables": {} }
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+
+    let secret: String = authed(
+        client().get(format!("{ws}/apps/secret_of/{APP_PATH}")),
+        ADMIN_TOKEN,
+    )
+    .send()
+    .await?
+    .text()
+    .await?;
+
+    // The app says guest, the workspace has not opted in: inert.
+    let resp = client()
+        .get(format!("{ws}/apps_u/guest_entry/{secret}"))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        404,
+        "a guest app in a workspace that has not enabled guests must not advertise entry"
+    );
+
+    authed(
+        client().post(format!("{ws}/workspaces/edit_guest_access")),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({ "guest_access_enabled": true }))
+    .send()
+    .await?;
+
+    // Unauthenticated on purpose: this is what a signed-out visitor reads.
+    let resp = client()
+        .get(format!("{ws}/apps_u/guest_entry/{secret}"))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let entry: serde_json::Value = resp.json().await?;
+    assert_eq!(entry["app_path"], json!(APP_PATH));
+
+    // Turning the switch back off closes the door again even though the app's own
+    // policy is unchanged.
+    authed(
+        client().post(format!("{ws}/workspaces/edit_guest_access")),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({ "guest_access_enabled": false }))
+    .send()
+    .await?;
+    let resp = client()
+        .get(format!("{ws}/apps_u/guest_entry/{secret}"))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        404,
+        "turning guests off must stop advertising entry for an app already set to guest"
+    );
+
+    Ok(())
+}

@@ -745,7 +745,31 @@ async fn whoami(
     Path(w_id): Path<String>,
     authed: ApiAuthed,
 ) -> JsonResult<UserInfo> {
+    let is_guest = windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref());
     let ApiAuthed { username, email, is_admin, groups, folders, .. } = authed;
+    // A guest has no `usr` row by construction, so it would otherwise fall through to
+    // the non-member branch below and be handed a `superadmin` role. Answer it here,
+    // as the operator-shaped identity it actually is.
+    if is_guest {
+        return Ok(Json(UserInfo {
+            workspace_id: w_id,
+            email,
+            username,
+            name: None,
+            is_admin: false,
+            is_super_admin: false,
+            created_at: chrono::Utc::now(),
+            groups: vec![],
+            operator: true,
+            disabled: false,
+            role: Some("guest".to_string()),
+            folders_read: vec![],
+            folders: vec![],
+            folders_owners: vec![],
+            is_service_account: false,
+            non_member: true,
+        }));
+    }
     let user = get_user(&w_id, &username, &db).await?;
     // Only treat the row as "this user is a member" when its email matches; the
     // derived username is instance-unique so a match on a different email should
@@ -2882,7 +2906,12 @@ pub async fn create_session_token<'c>(
     .execute(&mut **tx)
     .await?;
 
-    let mut cookie = Cookie::new(COOKIE_NAME, token.clone());
+    set_session_cookie(&cookies, &token, *MAX_SESSION_VALIDITY_SECONDS);
+    Ok(token)
+}
+
+fn set_session_cookie(cookies: &Cookies, token: &str, validity_seconds: i64) {
+    let mut cookie = Cookie::new(COOKIE_NAME, token.to_string());
     cookie.set_secure(IS_SECURE.load(std::sync::atomic::Ordering::Relaxed));
     cookie.set_same_site(Some(tower_cookies::cookie::SameSite::Lax));
     cookie.set_http_only(true);
@@ -2892,9 +2921,118 @@ pub async fn create_session_token<'c>(
     }
 
     let mut expire: OffsetDateTime = time::OffsetDateTime::now_utc();
-    expire += time::Duration::seconds(*MAX_SESSION_VALIDITY_SECONDS);
+    expire += time::Duration::seconds(validity_seconds);
     cookie.set_expires(expire);
     cookies.add(cookie);
+}
+
+lazy_static::lazy_static! {
+    /// A guest session is the only credential held by someone with no account, so
+    /// there is nothing to disable when the workspace revokes guest access or the
+    /// identity provider removes them — the expiry is the revocation. Much shorter
+    /// than a member session for that reason.
+    static ref GUEST_SESSION_VALIDITY_SECONDS: i64 = std::env::var("GUEST_SESSION_VALIDITY_SECONDS")
+        .ok()
+        .and_then(|x| x.parse::<i64>().ok())
+        .unwrap_or(8 * 60 * 60);
+}
+
+/// Scopes a guest session carries. Mirrors `APP_EMBED_SCOPES` — the same broad-looking
+/// reads narrowed to a route allowlist by the sentinel (`guest_route_denied`) — plus the
+/// two path-scoped app grants minted per app. A guest has no `usr` row, so this list is
+/// the whole of what it can do.
+fn guest_session_scopes(app_path: &str) -> Vec<String> {
+    vec![
+        windmill_api_auth::scopes::GUEST_SENTINEL.to_string(),
+        "jobs:read".to_string(),
+        "resources:run".to_string(),
+        "users:read".to_string(),
+        "folders:read".to_string(),
+        format!("apps:read:{app_path}"),
+        format!("apps:run:{app_path}"),
+    ]
+}
+
+/// Mint a browser session for someone the identity provider authenticated who is a
+/// member of no workspace, so they can open one guest-mode app.
+///
+/// Writes no `password` and no `usr` row: that absence is what keeps a guest off every
+/// seat counter, so nothing here may be "helpfully" upgraded into provisioning.
+///
+/// The token is pinned to `w_id`: `AuthCache` matches on `token.workspace_id`, and
+/// without the pin an `apps:run:<path>` scope would also unlock a same-path app in
+/// another workspace. The pin also means a guest cannot authenticate on any
+/// workspace-less route at all — `/api/users/*`, `/api/settings/*` — since those
+/// resolve with a NULL workspace and the match fails. That is the intent, and the
+/// chrome-less public app page calls none of them; a page that needs one for a guest
+/// has to become workspace-scoped rather than the pin being loosened.
+///
+/// The caller is responsible for having checked [`is_guest_access_enabled`].
+pub async fn create_guest_session_token<'c>(
+    email: &str,
+    w_id: &str,
+    app_path: &str,
+    tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+    cookies: Cookies,
+) -> Result<String> {
+    use windmill_common::min_version::MIN_VERSION_SUPPORTS_TOKEN_HASH;
+
+    let token = rd_string(32);
+    let t_hash = windmill_common::auth::hash_token(&token);
+    let t_prefix = token.get(..TOKEN_PREFIX_LEN).unwrap_or(&token);
+    let plaintext: Option<&str> = if MIN_VERSION_SUPPORTS_TOKEN_HASH.met().await {
+        None
+    } else {
+        Some(&token)
+    };
+    let scopes = guest_session_scopes(app_path);
+
+    sqlx::query!(
+        "INSERT INTO token
+            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, workspace_id)
+            VALUES ($1, $2, $3, $4, 'session', now() + ($5 || ' seconds')::interval, false, $6, $7)",
+        t_hash,
+        t_prefix,
+        plaintext as Option<&str>,
+        email,
+        &GUEST_SESSION_VALIDITY_SECONDS.to_string(),
+        &scopes,
+        w_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // The only durable record that a guest was here: no `usr` row means no membership
+    // to read them off, and the seat scan reads this rather than the audit log (see the
+    // migration). Idempotent per email, workspace and day.
+    sqlx::query!(
+        "INSERT INTO guest_activity (email, workspace_id, day)
+         VALUES ($1, $2, CURRENT_DATE)
+         ON CONFLICT (email, workspace_id, day)
+         DO UPDATE SET last_seen_at = now()",
+        email,
+        w_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    audit_log(
+        &mut **tx,
+        &AuditAuthor {
+            email: email.to_string(),
+            username: email.to_string(),
+            username_override: None,
+            token_prefix: Some(t_prefix.to_string()),
+        },
+        "users.login_guest",
+        ActionKind::Create,
+        w_id,
+        Some(app_path),
+        None,
+    )
+    .await?;
+
+    set_session_cookie(&cookies, &token, *GUEST_SESSION_VALIDITY_SECONDS);
     Ok(token)
 }
 

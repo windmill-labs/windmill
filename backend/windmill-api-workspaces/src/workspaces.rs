@@ -150,6 +150,7 @@ pub fn workspaced_service() -> Router {
         )
         .route("/edit_deploy_ui_config", post(edit_deploy_ui_config))
         .route("/edit_default_app", post(edit_default_app))
+        .route("/edit_guest_access", post(edit_guest_access))
         .route("/default_app", get(get_default_app))
         .route(
             "/default_scripts",
@@ -316,6 +317,10 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_app_execution_limit_per_minute: Option<i32>,
     pub error_handler_fallback_to_instance_alerts: bool,
+    /// Whether this workspace admits guest sessions -- someone the identity provider
+    /// authenticated who is a member of nothing, and who therefore takes no seat. An
+    /// app's own `execution_mode: guest` is inert while this is off.
+    pub guest_access_enabled: bool,
 }
 
 /// Subset of `WorkspaceSettings` that is safe to return to any workspace
@@ -338,6 +343,9 @@ pub struct WorkspacePublicSettings {
     pub teams_team_guid: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mute_critical_alerts: Option<bool>,
+    /// Not sensitive, and the app editor needs it to say whether the guest rung is
+    /// live -- an app can be set to `guest` while the workspace has guests off.
+    pub guest_access_enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deploy_ui: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1072,7 +1080,8 @@ async fn get_settings(
             error_handler,
             success_handler,
             public_app_execution_limit_per_minute,
-            error_handler_fallback_to_instance_alerts
+            error_handler_fallback_to_instance_alerts,
+            guest_access_enabled
         FROM
             workspace_settings
         WHERE
@@ -1111,6 +1120,7 @@ async fn get_public_settings(
             teams_team_name,
             teams_team_guid,
             mute_critical_alerts,
+            guest_access_enabled,
             deploy_ui,
             large_file_storage,
             datatable
@@ -4592,6 +4602,51 @@ async fn edit_default_app(
         "Setting a workspace default app is only available on Windmill Enterprise Edition"
             .to_string(),
     ));
+}
+
+#[derive(Deserialize)]
+struct EditGuestAccess {
+    guest_access_enabled: bool,
+}
+
+/// Turn guest sessions on or off for this workspace. Off by default, and off is
+/// authoritative: an app whose policy already says `guest` stops admitting them at
+/// the next sign-in, because the switch is checked where the session is minted.
+///
+/// Sessions already handed out are not revoked — a guest has no account to disable —
+/// and run out on their own (`GUEST_SESSION_VALIDITY_SECONDS`).
+async fn edit_guest_access(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(EditGuestAccess { guest_access_enabled }): Json<EditGuestAccess>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "UPDATE workspace_settings SET guest_access_enabled = $1 WHERE workspace_id = $2",
+        guest_access_enabled,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_guest_access",
+        ActionKind::Update,
+        &w_id,
+        Some(&guest_access_enabled.to_string()),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!(
+        "Guest access set to {guest_access_enabled} for workspace {w_id}"
+    ))
 }
 
 async fn edit_default_scripts(

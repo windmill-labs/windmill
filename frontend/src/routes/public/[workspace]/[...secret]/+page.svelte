@@ -16,6 +16,10 @@
 	let notExists = $state(false)
 	let noPermission = $state(false)
 	let jwtError = $state(false)
+	/** `<workspace>/<app_path>` when this app is open to guests, so the sign-in card can
+	 * offer a guest session rather than a dead end. 404 (the common case) leaves it
+	 * undefined. */
+	let guestAppPath: string | undefined = $state(undefined)
 
 	function parseSecret(secret: string): { secret: string; jwt: string | undefined } {
 		const parts = secret.split('/')
@@ -83,6 +87,20 @@
 			} else {
 				notExists = true
 			}
+			await loadGuestEntry()
+		}
+	}
+
+	async function loadGuestEntry() {
+		try {
+			const entry = await AppService.getGuestEntry({ workspace, path: parsedSecret.secret })
+			guestAppPath = `${workspace}/${entry.app_path}`
+			// The app exists and admits guests; the load failed only for want of a session,
+			// so offer one instead of the not-found page.
+			notExists = false
+			noPermission = true
+		} catch {
+			guestAppPath = undefined
 		}
 	}
 
@@ -106,6 +124,7 @@
 			{notExists}
 			{noPermission}
 			{jwtError}
+			{guestAppPath}
 			onLoginSuccess={() => loadApp()}
 		></PublicApp>
 	{/snippet}

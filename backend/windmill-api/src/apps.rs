@@ -170,6 +170,7 @@ pub fn unauthed_service() -> Router {
         )
         .route("/load_csv_preview/{*path}", get(app_load_csv_preview))
         .route("/public_app/{secret}", get(get_public_app_by_secret))
+        .route("/guest_entry/{secret}", get(get_guest_entry))
         .route("/embed_token/{secret}", get(get_app_embed_token))
         .route("/public_resource/{*path}", get(get_public_resource))
         .route("/get_data/v/{*id}", get(get_raw_app_data))
@@ -288,12 +289,112 @@ pub type AllowUserResources = Vec<String>;
 #[serde(rename_all = "lowercase")]
 pub enum ExecutionMode {
     Anonymous,
+    /// Login required, workspace membership not: anyone the instance's identity
+    /// provider authenticates may open the app, and the runnables execute as the
+    /// publisher exactly as in [`ExecutionMode::Publisher`]. Such a viewer holds a
+    /// guest session — no `usr` row, no `password` row, no seat — so it is only
+    /// honored where `workspace_settings.guest_access_enabled` is on, checked
+    /// where the session is minted rather than here.
+    Guest,
     /// Default for a policy that omits `execution_mode`. It MUST stay a mode
     /// that requires an authenticated viewer: an omitted field must never be
     /// able to publish an app anonymously (publicly executable).
     #[default]
     Publisher,
     Viewer,
+}
+
+impl ExecutionMode {
+    /// The serialized form, matching this enum's `rename_all = "lowercase"`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ExecutionMode::Anonymous => "anonymous",
+            ExecutionMode::Guest => "guest",
+            ExecutionMode::Publisher => "publisher",
+            ExecutionMode::Viewer => "viewer",
+        }
+    }
+}
+
+/// The protection rule gating a *transition into* `mode`, if any. Anonymous and
+/// guest each widen who may open an app past the workspace's own members, so each
+/// carries its own rule; the two member-only modes are ungated.
+fn deployment_rule_for_mode(mode: ExecutionMode) -> Option<ProtectionRuleKind> {
+    match mode {
+        ExecutionMode::Anonymous => Some(ProtectionRuleKind::RestrictAnonymousAppDeployment),
+        ExecutionMode::Guest => Some(ProtectionRuleKind::RestrictGuestAppDeployment),
+        ExecutionMode::Publisher | ExecutionMode::Viewer => None,
+    }
+}
+
+/// Gate a viewer on the app's `execution_mode`, as far as can be decided without an
+/// ACL probe. `Ok(true)` means already authorized — anonymous admits anyone, guest
+/// admits anyone signed in; `Ok(false)` means the caller is a member and still owes
+/// the read-access check its caller performs.
+///
+/// A guest is authorized by its token's scope and never by an ACL probe: it holds no
+/// `usr` row, so RLS finds nothing for it and every guest would read as having no
+/// access. That scope is also what keeps a guest session to the one app it was minted
+/// for, even though the mode itself admits anyone signed in.
+pub fn authorize_non_member_viewer(
+    mode: ExecutionMode,
+    app_path: &str,
+    opt_authed: &Option<ApiAuthed>,
+) -> Result<bool> {
+    if matches!(mode, ExecutionMode::Anonymous) {
+        return Ok(true);
+    }
+    let Some(authed) = opt_authed.as_ref() else {
+        return Err(Error::NotAuthorized(
+            "App visibility does not allow public access and you are not logged in".to_string(),
+        ));
+    };
+    let is_guest = windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref());
+    if matches!(mode, ExecutionMode::Guest) {
+        if is_guest {
+            check_scopes(authed, || format!("apps:read:{}", app_path))?;
+        }
+        return Ok(true);
+    }
+    if is_guest {
+        return Err(Error::GuestPromotionRequired(format!(
+            "app {app_path} is not open to guests"
+        )));
+    }
+    Ok(false)
+}
+
+/// [`authorize_non_member_viewer`] plus the member read-access probe, for the
+/// entry points that address an app by id.
+async fn authorize_app_viewer(
+    mode: ExecutionMode,
+    app_path: &str,
+    app_id: i64,
+    w_id: &str,
+    user_db: &UserDB,
+    opt_authed: &Option<ApiAuthed>,
+) -> Result<()> {
+    if authorize_non_member_viewer(mode, app_path, opt_authed)? {
+        return Ok(());
+    }
+    let authed = opt_authed
+        .as_ref()
+        .ok_or_else(|| Error::internal_err("authorize_app_viewer: unauthenticated".to_string()))?;
+    let mut tx = user_db.clone().begin(authed).await?;
+    let is_visible = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM app WHERE id = $1 AND workspace_id = $2)",
+        app_id,
+        w_id
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    if !is_visible.unwrap_or(false) {
+        return Err(Error::NotAuthorized(
+            "App visibility does not allow public access and you are logged in but you have no read-access to that app".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -1218,29 +1319,15 @@ async fn get_public_app_by_secret(
 
     let policy = serde_json::from_str::<Policy>(app.policy.0.get()).map_err(to_anyhow)?;
 
-    if !matches!(policy.execution_mode(), ExecutionMode::Anonymous) {
-        if opt_authed.is_none() {
-            return Err(Error::NotAuthorized(
-                "App visibility does not allow public access and you are not logged in".to_string(),
-            ));
-        } else {
-            let authed = opt_authed.unwrap();
-            let mut tx = user_db.begin(&authed).await?;
-            let is_visible = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM app WHERE id = $1 AND workspace_id = $2)",
-                id,
-                &w_id
-            )
-            .fetch_one(&mut *tx)
-            .await?;
-            tx.commit().await?;
-            if !is_visible.unwrap_or(false) {
-                return Err(Error::NotAuthorized(
-                    "App visibility does not allow public access and you are logged in but you have no read-access to that app".to_string(),
-                ));
-            }
-        }
-    }
+    authorize_app_viewer(
+        policy.execution_mode(),
+        &app.path,
+        id,
+        &w_id,
+        &user_db,
+        &opt_authed,
+    )
+    .await?;
 
     // Compute bundle_secret for raw apps
     if app.raw_app {
@@ -1601,6 +1688,40 @@ pub async fn mint_app_embed_token(
     })
 }
 
+#[derive(Serialize)]
+pub struct GuestEntry {
+    /// The app path to name when starting a guest sign-in.
+    app_path: String,
+}
+
+/// Whether the app behind this share secret admits guests, and under what path.
+///
+/// Unauthenticated on purpose: it is what a signed-out visitor reads to learn that
+/// signing in would get them in. It discloses only the app's path, to a caller who
+/// already holds the share secret — the secret is the capability here. A 404 when the
+/// app is not open to guests, so it says nothing about apps that are not.
+async fn get_guest_entry(
+    Extension(db): Extension<DB>,
+    Path((w_id, secret)): Path<(String, String)>,
+) -> JsonResult<GuestEntry> {
+    let id = get_id_from_secret(&db, &w_id, secret, None).await?;
+    let app = sqlx::query!(
+        "SELECT path, policy->>'execution_mode' as execution_mode
+         FROM app WHERE id = $1 AND workspace_id = $2",
+        id,
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?;
+    let app = not_found_if_none(app, "App", id.to_string())?;
+    if app.execution_mode.as_deref() != Some(ExecutionMode::Guest.as_str())
+        || !windmill_common::workspaces::is_guest_access_enabled(&db, &w_id).await?
+    {
+        return Err(Error::NotFound("App is not open to guests".to_string()));
+    }
+    Ok(Json(GuestEntry { app_path: app.path }))
+}
+
 /// Issue an embed token for a public app addressed by its (secret) share id.
 /// Mirrors the access check in [`get_public_app_by_secret`]: anonymous apps are
 /// reachable without auth, otherwise the caller must be logged in and have read
@@ -1649,26 +1770,13 @@ async fn get_app_embed_token(
         // logged in (so the app sees their identity), otherwise stay anonymous.
         opt_authed
     } else {
-        let authed = opt_authed.ok_or_else(|| {
-            Error::NotAuthorized(
-                "App visibility does not allow public access and you are not logged in".to_string(),
-            )
-        })?;
-        let mut tx = user_db.begin(&authed).await?;
-        let is_visible = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM app WHERE id = $1 AND workspace_id = $2)",
-            id,
-            &w_id
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        if !is_visible.unwrap_or(false) {
-            return Err(Error::NotAuthorized(
-                "App visibility does not allow public access and you are logged in but you have no read-access to that app".to_string(),
-            ));
-        }
-        Some(authed)
+        let mode = if policy.guest_execution {
+            ExecutionMode::Guest
+        } else {
+            ExecutionMode::Publisher
+        };
+        authorize_app_viewer(mode, &app.path, id, &w_id, &user_db, &opt_authed).await?;
+        opt_authed
     };
 
     let resp = build_embed_token_response(
@@ -1694,6 +1802,9 @@ async fn get_app_embed_token(
 /// strictest access interpretation.
 pub struct EmbedPolicyView {
     pub anonymous_execution: bool,
+    /// Open to anyone the identity provider authenticates. Like
+    /// `anonymous_execution`, an unknown mode reads as `false` — the strict side.
+    pub guest_execution: bool,
     pub sandbox: bool,
     /// Raw apps: author-declared scopes for the frontend SDK token; empty when
     /// the app doesn't use the frontend SDK (non-string entries are ignored).
@@ -1704,6 +1815,7 @@ pub fn parse_embed_policy(policy_str: &str) -> Result<EmbedPolicyView> {
     let v: serde_json::Value = serde_json::from_str(policy_str).map_err(to_anyhow)?;
     Ok(EmbedPolicyView {
         anonymous_execution: v.get("execution_mode").and_then(|m| m.as_str()) == Some("anonymous"),
+        guest_execution: v.get("execution_mode").and_then(|m| m.as_str()) == Some("guest"),
         sandbox: v.get("sandbox").and_then(|b| b.as_bool()).unwrap_or(false),
         frontend_sdk_scopes: v
             .get("frontend_sdk_scopes")
@@ -2287,10 +2399,10 @@ async fn create_app_internal<'a>(
     // Pin the mode the app is created under, so the stored policy states one
     // even when the caller did not.
     app.policy.set_execution_mode(app.policy.execution_mode());
-    if matches!(app.policy.execution_mode(), ExecutionMode::Anonymous) {
+    if let Some(rule) = deployment_rule_for_mode(app.policy.execution_mode()) {
         if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
             w_id,
-            &ProtectionRuleKind::RestrictAnonymousAppDeployment,
+            &rule,
             &authed.username,
             &authed.groups,
             authed.is_admin,
@@ -3308,21 +3420,22 @@ async fn update_app_internal<'a>(
                         .unwrap_or_default(),
                 );
             }
-            if matches!(npolicy.execution_mode(), ExecutionMode::Anonymous) && !authed.is_admin {
-                // Restricted users may keep deploying an app that is already
-                // public, but flipping an app to anonymous (public) access is
-                // gated by the RestrictAnonymousAppDeployment protection rule.
-                // An unreadable deployed policy reads as not-anonymous, the
-                // strict direction.
-                let already_anonymous = deployed
+            if let Some(rule) =
+                deployment_rule_for_mode(npolicy.execution_mode()).filter(|_| !authed.is_admin)
+            {
+                // Restricted users may keep deploying an app that is already open
+                // to this audience, but widening one is gated by the matching
+                // protection rule. An unreadable deployed policy reads as not
+                // already-widened, the strict direction.
+                let already_in_mode = deployed
                     .as_ref()
                     .and_then(|p| p.get("execution_mode"))
                     .and_then(|m| m.as_str())
-                    == Some("anonymous");
-                if !already_anonymous {
+                    == Some(npolicy.execution_mode().as_str());
+                if !already_in_mode {
                     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
                         w_id,
-                        &ProtectionRuleKind::RestrictAnonymousAppDeployment,
+                        &rule,
                         &authed.username,
                         &authed.groups,
                         authed.is_admin,
@@ -3570,7 +3683,9 @@ async fn get_on_behalf_details_from_policy_and_authed(
             let (permissioned_as, email) = get_on_behalf_of(&policy)?;
             (username, permissioned_as, email)
         }
-        ExecutionMode::Publisher => {
+        // Guest runs as the publisher exactly as Publisher does; the two differ only
+        // in who is let through the door, which is settled before we get here.
+        ExecutionMode::Publisher | ExecutionMode::Guest => {
             let username = opt_authed
                 .as_ref()
                 .map(|a| a.username.clone())
@@ -3880,6 +3995,21 @@ async fn execute_component(
                 crate::public_app_rate_limit::check_and_increment(&w_id, limit)?;
             }
         }
+    }
+
+    // A guest session holds no ACL of its own, so the read-permit probe below would
+    // deny every guest. What confines it is the scope the session was minted with,
+    // naming the one app it may run — and the app has to be open to guests at all.
+    if let Some(authed) = opt_authed
+        .as_ref()
+        .filter(|a| windmill_api_auth::scopes::has_guest_sentinel(a.scopes.as_deref()))
+    {
+        if !matches!(policy.execution_mode(), ExecutionMode::Guest) {
+            return Err(Error::GuestPromotionRequired(format!(
+                "app {path} is not open to guests"
+            )));
+        }
+        check_scopes(authed, || format!("apps:run:{}", path))?;
     }
 
     // Execution is publisher and an user is authenticated: check if the user is authorized to

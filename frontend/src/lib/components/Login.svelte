@@ -67,6 +67,12 @@
 		/** Reports the instance's login options once loaded, so the page around the card can
 		 * adapt its heading: a third-party login also creates the account on first use. */
 		onOptionsLoaded?: (options: { hasThirdParty: boolean }) => void
+		/** `<workspace>/<app_path>` when this sign-in is someone opening an app that is
+		 * open to guests. A third-party login then mints a guest session -- no account,
+		 * no seat -- instead of creating a user. Omitting it is what promotion is: the
+		 * same sign-in without this, which provisions them for real. Password login
+		 * ignores it: a guest has no stored credential to check. */
+		guestApp?: string | undefined
 	}
 
 	let {
@@ -79,7 +85,8 @@
 		autoRedirect = true,
 		onLoginSuccess = undefined,
 		preview = undefined,
-		onOptionsLoaded = undefined
+		onOptionsLoaded = undefined,
+		guestApp = undefined
 	}: Props = $props()
 
 	// The harness never takes effect in a production bundle, whatever a caller passes.
@@ -539,7 +546,11 @@
 		if (previewConfig) return true
 		markLoginMethodPending({ kind: 'oauth', provider })
 		persistRd()
-		let url = base + '/api/oauth/login/' + provider + (popup ? '?close=true' : '')
+		const params = new URLSearchParams()
+		if (popup) params.set('close', 'true')
+		if (guestApp) params.set('guest_app', guestApp)
+		const query = params.size > 0 ? '?' + params.toString() : ''
+		let url = base + '/api/oauth/login/' + provider + query
 		console.log('storeRedirect', popup, url)
 
 		if (popup) {

@@ -509,6 +509,34 @@ impl AuthCache {
                                                 }
                                             }
                                         }
+                                        // A guest session: authenticated by the IdP,
+                                        // member of nothing. Deliberately no `usr`
+                                        // lookup and no groups or folders, so every
+                                        // ACL denies it on its own and the token's
+                                        // scopes are its entire grant
+                                        // (`guest_route_denied`). Placed after the
+                                        // superadmin arm so a superadmin token can
+                                        // never be demoted into this one.
+                                        None if crate::scopes::has_guest_sentinel(
+                                            scopes.as_deref(),
+                                        ) =>
+                                        {
+                                            Some(ApiAuthed {
+                                                username: email.clone(),
+                                                email,
+                                                is_admin: false,
+                                                is_operator: true,
+                                                groups: vec![],
+                                                folders: vec![],
+                                                scopes,
+                                                username_override,
+                                                username_override_is_token_label,
+                                                is_session_token,
+                                                token_prefix: Some(safe_token_prefix(token)),
+                                                read_only,
+                                                job_id: None,
+                                            })
+                                        }
                                         None => None,
                                     }
                                 } else {
