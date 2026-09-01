@@ -1,4 +1,4 @@
-use sqlx::{Acquire, Pool, Postgres};
+use sqlx::{Pool, Postgres};
 use windmill_common::user_drafts::rename_drafts_of_email;
 
 /// A rename onto the same address has to be a no-op: the helper clears a draft the destination
