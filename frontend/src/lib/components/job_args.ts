@@ -1,6 +1,6 @@
 /**
  * A job's arguments as something other than the job sees them: prepared for a run form,
- * for the readers of one, and — at the bottom of the file — for a result view.
+ * for the readers of one, and for a result view.
  *
  * The form filters split by what a mistake costs: conforming must not drop what the user
  * meant to send, so it stays exact and shallow, while stripping and redacting only blank
