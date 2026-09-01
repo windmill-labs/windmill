@@ -1158,6 +1158,10 @@ async function applyTurnEnd(
 		// only for that newer catch-up to redo them — and it settles the caught-up
 		// gate too, so leave it held here.
 		if (superseded()) return
+		// Disposal is the other thing the awaits can hide: a session deleted in
+		// another tab mid-read must not have its orphaned manager re-arm the job
+		// poller or re-take the store handle disposal just closed.
+		if (runtimes.get(sessionId) !== runtime) return
 		if (found === 'unavailable') {
 			// The store is unreadable *right now*, which says nothing about the
 			// conversation — so this tab still holds the one from before the run.
@@ -1186,6 +1190,7 @@ async function applyTurnEnd(
 		// unlock the composer over a transcript missing that newer turn for as
 		// long as the queued catch-up is still reading.
 		if (superseded()) return
+		if (runtimes.get(sessionId) !== runtime) return
 		caughtUp = true
 	} catch (e) {
 		// A read that threw leaves the same mismatched pair an 'unavailable' one
