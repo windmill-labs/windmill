@@ -10456,7 +10456,7 @@ paths:
       summary: run script by path
       operationId: runScriptByPath
       x-mcp-tool: true
-      x-mcp-instructions: "You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected. An argument typed as a resource (its schema has format `resource-<type>`) is passed as the bare string `$res:<path>`, which must be the whole value of that argument -- never an object wrapper keyed on $res, and never a plain path; a variable is passed the same way as `$var:<path>`."
+      x-mcp-instructions: "You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected. A resource argument (schema format `resource-<type>`) is the bare string `$res:<path>` as that whole argument value -- not a wrapper object, not a plain path. A variable is `$var:<path>`."
       x-mcp-tool-include-query-params: []
       tags:
         - job
@@ -13814,7 +13814,7 @@ paths:
       summary: run flow by path
       operationId: runFlowByPath
       x-mcp-tool: true
-      x-mcp-instructions: "You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected. An argument typed as a resource (its schema has format `resource-<type>`) is passed as the bare string `$res:<path>`, which must be the whole value of that argument -- never an object wrapper keyed on $res, and never a plain path; a variable is passed the same way as `$var:<path>`."
+      x-mcp-instructions: "You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected. A resource argument (schema format `resource-<type>`) is the bare string `$res:<path>` as that whole argument value -- not a wrapper object, not a plain path. A variable is `$var:<path>`."
       x-mcp-tool-include-query-params: []
       tags:
         - job

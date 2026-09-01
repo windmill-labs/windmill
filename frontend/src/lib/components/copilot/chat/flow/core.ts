@@ -302,7 +302,9 @@ const patchFlowJsonToolDef = createToolDef(
 const testRunFlowSchema = z.object({
 	args: z
 		.object({})
-		.describe('Arguments to pass to the flow (optional, uses default flow inputs if not provided)')
+		.describe(
+			'Arguments to pass to the flow (optional, uses default flow inputs if not provided). An input typed as a resource takes the bare string "$res:<path>" as its whole value — never an object wrapper like {"$res": "<path>"}, and never a plain path. Same for a variable, with "$var:<path>".'
+		)
 })
 
 const testRunFlowToolDef = createToolDef(
@@ -317,7 +319,9 @@ const testRunStepSchema = z.object({
 		.object({})
 		.nullable()
 		.optional()
-		.describe('Arguments to pass to the step (optional, uses default step inputs if not provided)')
+		.describe(
+			'Arguments to pass to the step (optional, uses default step inputs if not provided). An input typed as a resource takes the bare string "$res:<path>" as its whole value — never an object wrapper like {"$res": "<path>"}, and never a plain path. Same for a variable, with "$var:<path>".'
+		)
 })
 
 const testRunStepToolDef = createToolDef(

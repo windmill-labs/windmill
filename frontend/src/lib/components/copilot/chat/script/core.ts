@@ -740,7 +740,11 @@ const TEST_RUN_SCRIPT_TOOL: ChatCompletionFunctionTool = {
 		parameters: {
 			type: 'object',
 			properties: {
-				args: { type: 'string', description: 'JSON string containing the arguments for the tool' }
+				args: {
+					type: 'string',
+					description:
+						'JSON string containing the arguments for the tool. An argument typed as a resource takes the bare string "$res:<path>" as its whole value — never an object wrapper like {"$res": "<path>"}, and never a plain path, both of which reach the script unresolved. Same for a variable, with "$var:<path>".'
+				}
 			},
 			additionalProperties: false,
 			strict: false,

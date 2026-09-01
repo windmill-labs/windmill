@@ -74,8 +74,10 @@ trigger's payload.
 }
 ```
 
-The reference is resolved before the job starts, with the caller's permissions, so the run
-fails if the caller cannot read the referenced resource or variable.
+The reference is resolved when the job runs, under the job's run-as identity — the caller for an
+ordinary run, but the configured principal for a schedule, a trigger, or a runnable set to run on
+behalf of someone else. The run fails if that identity cannot read the referenced resource or
+variable.
 
 **Never wrap it in an object.** The resolver only rewrites a JSON value that *is* a string
 starting with `$res:` / `$var:`; keys are never inspected. These are all wrong and are passed
