@@ -30,7 +30,7 @@ export type FolderPermissionCall =
 	/** `addowner`: appends to `owners` and sets `extra_perms[owner] = true`. */
 	| { kind: 'grantAdmin'; owner: string }
 	/** `removeowner` with a write flag: takes the member out of `owners` and sets their
-	 *  level, in one statement. The only way down from admin. */
+	 *  level. The only way down from admin. */
 	| { kind: 'demoteAdmin'; owner: string; write: boolean }
 	/** `acls/add`: sets `extra_perms[owner]`, for a member who is not an admin. */
 	| { kind: 'setAcl'; owner: string; write: boolean }
@@ -41,11 +41,10 @@ export type FolderPermissionCall =
 
 /** The calls that turn `prev` into `next`. Members whose role is unchanged produce none.
  *
- *  `callerOwners` is every `owners` entry the caller holds admin through — their own
- *  `u/name` and their groups. Taking one out goes last: the folder update policy matches on
- *  the live `owners`, so the rest of the save is filtered out by RLS, while `require_is_owner`
- *  reads a cached copy and still passes. The handlers discard the empty `UPDATE ... RETURNING`,
- *  so those calls report success having changed nothing. */
+ *  `callerOwners` is every `owners` entry the caller holds admin through — their own `u/name`
+ *  and their groups. Giving one up goes last because the write policy checks the row it would
+ *  produce, so for anyone but a workspace admin the call is refused outright. Sent early it
+ *  aborts the save and the changes behind it never run. */
 export function folderPermissionDiff(
 	prev: FolderMember[],
 	next: FolderMember[],

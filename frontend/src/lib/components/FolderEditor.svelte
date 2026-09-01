@@ -468,22 +468,22 @@
 					})
 					break
 				case 'remove':
-					// Sequential and ACL first: `owners` is what the update policy matches on, so
-					// giving it up goes last. Run together, `removeowner` can land first and the
-					// ACL delete is then filtered out by RLS — no rows, reported as success, and
-					// the grant the user asked to revoke stays on the folder.
-					await GranularAclService.removeGranularAcls({
+					// Sequential, and `removeowner` first: it is the one the write policy refuses
+					// when the member being removed is what makes the caller an admin. Failing it
+					// before the ACL delete leaves the folder untouched, where the other order
+					// strands a member with no grant but still in `owners`.
+					await FolderService.removeOwnerToFolder({
 						workspace,
-						path: name,
-						kind: 'folder',
+						name,
 						requestBody: { owner: call.owner }
 					})
 					// That half reached the server; a failure below leaves the removal applied in
 					// part, which the caller has to know about to reconcile its baseline.
 					onApplied()
-					await FolderService.removeOwnerToFolder({
+					await GranularAclService.removeGranularAcls({
 						workspace,
-						name,
+						path: name,
+						kind: 'folder',
 						requestBody: { owner: call.owner }
 					})
 					break
