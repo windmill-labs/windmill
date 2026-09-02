@@ -2,7 +2,7 @@
 	import { Building, MessagesSquare } from 'lucide-svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { enterSessionMode, exitSessionMode } from './sessionSwitch.svelte'
+	import { enterSessionModeFromNav, exitSessionMode } from './sessionSwitch.svelte'
 	import { goto } from '$lib/navigation'
 	import { page } from '$app/state'
 	import { base } from '$lib/base'
@@ -20,7 +20,7 @@
 	function onSelected(next: 'nav' | 'session') {
 		if (next === mode) return
 		onToggle?.()
-		if (next === 'session') void enterSessionMode()
+		if (next === 'session') void enterSessionModeFromNav()
 		else void exitSessionMode()
 	}
 

@@ -5,10 +5,12 @@ import {
 	createSession,
 	selectSession,
 	sessionInCurrentFamily,
+	sessionLastActivityAt,
 	sessionState,
 	setSessionAutoSend,
 	setSessionDraftPrompt,
 	setSessionPendingWorkspace,
+	type Session,
 	type SessionTarget
 } from './sessionState.svelte'
 import { sessionTargetHref, withPreviewParams } from './sessionMode.svelte'
@@ -56,26 +58,55 @@ export function takeNewSessionSeed(): NewSessionSeed | undefined {
 	return route ? { url: lastNavRoute, route } : undefined
 }
 
-// Enter session mode: open the active session if one is selected, else the most
-// recent non-archived session, else spin up a fresh one — then route to it.
-// Restore candidates are scoped to the active workspace family: reviving a
-// session from another family would pull that family's scope (sidebar list,
-// "Acting on" workspace) into the one the user is actually in.
+// The session entering session mode resumes: the active one if selected, else
+// the most recent non-archived one. Scoped to the active workspace family:
+// reviving a session from another family would pull that family's scope
+// (sidebar list, "Acting on" workspace) into the one the user is actually in.
+function resumableSession(): Session | undefined {
+	const current = sessionState.currentSessionId
+		? sessionState.sessions.find((s) => s.id === sessionState.currentSessionId)
+		: undefined
+	return (
+		(current && sessionInCurrentFamily(current) ? current : undefined) ??
+		sessionState.sessions.find((s) => !s.archived && sessionInCurrentFamily(s))
+	)
+}
+
+// Enter session mode: resume the session `resumableSession` picks, else spin up
+// a fresh one — then route to it.
 // `replace` swaps the current history entry instead of pushing — for the
 // sessions page's family reconcile, where Back must not return to the
 // redirected-away URL just to bounce here again.
 export async function enterSessionMode(opts?: { replace?: boolean }): Promise<void> {
-	const current = sessionState.currentSessionId
-		? sessionState.sessions.find((s) => s.id === sessionState.currentSessionId)
-		: undefined
-	const target =
-		(current && sessionInCurrentFamily(current) ? current : undefined) ??
-		sessionState.sessions.find((s) => !s.archived && sessionInCurrentFamily(s)) ??
-		createSession()
+	const target = resumableSession() ?? createSession()
 	selectSession(target.id)
 	await goto(`/sessions?session_name=${encodeURIComponent(target.name)}`, {
 		replaceState: opts?.replace ?? false
 	})
+}
+
+// How long the resumable session may have sat idle before entering from an item
+// editor starts a session on that item instead. Long enough that stepping out to
+// the editor in the middle of a conversation comes back to the same chat; short
+// enough that a session left since the previous day is not taken for the task
+// the user is now on.
+const RESUME_IDLE_LIMIT_MS = 60 * 60 * 1000
+
+// Enter session mode from the navigation rail. Coming from an item editor with
+// no session to resume, or one idle past RESUME_IDLE_LIMIT_MS, opens a fresh
+// session on that item straight away: a session that old is rarely what a visit
+// from a flow or app is about, and landing in it would only lead to "New
+// session" and the offer takeNewSessionSeed makes. Anything else resumes as
+// enterSessionMode does.
+export async function enterSessionModeFromNav(): Promise<void> {
+	if (parsePreviewItemRoute(lastNavRoute)) {
+		const resumable = resumableSession()
+		if (!resumable || Date.now() - sessionLastActivityAt(resumable) > RESUME_IDLE_LIMIT_MS) {
+			await openPageInSession(lastNavRoute)
+			return
+		}
+	}
+	await enterSessionMode()
 }
 
 // Exit session mode: back to the last navigation route (home as a fallback).
@@ -114,9 +145,9 @@ export async function openEditorInSession(
 	)
 }
 
-// Open a fresh AI session showing a workspace page (Runs, a trigger list) in its
-// preview. A page is not an editable item, so callers hand over the in-app href
-// they want the tab to load rather than a SessionTarget.
+// Open a fresh AI session showing an in-app href in its preview: a workspace
+// page (Runs, a trigger list), which is not an editable item and so has no
+// SessionTarget, or a location captured as the user left it.
 export async function openPageInSession(
 	href: string,
 	workspaceId?: string,
@@ -145,6 +176,9 @@ async function openInSession(
 		// node-run unit tests.
 		const { resetSessionPreviewTabs } = await import('./sessionRuntime.svelte')
 		resetSessionPreviewTabs(session.id, url)
+		// Hand-offs seed the page they leave, so the arrival has opened the item
+		// itself and "New session" need not offer it again.
+		navRouteOffered = true
 	}
 	selectSession(session.id)
 	await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)

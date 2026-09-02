@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { get } from 'svelte/store'
 import {
 	enterSessionMode,
+	enterSessionModeFromNav,
 	openSourceInSession,
 	rememberNavRoute,
 	startSessionWithPrompt,
@@ -22,6 +23,7 @@ import { goto } from '$lib/navigation'
 // monaco (hence that import being dynamic in the first place) and cannot load
 // under node.
 vi.mock('./sessionRuntime.svelte', () => ({ resetSessionPreviewTabs: vi.fn() }))
+import { resetSessionPreviewTabs } from './sessionRuntime.svelte'
 
 function session(over: Partial<Session> = {}): Session {
 	return { id: 's1', name: 'sess', createdAt: 0, ...over }
@@ -271,5 +273,84 @@ describe('takeNewSessionSeed', () => {
 	it('offers nothing for a non-item page', () => {
 		rememberNavRoute('/runs?workspace=ws')
 		expect(takeNewSessionSeed()).toBeUndefined()
+	})
+})
+
+describe('enterSessionModeFromNav', () => {
+	const HOUR = 60 * 60 * 1000
+	beforeEach(() => {
+		vi.mocked(goto).mockClear()
+		vi.mocked(resetSessionPreviewTabs).mockClear()
+	})
+
+	function withSession(over: Partial<Session>): { restore: () => void } {
+		const restore = withTwoFamilies('rootA')
+		const prevCurrent = sessionState.currentSessionId
+		const s = session({ workspace_id: 'rootA', ...over })
+		sessionState.sessions.push(s)
+		sessionState.currentSessionId = s.id
+		return {
+			restore: () => {
+				sessionState.sessions = sessionState.sessions.filter(
+					(x) => x.id !== s.id && x.workspace_id !== 'rootA' && x.pending_workspace_id !== 'rootA'
+				)
+				sessionState.currentSessionId = prevCurrent
+				restore()
+			}
+		}
+	}
+
+	it('resumes a recently active session even when coming from an item', async () => {
+		const { restore } = withSession({
+			id: 'nav-recent',
+			name: 'session-921',
+			lastActivityAt: Date.now() - HOUR / 2
+		})
+		try {
+			rememberNavRoute('/flows/edit/u/me/f?workspace=rootA')
+			await enterSessionModeFromNav()
+			expect(sessionState.currentSessionId).toBe('nav-recent')
+			expect(resetSessionPreviewTabs).not.toHaveBeenCalled()
+		} finally {
+			restore()
+		}
+	})
+
+	it('starts a session on the item instead of resuming one idle for hours', async () => {
+		const { restore } = withSession({
+			id: 'nav-stale',
+			name: 'session-922',
+			lastActivityAt: Date.now() - 3 * HOUR
+		})
+		try {
+			rememberNavRoute('/flows/edit/u/me/f?workspace=rootA')
+			await enterSessionModeFromNav()
+			const createdId = sessionState.currentSessionId
+			expect(createdId).not.toBe('nav-stale')
+			expect(resetSessionPreviewTabs).toHaveBeenCalledWith(
+				createdId,
+				'/flows/edit/u/me/f?workspace=rootA'
+			)
+			// The arrival opened the item itself, so "New session" does not offer it.
+			expect(takeNewSessionSeed()).toBeUndefined()
+		} finally {
+			restore()
+		}
+	})
+
+	it('resumes a stale session when coming from a non-item page', async () => {
+		const { restore } = withSession({
+			id: 'nav-stale-runs',
+			name: 'session-923',
+			lastActivityAt: Date.now() - 3 * HOUR
+		})
+		try {
+			rememberNavRoute('/runs?workspace=rootA')
+			await enterSessionModeFromNav()
+			expect(sessionState.currentSessionId).toBe('nav-stale-runs')
+			expect(resetSessionPreviewTabs).not.toHaveBeenCalled()
+		} finally {
+			restore()
+		}
 	})
 })
