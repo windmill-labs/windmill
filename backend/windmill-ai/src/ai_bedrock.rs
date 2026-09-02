@@ -339,11 +339,6 @@ impl AssumedRoleCredentials {
     }
 }
 
-/// How much of the job UUID goes into the STS role session name: enough to
-/// identify a run in CloudTrail, short enough to stay well inside the 64
-/// characters AWS allows for the whole name.
-const JOB_ID_SESSION_NAME_LEN: usize = 8;
-
 /// Assume the resource's OIDC role for a job, reusing `cached` while it is still
 /// fresh, and hand back the temporary keys to sign Bedrock requests with.
 ///
@@ -377,10 +372,10 @@ pub async fn refresh_bedrock_oidc_credentials<'a>(
             .get_id_token(AWS_OIDC_AUDIENCE)
             .await
             .map_err(|e| Error::internal_err(format!("Failed to get OIDC token: {}", e)))?;
-        let session_name = aws_role_session_name(
-            "windmill-ai-job",
-            &job_id.simple().to_string()[..JOB_ID_SESSION_NAME_LEN],
-        );
+        // The whole UUID: "windmill-ai-job-" plus 32 hex is 48 characters, well
+        // inside AWS's limit, and a truncated one would make two runs
+        // indistinguishable in CloudTrail.
+        let session_name = aws_role_session_name("windmill-ai-job", &job_id.simple().to_string());
         *cached =
             Some(assume_role_with_oidc_token(role_arn, region, id_token, &session_name).await?);
     }
@@ -388,22 +383,39 @@ pub async fn refresh_bedrock_oidc_credentials<'a>(
     Ok(cached.as_ref())
 }
 
+/// Distinguishing digest appended to a session name that had to be truncated.
+const SESSION_NAME_DIGEST_LEN: usize = 8;
+
 /// Build a role session name AWS accepts: it constrains them to
-/// `[\w+=,.@-]{2,64}`, and rejects the whole request otherwise. The name is what
-/// carries the calling job or user into the assumed-role ARN and CloudTrail, so
-/// disallowed characters are replaced rather than dropped.
+/// `[\w+=,.@-]{2,64}`, and rejects the whole request otherwise. Disallowed
+/// characters are replaced rather than dropped.
+///
+/// The name is the only thing carrying the caller into the assumed-role ARN and
+/// CloudTrail, so an identity too long to fit keeps a prefix plus a digest of the
+/// whole thing: two identities sharing a prefix would otherwise be
+/// indistinguishable in exactly the audit trail this feature exists to produce.
 pub fn aws_role_session_name(prefix: &str, identity: &str) -> String {
-    format!("{}-{}", prefix, identity)
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '_' | '+' | '=' | ',' | '.' | '@' | '-') {
-                c
-            } else {
-                '-'
-            }
-        })
-        .take(64)
-        .collect()
+    let sanitize = |s: &str| -> String {
+        s.chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || matches!(c, '_' | '+' | '=' | ',' | '.' | '@' | '-')
+                {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .collect()
+    };
+
+    let name = sanitize(&format!("{}-{}", prefix, identity));
+    if name.len() <= 64 {
+        return name;
+    }
+
+    let digest = &windmill_common::utils::calculate_hash(identity)[..SESSION_NAME_DIGEST_LEN];
+    let kept = 64 - SESSION_NAME_DIGEST_LEN - 1;
+    format!("{}-{}", &name[..kept], digest)
 }
 
 /// The region an OIDC role assumption runs in.
@@ -1215,9 +1227,10 @@ mod tests {
 
     #[test]
     fn role_session_name_stays_within_what_aws_accepts() {
+        // A whole job UUID fits, so CloudTrail names the exact run.
         assert_eq!(
-            aws_role_session_name("windmill-ai-job", "0a1b2c3d"),
-            "windmill-ai-job-0a1b2c3d"
+            aws_role_session_name("windmill-ai-job", "0a1b2c3d4e5f60718293a4b5c6d7e8f9"),
+            "windmill-ai-job-0a1b2c3d4e5f60718293a4b5c6d7e8f9"
         );
         // Usernames and emails routinely carry characters AWS rejects.
         assert_eq!(
@@ -1225,12 +1238,21 @@ mod tests {
             "windmill-ai-copilot-ada-lovelace--admin-"
         );
 
-        let long = aws_role_session_name("windmill-ai-copilot", &"é".repeat(100));
-        assert_eq!(long.chars().count(), 64);
-        assert!(long
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric()
+        // Identities too long to fit keep a digest, so a shared prefix does not
+        // collapse two callers into one CloudTrail identity.
+        let a = aws_role_session_name("windmill-ai-copilot", &format!("{}a", "x".repeat(60)));
+        let b = aws_role_session_name("windmill-ai-copilot", &format!("{}b", "x".repeat(60)));
+        assert_ne!(a, b);
+        for name in [&a, &b] {
+            assert_eq!(name.len(), 64);
+            assert!(name.chars().all(|c| c.is_ascii_alphanumeric()
                 || matches!(c, '_' | '+' | '=' | ',' | '.' | '@' | '-')));
+        }
+
+        // Sanitising before truncating keeps every char one byte, so the cap is
+        // never applied mid-character.
+        let unicode = aws_role_session_name("windmill-ai-copilot", &"é".repeat(100));
+        assert_eq!(unicode.len(), 64);
     }
 
     fn text_message(role: &str, content: &str) -> OpenAIMessage {
