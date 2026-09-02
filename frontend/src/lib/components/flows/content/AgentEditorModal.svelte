@@ -17,7 +17,6 @@
 		showAgentEditorView
 	} from '../agentEditorStore.svelte'
 	import { agentConfigToInputTransforms } from '../agentResourceUtils'
-	import { toolDisplayName } from '../agentToolUtils'
 	import { publishLinkedAgentTools } from '../flowState'
 	import { linkedToolsScope } from '../linkedAgentToolsStore.svelte'
 	import AgentEditorHost from './AgentEditorHost.svelte'
@@ -53,8 +52,6 @@
 	})
 
 	let draft = $derived(host?.draftHandle())
-	let tools = $derived((draft?.state?.args?.tools ?? []) as { id: string; summary?: string }[])
-	let openTool = $derived(target?.toolId ? tools.find((t) => t.id === target?.toolId) : undefined)
 	let inEvals = $derived(target?.view === 'evals')
 
 	// Where the evals pane is within itself, so its levels extend this dialog's trail rather than
@@ -71,22 +68,20 @@
 
 	let root = $derived<ModalTrailSegment>({
 		label: target?.path ?? 'Agent',
-		onclick: openTool || inEvals ? () => showAgentEditorView(undefined) : undefined
+		onclick: inEvals ? () => showAgentEditorView(undefined) : undefined
 	})
 	let trail = $derived<ModalTrailSegment[]>(
-		openTool
-			? [root, { label: toolDisplayName(openTool as any) }]
-			: inEvals
-				? [
-						root,
-						{ label: 'Evals', onclick: evalsLocation ? evalsLocation.back : undefined },
-						...(evalsLocation ? [{ label: evalsLocation.label }] : [])
-					]
-				: [root]
+		inEvals
+			? [
+					root,
+					{ label: 'Evals', onclick: evalsLocation ? evalsLocation.back : undefined },
+					...(evalsLocation ? [{ label: evalsLocation.label }] : [])
+				]
+			: [root]
 	)
 	// The root's alone: below it the header's second line is the way back, and what a level is for
 	// belongs to that level rather than to the dialog's own name.
-	let description = $derived(openTool || inEvals ? undefined : AGENT_DESCRIPTION)
+	let description = $derived(inEvals ? undefined : AGENT_DESCRIPTION)
 
 	/** The unsaved edits, in the shape the server builds from a deployed config
 	 *  (`ai_evals/run.rs` `config_to_draft`), so a draft run's hash can be recognised as equal to
@@ -125,8 +120,11 @@
 
 {#if target}
 	{#key `${ws}:${target.path}`}
+		<!-- Bound rather than held open: the store is what decides whether this is mounted, so every
+		     way out has to reach it. The close button and the backdrop only set `open`, and a
+		     dialog left closed over a target still set could never be opened again. -->
 		<Modal
-			open={true}
+			bind:open={() => true, (open) => !open && closeAgentEditor()}
 			kind="X"
 			fillHeight
 			enterConfirms={false}
@@ -134,7 +132,6 @@
 			{trail}
 			{description}
 			class="w-[92vw] sm:w-[92vw] max-w-[1500px] sm:max-w-[1500px] h-[88vh]"
-			on:canceled={closeAgentEditor}
 		>
 			{#snippet titleBadge()}
 				<!-- Against the agent's own name wherever it appears, as the linked-agent card in the
@@ -153,6 +150,8 @@
 					<Badge color="blue" small class="shrink-0 !py-0 leading-4">Beta</Badge>
 				{/if}
 			{/snippet}
+			<!-- Evals carries none of the editor's actions: nothing there edits the agent, and the run
+			     dialog states for itself whether a run is against the deployed version or the edits. -->
 			{#snippet settings()}
 				<div class="flex flex-row items-center gap-2 shrink-0">
 					{#if !inEvals}
@@ -165,30 +164,30 @@
 						>
 							Evals
 						</Button>
+						<Button
+							unifiedSize="sm"
+							variant="default"
+							startIcon={{ icon: History }}
+							iconOnly
+							title="Version history"
+							on:click={() => versionDrawer?.openDrawer()}
+						/>
+						<Button
+							unifiedSize="sm"
+							variant="accent"
+							startIcon={{ icon: Save }}
+							loading={saving}
+							on:click={onDeploy}
+						>
+							Deploy
+						</Button>
 					{/if}
-					<Button
-						unifiedSize="sm"
-						variant="default"
-						startIcon={{ icon: History }}
-						iconOnly
-						title="Version history"
-						on:click={() => versionDrawer?.openDrawer()}
-					/>
-					<Button
-						unifiedSize="sm"
-						variant="accent"
-						startIcon={{ icon: Save }}
-						loading={saving}
-						on:click={onDeploy}
-					>
-						Deploy
-					</Button>
 				</div>
 			{/snippet}
 			<div class="h-full min-h-0 flex flex-col">
 				<!-- Full-bleed, as a banner is everywhere else: the dialog's own horizontal padding is
 				     cancelled so it spans the body. -->
-				<div class="-mx-4 sm:-mx-6 shrink-0">
+				<div class="-mx-4 sm:-mx-6 shrink-0 {inEvals ? 'hidden' : ''}">
 					<LocalDraftBanner
 						show={draft?.sync.hasDraft ?? false}
 						reserveSpace={draft?.sync.hasBaseline ?? false}

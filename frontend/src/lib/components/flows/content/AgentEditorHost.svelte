@@ -14,6 +14,7 @@
 	import { SelectionManager } from '$lib/components/graph/selectionUtils.svelte'
 	import { ModulesTestStates } from '$lib/components/modulesTest.svelte'
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
+	import { Drawer, DrawerContent } from '$lib/components/common'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import ModulePreview from '$lib/components/ModulePreview.svelte'
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
@@ -28,7 +29,7 @@
 		type AIAgentConfig
 	} from '../agentResourceUtils'
 	import { AGENT_TOOLS_ROW } from '../agentFormFields'
-	import type { AgentTool } from '../agentToolUtils'
+	import { toolDisplayName, type AgentTool } from '../agentToolUtils'
 	import { useAgentDraft } from '../agentDraft.svelte'
 
 	interface Props {
@@ -159,6 +160,14 @@
 	let toolIndex = $derived(toolId ? tools.findIndex((t) => t.id === toolId) : -1)
 	let tool = $derived(toolIndex >= 0 ? tools[toolIndex] : undefined)
 
+	// The caller owns which tool is open, so the drawer follows it rather than holding that state
+	// itself; closing it (Escape, the X, the overlay) reports back through `on:close`.
+	let toolDrawer: Drawer | undefined = $state(undefined)
+	$effect(() => {
+		const open = tool !== undefined
+		untrack(() => (open ? toolDrawer?.openDrawer() : toolDrawer?.closeDrawer()))
+	})
+
 	// The config the synthetic module last carried, so the two directions below can tell an edit
 	// apart from the echo of their own write.
 	let lastArgs = $state<string | undefined>(undefined)
@@ -240,6 +249,17 @@
 		if (id) onSelectTool?.(id)
 	}
 
+	/** The mirror of `addTool`. These tools live in the resource rather than in a flow's module
+	 *  list, so the graph's delete has nothing here to act on. */
+	function deleteTool(id: string) {
+		if (!agentValue) return
+		const remaining = (agentValue.tools ?? []).filter((t) => t.id !== id)
+		if (remaining.length === (agentValue.tools ?? []).length) return
+		agentValue.tools = remaining
+		delete flowStateStore.val[id]
+		if (toolId === id) onSelectTool?.(undefined)
+	}
+
 	export function deploy(): Promise<boolean> {
 		return draft.deploy().then((ok) => {
 			if (ok) onSaved?.(draft.state?.path ?? path)
@@ -262,82 +282,96 @@
 	<!-- Named and positioned so the tool picker's popover can portal here: the `#flow-editor` it
 	     otherwise targets is behind this dialog, and does not exist at all on the resources page. -->
 	<div id="agent-editor" class="relative h-full min-h-0">
-		{#if tool}
-			<div class="h-full min-h-0 flex flex-col">
-				<AgentToolWrapper
-					bind:tool={() => tools[toolIndex], (v) => (tools[toolIndex] = v)}
-					parentModule={agentModule as FlowModule}
-					{enableAi}
-					forceTestTab={{ [tool.id]: true }}
-					siblingToolNames={tools.filter((t) => t.id !== tool?.id).map((t) => t.summary ?? '')}
-				/>
-			</div>
-		{:else}
-			<!-- Resizable as the step panel's config and test are: a long system prompt and a long
-			     answer want opposite splits, and only the reader knows which they are on. -->
-			<Splitpanes class="h-full">
-				<Pane size={66} minSize={30}>
-					<div class="h-full min-h-0 overflow-auto">
-						<PropPickerWrapper
+		<!-- Resizable as the step panel's config and test are: a long system prompt and a long
+		     answer want opposite splits, and only the reader knows which they are on. -->
+		<Splitpanes class="h-full">
+			<Pane size={66} minSize={30}>
+				<div class="h-full min-h-0 overflow-auto">
+					<PropPickerWrapper
+						pickableProperties={stepPropPicker?.pickableProperties}
+						noPadding
+						sidePane
+					>
+						<AiAgentStepInputs
+							class="px-4 pb-8"
+							{schema}
+							filter={brainFilter}
+							previousModuleId={undefined}
 							pickableProperties={stepPropPicker?.pickableProperties}
-							noPadding
-							sidePane
-						>
-							<AiAgentStepInputs
-								class="px-4 pb-8"
-								{schema}
-								filter={brainFilter}
-								previousModuleId={undefined}
-								pickableProperties={stepPropPicker?.pickableProperties}
-								extraLib={stepPropPicker?.extraLib ?? 'missing extraLib'}
-								{enableAi}
-								{workspace}
-								staticOnly
-								visibilityKey={`agent:${path}`}
-								{tools}
-								onSelectTool={(id) => onSelectTool?.(id)}
-								onAddTool={addTool}
-								toolPickerPortal="#agent-editor"
-								bind:args={
-									() => (agentValue?.input_transforms ?? {}) as Record<string, InputTransform>,
-									(v) => agentValue && (agentValue.input_transforms = v)
-								}
-							/>
-						</PropPickerWrapper>
-					</div>
-				</Pane>
-				<!-- Laid out as the script editor's preview column is: what a run takes above what it
-				     produced, both alongside what is being edited. -->
-				<Pane size={34} minSize={20}>
-					<Splitpanes horizontal class="h-full">
-						<Pane size={40} minSize={15}>
-							<div class="h-full overflow-auto">
-								<ModulePreview
-									mod={agentModule as FlowModule}
-									schema={flowLocalAgentSchema(schema)}
-									pickableProperties={stepPropPicker?.pickableProperties}
-									bind:testJob
-									bind:testIsLoading
-									bind:scriptProgress
-								/>
-							</div>
-						</Pane>
-						<Pane size={60} minSize={20}>
-							<ModulePreviewResultViewer
-								lang="deno"
-								editor={undefined}
-								diffEditor={undefined}
+							extraLib={stepPropPicker?.extraLib ?? 'missing extraLib'}
+							{enableAi}
+							{workspace}
+							staticOnly
+							visibilityKey={`agent:${path}`}
+							{tools}
+							onSelectTool={(id) => onSelectTool?.(id)}
+							onAddTool={addTool}
+							onDeleteTool={deleteTool}
+							toolPickerPortal="#agent-editor"
+							bind:args={
+								() => (agentValue?.input_transforms ?? {}) as Record<string, InputTransform>,
+								(v) => agentValue && (agentValue.input_transforms = v)
+							}
+						/>
+					</PropPickerWrapper>
+				</div>
+			</Pane>
+			<!-- Laid out as the script editor's preview column is: what a run takes above what it
+			     produced, both alongside what is being edited. -->
+			<Pane size={34} minSize={20}>
+				<Splitpanes horizontal class="h-full">
+					<Pane size={40} minSize={15}>
+						<div class="h-full overflow-auto">
+							<ModulePreview
 								mod={agentModule as FlowModule}
-								{testJob}
-								{testIsLoading}
-								{scriptProgress}
-								disableMock
-								disableHistory
+								schema={flowLocalAgentSchema(schema)}
+								pickableProperties={stepPropPicker?.pickableProperties}
+								bind:testJob
+								bind:testIsLoading
+								bind:scriptProgress
 							/>
-						</Pane>
-					</Splitpanes>
-				</Pane>
-			</Splitpanes>
-		{/if}
+						</div>
+					</Pane>
+					<Pane size={60} minSize={20}>
+						<ModulePreviewResultViewer
+							lang="deno"
+							editor={undefined}
+							diffEditor={undefined}
+							mod={agentModule as FlowModule}
+							{testJob}
+							{testIsLoading}
+							{scriptProgress}
+							disableMock
+							disableHistory
+						/>
+					</Pane>
+				</Splitpanes>
+			</Pane>
+		</Splitpanes>
 	</div>
+
+	<!-- A tool is a whole step editor, so it gets a surface of its own rather than a level of the
+	     dialog: the agent stays visible behind it, along with the banner and Deploy that its edits
+	     feed. -->
+	<Drawer bind:this={toolDrawer} size="1200px" on:close={() => onSelectTool?.(undefined)}>
+		<DrawerContent
+			title={(tool ? toolDisplayName(tool) : undefined) ?? 'Edit tool'}
+			on:close={() => toolDrawer?.closeDrawer()}
+			noPadding
+		>
+			{#if tool}
+				<div class="h-full min-h-0 flex flex-col">
+					<AgentToolWrapper
+						bind:tool={() => tools[toolIndex], (v) => (tools[toolIndex] = v)}
+						parentModule={agentModule as FlowModule}
+						{enableAi}
+						staticOnly
+						scriptSaveBasePath={path}
+						forceTestTab={{ [tool.id]: true }}
+						siblingToolNames={tools.filter((t) => t.id !== tool?.id).map((t) => t.summary ?? '')}
+					/>
+				</div>
+			{/if}
+		</DrawerContent>
+	</Drawer>
 {/if}
