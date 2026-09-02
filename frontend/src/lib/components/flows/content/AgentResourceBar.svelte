@@ -11,7 +11,6 @@
 	import {
 		AGENT_BRAIN_KEYS,
 		AGENT_FLOW_LOCAL_KEYS,
-		agentConfigAsEdited,
 		agentConfigToInputTransforms,
 		flowLocalInputs,
 		inputTransformsToAgentConfig,
@@ -310,11 +309,10 @@
 		}
 		saving = true
 		try {
-			const updating = false
 			const linked = await persist(newPath, description)
 			saveDrawer?.closeDrawer()
 			if (linked) {
-				sendUserToast(updating ? `Updated agent ${newPath}` : `Saved reusable agent ${newPath}`)
+				sendUserToast(`Saved reusable agent ${newPath}`)
 			}
 		} catch (e) {
 			sendUserToast(`Failed to save agent: ${e}`, true)
@@ -323,15 +321,13 @@
 		}
 	}
 
-	// Copy the resource's brain + tools into the step, for Unlink (diverge here) and Edit (change the
-	// saved agent). Unlink folds this flow's tool_inputs into the tools and clears them, so the
-	// standalone step keeps its bindings; Edit must not fold, or those overrides would be promoted
-	// into the shared agent instead of surviving the re-link.
-	async function forkFromResource(
-		foldOverrides: boolean
-	): Promise<{ path: string; deployedConfig: string } | undefined> {
+	// Copy the resource's brain + tools into the step, so it can diverge from the agent it was
+	// linked to. This flow's tool_inputs are folded into the tools and then cleared, so the
+	// standalone step keeps the bindings it was running with.
+	// Returns false when the step changed under the fetch, so the caller can say nothing happened.
+	async function forkFromResource(): Promise<boolean> {
 		if (!ws || !agent) {
-			return undefined
+			return false
 		}
 		const path = agent
 		// `tools` is one array per module value, so it identifies the step itself — the path alone
@@ -339,9 +335,9 @@
 		const stepMarker = tools
 		const res = await ResourceService.getResource({ workspace: ws, path })
 		// The module may have been replaced while the fetch was in flight (undo, session drafts);
-		// applying a stale fork would overwrite the restored state and recreate the Editing target.
+		// applying a stale fork would overwrite the restored state.
 		if (agent !== path || tools !== stepMarker) {
-			return undefined
+			return false
 		}
 		const cfg = (res.value ?? {}) as AIAgentConfig
 		// Preserve the flow-local inputs already wired in the step.
@@ -353,29 +349,24 @@
 		}
 		const forkedInputs = { ...agentConfigToInputTransforms(cfg), ...local }
 		const forkedTools = cfg.tools ?? []
-		// The baseline edits are judged against, in the form `currentConfig` takes: comparing
-		// against the resource's own JSON would count key order as an edit.
-		const deployedConfig = JSON.stringify(agentConfigAsEdited(forkedInputs, forkedTools))
 		inputTransforms = forkedInputs
-		if (foldOverrides) {
-			for (const tool of forkedTools) {
-				const overrides = toolInputs?.[tool.id]
-				if (overrides && tool.value?.input_transforms) {
-					tool.value.input_transforms = { ...tool.value.input_transforms, ...overrides }
-				}
+		for (const tool of forkedTools) {
+			const overrides = toolInputs?.[tool.id]
+			if (overrides && tool.value?.input_transforms) {
+				tool.value.input_transforms = { ...tool.value.input_transforms, ...overrides }
 			}
-			toolInputs = {}
 		}
+		toolInputs = {}
 		tools = forkedTools
 		agent = undefined
-		return { path, deployedConfig }
+		return true
 	}
 
 	// Unlink forks the agent into this step so it can diverge here. It does not write back.
 	async function unlink() {
 		try {
-			const fork = await forkFromResource(true)
-			if (fork) {
+			const forked = await forkFromResource()
+			if (forked) {
 				sendUserToast('Forked agent. Its configuration was copied into this step')
 			} else {
 				sendUserToast('The step changed while loading the agent, so nothing was unlinked', true)
@@ -397,7 +388,6 @@
 			host: { flowPath, moduleId }
 		})
 	}
-
 </script>
 
 <div class="px-2 xl:px-4 py-1.5 border-b border-light">
@@ -553,4 +543,3 @@
 		{/snippet}
 	</DrawerContent>
 </Drawer>
-
