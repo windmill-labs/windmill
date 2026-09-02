@@ -1041,6 +1041,13 @@ async fn apply_datatable_acl(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Json(req): Json<AclChangeRequest>,
 ) -> Result<String> {
+    // Taken for the same reason the role save takes it: the plan below is read
+    // off the catalog and the config, and a role save running at the same time
+    // is what changes both under it. Held to the end of this handler.
+    let mut lock_tx = db.begin().await?;
+    crate::datatable_permissions::lock_datatable_permissions(&mut lock_tx, &w_id, &datatable_name)
+        .await?;
+
     // Authorization first: the repair below opens a connection as the instance's
     // own Postgres user, which is not something a request that is about to be
     // refused gets to reach.
@@ -1076,7 +1083,7 @@ async fn apply_datatable_acl(
     })?;
 
     audit_log(
-        &db,
+        &mut *lock_tx,
         &authed,
         "datatables.acl",
         ActionKind::Update,
@@ -1085,6 +1092,7 @@ async fn apply_datatable_acl(
         Some([("target", format!("{:?}", req.target).as_str())].into()),
     )
     .await?;
+    lock_tx.commit().await?;
 
     Ok(format!("Updated access on {}", req.target.label(&dbname)))
 }

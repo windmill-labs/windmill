@@ -1076,6 +1076,140 @@ pub struct DataTableRole {
     pub tenants: Vec<String>,
 }
 
+/// Every role's tenant list in a `workspace_settings.datatable` value.
+fn datatable_tenant_lists(
+    datatable: &mut serde_json::Value,
+) -> impl Iterator<Item = &mut Vec<serde_json::Value>> {
+    datatable
+        .get_mut("datatables")
+        .and_then(|d| d.as_object_mut())
+        .into_iter()
+        .flat_map(|datatables| datatables.values_mut())
+        .filter_map(|dt| dt.get_mut("permissions"))
+        .filter_map(|p| p.get_mut("roles"))
+        .filter_map(|r| r.as_object_mut())
+        .flat_map(|roles| roles.values_mut())
+        .filter_map(|role| role.get_mut("tenants"))
+        .filter_map(|t| t.as_array_mut())
+}
+
+/// Follow one tenant across a rename, or drop it where the principal is gone.
+///
+/// A tenant is matched whole (`u/alice`, `g/devs`, `f/team`), so the `*`
+/// wildcard and every other principal are left alone. Returns whether anything
+/// changed, so a caller can skip the write.
+///
+/// Which of the two a flow needs follows the principal: a rename keeps the role
+/// with the same person, while a deletion has to take it away — the name is free
+/// afterwards, and whoever takes it next would otherwise inherit every role the
+/// old one was a tenant of.
+fn update_datatable_tenant(
+    datatable: &mut serde_json::Value,
+    tenant: &str,
+    replacement: Option<&str>,
+) -> bool {
+    let mut changed = false;
+    for tenants in datatable_tenant_lists(datatable) {
+        match replacement {
+            Some(new) => {
+                for entry in tenants.iter_mut() {
+                    if entry.as_str() == Some(tenant) {
+                        *entry = serde_json::Value::String(new.to_string());
+                        changed = true;
+                    }
+                }
+            }
+            None => {
+                let before = tenants.len();
+                tenants.retain(|entry| entry.as_str() != Some(tenant));
+                changed |= tenants.len() != before;
+            }
+        }
+    }
+    changed
+}
+
+/// `u/<old>` becomes `u/<new>` on every role that named it.
+pub fn rename_datatable_tenant(
+    datatable: &mut serde_json::Value,
+    old_tenant: &str,
+    new_tenant: &str,
+) -> bool {
+    update_datatable_tenant(datatable, old_tenant, Some(new_tenant))
+}
+
+/// Take a deleted user, group or folder off every role it was a tenant of.
+pub fn remove_datatable_tenant(datatable: &mut serde_json::Value, tenant: &str) -> bool {
+    update_datatable_tenant(datatable, tenant, None)
+}
+
+/// Take a principal off every data table role of one workspace, in the caller's
+/// own transaction.
+///
+/// The tenant and the principal have to go in the same transaction: between the
+/// two the name is free while a role still names it, and taking it is enough to
+/// inherit the role.
+pub async fn remove_datatable_tenant_in_workspace(
+    w_id: &str,
+    tenant: &str,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<()> {
+    let settings = sqlx::query_scalar!(
+        "SELECT datatable FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
+        w_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?
+    .flatten();
+    let Some(mut settings) = settings else {
+        return Ok(());
+    };
+    if remove_datatable_tenant(&mut settings, tenant) {
+        sqlx::query!(
+            "UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = $2",
+            settings,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
+/// Follow the backing postgres resource of every data table under a path that
+/// moves — a username rename, an offboarding reassignment.
+///
+/// The config stores the resource path plain, so a move that leaves it behind
+/// both stops the data table resolving and frees the old path: recreating a
+/// resource there would point it at another database with this one's roles
+/// still configured.
+pub fn move_datatable_resource_paths(
+    datatable: &mut serde_json::Value,
+    old_prefix: &str,
+    new_prefix: &str,
+) -> bool {
+    let mut changed = false;
+    for dt in datatable
+        .get_mut("datatables")
+        .and_then(|d| d.as_object_mut())
+        .into_iter()
+        .flat_map(|datatables| datatables.values_mut())
+    {
+        let Some(path) = dt
+            .get_mut("database")
+            .and_then(|d| d.get_mut("resource_path"))
+        else {
+            continue;
+        };
+        let Some(rest) = path.as_str().and_then(|p| p.strip_prefix(old_prefix)) else {
+            continue;
+        };
+        *path = serde_json::Value::String(format!("{new_prefix}{rest}"));
+        changed = true;
+    }
+    changed
+}
+
 /// Strip the generated role passwords out of a `workspace_settings.datatable`
 /// value.
 ///
@@ -1113,7 +1247,11 @@ pub fn redact_datatable_settings_for_export(
 
 /// The data tables with permissions enabled that reach their database through
 /// this resource.
-async fn datatables_permissioned_on_resource(db: &DB, w_id: &str, path: &str) -> Result<Vec<String>> {
+async fn datatables_permissioned_on_resource(
+    db: &DB,
+    w_id: &str,
+    path: &str,
+) -> Result<Vec<String>> {
     let datatables: std::collections::HashMap<String, DataTable> = sqlx::query_scalar!(
         "SELECT ws.datatable->'datatables' FROM workspace_settings ws WHERE ws.workspace_id = $1",
         w_id
@@ -2961,6 +3099,94 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    /// The tenant walk is what every flow that renames or deletes a principal
+    /// has to run, so it answers for the shapes those flows produce.
+    #[test]
+    fn a_tenant_follows_a_rename_and_leaves_with_a_deletion() {
+        let sample = || {
+            serde_json::json!({
+                "datatables": {
+                    "main": { "permissions": { "roles": {
+                        "admin": { "tenants": [] },
+                        "analyst": { "tenants": ["u/alice", "g/devs", "*"] }
+                    }}},
+                    "other": { "permissions": { "enabled": false, "roles": {
+                        "reader": { "tenants": ["f/team", "u/alice"] }
+                    }}}
+                }
+            })
+        };
+
+        // A rename matches the whole tenant, so a group or folder of the same
+        // name — and the wildcard — are not touched.
+        let mut renamed = sample();
+        assert!(rename_datatable_tenant(&mut renamed, "u/alice", "u/bob"));
+        assert_eq!(
+            renamed["datatables"]["main"]["permissions"]["roles"]["analyst"]["tenants"],
+            serde_json::json!(["u/bob", "g/devs", "*"])
+        );
+        // Every data table, including one whose permissions are off: a later
+        // re-enable would otherwise bring the stale name back.
+        assert_eq!(
+            renamed["datatables"]["other"]["permissions"]["roles"]["reader"]["tenants"],
+            serde_json::json!(["f/team", "u/bob"])
+        );
+
+        // A deletion takes the tenant away instead: the name is free afterwards.
+        let mut removed = sample();
+        assert!(remove_datatable_tenant(&mut removed, "g/devs"));
+        assert_eq!(
+            removed["datatables"]["main"]["permissions"]["roles"]["analyst"]["tenants"],
+            serde_json::json!(["u/alice", "*"])
+        );
+
+        // Nothing to do reports nothing to write.
+        let mut untouched = sample();
+        assert!(!rename_datatable_tenant(
+            &mut untouched,
+            "u/carol",
+            "u/dave"
+        ));
+        assert!(!remove_datatable_tenant(&mut untouched, "f/nope"));
+        assert_eq!(untouched, sample());
+    }
+
+    /// A data table names its database by resource path, so a flow that moves
+    /// the resource has to move the name with it.
+    #[test]
+    fn a_data_table_follows_its_resource_across_a_path_move() {
+        let mut settings = serde_json::json!({
+            "datatables": {
+                "main": { "database": { "resource_type": "postgresql", "resource_path": "u/alice/mypg" } },
+                "managed": { "database": { "resource_type": "instance", "resource_path": "dt_main" } },
+                "elsewhere": { "database": { "resource_type": "postgresql", "resource_path": "f/team/pg" } }
+            }
+        });
+        assert!(move_datatable_resource_paths(
+            &mut settings,
+            "u/alice/",
+            "f/team/"
+        ));
+        assert_eq!(
+            settings["datatables"]["main"]["database"]["resource_path"],
+            "f/team/mypg"
+        );
+        // A path that does not start with what moved is left as it is.
+        assert_eq!(
+            settings["datatables"]["managed"]["database"]["resource_path"],
+            "dt_main"
+        );
+        assert_eq!(
+            settings["datatables"]["elsewhere"]["database"]["resource_path"],
+            "f/team/pg"
+        );
+        assert!(!move_datatable_resource_paths(
+            &mut settings,
+            "u/nobody/",
+            "u/somebody/"
+        ));
     }
 
     #[test]

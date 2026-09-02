@@ -816,6 +816,16 @@ async fn delete_folder(
         )));
     }
 
+    // A data table role names its tenants by principal, so the name is free
+    // after this — and recreating a folder with it would inherit every role the
+    // old one could run as.
+    windmill_common::workspaces::remove_datatable_tenant_in_workspace(
+        &w_id,
+        &format!("f/{name}"),
+        &mut tx,
+    )
+    .await?;
+
     audit_log(
         &mut *tx,
         &authed,

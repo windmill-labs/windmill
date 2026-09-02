@@ -985,6 +985,32 @@ async fn offboard_user_from_workspace<'c>(
     .await?
     .unwrap_or(0);
 
+    // A data table names its database by resource path, so one just moved has to
+    // move in the config too: left behind it stops resolving, and the path it
+    // named is free for a resource pointing somewhere else entirely.
+    let datatable_settings = sqlx::query_scalar!(
+        "SELECT datatable FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
+        w_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?
+    .flatten();
+    if let Some(mut settings) = datatable_settings {
+        if windmill_common::workspaces::move_datatable_resource_paths(
+            &mut settings,
+            &format!("u/{username}/"),
+            &format!("{new_prefix}/"),
+        ) {
+            sqlx::query!(
+                "UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = $2",
+                settings,
+                w_id
+            )
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
+
     // ---- eval datasets ----
     // The foreign keys cascade the rename onto cases and experiments; the paths held inside JSONB
     // (an experiment's subject, a dataset's scorers) are rewritten separately since the cascade
