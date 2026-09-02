@@ -8137,12 +8137,17 @@ pub async fn run_wait_result_flow_by_version(
 /// code, so a request their job token (`WM_TOKEN`) authenticates comes from code a
 /// non-operator authored. The job must still be running, and the request must have the
 /// shape `wmill.datatable()` sends (PostgreSQL against a `datatable://` database), so a
-/// WM_TOKEN that leaked into job logs cannot be replayed to run anything else while the
-/// job lives, in particular DuckDB, which runs in-process in the worker. The database
-/// argument is only half the target: the executor honors a `-- database` directive in the
-/// SQL over it, and `-- s3` redirects the result set, so both are refused. Check them
-/// against the code the executor runs rather than the request's `content`, which is not the
-/// same string once a `WM_INTERNAL_DB` marker expands.
+/// WM_TOKEN that leaked into job logs cannot be replayed to reach another target while the
+/// job lives, in particular DuckDB, which runs in-process in the worker.
+///
+/// What it does permit is any statement against the workspace's data tables, writes and DDL
+/// included: the helper's body is an unrestricted SQL template and data tables carry no
+/// per-user ACL. Narrowing that is a separate decision from this exemption.
+///
+/// The database argument is only half the target: the executor honors a `-- database`
+/// directive in the SQL over it, and `-- s3` redirects the result set, so both are refused.
+/// Check them against the code the executor runs rather than the request's `content`, which
+/// is not the same string once a `WM_INTERNAL_DB` marker expands.
 async fn operator_may_run_datatable_query(
     db: &DB,
     w_id: &str,
@@ -8159,10 +8164,12 @@ async fn operator_may_run_datatable_query(
     }
     // Parse the directives out of the code the executor actually runs: it expands a
     // `WM_INTERNAL_DB` marker first, and a directive can be embedded in the expansion.
+    // An expansion that overrides the language would run something other than the SQL the
+    // language check above cleared, so it is refused along with a malformed marker.
     let executed =
         match query_builders::try_expand_internal_db_query(content, &ScriptLang::Postgresql) {
-            Some(Ok(expanded)) => Cow::Owned(expanded.code),
-            Some(Err(_)) => return Ok(false),
+            Some(Ok(expanded)) if expanded.language_override.is_none() => Cow::Owned(expanded.code),
+            Some(_) => return Ok(false),
             None => Cow::Borrowed(content),
         };
     if windmill_parser_sql::parse_db_resource(&executed).is_some()
