@@ -4117,13 +4117,10 @@ async fn edit_git_sync_config(
             // `sync_repo_webhook` writes back the webhook fields it changes itself:
             // the remote hook and the record of it have to move together, so
             // persisting them out here would let one land without the other.
-            if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await
-            {
-                tracing::warn!("git auto-pull: webhook sync error: {}", e);
-            }
-            // Check the credential while the operator is still on the settings page,
-            // so a token that is short-lived or missing a scope is visible now rather
-            // than when it expires.
+            // Before the webhook reconcile, which decides whether this repo can have
+            // one from the credential this records. Also puts a short-lived or
+            // under-scoped token in front of the operator while they are still on the
+            // settings page, rather than when it expires.
             if let Err(e) = windmill_common::git_sync_ee::refresh_git_credential_status(
                 &db,
                 &w_id,
@@ -4132,6 +4129,10 @@ async fn edit_git_sync_config(
             .await
             {
                 tracing::warn!("git credential check error: {}", e);
+            }
+            if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await
+            {
+                tracing::warn!("git auto-pull: webhook sync error: {}", e);
             }
         }
         for (path, hook_id) in removed_webhooks {
@@ -4365,9 +4366,6 @@ async fn edit_git_sync_repository(
         .iter_mut()
         .find(|r| r.git_repo_resource_path == new_config.git_repo_resource_path)
     {
-        if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await {
-            tracing::warn!("git auto-pull: webhook sync error: {}", e);
-        }
         if let Err(e) = windmill_common::git_sync_ee::refresh_git_credential_status(
             &db,
             &w_id,
@@ -4376,6 +4374,9 @@ async fn edit_git_sync_repository(
         .await
         {
             tracing::warn!("git credential check error: {}", e);
+        }
+        if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await {
+            tracing::warn!("git auto-pull: webhook sync error: {}", e);
         }
     }
 

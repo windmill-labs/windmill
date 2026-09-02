@@ -427,8 +427,13 @@ pub struct GitCredentialStatus {
     pub expires_at: Option<chrono::NaiveDate>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scopes: Vec<String>,
+    /// Which credential this status describes, as a one-way digest. Lets a later
+    /// check tell "the token I know about stopped working" from "someone put a
+    /// different credential here", which look identical at the API otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_fingerprint: Option<String>,
     /// Rotation needs both a scope that permits it (`api` or `self_rotate`) and a
-    /// URL held in a variable we can write back to.
+    /// URL Windmill can write back to. `scopes` says which of the two is missing.
     pub rotatable: bool,
     /// Unix timestamp (seconds) of the last check.
     pub checked_at: i64,

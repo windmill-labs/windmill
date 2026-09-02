@@ -4622,7 +4622,7 @@ const GIT_CREDENTIAL_LOCK_ID: i64 = 737_483_923;
 /// expiry, so a token dies visibly (and usually not at all) rather than taking
 /// sync down on its expiry date.
 #[cfg(all(feature = "enterprise", feature = "private"))]
-pub async fn maintain_git_credentials(db: &Pool<Postgres>) {
+async fn maintain_git_credentials(db: &Pool<Postgres>) {
     use windmill_common::ee_oss::{get_license_plan, LicensePlan};
 
     if !matches!(get_license_plan().await, LicensePlan::Enterprise) {

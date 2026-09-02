@@ -34005,6 +34005,9 @@ components:
           type: array
           items:
             type: string
+        token_fingerprint:
+          type: string
+          description: one-way digest identifying which credential this status describes
         rotatable:
           type: boolean
         checked_at:
