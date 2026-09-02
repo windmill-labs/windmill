@@ -16,7 +16,7 @@
 	import AppConnectDrawer from '$lib/components/AppConnectDrawer.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import Select from '$lib/components/select/Select.svelte'
-	import { applyRetarget } from '$lib/importWizard/retargetDeployed'
+	import { applyRetarget, seesWholeWorkspace } from '$lib/importWizard/retargetDeployed'
 	import { OauthService } from '$lib/gen'
 	import { registryCcCapableFor } from '$lib/components/oauthRegistry'
 	import { resourceTypeDisplayName } from '$lib/components/resourceTypeDisplay'
@@ -28,7 +28,7 @@
 		type ProjectExport,
 		type ProjectMigration
 	} from '$lib/components/workspaceSettings/projectBundle'
-	import { userStore } from '$lib/stores'
+	import { superadmin, userStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { escapeHtml } from '$lib/utils'
 
@@ -580,9 +580,9 @@
 				folder: targetFolder,
 				from: b.path,
 				to: target,
-				// Only an admin's listings are the whole workspace; anyone else's are filtered by
-				// row-level security, and the scan cannot tell a filtered row from an absent one.
-				seesWholeWorkspace: !!($userStore?.is_admin || $userStore?.is_super_admin)
+				// Asked of this workspace, not of whichever one the user record still describes:
+				// reloading on this step leaves `$userStore` pointing at the previous workspace.
+				seesWholeWorkspace: seesWholeWorkspace($userStore, !!$superadmin, workspace)
 			})
 			const moved = `${outcome.rewritten.length} item${outcome.rewritten.length === 1 ? '' : 's'}`
 			if (outcome.error) {

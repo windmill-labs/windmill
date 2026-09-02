@@ -82,7 +82,7 @@ vi.stubGlobal(
 	}))
 )
 
-import { applyRetarget } from './retargetDeployed'
+import { applyRetarget, seesWholeWorkspace } from './retargetDeployed'
 
 const FROM = 'f/proj/smtp'
 const TO = 'f/shared/company_smtp'
@@ -349,5 +349,20 @@ describe('applyRetarget', () => {
 		expect(outcome.gaps.map((g) => g.path)).toEqual(['u/alice/report'])
 		expect(outcome.stubDeleted).toBe(false)
 		expect(state.deletedResources).toEqual([])
+	})
+})
+
+describe('seesWholeWorkspace', () => {
+	// The user record is per-workspace and survives a workspace change, so reading `is_admin`
+	// without checking which workspace it describes answers for the wrong one — and a wrong
+	// yes here is what lets an RLS-filtered scan clear the stub for deletion.
+	it.each([
+		['admin of this workspace', { workspace_id: 'w', is_admin: true }, false, true],
+		['admin of another workspace', { workspace_id: 'other', is_admin: true }, false, false],
+		['member of this workspace', { workspace_id: 'w', is_admin: false }, false, false],
+		['superadmin, record stale', { workspace_id: 'other', is_admin: false }, true, true],
+		['no user record', undefined, false, false]
+	])('%s', (_label, user, isSuperadmin, expected) => {
+		expect(seesWholeWorkspace(user as any, isSuperadmin, 'w')).toBe(expected)
 	})
 })

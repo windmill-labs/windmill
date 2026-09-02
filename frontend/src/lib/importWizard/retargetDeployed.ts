@@ -91,6 +91,25 @@ export interface RetargetOutcome {
 	error?: string
 }
 
+/**
+ * Whether this caller's listings are the whole workspace, and so whether a clean scan proves
+ * anything. Row-level security filters the listings inside the query for everyone else.
+ *
+ * `UserExt` is per-workspace and outlives a workspace change, so the role is only this
+ * workspace's role when the record says it is. On the setup step's reload path nothing
+ * re-fetches it, and it still describes the workspace the user came from — reading
+ * `is_admin` alone there answers for the wrong workspace. An instance superadmin bypasses
+ * the policies everywhere, which is why it is asked separately.
+ */
+export function seesWholeWorkspace(
+	user: { workspace_id?: string; is_admin?: boolean } | undefined,
+	isSuperadmin: boolean,
+	workspace: string
+): boolean {
+	if (isSuperadmin) return true
+	return !!user?.is_admin && user.workspace_id === workspace
+}
+
 /** Everything under the project's folder, which is all this rewrites. */
 function inFolder(path: unknown, folder: string): boolean {
 	return typeof path === 'string' && path.startsWith(`f/${folder}/`)
