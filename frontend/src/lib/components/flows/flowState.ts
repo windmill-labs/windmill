@@ -4,11 +4,7 @@ import { ResourceService } from '$lib/gen'
 import { get } from 'svelte/store'
 import { workspaceStore } from '$lib/stores'
 import { isFlowModuleTool, agentToolToFlowModule, type AgentTool } from './agentToolUtils'
-import {
-	linkedToolsScope,
-	noteLinkedAgentRef,
-	setLinkedAgentTools
-} from './linkedAgentToolsStore.svelte'
+import { linkedToolsScope, setLinkedAgentTools } from './linkedAgentToolsStore.svelte'
 import { loadFlowModuleState } from './flowStateUtils.svelte'
 import { emptyFlowModuleState } from './utils.svelte'
 import type { StateStore } from '$lib/utils'
@@ -126,8 +122,7 @@ export async function publishLinkedAgentTools(
 	const gen = claimLinkedToolsFetch(scope, moduleId)
 	const tools = await resolveLinkedAgentTools(agentRef, workspace)
 	if (linkedToolFetchGen.get(genKey) === gen) {
-		noteLinkedAgentRef(scope, moduleId, agentRef)
-		setLinkedAgentTools(scope, moduleId, tools)
+		setLinkedAgentTools(scope, moduleId, tools, agentRef)
 	}
 }
 

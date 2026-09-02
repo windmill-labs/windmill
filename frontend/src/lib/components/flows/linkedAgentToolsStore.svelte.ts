@@ -11,6 +11,12 @@ let byScope = $state<Record<string, Record<string, AgentTool[]>>>({})
 // imperatively when reconciling a deploy, never rendered.
 const agentRefByEntry = new Map<string, string>()
 
+/** A step may name its agent bare or as `$res:<path>`; both are the same agent, and the index has
+ *  to answer for a lookup written either way. */
+function normalizeAgentRef(agentRef: string): string {
+	return agentRef.replace(/^\$res:/, '').replace(/^res:\/\//, '')
+}
+
 function entryKey(scope: string, moduleId: string): string {
 	return `${scope}\u0000${moduleId}`
 }
@@ -102,7 +108,16 @@ export function linkedToolsScope(
 // track this to re-run when a link resolves after the initial render, e.g. right after linking.
 let version = $state(0)
 
-export function setLinkedAgentTools(scope: string, moduleId: string, tools: AgentTool[]) {
+export function setLinkedAgentTools(
+	scope: string,
+	moduleId: string,
+	tools: AgentTool[],
+	/** The agent these tools came from. Taken here rather than recorded separately so the index and
+	 *  the tools cannot drift: every writer has the ref in hand, and one that forgot to file it left
+	 *  a step invisible to `linkedModulesForAgent`. */
+	agentRef: string
+) {
+	agentRefByEntry.set(entryKey(scope, moduleId), normalizeAgentRef(agentRef))
 	// Publishers re-run and hand us a fresh-but-equal array each time; only mutate on a real change,
 	// else the version bump would retrigger the graph recompute in a loop.
 	if (deepEqual(byScope[scope]?.[moduleId], tools)) return
@@ -114,19 +129,14 @@ export function setLinkedAgentTools(scope: string, moduleId: string, tools: Agen
 /** Move one scope's resolutions into another: used when a rename moves readers to a new scope,
  * and to sweep republished data (keyed by the flow doc's path) into the live-edited scope. The
  * source bucket carries the newer resolution in both cases, so it wins the merge. */
-/** Records which agent an entry resolved from. Called by the publisher, which is the only place
- *  that knows the ref the tools came from. */
-export function noteLinkedAgentRef(scope: string, moduleId: string, agentRef: string) {
-	agentRefByEntry.set(entryKey(scope, moduleId), agentRef)
-}
-
 /** Every module in this scope resolved from `agentRef`. A saved agent can be linked by more than
  *  one step, and all of them show tools that a write to it has just changed. */
 export function linkedModulesForAgent(scope: string, agentRef: string): string[] {
 	const prefix = `${scope}\u0000`
+	const wanted = normalizeAgentRef(agentRef)
 	const out: string[] = []
 	for (const [key, ref] of agentRefByEntry) {
-		if (key.startsWith(prefix) && ref === agentRef) out.push(key.slice(prefix.length))
+		if (key.startsWith(prefix) && ref === wanted) out.push(key.slice(prefix.length))
 	}
 	return out
 }

@@ -44,6 +44,10 @@ export interface AgentFieldSpec {
 	defaultHint?: string
 	/** Ignored for image output, so the field hides while `output_type` is `'image'`. */
 	textOnly?: boolean
+	/** Filled in per run rather than configured on the step, so a form that is collecting a run's
+	 *  inputs shows it whether or not the step wrote anything for it. The step's own form still
+	 *  treats it as optional: there it is one of the fields the add menu offers. */
+	runInput?: boolean
 }
 
 export const AGENT_FIELDS: AgentFieldSpec[] = [
@@ -99,7 +103,8 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		label: 'Attachments',
 		tooltip: 'Images or PDFs sent along with the user message. Needs S3 storage on the workspace.',
 		implicit: [],
-		defaultHint: 'Default: none'
+		defaultHint: 'Default: none',
+		runInput: true
 	},
 	{
 		key: AGENT_TOOLS_ROW,

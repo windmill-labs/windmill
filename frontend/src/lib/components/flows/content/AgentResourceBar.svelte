@@ -172,7 +172,7 @@
 		if (loaded) {
 			claimLinkedToolsFetch(toolScope, moduleId)
 			// linkedResource types tools loosely; they are the same resource tools the store holds.
-			setLinkedAgentTools(toolScope, moduleId, loaded.tools as AgentToolStrict[])
+			setLinkedAgentTools(toolScope, moduleId, loaded.tools as AgentToolStrict[], agent)
 			publishedFor = agent
 		} else if (publishedFor !== undefined && publishedFor !== agent) {
 			// The link moved and the new agent hasn't resolved, so the stored tools are the old one's.

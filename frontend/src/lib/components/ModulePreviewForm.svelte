@@ -47,14 +47,16 @@
 	/** An agent asks for the same fields here that its own form shows: a setting the step leaves
 	 *  unset is not something a run needs told, and listing all eleven buries the message under the
 	 *  configuration. What the step configures stays, as it does on any other step. A schema key the
-	 *  field registry doesn't know is kept, so a new one is never silently dropped. */
+	 *  field registry doesn't know is kept, so a new one is never silently dropped. A run input is
+	 *  kept whatever the step holds: this form has no add-field control, so hiding one would leave
+	 *  no way at all to supply it. */
 	let visibleKeys = $derived.by(() => {
 		const all = Object.keys(schema?.properties ?? {})
 		if ((mod.value as { type?: string })?.type !== 'aiagent') return all
 		const transforms = (mod.value as { input_transforms?: Record<string, unknown> })
 			?.input_transforms
 		const visible = initialVisibleAgentFields(transforms, schema?.properties)
-		const known = new Set(AGENT_FIELDS.map((f) => f.key))
+		const known = new Set(AGENT_FIELDS.filter((f) => !f.runInput).map((f) => f.key))
 		return all.filter((key) => !known.has(key) || visible.has(key))
 	})
 
