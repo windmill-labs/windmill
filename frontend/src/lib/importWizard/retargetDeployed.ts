@@ -361,7 +361,6 @@ function rewriteTokens<T>(value: T, map: Map<string, string>): T {
 	return JSON.parse(rewriteContent(JSON.stringify(value ?? null), map))
 }
 
-
 /**
  * Whether the item as just read names a path where no rewrite reaches it.
  *

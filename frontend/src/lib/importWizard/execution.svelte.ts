@@ -458,9 +458,7 @@ export class ImportExecution {
 		const problems: string[] = []
 		if (failed > 0) problems.push(`${failed} item${failed === 1 ? '' : 's'} failed to import`)
 		if (badMigrations > 0) {
-			problems.push(
-				`${badMigrations} data table migration${badMigrations === 1 ? '' : 's'} failed`
-			)
+			problems.push(`${badMigrations} data table migration${badMigrations === 1 ? '' : 's'} failed`)
 		}
 		if (problems.length) this.error = `${problems.join(', ')}.`
 	}

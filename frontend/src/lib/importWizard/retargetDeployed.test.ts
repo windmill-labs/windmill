@@ -274,7 +274,7 @@ describe('applyRetarget', () => {
 	// Scripts, flows and resources share a path namespace, and the map holds a resource path.
 	// The import's rewriters remap a runnable's own `path` on an exact match, which here would
 	// repoint the step at the credential.
-	it('moves an app\'s tokens without repointing a runnable that shares the path', async () => {
+	it("moves an app's tokens without repointing a runnable that shares the path", async () => {
 		state.apps = [
 			{
 				path: 'f/proj/page',
@@ -298,7 +298,9 @@ describe('applyRetarget', () => {
 			{
 				path: 'f/proj/pipeline',
 				value: {
-					modules: [{ id: 'a', summary: `reads $res:${FROM}`, value: { type: 'script', path: FROM } }]
+					modules: [
+						{ id: 'a', summary: `reads $res:${FROM}`, value: { type: 'script', path: FROM } }
+					]
 				}
 			}
 		]

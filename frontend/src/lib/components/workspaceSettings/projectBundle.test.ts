@@ -890,7 +890,7 @@ describe('projectReferencesResource', () => {
 		triggers: [{ path: 'f/proj/ingest', config: { postgres_resource_path: 'f/proj/db' } }]
 	} as unknown as ProjectExport
 
-	it('sees a $res: token and a trigger\'s bare path, and not a stub nothing points at', () => {
+	it("sees a $res: token and a trigger's bare path, and not a stub nothing points at", () => {
 		expect(projectReferencesResource(bundle, 'f/proj/google_calendar')).toBe(true)
 		expect(projectReferencesResource(bundle, 'f/proj/db')).toBe(true)
 		// Declared only because a script's input schema names the type.
