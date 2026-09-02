@@ -416,9 +416,9 @@ pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result
 
             let mut headers = HeaderMap::new();
 
-            // A reverse proxy consumes hop-by-hop headers instead of forwarding them, and
-            // drops every header named by `Connection` — which would strip the sandbox
-            // headers below before they reach the browser.
+            // A reverse proxy consumes hop-by-hop headers instead of forwarding them and
+            // drops every header named by `Connection`, so a script could use one to strip
+            // the sandbox headers this function adds before they reach the browser.
             const HOP_BY_HOP_HEADERS: [&str; 9] = [
                 "connection",
                 "keep-alive",
@@ -448,12 +448,10 @@ pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result
                 }
             }
 
-            // The script picks the content type (`wm_content_type`, or a `content-type`
-            // entry in `wm_headers`) and the body, and both the run_wait_result routes and
-            // synchronous HTTP routes are reachable by top-level GET navigation with the
-            // session cookie. Sandbox the document into an opaque origin so a `text/html`
-            // result can never run with the viewer's session; inserted after the custom
-            // headers so they can't override it. Programmatic API consumers ignore both.
+            // The script controls the content type and body, and run_wait_result and sync
+            // HTTP routes are reachable by top-level GET navigation with the session cookie:
+            // sandbox the document into an opaque origin so HTML can never run with the
+            // viewer's session. Inserted after `wm_headers` so a script cannot override it.
             headers.insert(
                 http::header::X_CONTENT_TYPE_OPTIONS,
                 HeaderValue::from_static("nosniff"),
