@@ -1022,19 +1022,39 @@ mod tests {
         assert_eq!(token_usage.total_tokens, Some(4820));
     }
 
-    /// The prompt-side counts arrive only on `message_start`; a parser that reads usage
-    /// from `message_delta` alone reports a request with no input tokens at all.
-    #[test]
-    fn anthropic_message_start_carries_the_prompt_usage() {
-        let event: AnthropicSSEEvent = serde_json::from_str(
-            r#"{"type":"message_start","message":{"id":"msg_1","role":"assistant","usage":{"input_tokens":4821,"output_tokens":1,"cache_read_input_tokens":4096,"cache_creation_input_tokens":128}}}"#,
-        )
-        .unwrap();
-        let AnthropicSSEEvent::MessageStart { message } = event else {
-            panic!("expected message_start")
-        };
-        let usage = message.and_then(|m| m.usage).expect("usage");
+    struct NoopSink;
+
+    #[async_trait::async_trait]
+    impl StreamEventSink for NoopSink {
+        async fn send(
+            &self,
+            _event: StreamingEvent,
+            _events_str: &mut String,
+        ) -> Result<(), Error> {
+            Ok(())
+        }
+    }
+
+    /// The prompt-side counts arrive only on `message_start` and the completion total
+    /// only on `message_delta`; a parser that keeps just the last one reports a request
+    /// with no input tokens at all.
+    #[tokio::test]
+    async fn anthropic_usage_merges_message_start_and_message_delta() {
+        let mut parser = AnthropicSSEParser::new(Box::new(NoopSink));
+        parser
+            .parse_event_data(
+                r#"{"type":"message_start","message":{"id":"msg_1","role":"assistant","usage":{"input_tokens":4821,"output_tokens":1,"cache_read_input_tokens":4096,"cache_creation_input_tokens":128}}}"#,
+            )
+            .await
+            .unwrap();
+        parser
+            .parse_event_data(r#"{"type":"message_delta","usage":{"output_tokens":312}}"#)
+            .await
+            .unwrap();
+
+        let usage = parser.usage.expect("usage");
         assert_eq!(usage.input_tokens, Some(4821));
+        assert_eq!(usage.output_tokens, Some(312));
         assert_eq!(usage.cache_read_input_tokens, Some(4096));
         assert_eq!(usage.cache_creation_input_tokens, Some(128));
     }

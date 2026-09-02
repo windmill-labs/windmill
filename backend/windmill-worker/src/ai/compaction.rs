@@ -31,8 +31,10 @@ const SUMMARY_OUTPUT_RESERVE_TOKENS: usize = 8000;
 const MAX_SUMMARY_RESERVE_SHARE: usize = 10;
 /// Summarizing fewer messages than this costs a full model call to save almost nothing.
 const MIN_PREFIX_MESSAGES_TO_SUMMARIZE: usize = 4;
-/// After this many failed summarizations the step stops trying, so a provider that
-/// rejects the summarization request does not add a wasted call to every iteration.
+/// After this many failed summarizations the run stops trying, so a provider that
+/// rejects the summarization request does not add a wasted call to every iteration. The
+/// count is per run: a chat turn is its own job, and its conversation has grown since
+/// the last one, so it is worth one attempt of its own.
 const MAX_CONSECUTIVE_COMPACTION_FAILURES: usize = 3;
 
 // Reinforce text-only output. The summarization call carries no tools, but a strong
@@ -281,6 +283,9 @@ pub struct CompactionRequest<'a> {
     pub model: &'a str,
     pub temperature: Option<f32>,
     pub reasoning_effort: Option<&'a str>,
+    /// The step's own completion cap, used only to raise the summary's budget when the
+    /// step allows more than a summary needs.
+    pub step_max_tokens: Option<u32>,
     pub timeout: std::time::Duration,
     pub client: &'a AuthedClient,
     pub workspace_id: &'a str,
@@ -413,10 +418,15 @@ async fn summarize_prefix(
         model: request.model,
         temperature: request.temperature,
         reasoning_effort: request.reasoning_effort,
-        // Deliberately not the step's `max_completion_tokens`: that bounds the answers
-        // the agent gives, and a low one truncates the summary inside its scratchpad,
-        // which counts as a failure and disables compaction after three of them.
-        max_tokens: None,
+        // The reserve is what the split already set aside for the summary, so asking for
+        // it keeps the budget honest. It has to be stated rather than left to the
+        // provider default, which is 64000 on Anthropic (over several Claude models'
+        // output ceiling) and the model's own small default on Bedrock (short enough to
+        // cut the response off inside its scratchpad). The step's own cap only raises it:
+        // a low one is about the answers the agent gives, not about summaries.
+        max_tokens: Some(
+            (SUMMARY_OUTPUT_RESERVE_TOKENS as u32).max(request.step_max_tokens.unwrap_or(0)),
+        ),
         output_schema: None,
         output_type: &OutputType::Text,
         system_prompt: None,
