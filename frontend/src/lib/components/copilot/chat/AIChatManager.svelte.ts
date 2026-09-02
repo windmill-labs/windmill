@@ -501,7 +501,24 @@ export class AIChatManager {
 	openRunInPreview?: (a: { jobId: string; workspace: string; label: string }) => void
 	openArtifact?: (artifactId: string, name: string, version?: ArtifactVersionTarget) => void
 	closeArtifact?: (artifactId: string) => void
-	loading = $state<boolean>(false)
+	#loading = $state<boolean>(false)
+	get loading(): boolean {
+		return this.#loading
+	}
+	// An accessor so every run bracket — the send turn, manual compaction, a
+	// rollback — reports its transitions through one place, synchronously: the
+	// rising edge posts the cross-tab "running here" signal the moment the
+	// bracket opens (after the send's preflight awaits; the post-preflight
+	// guard covers that gap), and `loading` falls only after the turn's last
+	// saveChat, making the falling edge the "safe to re-read the record" signal.
+	set loading(v: boolean) {
+		if (v === this.#loading) return
+		this.#loading = v
+		this.onRunningChanged?.(v)
+	}
+	/** Sessions wiring (see sessionRuntime); undefined for the global
+	 *  side-panel chat, whose transcript no other tab renders. */
+	onRunningChanged: ((running: boolean) => void) | undefined = undefined
 	currentReply = $state<string>('')
 	currentReasoning = $state<string>('')
 	currentReasoningActive = $state<boolean>(false)
@@ -677,6 +694,14 @@ export class AIChatManager {
 	// sessions modules — and re-read on every system-message rebuild; the send
 	// path rebuilds after beforeSend, so a fork committed there is picked up.
 	sessionContextResolver: (() => SessionPromptContext | undefined) | undefined = undefined
+	// Whether another tab is running a turn on this session right now (sessions
+	// wiring, same seam as above). The composer locks on it, and sendRequest
+	// refuses on it — the refusal covers the send already in flight when the
+	// other tab's run signal arrives, which no disabled input can stop.
+	runHeldElsewhereResolver: (() => boolean) | undefined = undefined
+	get runHeldElsewhere(): boolean {
+		return this.runHeldElsewhereResolver?.() ?? false
+	}
 	// The page the side panel shows, stamped on each user message. Same seam as above:
 	// a page tab is an iframe in its own realm, so the tab model is the only place the
 	// chat can learn it. Undefined for a live editor — ACTIVE EDITOR covers those.
@@ -688,8 +713,8 @@ export class AIChatManager {
 	workspaceResolver: (() => string | undefined) | undefined = undefined
 
 	// The workspace every workspace-scoped chat action targets — skills, tool
-	// loop, logging, user-message context, and commit. Session-resolved when a
-	// resolver is set, else the globally-active workspace.
+	// loop, logging, user-message context, message rendering, and commit.
+	// Session-resolved when a resolver is set, else the globally-active workspace.
 	get operatingWorkspace(): string | undefined {
 		return this.workspaceResolver?.() ?? get(workspaceStore)
 	}
@@ -1056,6 +1081,16 @@ export class AIChatManager {
 	 * doesn't spawn a new job leaves nothing to re-trigger on. A turn that DOES
 	 * spawn another job resumes again when that one finishes, which is the point.
 	 */
+	#autoResumeRetry: ReturnType<typeof setTimeout> | undefined
+
+	#scheduleAutoResumeRetry() {
+		clearTimeout(this.#autoResumeRetry)
+		this.#autoResumeRetry = setTimeout(() => {
+			this.#autoResumeRetry = undefined
+			void this.#maybeAutoResumeFromJobs()
+		}, 5_000)
+	}
+
 	async #maybeAutoResumeFromJobs() {
 		if (this.#autoResuming) return
 		// Global/sessions chat only (the only mode with a jobs tray + preamble).
@@ -1066,6 +1101,17 @@ export class AIChatManager {
 		// Nothing to continue (empty chat), or the user is mid-compose — don't
 		// clobber their draft or auto-send it. Their eventual send carries the notes.
 		if (this.messages.length === 0 || this.instructions.trim()) return
+		// Another tab is driving: the synthetic send would only be refused, and
+		// the instructions staged below would then block every later auto-resume
+		// in this tab. The notes stay pending; re-checked shortly, because the
+		// hold can clear silently (staleness after a driver crash) with nothing
+		// else to fire this. When the driver instead ends its turn normally, its
+		// own resume carries the notes and this tab's catch-up clears the local
+		// copy — the re-check then finds nothing and stands down.
+		if (this.runHeldElsewhere) {
+			this.#scheduleAutoResumeRetry()
+			return
+		}
 		this.#autoResuming = true
 		try {
 			const count = this.pendingJobNotes.length
@@ -1104,6 +1150,8 @@ export class AIChatManager {
 		// Invalidate any in-flight poll so its post-await continuation can't write
 		// into the conversation we're switching to.
 		this.#jobPollGeneration++
+		clearTimeout(this.#autoResumeRetry)
+		this.#autoResumeRetry = undefined
 		this.backgroundJobs = []
 		this.pendingJobNotes = []
 	}
@@ -2832,6 +2880,35 @@ export class AIChatManager {
 			sendUserToast('This action needs the AI chat. Start an AI session to continue.', true)
 			return
 		}
+		// Refused before anything mutates, so there is nothing to unwind: the
+		// draft (already taken by the composer) goes back where the user can see
+		// it, and the turn never starts. Only the message's own send restores it
+		// — a refused queued flush is re-queued by its caller (`accepted ===
+		// false`), and a copy here would double it. Paste tokens are expanded
+		// into the text, as the queue does, because the restore lanes carry no
+		// pastes.
+		if (this.runHeldElsewhere) {
+			if (options.synthetic) {
+				// Client-authored prompt (a job auto-resume), not user input: nothing
+				// to hand back and no toast. Releasing the staged text un-blocks the
+				// next auto-resume attempt, scheduled for when the hold clears.
+				this.instructions = ''
+				this.#scheduleAutoResumeRetry()
+			} else {
+				if (!options.queued) {
+					// Programmatic prompts (askAi, fix) stage their text in
+					// `this.instructions` and pass no option — fall back to it so
+					// they are handed back too.
+					this.restoreToInput(
+						expanded(chatDraft(options.instructions ?? this.instructions, options.pastes ?? [])),
+						options.images,
+						options.files
+					)
+				}
+				sendUserToast('This session is running in another tab. Your message was kept.', true)
+			}
+			return false
+		}
 		this.#sendsInFlight++
 		try {
 			return await this.sendRequestImpl(options)
@@ -3051,6 +3128,28 @@ export class AIChatManager {
 			)
 		}
 		const images = modelIsBlind ? [] : requestedImages
+		// Re-checks the wrapper's remote-run guard: a run announced by another tab
+		// during the upkeep awaits above would otherwise interleave two turns into
+		// one chat id. Resends are exempt — restartGeneration already truncated
+		// the transcript, so they run as the documented advisory race instead.
+		if (this.runHeldElsewhere && !options.resendReservationKey) {
+			this.#releaseOutgoingReservation(reservationKey)
+			if (options.synthetic) {
+				// Same as the wrapper guard: an internal prompt is released, not
+				// restored as a draft the user never wrote.
+				this.instructions = ''
+				this.#scheduleAutoResumeRetry()
+			} else {
+				// restoreToInput, not restoreInstructions: a draft typed during the
+				// awaits above occupies the composer, and this restore must merge
+				// into it (or queue), never be refused by it.
+				if (!options.queued) {
+					this.restoreToInput(expanded(chatDraft(this.instructions, pastes)), images, files)
+				}
+				sendUserToast('This session is running in another tab. Your message was kept.', true)
+			}
+			return false
+		}
 		const optimisticIndex = this.displayMessages.length
 		this.loading = true
 		// Create the abort controller before the (possibly slow) beforeSend pre-flight,
@@ -3892,6 +3991,29 @@ export class AIChatManager {
 			throw new Error('No user message found at the specified index')
 		}
 
+		// Refused before anything mutates: past this point the transcript is
+		// sliced and resend bytes are reserved, and the sendRequest guard could
+		// only refuse AFTER that damage — restoring nothing, since this path
+		// carries its text in `this.instructions`, not the options. The retry and
+		// edit controls check only local `loading`, so a remote run reaches here.
+		// An edit (newContent defined, even '': attachment-only edits exist) is
+		// restored with its pastes expanded into the text; a bare retry mutates
+		// nothing yet, so there is nothing to restore. Un-submitted context-chip
+		// edits are the one loss — the chips re-seed from the untouched message
+		// on the next edit.
+		if (this.runHeldElsewhere) {
+			if (newContent !== undefined) {
+				this.restoreToInput(
+					expanded(chatDraft(newContent, pastes ?? [])),
+					images ?? [],
+					files ?? []
+				)
+			}
+			// "Text", not "message": chip edits are the part that does not survive.
+			sendUserToast('This session is running in another tab. Your text was kept.', true)
+			return
+		}
+
 		// Resolve the API restart point BEFORE reserving bytes or truncating: a
 		// stale index must fail while nothing has been mutated, or the transcript
 		// would be left truncated with the reservation leaked. A negative index
@@ -4015,7 +4137,7 @@ export class AIChatManager {
 		this.onChatRotated?.(this.historyManager.getCurrentChatId())
 	}
 
-	loadPastChat = async (id: string) => {
+	loadPastChat = async (id: string, { preserveQueue = false } = {}) => {
 		// A turn commits into whatever transcript it finds when it ends, so swapping
 		// one in underneath it misfiles the turn — or duplicates it, when the loaded
 		// chat already carries the turn's own checkpoint. Gated on `sendInFlight`
@@ -4025,7 +4147,10 @@ export class AIChatManager {
 		if (chat) {
 			// Drop any message queued in the current conversation so it doesn't
 			// auto-send into the loaded one or linger as a card across the switch.
-			this.#clearQueue()
+			// `preserveQueue` is for reloads that are NOT a switch — a cross-tab
+			// catch-up re-reading the conversation on screen — where the queued
+			// draft is unsent user input the reload must not destroy.
+			if (!preserveQueue) this.#clearQueue()
 			// Stop the poller for the conversation being left before swapping in the
 			// loaded chat's jobs below.
 			this.clearBackgroundJobs()

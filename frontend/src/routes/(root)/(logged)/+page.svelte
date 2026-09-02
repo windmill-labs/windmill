@@ -263,13 +263,14 @@
 	<ForkWorkspaceBanner />
 	<WorkspaceDraftsBanner />
 	<div class="max-w-7xl px-4 sm:px-8 md:px-8 h-fit w-full mb-6">
+		<TutorialBanner />
+
 		<!-- HomeAIChat carries both the AI composer and the AI-independent CLI/MCP connect row,
 		     so it shows whenever the sessions beta is on; the composer itself is gated on operator
-		     status inside the component (operators are refused by /sessions). -->
+		     status and on the workspace inside the component, which owns its own vertical spacing
+		     because the hero and the bare connect row want different amounts of it. -->
 		{#if isGlobalAiEnabled()}
-			<div class="w-full mb-16 mt-20">
-				<HomeAIChat />
-			</div>
+			<HomeAIChat />
 		{/if}
 
 		{#if $workspaceStore == 'admins'}
@@ -279,8 +280,6 @@
 			</Alert>
 			<div class="my-4"></div>
 		{/if}
-
-		<TutorialBanner />
 
 		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
 

@@ -3,7 +3,10 @@
 	import { ExternalLink, PanelRight } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
-	import { runToolDisplayAction } from './createdResourceActions.svelte'
+	import {
+		hasToolDisplayActionHandler,
+		runToolDisplayAction
+	} from './createdResourceActions.svelte'
 	import {
 		workspaceItemAction,
 		type WindmillItemKind,
@@ -27,7 +30,12 @@
 		title
 	}: Props = $props()
 
-	const drawerAction = $derived(workspaceItemAction(wmKind, wmPath, wmTargetKind))
+	// The drawers ride with the docked chat, so a surface can render this pill with nothing
+	// able to open one.
+	const drawerAction = $derived.by(() => {
+		const action = workspaceItemAction(wmKind, wmPath, wmTargetKind)
+		return action && hasToolDisplayActionHandler(action.type) ? action : undefined
+	})
 
 	async function openDrawer(event?: Event) {
 		event?.preventDefault()
