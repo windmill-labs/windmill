@@ -22,8 +22,8 @@
 		args = {},
 		pickForField = undefined,
 		workspace = undefined,
-		itemPicker = $bindable(undefined),
-		variableEditor = $bindable(undefined)
+		itemPicker = $bindable(),
+		variableEditor = $bindable()
 	}: Props = $props()
 
 	let ws = $derived(workspace ?? $workspaceStore)

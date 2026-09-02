@@ -3,6 +3,31 @@ import { ResourceService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { useTriggerDraftSync, type TriggerDraftSync } from '../triggers/useTriggerDraftSync.svelte'
 import { AGENT_BRAIN_KEYS, type AIAgentConfig } from './agentResourceUtils'
+// Lives here rather than beside the other config helpers: `agentResourceUtils` is a leaf, and
+// importing tool-name validation into it would cycle back through `flowInfers` and pull the whole
+// editor into every module that reads a brain key.
+import { getToolNameError } from './agentToolUtils'
+
+/**
+ * Why a run of this config would fail before it started, if it would. Only the conditions the
+ * worker itself rejects: a provider it cannot call, or a tool name it cannot put in the schema it
+ * gives the model. Everything else an agent may legitimately leave unset.
+ */
+function agentConfigRunError(args: Record<string, any> | undefined): string | undefined {
+	const provider = args?.provider
+	if (!provider?.resource || !provider?.model) {
+		return 'Select a provider resource and model before deploying.'
+	}
+	const tools = (args?.tools ?? []) as Record<string, any>[]
+	const named = tools
+		.filter((t) => t?.value?.tool_type !== 'websearch')
+		.map((t) => t?.summary ?? '')
+	for (const tool of tools) {
+		const err = getToolNameError(tool?.summary ?? '', tool?.value?.tool_type, named)
+		if (err) return `${err}. Name every tool before deploying.`
+	}
+	return undefined
+}
 
 /**
  * The draft shape every resource editor writes, and the only one the review/deploy page knows how
@@ -137,18 +162,31 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 			)
 			return false
 		}
+		// The resource endpoint takes any JSON, so nothing downstream stops an agent that cannot
+		// run: the worker needs a provider to call and rejects a tool whose name it cannot pass to
+		// the model. Refuse here, as the save-as-agent path this editor replaced always did.
+		const blocked = agentConfigRunError(s.args)
+		if (blocked) {
+			sendUserToast(blocked, true)
+			return false
+		}
+		// The form stays editable while the request is in flight, so everything below works from a
+		// snapshot taken now. Adopting the live state as `deployed` afterwards would count an edit
+		// made during the request as saved, and the banner would clear on a value the server never
+		// received; against the snapshot it stays a draft, which is what it is.
+		const submitted = structuredClone($state.snapshot(s)) as AgentResourceState
 		const body = {
-			path: s.path,
-			value: s.args,
-			description: s.description,
-			labels: s.labels,
-			ws_specific: s.wsSpecific
+			path: submitted.path,
+			value: submitted.args,
+			description: submitted.description,
+			labels: submitted.labels,
+			ws_specific: submitted.wsSpecific
 		}
 		try {
 			if (noDeployed) {
 				await ResourceService.createResource({
 					workspace: ws,
-					requestBody: { ...body, resource_type: s.resource_type }
+					requestBody: { ...body, resource_type: submitted.resource_type }
 				})
 			} else {
 				await ResourceService.updateResource({
@@ -161,15 +199,14 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 			sendUserToast(`Could not save agent: ${err}`, true)
 			return false
 		}
-		const saved = structuredClone($state.snapshot(s)) as AgentResourceState
-		deployed = saved
+		deployed = submitted
 		noDeployed = false
 		// `discard`, not `remove`: it resets the handle's cell to what was just saved, so the
 		// apply-effect cannot bounce the form back to the now-stale draft.
-		sync.discard(opts.path()!, saved)
+		sync.discard(opts.path()!, submitted)
 		// A rename moves the row, so the next load must not reuse the old key.
-		loadedFor = `${ws}:${saved.path}`
-		sendUserToast(`Saved agent ${saved.path}`)
+		loadedFor = `${ws}:${submitted.path}`
+		sendUserToast(`Saved agent ${submitted.path}`)
 		return true
 	}
 

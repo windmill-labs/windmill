@@ -6,6 +6,8 @@
 	import { Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import ResourceVersionHistory from '$lib/components/ResourceVersionHistory.svelte'
+	import { clearPageDrawerAnchor } from '$lib/components/sessions/pageDrawerSession'
+	import { RESOURCES_PATH } from '$lib/components/sessions/previewPaths'
 	import EvalsPane from '$lib/components/aiEvals/EvalsPane.svelte'
 	import type { EvalsLocation } from '$lib/components/aiEvals/evalUtils'
 	import { ResourceService, type AgentDraft } from '$lib/gen'
@@ -95,6 +97,14 @@
 		}
 	}
 
+	/** A resources-page row anchors itself in the hash on the way in, so closing has to clear it or
+	 *  the URL keeps claiming the agent is open and a refresh reopens it. Anchored to that page, so
+	 *  this is a no-op when the editor was opened from a flow. */
+	function close() {
+		closeAgentEditor()
+		void clearPageDrawerAnchor(RESOURCES_PATH)
+	}
+
 	async function onDeploy() {
 		saving = true
 		try {
@@ -124,7 +134,7 @@
 		     way out has to reach it. The close button and the backdrop only set `open`, and a
 		     dialog left closed over a target still set could never be opened again. -->
 		<Modal
-			bind:open={() => true, (open) => !open && closeAgentEditor()}
+			bind:open={() => true, (open) => !open && close()}
 			kind="X"
 			fillHeight
 			enterConfirms={false}
@@ -235,7 +245,7 @@
 					// a baseline captured before the restore, and any local draft on top of it, so
 					// deploying from it afterwards would write the pre-restore value straight back over
 					// the version just restored.
-					closeAgentEditor()
+					close()
 				}}
 			/>
 		</DrawerContent>
