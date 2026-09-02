@@ -85,14 +85,34 @@ describe('initialVisibleAgentFields', () => {
 // Three chat surfaces decide whether to consume a stream from this, and the worker decides whether
 // to send one from `streaming.unwrap_or(true)`. They agree only while absent means on here.
 describe('agentStreamingEnabled', () => {
+	const step = (input_transforms: Record<string, any>, rest: Record<string, any> = {}) => ({
+		type: 'aiagent',
+		input_transforms,
+		...rest
+	})
+
 	it('reads an unwritten field as streaming', () => {
-		expect(agentStreamingEnabled(undefined)).toBe(true)
+		expect(agentStreamingEnabled(step({}))).toBe(true)
 		// What the API returns for the `{"type":"static"}` placeholder the schema backfill seeds.
-		expect(agentStreamingEnabled({ type: 'static', value: null })).toBe(true)
-		expect(agentStreamingEnabled({ type: 'static', value: true })).toBe(true)
+		expect(agentStreamingEnabled(step({ streaming: { type: 'static', value: null } }))).toBe(true)
+		expect(agentStreamingEnabled(step({ streaming: { type: 'static', value: true } }))).toBe(true)
 	})
 
 	it('only an explicit false holds the answer back', () => {
-		expect(agentStreamingEnabled({ type: 'static', value: false })).toBe(false)
+		expect(agentStreamingEnabled(step({ streaming: { type: 'static', value: false } }))).toBe(false)
+	})
+
+	it('reads off what the step cannot answer for', () => {
+		// An image answer never streams, whatever `streaming` says.
+		expect(
+			agentStreamingEnabled(
+				step({
+					streaming: { type: 'static', value: true },
+					output_type: { type: 'static', value: 'image' }
+				})
+			)
+		).toBe(false)
+		// A linked step carries no brain: the agent's own `streaming: false` is invisible here.
+		expect(agentStreamingEnabled(step({}, { agent: 'u/admin/a' }))).toBe(false)
 	})
 })

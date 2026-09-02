@@ -4,7 +4,6 @@
 	import { fetchAvailableModels, AI_PROVIDERS } from './copilot/lib'
 	import type { AIProvider, ProviderConfig } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { get } from 'svelte/store'
 	import ResourcePicker from './ResourcePicker.svelte'
 	import Toggle from './Toggle.svelte'
 	import { saveConfig, removeConfig, isSameAsStoredConfig } from './aiProviderStorage'
@@ -14,9 +13,20 @@
 		value: ProviderConfig | undefined
 		disabled?: boolean
 		actions?: Snippet
+		/** The workspace the surface operates on, which a session or fork editor sets to something
+		 *  other than the one being navigated. Resources and the models read off them are per
+		 *  workspace, so without it this offers what the wrong one holds. */
+		workspace?: string | undefined
 	}
 
-	let { value: _uncheckedValue = $bindable(), disabled = false, actions }: Props = $props()
+	let {
+		value: _uncheckedValue = $bindable(),
+		disabled = false,
+		actions,
+		workspace = undefined
+	}: Props = $props()
+
+	let effectiveWorkspace = $derived(workspace ?? $workspaceStore ?? '')
 
 	let value = $derived.by(() => {
 		if (!_uncheckedValue || typeof _uncheckedValue !== 'object') return undefined
@@ -70,7 +80,7 @@
 		}
 
 		loading = true
-		const cacheKey = `${provider}:${resourcePath}`
+		const cacheKey = `${effectiveWorkspace}:${provider}:${resourcePath}`
 		if (modelsCache.has(cacheKey)) {
 			availableModels = modelsCache.get(cacheKey) || []
 			loading = false
@@ -78,8 +88,7 @@
 		}
 
 		try {
-			const workspace = get(workspaceStore) || ''
-			const models = await fetchAvailableModels(resourcePath, workspace, provider, signal)
+			const models = await fetchAvailableModels(resourcePath, effectiveWorkspace, provider, signal)
 			if (signal?.aborted) {
 				return
 			}
@@ -190,6 +199,7 @@
 			}
 			resourceType={providerResourceTypes}
 			{disabled}
+			{workspace}
 			placeholder="Select an AI provider resource"
 			selectFirst={false}
 			onValueChange={onResourcePicked}

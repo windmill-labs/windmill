@@ -163,7 +163,7 @@
 		const modules = flowStore.val.value?.modules
 		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
 		if (lastModule?.value?.type !== 'aiagent') return false
-		return agentStreamingEnabled(lastModule.value.input_transforms?.streaming)
+		return agentStreamingEnabled(lastModule.value)
 	})
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {

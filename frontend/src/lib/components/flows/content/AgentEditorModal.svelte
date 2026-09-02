@@ -127,25 +127,45 @@
 		if (t && owns(t)) closeAgentEditor()
 	})
 
+	/** What the flow behind a write has to be told about it, captured before the request rather than
+	 *  read after: the dialog stays closable while one is in flight and can be pointed at another
+	 *  agent by the time it lands, and the reactive `ws`/`target` would then name that one. */
+	type WriteTarget = { ws: string | undefined; path: string; host: AgentEditorTarget['host'] }
+	function currentWriteTarget(): WriteTarget | undefined {
+		const t = target
+		return t ? { ws, path: t.path, host: t.host } : undefined
+	}
+	function reconcile(at: WriteTarget | undefined, path: string) {
+		if (!at?.ws) return
+		markAgentWritten(at.ws, path)
+		if (!at.host) return
+		// The host graph resolves a linked agent's tool nodes from the resource, so it has to re-read
+		// what the write just changed.
+		return publishLinkedAgentTools(
+			path,
+			at.ws,
+			linkedToolsScope(at.ws, at.host.flowPath),
+			at.host.moduleId
+		)
+	}
+
+	let deployingFor = $state<WriteTarget | undefined>(undefined)
+
 	async function onDeploy() {
 		saving = true
+		deployingFor = currentWriteTarget()
 		try {
 			await host?.deploy()
 		} finally {
 			saving = false
+			deployingFor = undefined
 		}
 	}
 
-	/** What a successful deploy has to reconcile. The path is the one it wrote, which `deploy`
-	 *  holds to the one the editor opened: this editor does not rename. */
+	/** What a successful deploy has to reconcile. The path is the one it wrote, which `deploy` holds
+	 *  to the one the editor opened: this editor does not rename. */
 	async function onSaved(savedPath: string) {
-		markAgentWritten(ws, savedPath)
-		const h = target?.host
-		if (h && ws) {
-			// The host graph resolves a linked agent's tool nodes from the resource, so it has to
-			// re-read what the deploy just changed.
-			await publishLinkedAgentTools(savedPath, ws, linkedToolsScope(ws, h.flowPath), h.moduleId)
-		}
+		await reconcile(deployingFor ?? currentWriteTarget(), savedPath)
 	}
 </script>
 
@@ -278,11 +298,15 @@
 				canRestore={!readOnly}
 				onRestore={() => {
 					versionDrawer?.closeDrawer()
+					// A restore writes the resource as a deploy does, so the flow behind has to be told
+					// the same way. Captured before closing, which drops the target this reads.
+					const at = currentWriteTarget()
 					// Close the editor too, as the generic resource editor does on a restore: it holds
 					// a baseline captured before the restore, and any local draft on top of it, so
 					// deploying from it afterwards would write the pre-restore value straight back over
 					// the version just restored.
 					close()
+					if (at) void reconcile(at, at.path)
 				}}
 			/>
 		</DrawerContent>

@@ -176,12 +176,24 @@ export function agentFieldIsSet(
 }
 
 /**
- * Whether a run of this step would stream its answer. Absence means on
- * (`args.streaming.unwrap_or(true)` in `ai_executor.rs`), so only an explicit `false` holds it
- * back; a transform resolved at runtime is assumed to leave the default alone.
+ * Whether a run of this step would stream its answer, mirroring the worker's
+ * `has_stream = user_wants_streaming && is_text_output`. Absence means on
+ * (`args.streaming.unwrap_or(true)`), so only an explicit `false` holds it back; a transform
+ * resolved at runtime is assumed to leave the default alone.
+ *
+ * A caller that reads this wrong does not merely mislabel the run: a chat surface that opens a
+ * stream for an answer the worker sends in one piece re-runs the flow when its connection times
+ * out. So the two cases where the step cannot answer for itself both read as off — an image
+ * answer, which never streams whatever `streaming` says, and a linked agent, whose brain lives in
+ * the resource where this has no sight of it.
  */
-export function agentStreamingEnabled(transform: InputTransform | any | undefined): boolean {
-	return !(transform?.type === 'static' && transform.value === false)
+export function agentStreamingEnabled(value: Record<string, any> | undefined): boolean {
+	if (value?.agent) return false
+	const transforms = value?.input_transforms as Record<string, InputTransform | any> | undefined
+	const outputType = transforms?.output_type
+	if (outputType?.type === 'static' && outputType.value === 'image') return false
+	const streaming = transforms?.streaming
+	return !(streaming?.type === 'static' && streaming.value === false)
 }
 
 /**
