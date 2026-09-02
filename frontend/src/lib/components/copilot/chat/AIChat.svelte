@@ -70,7 +70,7 @@
 					? ''
 					: !hasCopilot
 						? $copilotInfo.workspaceDisabled
-							? 'Windmill AI is disabled in this workspace'
+							? 'Windmill AI is hidden in this workspace'
 							: $aiUserDisabled
 								? 'Windmill AI is disabled in your account settings'
 								: isAdmin

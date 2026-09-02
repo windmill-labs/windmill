@@ -393,7 +393,7 @@
 	{#if promptScope === 'workspace'}
 		<SettingCard
 			label="Windmill AI features"
-			description="When off, the AI chat, AI sessions, code generation and completion, AI fix and every other AI button are hidden for all members of this workspace. AI agent steps and the AI sandbox in flows are not affected and keep using the providers configured below."
+			description="When off, the AI chat, AI sessions, code generation and completion, AI fix and every other AI button are hidden for all members of this workspace. AI agent steps and the AI sandbox in flows are not affected and keep using the providers configured below. This hides the assistant in the UI only; it does not restrict API access to the configured providers."
 		>
 			<Toggle
 				checked={!copilotDisabled}

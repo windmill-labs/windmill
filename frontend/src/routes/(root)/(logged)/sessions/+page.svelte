@@ -22,6 +22,7 @@
 	} from '$lib/components/sessions/PreviewRouterPicker.svelte'
 	import { goto } from '$lib/navigation'
 	import { copilotInfo } from '$lib/aiStore'
+	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import SessionWrapper from '$lib/components/sessions/SessionWrapper.svelte'
 	import PreviewTabHost from '$lib/components/sessions/PreviewTabHost.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
@@ -74,6 +75,15 @@
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
 
 	const globalEnabled = isGlobalAiEnabled()
+
+	// Nothing else loads the copilot config here before a session is selected: the layout
+	// skips it in session mode and SessionWrapper only mounts with a session. Read the
+	// navigation workspace's config once, synchronously at init, so the hidden-workspace
+	// gate below can fire on a cold load; a session mounting later loads its own acting
+	// workspace and, being the later call, supersedes this one.
+	if ($workspaceStore) {
+		loadCopilot($workspaceStore)
+	}
 
 	// One observer shared by every tab host, which mirrors it into page iframes
 	// (see PreviewTabHost).
@@ -825,8 +835,8 @@
 		<!-- The workspace hid the assistant, and the sidebar switch with it, so only a
 		     direct URL lands here. -->
 		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
-			<p class="text-primary font-medium">AI Sessions are disabled in this workspace</p>
-			<p>A workspace admin turned Windmill AI off in the workspace settings.</p>
+			<p class="text-primary font-medium">AI Sessions are hidden in this workspace</p>
+			<p>A workspace admin turned Windmill AI features off in the workspace settings.</p>
 			<Button size="xs" onclick={() => goto('/')}>Back to workspace</Button>
 		</div>
 	{:else if !sessionState.hydrated}
