@@ -1298,21 +1298,22 @@
 															},
 															// The agent form covers an agent's configuration, not everything a
 															// resource carries: the workspace-specific toggle in particular is
-															// only in the generic form, which manages a draft per target
-															// workspace. Both write the same draft row, so this is a second view
-															// of the same edits rather than a second place to make them.
+															// only in the generic editor. JSON rather than that editor's form,
+															// which would render the configuration field by field and write a
+															// default into every one the agent leaves unset. Both write the same
+															// draft row, so this is a second view of the same edits.
 															...(resource_type === 'ai_agent'
 																? [
 																		{
-																			displayName: 'Edit as resource',
-																			icon: Pen,
+																			displayName: 'Edit as JSON',
+																			icon: Braces,
 																			disabled: !canWrite || !showCreateButtons,
 																			action: () => {
 																				// The drawer anchors itself in the hash, which the deep-link
 																				// effect would then read and route back to the agent editor.
 																				// Claim it first, as the row's own link does.
 																				handledHash = `#/resource/${path}`
-																				resourceEditor?.initEdit?.(path)
+																				resourceEditor?.initEdit?.(path, { json: true })
 																			}
 																		}
 																	]

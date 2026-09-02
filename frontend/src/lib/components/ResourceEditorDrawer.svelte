@@ -44,6 +44,7 @@
 
 	let path: string | undefined = $state(undefined)
 	let selected: string | undefined = $state(undefined)
+	let viewJsonSchema = $state(false)
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
 	// The editor renders whichever workspace-specific variant `selected` points at, so history has
@@ -57,10 +58,14 @@
 		historyWorkspace === $workspaceStore && isOwner(path ?? '', $userStore, $workspaceStore)
 	)
 
-	export async function initEdit(p: string): Promise<void> {
+	/** `json` opens on the JSON editor instead of the resource type's form. For a type with a
+	 *  dedicated editor elsewhere: the generic form would render its configuration field by field,
+	 *  and materialize a default into every one the value leaves out. */
+	export async function initEdit(p: string, opts?: { json?: boolean }): Promise<void> {
 		resource_type = undefined
 		path = p
 		selected = effectiveWorkspace
+		viewJsonSchema = opts?.json ?? false
 		drawer?.openDrawer?.()
 		setPageDrawerAnchor(RESOURCES_PATH, p)
 	}
@@ -113,6 +118,7 @@
 				bind:this={resourceEditor}
 				bind:canSave
 				bind:selected
+				bind:viewJsonSchema
 				onDraftStateChange={(v) => (hasLocalDraft = v)}
 				onCanWriteChange={(v) => (canWriteSelected = v)}
 			/>
