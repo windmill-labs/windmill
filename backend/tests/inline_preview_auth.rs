@@ -26,7 +26,8 @@
 //!   - an Operator's job token passes the guard for a datatable query while its
 //!     job is running, on the inline route and on the `/jobs/run/preview`
 //!     fallback the SDKs use when the worker has no internal server,
-//!   - the same token is rejected for any other payload (in-process DuckDB), and
+//!   - the same token is rejected for any other payload (in-process DuckDB, or a
+//!     `-- database` directive redirecting the query) and for a deferred run,
 //!   - an Operator's job token for a job that is not running, whether finished or
 //!     merely queued, is rejected.
 
@@ -162,16 +163,30 @@ async fn test_inline_preview_authorization(db: Pool<Postgres>) -> anyhow::Result
     );
 
     // 4. The same token is rejected for any other payload: the exemption covers
-    //    the datatable request shape only, never in-process DuckDB.
-    let (status, body) = post(&url, &running_job_token, &inline_preview_body()).await;
-    assert_eq!(
-        status, 401,
-        "operator job token must be rejected for a non-datatable payload (got {status}): {body}"
-    );
-    assert!(
-        body.contains(OPERATOR_GUARD_MSG),
-        "rejection must be the operator guard, got: {body}"
-    );
+    //    the datatable request shape only, never in-process DuckDB, and never a
+    //    `-- database` directive, which the executor honors over `args.database`.
+    let mut redirected = datatable_query_body();
+    redirected["content"] = json!("-- database u/test-user/other_db\nSELECT 1 AS x;");
+    let mut to_s3 = datatable_query_body();
+    to_s3["content"] = json!("-- s3\nSELECT 1 AS x;");
+    let mut resource_db = datatable_query_body();
+    resource_db["args"]["database"] = json!("$res:u/test-user/other_db");
+    for (label, payload) in [
+        ("DuckDB", inline_preview_body()),
+        ("database directive", redirected),
+        ("s3 directive", to_s3),
+        ("resource database", resource_db),
+    ] {
+        let (status, body) = post(&url, &running_job_token, &payload).await;
+        assert_eq!(
+            status, 401,
+            "operator job token must be rejected for a {label} payload (got {status}): {body}"
+        );
+        assert!(
+            body.contains(OPERATOR_GUARD_MSG),
+            "rejection for a {label} payload must be the operator guard, got: {body}"
+        );
+    }
 
     // 5. An Operator's job token whose job is not running is rejected like the
     //    operator's own token, whether the job is over (no queue row) or merely
@@ -212,6 +227,24 @@ async fn test_inline_preview_authorization(db: Pool<Postgres>) -> anyhow::Result
         body.contains(OPERATOR_GUARD_MSG),
         "rejection must be the operator guard, got: {body}"
     );
+
+    // 7. A deferred run on the fallback would outlive the running job the
+    //    exemption keys off, so the running job's token cannot schedule one.
+    for deferral in [
+        "scheduled_in_secs=86400",
+        "scheduled_for=2099-01-01T00:00:00Z",
+    ] {
+        let deferred_url = format!("{fallback_url}?{deferral}");
+        let (status, body) = post(&deferred_url, &running_job_token, &datatable_query_body()).await;
+        assert_eq!(
+            status, 401,
+            "operator job token must not schedule a deferred preview with {deferral} (got {status}): {body}"
+        );
+        assert!(
+            body.contains(OPERATOR_GUARD_MSG),
+            "rejection for {deferral} must be the operator guard, got: {body}"
+        );
+    }
 
     Ok(())
 }

@@ -8136,18 +8136,26 @@ pub async fn run_wait_result_flow_by_version(
 /// non-operator authored. The job must still be running, and the request must have the
 /// shape `wmill.datatable()` sends (PostgreSQL against a `datatable://` database), so a
 /// WM_TOKEN that leaked into job logs cannot be replayed to run anything else while the
-/// job lives, in particular DuckDB, which runs in-process in the worker.
+/// job lives, in particular DuckDB, which runs in-process in the worker. The executor honors
+/// a `-- database` directive in the SQL over the database argument and an `-- s3` directive
+/// redirects the result set, so both are refused too.
 async fn operator_may_run_datatable_query(
     db: &DB,
     w_id: &str,
     job_id: Option<Uuid>,
     language: Option<&ScriptLang>,
+    content: &str,
     args: Option<&HashMap<String, Box<JsonRawValue>>>,
 ) -> error::Result<bool> {
     let Some(job_id) = job_id else {
         return Ok(false);
     };
     if language != Some(&ScriptLang::Postgresql) {
+        return Ok(false);
+    }
+    if windmill_parser_sql::parse_db_resource(content).is_some()
+        || !matches!(windmill_parser_sql::parse_s3_mode(content), Ok(None))
+    {
         return Ok(false);
     }
     let targets_datatable = args
@@ -8167,6 +8175,18 @@ async fn operator_may_run_datatable_query(
     .unwrap_or(false))
 }
 
+/// The refusal an operator gets from a preview route. Inside a job the caller never ran a
+/// preview themselves, so name the one thing the job's token may do.
+fn operator_preview_refusal(job_id: Option<Uuid>) -> error::Error {
+    let reason = if job_id.is_some() {
+        "Operators cannot run preview jobs for security reasons: from inside a job, an \
+         operator may only run a wmill.datatable() query while that job is running"
+    } else {
+        "Operators cannot run preview jobs for security reasons"
+    };
+    error::Error::NotAuthorized(reason.to_string())
+}
+
 async fn run_preview_script(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -8177,19 +8197,21 @@ async fn run_preview_script(
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
-    if authed.is_operator
-        && !operator_may_run_datatable_query(
-            &db,
-            &w_id,
-            authed.job_id,
-            preview.language.as_ref(),
-            preview.args.as_ref(),
-        )
-        .await?
-    {
-        return Err(error::Error::NotAuthorized(
-            "Operators cannot run preview jobs for security reasons".to_string(),
-        ));
+    if authed.is_operator {
+        // A deferred run would outlive the running job the exemption keys off.
+        if run_query.get_scheduled_for(&db).await?.is_some()
+            || !operator_may_run_datatable_query(
+                &db,
+                &w_id,
+                authed.job_id,
+                preview.language.as_ref(),
+                preview.content.as_deref().unwrap_or_default(),
+                preview.args.as_ref(),
+            )
+            .await?
+        {
+            return Err(operator_preview_refusal(authed.job_id));
+        }
     }
     // Preview runs arbitrary, request-supplied code. require_path_read_access_for_preview
     // only checks folder/namespace *read* access (and is a no-op when path is null), so a
@@ -8293,13 +8315,12 @@ async fn run_inline_preview_script(
             &w_id,
             job_id,
             Some(&preview.language),
+            &preview.content,
             preview.args.as_ref(),
         )
         .await?
     {
-        return Err(error::Error::NotAuthorized(
-            "Operators cannot run preview jobs for security reasons".to_string(),
-        ));
+        return Err(operator_preview_refusal(job_id));
     }
     check_scopes(&authed, || format!("jobs:run"))?;
     if let Some(job_id) = job_id {
