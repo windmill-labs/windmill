@@ -43,9 +43,6 @@ export interface AgentDraftHandle {
 	readonly sync: TriggerDraftSync
 	/** Write the current state to the resource and drop the draft. */
 	deploy: () => Promise<boolean>
-	/** Re-read the resource, dropping whatever is held. For a version restore, which replaces the
-	 *  deployed value underneath the editor. */
-	reload: () => void
 }
 
 /**
@@ -60,9 +57,6 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 	let noDeployed = $state(false)
 	/** Guards the load against a path that changed under a slow response. */
 	let loadedFor = $state<string | undefined>(undefined)
-	/** Bumped by `reload`. Read as a dependency of the load effect, which `loadedFor` cannot be:
-	 *  that one is read inside `untrack`, so clearing it alone would re-run nothing. */
-	let loadRequest = $state(0)
 
 	const sync = useTriggerDraftSync({
 		itemKind: 'resource',
@@ -82,7 +76,6 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 	$effect(() => {
 		const path = opts.path()
 		const ws = opts.workspace()
-		loadRequest
 		untrack(() => {
 			if (!path || !ws) {
 				state = undefined
@@ -180,11 +173,6 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		return true
 	}
 
-	function reload() {
-		loadedFor = undefined
-		loadRequest++
-	}
-
 	return {
 		get state() {
 			return state
@@ -199,7 +187,6 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 			return noDeployed
 		},
 		sync,
-		deploy,
-		reload
+		deploy
 	}
 }

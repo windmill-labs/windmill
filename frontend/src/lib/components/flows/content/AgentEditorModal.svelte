@@ -230,11 +230,12 @@
 				path={target.path}
 				workspace={ws}
 				onRestore={() => {
-					writes++
 					versionDrawer?.closeDrawer()
-					// The restored value is now the deployed one; reload so the editor is not left
-					// showing the version it replaced.
-					host?.reloadFromResource()
+					// Close the editor too, as the generic resource editor does on a restore: it holds
+					// a baseline captured before the restore, and any local draft on top of it, so
+					// deploying from it afterwards would write the pre-restore value straight back over
+					// the version just restored.
+					closeAgentEditor()
 				}}
 			/>
 		</DrawerContent>

@@ -283,11 +283,6 @@
 	export function draftHandle() {
 		return draft
 	}
-	/** Re-read the resource, dropping whatever the editor holds. For a restore, which replaces the
-	 *  deployed value under the editor. */
-	export function reloadFromResource() {
-		draft.reload()
-	}
 </script>
 
 {#if draft.loading}
