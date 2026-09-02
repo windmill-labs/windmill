@@ -190,6 +190,12 @@ pub struct ProviderResource {
         deserialize_with = "empty_string_as_none"
     )]
     pub aws_session_token: Option<String>,
+    #[serde(
+        alias = "oidcRoleArn",
+        default,
+        deserialize_with = "empty_string_as_none"
+    )]
+    pub oidc_role_arn: Option<String>,
     /// Platform (standard or google_vertex_ai)
     #[serde(default)]
     pub platform: AIPlatform,
@@ -256,6 +262,7 @@ impl ProviderWithResource {
             aws_access_key_id: self.resource.aws_access_key_id.clone(),
             aws_secret_access_key: self.resource.aws_secret_access_key.clone(),
             aws_session_token: self.resource.aws_session_token.clone(),
+            oidc_role_arn: self.resource.oidc_role_arn.clone(),
             platform: self.resource.platform.clone(),
             custom_headers: self.resource.headers.clone(),
         })

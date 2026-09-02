@@ -2,6 +2,7 @@
 //!
 //! This module provides:
 //! - BedrockClient: SDK wrapper with bearer token and IAM credentials auth
+//! - OIDC role assumption: exchange a Windmill OIDC token for temporary IAM keys
 //! - Message/tool conversion: OpenAI format <-> Bedrock Converse API format
 //! - Stream event parsing: Extract text/tool deltas from Bedrock stream events
 //!
@@ -289,6 +290,187 @@ impl BedrockClient {
     pub fn client(&self) -> &BedrockRuntimeClient {
         &self.client
     }
+}
+
+// ============================================================================
+// OIDC Role Assumption
+// ============================================================================
+
+pub use windmill_common::auth::aws::AWS_OIDC_AUDIENCE;
+
+/// Bedrock credential precedence: a bearer API key wins, then a complete pair of
+/// explicit IAM keys, then OIDC role assumption, then the ambient environment.
+/// Returns the role to assume only when both higher-priority modes are unset, so
+/// a resource can carry a role ARN without it ever overriding keys set on it.
+pub fn bedrock_oidc_role_to_assume<'a>(
+    api_key: Option<&str>,
+    aws_access_key_id: Option<&str>,
+    aws_secret_access_key: Option<&str>,
+    oidc_role_arn: Option<&'a str>,
+) -> Option<&'a str> {
+    let has_bearer_token = api_key.is_some_and(|key| !key.is_empty());
+    let has_iam_keys = aws_access_key_id.is_some_and(|key| !key.is_empty())
+        && aws_secret_access_key.is_some_and(|key| !key.is_empty());
+
+    if has_bearer_token || has_iam_keys {
+        return None;
+    }
+
+    oidc_role_arn.filter(|arn| !arn.is_empty())
+}
+
+/// Re-assume the role this long before AWS expires the credentials, so a request
+/// that starts on a reused set cannot finish holding dead ones.
+pub const ASSUMED_ROLE_REFRESH_MARGIN: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Temporary IAM credentials minted by STS `AssumeRoleWithWebIdentity`.
+#[derive(Clone, Debug)]
+pub struct AssumedRoleCredentials {
+    pub access_key_id: String,
+    pub secret_access_key: String,
+    pub session_token: String,
+    pub expires_at: std::time::SystemTime,
+}
+
+impl AssumedRoleCredentials {
+    /// Whether these have enough life left to sign another request.
+    pub fn is_fresh(&self) -> bool {
+        self.expires_at > std::time::SystemTime::now() + ASSUMED_ROLE_REFRESH_MARGIN
+    }
+}
+
+/// Assume the resource's OIDC role for a job, reusing `cached` while it is still
+/// fresh, and hand back the temporary keys to sign Bedrock requests with.
+///
+/// The agent loop calls this once per iteration, so without the reuse a
+/// tool-heavy run would mint an OIDC token and call STS on every model turn.
+/// Returns `None` when a higher-priority credential is set, so the caller can
+/// call it unconditionally.
+pub async fn refresh_bedrock_oidc_credentials<'a>(
+    credentials: &crate::credentials::ProviderCredentials,
+    cached: &'a mut Option<AssumedRoleCredentials>,
+    client: &windmill_common::client::AuthedClient,
+    job_id: &uuid::Uuid,
+) -> Result<Option<&'a AssumedRoleCredentials>, Error> {
+    let Some(role_arn) = bedrock_oidc_role_to_assume(
+        credentials.api_key.as_deref(),
+        credentials.aws_access_key_id.as_deref(),
+        credentials.aws_secret_access_key.as_deref(),
+        credentials.oidc_role_arn.as_deref(),
+    ) else {
+        return Ok(None);
+    };
+
+    // Ahead of the reuse check, so a request never signs against the empty region
+    // just because an earlier one had already assumed the role.
+    let region = bedrock_oidc_region(credentials.region.as_deref())?;
+
+    if !cached
+        .as_ref()
+        .is_some_and(AssumedRoleCredentials::is_fresh)
+    {
+        // A worker holds no OIDC signing key, so it asks the API to mint the
+        // token for this job; the session name carries the job into CloudTrail.
+        let id_token = client
+            .get_id_token(AWS_OIDC_AUDIENCE)
+            .await
+            .map_err(|e| Error::internal_err(format!("Failed to get OIDC token: {}", e)))?;
+        // The whole UUID: "windmill-ai-job-" plus 32 hex is 48 characters, well
+        // inside AWS's limit, and a truncated one would make two runs
+        // indistinguishable in CloudTrail.
+        let session_name = aws_role_session_name("windmill-ai-job", &job_id.simple().to_string());
+        *cached =
+            Some(assume_role_with_oidc_token(role_arn, region, id_token, &session_name).await?);
+    }
+
+    Ok(cached.as_ref())
+}
+
+/// Distinguishing digest appended to a session name that had to be truncated.
+const SESSION_NAME_DIGEST_LEN: usize = 8;
+
+/// Build a role session name AWS accepts: it constrains them to
+/// `[\w+=,.@-]{2,64}`, and rejects the whole request otherwise. Disallowed
+/// characters are replaced rather than dropped.
+///
+/// The name is the only thing carrying the caller into the assumed-role ARN and
+/// CloudTrail, so an identity too long to fit keeps a prefix plus a digest of the
+/// whole thing: two identities sharing a prefix would otherwise be
+/// indistinguishable in exactly the audit trail this feature exists to produce.
+pub fn aws_role_session_name(prefix: &str, identity: &str) -> String {
+    let sanitize = |s: &str| -> String {
+        s.chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || matches!(c, '_' | '+' | '=' | ',' | '.' | '@' | '-')
+                {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .collect()
+    };
+
+    let name = sanitize(&format!("{}-{}", prefix, identity));
+    if name.len() <= 64 {
+        return name;
+    }
+
+    let digest = &windmill_common::utils::calculate_hash(identity)[..SESSION_NAME_DIGEST_LEN];
+    let kept = 64 - SESSION_NAME_DIGEST_LEN - 1;
+    format!("{}-{}", &name[..kept], digest)
+}
+
+/// The region an OIDC role assumption runs in.
+///
+/// The assumption resolves to explicit IAM keys, and the SDK client built from
+/// those has no ambient-region fallback the way [`BedrockClient::from_env`] does,
+/// so a resource that assumes a role has to name its region. Callers check this
+/// before minting the OIDC token, so a misconfigured resource never issues an
+/// identity token it is only going to throw away.
+pub fn bedrock_oidc_region(region: Option<&str>) -> Result<&str, Error> {
+    region.filter(|r| !r.is_empty()).ok_or_else(|| {
+        Error::BadRequest(
+            "AWS Bedrock resources that assume a role through OIDC must set a region".to_string(),
+        )
+    })
+}
+
+/// Exchange a Windmill OIDC token for temporary IAM credentials on `role_arn`.
+pub async fn assume_role_with_oidc_token(
+    role_arn: &str,
+    region: &str,
+    id_token: String,
+    session_name: &str,
+) -> Result<AssumedRoleCredentials, Error> {
+    use windmill_common::auth::aws::{
+        get_assume_role_with_web_identity_fluent_builder, GetAuthenticationOutput, OidcAuth,
+    };
+
+    let oidc_auth = OidcAuth { region: Some(region.to_string()), role_arn: role_arn.to_string() };
+
+    let output =
+        get_assume_role_with_web_identity_fluent_builder(&oidc_auth, id_token, Some(session_name))
+            .await?
+            .send()
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to assume AWS role {} with Windmill's OIDC token: {}",
+                    role_arn,
+                    format_bedrock_error(&e)
+                ))
+            })?;
+
+    let credentials = output.get_credentials()?;
+
+    Ok(AssumedRoleCredentials {
+        access_key_id: credentials.access_key_id.clone(),
+        secret_access_key: credentials.secret_access_key.clone(),
+        session_token: credentials.session_token.clone(),
+        expires_at: std::time::UNIX_EPOCH
+            + std::time::Duration::from_secs(credentials.expiration.secs().max(0) as u64),
+    })
 }
 
 // ============================================================================
@@ -999,6 +1181,82 @@ mod tests {
     use super::*;
     use aws_sdk_bedrockruntime::types::ReasoningContentBlock;
     use serde_json::value::RawValue;
+
+    #[test]
+    fn oidc_role_yields_only_to_bearer_and_complete_iam_keys() {
+        let arn = Some("arn:aws:iam::1:role/bedrock");
+
+        assert_eq!(
+            bedrock_oidc_role_to_assume(None, None, None, arn),
+            arn,
+            "nothing else set: assume the role rather than fall through to the environment"
+        );
+        assert_eq!(
+            bedrock_oidc_role_to_assume(Some("key"), None, None, arn),
+            None
+        );
+        assert_eq!(
+            bedrock_oidc_role_to_assume(None, Some("id"), Some("secret"), arn),
+            None
+        );
+        assert_eq!(
+            bedrock_oidc_role_to_assume(None, Some("id"), None, arn),
+            arn,
+            "half a key pair is not usable IAM credentials, so the role still wins"
+        );
+        // Cleared resource fields arrive as empty strings, not as absent ones.
+        assert_eq!(
+            bedrock_oidc_role_to_assume(Some(""), Some(""), Some(""), arn),
+            arn
+        );
+        assert_eq!(
+            bedrock_oidc_role_to_assume(None, None, None, Some("")),
+            None
+        );
+    }
+
+    #[test]
+    fn credentials_stop_being_fresh_before_aws_expires_them() {
+        let at = |d: std::time::Duration| AssumedRoleCredentials {
+            access_key_id: String::new(),
+            secret_access_key: String::new(),
+            session_token: String::new(),
+            expires_at: std::time::SystemTime::now() + d,
+        };
+        // Reused only while there is still margin left to finish a request.
+        assert!(at(ASSUMED_ROLE_REFRESH_MARGIN * 2).is_fresh());
+        assert!(!at(ASSUMED_ROLE_REFRESH_MARGIN / 2).is_fresh());
+    }
+
+    #[test]
+    fn role_session_name_stays_within_what_aws_accepts() {
+        // A whole job UUID fits, so CloudTrail names the exact run.
+        assert_eq!(
+            aws_role_session_name("windmill-ai-job", "0a1b2c3d4e5f60718293a4b5c6d7e8f9"),
+            "windmill-ai-job-0a1b2c3d4e5f60718293a4b5c6d7e8f9"
+        );
+        // Usernames and emails routinely carry characters AWS rejects.
+        assert_eq!(
+            aws_role_session_name("windmill-ai-copilot", "ada/lovelace (admin)"),
+            "windmill-ai-copilot-ada-lovelace--admin-"
+        );
+
+        // Identities too long to fit keep a digest, so a shared prefix does not
+        // collapse two callers into one CloudTrail identity.
+        let a = aws_role_session_name("windmill-ai-copilot", &format!("{}a", "x".repeat(60)));
+        let b = aws_role_session_name("windmill-ai-copilot", &format!("{}b", "x".repeat(60)));
+        assert_ne!(a, b);
+        for name in [&a, &b] {
+            assert_eq!(name.len(), 64);
+            assert!(name.chars().all(|c| c.is_ascii_alphanumeric()
+                || matches!(c, '_' | '+' | '=' | ',' | '.' | '@' | '-')));
+        }
+
+        // Sanitising before truncating keeps every char one byte, so the cap is
+        // never applied mid-character.
+        let unicode = aws_role_session_name("windmill-ai-copilot", &"é".repeat(100));
+        assert_eq!(unicode.len(), 64);
+    }
 
     fn text_message(role: &str, content: &str) -> OpenAIMessage {
         OpenAIMessage {

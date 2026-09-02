@@ -120,6 +120,15 @@ lazy_static::lazy_static! {
 
 }
 
+#[cfg(feature = "bedrock")]
+lazy_static::lazy_static! {
+    /// Temporary IAM credentials from a Bedrock OIDC role assumption, keyed by
+    /// (workspace, role ARN, user email). The email is the identity the OIDC
+    /// token is minted for, so unlike AI_REQUEST_CACHE an entry is never handed
+    /// to a different user — that is what keeps AWS-side attribution per user.
+    static ref BEDROCK_ASSUMED_ROLE_CACHE: Cache<(String, String, String), windmill_ai::ai_bedrock::AssumedRoleCredentials> = Cache::new(500);
+}
+
 pub(crate) fn invalidate_ai_request_cache_for_workspace(workspace_id: &str) {
     AI_REQUEST_CACHE.retain(|(cached_workspace_id, _), _| cached_workspace_id != workspace_id);
 }
@@ -219,6 +228,12 @@ struct AIStandardResource {
         deserialize_with = "empty_string_as_none"
     )]
     aws_session_token: Option<String>,
+    #[serde(
+        alias = "oidcRoleArn",
+        default,
+        deserialize_with = "empty_string_as_none"
+    )]
+    oidc_role_arn: Option<String>,
     /// Platform (standard or google_vertex_ai)
     #[serde(default)]
     platform: AIPlatform,
@@ -301,6 +316,11 @@ async fn resolve_provider_credentials(
             } else {
                 None
             };
+            let oidc_role_arn = if let Some(role_arn) = resource.oidc_role_arn {
+                Some(resolve_var(role_arn, db, w_id, user_db.as_ref(), authed).await?)
+            } else {
+                None
+            };
 
             Ok(ProviderCredentials {
                 provider: provider.clone(),
@@ -313,6 +333,7 @@ async fn resolve_provider_credentials(
                 aws_access_key_id,
                 aws_secret_access_key,
                 aws_session_token,
+                oidc_role_arn,
                 platform: resource.platform,
                 custom_headers: resource.headers,
             })
@@ -337,6 +358,7 @@ async fn resolve_provider_credentials(
                 aws_access_key_id: None,
                 aws_secret_access_key: None,
                 aws_session_token: None,
+                oidc_role_arn: None,
                 platform: AIPlatform::Standard,
                 custom_headers: HashMap::new(),
             })
@@ -383,6 +405,109 @@ async fn get_token_using_oauth(
         ))
     })?;
     Ok(response.access_token)
+}
+
+/// Exchange the resource's OIDC role ARN for temporary IAM credentials, in place.
+///
+/// Only the API holds the OIDC signing key, so the exchange happens here rather
+/// than in the Bedrock handler, which then sees ordinary IAM keys. It runs after
+/// the workspace credential cache on purpose: the STS session name names the user
+/// making the request, and a cache shared by the whole workspace would hand one
+/// user's session to another.
+#[cfg(feature = "bedrock")]
+async fn resolve_bedrock_oidc_credentials(
+    db: &DB,
+    w_id: &str,
+    authed: &ApiAuthed,
+    credentials: &mut ProviderCredentials,
+) -> Result<()> {
+    use windmill_ai::ai_bedrock::{aws_role_session_name, bedrock_oidc_role_to_assume};
+
+    // Only the Bedrock resource type carries a role ARN; leaving the field set on
+    // any other resource inert keeps a hand-edited one from reaching STS.
+    if credentials.provider != AIProvider::AWSBedrock {
+        return Ok(());
+    }
+
+    let Some(role_arn) = bedrock_oidc_role_to_assume(
+        credentials.api_key.as_deref(),
+        credentials.aws_access_key_id.as_deref(),
+        credentials.aws_secret_access_key.as_deref(),
+        credentials.oidc_role_arn.as_deref(),
+    ) else {
+        return Ok(());
+    };
+
+    // Ahead of the cache: STS credentials are region-independent, so a resource
+    // with the same role but no region would otherwise reuse an entry and sign a
+    // request against the empty region the guard exists to reject.
+    let region = windmill_ai::ai_bedrock::bedrock_oidc_region(credentials.region.as_deref())?;
+
+    let session_name = aws_role_session_name("windmill-ai-copilot", &authed.username);
+    // Keyed on the email, the identity the OIDC token is minted for, rather than
+    // on the session name derived from it: that name is sanitised and length
+    // capped, so it is a lossy stand-in for the caller.
+    let cache_key = (w_id.to_string(), role_arn.to_string(), authed.email.clone());
+
+    let assumed = match BEDROCK_ASSUMED_ROLE_CACHE
+        .get(&cache_key)
+        .filter(windmill_ai::ai_bedrock::AssumedRoleCredentials::is_fresh)
+    {
+        Some(cached) => cached,
+        None => {
+            let assumed =
+                assume_bedrock_role(db, w_id, authed, role_arn, region, &session_name).await?;
+            BEDROCK_ASSUMED_ROLE_CACHE.insert(cache_key, assumed.clone());
+            assumed
+        }
+    };
+
+    credentials.aws_access_key_id = Some(assumed.access_key_id);
+    credentials.aws_secret_access_key = Some(assumed.secret_access_key);
+    credentials.aws_session_token = Some(assumed.session_token);
+
+    Ok(())
+}
+
+#[cfg(feature = "bedrock")]
+async fn assume_bedrock_role(
+    db: &DB,
+    w_id: &str,
+    authed: &ApiAuthed,
+    role_arn: &str,
+    region: &str,
+    session_name: &str,
+) -> Result<windmill_ai::ai_bedrock::AssumedRoleCredentials> {
+    #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
+    {
+        use windmill_common::oidc_oss::{generate_id_token, WorkspaceClaim};
+
+        let id_token = generate_id_token(
+            Some(db),
+            WorkspaceClaim { workspace: w_id.to_string() },
+            windmill_ai::ai_bedrock::AWS_OIDC_AUDIENCE,
+            format!("{}::{}", authed.email, w_id),
+            Some(authed.email.clone()),
+            None,
+        )
+        .await?;
+
+        windmill_ai::ai_bedrock::assume_role_with_oidc_token(
+            role_arn,
+            region,
+            id_token.to_string(),
+            session_name,
+        )
+        .await
+    }
+    #[cfg(not(all(feature = "enterprise", feature = "openidconnect", feature = "private")))]
+    {
+        let _ = (db, w_id, authed, role_arn, region, session_name);
+        Err(Error::BadRequest(
+            "Assuming an AWS role through Windmill's OIDC provider requires an enterprise license"
+                .to_string(),
+        ))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -928,6 +1053,7 @@ async fn global_proxy(
         aws_access_key_id: None,
         aws_secret_access_key: None,
         aws_session_token: None,
+        oidc_role_arn: None,
         platform: AIPlatform::Standard,
         custom_headers: HashMap::new(),
     };
@@ -1205,6 +1331,9 @@ async fn proxy(
         }
     };
 
+    #[cfg(feature = "bedrock")]
+    resolve_bedrock_oidc_credentials(&db, &w_id, &authed, &mut credentials).await?;
+
     // Free tier: pin the model and clamp max_tokens server-side before forwarding,
     // since the request body is otherwise client-controlled.
     if free_lease.is_some() {
@@ -1415,6 +1544,7 @@ mod tests {
             aws_access_key_id: None,
             aws_secret_access_key: None,
             aws_session_token: None,
+            oidc_role_arn: None,
             platform: AIPlatform::Standard,
             custom_headers: HashMap::new(),
         }
