@@ -9,14 +9,13 @@
 use super::{anthropic_model_rejects_sampling_params, REASONING_OFF_SENTINEL};
 use crate::{
     ai_bedrock::{
-        assume_role_with_oidc_token, aws_role_session_name, bedrock_model_supports_prompt_caching,
-        bedrock_oidc_role_to_assume, bedrock_stream_event_is_block_stop,
+        bedrock_model_supports_prompt_caching, bedrock_stream_event_is_block_stop,
         bedrock_stream_event_to_reasoning_delta, bedrock_stream_event_to_text,
         bedrock_stream_event_to_tool_delta, bedrock_stream_event_to_tool_delta_with_block_index,
         bedrock_stream_event_to_tool_start, bedrock_stream_event_to_tool_start_with_block_index,
         build_tool_config, create_inference_config, format_bedrock_error, json_to_document,
         openai_messages_to_bedrock, streaming_tool_calls_to_openai, BearerTokenProvider,
-        BedrockClient, StreamingToolCall, AWS_OIDC_AUDIENCE,
+        BedrockClient, StreamingToolCall,
     },
     ai_providers::USE_ENV_REGION,
     ai_types::{
@@ -946,11 +945,6 @@ fn document_to_json(doc: &aws_smithy_types::Document) -> serde_json::Value {
 // Query Builder
 // ============================================================================
 
-/// How much of the job UUID goes into the STS role session name: enough to
-/// identify a run in CloudTrail, short enough to stay well inside the 64
-/// characters AWS allows for the whole name.
-const JOB_ID_SESSION_NAME_LEN: usize = 8;
-
 #[derive(Default)]
 pub struct BedrockQueryBuilder;
 
@@ -973,38 +967,8 @@ impl BedrockQueryBuilder {
         aws_access_key_id: Option<&str>,
         aws_secret_access_key: Option<&str>,
         aws_session_token: Option<&str>,
-        oidc_role_arn: Option<&str>,
-        job_id: &uuid::Uuid,
     ) -> Result<ParsedResponse, Error> {
-        let oidc_role = bedrock_oidc_role_to_assume(
-            Some(api_key),
-            aws_access_key_id,
-            aws_secret_access_key,
-            oidc_role_arn,
-        );
-
-        let bedrock_client = if let Some(role_arn) = oidc_role {
-            // The worker has no OIDC signing key, so it asks the API to mint the
-            // token for this job; the session name carries the job into CloudTrail.
-            let id_token = client
-                .get_id_token(AWS_OIDC_AUDIENCE)
-                .await
-                .map_err(|e| Error::internal_err(format!("Failed to get OIDC token: {}", e)))?;
-            let session_name = aws_role_session_name(
-                "windmill-ai-job",
-                &job_id.simple().to_string()[..JOB_ID_SESSION_NAME_LEN],
-            );
-            let assumed =
-                assume_role_with_oidc_token(role_arn, Some(region), id_token, &session_name)
-                    .await?;
-            BedrockClient::from_credentials(
-                assumed.access_key_id,
-                assumed.secret_access_key,
-                Some(assumed.session_token),
-                region,
-            )
-            .await?
-        } else if !api_key.is_empty() {
+        let bedrock_client = if !api_key.is_empty() {
             BedrockClient::from_bearer_token(api_key.to_string(), region).await?
         } else if let (Some(access_key_id), Some(secret_access_key)) =
             (aws_access_key_id, aws_secret_access_key)

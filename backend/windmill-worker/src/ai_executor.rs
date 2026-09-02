@@ -1129,6 +1129,11 @@ pub async fn run_agent(
         .map(|m| m.clamp(1, HARD_MAX_AGENT_ITERATIONS))
         .unwrap_or(DEFAULT_MAX_AGENT_ITERATIONS);
 
+    // Held across iterations so an OIDC role is assumed once for the job and
+    // re-assumed only near expiry, rather than on every model turn.
+    #[cfg(feature = "bedrock")]
+    let mut bedrock_assumed_role: Option<windmill_ai::ai_bedrock::AssumedRoleCredentials> = None;
+
     // Main agent loop
     for i in 0..max_iterations {
         // Check if parent was canceled — stop iterating but let current tool calls finish
@@ -1148,6 +1153,27 @@ pub async fn run_agent(
                     .region
                     .as_deref()
                     .unwrap_or(windmill_ai::ai_providers::USE_ENV_REGION);
+                // An OIDC role resolves to ordinary IAM keys, so from here the
+                // call is identical to the explicit-keys mode.
+                let assumed = windmill_ai::ai_bedrock::refresh_bedrock_oidc_credentials(
+                    &credentials,
+                    &mut bedrock_assumed_role,
+                    client,
+                    &job.id,
+                )
+                .await?;
+                let (access_key_id, secret_access_key, session_token) = match assumed {
+                    Some(assumed) => (
+                        Some(assumed.access_key_id.as_str()),
+                        Some(assumed.secret_access_key.as_str()),
+                        Some(assumed.session_token.as_str()),
+                    ),
+                    None => (
+                        credentials.aws_access_key_id.as_deref(),
+                        credentials.aws_secret_access_key.as_deref(),
+                        credentials.aws_session_token.as_deref(),
+                    ),
+                };
                 // Use Bedrock SDK via dedicated query builder
                 windmill_ai::providers::bedrock::BedrockQueryBuilder::default()
                     .execute_request(
@@ -1163,11 +1189,9 @@ pub async fn run_agent(
                         client,
                         &job.workspace_id,
                         structured_output_tool_name.as_deref(),
-                        credentials.aws_access_key_id.as_deref(),
-                        credentials.aws_secret_access_key.as_deref(),
-                        credentials.aws_session_token.as_deref(),
-                        credentials.oidc_role_arn.as_deref(),
-                        &job.id,
+                        access_key_id,
+                        secret_access_key,
+                        session_token,
                     )
                     .await?
             }

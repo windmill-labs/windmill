@@ -25,6 +25,12 @@ pub struct ProviderCredentials {
     /// exchanges it for temporary keys before it builds the request; the worker
     /// exchanges it at the Bedrock call, because only the API can sign an OIDC
     /// token.
+    ///
+    /// The two paths therefore present different tokens to AWS: the proxy a
+    /// workspace claim with `sub = "<email>::<workspace>"`, the worker the job
+    /// claim `/oidc/token` issues, `sub = "<email>::<path>::<flow_path>::<workspace>"`.
+    /// A role trust policy that conditions on `sub` has to admit both, or only
+    /// one of the copilot and the AI agent step will be able to assume the role.
     pub oidc_role_arn: Option<String>,
     pub platform: AIPlatform,
     pub custom_headers: HashMap<String, String>,

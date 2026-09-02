@@ -319,6 +319,10 @@ pub fn bedrock_oidc_role_to_assume<'a>(
     oidc_role_arn.filter(|arn| !arn.is_empty())
 }
 
+/// Re-assume the role this long before AWS expires the credentials, so a request
+/// that starts on a reused set cannot finish holding dead ones.
+pub const ASSUMED_ROLE_REFRESH_MARGIN: std::time::Duration = std::time::Duration::from_secs(120);
+
 /// Temporary IAM credentials minted by STS `AssumeRoleWithWebIdentity`.
 #[derive(Clone, Debug)]
 pub struct AssumedRoleCredentials {
@@ -326,6 +330,68 @@ pub struct AssumedRoleCredentials {
     pub secret_access_key: String,
     pub session_token: String,
     pub expires_at: std::time::SystemTime,
+}
+
+impl AssumedRoleCredentials {
+    /// Whether these have enough life left to sign another request.
+    pub fn is_fresh(&self) -> bool {
+        self.expires_at > std::time::SystemTime::now() + ASSUMED_ROLE_REFRESH_MARGIN
+    }
+}
+
+/// How much of the job UUID goes into the STS role session name: enough to
+/// identify a run in CloudTrail, short enough to stay well inside the 64
+/// characters AWS allows for the whole name.
+const JOB_ID_SESSION_NAME_LEN: usize = 8;
+
+/// Assume the resource's OIDC role for a job, reusing `cached` while it is still
+/// fresh, and hand back the temporary keys to sign Bedrock requests with.
+///
+/// The agent loop calls this once per iteration, so without the reuse a
+/// tool-heavy run would mint an OIDC token and call STS on every model turn.
+/// Returns `None` when a higher-priority credential is set, so the caller can
+/// call it unconditionally.
+pub async fn refresh_bedrock_oidc_credentials<'a>(
+    credentials: &crate::credentials::ProviderCredentials,
+    cached: &'a mut Option<AssumedRoleCredentials>,
+    client: &windmill_common::client::AuthedClient,
+    job_id: &uuid::Uuid,
+) -> Result<Option<&'a AssumedRoleCredentials>, Error> {
+    let Some(role_arn) = bedrock_oidc_role_to_assume(
+        credentials.api_key.as_deref(),
+        credentials.aws_access_key_id.as_deref(),
+        credentials.aws_secret_access_key.as_deref(),
+        credentials.oidc_role_arn.as_deref(),
+    ) else {
+        return Ok(None);
+    };
+
+    if !cached
+        .as_ref()
+        .is_some_and(AssumedRoleCredentials::is_fresh)
+    {
+        // A worker holds no OIDC signing key, so it asks the API to mint the
+        // token for this job; the session name carries the job into CloudTrail.
+        let id_token = client
+            .get_id_token(AWS_OIDC_AUDIENCE)
+            .await
+            .map_err(|e| Error::internal_err(format!("Failed to get OIDC token: {}", e)))?;
+        let session_name = aws_role_session_name(
+            "windmill-ai-job",
+            &job_id.simple().to_string()[..JOB_ID_SESSION_NAME_LEN],
+        );
+        *cached = Some(
+            assume_role_with_oidc_token(
+                role_arn,
+                credentials.region.as_deref(),
+                id_token,
+                &session_name,
+            )
+            .await?,
+        );
+    }
+
+    Ok(cached.as_ref())
 }
 
 /// Build a role session name AWS accepts: it constrains them to
@@ -348,8 +414,10 @@ pub fn aws_role_session_name(prefix: &str, identity: &str) -> String {
 
 /// Exchange a Windmill OIDC token for temporary IAM credentials on `role_arn`.
 ///
-/// `region` is where the STS call is made; Bedrock's empty "use the environment"
-/// region sentinel is treated as unset so the shared helper picks its default.
+/// The role assumption resolves to explicit IAM keys, and the SDK client built
+/// from those has no ambient-region fallback the way [`BedrockClient::from_env`]
+/// does — so an unset region is refused here rather than producing an SDK client
+/// pointed at an empty region.
 pub async fn assume_role_with_oidc_token(
     role_arn: &str,
     region: Option<&str>,
@@ -360,10 +428,13 @@ pub async fn assume_role_with_oidc_token(
         get_assume_role_with_web_identity_fluent_builder, GetAuthenticationOutput, OidcAuth,
     };
 
-    let oidc_auth = OidcAuth {
-        region: region.filter(|r| !r.is_empty()).map(str::to_string),
-        role_arn: role_arn.to_string(),
+    let Some(region) = region.filter(|r| !r.is_empty()) else {
+        return Err(Error::BadRequest(
+            "AWS Bedrock resources that assume a role through OIDC must set a region".to_string(),
+        ));
     };
+
+    let oidc_auth = OidcAuth { region: Some(region.to_string()), role_arn: role_arn.to_string() };
 
     let output =
         get_assume_role_with_web_identity_fluent_builder(&oidc_auth, id_token, Some(session_name))

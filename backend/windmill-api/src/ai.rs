@@ -118,18 +118,16 @@ lazy_static::lazy_static! {
 
     pub static ref AI_REQUEST_CACHE: Cache<(String, AIProvider), ExpiringProviderCredentials> = Cache::new(500);
 
-    /// Temporary IAM credentials from a Bedrock OIDC role assumption, keyed by
-    /// (workspace, role ARN, STS session name). The session name carries the
-    /// requesting user, so unlike AI_REQUEST_CACHE an entry is never handed to a
-    /// different user — that is what keeps AWS-side attribution per user.
-    #[cfg(feature = "bedrock")]
-    static ref BEDROCK_ASSUMED_ROLE_CACHE: Cache<(String, String, String), windmill_ai::ai_bedrock::AssumedRoleCredentials> = Cache::new(500);
 }
 
-/// Re-assume the role this long before AWS expires the credentials, so a request
-/// that starts on a cache hit cannot finish holding dead ones.
 #[cfg(feature = "bedrock")]
-const ASSUMED_ROLE_REFRESH_MARGIN: Duration = Duration::from_secs(120);
+lazy_static::lazy_static! {
+    /// Temporary IAM credentials from a Bedrock OIDC role assumption, keyed by
+    /// (workspace, role ARN, user email). The email is the identity the OIDC
+    /// token is minted for, so unlike AI_REQUEST_CACHE an entry is never handed
+    /// to a different user — that is what keeps AWS-side attribution per user.
+    static ref BEDROCK_ASSUMED_ROLE_CACHE: Cache<(String, String, String), windmill_ai::ai_bedrock::AssumedRoleCredentials> = Cache::new(500);
+}
 
 pub(crate) fn invalidate_ai_request_cache_for_workspace(workspace_id: &str) {
     AI_REQUEST_CACHE.retain(|(cached_workspace_id, _), _| cached_workspace_id != workspace_id);
@@ -435,11 +433,14 @@ async fn resolve_bedrock_oidc_credentials(
     };
 
     let session_name = aws_role_session_name("windmill-ai-copilot", &authed.username);
-    let cache_key = (w_id.to_string(), role_arn.to_string(), session_name.clone());
+    // Keyed on the email rather than the session name: AWS caps a session name at
+    // 64 characters, so two long usernames sharing a prefix would otherwise share
+    // an entry and one would sign with the other's assumed session.
+    let cache_key = (w_id.to_string(), role_arn.to_string(), authed.email.clone());
 
     let assumed = match BEDROCK_ASSUMED_ROLE_CACHE
         .get(&cache_key)
-        .filter(|c| c.expires_at > std::time::SystemTime::now() + ASSUMED_ROLE_REFRESH_MARGIN)
+        .filter(windmill_ai::ai_bedrock::AssumedRoleCredentials::is_fresh)
     {
         Some(cached) => cached,
         None => {
@@ -473,7 +474,7 @@ async fn assume_bedrock_role(
     region: Option<&str>,
     session_name: &str,
 ) -> Result<windmill_ai::ai_bedrock::AssumedRoleCredentials> {
-    #[cfg(all(feature = "enterprise", feature = "openidconnect"))]
+    #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
     {
         use windmill_common::oidc_oss::{generate_id_token, WorkspaceClaim};
 
@@ -495,7 +496,7 @@ async fn assume_bedrock_role(
         )
         .await
     }
-    #[cfg(not(all(feature = "enterprise", feature = "openidconnect")))]
+    #[cfg(not(all(feature = "enterprise", feature = "openidconnect", feature = "private")))]
     {
         let _ = (db, w_id, authed, role_arn, region, session_name);
         Err(Error::BadRequest(
