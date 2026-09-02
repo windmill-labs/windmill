@@ -14,6 +14,10 @@
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import ImportSetupRow from '$lib/components/ImportSetupRow.svelte'
 	import AppConnectDrawer from '$lib/components/AppConnectDrawer.svelte'
+	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
+	import Select from '$lib/components/select/Select.svelte'
+	import { applyRetarget, type ExportedAppFiles } from '$lib/importWizard/retargetDeployed'
+	import { enterpriseLicense } from '$lib/stores'
 	import { OauthService } from '$lib/gen'
 	import { registryCcCapableFor } from '$lib/components/oauthRegistry'
 	import { resourceTypeDisplayName } from '$lib/components/resourceTypeDisplay'
@@ -82,6 +86,12 @@
 		 * is absent, and removing the row reports "all set" over a credential nobody filled.
 		 */
 		unreadable?: boolean
+		/**
+		 * The workspace resource this row was pointed at. The project's items now reference it
+		 * directly and the stub is gone, so this is what the row has to say instead of the
+		 * path it used to name.
+		 */
+		reusedFrom?: string
 	}
 
 	let loading = $state(true)
@@ -91,6 +101,26 @@
 	let projectResources: { path: string; resource_type: string }[] = []
 	let working = $state(false)
 	let resourceEditor: ResourceEditorDrawer | undefined = $state(undefined)
+
+	/** The folder the import wrote into, which is where every rewritable referrer lives. */
+	const targetFolder = $derived(folder?.trim() || slug)
+
+	/**
+	 * Resources the workspace already has, by resource type — what a stub can be replaced
+	 * by. Empty for a workspace this import created, which is why the choice is offered
+	 * rather than imposed: with nothing to choose from the button goes straight to the
+	 * editor, exactly as it did before.
+	 */
+	let candidates = $state<Record<string, string[]>>({})
+	/**
+	 * Raw-app sources from the export, keyed by where they landed. `applyRetarget` re-uploads
+	 * the `/bundle.js` in here rather than re-running the bundler — see `ExportedAppFiles`.
+	 */
+	let exportedAppFiles = $state<ExportedAppFiles>({})
+	/** The credential row whose choice dialog is open. */
+	let choosing = $state<Blank | undefined>(undefined)
+	let chosenPath = $state<string | undefined>(undefined)
+	let reusing = $state(false)
 
 	const pendingTables = $derived(rows.filter((r) => r.status !== 'done'))
 	// Split because the two say different things to the user: one data table was never
@@ -248,11 +278,24 @@
 			// Retargeted the same way the import was, so these are where the stubs actually
 			// landed. `retargetProjectExport` is a no-op when the folder is the slug, which is
 			// every new-workspace import.
-			const target = folder?.trim() || slug
+			const target = targetFolder
 			const retargeted = retargetProjectExport(exportData, exportData.project?.slug ?? slug, target)
 			// Contained for the same reason the import contains: a crafted export can name a
 			// path outside the folder, and offering that for editing would reach a resource
 			// this import was never allowed to create.
+			exportedAppFiles = Object.fromEntries(
+				(retargeted.apps ?? [])
+					.filter((a: any) => a.app_type === 'raw' && typeof a.value?.raw === 'string')
+					.map((a: any) => {
+						try {
+							return [String(a.path), (JSON.parse(a.value.raw)?.files ?? {}) as Record<string, string>]
+						} catch {
+							// Unparseable raw bundle: leave it out, and `planRetarget` refuses the app
+							// rather than uploading a bundle it could not read.
+							return [String(a.path), {}]
+						}
+					})
+			)
 			projectResources = (retargeted.resources ?? [])
 				.map((r) => ({ path: String(r.path), resource_type: String((r as any).resource_type) }))
 				.filter((r) => r.path.startsWith(`f/${target}/`))
@@ -351,6 +394,7 @@
 		const stillBlank = new Map(fresh.map((b) => [b.path, b]))
 		if (blanks.length === 0) {
 			blanks = fresh
+			await loadCandidates()
 			return
 		}
 		blanks = blanks.map((b) => {
@@ -365,6 +409,8 @@
 					missing: f.missing,
 					unreadable: f.unreadable,
 					occupiedBy: f.occupiedBy,
+					// Blank again, so it is not standing in for anything.
+					reusedFrom: undefined,
 					done: false,
 					justSaved: false
 				}
@@ -386,6 +432,121 @@
 				const row = blanks.find((x) => x.path === b.path)
 				if (row) row.justSaved = false
 			}, 1500)
+		}
+		await loadCandidates()
+	}
+
+	/**
+	 * Which existing resources each outstanding row could be replaced by. Re-read on every
+	 * refresh rather than once: a resource created from the editor here is a candidate for
+	 * the rows below it.
+	 *
+	 * The project's own resources are never offered — one of this project's stubs standing
+	 * in for another is a reference to something equally unfilled.
+	 */
+	async function loadCandidates(): Promise<void> {
+		const types = [...new Set(blanks.map((b) => b.resourceType))]
+		if (types.length === 0) {
+			candidates = {}
+			return
+		}
+		const own = new Set(projectResources.map((r) => r.path))
+		const next: Record<string, string[]> = Object.fromEntries(types.map((t) => [t, []]))
+		try {
+			// One call for every type at once — `resource_type` takes a comma-separated list —
+			// and every page of it: the endpoint defaults to 30 rows, so a single call would
+			// offer a workspace's first 30 resources and silently hide the rest.
+			for (let page = 1; page <= 100; page++) {
+				const rows = await ResourceService.listResource({
+					workspace,
+					resourceType: types.join(','),
+					page,
+					perPage: 100
+				})
+				for (const r of rows) {
+					if (own.has(r.path)) continue
+					next[r.resource_type ?? '']?.push(r.path)
+				}
+				if (rows.length < 100) break
+			}
+		} catch {
+			// Offer nothing rather than a partial list: every row then behaves as it did before
+			// this choice existed, which is a working way to fill a credential.
+			candidates = {}
+			return
+		}
+		candidates = next
+	}
+
+	/**
+	 * The row's one action. A workspace that already has a resource of this type gets the
+	 * choice first — reusing what is there is usually the answer, and entering the same
+	 * credentials a second time is the thing worth avoiding. With nothing to choose from
+	 * there is no choice to make, so it goes straight where it always went.
+	 */
+	function startFilling(b: Blank): void {
+		if (b.done || (candidates[b.resourceType] ?? []).length === 0) {
+			fillDirectly(b)
+			return
+		}
+		chosenPath = undefined
+		choosing = b
+	}
+
+	/** Connect where the instance can, hand-fill otherwise. */
+	function fillDirectly(b: Blank): void {
+		if (canConnectType(b.resourceType)) appConnect?.open(b.resourceType, b.path)
+		else resourceEditor?.initEdit(b.path)
+	}
+
+	/**
+	 * The chooser's way out: close it and do what the button did before there was a choice.
+	 * The row is read out of the state first — closing the dialog unmounts the block that
+	 * would otherwise be holding it.
+	 */
+	function fillNewInstead(): void {
+		const b = choosing
+		choosing = undefined
+		if (b) fillDirectly(b)
+	}
+
+	/**
+	 * Point the project at an existing resource: every imported item that referenced the stub
+	 * is rewritten to the chosen path and the stub is deleted. Nothing is copied and nothing
+	 * is left behind referring to a resource that no longer exists — `applyRetarget` refuses
+	 * outright rather than doing half of that.
+	 */
+	async function reuseChosen(): Promise<void> {
+		const b = choosing
+		const target = chosenPath
+		if (!b || !target) return
+		reusing = true
+		working = true
+		try {
+			const outcome = await applyRetarget({
+				workspace,
+				folder: targetFolder,
+				from: b.path,
+				to: target,
+				hasEeLicense: !!$enterpriseLicense,
+				exportedAppFiles
+			})
+			if (outcome.error) {
+				sendUserToast(`Could not point the project at ${target}: ${outcome.error}`, true)
+				return
+			}
+			choosing = undefined
+			await refreshBlanks()
+			const row = blanks.find((x) => x.path === b.path)
+			if (row) row.reusedFrom = target
+		} catch (e: any) {
+			sendUserToast(
+				`Could not point the project at ${target}: ${e?.body ?? e?.message ?? String(e)}`,
+				true
+			)
+		} finally {
+			reusing = false
+			working = false
 		}
 	}
 
@@ -705,6 +866,10 @@
 									<span class="truncate text-secondary">
 										Missing {b.missing.join(', ')}
 									</span>
+								{:else if b.reusedFrom}
+									<span class="truncate text-secondary">
+										now uses <span class="font-mono">{b.reusedFrom}</span>
+									</span>
 								{/if}
 							{/snippet}
 							{#snippet action()}
@@ -724,12 +889,15 @@
 										variant={b.done ? 'subtle' : 'accent'}
 										unifiedSize="sm"
 										disabled={working}
-										onClick={() =>
-											canConnect
-												? appConnect?.open(b.resourceType, b.path)
-												: resourceEditor?.initEdit(b.path)}
+										onClick={() => startFilling(b)}
 									>
-										{b.done ? 'Saved' : canConnect ? 'Connect' : 'Fill in'}
+										{b.done
+											? b.reusedFrom
+												? 'Reused'
+												: 'Saved'
+											: canConnect
+												? 'Connect'
+												: 'Fill in'}
 									</Button>
 								{/if}
 							{/snippet}
@@ -757,15 +925,17 @@
 				size="xs"
 			>
 				{#if missingTables.length > 0}
-					The tables {missingTables.length === 1 ? 'this data table holds' : 'these data tables hold'}
+					The tables {missingTables.length === 1
+						? 'this data table holds'
+						: 'these data tables hold'}
 					do not exist, and the project's apps and flows read them. Every one of those fails as soon
 					as it opens.
 				{/if}
 				{#if uncheckedTables.length > 0}
 					{#if missingTables.length > 0}<br /><br />{/if}
 					{uncheckedTables.length === 1 ? 'One data table is' : 'Some data tables are'} set up, but
-					{uncheckedTables.length === 1 ? 'its' : 'their'} schema could not be read, so whether the
-					project's tables are there is unknown. Check again once the database is reachable.
+					{uncheckedTables.length === 1 ? 'its' : 'their'} schema could not be read, so whether the project's
+					tables are there is unknown. Check again once the database is reachable.
 				{/if}
 			</Alert>
 		{:else}
@@ -859,3 +1029,56 @@
 <!-- `on:refresh` fires once the connection has been written into the stub — the same moment
      a save is — so the rows settle the same way either route was taken. -->
 <AppConnectDrawer bind:this={appConnect} {workspace} on:refresh={() => void refreshBlanks()} />
+
+<!-- What "Fill in" opens when the workspace already has a resource of the row's type.
+     Portalled to the body for the reason the confirmation above is: this step renders inside
+     the wizard page's CenteredModal, which is its own stacking context. -->
+<Modal2
+	title={choosing ? `Set up ${resourceTypeDisplayName(choosing.resourceType)}` : ''}
+	target="body"
+	fixedWidth="xs"
+	fixedHeight="adaptive"
+	formStyling
+	closeOnOutsideClick={!reusing}
+	bind:isOpen={
+		() => choosing !== undefined,
+		(v) => {
+			if (!v && !reusing) choosing = undefined
+		}
+	}
+>
+	{#if choosing}
+		{@const forRow = choosing}
+		{@const existing = candidates[forRow.resourceType] ?? []}
+		<div class="flex w-full flex-col gap-4 text-xs">
+			<p class="text-secondary">
+				This workspace already has {existing.length}
+				{resourceTypeDisplayName(forRow.resourceType)}
+				{existing.length === 1 ? 'resource' : 'resources'}. Use one and this project's apps, flows
+				and triggers are pointed at it — the empty
+				<span class="font-mono text-emphasis">{forRow.path}</span> it imported is removed.
+			</p>
+			<Select
+				bind:value={chosenPath}
+				items={existing.map((p) => ({ value: p, label: p }))}
+				placeholder="Pick a resource"
+				disabled={reusing}
+				clearable
+				class="w-full"
+			/>
+			<div class="flex items-center justify-between gap-2">
+				<Button variant="subtle" unifiedSize="sm" disabled={reusing} onClick={fillNewInstead}>
+					{canConnectType(forRow.resourceType) ? 'Connect a new one' : 'Fill in a new one'}
+				</Button>
+				<Button
+					variant="accent"
+					unifiedSize="sm"
+					disabled={!chosenPath || reusing}
+					onClick={() => void reuseChosen()}
+				>
+					{reusing ? 'Pointing the project at it…' : 'Use this resource'}
+				</Button>
+			</div>
+		</div>
+	{/if}
+</Modal2>
