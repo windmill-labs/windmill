@@ -34,11 +34,6 @@
 	import { goto, replaceState } from '$app/navigation'
 	import ForkWorkspaceBanner from '$lib/components/ForkWorkspaceBanner.svelte'
 	import WorkspaceDraftsBanner from '$lib/components/WorkspaceDraftsBanner.svelte'
-	import WorkspaceTutorials from '$lib/components/WorkspaceTutorials.svelte'
-	import { onMount, setContext } from 'svelte'
-	import { tutorialsToDo } from '$lib/stores'
-	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
-	import TutorialBanner from '$lib/components/home/TutorialBanner.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { z } from 'zod'
@@ -96,40 +91,9 @@
 		appViewer?.openDrawer?.()
 	}
 
-	let workspaceTutorials: WorkspaceTutorials | undefined = $state(undefined)
 	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)
 
-	// Provide workspaceTutorials to child components via a reactive wrapper
-	let workspaceTutorialsContext = $derived(workspaceTutorials)
-	setContext('workspaceTutorials', {
-		get value() {
-			return workspaceTutorialsContext
-		}
-	})
-
 	let showCreateButtons = $state(false)
-
-	onMount(() => {
-		// Check if there's a tutorial parameter in the URL
-		const tutorialParam = page.url.searchParams.get('tutorial')
-		if (tutorialParam === 'workspace-onboarding') {
-			// Small delay to ensure page is fully loaded
-			setTimeout(() => {
-				workspaceTutorials?.runTutorialById('workspace-onboarding')
-			}, 500)
-		} else if (tutorialParam === 'workspace-onboarding-operator') {
-			// Small delay to ensure page is fully loaded
-			setTimeout(() => {
-				workspaceTutorials?.runTutorialById('workspace-onboarding-operator')
-			}, 500)
-		} else if (!$ignoredTutorials.includes(8) && $tutorialsToDo.includes(8)) {
-			// Check if user hasn't completed or ignored the workspace onboarding tutorial
-			// Small delay to ensure page is fully loaded
-			setTimeout(() => {
-				workspaceTutorials?.runTutorialById('workspace-onboarding')
-			}, 500)
-		}
-	})
 </script>
 
 <Drawer bind:this={codeViewer} size="900px">
@@ -316,8 +280,6 @@
 			</div>
 		</div>
 
-		<TutorialBanner />
-
 		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
 
 		{#if tab == 'hub'}
@@ -400,5 +362,4 @@
 	{/if}
 </div>
 
-<WorkspaceTutorials bind:this={workspaceTutorials} />
 <HomeConnectDrawer bind:this={homeConnectDrawer} />

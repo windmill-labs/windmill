@@ -128,7 +128,6 @@
 		{/if}
 	</div>
 {:else}
-	<!-- Index 0 is used by the tutorial to identify the first "Add step" -->
 	<InsertModulePopover
 		{disableAi}
 		placement={'bottom'}

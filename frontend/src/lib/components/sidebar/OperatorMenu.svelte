@@ -12,7 +12,6 @@
 		Building,
 		Calendar,
 		ServerCog,
-		GraduationCap,
 		Table2
 	} from 'lucide-svelte'
 	import { base } from '$lib/base'
@@ -25,9 +24,7 @@
 		superadmin,
 		usedTriggerKinds,
 		userWorkspaces,
-		workspaceStore,
-		tutorialsToDo,
-		skippedAll
+		workspaceStore
 	} from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 	import { USER_SETTINGS_HASH } from './settings'
@@ -57,22 +54,10 @@
 		[
 			{ label: 'Home', id: 'home', href: `${base}/`, icon: Home },
 			{ label: 'Runs', id: 'runs', href: `${base}/runs`, icon: Play },
-			{ label: 'Schedules', id: 'schedules', href: `${base}/schedules`, icon: Calendar },
-			// Add Tutorials to main menu only if not all completed and not skipped
-			...($tutorialsToDo.length > 0 && !$skippedAll
-				? [
-						{
-							label: 'Tutorials',
-							id: 'tutorials',
-							href: `${base}/tutorials`,
-							icon: GraduationCap
-						}
-					]
-				: [])
+			{ label: 'Schedules', id: 'schedules', href: `${base}/schedules`, icon: Calendar }
 		].filter(
 			(link) =>
 				link.id === 'home' ||
-				link.id === 'tutorials' ||
 				($userWorkspaces &&
 					$workspaceStore &&
 					$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.[link.id] ===

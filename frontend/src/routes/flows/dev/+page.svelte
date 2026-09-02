@@ -308,7 +308,6 @@
 					{#if flowStore.val?.value?.modules}
 						<FlowModuleSchemaMap
 							disableAi
-							disableTutorials
 							smallErrorHandler={true}
 							disableStaticInputs
 						/>

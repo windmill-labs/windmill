@@ -8,12 +8,9 @@
 		workspaceStore,
 		isCriticalAlertsUIOpen,
 		enterpriseLicense,
-		devopsRole,
-		tutorialsToDo,
-		skippedAll
+		devopsRole
 	} from '$lib/stores'
 	import { isForkOwner } from '$lib/utils/workspaceHierarchy'
-	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
 		BookOpen,
@@ -26,7 +23,6 @@
 		FolderCog,
 		FolderOpen,
 		Github,
-		GraduationCap,
 		HelpCircle,
 		Home,
 		LogOut,
@@ -51,7 +47,6 @@
 	import DiscordIcon from '../icons/brands/Discord.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { onMount } from 'svelte'
 	import { base } from '$lib/base'
 	import { page } from '$app/state'
 	import SideBarNotification from './SideBarNotification.svelte'
@@ -116,11 +111,6 @@
 		'boolean'
 	)
 
-	onMount(async () => {
-		// Sync tutorial progress on mount
-		await syncTutorialsTodos()
-	})
-
 	function openChangelogs() {
 		markChangelogsOpened()
 		hasNewChangelogs = false
@@ -131,14 +121,6 @@
 			label: 'Help',
 			icon: HelpCircle,
 			subItems: [
-				{
-					label: 'Tutorials',
-					href: `${base}/tutorials`,
-					icon: GraduationCap,
-					aiId: 'sidebar-menu-link-tutorials',
-					aiDescription: 'Button to navigate to tutorials',
-					external: false
-				},
 				{
 					label: 'Docs',
 					href: 'https://www.windmill.dev/docs/intro/',
@@ -269,19 +251,7 @@
 				disabled: $userStore?.operator,
 				aiId: 'sidebar-menu-link-groups',
 				aiDescription: 'Button to navigate to groups'
-			},
-			// Add Tutorials to main menu only if not all completed and not skipped
-			...($tutorialsToDo.length > 0 && !$skippedAll
-				? [
-						{
-							label: 'Tutorials',
-							href: `${base}/tutorials`,
-							icon: GraduationCap,
-							aiId: 'sidebar-menu-link-tutorials-main',
-							aiDescription: 'Button to navigate to tutorials'
-						}
-					]
-				: [])
+			}
 		].filter((l) => !excludeMainLabels.includes(l.label))
 	)
 	let defaultExtraTriggerLinks = $derived([

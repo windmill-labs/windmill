@@ -41,7 +41,7 @@
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
-	import { createRawSnippet, getContext, setContext, untrack } from 'svelte'
+	import { getContext, setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button } from './common'
@@ -71,11 +71,6 @@
 		Settings,
 		Undo,
 		Redo,
-		BookOpen,
-		Circle,
-		CheckCircle,
-		RefreshCw,
-		CheckCheck,
 		Disc
 	} from 'lucide-svelte'
 	import Awareness from './Awareness.svelte'
@@ -83,11 +78,7 @@
 	import { type FlowCopilotContext } from './copilot/flow'
 	import { loadFlowModuleState } from './flows/flowStateUtils.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
-	import FlowTutorials from './FlowTutorials.svelte'
 	import FlowHistory from './flows/FlowHistory.svelte'
-	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
-	import { tutorialsToDo } from '$lib/stores'
-	import { getTutorialIndex } from '$lib/tutorials/config'
 	import EditorHeader from './EditorHeader.svelte'
 	import AutosaveIndicator from './AutosaveIndicator.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
@@ -1053,20 +1044,10 @@
 	setContext('FlowCopilotContext', flowCopilotContext)
 
 	let renderCount = $state(0)
-	let flowTutorials: FlowTutorials | undefined = $state(undefined)
 
 	let jsonViewerDrawer: Drawer | undefined = $state(undefined)
 	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
 	let flowHistory: FlowHistory | undefined = $state(undefined)
-
-	export function triggerTutorial() {
-		const urlParams = new URLSearchParams(window.location.search)
-		const tutorial = urlParams.get('tutorial')
-
-		if (tutorial) {
-			flowTutorials?.runTutorialById(tutorial)
-		}
-	}
 
 	let baseMenuItems: Item[] = $state([])
 
@@ -1090,56 +1071,6 @@
 				action: () => handleRedo(),
 				disabled: $history.index === $history.history.length - 1,
 				shortcut: `${mod}⇧Z`
-			},
-			{
-				displayName: 'Tutorials',
-				icon: BookOpen,
-				separatorTop: true,
-				extra: (() => {
-					const remaining = [
-						getTutorialIndex('flow-live-tutorial'),
-						getTutorialIndex('troubleshoot-flow')
-					].filter((i) => $tutorialsToDo.includes(i)).length
-					return remaining > 0
-						? createRawSnippet(() => ({
-								render: () =>
-									`<span class="ml-auto inline-flex items-center justify-center w-4 h-4 text-[10px] font-medium text-white rounded-full bg-surface-accent-primary">${remaining}</span>`
-							}))
-						: undefined
-				})(),
-				submenuItems: [
-					{
-						displayName: 'Build a flow',
-						action: () => flowTutorials?.runTutorialById('flow-live-tutorial'),
-						icon: $tutorialsToDo.includes(getTutorialIndex('flow-live-tutorial'))
-							? Circle
-							: CheckCircle,
-						iconColor: $tutorialsToDo.includes(getTutorialIndex('flow-live-tutorial'))
-							? undefined
-							: 'green'
-					},
-					{
-						displayName: 'Fix a broken flow',
-						action: () => flowTutorials?.runTutorialById('troubleshoot-flow'),
-						icon: $tutorialsToDo.includes(getTutorialIndex('troubleshoot-flow'))
-							? Circle
-							: CheckCircle,
-						iconColor: $tutorialsToDo.includes(getTutorialIndex('troubleshoot-flow'))
-							? undefined
-							: 'green'
-					},
-					{
-						displayName: 'Reset tutorials',
-						action: () => resetAllTodos(),
-						icon: RefreshCw,
-						separatorTop: true
-					},
-					{
-						displayName: 'Skip tutorials',
-						action: () => skipAllTodos(),
-						icon: CheckCheck
-					}
-				]
 			},
 			{
 				displayName: 'Test flow & record',
@@ -1407,14 +1338,7 @@
 					{#if $enterpriseLicense && !newFlow && !inSessionPane}
 						<Awareness />
 					{/if}
-					<div class="relative">
-						<Dropdown items={getMoreItems} size={headerBtnSize} fixedHeight={!condensedHeader} />
-						{#if $tutorialsToDo.includes(getTutorialIndex('flow-live-tutorial')) || $tutorialsToDo.includes(getTutorialIndex('troubleshoot-flow'))}
-							<span
-								class="absolute top-0.5 right-0.5 block w-2 h-2 rounded-full bg-surface-accent-primary pointer-events-none"
-							></span>
-						{/if}
-					</div>
+					<Dropdown items={getMoreItems} size={headerBtnSize} fixedHeight={!condensedHeader} />
 					{#if diffEnabled && !diffInMenu}
 						<!-- A disabled <button> fires no pointer events, so a title/tooltip on
 						     it never shows on hover. pointer-events-none on the button lets the
@@ -1549,13 +1473,6 @@
 		Flow Builder not available to operators
 	{/if}
 {/key}
-
-<FlowTutorials
-	bind:this={flowTutorials}
-	on:reload={() => {
-		renderCount += 1
-	}}
-/>
 
 <FlowAssetsHandler
 	modules={flowStore.val.value.modules}

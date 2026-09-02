@@ -14,10 +14,9 @@
 	import { defaultCode } from '../component'
 	import WorkspaceScriptList from '../settingsPanel/mainInput/WorkspaceScriptList.svelte'
 	import RunnableSelector from '../settingsPanel/mainInput/RunnableSelector.svelte'
-	import { defaultScripts, isCurrentlyInTutorial } from '$lib/stores'
+	import { defaultScripts } from '$lib/stores'
 	import DefaultScripts from '$lib/components/DefaultScripts.svelte'
 	import type { Preview } from '$lib/gen'
-	import { twMerge } from 'tailwind-merge'
 	import type { InlineScript } from '../../sharedTypes'
 
 	interface Props {
@@ -123,10 +122,7 @@
 </Drawer>
 
 <div
-	class={twMerge(
-		'flex flex-col px-4 gap-2 text-sm',
-		isCurrentlyInTutorial.val ? 'h-full overflow-y-clip' : ''
-	)}
+	class="flex flex-col px-4 gap-2 text-sm"
 	id="app-editor-empty-runnable"
 >
 	<div class="mt-2 flex justify-between gap-4" id="app-editor-runnable-header">
