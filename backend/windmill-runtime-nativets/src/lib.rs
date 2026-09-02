@@ -712,9 +712,14 @@ pub async fn eval_fetch_timeout(
 
     let conn_ = conn.clone();
     let w_id_ = w_id.to_string();
+    // nativets delivers logs in-process rather than through a child's pipes, so they never
+    // reach the masking in `handle_child::write_lines`. Without this a `console.log` of a
+    // secret, or of the job's own `$WM_TOKEN`, is persisted verbatim.
+    let mut masker = windmill_common::sensitive_log_masks::JobMasker::new(job_id);
     tokio::spawn(async move {
         while let Some(log) = append_logs_receiver.recv().await {
-            windmill_queue::append_logs(&job_id, &w_id_, log, &conn_).await
+            let log = masker.mask(&log);
+            windmill_queue::append_logs(&job_id, &w_id_, log.as_ref(), &conn_).await
         }
     });
 

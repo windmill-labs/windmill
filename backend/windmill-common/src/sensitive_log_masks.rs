@@ -86,6 +86,44 @@ impl MaskSnapshot {
     }
 }
 
+/// A masker for log sinks that persist asynchronously and can still be flushing
+/// after the job is unregistered: nativets hands `console.log` output to a task
+/// that drains a channel, so a tail of lines can be written past the end of the
+/// run. It keeps the last masks it saw, so that tail is masked like the rest of
+/// the log, and picks up secrets registered mid-run on the way there.
+///
+/// Masks by job id alone — the caller is the one that knows the text it passes
+/// belongs to that job.
+pub struct JobMasker {
+    job_id: Uuid,
+    snapshot: Option<MaskSnapshot>,
+}
+
+impl JobMasker {
+    pub fn new(job_id: Uuid) -> Self {
+        JobMasker { job_id, snapshot: None }
+    }
+
+    /// Mask every secret registered for the job. Returns `Cow::Borrowed` when no match.
+    pub fn mask<'a>(&mut self, text: &'a str) -> Cow<'a, str> {
+        if let Some(fresh) = snapshot(&self.job_id) {
+            // Replacing an equivalent snapshot would re-arm the notice, so only take
+            // one built from a secret set we have not seen.
+            let unchanged = self
+                .snapshot
+                .as_ref()
+                .is_some_and(|cur| Arc::ptr_eq(&cur.compiled, &fresh.compiled));
+            if !unchanged {
+                self.snapshot = Some(fresh);
+            }
+        }
+        match self.snapshot.as_ref() {
+            Some(snapshot) => snapshot.mask(text),
+            None => Cow::Borrowed(text),
+        }
+    }
+}
+
 /// Take a snapshot of the current secrets for a job. Returns `None` if no secrets
 /// are registered (the caller can then skip masking entirely for the whole batch).
 ///
