@@ -8131,6 +8131,42 @@ pub async fn run_wait_result_flow_by_version(
     .await
 }
 
+/// Whether request-supplied SQL from an operator may run. Operators can only run deployed
+/// code, so a request their job token (`WM_TOKEN`) authenticates comes from code a
+/// non-operator authored. The job must still be running, and the request must have the
+/// shape `wmill.datatable()` sends (PostgreSQL against a `datatable://` database), so a
+/// WM_TOKEN that leaked into job logs cannot be replayed to run anything else while the
+/// job lives, in particular DuckDB, which runs in-process in the worker.
+async fn operator_may_run_datatable_query(
+    db: &DB,
+    w_id: &str,
+    job_id: Option<Uuid>,
+    language: Option<&ScriptLang>,
+    args: Option<&HashMap<String, Box<JsonRawValue>>>,
+) -> error::Result<bool> {
+    let Some(job_id) = job_id else {
+        return Ok(false);
+    };
+    if language != Some(&ScriptLang::Postgresql) {
+        return Ok(false);
+    }
+    let targets_datatable = args
+        .and_then(|args| args.get("database"))
+        .and_then(|database| serde_json::from_str::<String>(database.get()).ok())
+        .is_some_and(|database| database.starts_with("datatable://"));
+    if !targets_datatable {
+        return Ok(false);
+    }
+    Ok(sqlx::query_scalar!(
+        "SELECT running AS \"running!\" FROM v2_job_queue WHERE id = $1 AND workspace_id = $2",
+        job_id,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(false))
+}
+
 async fn run_preview_script(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -8141,7 +8177,16 @@ async fn run_preview_script(
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
-    if authed.is_operator {
+    if authed.is_operator
+        && !operator_may_run_datatable_query(
+            &db,
+            &w_id,
+            authed.job_id,
+            preview.language.as_ref(),
+            preview.args.as_ref(),
+        )
+        .await?
+    {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run preview jobs for security reasons".to_string(),
         ));
@@ -8239,10 +8284,19 @@ async fn run_inline_preview_script(
     Path(w_id): Path<String>,
     Json(preview): Json<PreviewInline>,
 ) -> error::Result<Response> {
-    // Same arbitrary-code class as run_preview_script: operators are blocked from
-    // running request-supplied code, and a narrowly-scoped token must not escape
-    // its scope through inline preview.
-    if authed.is_operator {
+    // Same arbitrary-code class as run_preview_script, and every worker and standalone
+    // server exposes this route, so an operator is refused on the same terms. A
+    // narrowly-scoped token must not escape its scope through inline preview either.
+    if authed.is_operator
+        && !operator_may_run_datatable_query(
+            &db,
+            &w_id,
+            job_id,
+            Some(&preview.language),
+            preview.args.as_ref(),
+        )
+        .await?
+    {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run preview jobs for security reasons".to_string(),
         ));
