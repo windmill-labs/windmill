@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import JSZip from "jszip";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import {
   compareDynFSElement,
   ZipFSElement,
@@ -29,6 +29,11 @@ type Mock = {
   getChildren(): AsyncIterable<Mock>;
 };
 
+// Both sides of the differ use the OS separator; fixtures are written with
+// "/" and rows are read back the same way.
+const osPath = (p: string) => p.split("/").join(sep);
+const slashPath = (p: string) => p.split(sep).join("/");
+
 function local(files: Record<string, string>): Mock {
   return {
     isDirectory: true,
@@ -40,7 +45,7 @@ function local(files: Record<string, string>): Mock {
       for (const [path, content] of Object.entries(files)) {
         yield {
           isDirectory: false,
-          path,
+          path: osPath(path),
           async getContentText() {
             return content;
           },
@@ -74,7 +79,7 @@ async function diff(
     false,
     parentOwnsScheduleEnabled,
   );
-  return changes.map((c) => `${c.name} ${c.path}`);
+  return changes.map((c) => `${c.name} ${slashPath(c.path)}`);
 }
 
 const SCHEDULE = (enabled: string) =>
@@ -85,7 +90,7 @@ test("push into a fork: a schedule the parent also has compares without `enabled
   const skips = { includeSchedules: true };
   // The parent has `f/mail/nightly`; any other schedule is the fork's own.
   const parentHas = (filePath: string) =>
-    filePath === "f/mail/nightly.schedule.yaml";
+    slashPath(filePath) === "f/mail/nightly.schedule.yaml";
 
   // Not a fork: `enabled` is compared like any other field.
   expect(
@@ -182,7 +187,7 @@ function localFlow(content: string) {
 
 // The checkout's `!inline` references, as `push` reads them from its flow.yaml.
 const checkoutNames = async (flowDir: string) =>
-  flowDir === "f/mail/flow_v2.flow"
+  slashPath(flowDir) === "f/mail/flow_v2.flow"
     ? { a: "process_mail.inline_script.py" }
     : {};
 
