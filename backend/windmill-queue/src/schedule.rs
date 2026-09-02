@@ -677,6 +677,18 @@ pub async fn rearm_schedule(db: &DB, w_id: &str, path: &str) -> Result<RearmOutc
     if already_armed {
         return Ok(RearmOutcome::NoOp);
     }
+    // A re-arm means the schedule sat unarmed for an unknown stretch. That gap is
+    // the reconciler's doing, not the schedule losing runs, so move the baseline
+    // past it before the push. See `reconstruct_occurrences`.
+    sqlx::query!(
+        "UPDATE schedule SET occurrence_baseline_at = GREATEST(now(), paused_until)
+         WHERE workspace_id = $1 AND path = $2",
+        w_id,
+        path
+    )
+    .execute(&mut *tx)
+    .await?;
+
     match push_scheduled_job(db, tx, &schedule, None, None).await {
         Ok(tx) => {
             tx.commit().await?;

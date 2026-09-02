@@ -33,7 +33,8 @@
 		Plus,
 		SearchX,
 		Shield,
-		Trash
+		Trash,
+		TriangleAlert
 	} from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -149,6 +150,8 @@
 		for (let schedule of schedules) {
 			if (schedulesWithJobsByPath[schedule.path]) {
 				schedule.jobs = schedulesWithJobsByPath[schedule.path].jobs
+				schedule.skipped_runs = schedulesWithJobsByPath[schedule.path].skipped_runs
+				schedule.runs_examined = schedulesWithJobsByPath[schedule.path].runs_examined
 			}
 		}
 		loadingSchedulesWithJobStats = false
@@ -400,7 +403,7 @@
 				{/if}
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until, labels, inherited_labels, draft_only, is_draft } (path)}
+					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until, labels, inherited_labels, draft_only, is_draft, skipped_runs, runs_examined } (path)}
 						{@const hasDraft =
 							getLocalDraftHint($workspaceStore, 'trigger_schedule', path) ?? is_draft}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
@@ -471,6 +474,19 @@
 								<div class="hidden lg:flex flex-row gap-1 items-center">
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
 								</div>
+
+								{#if skipped_runs}
+									<Popover notClickable>
+										<TriangleAlert size={16} class="text-yellow-600" />
+										{#snippet text()}
+											<div>
+												{skipped_runs} of the last {runs_examined} runs skipped occurrences. Each one
+												ended after the next occurrence was already due, so the occurrences in between
+												never ran. Open the schedule to see the wait and run time behind it.
+											</div>
+										{/snippet}
+									</Popover>
+								{/if}
 
 								<div class="w-10">
 									{#if error}

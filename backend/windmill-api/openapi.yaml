@@ -17068,6 +17068,25 @@ paths:
                   - $ref: "#/components/schemas/Schedule"
                   - $ref: "#/components/schemas/UserDraftOverlay"
 
+  /w/{workspace}/schedules/occurrences/{path}:
+    get:
+      summary: list the recent occurrences of a schedule and what they skipped
+      operationId: listScheduleOccurrences
+      tags:
+        - schedule
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: occurrence list, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ScheduleOccurrence"
+
   /w/{workspace}/schedules/exists/{path}:
     get:
       summary: does schedule exists
@@ -29803,6 +29822,47 @@ components:
                   - id
                   - success
                   - duration_ms
+            skipped_runs:
+              type: integer
+              description: of runs_examined, how many were followed by a gap that lost occurrences
+            runs_examined:
+              type: integer
+              description: consecutive occurrence pairs that could be compared
+
+    ScheduleOccurrence:
+      type: object
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        scheduled_for:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+        wait_ms:
+          type: integer
+          description: how long the occurrence waited for a worker
+        duration_ms:
+          type: integer
+        skipped_after:
+          type: integer
+          description: >-
+            occurrences lost between this one and the next; absent when the pair
+            cannot be compared
+        skipped_after_capped:
+          type: boolean
+          description: skipped_after stopped at the walk cap and is a lower bound
+      required:
+        - job_id
+        - scheduled_for
+        - skipped_after_capped
 
     ErrorHandler:
       type: string

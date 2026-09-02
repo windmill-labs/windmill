@@ -26,7 +26,7 @@ use windmill_common::{
     can_preserve_on_behalf_of,
     db::UserDB,
     error::{Error, JsonResult, Result},
-    schedule::Schedule,
+    schedule::{reconstruct_occurrences, Schedule, SkipDetail},
     trigger_history::{
         self, TriggerHistoryEvent, TriggerOperation, TriggerSource, SCHEDULE_TRIGGER_KIND,
     },
@@ -127,6 +127,7 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_schedule))
         .route("/list_with_jobs", get(list_schedule_with_jobs))
         .route("/get/{*path}", get(get_schedule))
+        .route("/occurrences/{*path}", get(list_schedule_occurrences))
         .route("/exists/{*path}", get(exists_schedule))
         .route("/create", post(create_schedule))
         .route("/update/{*path}", post(edit_schedule))
@@ -366,7 +367,8 @@ async fn create_schedule(
             on_recovery, on_recovery_times, on_recovery_extra_args,
             on_success, on_success_extra_args,
             ws_error_handler_muted, retry, summary, no_flow_overlap,
-            tag, paused_until, cron_version, description, dynamic_skip, labels
+            tag, paused_until, cron_version, description, dynamic_skip, labels,
+            occurrence_baseline_at
         ) VALUES (
             $1, $2, $3, $4, $5, $6,
             $7, $8, $9, $10, $11,
@@ -374,7 +376,8 @@ async fn create_schedule(
             $16, $17, $18,
             $19, $20,
             $21, $22, $23, $24,
-            $25, $26, $27, $28, $29, $30
+            $25, $26, $27, $28, $29, $30,
+            GREATEST(now(), $26)
         )
         RETURNING
             workspace_id,
@@ -617,7 +620,10 @@ async fn edit_schedule(
             email                   = $24,
             edited_by               = $25,
             permissioned_as         = $26,
-            labels                  = COALESCE($27, labels)
+            labels                  = COALESCE($27, labels),
+            -- An edit can change the cron itself, so gaps that straddle it are not
+            -- evidence of anything. See `reconstruct_occurrences`.
+            occurrence_baseline_at  = GREATEST(now(), $18)
         WHERE path = $19 AND workspace_id = $20
         RETURNING
             workspace_id,
@@ -1000,7 +1006,18 @@ async fn list_schedule(
 pub struct ScheduleWJobs {
     pub path: String,
     pub jobs: Option<Vec<serde_json::Value>>,
+    /// Of `runs_examined`, how many were followed by a gap that lost occurrences.
+    pub skipped_runs: i64,
+    /// Consecutive occurrence pairs that could be compared. Fewer than the number
+    /// of occurrences fetched, since the oldest has nothing before it and pairs
+    /// straddling `occurrence_baseline_at` say nothing.
+    pub runs_examined: i64,
 }
+
+/// Occurrences read back per schedule for the skip count. One more than the 20
+/// shown as bars, so that the newest completed run's gap is measurable as soon as
+/// its successor is queued rather than only once that successor finishes.
+const OCCURRENCE_WINDOW: i64 = 21;
 
 async fn list_schedule_with_jobs(
     authed: ApiAuthed,
@@ -1010,13 +1027,23 @@ async fn list_schedule_with_jobs(
 ) -> JsonResult<Vec<ScheduleWJobs>> {
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(pagination);
-    let rows = sqlx::query_as!(ScheduleWJobs,
+    let rows = sqlx::query!(
         // Query plan:
         // - use of the `ix_completed_job_workspace_id_started_at_new_2` index first, then;
         // - use of the `ix_v2_job_root_by_path` index; hence the `parent_job IS NULL` clause.
         // - both `workspace_id = $1` checks are required to hit both indexes.
+        // The occurrence array is a second scan rather than a widening of the first:
+        // it needs creation order and the rows the first one filters out, and keeping
+        // them apart leaves the displayed array untouched.
         "SELECT
-            schedule.path, t.jobs FROM schedule,
+            schedule.path,
+            schedule.schedule AS cron,
+            schedule.timezone,
+            schedule.cron_version,
+            schedule.occurrence_baseline_at,
+            t.jobs,
+            o.occurrences
+        FROM schedule,
             LATERAL(SELECT ARRAY(
                 SELECT json_build_object('id', id, 'success', status = 'success', 'duration_ms', duration_ms)
                 FROM v2_job_completed c JOIN v2_job j USING (id)
@@ -1028,21 +1055,180 @@ async fn list_schedule_with_jobs(
                     AND status <> 'skipped'
                 ORDER BY completed_at DESC
                 LIMIT 20
-            ) AS jobs) t
+            ) AS jobs) t,
+            -- Every root occurrence, including the ones that completed as `skipped`
+            -- and the one currently queued: a hole here manufactures a phantom gap.
+            LATERAL(SELECT ARRAY(
+                SELECT j.created_at
+                FROM v2_job j
+                WHERE j.trigger_kind = 'schedule'
+                    AND j.trigger = schedule.path
+                    AND j.workspace_id = $1
+                    AND j.parent_job IS NULL AND j.runnable_path = schedule.script_path
+                ORDER BY j.created_at DESC
+                LIMIT $5
+            ) AS occurrences) o
         WHERE workspace_id = $1 AND NOT starts_with(schedule.path, $4)
         ORDER BY edited_at DESC
         LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
         offset as i64,
-        windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX
+        windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX,
+        OCCURRENCE_WINDOW
     )
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
     let allowed = build_scope_path_predicate(&authed, "schedules", "read");
     Ok(Json(
-        rows.into_iter().filter(|r| allowed(&r.path)).collect(),
+        rows.into_iter()
+            .filter(|r| allowed(&r.path))
+            .map(|r| {
+                let (skipped_runs, runs_examined) = count_skipped_runs(
+                    &r.path,
+                    &r.cron,
+                    r.cron_version.as_deref(),
+                    &r.timezone,
+                    r.occurrences.as_deref().unwrap_or_default(),
+                    r.occurrence_baseline_at,
+                );
+                ScheduleWJobs { path: r.path, jobs: r.jobs, skipped_runs, runs_examined }
+            })
+            .collect(),
+    ))
+}
+
+/// A schedule whose cron or timezone no longer parses reports nothing rather than
+/// failing the whole page: the rest of the list is still worth showing.
+fn count_skipped_runs(
+    path: &str,
+    cron: &str,
+    cron_version: Option<&str>,
+    timezone: &str,
+    created_at_newest_first: &[DateTime<Utc>],
+    baseline: Option<DateTime<Utc>>,
+) -> (i64, i64) {
+    match reconstruct_occurrences(
+        cron,
+        cron_version,
+        timezone,
+        created_at_newest_first,
+        baseline,
+        SkipDetail::DetectOnly,
+    ) {
+        Ok(occurrences) => {
+            occurrences
+                .iter()
+                .fold((0, 0), |(skipped, examined), o| match o.skipped_after {
+                    Some(true) => (skipped + 1, examined + 1),
+                    Some(false) => (skipped, examined + 1),
+                    None => (skipped, examined),
+                })
+        }
+        Err(err) => {
+            tracing::warn!("could not reconstruct occurrences of schedule {path}: {err}");
+            (0, 0)
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ScheduleOccurrence {
+    pub job_id: uuid::Uuid,
+    /// Recovered from the job's `created_at`, not stored anywhere.
+    pub scheduled_for: DateTime<Utc>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+    /// Absent while the occurrence is still queued or running.
+    pub status: Option<String>,
+    /// How long the occurrence waited for a worker, in ms.
+    pub wait_ms: Option<i64>,
+    pub duration_ms: Option<i64>,
+    /// Occurrences lost between this one and the next. Absent when the pair
+    /// cannot be compared: it straddles a pause, a cron change, a re-enable or a
+    /// re-arm, or this is the oldest occurrence read.
+    pub skipped_after: Option<i64>,
+    /// `skipped_after` stopped at the walk cap and is a lower bound.
+    pub skipped_after_capped: bool,
+}
+
+/// The per-occurrence detail behind the schedules-list badge: what each run was
+/// due at, how long it waited, how long it ran, and what that cost the schedule.
+async fn list_schedule_occurrences(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Vec<ScheduleOccurrence>> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("schedules:read:{}", path))?;
+    let mut tx = user_db.begin(&authed).await?;
+
+    let schedule = sqlx::query!(
+        "SELECT schedule AS cron, timezone, cron_version, script_path, occurrence_baseline_at
+         FROM schedule WHERE workspace_id = $1 AND path = $2",
+        &w_id,
+        path
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let schedule = not_found_if_none(schedule, "Schedule", path)?;
+
+    // LEFT JOIN so the occurrence currently queued or running is included: it is
+    // what makes the newest completed run's gap measurable.
+    let rows = sqlx::query!(
+        // The `?` overrides are load-bearing: sqlx reads nullability off the column
+        // definition, so without them it types this LEFT JOIN's right side as NOT
+        // NULL and the still-queued occurrence decodes wrong.
+        "SELECT j.id, j.created_at,
+                c.started_at AS \"started_at?\",
+                c.completed_at AS \"completed_at?\",
+                c.duration_ms AS \"duration_ms?\",
+                c.status::text AS status
+         FROM v2_job j LEFT JOIN v2_job_completed c ON c.id = j.id
+         WHERE j.workspace_id = $1
+             AND j.trigger_kind = 'schedule'
+             AND j.trigger = $2
+             AND j.parent_job IS NULL
+             AND j.runnable_path = $3
+         ORDER BY j.created_at DESC
+         LIMIT $4",
+        &w_id,
+        path,
+        schedule.script_path,
+        OCCURRENCE_WINDOW
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    let created_at: Vec<DateTime<Utc>> = rows.iter().map(|r| r.created_at).collect();
+    let reconstructed = reconstruct_occurrences(
+        &schedule.cron,
+        schedule.cron_version.as_deref(),
+        &schedule.timezone,
+        &created_at,
+        schedule.occurrence_baseline_at,
+        SkipDetail::Count,
+    )?;
+
+    Ok(Json(
+        rows.into_iter()
+            .zip(reconstructed)
+            .map(|(row, occurrence)| ScheduleOccurrence {
+                job_id: row.id,
+                scheduled_for: occurrence.scheduled_for,
+                started_at: row.started_at,
+                completed_at: row.completed_at,
+                status: row.status,
+                wait_ms: row
+                    .started_at
+                    .map(|started_at| (started_at - occurrence.scheduled_for).num_milliseconds()),
+                duration_ms: row.duration_ms,
+                skipped_after: occurrence.skipped_count.map(i64::from),
+                skipped_after_capped: occurrence.count_capped,
+            })
+            .collect(),
     ))
 }
 
@@ -1165,7 +1351,13 @@ pub async fn set_enabled(
         r#"
         UPDATE schedule SET
             enabled = $1,
-            email = $2
+            email = $2,
+            -- Re-enabling opens a gap the length of the disabled window, which is
+            -- deliberate and must not be counted as lost occurrences.
+            occurrence_baseline_at = CASE
+                WHEN $1 THEN GREATEST(now(), paused_until)
+                ELSE occurrence_baseline_at
+            END
         WHERE path = $3 AND workspace_id = $4
         RETURNING
             workspace_id,
