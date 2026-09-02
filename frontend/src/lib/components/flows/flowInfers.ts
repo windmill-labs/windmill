@@ -166,8 +166,8 @@ export const AI_AGENT_SCHEMA: Schema = {
 			default: 10
 		}
 	},
-	// `output_type` defaults to text on the backend, so leaving it unset is valid. Listing it here
-	// would make the graph's missing-input warning fire on any step that never materialized the key.
+	// `output_type` defaults to text on the backend, so leaving it unset is valid: the form drops
+	// the row rather than showing a field whose value a run would ignore.
 	required: ['provider'],
 	type: 'object',
 	order: [

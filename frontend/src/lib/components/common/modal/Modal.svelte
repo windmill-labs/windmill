@@ -250,13 +250,15 @@
 																	<ChevronRight size={12} class="text-tertiary shrink-0" />
 																{/if}
 																{#if segment.onclick}
-																	<button
-																		type="button"
-																		class="truncate hover:text-emphasis hover:underline"
-																		onclick={segment.onclick}
+																	<Button
+																		variant="subtle"
+																		unifiedSize="2xs"
+																		onClick={segment.onclick}
+																		wrapperClasses="min-w-0 shrink"
+																		btnClasses="!px-0 !font-normal !text-xs text-secondary hover:text-emphasis hover:underline hover:!bg-transparent min-w-0"
 																	>
-																		{segment.label}
-																	</button>
+																		<span class="truncate">{segment.label}</span>
+																	</Button>
 																{:else}
 																	<span class="truncate">{segment.label}</span>
 																{/if}

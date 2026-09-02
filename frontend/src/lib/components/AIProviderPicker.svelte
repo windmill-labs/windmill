@@ -175,6 +175,10 @@
 <div class="w-full flex flex-col gap-3 border rounded-md p-4">
 	<div class="flex flex-col gap-1">
 		<span class="text-xs font-normal text-secondary">Resource</span>
+		<!-- No auto-select: it once meant "the only resource of the kind this agent already uses", a
+		     strong enough signal to fill the field with. Now that the picker spans every provider type
+		     it means "the only AI resource here at all", and taking it would also redefine the agent's
+		     provider and drop its model, on open and unasked. -->
 		<ResourcePicker
 			bind:value={
 				() => resourceValueToPath(value?.resource),
@@ -187,7 +191,7 @@
 			resourceType={providerResourceTypes}
 			{disabled}
 			placeholder="Select an AI provider resource"
-			selectFirst={true}
+			selectFirst={false}
 			onValueChange={onResourcePicked}
 		/>
 	</div>

@@ -53,7 +53,7 @@
 		<div class="flex flex-row-reverse w-full border-t border-gray-200 rounded-bl-lg rounded-br-lg">
 			<Button
 				variant="accent"
-				size="sm"
+				unifiedSize="sm"
 				startIcon={{ icon: Plus }}
 				on:click={() => {
 					variableEditor?.initNew?.()

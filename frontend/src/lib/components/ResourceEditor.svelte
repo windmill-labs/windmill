@@ -46,7 +46,7 @@
 		defaultValues = undefined,
 		workspace = undefined,
 		selected: selectedProp = $bindable(),
-		viewJsonSchema = $bindable(false),
+		viewJsonSchema = $bindable(),
 		onDraftStateChange,
 		onCanWriteChange
 	}: Props = $props()
@@ -394,7 +394,7 @@
 					bind:args={current.args}
 					bind:wsSpecific={current.wsSpecific}
 					bind:isValid
-					bind:viewJsonSchema
+					bind:viewJsonSchema={() => viewJsonSchema ?? false, (v) => (viewJsonSchema = v)}
 					bind:jsonError
 					{initialPath}
 					{hidePath}
