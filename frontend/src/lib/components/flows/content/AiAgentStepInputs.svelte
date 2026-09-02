@@ -50,7 +50,9 @@
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any> }
-		args?: Record<string, InputTransform | any>
+		/** Required: every row below indexes it directly, and a first render against an unset one
+		 *  would throw before the effect that normalises it could run. */
+		args: Record<string, InputTransform | any>
 		isValid?: boolean
 		extraLib?: string
 		previousModuleId?: string | undefined
@@ -92,9 +94,9 @@
 
 	let {
 		schema = $bindable(),
-		args = $bindable({}),
-		isValid = $bindable(true),
-		extraLib = $bindable('missing extraLib'),
+		args = $bindable(),
+		isValid = $bindable(),
+		extraLib = $bindable(),
 		previousModuleId = undefined,
 		filter = undefined,
 		pickableProperties = undefined,
@@ -354,7 +356,7 @@
 												() => inputCheck[spec.key] ?? false,
 												(value) => (inputCheck[spec.key] = value)
 											}
-											bind:extraLib
+											bind:extraLib={() => extraLib ?? 'missing extraLib', (v) => (extraLib = v)}
 											{variableEditor}
 											{itemPicker}
 											bind:pickForField
