@@ -53,9 +53,9 @@ use windmill_common::{
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MAVEN_SETTINGS_XML_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING,
-        NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING, OTEL_TRACING_PROXY_SETTING,
-        PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING,
-        PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING, OTEL_TRACES_RETENTION_SECS_SETTING,
+        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
+        POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RESTART_COORDINATION_SETTING,
         RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING,
         SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
@@ -140,12 +140,12 @@ use crate::monitor::{
     reload_instance_events_webhook_setting, reload_job_default_timeout_setting,
     reload_job_isolation_setting, reload_jwt_secret_setting, reload_license_key,
     reload_npm_config_registry_setting, reload_nsjail_tmp_backing_setting,
-    reload_nsjail_tmpfs_size_setting, reload_otel_tracing_proxy_setting,
-    reload_pip_index_url_setting, reload_retention_period_setting,
-    reload_sandbox_image_cache_max_setting, reload_sandbox_image_default_registry_setting,
-    reload_sandbox_image_max_size_setting, reload_sandbox_image_pull_policy_setting,
-    reload_sandbox_registry_auth_setting, reload_scim_token_setting,
-    reload_service_log_retention_secs_setting, reload_smtp_config,
+    reload_nsjail_tmpfs_size_setting, reload_otel_traces_retention_secs_setting,
+    reload_otel_tracing_proxy_setting, reload_pip_index_url_setting,
+    reload_retention_period_setting, reload_sandbox_image_cache_max_setting,
+    reload_sandbox_image_default_registry_setting, reload_sandbox_image_max_size_setting,
+    reload_sandbox_image_pull_policy_setting, reload_sandbox_registry_auth_setting,
+    reload_scim_token_setting, reload_service_log_retention_secs_setting, reload_smtp_config,
     reload_store_audit_logs_s3_setting, reload_uv_exclude_newer_setting,
     reload_uv_index_strategy_setting, reload_uv_python_install_mirror_setting,
     reload_worker_config, MonitorIteration,
@@ -2012,6 +2012,9 @@ async fn process_notify_event(
                 RETENTION_PERIOD_SECS_SETTING => reload_retention_period_setting(conn).await,
                 SERVICE_LOG_RETENTION_SECS_SETTING => {
                     reload_service_log_retention_secs_setting(conn).await
+                }
+                OTEL_TRACES_RETENTION_SECS_SETTING => {
+                    reload_otel_traces_retention_secs_setting(conn).await
                 }
                 RETENTION_PERIOD_SECS_OVERRIDES_SETTING => {
                     if let Err(e) = load_retention_period_overrides(db).await {

@@ -38,6 +38,85 @@ fn new_script(path: &str, summary: &str, content: &str) -> serde_json::Value {
     })
 }
 
+/// A supplied lock queues no dependency job, so if the create does not record its hash nothing
+/// ever will, and every importer of this script relocks on each of its deploys forever after.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_create_script_persists_supplied_lock_hash(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let path = "u/test-user/supplied_lock";
+    let lock = r#"{"version":"4","remote":{}}"#;
+    let mut script = new_script(
+        path,
+        "Supplied lock",
+        "export async function main() { return 42; }",
+    );
+    script["lock"] = json!(lock);
+
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/w/test-workspace/scripts/create"
+    )))
+    .json(&script)
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 201, "create: {}", resp.text().await?);
+
+    let stored_hash = sqlx::query_scalar!(
+        "SELECT lockfile_hash FROM lock_hash WHERE workspace_id = $1 AND path = $2",
+        "test-workspace",
+        path,
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(stored_hash, windmill_common::scripts::hash_script(lock));
+
+    // A script deployed before the create recorded hashes has no row, and pushing it unchanged
+    // creates no version to hang one off. Without the write on that path it would keep its
+    // importers relocking until someone edited it.
+    sqlx::query!(
+        "DELETE FROM lock_hash WHERE workspace_id = $1 AND path = $2",
+        "test-workspace",
+        path,
+    )
+    .execute(&db)
+    .await?;
+
+    // The no-op comparison covers every field, so the push has to carry what the first deploy
+    // filled in by itself; `auto_parent` both resolves the parent and keeps the hash distinct.
+    script["auto_parent"] = json!(true);
+    script["ws_error_handler_muted"] = json!(false);
+    script["assets"] = json!([]);
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/w/test-workspace/scripts/create?skip_if_noop=true"
+    )))
+    .json(&script)
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 201, "no-op push: {}", resp.text().await?);
+
+    let versions: i64 = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM script WHERE workspace_id = $1 AND path = $2",
+        "test-workspace",
+        path,
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or_default();
+    assert_eq!(versions, 1, "no-op push must not create a version");
+
+    let repaired_hash = sqlx::query_scalar!(
+        "SELECT lockfile_hash FROM lock_hash WHERE workspace_id = $1 AND path = $2",
+        "test-workspace",
+        path,
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(repaired_hash, windmill_common::scripts::hash_script(lock));
+
+    Ok(())
+}
+
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_script_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -797,10 +876,12 @@ async fn test_update_script_reports_losing_to_a_concurrent_deploy(
 
     // What a deploy leaves behind: the old head archived, a new one live at the path.
     // Copied through a temp table so this does not have to restate every column.
-    sqlx::query("CREATE TEMP TABLE superseding ON COMMIT DROP AS SELECT * FROM script WHERE hash = $1")
-        .bind(head)
-        .execute(&mut *winner)
-        .await?;
+    sqlx::query(
+        "CREATE TEMP TABLE superseding ON COMMIT DROP AS SELECT * FROM script WHERE hash = $1",
+    )
+    .bind(head)
+    .execute(&mut *winner)
+    .await?;
     sqlx::query("UPDATE superseding SET hash = $1, archived = false, parent_hashes = ARRAY[$2]")
         .bind(head + 1)
         .bind(head)
@@ -818,7 +899,10 @@ async fn test_update_script_reports_losing_to_a_concurrent_deploy(
     let resp = tokio::time::timeout(std::time::Duration::from_secs(20), update).await??;
     let status = resp.status();
     let body = resp.text().await?;
-    assert_eq!(status, 400, "losing the race should not read as success: {body}");
+    assert_eq!(
+        status, 400,
+        "losing the race should not read as success: {body}"
+    );
     assert!(
         body.contains("deployed to concurrently"),
         "the loser must say it was superseded, not that the script is missing: {body}"
