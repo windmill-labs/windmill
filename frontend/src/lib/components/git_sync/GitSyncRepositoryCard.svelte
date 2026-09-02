@@ -155,13 +155,20 @@
 	const MS_PER_DAY = 86_400_000
 
 	/**
-	 * Days until the repository's own token expires, or undefined when it never
-	 * expires and when nothing has checked it yet.
+	 * Whole days until the repository's own token expires, or undefined when it
+	 * never expires and when nothing has checked it yet.
+	 *
+	 * Counted between calendar dates, not instants: GitLab expires a token on a
+	 * date, so measuring from "now" would call a token expiring later today
+	 * expired, and one expiring tomorrow today's problem.
 	 */
 	const credentialDaysLeft = $derived.by(() => {
 		const expiresAt = repo.credential?.expires_at
 		if (!expiresAt) return undefined
-		return Math.floor((new Date(`${expiresAt}T00:00:00Z`).getTime() - Date.now()) / MS_PER_DAY)
+		const expiry = new Date(`${expiresAt}T00:00:00Z`).getTime()
+		const now = new Date()
+		const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+		return Math.round((expiry - today) / MS_PER_DAY)
 	})
 
 	/**
@@ -583,9 +590,12 @@
 			<div class="text-xs text-secondary">
 				{#if credentialDaysLeft === undefined}
 					Repository token does not expire.
-				{:else}
+				{:else if repo.credential.rotatable}
 					Repository token expires on {repo.credential.expires_at}, and Windmill renews it
 					automatically.
+				{:else}
+					Repository token expires on {repo.credential.expires_at}. Give it the api or self_rotate
+					scope to let Windmill renew it automatically.
 				{/if}
 			</div>
 		{/if}

@@ -3937,6 +3937,7 @@ async fn edit_git_sync_config(
                 clear_client_supplied_auto_pull_state(ap);
             }
             repo.open_pr_error = None;
+            repo.credential = None;
         }
         reject_parent_only_git_sync_settings_on_fork(
             &db,
@@ -4037,6 +4038,7 @@ async fn edit_git_sync_config(
                     continue;
                 };
                 repo.open_pr_error = old.open_pr_error.clone();
+                repo.credential = old.credential.clone();
                 if let (Some(new_ap), Some(old_ap)) =
                     (repo.auto_pull.as_mut(), old.auto_pull.as_ref())
                 {
@@ -4180,6 +4182,7 @@ async fn edit_git_sync_repository(
         clear_client_supplied_auto_pull_state(ap);
     }
     new_config.repository.open_pr_error = None;
+    new_config.repository.credential = None;
     reject_parent_only_git_sync_settings_on_fork(
         &db,
         &w_id,
@@ -4304,6 +4307,7 @@ async fn edit_git_sync_repository(
         // from the UI cannot revert what the poller/webhook layer wrote.
         let mut updated = new_config.repository;
         updated.open_pr_error = existing_repo.open_pr_error.clone();
+        updated.credential = existing_repo.credential.clone();
         match (updated.auto_pull.as_mut(), existing_repo.auto_pull.as_ref()) {
             (Some(new_ap), Some(old_ap)) => {
                 new_ap.last_synced_sha = old_ap.last_synced_sha.clone();
@@ -6181,6 +6185,7 @@ async fn update_workspace_settings(
             r.auto_pull = None;
             r.fork_open_prs = false;
             r.open_pr_error = None;
+            r.credential = None;
             r
         })
         .collect();
@@ -8172,6 +8177,7 @@ async fn attach_dev_workspace(
                 r.auto_pull = None;
                 r.fork_open_prs = false;
                 r.open_pr_error = None;
+                r.credential = None;
             }
             let serialized =
                 serde_json::to_value(&settings).map_err(|e| Error::internal_err(e.to_string()))?;
