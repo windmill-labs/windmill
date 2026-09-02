@@ -28,6 +28,7 @@
 		type ProjectExport,
 		type ProjectMigration
 	} from '$lib/components/workspaceSettings/projectBundle'
+	import { userStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { escapeHtml } from '$lib/utils'
 
@@ -578,7 +579,10 @@
 				workspace,
 				folder: targetFolder,
 				from: b.path,
-				to: target
+				to: target,
+				// Only an admin's listings are the whole workspace; anyone else's are filtered by
+				// row-level security, and the scan cannot tell a filtered row from an absent one.
+				seesWholeWorkspace: !!($userStore?.is_admin || $userStore?.is_super_admin)
 			})
 			const moved = `${outcome.rewritten.length} item${outcome.rewritten.length === 1 ? '' : 's'}`
 			if (outcome.error) {
@@ -927,8 +931,7 @@
 										<!-- Not a footnote: some items were not moved and still read this path,
 										     so the empty resource on it is a credential someone has to fill in. -->
 										<span class="truncate text-hint">
-											some items still read <span class="font-mono">{b.path}</span> — fill it in
-											too
+											some items still read <span class="font-mono">{b.path}</span> — fill it in too
 										</span>
 									{/if}
 								{:else if b.occupiedBy}

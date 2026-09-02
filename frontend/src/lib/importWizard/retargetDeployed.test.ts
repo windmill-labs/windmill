@@ -98,7 +98,8 @@ async function run() {
 		workspace: 'w',
 		folder: 'proj',
 		from: FROM,
-		to: TO
+		to: TO,
+		seesWholeWorkspace: true
 	})
 }
 
@@ -306,6 +307,23 @@ describe('applyRetarget', () => {
 		const sent = state.updatedFlows[0]
 		expect(sent.requestBody.value.modules[0].summary).toBe(`reads $res:${TO}`)
 		expect(sent.requestBody.value.modules[0].value.path).toBe(FROM)
+	})
+
+	// The listings run as the caller and row-level security filters them inside the query, so
+	// an item a member cannot read is invisible rather than counted. The stub has to outlive
+	// a scan that cannot see the whole workspace.
+	it('keeps the stub when the caller is not shown the whole workspace', async () => {
+		const outcome = await applyRetarget({
+			workspace: 'w',
+			folder: 'proj',
+			from: FROM,
+			to: TO,
+			seesWholeWorkspace: false
+		})
+		expect(outcome.error).toBeUndefined()
+		expect(outcome.stubDeleted).toBe(false)
+		expect(state.deletedResources).toEqual([])
+		expect(outcome.gaps.map((g) => g.path)).toContain('This workspace')
 	})
 
 	// `listSearchApp` caps at 1000 rows server-side, unordered and unpaginated, so a full page

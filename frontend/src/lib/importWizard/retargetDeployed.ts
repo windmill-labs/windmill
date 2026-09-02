@@ -12,8 +12,10 @@
  *  - Only items inside the project's folder are rewritten. The import wrote nothing outside
  *    it, so a reference from elsewhere is the user's own and not ours to move.
  *  - The stub is deleted only when the scan can prove it saw every reference to it.
- *    Listings come back capped, a trigger kind can fail to list, and a reference can sit
- *    where no rewriter reaches — each of those is a gap, and any gap keeps the stub.
+ *    Listings come back capped, a trigger kind can fail to list, a reference can sit where no
+ *    rewriter reaches, and the listings themselves are row-level-security filtered so a
+ *    caller who is not a workspace admin is not shown every item — each of those is a gap,
+ *    and any gap keeps the stub.
  *
  * Rewriting is separable from deleting, and only the delete is destructive. An item moved
  * onto the chosen resource resolves whether or not the stub survives; an item the scan never
@@ -133,6 +135,7 @@ const TRIGGER_LIST_LIMIT = 1000
 
 /** A reference this run will not move, recorded so the stub outlives it. */
 const OUTSIDE_PROJECT = 'reads this resource from outside the project'
+const UNSEEN_BY_CALLER = 'holds items this account is not shown'
 const UNREACHABLE_REFERENCE = 'names the resource path outside a $res: reference'
 
 /**
@@ -145,10 +148,17 @@ const UNREACHABLE_REFERENCE = 'names the resource path outside a $res: reference
 export async function planRetarget(
 	workspace: string,
 	folder: string,
-	from: string
+	from: string,
+	opts: { seesWholeWorkspace: boolean }
 ): Promise<RetargetPlan> {
 	const referrers: Referrer[] = []
 	const gaps: Gap[] = []
+
+	// The listings run as the caller. Row-level security filters the rows out inside the
+	// query, so an item this account cannot read is not merely absent from the answer — it
+	// does not count towards the full-page test either, and nothing downstream can notice it.
+	// A colleague's private script reading this stub is exactly that shape.
+	if (!opts.seesWholeWorkspace) gaps.push({ path: 'This workspace', reason: UNSEEN_BY_CALLER })
 
 	const [scripts, flows, apps] = await Promise.all([
 		ScriptService.listSearchScript({ workspace }),
@@ -283,12 +293,14 @@ export async function applyRetarget(args: {
 	folder: string
 	from: string
 	to: string
+	/** Whether the listings the scan reads are the whole workspace. See `planRetarget`. */
+	seesWholeWorkspace: boolean
 }): Promise<RetargetOutcome> {
-	const { workspace, folder, from, to } = args
+	const { workspace, folder, from, to, seesWholeWorkspace } = args
 	const map = new Map([[from, to]])
 	const rewritten: Referrer[] = []
 
-	const plan = await planRetarget(workspace, folder, from)
+	const plan = await planRetarget(workspace, folder, from, { seesWholeWorkspace })
 	const gaps = [...plan.gaps]
 
 	for (const r of plan.referrers) {
