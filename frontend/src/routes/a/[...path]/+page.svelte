@@ -68,10 +68,12 @@
 	 * offering an ordinary sign-in on a transient fault would provision an account. */
 	let guestEntry: 'pending' | 'none' | 'guest' | 'error' = $state('pending')
 
+	// Settled once: `loadApp` calls this again on failure, and a later transient fault
+	// must not overwrite an answer already in hand. A function, not a narrowed local:
+	// the value changes across the awaits below.
+	const guestEntrySettled = () => guestEntry === 'guest' || guestEntry === 'none'
 	async function loadGuestEntry() {
-		// Settled once: `loadApp` calls this again on failure, and a later transient
-		// fault must not overwrite an answer already in hand.
-		if (guestEntry === 'guest' || guestEntry === 'none') return
+		if (guestEntrySettled()) return
 		for (let attempt = 0; attempt < 3; attempt++) {
 			try {
 				const entry = await AppService.getGuestEntryByCustomPath({
@@ -87,10 +89,14 @@
 					return
 				}
 				await new Promise((r) => setTimeout(r, 500 * (attempt + 1)))
+				// A concurrent call may have settled it meanwhile.
+				if (guestEntrySettled()) return
 			}
 		}
-		guestAppPath = undefined
-		guestEntry = 'error'
+		if (!guestEntrySettled()) {
+			guestAppPath = undefined
+			guestEntry = 'error'
+		}
 	}
 
 	// Embedder side: validate access (main session cookie or shared JWT) and mint

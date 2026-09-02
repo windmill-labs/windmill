@@ -365,6 +365,30 @@ pub fn authorize_non_member_viewer(
     Ok(false)
 }
 
+/// The caller an app-scoped operation proceeds with, once the app's mode is known. A
+/// guest session names one app: on an anonymous app a mismatch means "act as anyone",
+/// on any other it is the refusal the page answers with a fresh sign-in. Non-guest
+/// scoped callers are confined at the top of each handler instead, before any read.
+fn guest_caller_for_mode(
+    opt_authed: Option<ApiAuthed>,
+    mode: ExecutionMode,
+    app_path: &str,
+) -> Result<Option<ApiAuthed>> {
+    let Some(authed) = opt_authed.as_ref() else {
+        return Ok(None);
+    };
+    if !windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref()) {
+        return Ok(opt_authed);
+    }
+    match check_scopes(authed, || format!("apps:run:{app_path}"))
+        .or_else(|_| check_scopes(authed, || format!("apps:read:{app_path}")))
+    {
+        Ok(()) => Ok(opt_authed),
+        Err(_) if matches!(mode, ExecutionMode::Anonymous) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 /// [`authorize_non_member_viewer`] plus the member read-access probe, for the
 /// entry points that address an app by id.
 async fn authorize_app_viewer(
@@ -3861,8 +3885,12 @@ async fn execute_component(
     // Authorize before touching the payload: the route layer is resource-blind, so a
     // path-scoped caller (app embed token, or a picker-minted `apps:run|write:<path>`)
     // is confined to its own app only here. No-op for unscoped callers; anonymous ones
-    // are policy-gated below.
-    if let Some(authed) = opt_authed.as_ref() {
+    // are policy-gated below, and a guest's confinement waits for the app's mode
+    // (`guest_caller_for_mode`).
+    if let Some(authed) = opt_authed
+        .as_ref()
+        .filter(|a| !windmill_api_auth::scopes::has_guest_sentinel(a.scopes.as_deref()))
+    {
         check_scopes(authed, || format!("apps:run:{}", path))?;
     }
     // Only honor temp_script_refs for the inline-script preview path:
@@ -4096,16 +4124,7 @@ async fn execute_component(
         }
     }
 
-    // A guest session holds no ACL of its own, so the read-permit probe below would
-    // deny every guest. What confines it is the scope the session was minted with,
-    // naming the one app it may run — except an anonymous app, open to a guest as to
-    // anyone. Mode and workspace switch are decided by the on-behalf resolver and
-    // `AuthCache` respectively.
-    if let Some(authed) = opt_authed.as_ref().filter(|_| is_guest_caller) {
-        if !matches!(policy.execution_mode(), ExecutionMode::Anonymous) {
-            check_scopes(authed, || format!("apps:run:{}", path))?;
-        }
-    }
+    let opt_authed = guest_caller_for_mode(opt_authed, policy.execution_mode(), path)?;
 
     // Execution is publisher and an user is authenticated: check if the user is authorized to
     // execute the app.
@@ -4442,8 +4461,12 @@ async fn upload_s3_file_from_app(
     request: axum::extract::Request,
 ) -> JsonResult<AppUploadFileResponse> {
     // Same path confinement as `execute_component`: without it a token scoped to app A
-    // could drive app B's upload policy.
-    if let Some(authed) = opt_authed.as_ref() {
+    // could drive app B's upload policy. A guest's waits for the app's mode, inside
+    // `get_on_behalf_authed_from_app`.
+    if let Some(authed) = opt_authed
+        .as_ref()
+        .filter(|a| !windmill_api_auth::scopes::has_guest_sentinel(a.scopes.as_deref()))
+    {
         check_scopes(authed, || format!("apps:run:{}", path.to_path()))?;
     }
     let policy = if let Some(file_key_regex) = query.force_viewer_file_key_regex {
@@ -4912,6 +4935,7 @@ async fn get_on_behalf_authed_from_app(
             })
     };
 
+    let opt_authed = guest_caller_for_mode(opt_authed.clone(), policy.execution_mode(), path)?;
     let (username, permissioned_as, email) =
         get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
 
@@ -5068,6 +5092,10 @@ fn check_app_s3_read_scope(opt_authed: &Option<ApiAuthed>, path: &str) -> Result
     let Some(authed) = opt_authed.as_ref() else {
         return Ok(());
     };
+    // A guest's confinement waits for the app's mode (`get_on_behalf_authed_from_app`).
+    if windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref()) {
+        return Ok(());
+    }
     check_scopes(authed, || format!("apps:run:{}", path))
         .or_else(|_| check_scopes(authed, || format!("apps:read:{}", path)))
 }
