@@ -10,11 +10,11 @@ The trigger sits in the composer next to the model pill; `open(section)` is for 
 callers that already know which section they mean, such as the "+" menu's Manage entries.
 -->
 <script lang="ts" module>
-	export type AssistantSettingsSection = 'tools' | 'skills' | 'instructions' | 'mcp'
+	export type AssistantSettingsSection = 'tools' | 'skills' | 'instructions' | 'mcp' | 'files'
 </script>
 
 <script lang="ts">
-	import { BookOpen, Boxes, Plug, ScrollText, SlidersHorizontal } from 'lucide-svelte'
+	import { BookOpen, Boxes, Paperclip, Plug, ScrollText, SlidersHorizontal } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
@@ -27,6 +27,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	import AssistantSkillsSection from './AssistantSkillsSection.svelte'
 	import AssistantInstructionsSection from './AssistantInstructionsSection.svelte'
 	import AssistantMcpSection from './AssistantMcpSection.svelte'
+	import AssistantFilesSection from './AssistantFilesSection.svelte'
 
 	const aiChatManager = getAiChatManager()
 
@@ -34,6 +35,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	let section = $state<AssistantSettingsSection>('tools')
 	let skillCount = $state(0)
 	let mcpCount = $state(0)
+	let fileCount = $state(0)
 	// A section is mid-something the modal must not close under: a confirmation or a
 	// popover portaled to the body (where a click inside reads as a click outside this
 	// modal), or an editor holding text nobody has saved yet. While one is up, Escape
@@ -42,7 +44,8 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	let skillsBusy = $state(false)
 	let instructionsBusy = $state(false)
 	let mcpBusy = $state(false)
-	let blocksClose = $derived(toolsBusy || skillsBusy || instructionsBusy || mcpBusy)
+	let filesBusy = $state(false)
+	let blocksClose = $derived(toolsBusy || skillsBusy || instructionsBusy || mcpBusy || filesBusy)
 
 	// A session chat operates on its own (possibly forked) workspace without switching
 	// `workspaceStore`, and that is the workspace every list here is read under.
@@ -65,7 +68,10 @@ callers that already know which section they mean, such as the "+" menu's Manage
 		{ id: 'tools', label: 'Tools', icon: Boxes, count: tools.length },
 		{ id: 'skills', label: 'Skills', icon: BookOpen, count: skillCount },
 		{ id: 'instructions', label: 'Instructions', icon: ScrollText },
-		{ id: 'mcp', label: 'MCP connections', icon: Plug, count: mcpCount }
+		{ id: 'mcp', label: 'MCP connections', icon: Plug, count: mcpCount },
+		// The count is what is readable rather than what is attached: a locked folder under
+		// a heading about what the assistant can use would say the opposite of the truth.
+		{ id: 'files', label: 'Files & folders', icon: Paperclip, count: fileCount }
 	])
 
 	/** Opens on `target`, or back on whichever section was last read. */
@@ -188,6 +194,9 @@ callers that already know which section they mean, such as the "+" menu's Manage
 					bind:count={mcpCount}
 					bind:blocksClose={mcpBusy}
 				/>
+			</div>
+			<div class="{section === 'files' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto pr-2">
+				<AssistantFilesSection bind:count={fileCount} bind:blocksClose={filesBusy} />
 			</div>
 		</div>
 	</div>

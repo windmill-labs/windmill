@@ -133,13 +133,6 @@
 	let canSignIn = $derived(
 		oauthAppReady || (canDiscover && !!$enterpriseLicense && discoveryFoundOAuth !== false)
 	)
-	// The action button names the credential, not the outcome, so the path field
-	// says what clicking it will leave behind.
-	let pathNote = $derived(
-		canSignIn && !showToken
-			? 'Signing in saves the connection at this path, as an'
-			: 'The connection is saved at this path, as an'
-	)
 	// Why the token field is the only way in, said where the token is asked for.
 	let tokenNote = $derived(
 		needsOauthApp && entry
@@ -449,8 +442,12 @@
 		{/if}
 
 		<Label label="Save MCP connection to">
+			<!-- The path decides who gets the connection, and its token with it: the backend
+			     reads both off the path (`u/<name>` is that user's, `f/<folder>` is everyone
+			     with read on the folder), so this is the one place to say so. -->
 			<span class="text-xs text-secondary">
-				{pathNote}
+				Under <span class="font-mono">u/{$userStore?.username ?? 'you'}</span> it is yours alone; in
+				a folder, everyone in it can use the connection and its token. Saved as an
 				<a
 					href="{base}/resources?workspace={ws}"
 					target="_blank"

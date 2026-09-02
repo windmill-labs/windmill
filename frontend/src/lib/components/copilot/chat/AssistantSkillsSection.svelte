@@ -618,7 +618,7 @@ What the assistant should do when this skill applies.
 						{#snippet subtitle()}{skill.description}{/snippet}
 						{#snippet trailing()}
 							<Toggle
-								size="xs"
+								size="sm"
 								checked={skill.enabled}
 								on:change={async (e) => await toggle(skill.path, e.detail)}
 							/>

@@ -10,6 +10,7 @@ switch that decides whether this chat carries its tools.
 	import PagedContent from '$lib/components/common/modal/PagedContent.svelte'
 	import McpConnect from '$lib/components/mcp/McpConnect.svelte'
 	import ResourceEditor from '$lib/components/ResourceEditor.svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { isMcpEnabled, setMcpEnabled } from '$lib/components/mcp/enabledServers'
 	import { loadProviderIcon } from '$lib/components/mcp/providerIcon'
@@ -22,7 +23,7 @@ switch that decides whether this chat carries its tools.
 	import type { Component } from 'svelte'
 	import { ResourceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { ArrowLeft, Loader2, Plug, Plus, Trash2 } from 'lucide-svelte'
+	import { ArrowLeft, Loader2, Pencil, Plug, Plus, Trash2 } from 'lucide-svelte'
 	import { draftValuesEqual } from '$lib/userDraft.svelte'
 	import { untrack } from 'svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
@@ -61,7 +62,11 @@ switch that decides whether this chat carries its tools.
 	>([])
 	let loading = $state(false)
 	let loadError = $state<string | undefined>(undefined)
-	let pendingDisconnect = $state<string | undefined>(undefined)
+	let pendingDelete = $state<string | undefined>(undefined)
+	// A row's overflow menu is portaled out of the modal, so a click on one of its items
+	// is a click outside the modal. Tracking it here keeps the modal from closing under
+	// the action the item is about to run.
+	let rowMenuOpen = $state<Record<string, boolean>>({})
 	// The connect form is the second page of this panel, not a surface over it.
 	let connectOpen = $state(false)
 	// Bumped as the connect page is left, which is what clears the form for the next
@@ -117,13 +122,17 @@ switch that decides whether this chat carries its tools.
 		count = servers.length
 	})
 	$effect(() => {
-		blocksClose = pendingDisconnect !== undefined || connectOpen || detailOpen
+		blocksClose =
+			pendingDelete !== undefined ||
+			connectOpen ||
+			detailOpen ||
+			Object.values(rowMenuOpen).some(Boolean)
 	})
 
 	/** Escape steps back to the list rather than closing the whole modal: `blocksClose`
 	 * stops the modal's own handler, so this is the only thing left to answer the key. */
 	function onKeydown(event: KeyboardEvent) {
-		if (event.key !== 'Escape' || page === 'list' || pendingDisconnect !== undefined) return
+		if (event.key !== 'Escape' || page === 'list' || pendingDelete !== undefined) return
 		event.preventDefault()
 		event.stopPropagation()
 		if (connectOpen) closeConnect()
@@ -190,13 +199,13 @@ switch that decides whether this chat carries its tools.
 
 	// Rows describe one workspace. A switch while the section is open must not leave
 	// A's rows on screen while the actions below target B: same path, different
-	// server, and disconnect would delete the wrong one.
+	// server, and a delete would remove the wrong one.
 	let loadSeq = 0
 	$effect(() => {
 		const target = ws
 		untrack(() => {
 			servers = []
-			pendingDisconnect = undefined
+			pendingDelete = undefined
 			// Back to the list too: the editor holds one workspace's resource, and the
 			// path it is on names a different server in the workspace switched to.
 			editing = undefined
@@ -224,6 +233,9 @@ switch that decides whether this chat carries its tools.
 				editedAt: r.edited_at,
 				enabled: isMcpEnabled(target, r.path)
 			}))
+			// Seeded rather than filled by the bindings: an unset entry would hand
+			// DropdownV2 an `undefined` open state instead of a closed one.
+			rowMenuOpen = Object.fromEntries(resources.map((r) => [r.path, false]))
 			void loadIcons(target, seq)
 		} catch (e) {
 			if (seq !== loadSeq) return
@@ -246,10 +258,10 @@ switch that decides whether this chat carries its tools.
 
 	// Deleting a resource also deletes every variable its value references, and an
 	// mcp resource's token is usually the credential of the resource it was created
-	// from (the github one). Drop the reference before deleting so disconnecting
-	// here can never destroy a credential something else still uses; the variable
-	// is left for the user to remove from the Variables page.
-	async function disconnect(path: string) {
+	// from (the github one). Drop the reference first so deleting the connection can
+	// never destroy a credential something else still uses; the variable is left for
+	// the user to remove from the Variables page.
+	async function deleteConnection(path: string) {
 		// Pinned for the whole sequence: a switch midway would strip and delete the
 		// resource that happens to share this path in the workspace switched to.
 		const target = ws
@@ -269,12 +281,12 @@ switch that decides whether this chat carries its tools.
 			// on deliberately rather than inherit this one's enablement.
 			setMcpEnabled(target, path, false)
 			forgetProviderKey(target, path)
-			sendUserToast(`Disconnected ${path}. Its token variable was kept.`)
+			sendUserToast(`Deleted ${path}. Its token variable was kept.`)
 			await refresh()
 		} catch (e) {
-			sendUserToast(`Failed to disconnect ${path}: ${e.body ?? e.message}`, true)
+			sendUserToast(`Failed to delete ${path}: ${e.body ?? e.message}`, true)
 		} finally {
-			pendingDisconnect = undefined
+			pendingDelete = undefined
 		}
 	}
 
@@ -385,17 +397,26 @@ switch that decides whether this chat carries its tools.
 						{#snippet subtitle()}{server.description}{/snippet}
 						{#snippet trailing()}
 							<Toggle
-								size="xs"
+								size="sm"
 								checked={server.enabled}
 								on:change={async (e) => await toggle(server.path, e.detail)}
 							/>
-							<Button
-								unifiedSize="2xs"
-								variant="subtle"
-								startIcon={{ icon: Trash2 }}
-								iconOnly
-								title="Disconnect"
-								onClick={() => (pendingDisconnect = server.path)}
+							<DropdownV2
+								size="sm"
+								bind:open={rowMenuOpen[server.path]}
+								items={[
+									{
+										displayName: 'Manage connection',
+										icon: Pencil,
+										action: () => openServer(server)
+									},
+									{
+										displayName: 'Delete',
+										icon: Trash2,
+										type: 'delete',
+										action: () => (pendingDelete = server.path)
+									}
+								]}
 							/>
 						{/snippet}
 						<ListRow
@@ -508,16 +529,17 @@ switch that decides whether this chat carries its tools.
 {/snippet}
 
 <ConfirmationModal
-	open={pendingDisconnect !== undefined}
-	title="Disconnect MCP server"
-	confirmationText="Disconnect"
+	open={pendingDelete !== undefined}
+	title="Delete MCP connection"
+	confirmationText="Delete"
 	onConfirmed={() => {
-		if (pendingDisconnect) void disconnect(pendingDisconnect)
+		if (pendingDelete) void deleteConnection(pendingDelete)
 	}}
-	onCanceled={() => (pendingDisconnect = undefined)}
+	onCanceled={() => (pendingDelete = undefined)}
 >
 	<span class="text-xs text-primary">
-		This deletes the resource at <span class="font-semibold">{pendingDisconnect}</span>, so the chat
-		and any flow pointing at it lose the server. Its token variable is kept.
+		This deletes the resource at <span class="font-semibold">{pendingDelete}</span>, so the chat and
+		any flow pointing at it lose the server. Its token variable is kept. To stop this chat from
+		using the server without deleting it, turn its switch off instead.
 	</span>
 </ConfirmationModal>

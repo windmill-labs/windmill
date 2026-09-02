@@ -26,7 +26,7 @@ const MAX_ICON_LOOKUPS = 20
 
 /**
  * The chat "+" menu's MCP submenu: one row per connected server, checked when it
- * is on, then the way to manage them. Connecting and disconnecting live in the
+ * is on, then the way to manage them. Connecting and deleting live in the
  * assistant settings modal, which `onManage` opens.
  */
 export class McpMenu {
