@@ -3,6 +3,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { isEnterprisePlan } from '$lib/enterpriseUtils'
 	import { Loader2 } from 'lucide-svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -98,6 +99,7 @@
 			(rulesetsLoaded &&
 				canUserBypassRuleKind('RestrictGuestAppDeployment', $userStore ?? undefined))
 	)
+	let guestsLicensed = $derived(isEnterprisePlan($enterpriseLicense))
 	// The three rungs of the access control, widest last. `viewer` is a fourth
 	// execution mode that this control never sets (it runs components as the viewer,
 	// which a guest cannot be), so an app in it shows as members-only here.
@@ -465,10 +467,10 @@
 					<ToggleButton
 						label="Guests"
 						value="guest"
-						disabled={(!canSetGuest || !$enterpriseLicense) && policy.execution_mode != 'guest'}
-						tooltip={$enterpriseLicense
+						disabled={(!canSetGuest || !guestsLicensed) && policy.execution_mode != 'guest'}
+						tooltip={guestsLicensed
 							? 'Anyone your identity provider authenticates who has no Windmill account, plus workspace members. No membership, no seat.'
-							: 'Guest sign-in is a Windmill Enterprise Edition feature.'}
+							: 'Guest sign-in requires a Windmill Enterprise plan.'}
 						{item}
 					/>
 					<ToggleButton
@@ -485,9 +487,8 @@
 			{#if policy.execution_mode == 'anonymous'}
 				Anyone holding the secret URL below can open this app without signing in.
 			{:else if policy.execution_mode == 'guest'}
-				{#if !$enterpriseLicense}
-					Guest sign-in is a Windmill Enterprise Edition feature, so this app still admits members
-					only.
+				{#if !guestsLicensed}
+					Guest sign-in requires a Windmill Enterprise plan, so this app still admits members only.
 				{:else if guestAccessEnabled === undefined}
 					Checking whether this workspace allows guests…
 				{:else if guestAccessEnabled === false}

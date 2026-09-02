@@ -37,6 +37,7 @@
 		workspaceStore,
 		isCriticalAlertsUIOpen
 	} from '$lib/stores'
+	import { isEnterprisePlan } from '$lib/enterpriseUtils'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { sendUserToast } from '$lib/toast'
 	import { clone, emptyString, encodeState, hasUnsavedChanges } from '$lib/utils'
@@ -2182,12 +2183,12 @@ export async function main(
 							>
 								<Toggle
 									bind:checked={guestAccessEnabled}
-									disabled={!$enterpriseLicense}
+									disabled={!isEnterprisePlan($enterpriseLicense)}
 									options={{ right: 'Allow guests to open apps set to Guests' }}
 								/>
-								{#if !$enterpriseLicense}
+								{#if !isEnterprisePlan($enterpriseLicense)}
 									<span class="text-hint text-2xs">
-										Guest sign-in is a Windmill Enterprise Edition feature.
+										Guest sign-in requires a Windmill Enterprise plan.
 									</span>
 								{/if}
 							</SettingCard>

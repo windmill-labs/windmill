@@ -16,3 +16,9 @@ export async function setLicense() {
 		console.error('error getting license', e)
 	}
 }
+
+/** Guests are an Enterprise-plan feature: the server refuses them on a Pro key, so the
+ * controls that would offer them must read the plan, not merely the presence of a key. */
+export function isEnterprisePlan(licenseId: string | undefined): boolean {
+	return !!licenseId && !licenseId.endsWith('_pro')
+}
