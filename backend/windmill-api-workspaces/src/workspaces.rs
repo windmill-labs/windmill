@@ -4621,6 +4621,11 @@ async fn edit_guest_access(
     Json(EditGuestAccess { guest_access_enabled }): Json<EditGuestAccess>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+    if guest_access_enabled && !windmill_common::workspaces::guest_access_licensed().await {
+        return Err(Error::BadRequest(
+            "Guest access requires an Enterprise license".to_string(),
+        ));
+    }
 
     let mut tx = db.begin().await?;
     sqlx::query!(

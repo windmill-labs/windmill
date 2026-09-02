@@ -775,6 +775,24 @@ pub struct BillableSeats {
     pub seats: i64,
 }
 
+/// Guests are an Enterprise-plan feature, so a Pro key refuses them at every gate —
+/// the workspace switch, the mint, the door — not only in the UI that hides them. A
+/// build without `enterprise` has no plan to consult and cannot mint a guest session
+/// at all (the mint lives in EE code), so nothing is gated there.
+pub async fn guest_access_licensed() -> bool {
+    #[cfg(feature = "enterprise")]
+    {
+        matches!(
+            crate::ee_oss::get_license_plan().await,
+            crate::ee_oss::LicensePlan::Enterprise
+        )
+    }
+    #[cfg(not(feature = "enterprise"))]
+    {
+        true
+    }
+}
+
 /// Whether `w_id` admits guest sessions — someone the identity provider authenticated
 /// who is a member of no workspace, and who therefore takes no seat.
 ///
@@ -784,6 +802,9 @@ pub struct BillableSeats {
 /// push `guest` past every deploy-time gate; the per-request read is what makes
 /// turning the switch off take effect on sessions already issued.
 pub async fn is_guest_access_enabled(db: &crate::DB, w_id: &str) -> Result<bool> {
+    if !guest_access_licensed().await {
+        return Ok(false);
+    }
     Ok(sqlx::query_scalar!(
         "SELECT guest_access_enabled FROM workspace_settings WHERE workspace_id = $1",
         w_id
@@ -803,6 +824,9 @@ pub async fn guest_app_admits<'c, E: sqlx::Executor<'c, Database = sqlx::Postgre
     w_id: &str,
     app_path: &str,
 ) -> Result<bool> {
+    if !guest_access_licensed().await {
+        return Ok(false);
+    }
     let admits: Option<bool> = sqlx::query_scalar(
         "SELECT COALESCE(ws.guest_access_enabled AND app.policy->>'execution_mode' = 'guest', false)
          FROM app JOIN workspace_settings ws ON ws.workspace_id = app.workspace_id
