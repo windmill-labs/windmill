@@ -18,7 +18,6 @@ use crate::teams_oss::{
     connect_teams, edit_teams_command, run_teams_message_test_job,
     workspaces_list_available_teams_channels, workspaces_list_available_teams_ids,
 };
-
 use axum::{
     extract::{Extension, Path},
     routing::{get, post},
@@ -108,6 +107,8 @@ async fn edit_copilot_config(
         }
     }
 
+    ai_config.validate_model_pricing()?;
+
     let mut tx = db.begin().await?;
 
     sqlx::query!(
@@ -151,10 +152,23 @@ async fn edit_copilot_config(
             .await?;
     let settings_state =
         build_copilot_settings_state(workspace_has_config, instance_ai_config.as_ref());
+    // A provider-less instance config (e.g. `{}`) is unconfigured, same as build_copilot_settings_state
+    // treats it — so it must not shadow the free-tier fallback here either.
+    let instance_config_with_providers = instance_ai_config
+        .as_ref()
+        .and_then(|v| serde_json::from_value::<AIConfig>(v.clone()).ok())
+        .filter(|c| c.has_providers());
     let effective_ai_config = if workspace_has_config {
         ai_config
-    } else if let Some(instance_ai_config) = instance_ai_config {
-        serde_json::from_value::<AIConfig>(instance_ai_config).unwrap_or_default()
+    } else if let Some(instance_config) = instance_config_with_providers {
+        instance_config
+    } else if let Some(free_config) =
+        crate::ai_free_tier_oss::free_tier_copilot_config(&db, &authed.email).await?
+    {
+        // Same fallback as get_copilot_info: with nothing configured, surface Windmill's free
+        // tier (EE-only) so clearing a workspace provider activates it immediately, instead of
+        // returning an empty config that disables AI until the next page reload re-fetches it.
+        free_config
     } else {
         AIConfig::default()
     };
@@ -177,6 +191,7 @@ struct EditCopilotConfigResponse {
 }
 
 async fn get_copilot_info(
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<AIConfig> {
@@ -192,16 +207,25 @@ async fn get_copilot_info(
         ))
     })?;
 
-    if let Some(workspace_ai_config) = workspace_ai_config.filter(|c| c.0.has_providers()) {
-        Ok(Json(workspace_ai_config.0))
-    } else if let Some(instance_config) =
+    let instance_config =
         sqlx::query_scalar!("SELECT value FROM global_settings WHERE name = 'ai_config'")
             .fetch_optional(&db)
             .await?
+            .and_then(|v| serde_json::from_value::<AIConfig>(v).ok())
+            // A provider-less instance config (e.g. `{}`) is unconfigured; don't let it shadow the
+            // free-tier fallback, matching the proxy and edit_copilot_config paths.
+            .filter(|c| c.has_providers());
+    if let Some(workspace_ai_config) = workspace_ai_config.filter(|c| c.0.has_providers()) {
+        Ok(Json(workspace_ai_config.0))
+    } else if let Some(instance_config) = instance_config {
+        Ok(Json(instance_config))
+    } else if let Some(free_config) =
+        crate::ai_free_tier_oss::free_tier_copilot_config(&db, &authed.email).await?
     {
-        Ok(Json(
-            serde_json::from_value::<AIConfig>(instance_config).unwrap_or_default(),
-        ))
+        // Nothing configured: fall back to Windmill's free tier (EE-only). The config
+        // carries a `free_tier` marker even once the user's grant is spent — with no
+        // providers, but telling the client *why* AI is off.
+        Ok(Json(free_config))
     } else {
         Ok(Json(AIConfig::default()))
     }
@@ -214,7 +238,14 @@ pub async fn get_critical_alerts(
     authed: ApiAuthed,
     Query(params): Query<crate::utils::AlertQueryParams>,
 ) -> JsonResult<serde_json::Value> {
-    require_admin_or_devops(authed.is_admin, &authed.username, &authed.email, authed.job_id.is_some(), &db).await?;
+    require_admin_or_devops(
+        authed.is_admin,
+        &authed.username,
+        &authed.email,
+        authed.job_id.is_some(),
+        &db,
+    )
+    .await?;
 
     crate::utils::get_critical_alerts(db, params, Some(w_id)).await
 }
@@ -230,7 +261,14 @@ pub async fn acknowledge_critical_alert(
     Path((w_id, id)): Path<(String, i32)>,
     authed: ApiAuthed,
 ) -> Result<String> {
-    require_admin_or_devops(authed.is_admin, &authed.username, &authed.email, authed.job_id.is_some(), &db).await?;
+    require_admin_or_devops(
+        authed.is_admin,
+        &authed.username,
+        &authed.email,
+        authed.job_id.is_some(),
+        &db,
+    )
+    .await?;
     crate::utils::acknowledge_critical_alert(db, Some(w_id), id).await
 }
 

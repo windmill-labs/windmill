@@ -10,7 +10,10 @@
 //! management, and the workspace-merge diff helper. Split out of `workspaces.rs`
 //! to keep that file focused on core workspace configuration.
 
-use crate::workspaces::{pg_dump_database, ItemComparison};
+use crate::workspaces::{
+    is_instance_datatable, pg_dump_database, strip_unreplayable_dump_lines, ItemComparison,
+    PgDumpOptions,
+};
 
 use axum::{
     extract::{Extension, Path, Query},
@@ -1244,7 +1247,9 @@ async fn upsert_datatable_migration(
     // its SQL, so a later `migrate up` would skip it and a rollback would run a
     // `down` that doesn't correspond to what was applied. Only an actual change
     // to an existing migration is guarded; unchanged re-pushes (e.g.
-    // `wmill sync push`) always proceed.
+    // `wmill sync push`) always proceed, and so does filling in a down migration
+    // that was missing — the up that ran is untouched, and that is the only way
+    // to make an already-applied migration revertable.
     let existing = sqlx::query!(
         "SELECT name, code_up, code_down FROM datatable_migrations \
          WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3",
@@ -1254,16 +1259,26 @@ async fn upsert_datatable_migration(
     )
     .fetch_optional(&db)
     .await?;
-    // When modifying an existing definition, hold the run-serialization lock
-    // across the applied-check and the write below so an in-flight run can't
-    // record a version for the SQL we're about to overwrite. Held until the end
-    // of the handler (well past the write); a new/unchanged upsert needs no lock.
-    let _run_lock = match existing {
-        Some(existing)
-            if !(existing.name == payload.name
-                && existing.code_up == payload.code_up
-                && existing.code_down == payload.code_down) =>
-        {
+    // When overwriting the SQL of an existing definition, hold the
+    // run-serialization lock across the applied-check and the write below so an
+    // in-flight run can't record a version for the SQL we're about to overwrite.
+    // Held until the end of the handler (well past the write). The exempt
+    // upserts need no lock: a new or unchanged one overwrites nothing, and one
+    // that only adds a down leaves the `code_up` a concurrent run is recording
+    // a version for untouched.
+    let only_adds_down = existing.as_ref().is_some_and(|existing| {
+        existing.name == payload.name
+            && existing.code_up == payload.code_up
+            && existing.code_down.is_none()
+            && payload.code_down.is_some()
+    });
+    let unchanged = existing.as_ref().is_some_and(|existing| {
+        existing.name == payload.name
+            && existing.code_up == payload.code_up
+            && existing.code_down == payload.code_down
+    });
+    let _run_lock = match existing.as_ref() {
+        Some(_) if !only_adds_down && !unchanged => {
             // Fail closed: if we can't lock/read the applied set (e.g. the
             // data-table database is temporarily unreachable), refuse the change
             // rather than risk overwriting a migration that has already run.
@@ -1293,20 +1308,44 @@ async fn upsert_datatable_migration(
         _ => None,
     };
 
-    sqlx::query!(
+    // An exempt upsert judged the row from an unlocked read and then writes
+    // without the lock, so that whole read is re-tested here, where `ON CONFLICT
+    // DO UPDATE` re-reads the row under a row lock. Otherwise a request working
+    // from a stale definition silently reverts whatever changed in between — a
+    // second addition's down, or a locked rewrite of the up whose new SQL a run
+    // may already have recorded a version for. Reading no row at all is part of
+    // the premise: the equality is NULL when `$8` is, so a version created in the
+    // meantime is refused rather than overwritten.
+    let recheck_observed = _run_lock.is_none();
+    let written = sqlx::query!(
         "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) \
          VALUES ($1, $2, $3, $4, $5, $6) \
          ON CONFLICT (workspace_id, datatable, timestamp) DO UPDATE \
-         SET name = EXCLUDED.name, code_up = EXCLUDED.code_up, code_down = EXCLUDED.code_down",
+         SET name = EXCLUDED.name, code_up = EXCLUDED.code_up, code_down = EXCLUDED.code_down \
+         WHERE NOT $7 \
+            OR (datatable_migrations.name = $8::text \
+                AND datatable_migrations.code_up = $9::text \
+                AND datatable_migrations.code_down IS NOT DISTINCT FROM $10::text)",
         &w_id,
         &datatable_name,
         payload.timestamp,
         &payload.name,
         &payload.code_up,
         payload.code_down.as_deref(),
+        recheck_observed,
+        existing.as_ref().map(|e| e.name.as_str()),
+        existing.as_ref().map(|e| e.code_up.as_str()),
+        existing.as_ref().and_then(|e| e.code_down.as_deref()),
     )
     .execute(&db)
     .await?;
+    if written.rows_affected() == 0 {
+        return Err(Error::BadRequest(format!(
+            "Migration {} on data table '{}' changed while this change was being saved. \
+             Reload it before editing.",
+            payload.timestamp, datatable_name
+        )));
+    }
     // The definition is written; runs may resume (audit/deploy metadata below
     // don't need the lock).
     drop(_run_lock);
@@ -1372,18 +1411,25 @@ async fn generate_initial_datatable_migration(
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
 
-    // Snapshot the schema, excluding Windmill's own migration bookkeeping table.
-    let dump_file = pg_dump_database(&pg_db, true, &["_wm_migrations"]).await?;
+    // Snapshot the schema without `_wm_migrations`, Windmill's own bookkeeping table, and
+    // without what a replay elsewhere cannot run: the replaying user owns none of this
+    // database's objects, and the grants Windmill plants in an instance database (`ALTER
+    // DEFAULT PRIVILEGES FOR ROLE ...`) fail even replaying onto the same server.
+    let no_acl = is_instance_datatable(&db, &w_id, &datatable_name).await?;
+    let dump_file = pg_dump_database(
+        &pg_db,
+        PgDumpOptions {
+            schema_only: true,
+            exclude_tables: &["_wm_migrations"],
+            no_owner: true,
+            no_acl,
+        },
+    )
+    .await?;
     let raw_dump = tokio::fs::read_to_string(&dump_file.path)
         .await
         .map_err(|e| Error::internal_err(format!("Failed to read schema dump: {}", e)))?;
-    // pg_dump emits psql meta-commands (\restrict / \unrestrict) that aren't
-    // valid SQL; drop them so the migration body can run via a plain query.
-    let code_up: String = raw_dump
-        .lines()
-        .filter(|line| !line.trim_start().starts_with('\\'))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let code_up = strip_unreplayable_dump_lines(&raw_dump);
 
     // Record the definition first, then mark it installed. If marking fails we
     // delete the definition, so a failure leaves no phantom "initial" (rather

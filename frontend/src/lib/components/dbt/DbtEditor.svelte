@@ -370,7 +370,13 @@
 					{/snippet}
 					{#snippet content()}
 						{#if schema}
-							<SchemaForm {schema} bind:args noVariablePicker={false} showSchemaExplorer />
+							<SchemaForm
+								{schema}
+								bind:args
+								workspace={opWs}
+								noVariablePicker={false}
+								showSchemaExplorer
+							/>
 						{:else}
 							<p class="text-2xs text-tertiary">This descriptor takes no arguments.</p>
 						{/if}

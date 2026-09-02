@@ -66,7 +66,9 @@ use crate::scim_oss::has_scim_token;
 use windmill_common::error::AppError;
 
 mod ai;
-mod ai_skills;
+#[cfg(feature = "private")]
+mod ai_free_tier_ee;
+mod ai_free_tier_oss;
 mod apps;
 mod apps_raw_bundle;
 pub use apps::invalidate_app_policy_cache;
@@ -113,6 +115,7 @@ pub mod storage_list_ee;
 mod storage_list_oss;
 mod workspace_dependencies;
 
+mod ai_evals;
 mod approvals;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 pub mod apps_ee;
@@ -674,6 +677,7 @@ pub async fn run_server(
                         .route("/labels/list", get(list_workspace_labels))
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
+                        .nest("/ai_evals", ai_evals::workspaced_service())
                         .nest("/jobs", jobs::workspaced_service())
                         .nest("/debug", windmill_api_debug::workspaced_service())
                         .nest("/native_triggers", {
@@ -708,7 +712,6 @@ pub async fn run_server(
                             Router::new()
                         })
                         .nest("/ai", ai::workspaced_service())
-                        .nest("/ai_skills", ai_skills::workspaced_service())
                         .nest("/npm_proxy", windmill_api_npm_proxy::workspaced_service())
                         .nest(
                             "/path_autocomplete",

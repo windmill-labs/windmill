@@ -216,12 +216,15 @@ async fn list_scripts(
             // a member of has no `usr` row, so fall back to their instance-derived username
             // (`password.username`), or their email when derivation is disabled — this keeps the
             // raw email out of the payload whenever a derived username exists. The genuine
-            // NULL-email legacy row stays None (no `usr`/`password` match, `d.email` is NULL).
+            // NULL-email legacy row stays None (no `usr`/`password` match, `d.email` is NULL),
+            // which is why an owner that resolves to no name at all — an external JWT's subject
+            // has neither row — is dropped: None is read as "legacy" downstream.
             "(SELECT json_agg(json_build_object('username', COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END)) ORDER BY COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END) NULLS LAST) \
               FROM draft d \
               LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
               LEFT JOIN password p ON p.email = d.email AND p.super_admin = true \
-              WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND d.typ = 'script') as draft_users",
+              WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND d.typ = 'script' \
+                AND (d.email IS NULL OR u.username IS NOT NULL OR p.email IS NOT NULL)) as draft_users",
             "folder_labels(o.workspace_id, o.path) as inherited_labels"
         ])
         .left()

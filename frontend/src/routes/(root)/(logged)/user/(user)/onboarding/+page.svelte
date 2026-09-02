@@ -4,6 +4,8 @@
 	import { goto } from '$lib/navigation'
 	import { usersWorkspaceStore } from '$lib/stores'
 	import { switchWorkspace } from '$lib/storeUtils'
+	import { page } from '$app/state'
+	import { toSameOriginRelativePath } from '$lib/logoutRedirect'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -80,10 +82,23 @@
 		currentStep = STEP_SOURCE
 	}
 
-	// Cloud signup creates one workspace for the user, so the picker would be a page with a
-	// single choice on it. Land in that workspace instead, and only fall back to the picker
-	// when there is an actual choice to make (an invite to accept, several workspaces, none).
+	/**
+	 * Where to go once onboarding is done. A destination carried by the sign-in — a hub
+	 * project import, say — is what the user came for, so it wins. Otherwise cloud signup
+	 * has created one workspace for them and the picker would be a page with a single
+	 * choice on it: land in that workspace, and fall back to the picker only when there is
+	 * an actual choice to make (an invite to accept, several workspaces, none).
+	 */
 	async function leaveOnboarding() {
+		// `toSameOriginRelativePath` rather than a local check: it already rejects `//host`,
+		// `/\\host` (which WHATWG URL parsing resolves to a different origin), control
+		// characters and oversized values. A second, weaker copy of this is how one of those
+		// gets missed.
+		const requested = toSameOriginRelativePath(page.url.searchParams.get('rd'))
+		if (requested) {
+			await goto(requested)
+			return
+		}
 		try {
 			const workspaces = await WorkspaceService.listUserWorkspaces()
 			usersWorkspaceStore.set(workspaces)

@@ -15,6 +15,7 @@ pub const OAUTH_SETTING: &str = "oauths";
 pub const AI_CONFIG_SETTING: &str = "ai_config";
 pub const RETENTION_PERIOD_SECS_SETTING: &str = "retention_period_secs";
 pub const RETENTION_PERIOD_SECS_OVERRIDES_SETTING: &str = "retention_period_secs_overrides";
+pub const SERVICE_LOG_RETENTION_SECS_SETTING: &str = "service_log_retention_secs";
 /// Upper bound on how many per-workspace retention overrides may be configured. The periodic monitor
 /// sweeps each override workspace in its own transaction every pass, so this keeps a pass bounded
 /// (and the feature is a targeted escape hatch for a handful of special workspaces, not a bulk knob).
@@ -100,6 +101,8 @@ pub const CRITICAL_ERROR_CHANNELS_SETTING: &str = "critical_error_channels";
 pub const CRITICAL_ALERT_MUTE_UI_SETTING: &str = "critical_alert_mute_ui";
 pub const CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING: &str = "critical_alerts_on_db_oversize";
 pub const CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING: &str = "critical_alerts_on_token_expiry";
+pub const CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING: &str =
+    "critical_alert_mute_zombie_job_restart";
 pub const DEV_INSTANCE_SETTING: &str = "dev_instance";
 pub const JWT_SECRET_SETTING: &str = "jwt_secret";
 pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";

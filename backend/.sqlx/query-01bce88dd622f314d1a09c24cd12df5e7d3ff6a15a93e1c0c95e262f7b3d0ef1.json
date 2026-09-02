@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE eval_experiment\n         SET subject = jsonb_set(\n                 jsonb_set(subject, '{kind}', '\"agent\"'),\n                 '{version}', to_jsonb($4::bigint))\n         WHERE workspace_id = $1 AND dataset_path = $2 AND id = $3\n               AND subject ->> 'kind' = 'agent_draft'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "01bce88dd622f314d1a09c24cd12df5e7d3ff6a15a93e1c0c95e262f7b3d0ef1"
+}

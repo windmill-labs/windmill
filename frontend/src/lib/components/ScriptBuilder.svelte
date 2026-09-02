@@ -2019,6 +2019,7 @@
 									<ScriptSchema
 										bind:schema={script.schema}
 										customUi={customUi?.settingsPanel?.metadata?.editableSchemaForm}
+										workspace={opWorkspace}
 									/>
 								</TabContent>
 							{/if}

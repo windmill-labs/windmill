@@ -268,13 +268,13 @@ jobs:
           # overhead and extra disk. Off here (kept on for local dev via
           # .cargo/config.toml). Matches backend-test-windows.yml.
           CARGO_INCREMENTAL: "0"
-          # backend/Cargo.toml leaves profile.dev at the default debug = 2 for
-          # the (large) windmill workspace crates; that debug info is emitted
-          # into every object file and embedded in each test binary. Across the
-          # full --all --features build it is the dominant memory/disk consumer
-          # when mold links the windmill-api-integration-tests binary, tipping
-          # the runner over (lost runner reported as a canceled step). CI needs
-          # no debug info, so drop it entirely for the dev/test profiles here.
+          # backend/Cargo.toml keeps line tables on profile.dev for the (large)
+          # windmill workspace crates; that debug info is emitted into every
+          # object file and embedded in each test binary. Across the full
+          # --all --features build it drives the memory/disk peak when mold
+          # links the windmill-api-integration-tests binary, tipping the runner
+          # over (lost runner reported as a canceled step). CI reads no
+          # backtraces, so drop it entirely for the dev/test profiles here.
           # (test profile inherits dev, but the workspace crates link in as
           # dev-profile deps, so both must be set.) CI-only; local dev builds
           # are unaffected.

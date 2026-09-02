@@ -9,6 +9,8 @@
 	import { createEventDispatcher } from 'svelte'
 	import UserInfoSettings from './settings/UserInfoSettings.svelte'
 	import AIUserSettings from './settings/AIUserSettings.svelte'
+	import AiUsagePanel from './workspaceSettings/AiUsagePanel.svelte'
+	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import {
 		getDarkModeVariant,
 		setDarkModeVariant,
@@ -105,6 +107,17 @@
 						<AIUserSettings />
 					</div>
 				</div>
+				<!-- Keyed on the workspace `copilotInfo` reflects, not on `$workspaceStore`:
+				     a session acting on another workspace loads that workspace's AI config
+				     while navigation stays put, and pricing usage from one workspace with
+				     another's rates would silently misstate it. -->
+				{#if $copilotWorkspace}
+					<AiUsagePanel
+						workspace={$copilotWorkspace}
+						modelPricing={$copilotInfo.modelPricing ?? {}}
+						scope="self"
+					/>
+				{/if}
 			{/if}
 
 			<div class="grow min-h-0">

@@ -5,22 +5,12 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from '$lib/components/home/FlowIcon.svelte'
-	import CreateActionsMenu from '$lib/components/home/CreateActionsMenu.svelte'
 	import { getScriptByPath } from '$lib/scripts'
 	import type { HubItem } from '$lib/components/flows/pickers/model'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import PickHubFlow from '$lib/components/flows/pickers/PickHubFlow.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import HomeConnectDrawer from '$lib/components/home/HomeConnectDrawer.svelte'
-	import {
-		ExternalLink,
-		GitFork,
-		Globe2,
-		Loader2,
-		Code,
-		LayoutDashboard,
-		PlugZap
-	} from 'lucide-svelte'
+	import { ExternalLink, GitFork, Globe2, Loader2, Code, LayoutDashboard } from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
 	import { base } from '$lib/base'
 
@@ -28,7 +18,6 @@
 	import PickHubApp from '$lib/components/flows/pickers/PickHubApp.svelte'
 	import { writable } from 'svelte/store'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
-	import { HOME_SHOW_HUB } from '$lib/consts'
 	import { setQuery } from '$lib/navigation'
 	import { page } from '$app/state'
 	import { goto, replaceState } from '$app/navigation'
@@ -37,6 +26,8 @@
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { z } from 'zod'
+	import HomeAIChat from '$lib/components/home/HomeAIChat.svelte'
+	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -90,8 +81,6 @@
 		})
 		appViewer?.openDrawer?.()
 	}
-
-	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)
 
 	let showCreateButtons = $state(false)
 </script>
@@ -236,49 +225,22 @@
 >
 	<ForkWorkspaceBanner />
 	<WorkspaceDraftsBanner />
-	<div class="max-w-7xl px-4 sm:px-8 md:px-8 h-fit w-full">
-		{#if $workspaceStore == 'admins'}
-			<div class="my-4"></div>
+	<div class="max-w-7xl px-4 sm:px-8 md:px-8 h-fit w-full mb-6">
+		<!-- HomeAIChat carries both the AI composer and the AI-independent CLI/MCP connect row,
+		     so it shows whenever the sessions beta is on; the composer itself is gated on operator
+		     status and on the workspace inside the component, which owns its own vertical spacing
+		     because the hero and the bare connect row want different amounts of it. -->
+		{#if isGlobalAiEnabled()}
+			<HomeAIChat />
+		{/if}
 
+		{#if $workspaceStore == 'admins'}
 			<Alert title="Admins workspace">
 				The Admins workspace is for admins only and contains scripts whose purpose is to manage your
 				Windmill instance, such as keeping resource types up to date.
 			</Alert>
+			<div class="my-4"></div>
 		{/if}
-		<div class="flex flex-row flex-wrap justify-between items-center gap-3 pb-2 my-4 mr-2 min-h-16">
-			<h1 class="text-2xl font-semibold text-emphasis whitespace-nowrap leading-6 tracking-tight">
-				Home
-			</h1>
-			<div class="ml-auto flex flex-row gap-2 items-center">
-				{#if !$userStore?.operator && HOME_SHOW_HUB}
-					<Button
-						variant="default"
-						unifiedSize="md"
-						startIcon={{ icon: Globe2 }}
-						endIcon={{ icon: ExternalLink }}
-						href={$hubBaseUrlStore}
-						target="_blank"
-						btnClasses="whitespace-nowrap"
-					>
-						Hub
-					</Button>
-				{/if}
-				<Button
-					variant="default"
-					unifiedSize="md"
-					startIcon={{ icon: PlugZap }}
-					btnClasses="whitespace-nowrap"
-					onClick={() => homeConnectDrawer?.openDrawer?.()}
-				>
-					CLI / MCP
-				</Button>
-				{#if !$userStore?.operator && showCreateButtons}
-					<div class="ml-2">
-						<CreateActionsMenu />
-					</div>
-				{/if}
-			</div>
-		</div>
 
 		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
 
@@ -358,8 +320,6 @@
 	</div>
 
 	{#if tab == 'workspace'}
-		<ItemsList bind:filter={getFilter, setFilter} bind:subtab showEditButtons={showCreateButtons} />
+		<ItemsList bind:subtab showEditButtons={showCreateButtons} />
 	{/if}
 </div>
-
-<HomeConnectDrawer bind:this={homeConnectDrawer} />

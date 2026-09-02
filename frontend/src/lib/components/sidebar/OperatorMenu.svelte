@@ -37,7 +37,6 @@
 	import type { FavoriteKind } from './FavoriteMenu.svelte'
 	let darkMode: boolean = $state(false)
 	let showExtraTriggers = $state(false)
-	let menubarEl: HTMLElement | undefined = $state()
 
 	interface Props {
 		isCollapsed?: boolean
@@ -156,211 +155,227 @@
 	)
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-	bind:this={menubarEl}
-	onmouseenter={() => {
-		const btn = menubarEl?.querySelector('[data-melt-menubar-trigger]')
-		if (btn instanceof HTMLElement) btn.click()
-	}}
->
-	<Menubar>
-		{#snippet children({ createMenu })}
-			<Menu {createMenu} usePointerDownOutside on:close={() => (showExtraTriggers = false)}>
-				{#snippet triggr({ trigger })}
-					<MenuButton
-						class="!text-xs bg-surface !pl-3.5 !pr-2 !w-auto"
-						icon={MenuIcon}
-						isCollapsed={false}
-						lightMode
-						label={undefined}
-						{trigger}
-					/>
-				{/snippet}
-				{#snippet children({ item })}
-					<div class="w-full max-w-full">
-						{#each favoriteLinks ?? [] as favorite (favorite.href)}
-							<MenuItem
-								href={favorite.href}
-								{item}
-								class={twMerge(
-									'w-full inline-flex flex-row px-2 py-2 hover:bg-surface-hover',
-									'data-[highlighted]:bg-surface-hover'
-								)}
-							>
-								<span class="center-center">
-									{#if favorite.kind == 'script'}
-										<Code2 size={16} />
-									{:else if favorite.kind == 'flow'}
-										<BarsStaggered size={16} />
-									{:else if favorite.kind == 'app' || favorite.kind == 'raw_app'}
-										<LayoutDashboard size={16} />
-									{:else if favorite.kind == 'asset'}
-										<Table2 size={16} />
-									{/if}
-								</span>
-								<span class="text-primary ml-2 grow min-w-0 text-xs truncate">
-									{favorite.label}
-								</span>
-							</MenuItem>
-						{/each}
+<Menubar>
+	{#snippet children({ createMenu })}
+		<Menu
+			{createMenu}
+			placement="bottom-start"
+			openOnHover
+			usePointerDownOutside
+			on:close={() => (showExtraTriggers = false)}
+		>
+			{#snippet triggr({ trigger, pinned })}
+				<MenuButton
+					class={twMerge(
+						'!text-xs bg-surface !pl-3.5 !pr-2 !w-auto',
+						// A hover-opened menu leaves the button plain once the pointer moves on;
+						// keeping the tint is what tells you the click pinned it.
+						pinned ? sidebarClasses.selectedBg : ''
+					)}
+					icon={MenuIcon}
+					isCollapsed={false}
+					lightMode
+					label={undefined}
+					{trigger}
+				/>
+			{/snippet}
+			{#snippet children({ item })}
+				<div class="w-full max-w-full">
+					{#each favoriteLinks ?? [] as favorite (favorite.href)}
+						<MenuItem
+							href={favorite.href}
+							{item}
+							class={twMerge(
+								'w-full inline-flex flex-row px-2 py-2',
+								'data-[highlighted]:bg-surface-hover'
+							)}
+						>
+							<span class="center-center">
+								{#if favorite.kind == 'script'}
+									<Code2 size={16} />
+								{:else if favorite.kind == 'flow'}
+									<BarsStaggered size={16} />
+								{:else if favorite.kind == 'app' || favorite.kind == 'raw_app'}
+									<LayoutDashboard size={16} />
+								{:else if favorite.kind == 'asset'}
+									<Table2 size={16} />
+								{/if}
+							</span>
+							<span class="text-primary ml-2 grow min-w-0 text-xs truncate">
+								{favorite.label}
+							</span>
+						</MenuItem>
+					{/each}
+				</div>
+
+				{#each mainMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
+					<MenuLink class="!text-xs" {...menuLink} {isCollapsed} {item} lightMode />
+				{/each}
+
+				<div class="divide-y" role="none">
+					<div role="none">
+						<MenuItem
+							href={USER_SETTINGS_HASH}
+							class={twMerge(
+								'flex flex-row gap-3.5 items-center px-2 py-2',
+								sidebarClasses.text,
+								'transition-colors',
+								'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+							)}
+							lightMode
+							{item}
+						>
+							<Settings size={14} />
+							Account settings
+						</MenuItem>
 					</div>
 
-					{#each mainMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
-						<MenuLink class="!text-xs" {...menuLink} {isCollapsed} {item} lightMode />
-					{/each}
-
-					<div class="divide-y" role="none">
-						<div role="none">
-							<MenuItem
-								href={USER_SETTINGS_HASH}
-								class={twMerge(
-									'flex flex-row gap-3.5 items-center px-2 py-2',
-									sidebarClasses.text,
-									sidebarClasses.hoverBg
-								)}
-								lightMode
-								{item}
-							>
-								<Settings size={14} />
-								Account settings
-							</MenuItem>
-						</div>
-
-						<div role="none">
-							<MenuItem
-								onClick={() => {
-									if (!document.documentElement.classList.contains('dark')) {
-										document.documentElement.classList.add('dark')
-										window.localStorage.setItem('dark-mode', 'dark')
-									} else {
-										document.documentElement.classList.remove('dark')
-										window.localStorage.setItem('dark-mode', 'light')
-									}
-								}}
-								lightMode
-								class={twMerge(
-									'w-full flex gap-3.5 px-2 py-2',
-									sidebarClasses.hoverBg,
-									sidebarClasses.text
-								)}
-								{item}
-							>
-								{#if darkMode}
-									<Sun size={14} />
-								{:else}
-									<Moon size={14} />
-								{/if}
-								Switch theme
-							</MenuItem>
-							<MenuItem
-								href="{base}/user/workspaces"
-								onClick={() => clearWorkspaceFromStorage()}
-								lightMode
-								class={twMerge(
-									'flex gap-3.5 px-2 py-2',
-									sidebarClasses.hoverBg,
-									sidebarClasses.text
-								)}
-								{item}
-							>
-								<Building size={14} />
-								All workspaces
-							</MenuItem>
-
-							{#if $superadmin}
-								<MenuItem
-									href="#superadmin-settings"
-									class={twMerge(
-										'flex flex-row gap-3.5 items-center px-2 py-2 ',
-										'text-secondary text-xs',
-										'hover:bg-surface-hover hover:text-primary cursor-pointer',
-										'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
-									)}
-									{item}
-								>
-									<ServerCog size={14} />
-									Instance settings
-								</MenuItem>
+					<div role="none">
+						<MenuItem
+							onClick={() => {
+								if (!document.documentElement.classList.contains('dark')) {
+									document.documentElement.classList.add('dark')
+									window.localStorage.setItem('dark-mode', 'dark')
+								} else {
+									document.documentElement.classList.remove('dark')
+									window.localStorage.setItem('dark-mode', 'light')
+								}
+							}}
+							lightMode
+							class={twMerge(
+								'w-full flex gap-3.5 px-2 py-2',
+								'transition-colors',
+								sidebarClasses.text,
+								'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+							)}
+							{item}
+						>
+							{#if darkMode}
+								<Sun size={14} />
+							{:else}
+								<Moon size={14} />
 							{/if}
+							Switch theme
+						</MenuItem>
+						<MenuItem
+							href="{base}/user/workspaces"
+							onClick={() => clearWorkspaceFromStorage()}
+							lightMode
+							class={twMerge(
+								'flex gap-3.5 px-2 py-2',
+								'transition-colors',
+								sidebarClasses.text,
+								'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+							)}
+							{item}
+						>
+							<Building size={14} />
+							All workspaces
+						</MenuItem>
 
+						{#if $superadmin}
 							<MenuItem
-								onClick={() => logout()}
+								href="#superadmin-settings"
 								class={twMerge(
-									'flex flex-row gap-3.5  items-center px-2 py-2 w-full',
-									'text-primary text-xs',
-									'hover:bg-surface-hover cursor-pointer',
+									'flex flex-row gap-3.5 items-center px-2 py-2 ',
+									'text-secondary text-xs',
+									'cursor-pointer',
 									'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 								)}
 								{item}
 							>
-								<LogOut size={14} />
-								Sign out
+								<ServerCog size={14} />
+								Instance settings
 							</MenuItem>
-						</div>
-						<div role="none">
-							{#snippet renderSecondMenuLinks(menuLinks: SecondMenuLink[])}
-								{#each menuLinks as menuLink (menuLink.href ?? menuLink.label)}
-									<MenuItem
-										href={menuLink.href}
-										class={twMerge(
-											'flex flex-row gap-3.5 items-center px-2 py-2 text-secondary text-2xs hover:bg-surface-hover hover:text-primary cursor-pointer',
-											'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
-										)}
-										{item}
-									>
-										{menuLink.label}
-									</MenuItem>
-								{/each}
-							{/snippet}
-							{#if secondMenuLinks.length || secondMenuTriggerLinks.length || extraTriggerLinks.length}
-								<div class="divide-y">
-									{#if secondMenuLinks.length}<div
-											>{@render renderSecondMenuLinks(secondMenuLinks)}</div
-										>{/if}
-									{#if secondMenuTriggerLinks.length}<div
-											>{@render renderSecondMenuLinks(secondMenuTriggerLinks)}</div
-										>{/if}
-									{#if extraTriggerLinks.length}<div>
-											<!-- svelte-ignore a11y_no_static_element_interactions -->
-											<div
-												class="flex flex-row gap-3.5 items-center px-2 py-2 w-full text-secondary text-2xs hover:bg-surface-hover hover:text-primary cursor-pointer"
-												role="button"
-												tabindex="0"
-												onclick={(e) => {
-													e.stopPropagation()
-													showExtraTriggers = !showExtraTriggers
-												}}
+						{/if}
+
+						<MenuItem
+							onClick={() => logout()}
+							class={twMerge(
+								'flex flex-row gap-3.5  items-center px-2 py-2 w-full',
+								'text-primary text-xs',
+								'cursor-pointer',
+								'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+							)}
+							{item}
+						>
+							<LogOut size={14} />
+							Sign out
+						</MenuItem>
+					</div>
+					<div role="none">
+						{#snippet renderSecondMenuLinks(menuLinks: SecondMenuLink[])}
+							{#each menuLinks as menuLink (menuLink.href ?? menuLink.label)}
+								<MenuItem
+									href={menuLink.href}
+									class={twMerge(
+										'flex flex-row gap-3.5 items-center px-2 py-2 text-secondary text-2xs cursor-pointer',
+										'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+									)}
+									{item}
+								>
+									{menuLink.label}
+								</MenuItem>
+							{/each}
+						{/snippet}
+						{#if secondMenuLinks.length || secondMenuTriggerLinks.length || extraTriggerLinks.length}
+							<div class="divide-y">
+								{#if secondMenuLinks.length}<div
+										>{@render renderSecondMenuLinks(secondMenuLinks)}</div
+									>{/if}
+								{#if secondMenuTriggerLinks.length}<div
+										>{@render renderSecondMenuLinks(secondMenuTriggerLinks)}</div
+									>{/if}
+								{#if extraTriggerLinks.length}<div>
+										<!-- svelte-ignore a11y_no_static_element_interactions -->
+										<div
+											role="none"
+											onclickcapture={(e) => {
+												// This row expands the list below it instead of acting on the selection, and
+												// melt keeps the menu open only for a click it sees as defaultPrevented.
+												// Svelte delegates onclick to the root, which runs after melt's own listener,
+												// and a capture listener on the item itself would be ordered only by
+												// registration, so an ancestor's capture phase is what reliably wins.
+												e.preventDefault()
+												showExtraTriggers = !showExtraTriggers
+											}}
+										>
+											<MenuItem
+												class={twMerge(
+													'flex flex-row gap-3.5 items-center px-2 py-2 w-full text-secondary text-2xs cursor-pointer',
+													'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+												)}
+												{item}
 											>
 												<Plus size={12} />
 												<span class="text-2xs">More triggers</span>
-											</div>
-											{#if showExtraTriggers}
-												{#each extraTriggerLinks as menuLink (menuLink.href)}
-													<MenuItem
-														href={menuLink.href}
-														class={twMerge(
-															'flex flex-row gap-3.5 items-center px-2 py-2 pl-6 text-tertiary text-2xs hover:bg-surface-hover hover:text-primary cursor-pointer',
-															'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
-														)}
-														{item}
-													>
-														{menuLink.label}
-													</MenuItem>
-												{/each}
-											{/if}
-										</div>{/if}
-								</div>
-							{/if}
-							{#if $enterpriseLicense}
-								<MultiplayerMenu />
-							{/if}
-						</div>
+											</MenuItem>
+										</div>
+										{#if showExtraTriggers}
+											{#each extraTriggerLinks as menuLink (menuLink.href)}
+												<MenuItem
+													href={menuLink.href}
+													class={twMerge(
+														'flex flex-row gap-3.5 items-center px-2 py-2 pl-6 text-tertiary text-2xs cursor-pointer',
+														'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+													)}
+													{item}
+												>
+													{menuLink.label}
+												</MenuItem>
+											{/each}
+										{/if}
+									</div>{/if}
+							</div>
+						{/if}
+						{#if $enterpriseLicense}
+							<MultiplayerMenu />
+						{/if}
 					</div>
-				{/snippet}
-			</Menu>
-		{/snippet}
-	</Menubar>
-</div>
+				</div>
+			{/snippet}
+		</Menu>
+	{/snippet}
+</Menubar>
 
 <DarkModeObserver bind:darkMode />

@@ -52,6 +52,8 @@ struct OffboardAffectedPaths {
     variables: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     schedules: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    eval_datasets: Vec<String>,
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     triggers: HashMap<String, Vec<String>>,
 }
@@ -91,6 +93,7 @@ struct OffboardSummary {
     flows_reassigned: i64,
     apps_reassigned: i64,
     resources_reassigned: i64,
+    eval_datasets_reassigned: i64,
     variables_reassigned: i64,
     schedules_reassigned: i64,
     triggers_reassigned: i64,
@@ -162,6 +165,14 @@ async fn get_offboard_preview(
 
     let resources = sqlx::query_scalar!(
         "SELECT path FROM resource WHERE path LIKE $1 AND workspace_id = $2",
+        &user_prefix,
+        w_id
+    )
+    .fetch_all(db)
+    .await?;
+
+    let eval_datasets = sqlx::query_scalar!(
+        "SELECT path FROM eval_dataset WHERE path LIKE $1 AND workspace_id = $2",
         &user_prefix,
         w_id
     )
@@ -285,6 +296,16 @@ async fn get_offboard_preview(
         &ref_pattern, &user_prefix, w_id
     ).fetch_all(db).await?;
 
+    let ref_eval_datasets = sqlx::query_scalar!(
+        "SELECT path FROM eval_dataset
+         WHERE scorers::text LIKE $1 AND NOT path LIKE $2 AND workspace_id = $3",
+        &ref_pattern,
+        &user_prefix,
+        w_id
+    )
+    .fetch_all(db)
+    .await?;
+
     let ref_resources = sqlx::query_scalar!(
         "SELECT DISTINCT path FROM resource WHERE value::text LIKE $1 AND NOT path LIKE $2 AND workspace_id = $3",
         &ref_pattern, &user_prefix, w_id
@@ -317,6 +338,7 @@ async fn get_offboard_preview(
             resources,
             variables,
             schedules,
+            eval_datasets,
             triggers,
         },
         executing_on_behalf: OffboardAffectedPaths {
@@ -332,6 +354,7 @@ async fn get_offboard_preview(
             flows: ref_flows,
             apps: ref_apps,
             resources: ref_resources,
+            eval_datasets: ref_eval_datasets,
             ..Default::default()
         },
         tokens,
@@ -548,6 +571,7 @@ pub(crate) async fn offboard_global_user(
         flows_reassigned: 0,
         apps_reassigned: 0,
         resources_reassigned: 0,
+        eval_datasets_reassigned: 0,
         variables_reassigned: 0,
         schedules_reassigned: 0,
         triggers_reassigned: 0,
@@ -574,6 +598,7 @@ pub(crate) async fn offboard_global_user(
             total_summary.flows_reassigned += ws_summary.flows_reassigned;
             total_summary.apps_reassigned += ws_summary.apps_reassigned;
             total_summary.resources_reassigned += ws_summary.resources_reassigned;
+            total_summary.eval_datasets_reassigned += ws_summary.eval_datasets_reassigned;
             total_summary.variables_reassigned += ws_summary.variables_reassigned;
             total_summary.schedules_reassigned += ws_summary.schedules_reassigned;
             total_summary.triggers_reassigned += ws_summary.triggers_reassigned;
@@ -593,6 +618,7 @@ pub(crate) async fn offboard_global_user(
         sqlx::query!("DELETE FROM password WHERE email = $1", &email)
             .execute(&mut *tx)
             .await?;
+        windmill_common::user_drafts::delete_drafts_of_email(&mut *tx, &email).await?;
         sqlx::query!("DELETE FROM workspace_invite WHERE email = $1", &email)
             .execute(&mut *tx)
             .await?;
@@ -746,6 +772,7 @@ async fn check_path_conflicts(
         "flow",
         "app",
         "resource",
+        "eval_dataset",
         "variable",
         "schedule",
         "http_trigger",
@@ -959,6 +986,47 @@ async fn offboard_user_from_workspace<'c>(
     .await?
     .unwrap_or(0);
 
+    // ---- eval datasets ----
+    // The foreign keys cascade the rename onto cases and experiments; the paths held inside JSONB
+    // (an experiment's subject, a dataset's scorers) are rewritten separately since the cascade
+    // cannot reach them and those runnables move with the user.
+    let eval_datasets_reassigned = sqlx::query_scalar!(
+        r#"WITH updated AS (
+            UPDATE eval_dataset SET path = REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1')
+            WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3
+            RETURNING 1
+        ) SELECT COUNT(*) FROM updated"#,
+        &new_prefix,
+        username,
+        w_id
+    )
+    .fetch_one(&mut **tx)
+    .await?
+    .unwrap_or(0);
+    sqlx::query!(
+        r#"UPDATE eval_experiment SET subject = jsonb_set(subject, '{path}', to_jsonb(REGEXP_REPLACE(subject->>'path', 'u/' || $2 || '/(.*)', $1 || '/\1'))) WHERE subject->>'path' LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        &new_prefix,
+        username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        r#"UPDATE eval_dataset SET scorers = COALESCE((
+                SELECT jsonb_agg(
+                    CASE WHEN elem->>'path' LIKE ('u/' || $2 || '/%')
+                    THEN jsonb_set(elem, '{path}', to_jsonb(REGEXP_REPLACE(elem->>'path', 'u/' || $2 || '/(.*)', $1 || '/\1')))
+                    ELSE elem END)
+                FROM jsonb_array_elements(scorers) elem), '[]'::jsonb)
+           WHERE workspace_id = $3
+             AND EXISTS (SELECT 1 FROM jsonb_array_elements(scorers) e WHERE e->>'path' LIKE ('u/' || $2 || '/%'))"#,
+        &new_prefix,
+        username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
     // ---- variables (with Vault secret handling) ----
     let old_var_prefix = format!("u/{}/", username);
     let new_var_prefix = format!("{}/", reassign_to);
@@ -1152,6 +1220,7 @@ async fn offboard_user_from_workspace<'c>(
         flows_reassigned,
         apps_reassigned,
         resources_reassigned,
+        eval_datasets_reassigned,
         variables_reassigned,
         schedules_reassigned,
         triggers_reassigned,

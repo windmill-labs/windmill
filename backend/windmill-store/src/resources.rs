@@ -81,11 +81,8 @@ pub fn workspaced_service() -> Router {
             "/history/p/{*path}",
             get(get_resource_history).delete(clear_resource_history),
         )
-        .route("/history/v/{version}", get(get_resource_version))
-        .route(
-            "/history/restore/v/{version}",
-            post(restore_resource_version),
-        )
+        .route("/history/v/{id}", get(get_resource_version))
+        .route("/history/restore/v/{id}", post(restore_resource_version))
         .route("/delete/{*path}", delete(delete_resource))
         .route("/delete_bulk", delete(delete_resources_bulk))
         .route("/create", post(create_resource))
@@ -133,6 +130,12 @@ pub struct EditResourceType {
     pub schema: Option<serde_json::Value>,
     pub description: Option<String>,
     pub is_fileset: Option<bool>,
+    /// Doubly optional so an edit can distinguish the two things a plain
+    /// `Option` conflates: an absent field leaves the extension alone, while an
+    /// explicit `null` clears it. A hub pull relies on both — a type that stops
+    /// being a file type has to stop being one locally too.
+    #[serde(default, deserialize_with = "windmill_common::more_serde::double_option")]
+    pub format_extension: Option<Option<String>>,
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -2200,7 +2203,9 @@ async fn set_resource_value(
 
 #[derive(Serialize)]
 struct ResourceVersion {
+    /// Addresses a version; `version` is the per-resource number it is presented by.
     id: i64,
+    version: i64,
     created_at: chrono::DateTime<chrono::Utc>,
     created_by: Option<String>,
 }
@@ -2208,6 +2213,7 @@ struct ResourceVersion {
 #[derive(Serialize)]
 struct ResourceVersionWithValue {
     id: i64,
+    version: i64,
     created_at: chrono::DateTime<chrono::Utc>,
     created_by: Option<String>,
     value: Option<serde_json::Value>,
@@ -2243,7 +2249,7 @@ async fn get_resource_history(
 
     let versions = sqlx::query_as!(
         ResourceVersion,
-        "SELECT id, created_at, created_by FROM resource_version
+        "SELECT id, version, created_at, created_by FROM resource_version
          WHERE workspace_id = $1 AND path = $2 ORDER BY id DESC LIMIT $3",
         w_id,
         path,
@@ -2357,19 +2363,19 @@ async fn missing_references(
 async fn get_resource_version(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Path((w_id, version)): Path<(String, i64)>,
+    Path((w_id, id)): Path<(String, i64)>,
 ) -> JsonResult<ResourceVersionWithValue> {
     let mut tx = user_db.begin(&authed).await?;
 
     let row = sqlx::query!(
-        "SELECT id, path, created_at, created_by, value FROM resource_version
+        "SELECT id, version, path, created_at, created_by, value FROM resource_version
          WHERE workspace_id = $1 AND id = $2",
         w_id,
-        version
+        id
     )
     .fetch_optional(&mut *tx)
     .await?;
-    let row = not_found_if_none(row, "ResourceVersion", version.to_string())?;
+    let row = not_found_if_none(row, "ResourceVersion", id.to_string())?;
     check_scopes(&authed, || format!("resources:read:{}", row.path))?;
 
     let missing = missing_references(&mut tx, &w_id, row.value.as_ref()).await?;
@@ -2377,6 +2383,7 @@ async fn get_resource_version(
 
     Ok(Json(ResourceVersionWithValue {
         id: row.id,
+        version: row.version,
         created_at: row.created_at,
         created_by: row.created_by,
         value: row.value,
@@ -2455,17 +2462,17 @@ async fn restore_resource_version(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Path((w_id, version)): Path<(String, i64)>,
+    Path((w_id, id)): Path<(String, i64)>,
 ) -> Result<String> {
     let mut tx = user_db.clone().begin(&authed).await?;
     let row = sqlx::query!(
-        "SELECT path, value FROM resource_version WHERE workspace_id = $1 AND id = $2",
+        "SELECT path, value, version FROM resource_version WHERE workspace_id = $1 AND id = $2",
         w_id,
-        version
+        id
     )
     .fetch_optional(&mut *tx)
     .await?;
-    let row = not_found_if_none(row, "ResourceVersion", version.to_string())?;
+    let row = not_found_if_none(row, "ResourceVersion", id.to_string())?;
     tx.commit().await?;
 
     check_scopes(&authed, || format!("resources:write:{}", row.path))?;
@@ -2486,7 +2493,7 @@ async fn restore_resource_version(
 
     Ok(format!(
         "resource {} restored to version {}",
-        row.path, version
+        row.path, row.version
     ))
 }
 
@@ -2802,9 +2809,41 @@ async fn update_resource_type(
     if let Some(is_fileset) = ns.is_fileset {
         sqlb.set("is_fileset", if is_fileset { "TRUE" } else { "FALSE" });
     }
+    if let Some(format_extension) = ns.format_extension.clone() {
+        match format_extension {
+            Some(ext) => sqlb.set_str("format_extension", ext),
+            None => sqlb.set("format_extension", "NULL"),
+        };
+    }
     sqlb.set_str("edited_at", "now()");
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
+
+    // Creation refuses the pair outright, so an edit must too — otherwise the same
+    // impossible type (a set of files that is also one file) is reachable by setting
+    // either half on an existing row. Whichever half the request omits is read from
+    // the row being edited, inside this transaction and with the row locked: read
+    // outside it, two concurrent edits each supplying one half would both pass.
+    let current = sqlx::query!(
+        "SELECT is_fileset, format_extension FROM resource_type
+         WHERE name = $1 AND workspace_id = $2 FOR UPDATE",
+        &name,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let effective_is_fileset = ns
+        .is_fileset
+        .unwrap_or_else(|| current.as_ref().map(|c| c.is_fileset).unwrap_or(false));
+    let effective_format_extension = match &ns.format_extension {
+        Some(value) => value.clone(),
+        None => current.and_then(|c| c.format_extension),
+    };
+    if effective_is_fileset && effective_format_extension.is_some() {
+        return Err(Error::BadRequest(
+            "A fileset resource type cannot have a format_extension".to_string(),
+        ));
+    }
 
     sqlx::query(&sql).execute(&mut *tx).await?;
     audit_log(

@@ -31,6 +31,15 @@ logger = logging.getLogger("windmill_client")
 JobStatus = Literal["RUNNING", "WAITING", "COMPLETED"]
 
 
+def _sign_s3_objects_body(s3_objects: list, expiry_secs: int | None) -> dict:
+    # `expiry_secs` is optional but not nullable in the spec, so omit it rather than
+    # sending an explicit null a validating gateway would reject.
+    body: dict = {"s3_objects": s3_objects}
+    if expiry_secs is not None:
+        body["expiry_secs"] = expiry_secs
+    return body
+
+
 class Windmill:
     """Windmill client for interacting with the Windmill API."""
 
@@ -1044,37 +1053,45 @@ class Windmill:
         except Exception as e:
             raise Exception("Could not delete file from S3") from e
 
-    def sign_s3_objects(self, s3_objects: list[S3Object | str]) -> list[S3Object]:
+    def sign_s3_objects(
+        self, s3_objects: list[S3Object | str], expiry_secs: int | None = None
+    ) -> list[S3Object]:
         """Sign S3 objects for use by anonymous users in public apps.
 
         Args:
             s3_objects: List of S3 objects to sign
+            expiry_secs: How long the signature stays valid, in seconds
+                (defaults to 43200 = 12h, clamped to [60, 604800])
 
         Returns:
             List of signed S3 objects
         """
         return self.post(
-            f"/w/{self.workspace}/apps/sign_s3_objects", json={"s3_objects": list(map(parse_s3_object, s3_objects))}
+            f"/w/{self.workspace}/apps/sign_s3_objects",
+            json=_sign_s3_objects_body(list(map(parse_s3_object, s3_objects)), expiry_secs),
         ).json()
 
-    def sign_s3_object(self, s3_object: S3Object | str) -> S3Object:
+    def sign_s3_object(self, s3_object: S3Object | str, expiry_secs: int | None = None) -> S3Object:
         """Sign a single S3 object for use by anonymous users in public apps.
 
         Args:
             s3_object: S3 object to sign
+            expiry_secs: How long the signature stays valid, in seconds
+                (defaults to 43200 = 12h, clamped to [60, 604800])
 
         Returns:
             Signed S3 object
         """
         return self.post(
             f"/w/{self.workspace}/apps/sign_s3_objects",
-            json={"s3_objects": [s3_object]},
+            json=_sign_s3_objects_body([s3_object], expiry_secs),
         ).json()[0]
 
     def get_presigned_s3_public_urls(
         self,
         s3_objects: list[S3Object | str],
         base_url: str | None = None,
+        expiry_secs: int | None = None,
     ) -> list[str]:
         """
         Generate presigned public URLs for an array of S3 objects.
@@ -1083,6 +1100,8 @@ class Windmill:
         Args:
             s3_objects: List of S3 objects to sign
             base_url: Optional base URL for the presigned URLs (defaults to WM_BASE_URL)
+            expiry_secs: How long the signatures stay valid, in seconds
+                (defaults to 43200 = 12h, clamped to [60, 604800])
 
         Returns:
             List of signed public URLs
@@ -1104,7 +1123,7 @@ class Windmill:
 
         if s3_objs_to_sign:
             signed_s3_objs = self.sign_s3_objects(
-                [s3_obj for s3_obj, _ in s3_objs_to_sign]
+                [s3_obj for s3_obj, _ in s3_objs_to_sign], expiry_secs
             )
             for i, (_, original_index) in enumerate(s3_objs_to_sign):
                 s3_objs[original_index] = parse_s3_object(signed_s3_objs[i])
@@ -1123,6 +1142,7 @@ class Windmill:
         self,
         s3_object: S3Object | str,
         base_url: str | None = None,
+        expiry_secs: int | None = None,
     ) -> str:
         """
         Generate a presigned public URL for an S3 object.
@@ -1131,6 +1151,8 @@ class Windmill:
         Args:
             s3_object: S3 object to sign
             base_url: Optional base URL for the presigned URL (defaults to WM_BASE_URL)
+            expiry_secs: How long the signature stays valid, in seconds
+                (defaults to 43200 = 12h, clamped to [60, 604800])
 
         Returns:
             Signed public URL
@@ -1139,7 +1161,7 @@ class Windmill:
             >>> s3_obj = S3Object(s3="/path/to/file.txt")
             >>> url = client.get_presigned_s3_public_url(s3_obj)
         """
-        urls = self.get_presigned_s3_public_urls([s3_object], base_url)
+        urls = self.get_presigned_s3_public_urls([s3_object], base_url, expiry_secs)
         return urls[0]
 
     def _get_public_base_url(self) -> str:
@@ -1814,27 +1836,38 @@ def delete_s3_object(
 
 
 @init_global_client
-def sign_s3_objects(s3_objects: list[S3Object | str]) -> list[S3Object]:
+def sign_s3_objects(s3_objects: list[S3Object | str], expiry_secs: int | None = None) -> list[S3Object]:
     """
     Sign S3 objects to be used by anonymous users in public apps
     Returns a list of signed s3 tokens
+
+    Args:
+        s3_objects: List of S3 objects to sign
+        expiry_secs: How long the signatures stay valid, in seconds
+            (defaults to 43200 = 12h, clamped to [60, 604800])
     """
-    return _client.sign_s3_objects(s3_objects)
+    return _client.sign_s3_objects(s3_objects, expiry_secs)
 
 
 @init_global_client
-def sign_s3_object(s3_object: S3Object| str) -> S3Object:
+def sign_s3_object(s3_object: S3Object| str, expiry_secs: int | None = None) -> S3Object:
     """
     Sign S3 object to be used by anonymous users in public apps
     Returns a signed s3 object
+
+    Args:
+        s3_object: S3 object to sign
+        expiry_secs: How long the signature stays valid, in seconds
+            (defaults to 43200 = 12h, clamped to [60, 604800])
     """
-    return _client.sign_s3_object(s3_object)
+    return _client.sign_s3_object(s3_object, expiry_secs)
 
 
 @init_global_client
 def get_presigned_s3_public_urls(
     s3_objects: list[S3Object | str],
     base_url: str | None = None,
+    expiry_secs: int | None = None,
 ) -> list[str]:
     """
     Generate presigned public URLs for an array of S3 objects.
@@ -1843,6 +1876,8 @@ def get_presigned_s3_public_urls(
     Args:
         s3_objects: List of S3 objects to sign
         base_url: Optional base URL for the presigned URLs (defaults to WM_BASE_URL)
+        expiry_secs: How long the signatures stay valid, in seconds
+            (defaults to 43200 = 12h, clamped to [60, 604800])
 
     Returns:
         List of signed public URLs
@@ -1853,13 +1888,14 @@ def get_presigned_s3_public_urls(
         >>> s3_objs = [S3Object(s3="/path/to/file1.txt"), S3Object(s3="/path/to/file2.txt")]
         >>> urls = wmill.get_presigned_s3_public_urls(s3_objs)
     """
-    return _client.get_presigned_s3_public_urls(s3_objects, base_url)
+    return _client.get_presigned_s3_public_urls(s3_objects, base_url, expiry_secs)
 
 
 @init_global_client
 def get_presigned_s3_public_url(
     s3_object: S3Object | str,
     base_url: str | None = None,
+    expiry_secs: int | None = None,
 ) -> str:
     """
     Generate a presigned public URL for an S3 object.
@@ -1868,6 +1904,8 @@ def get_presigned_s3_public_url(
     Args:
         s3_object: S3 object to sign
         base_url: Optional base URL for the presigned URL (defaults to WM_BASE_URL)
+        expiry_secs: How long the signature stays valid, in seconds
+            (defaults to 43200 = 12h, clamped to [60, 604800])
 
     Returns:
         Signed public URL
@@ -1878,7 +1916,7 @@ def get_presigned_s3_public_url(
         >>> s3_obj = S3Object(s3="/path/to/file.txt")
         >>> url = wmill.get_presigned_s3_public_url(s3_obj)
     """
-    return _client.get_presigned_s3_public_url(s3_object, base_url)
+    return _client.get_presigned_s3_public_url(s3_object, base_url, expiry_secs)
 
 
 @init_global_client

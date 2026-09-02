@@ -162,7 +162,8 @@
 		kind: InsertKind,
 		wsScript?: { path: string; summary: string; hash: string | undefined },
 		wsFlow?: { path: string; summary: string },
-		inlineScript?: InlineScript
+		inlineScript?: InlineScript,
+		agentPath?: string
 	): Promise<FlowModule> {
 		let module = emptyModule(flowStateStore.val, flowStore.val, kind == 'flow')
 		let state = emptyFlowModuleState()
@@ -187,7 +188,7 @@
 		} else if (kind == 'branchall') {
 			;[module, state] = await createBranchAll(module.id)
 		} else if (kind == 'aiagent') {
-			;[module, state] = await createAiAgent(module.id)
+			;[module, state] = await createAiAgent(module.id, agentPath)
 		} else if (inlineScript) {
 			const { language, kind, subkind, summary } = inlineScript
 			;[module, state] = await createInlineScriptModule(language, kind, subkind, module.id, summary)
@@ -748,7 +749,8 @@
 					detail.kind as InsertKind,
 					detail.script,
 					detail.flow ? { path: detail.flow.path, summary: detail.flow.summary } : undefined,
-					detail.inlineScript
+					detail.inlineScript,
+					detail.agentPath
 				)
 				const index = detail.index ?? 0
 				const extraModules: FlowModule[] = [module]

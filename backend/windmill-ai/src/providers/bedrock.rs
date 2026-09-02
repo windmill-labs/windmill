@@ -660,6 +660,41 @@ fn bedrock_sse_chunks_for_event(
         chunks.push(Bytes::from(format!("data: {}\n\n", chunk)));
     }
 
+    // Usage arrives only on the trailing Metadata event, and only this converter
+    // reaches the chat: without a chunk for it a Bedrock chat reports no tokens at
+    // all. Bedrock counts cache reads and writes apart from `inputTokens`, while the
+    // OpenAI shape the client parses treats `prompt_tokens` as the whole input, so
+    // they are folded in here and split back out through `prompt_tokens_details`.
+    if let aws_sdk_bedrockruntime::types::ConverseStreamOutput::Metadata(metadata) = event {
+        if let Some(token_usage) = metadata.usage() {
+            let cache_read = token_usage.cache_read_input_tokens().unwrap_or(0);
+            let cache_write = token_usage.cache_write_input_tokens().unwrap_or(0);
+            let prompt_tokens = token_usage
+                .input_tokens()
+                .saturating_add(cache_read)
+                .saturating_add(cache_write);
+
+            let chunk = serde_json::json!({
+                "id": state.id,
+                "object": "chat.completion.chunk",
+                "created": state.created,
+                "model": state.model,
+                "choices": [],
+                "usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": token_usage.output_tokens(),
+                    "total_tokens": token_usage.total_tokens(),
+                    "prompt_tokens_details": {
+                        "cached_tokens": cache_read,
+                        "cache_write_tokens": cache_write
+                    }
+                }
+            });
+
+            chunks.push(Bytes::from(format!("data: {}\n\n", chunk)));
+        }
+    }
+
     chunks
 }
 
@@ -1188,6 +1223,43 @@ mod tests {
             .and_then(|chunk| chunk.strip_suffix("\n\n"))
             .expect("chunk should be SSE data");
         serde_json::from_str(payload).expect("chunk should contain JSON")
+    }
+
+    #[test]
+    fn metadata_event_emits_usage_chunk_with_cache_split() {
+        let mut state = BedrockSseStreamState::new("id".to_string(), "model".to_string(), 0);
+        let event = ConverseStreamOutput::Metadata(
+            aws_sdk_bedrockruntime::types::ConverseStreamMetadataEvent::builder()
+                .usage(
+                    aws_sdk_bedrockruntime::types::TokenUsage::builder()
+                        .input_tokens(10)
+                        .output_tokens(7)
+                        .total_tokens(1017)
+                        .cache_read_input_tokens(900)
+                        .cache_write_input_tokens(100)
+                        .build()
+                        .expect("usage"),
+                )
+                .build(),
+        );
+
+        let chunks = bedrock_sse_chunks_for_event(&event, &mut state);
+        let usage = chunks
+            .iter()
+            .map(sse_json)
+            .find(|v| v.get("usage").map(|u| !u.is_null()).unwrap_or(false))
+            .expect("the metadata event should carry usage");
+
+        // Bedrock reports cache reads and writes apart from `inputTokens`; the OpenAI
+        // shape the client parses treats `prompt_tokens` as the whole input, and
+        // recovers the uncached share by subtracting the details back out.
+        assert_eq!(usage["usage"]["prompt_tokens"], 1010);
+        assert_eq!(usage["usage"]["completion_tokens"], 7);
+        assert_eq!(usage["usage"]["prompt_tokens_details"]["cached_tokens"], 900);
+        assert_eq!(
+            usage["usage"]["prompt_tokens_details"]["cache_write_tokens"],
+            100
+        );
     }
 
     #[test]

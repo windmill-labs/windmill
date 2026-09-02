@@ -76,6 +76,10 @@
 		// `aiChatManager.instructions` only carries programmatic prompts). Used by
 		// sessions to persist the typed-but-unsent prompt with the session draft.
 		onDraftChange?: (text: string) => void
+		// tool_call_id of the askUserQuestion the turn is parked on, when it is. A
+		// plain-text draft sent from here answers it instead of queueing behind a
+		// turn that only the answer can resume.
+		pendingQuestionToolCallId?: string
 	}
 
 	let {
@@ -98,7 +102,8 @@
 		onKeyDown = undefined,
 		loading,
 		onCancel,
-		onDraftChange = undefined
+		onDraftChange = undefined,
+		pendingQuestionToolCallId = undefined
 	}: Props = $props()
 
 	// GLOBAL-mode suggestion pool. We pick one at mount-time so each new
@@ -124,6 +129,16 @@
 
 	// Generate mode-specific placeholder
 	const modePlaceholder = $derived.by(() => {
+		// The composer unlocks by itself when the other tab's turn ends, so the
+		// placeholder names what it is waiting on (the typing indicator says
+		// where the run is).
+		if (aiChatManager.runHeldElsewhere) {
+			return 'Waiting for the turn in the other tab to finish'
+		}
+		if (pendingQuestionToolCallId !== undefined) {
+			return 'Answer the question above'
+		}
+
 		if (!isFirstMessage) {
 			return 'Ask followup'
 		}
@@ -182,6 +197,17 @@
 			onDraftChange?.(text)
 		})
 	})
+
+	// A parked askUserQuestion is a request for input, so a plain-text draft sent
+	// from the composer answers it rather than being queued behind a turn that can
+	// only resume once the question is answered. Attachments can't ride an answer,
+	// so a draft carrying them falls through to the queue and flushes on resume.
+	const questionAnsweredBySend = $derived(
+		editingMessageIndex === null && draft.text.trim() !== '' && !draft.hasAttachments
+			? pendingQuestionToolCallId
+			: undefined
+	)
+
 	// Images being decoded right now. Holds off sending so a message can never go
 	// out without an attachment the user already dropped, and reserves cap slots
 	// against a concurrent drop.
@@ -668,10 +694,37 @@
 		selectedContext = [...selectedContext, contextToAdd]
 	}
 
+	/** Consume inside the submit gesture, never after it: the manager's preflight
+	 * awaits attachment upkeep and a session fork that can take seconds, and
+	 * consuming past them would hand this message a mention the user picked for
+	 * the next one. */
+	function consumeMentionsIfGlobal() {
+		if (aiChatManager.mode !== AIMode.GLOBAL) return
+		aiChatManager.contextManager?.consumeMentionContext()
+	}
+
 	function sendRequest() {
 		// The send button is disabled while decoding, but Enter reaches here directly.
 		// Sending now would drop the in-flight attachments onto the following message.
 		if (pendingImages > 0 || pendingFiles > 0 || ingestionHolds > 0) {
+			return
+		}
+		// Read before `take()` empties the draft the id derives from, and only take
+		// once the answer is delivered — an undelivered one would leave the user
+		// with neither their text nor a resumed turn.
+		const answeredQuestionId = questionAnsweredBySend
+		if (
+			answeredQuestionId &&
+			aiChatManager.handleUserQuestionAnswer(answeredQuestionId, [
+				expanded(chatDraft(draft.text.trim(), draft.pastes))
+			])
+		) {
+			draft.take()
+			// The answer carries only its choice strings, so a mention here rides
+			// nothing — but clearForSend below keeps the selection, which would hand
+			// it to the next turn.
+			consumeMentionsIfGlobal()
+			contextTextareaComponent?.clearForSend()
 			return
 		}
 		if (aiChatManager.loading) {
@@ -694,6 +747,8 @@
 					[...selectedContext],
 					sent.files
 				)
+				// Consumed at enqueue, not at flush: the entry above pinned them.
+				consumeMentionsIfGlobal()
 				contextTextareaComponent?.clearForSend()
 			}
 			return
@@ -714,17 +769,24 @@
 			onEditEnd()
 		} else {
 			const sent = draft.take()
+			// Pin before consuming: the manager falls back to the live selection only
+			// when given no override, and the consume below empties it.
+			const carried = aiChatManager.mode === AIMode.GLOBAL ? [...selectedContext] : undefined
+			consumeMentionsIfGlobal()
 			aiChatManager.sendRequest({
 				instructions: sent.text,
 				pastes: sent.pastes,
 				images: sent.images,
-				files: sent.files
+				files: sent.files,
+				contextOverride: carried,
+				contextOverrideOrigin: carried ? 'pinned' : undefined
 			})
-			// clearForSend() pre-zaps the textarea's mention-sync so the wipe
-			// doesn't drop `selectedContext` before `AIChatManager.beforeSend`
-			// snapshots it. Only mounted in SCRIPT/FLOW/GLOBAL — APP and the
-			// fallback textarea still rely on the draft reset alone (no
-			// `@`-mention state to coordinate).
+			// clearForSend() pre-zaps the textarea's mention-sync so the wipe doesn't
+			// drop `selectedContext` before the send has settled its context: the pin
+			// above in GLOBAL, the manager's own read of the live selection in
+			// SCRIPT/FLOW. Only mounted in SCRIPT/FLOW/GLOBAL — APP and the fallback
+			// textarea still rely on the draft reset alone (no `@`-mention state to
+			// coordinate).
 			contextTextareaComponent?.clearForSend()
 		}
 	}
@@ -940,7 +1002,10 @@
 </script>
 
 {#snippet sendStopButton()}
-	{@const isLoading = loading ?? aiChatManager.loading}
+	<!-- The turn stays `loading` while parked on a question, but a drafted answer
+	     is what the button should ship then — otherwise the only pointer action on
+	     a typed answer would be Stop. Anything else keeps Stop. -->
+	{@const isLoading = (loading ?? aiChatManager.loading) && !questionAnsweredBySend}
 	{@const emptyDraft = draft.isEmpty}
 	<!-- A text-free GLOBAL draft with context chips is a valid turn (Enter
 	     already sends it), so the button stays enabled there for pointer/touch

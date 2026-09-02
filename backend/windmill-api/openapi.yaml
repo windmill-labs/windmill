@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.795.0
+  version: 1.801.0
   title: Windmill API
 
   contact:
@@ -3787,6 +3787,38 @@ paths:
             application/json:
               schema:
                 type: boolean
+
+  /w/{workspace}/workspaces/billable_seats:
+    get:
+      summary: get the billable seats of the workspace the plan is billed on
+      operationId: getBillableSeats
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      responses:
+        "200":
+          description: billable seats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  developers:
+                    type: integer
+                    description: >-
+                      Omitted when the seats counted are another workspace's, as they are for a
+                      fork resolving to its billing root.
+                  operators:
+                    type: integer
+                    description: >-
+                      Omitted when the seats counted are another workspace's, as they are for a
+                      fork resolving to its billing root.
+                  seats:
+                    type: integer
+                required:
+                  - seats
 
   /w/{workspace}/workspaces/premium_info:
     get:
@@ -7819,7 +7851,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/resources/history/v/{version}:
+  /w/{workspace}/resources/history/v/{id}:
     get:
       summary: get a single resource version, with its value
       operationId: getResourceVersion
@@ -7827,9 +7859,10 @@ paths:
         - resource
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: version
+        - name: id
           in: path
           required: true
+          description: The version's id, not its number.
           schema:
             type: integer
             format: int64
@@ -7851,7 +7884,7 @@ paths:
                     required:
                       - missing_references
 
-  /w/{workspace}/resources/history/restore/v/{version}:
+  /w/{workspace}/resources/history/restore/v/{id}:
     post:
       summary: restore a resource to a previous version
       operationId: restoreResourceVersion
@@ -7859,9 +7892,10 @@ paths:
         - resource
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: version
+        - name: id
           in: path
           required: true
+          description: The version's id, not its number.
           schema:
             type: integer
             format: int64
@@ -11779,6 +11813,453 @@ paths:
                 items:
                   $ref: "#/components/schemas/FlowConversationMessage"
 
+  /w/{workspace}/ai_evals/datasets/list:
+    get:
+      summary: list eval datasets
+      operationId: listEvalDatasets
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: eval datasets list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EvalDataset"
+
+  /w/{workspace}/ai_evals/datasets/create:
+    post:
+      summary: create an eval dataset
+      operationId: createEvalDataset
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new eval dataset
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path:
+                  type: string
+                  maxLength: 255
+                summary:
+                  type: string
+                  maxLength: 1000
+                scorers:
+                  type: array
+                  maxItems: 20
+                  items:
+                    $ref: "#/components/schemas/Scorer"
+                cases:
+                  type: array
+                  maxItems: 1000
+                  description: The cases to create the dataset holding, so one can be assembled in a single act rather than created empty and filled in afterwards.
+                  items:
+                    $ref: "#/components/schemas/NewEvalCase"
+      responses:
+        "200":
+          description: eval dataset created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai_evals/datasets/get/{path}:
+    get:
+      summary: get an eval dataset
+      operationId: getEvalDataset
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: eval dataset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvalDataset"
+
+  /w/{workspace}/ai_evals/datasets/update/{path}:
+    post:
+      summary: update an eval dataset
+      operationId: updateEvalDataset
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated eval dataset
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  maxLength: 255
+                  description: >
+                    Renames the dataset. Its cases and experiments follow through the foreign
+                    keys, so a rename keeps the history it already has.
+                summary:
+                  type: string
+                  maxLength: 1000
+                  description: Left out to keep the stored summary; sent as "" to clear it.
+                scorers:
+                  type: array
+                  maxItems: 20
+                  description: >
+                    Left out to keep the dataset's columns as they are; sent to replace them
+                    wholesale.
+                  items:
+                    $ref: "#/components/schemas/Scorer"
+                cases:
+                  type: array
+                  maxItems: 1000
+                  description: >
+                    The cases as they should stand afterwards: all of them, each carrying its id if
+                    the dataset already has it. Sent with the rest of an edit so that a rename the
+                    dataset refuses refuses the case edits with it.
+                  items:
+                    $ref: "#/components/schemas/SaveEvalCase"
+      responses:
+        "200":
+          description: eval dataset updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai_evals/datasets/delete/{path}:
+    post:
+      summary: delete an eval dataset and all its cases
+      description: >
+        The cases, the runs and their recorded case sets go with it through the foreign keys; the
+        jobs those runs produced are left alone.
+      operationId: deleteEvalDataset
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: eval dataset deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai_evals/cases/list/{path}:
+    get:
+      summary: list the cases of an eval dataset
+      operationId: listEvalCases
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: eval cases
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cases]
+                properties:
+                  cases:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EvalCase"
+  /w/{workspace}/ai_evals/subject_state:
+    get:
+      summary: what the agent under test is right now
+      description: >
+        The version it is deployed at. Small on purpose: the results endpoint reports the same
+        thing but harvests scores and reads every job to do it, so it is not something to ask for
+        on its own.
+      operationId: evalSubjectState
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the subject as it is now
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: integer
+                    format: int64
+
+  /w/{workspace}/ai_evals/run_payload:
+    get:
+      summary: the run one iteration of an eval run answered, as its scorers read it
+      operationId: evalRunPayload
+      description: >
+        Called by the step a run's flow places between the agent and its scorers. Every tool call
+        is enriched with the arguments, result, status and duration of the job that ran it, and
+        with the schema of the script version it ran, none of which the flow itself can read.
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: job_id
+          in: query
+          required: true
+          description: The flow job that answered the case.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: the run and its rendering
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [run, rendered]
+                properties:
+                  run:
+                    type: object
+                    description: The case, the answer, and every tool call the agent made.
+                  rendered:
+                    type: string
+                    description: The same run as a judge agent is shown it.
+
+  /w/{workspace}/ai_evals/scorer_defaults:
+    get:
+      summary: what a new judge agent and a new script scorer are created from
+      operationId: scorerDefaults
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: scorer defaults
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [judge_prompt, script_template]
+                properties:
+                  judge_prompt:
+                    type: string
+                    description: The system prompt a judge agent is created with.
+                  script_template:
+                    type: string
+
+  /w/{workspace}/ai_evals/scorers/recent:
+    get:
+      summary: list the scorers already in use in this workspace, most recent first
+      description: >
+        Filtered twice, both times by what the caller can read: the datasets they come from, and
+        the runnables themselves. A scorer they could not run does not appear.
+      operationId: recentScorers
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          description: only scorers of this kind
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [script, agent]
+      responses:
+        "200":
+          description: recently used scorers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  allOf:
+                    - $ref: "#/components/schemas/Scorer"
+                    - type: object
+                      required: [dataset]
+                      properties:
+                        dataset:
+                          type: string
+                          description: The dataset it is a column of.
+
+  /w/{workspace}/ai_evals/experiments/run:
+    post:
+      summary: run every case of a dataset as one immutable experiment
+      operationId: runExperiment
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: what to run
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dataset, subject]
+              properties:
+                dataset:
+                  type: string
+                subject:
+                  $ref: "#/components/schemas/EvalSubject"
+      responses:
+        "200":
+          description: id of the created experiment
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai_evals/experiments/collect:
+    post:
+      summary: record what a run produced, so it outlives the jobs that produced it
+      description: >
+        Called by a run's own flow as its last step. The answers and scores a run produced live in
+        its jobs, which have their own retention; this copies them onto the run's rows. Reading a
+        run does the same, so this is what covers a run nobody opened.
+      operationId: collectExperiment
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: how many of the run's cases are recorded
+          content:
+            application/json:
+              schema:
+                type: integer
+
+  /w/{workspace}/ai_evals/experiments/list_all:
+    get:
+      summary: list every experiment, across datasets
+      operationId: listAllExperiments
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: subject_path
+          description: >
+            Restrict to one agent's runs, which is what makes the list a history rather than a
+            log. Runs of what is deployed, of a past version, and of the edits waiting on top are
+            all that agent's, so this does not discriminate by kind.
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: >
+            The 100 newest experiments, each naming the dataset it is of. Restricted to datasets
+            the caller can read.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EvalExperiment"
+
+  /w/{workspace}/ai_evals/experiments/results/{path}:
+    get:
+      summary: read an experiment's results, one row per case
+      operationId: experimentResults
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: id
+          description: the experiment to read
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: baseline
+          description: >
+            The experiment every column is compared against. A delta is only computed between two
+            scores of the same scorer id, and a column the baseline was never scored with reports
+            it rather than showing a difference.
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: experiment results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [experiment, scorers, rows, means, regressed]
+                properties:
+                  experiment:
+                    $ref: "#/components/schemas/EvalExperiment"
+                  baseline:
+                    $ref: "#/components/schemas/EvalExperiment"
+                  scorers:
+                    type: array
+                    description: The columns, which belong to the dataset rather than the experiment.
+                    items:
+                      $ref: "#/components/schemas/Scorer"
+                  rows:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ExperimentRow"
+                  means:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ScorerMean"
+                  regressed:
+                    type: integer
+                    description: Cells scoring lower than the baseline, across every column.
+                  subject_current_version:
+                    type: integer
+                    format: int64
+                    description: >
+                      The version the subject is on now. A row that ran against an earlier one
+                      describes an agent that no longer exists.
+                  subject_deployed_hash:
+                    type: string
+                    description: >
+                      What the agent hashes to as deployed. A run of unsaved edits carrying this
+                      hash ran exactly what is deployed now — the edits were saved — so it is a run
+                      of that version rather than of edits.
+
   /w/{workspace}/path_autocomplete/list_paths:
     get:
       summary: list all paths in a workspace for client-side autocomplete
@@ -11986,70 +12467,12 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/ai_skills/list:
-    get:
-      summary: list the workspace AI chat skills (name + description only)
-      operationId: listAiSkills
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      responses:
-        "200":
-          description: skill listing
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  required:
-                    - name
-                    - description
-                  properties:
-                    name:
-                      type: string
-                    description:
-                      type: string
-
-  /w/{workspace}/ai_skills/get/{name}:
-    get:
-      summary: get a workspace AI chat skill including its instructions
-      operationId: getAiSkill
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: skill
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - name
-                  - description
-                  - instructions
-                properties:
-                  name:
-                    type: string
-                  description:
-                    type: string
-                  instructions:
-                    type: string
-
-  /w/{workspace}/ai_skills/upload:
+  /w/{workspace}/ai/usage:
     post:
-      summary: upsert workspace AI chat skills (admin only)
-      operationId: uploadAiSkills
+      summary: record AI token usage for the calling user
+      operationId: recordAiUsage
       tags:
-        - workspace
+        - ai
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
@@ -12059,59 +12482,57 @@ paths:
             schema:
               type: object
               required:
-                - skills
+                - events
               properties:
-                skills:
+                events:
                   type: array
-                  maxItems: 50
                   items:
-                    type: object
-                    required:
-                      - name
-                      - description
-                      - instructions
-                    properties:
-                      name:
-                        type: string
-                        minLength: 1
-                        maxLength: 64
-                        pattern: "^[a-z0-9-]+$"
-                      description:
-                        type: string
-                        minLength: 1
-                        maxLength: 1024
-                      instructions:
-                        type: string
-                        minLength: 1
-                        maxLength: 65536
+                    $ref: "#/components/schemas/AITokenUsageEvent"
       responses:
-        "200":
-          description: uploaded
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/ai_skills/delete/{name}:
-    delete:
-      summary: delete a workspace AI chat skill (admin only)
-      operationId: deleteAiSkill
+        "204":
+          description: usage recorded
+    get:
+      summary: list aggregated AI token usage
+      operationId: listAiUsage
       tags:
-        - workspace
+        - ai
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: name
-          in: path
-          required: true
+        - name: days
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+        - name: group_by
+          in: query
           schema:
             type: string
+            enum: [day, user, model]
+        - name: scope
+          in: query
+          description: workspace-wide usage (admin only) or the calling user's own
+          schema:
+            type: string
+            enum: [workspace, self]
       responses:
         "200":
-          description: deleted
+          description: usage buckets
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                type: object
+                required:
+                  - buckets
+                  - truncated
+                properties:
+                  buckets:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AITokenUsageBucket"
+                  truncated:
+                    type: boolean
+                    description: more buckets matched than were returned, so summing them under-reports
 
   /w/{workspace}/apps/get_data/v/{secretWithExtension}:
     get:
@@ -12952,6 +13373,10 @@ paths:
                   type: array
                   items:
                     $ref: "#/components/schemas/S3Object"
+                expiry_secs:
+                  type: integer
+                  format: int64
+                  description: how long the signature stays valid, in seconds. Defaults to 43200 (12h) and is clamped server-side to [60, 604800] (1 minute to 7 days).
               required:
                 - s3_objects
       responses:
@@ -23338,7 +23763,7 @@ paths:
                     items:
                       type: string
                   hits:
-                    description: log files that matched the query
+                    description: the log lines that matched the query, newest first
                     type: array
                     items:
                       $ref: "#/components/schemas/LogSearchHit"
@@ -24767,6 +25192,68 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/hub/projects/{slug}/withdraw:
+    post:
+      summary: take a hub project submission back out of review
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body. Everything pushed for the
+        submission is kept, so it can be fixed and submitted again.
+      operationId: withdrawHubProject
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: slug
+          in: path
+          required: true
+          description: hub project slug (3-50 chars, lowercase alphanumeric and hyphens, no leading/trailing hyphen)
+          schema:
+            type: string
+            minLength: 3
+            maxLength: 50
+            pattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/projects/{slug}/discard_update:
+    post:
+      summary: discard the pending update to a published hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body. The published project is
+        left untouched.
+      operationId: discardHubProjectUpdate
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: slug
+          in: path
+          required: true
+          description: hub project slug (3-50 chars, lowercase alphanumeric and hyphens, no leading/trailing hyphen)
+          schema:
+            type: string
+            minLength: 3
+            maxLength: 50
+            pattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/hub/project:
     get:
       summary: get the hub project linked to a workspace folder
@@ -26111,6 +26598,348 @@ components:
             additionalProperties: true
           description: Array of JSON Web Keys for JWT verification
 
+    EvalSubject:
+      type: object
+      description: What an eval run is executed against.
+      required: [kind, path]
+      properties:
+        kind:
+          type: string
+          description: >
+            `agent` runs the ai_agent resource as it is deployed when the run opens, `agent_draft`
+            the caller's unsaved edits of it as the editor holds them (carried in `draft`), and
+            `agent_version` one past version named by `version`. The first and last are read
+            server-side; all three are inlined into the run, so every case of a run executes one
+            configuration: a deploy part-way through changes what the next run measures, never
+            this one.
+          enum: [agent, agent_draft, agent_version]
+        path:
+          type: string
+          description: Path of the ai_agent resource.
+        version:
+          type: integer
+          format: int64
+          nullable: true
+          description: >
+            The agent's per-path version number when the run opened: how many times the resource
+            had been saved, not a resource_version row id. For `agent` and `agent_draft` it names
+            the configuration the run read and every case executed. For `agent_version` it is the
+            request's own, says which version to inline, and is required.
+        draft:
+          $ref: "#/components/schemas/AgentDraft"
+        draft_hash:
+          type: string
+          description: >
+            Hash of the configuration a draft run executed, stamped server-side. A draft moves
+            without the version moving, so this is what dates a run of one. It is also what
+            recognises a draft run whose configuration was later deployed: when it matches the
+            agent as deployed, the run's kind and version are rewritten to that version, once, and
+            the hash is kept as what the resolution rests on.
+
+    AgentDraft:
+      type: object
+      description: >
+        The brain and tools of an agent, as the flow editor holds them. Carried by the request and
+        present exactly when the subject kind is `agent_draft` — the edits exist only in the editor
+        — where it is the whole definition of what ran: the run goes through the same unlinked
+        branch of the agent executor the editor's own test uses.
+      properties:
+        input_transforms:
+          type: object
+          additionalProperties: true
+          description: >
+            The agent's input transforms: provider, system prompt, output type and the rest. The
+            message and attachments come from the case and override anything named here.
+        tools:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    EvalDataset:
+      type: object
+      required: [path, created_at, created_by, edited_at, edited_by]
+      properties:
+        path:
+          type: string
+          maxLength: 255
+        summary:
+          type: string
+          maxLength: 1000
+        scorers:
+          type: array
+          description: The columns of the results table, in display order.
+          items:
+            $ref: "#/components/schemas/Scorer"
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+        edited_at:
+          type: string
+          format: date-time
+        edited_by:
+          type: string
+
+    EvalCaseInput:
+      type: object
+      description: The inputs a standalone run feeds the agent.
+      properties:
+        user_message:
+          type: string
+        user_attachments:
+          type: array
+          items:
+            type: object
+
+    NewEvalCase:
+      type: object
+      properties:
+        input:
+          $ref: "#/components/schemas/EvalCaseInput"
+        expected:
+          description: Reference output a scorer compares a rerun against.
+
+    SaveEvalCase:
+      allOf:
+        - type: object
+          properties:
+            id:
+              description: Absent for a case the dataset does not hold yet.
+              type: string
+              format: uuid
+        - $ref: "#/components/schemas/NewEvalCase"
+
+    EvalCase:
+      allOf:
+        - type: object
+          required: [id, created_at, created_by]
+          properties:
+            id:
+              type: string
+              format: uuid
+            created_at:
+              type: string
+              format: date-time
+            created_by:
+              type: string
+        - $ref: "#/components/schemas/NewEvalCase"
+
+    Scorer:
+      type: object
+      description: >
+        A scorer is a column of the results table, and it is always a runnable: an ai_agent
+        resource sent the run to grade, or a script handed the run as an argument. `id` is assigned
+        when the scorer is added to a dataset and never reused: it is what makes a column the same
+        column across experiments when the scorer is renamed, and a delta is only ever computed
+        between two scores carrying the same id. A scorer sent without an id is given one.
+      required: [kind, path]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          description: Column header. Defaults to the last segment of the path.
+        pass_if:
+          type: number
+          description: >
+            A score at or above this counts as a pass, and the column reports a pass rate beside
+            its mean. Applied when results are read rather than when they are produced, so moving
+            the line re-reads every score already recorded instead of invalidating them.
+        kind:
+          type: string
+          enum: [script, agent]
+        path:
+          type: string
+          description: The script, or the ai_agent resource used as a judge.
+
+    EvalExperiment:
+      type: object
+      description: >-
+        One run of a dataset: written once when the dataset is run, and only ever read afterwards.
+        The case set it executed is returned by the results endpoint, not here: a listing would
+        otherwise send the whole dataset back once per experiment.
+      required: [id, dataset, subject, run_number, run_job_id, case_count, created_at, created_by]
+      properties:
+        id:
+          type: string
+          format: uuid
+        dataset:
+          type: string
+        subject:
+          $ref: "#/components/schemas/EvalSubject"
+        run_number:
+          type: integer
+          description: >
+            This agent's nth run of this dataset, allocated once and never reused. What a run is
+            called. Numbered per agent rather than per subject kind: runs of what is deployed and
+            runs of its draft are the same agent's history.
+        run_job_id:
+          type: string
+          format: uuid
+          description: >
+            The flow executing the run: one job holding every case and its scores.
+        case_count:
+          type: integer
+        scores:
+          type: array
+          description: >
+            What the run scored, one entry per scorer that produced a number. Carried on the run
+            itself so a list of runs can say what each one scored without reading every cell of
+            every one of them. Empty on a run whose scores have not been read yet.
+          items:
+            $ref: "#/components/schemas/ExperimentScore"
+        running:
+          type: boolean
+          description: >
+            Whether the flow executing this run is still going. What makes a list of runs worth
+            watching rather than worth reloading.
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+
+    ExperimentScore:
+      type: object
+      description: >-
+        One scorer's headline for one run: the two numbers a column reports, over that run's cells.
+      required: [scorer_id, name, kind, scored, failed]
+      properties:
+        scorer_id:
+          type: string
+        name:
+          type: string
+          description: >
+            What the column is called in the dataset that ran it, resolved server-side because a
+            list of runs spanning datasets cannot hold every dataset's scorers to look it up.
+        kind:
+          type: string
+          enum: [agent, script]
+        mean:
+          type: number
+        pass_rate:
+          type: number
+          description: >
+            The share of scored cells at or above the column's threshold, for a column that has
+            one. Absent where the column has no threshold and the mean is the whole headline.
+        scored:
+          type: integer
+        failed:
+          type: integer
+          description: >
+            How many of the run's cells the column failed on. A column that failed on all of them
+            has no number to report and is still one of the columns that ran.
+
+    CellScore:
+      type: object
+      description: One scorer's verdict on one run, and how it compares with the baseline.
+      required: [scorer_id, pending, definition_changed]
+      properties:
+        scorer_id:
+          type: string
+        score:
+          type: number
+        reason:
+          type: string
+        checks: {}
+        error:
+          type: string
+        not_applicable:
+          type: boolean
+          description: >
+            The scorer read this case and had nothing to measure on it. Left out of the column's
+            mean and pass rate rather than counted as a zero.
+        pending:
+          type: boolean
+          description: A scoring job is still running for this cell.
+        passed:
+          type: boolean
+          description: >
+            Which side of the scorer's `pass_if` threshold the score fell on. Absent when the
+            column has no threshold, or has no score yet.
+        baseline:
+          type: number
+          description: The same scorer's number on the baseline experiment.
+        definition_changed:
+          type: boolean
+          description: >
+            The baseline's score came from a different definition of this scorer, so the delta is
+            a change of scorer as much as a change of agent.
+
+    ExperimentRow:
+      type: object
+      required: [case_id, input, status, scores]
+      properties:
+        case_id:
+          type: string
+          format: uuid
+        input:
+          $ref: "#/components/schemas/EvalCaseInput"
+        expected: {}
+        job_id:
+          type: string
+          format: uuid
+          description: >
+            The iteration that ran this case. Absent between a run being recorded and its flow
+            reaching this case, which reads as a case still to run.
+        status:
+          type: string
+          description: >
+            The case's status; `running` until its iteration completes, and `unavailable` for a
+            case whose job was retained away before anything read what it produced.
+          enum: [running, success, failure, canceled, skipped, unavailable]
+        output:
+          type: string
+          description: The agent's answer. The full trajectory stays reachable through job_id.
+        subject_version:
+          type: integer
+          format: int64
+          description: >
+            The agent version this cell ran against. Cells of one experiment can differ, which the
+            table says rather than averaging two versions silently.
+        subject_draft_hash:
+          type: string
+          description: >
+            For a run of unsaved edits, the hash of the configuration this cell ran. Edits move
+            without a version changing, so this is what identifies what ran, and what recognises a
+            run whose edits were later saved as a run of that version.
+        scores:
+          type: array
+          description: One entry per scorer of the dataset, in column order.
+          items:
+            $ref: "#/components/schemas/CellScore"
+
+    ScorerMean:
+      type: object
+      description: >
+        A column's summary. There is no single number for a dataset: averaging a judge with an
+        exact match would invent one.
+      required: [scorer_id, scored, missing_in_baseline, definition_changed]
+      properties:
+        scorer_id:
+          type: string
+        mean:
+          type: number
+        baseline_mean:
+          type: number
+        pass_rate:
+          type: number
+          description: >
+            The share of scored cells that passed, for a column with a threshold. Reported beside
+            the mean rather than instead of it: a pass rate says how many cases are good enough,
+            a mean says by how much, and neither answers the other's question.
+        baseline_pass_rate:
+          type: number
+        scored:
+          type: integer
+        missing_in_baseline:
+          type: integer
+          description: Cells the baseline has no score for, so a column the baseline never ran shows as unscored rather than as a spurious difference.
+        definition_changed:
+          type: boolean
+
     FlowConversation:
       type: object
       required:
@@ -26300,6 +27129,110 @@ components:
             type: integer
             minimum: 1
             maximum: 2000000
+        free_tier:
+          $ref: "#/components/schemas/FreeTierInfo"
+        model_pricing:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ModelPriceOverride"
+
+    FreeTierInfo:
+      type: object
+      description: >-
+        Read-only. Present when the workspace has no AI provider of its own and is running
+        on Windmill's free tier. Ignored on write.
+      properties:
+        exhausted:
+          type: boolean
+          description: The one-time grant is spent; no provider is served and the user must add their own API key.
+        used_ratio:
+          type: number
+          description: Fraction of the grant consumed, 0 to 1.
+      required:
+        - exhausted
+        - used_ratio
+
+    ModelPriceOverride:
+      type: object
+      description: negotiated rates in USD per million tokens, keyed `provider:model`
+      properties:
+        input:
+          type: number
+          minimum: 0
+          maximum: 1000
+        output:
+          type: number
+          minimum: 0
+          maximum: 1000
+        cache_read:
+          type: number
+          minimum: 0
+          maximum: 1000
+        cache_write:
+          type: number
+          minimum: 0
+          maximum: 1000
+      required:
+        - input
+        - output
+
+    AITokenUsageEvent:
+      type: object
+      properties:
+        provider:
+          $ref: "#/components/schemas/AIProvider"
+        model:
+          type: string
+        session_id:
+          type: string
+        input_tokens:
+          type: integer
+        cache_read_tokens:
+          type: integer
+        cache_write_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        reported_cost_nano_usd:
+          type: integer
+          description: only set by providers that bill back an exact figure
+        requests:
+          type: integer
+      required:
+        - provider
+        - model
+
+    AITokenUsageBucket:
+      type: object
+      properties:
+        key:
+          type: string
+          description: the grouped dimension's value; empty when grouping by model
+        provider:
+          type: string
+        model:
+          type: string
+        input_tokens:
+          type: integer
+        cache_read_tokens:
+          type: integer
+        cache_write_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        reported_cost_nano_usd:
+          type: integer
+        requests:
+          type: integer
+      required:
+        - key
+        - provider
+        - model
+        - input_tokens
+        - cache_read_tokens
+        - cache_write_tokens
+        - output_tokens
+        - requests
 
     InstanceAIProviderSummary:
       type: object
@@ -26980,7 +27913,10 @@ components:
           type: string
         args:
           $ref: "#/components/schemas/ScriptArgs"
-        result: {}
+        result:
+          description: |
+            For large results, this may be the placeholder string 'WINDMILL_TOO_BIG'.
+            Use the completed job result endpoint to retrieve the full result.
         logs:
           type: string
         deleted:
@@ -28440,6 +29376,11 @@ components:
         id:
           type: integer
           format: int64
+          description: How this version is addressed. Unique across every resource, so it says nothing about how many times this one has been saved.
+        version:
+          type: integer
+          format: int64
+          description: Which version of this resource it is, counted from its first. What a version is called.
         created_at:
           type: string
           format: date-time
@@ -28447,6 +29388,7 @@ components:
           type: string
       required:
         - id
+        - version
         - created_at
 
     ListableResource:
@@ -28543,6 +29485,12 @@ components:
           type: string
         is_fileset:
           type: boolean
+        format_extension:
+          type: string
+          nullable: true
+          description: >-
+            File extension for a type whose value is one file rather than a set
+            of fields. Omit to leave it unchanged; send null to clear it.
 
     TriggerHistoryEntry:
       type: object
@@ -29248,7 +30196,9 @@ components:
           description: If true, passes the request body as a raw string instead of parsing as JSON
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -29337,7 +30287,9 @@ components:
           description: If true, passes the request body as a raw string instead of parsing as JSON
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -29433,7 +30385,9 @@ components:
           description: If true, passes the request body as a raw string instead of parsing as JSON
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -29625,7 +30579,9 @@ components:
           description: Optional periodic heartbeat message configuration
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           description: Arguments to pass to the error handler
           $ref: "#/components/schemas/ScriptArgs"
@@ -29690,7 +30646,9 @@ components:
           description: Optional periodic heartbeat message configuration
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           description: Arguments to pass to the error handler
           $ref: "#/components/schemas/ScriptArgs"
@@ -29766,7 +30724,9 @@ components:
           description: Optional periodic heartbeat message configuration
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           description: Arguments to pass to the error handler
           $ref: "#/components/schemas/ScriptArgs"
@@ -29894,7 +30854,9 @@ components:
           description: Last error message if the trigger failed
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -29945,7 +30907,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30009,7 +30973,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30092,7 +31058,9 @@ components:
           description: Last error message if the trigger failed
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30133,7 +31101,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30187,7 +31157,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30585,7 +31557,9 @@ components:
           description: Last error message if the trigger failed
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30687,7 +31661,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30743,7 +31719,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30871,7 +31849,9 @@ components:
           description: Timestamp of last server heartbeat (internal)
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30911,7 +31891,9 @@ components:
           description: Configuration for creating/managing the publication (tables, operations)
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30963,7 +31945,9 @@ components:
           description: Configuration for creating/managing the publication (tables, operations)
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -31040,7 +32024,9 @@ components:
           description: Last error message if the trigger failed
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -31104,7 +32090,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -31179,7 +32167,9 @@ components:
           description: True if script_path points to a flow, false if it points to a script
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -31242,7 +32232,9 @@ components:
           description: Last error message if the trigger failed
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -31290,7 +32282,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -31349,7 +32343,9 @@ components:
           description: True if script_path points to a flow, false if it points to a script
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -33232,8 +34228,34 @@ components:
     LogSearchHit:
       type: object
       properties:
-        dancer:
+        ts:
+          description: timestamp of the log line itself, not of the file containing it
           type: string
+          format: date-time
+        host:
+          type: string
+        level:
+          type: string
+          enum: [TRACE, DEBUG, INFO, WARN, ERROR]
+        target:
+          description: the tracing target that emitted the line
+          type: string
+          nullable: true
+        message:
+          type: string
+        file_path:
+          description: the log file the line came from
+          type: string
+        line_no:
+          description: offset of the line within its file
+          type: integer
+      required:
+        - ts
+        - host
+        - level
+        - message
+        - file_path
+        - line_no
 
     AutoscalingEvent:
       type: object

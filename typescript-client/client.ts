@@ -1057,15 +1057,18 @@ export async function deleteS3File(
 /**
  * Sign S3 objects to be used by anonymous users in public apps
  * @param s3objects s3 objects to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed s3 objects
  */
 export async function signS3Objects(
-  s3objects: S3Object[]
+  s3objects: S3Object[],
+  { expirySecs }: { expirySecs?: number } = {}
 ): Promise<S3Object[]> {
   const signedKeys = await AppService.signS3Objects({
     workspace: getWorkspace(),
     requestBody: {
       s3_objects: s3objects.map(parseS3Object),
+      expiry_secs: expirySecs,
     },
   });
   return signedKeys;
@@ -1073,10 +1076,14 @@ export async function signS3Objects(
 /**
  * Sign S3 object to be used by anonymous users in public apps
  * @param s3object s3 object to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed s3 object
  */
-export async function signS3Object(s3object: S3Object): Promise<S3Object> {
-  const [signedObject] = await signS3Objects([s3object]);
+export async function signS3Object(
+  s3object: S3Object,
+  { expirySecs }: { expirySecs?: number } = {}
+): Promise<S3Object> {
+  const [signedObject] = await signS3Objects([s3object], { expirySecs });
   return signedObject;
 }
 
@@ -1084,11 +1091,12 @@ export async function signS3Object(s3object: S3Object): Promise<S3Object> {
  * Generate a presigned public URL for an array of S3 objects.
  * If an S3 object is not signed yet, it will be signed first.
  * @param s3Objects s3 objects to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns list of signed public URLs
  */
 export async function getPresignedS3PublicUrls(
   s3Objects: S3Object[],
-  { baseUrl }: { baseUrl?: string } = {}
+  { baseUrl, expirySecs }: { baseUrl?: string; expirySecs?: number } = {}
 ): Promise<string[]> {
   baseUrl ??= getPublicBaseUrl();
 
@@ -1100,7 +1108,8 @@ export async function getPresignedS3PublicUrls(
     .filter(([s3Obj, _]) => s3Obj.presigned === undefined);
   if (s3ObjsToSign.length > 0) {
     const signedS3Objs = await signS3Objects(
-      s3ObjsToSign.map(([s3Obj, _]) => s3Obj)
+      s3ObjsToSign.map(([s3Obj, _]) => s3Obj),
+      { expirySecs }
     );
     for (let i = 0; i < s3ObjsToSign.length; i++) {
       const [_, originalIndex] = s3ObjsToSign[i];
@@ -1120,13 +1129,17 @@ export async function getPresignedS3PublicUrls(
 /**
  * Generate a presigned public URL for an S3 object. If the S3 object is not signed yet, it will be signed first.
  * @param s3Object s3 object to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed public URL
  */
 export async function getPresignedS3PublicUrl(
   s3Objects: S3Object,
-  { baseUrl }: { baseUrl?: string } = {}
+  { baseUrl, expirySecs }: { baseUrl?: string; expirySecs?: number } = {}
 ): Promise<string> {
-  const [s3Object] = await getPresignedS3PublicUrls([s3Objects], { baseUrl });
+  const [s3Object] = await getPresignedS3PublicUrls([s3Objects], {
+    baseUrl,
+    expirySecs,
+  });
   return s3Object;
 }
 

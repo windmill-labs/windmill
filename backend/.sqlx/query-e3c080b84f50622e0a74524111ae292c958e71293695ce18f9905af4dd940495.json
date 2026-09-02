@@ -1,0 +1,49 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, input, expected, created_at, created_by\n         FROM eval_case\n         WHERE workspace_id = $1 AND dataset_path = $2\n         ORDER BY created_at, id\n         LIMIT $3 OFFSET $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "input",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "expected",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_by",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "e3c080b84f50622e0a74524111ae292c958e71293695ce18f9905af4dd940495"
+}
