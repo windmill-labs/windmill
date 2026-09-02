@@ -2350,6 +2350,10 @@ export class AIChatManager {
 	}
 
 	openChat = () => {
+		// Nothing may open the docked pane in a workspace that hid the assistant.
+		if (get(copilotInfo).workspaceDisabled) {
+			return
+		}
 		chatState.size = this.savedSize > 0 ? this.savedSize : DEFAULT_SIZE
 		localStorage.setItem('ai-chat-open', 'true')
 	}
@@ -2361,6 +2365,9 @@ export class AIChatManager {
 	}
 
 	toggleOpen = () => {
+		if (chatState.size === 0 && get(copilotInfo).workspaceDisabled) {
+			return
+		}
 		if (chatState.size > 0) {
 			this.savedSize = chatState.size
 		}

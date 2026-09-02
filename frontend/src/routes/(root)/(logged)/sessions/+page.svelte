@@ -21,6 +21,7 @@
 		type Scope
 	} from '$lib/components/sessions/PreviewRouterPicker.svelte'
 	import { goto } from '$lib/navigation'
+	import { copilotInfo } from '$lib/aiStore'
 	import SessionWrapper from '$lib/components/sessions/SessionWrapper.svelte'
 	import PreviewTabHost from '$lib/components/sessions/PreviewTabHost.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
@@ -819,6 +820,14 @@
 			<Button size="xs" onclick={() => setSessionsBetaOptOut(false, `${base}/sessions`)}>
 				Activate AI Sessions
 			</Button>
+		</div>
+	{:else if $copilotInfo.workspaceDisabled}
+		<!-- The workspace hid the assistant, and the sidebar switch with it, so only a
+		     direct URL lands here. -->
+		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
+			<p class="text-primary font-medium">AI Sessions are disabled in this workspace</p>
+			<p>A workspace admin turned Windmill AI off in the workspace settings.</p>
+			<Button size="xs" onclick={() => goto('/')}>Back to workspace</Button>
 		</div>
 	{:else if !sessionState.hydrated}
 		<!-- Sessions hydrate from IndexedDB after the user resolves; until then an

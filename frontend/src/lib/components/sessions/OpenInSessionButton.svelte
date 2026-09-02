@@ -40,6 +40,7 @@
 	import AIButton from '$lib/components/copilot/chat/AIButton.svelte'
 	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
 	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
+	import { copilotInfo } from '$lib/aiStore'
 	import { userStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { openSourceInSession } from './sessionSwitch.svelte'
@@ -80,7 +81,9 @@
 	// them, so an entry point on a page they can reach (Runs, the trigger lists)
 	// would only route them into that refusal.
 	const show = $derived(
-		!inSessionPanel && !!(source?.target || source?.page) && prefersSessionHandoff($userStore?.operator)
+		!inSessionPanel &&
+			!!(source?.target || source?.page) &&
+			prefersSessionHandoff($userStore?.operator)
 	)
 
 	// Not $state: only read inside open() as a re-entrancy latch, never rendered.
@@ -102,7 +105,10 @@
 	}
 </script>
 
-{#if show}
+{#if $copilotInfo.workspaceDisabled}
+	<!-- The workspace hid the assistant: neither the hand-off nor the docked-chat
+	     fallback has anywhere to lead, so no host renders an AI button at all. -->
+{:else if show}
 	<AIButton
 		togglePanel={open}
 		btnClasses={btnClasses ?? AIBtnClasses('default')}

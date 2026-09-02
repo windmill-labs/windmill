@@ -245,6 +245,7 @@
 	// on indices that render nothing.
 	let showAiRows = $derived(
 		!disableAi &&
+			!$copilotInfo.workspaceDisabled &&
 			funcDesc?.length > 0 &&
 			kind != 'failure' &&
 			kind != 'preprocessor' &&

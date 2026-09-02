@@ -96,7 +96,11 @@
 
 	// The composer hands off to /sessions, which refuses operators — so hide it from them (the
 	// prompt would be silently dropped) while the AI-independent CLI/MCP row below stays.
-	let showComposer = $derived(prefersSessionHandoff($userStore?.operator) && !runOnlyWorkspace)
+	let showComposer = $derived(
+		prefersSessionHandoff($userStore?.operator) &&
+			!runOnlyWorkspace &&
+			!$copilotInfo.workspaceDisabled
+	)
 
 	// The hero's margins are for the full block; around the lone button row left by a collapsed,
 	// operator or run-only view they would just be empty page.
