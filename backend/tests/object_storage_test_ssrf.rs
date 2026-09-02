@@ -1,17 +1,7 @@
-//! Regression test: the object-storage connectivity test's SSRF / local-filesystem hardening
-//! applies to every non-super-admin caller, not only on Cloud.
-//!
-//! `POST /api/settings/test_object_storage_config` -> `test_s3_bucket` runs the probe on the API
-//! server itself and reflects the upstream response into its error, so an authenticated user could
-//! otherwise reach internal endpoints, port-scan the server's network, or write to its local disk
-//! through the Filesystem backend. `CLOUD_HOSTED` is unset in this harness, so the test exercises
-//! a self-hosted deployment and pins:
-//!   - a non-super-admin is rejected for a loopback S3 endpoint without any connection being made,
-//!     and for a Filesystem backend, and
-//!   - a super admin keeps the unrestricted path (a Filesystem backend round-trips successfully).
-//!
-//! Requires the `parquet` feature — the route is gated on it.
-//! `base` fixture: test@windmill.dev (super admin, SECRET_TOKEN); test2@windmill.dev (SECRET_TOKEN_2).
+//! `POST /api/settings/test_object_storage_config` runs the probe on the API server and reflects the
+//! upstream response, so every non-super-admin must be rejected for private/loopback endpoints and
+//! the Filesystem backend on every deployment (`CLOUD_HOSTED` is unset here), while a super admin's
+//! Filesystem probe still round-trips. Requires the `parquet` feature, like the route.
 #![cfg(feature = "parquet")]
 
 use serde_json::json;

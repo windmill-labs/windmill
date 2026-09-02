@@ -292,7 +292,21 @@ pub async fn test_s3_bucket(
     let is_super_admin = windmill_api_auth::is_super_admin_authed(&db, &authed).await?;
     let restrict = !is_super_admin;
     if restrict {
-        validate_object_storage_test(&test_s3_bucket).await?;
+        validate_object_storage_test(&test_s3_bucket)
+            .await
+            .map_err(|e| match e {
+                // A job token never counts as a super admin (it is capped at workspace admin), so
+                // a super admin reaching this route through a preview job ("Test from a worker",
+                // the resource form) is told why rather than that they lack a privilege they hold.
+                error::Error::NotAuthorized(msg) if authed.job_id.is_some() => {
+                    error::Error::NotAuthorized(format!(
+                        "{msg}; a job token ($WM_TOKEN) is never treated as a super admin, so run \
+                         this test with a user token instead (e.g. \"Test from a server\" in the \
+                         instance settings)"
+                    ))
+                }
+                e => e,
+            })?;
     }
 
     let client = build_object_store_from_settings(test_s3_bucket, Some(&db))
@@ -2008,7 +2022,10 @@ struct CachedResourceType {
     /// decodes the on-disk cache, where an absent key means "written before the
     /// column, leave the stored extension alone" and an explicit null means the hub
     /// dropped it. Plain serde folds both into `None`.
-    #[serde(default, deserialize_with = "windmill_common::more_serde::double_option")]
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option"
+    )]
     format_extension: Option<Option<String>>,
 }
 
