@@ -15,6 +15,7 @@ import {
 } from './sessionState.svelte'
 import { sessionTargetHref, withPreviewParams } from './sessionMode.svelte'
 import { parsePreviewItemRoute, type PreviewItemRoute } from './previewPaths'
+import { findMountedOpenInSessionSource } from './openInSessionContext'
 // Type-only: erased at compile time, so the component graph stays out of this
 // navigation seam (see the dynamic import in openEditorInSession).
 import type { OpenInSessionSource } from './OpenInSessionButton.svelte'
@@ -97,16 +98,31 @@ const RESUME_IDLE_LIMIT_MS = 60 * 60 * 1000
 // session on that item straight away: a session that old is rarely what a visit
 // from a flow or app is about, and landing in it would only lead to "New
 // session" and the offer takeNewSessionSeed makes. Anything else resumes as
-// enterSessionMode does.
+// enterSessionMode does. Rejects when the editor could not persist its draft,
+// so the caller can stay on the page and say so.
 export async function enterSessionModeFromNav(): Promise<void> {
-	if (parsePreviewItemRoute(lastNavRoute)) {
+	const route = parsePreviewItemRoute(lastNavRoute)
+	if (route) {
 		const resumable = resumableSession()
 		if (!resumable || Date.now() - sessionLastActivityAt(resumable) > RESUME_IDLE_LIMIT_MS) {
-			await openPageInSession(lastNavRoute)
+			// The editor's own hand-off is what its "Open in AI session" button uses:
+			// it persists the draft the preview loads (an edit still inside the
+			// autosave debounce, the row of a never-saved new item) and names the
+			// workspace the item lives in. Only an item with no such editor on
+			// screen (a legacy app, a detail page) is opened by route, as last
+			// persisted, in the workspace the route was scoped to.
+			const source = findMountedOpenInSessionSource(route)
+			if (source) await openSourceInSession(source)
+			else await openPageInSession(lastNavRoute, workspaceParamOf(lastNavRoute))
 			return
 		}
 	}
 	await enterSessionMode()
+}
+
+function workspaceParamOf(pathnameWithSearch: string): string | undefined {
+	const query = pathnameWithSearch.split('?')[1]
+	return query ? (new URLSearchParams(query).get('workspace') ?? undefined) : undefined
 }
 
 // Exit session mode: back to the last navigation route (home as a fallback).

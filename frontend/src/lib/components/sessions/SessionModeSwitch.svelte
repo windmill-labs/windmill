@@ -4,6 +4,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { enterSessionModeFromNav, exitSessionMode } from './sessionSwitch.svelte'
 	import { goto } from '$lib/navigation'
+	import { sendUserToast } from '$lib/toast'
 	import { page } from '$app/state'
 	import { base } from '$lib/base'
 
@@ -20,8 +21,14 @@
 	function onSelected(next: 'nav' | 'session') {
 		if (next === mode) return
 		onToggle?.()
-		if (next === 'session') void enterSessionModeFromNav()
-		else void exitSessionMode()
+		if (next === 'session') {
+			// An editor whose draft could not be persisted keeps the user on the
+			// page, as its own "Open in AI session" button does, rather than open a
+			// session on an older draft than the one on screen.
+			void enterSessionModeFromNav().catch((e) =>
+				sendUserToast(e instanceof Error ? e.message : String(e), true)
+			)
+		} else void exitSessionMode()
 	}
 
 	// Pressing the already-active "Workspace" side goes home, so the toggle doubles
