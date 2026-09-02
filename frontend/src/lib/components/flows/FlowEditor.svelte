@@ -530,6 +530,5 @@
 </Disposable>
 
 <!-- Mounted here rather than in the panel, which is keyed on the selection and would take the
-     dialog down with it — and here rather than higher up, because the form inside needs the
-     PropPickerContext this component sets. -->
+     dialog down with it the moment the graph selection moved. -->
 <AgentEditorModal enableAi={!disableAi} />

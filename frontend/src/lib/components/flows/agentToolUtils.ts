@@ -82,8 +82,6 @@ export function isWebsearchTool(tool: AgentTool): tool is WebsearchTool {
 	return tool.value.tool_type === 'websearch'
 }
 
-/** What to call a tool on screen: its summary is the name the model is given, so it is also the
- *  name a reader knows it by. Falls back to whatever else identifies it. */
 /** The only input a nested agent used as a tool has the calling agent fill: the rest is its own
  *  configuration, not something to generate. Mirrors the server, which offers such a tool a schema
  *  of `{user_message}` and nothing else (`AI_AGENT_TOOL_SCHEMA` in `ai_executor.rs`); anything else

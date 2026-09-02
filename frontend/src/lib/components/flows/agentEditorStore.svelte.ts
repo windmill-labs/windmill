@@ -42,9 +42,3 @@ export function showAgentEditorView(view: AgentEditorTarget['view']) {
 export function agentEditorTarget(): AgentEditorTarget | undefined {
 	return target
 }
-
-/** Whether the editor is already open on this agent, so a card can offer "Continue editing"
- *  rather than a second way in. */
-export function agentEditorOwns(path: string | undefined): boolean {
-	return path !== undefined && target?.path === path
-}
