@@ -1,5 +1,11 @@
 <script lang="ts">
-	import { type CompletedJob, JobService, type Preview, UserService } from '$lib/gen'
+	import {
+		type CompletedJob,
+		JobService,
+		type Preview,
+		SettingService,
+		UserService
+	} from '$lib/gen'
 
 	import { Database, Loader2 } from 'lucide-svelte'
 	import Button from './common/button/Button.svelte'
@@ -13,14 +19,57 @@
 		resourceType: string | undefined
 		args?: Record<string, any> | any
 		buttonTextOverride?: string | undefined
+		// Object-storage types only: run the probe from a preview job instead of the browser, to
+		// prove a worker can reach the API. The job gets a short-lived token minted for the
+		// caller (a job token is never treated as a super admin), and that token sits in the
+		// job's stored arguments until it is revoked, so keep this to workspaces whose job
+		// readers you trust with the caller's privileges.
+		viaWorker?: boolean
 	}
 
 	let {
 		workspaceOverride = undefined,
 		resourceType,
 		args = {},
-		buttonTextOverride = undefined
+		buttonTextOverride = undefined,
+		viaWorker = false
 	}: Props = $props()
+
+	// Object-storage resource types share one probe, the API's own connectivity test, which runs
+	// on the API server with the caller's privileges. Each type maps its resource to the
+	// ObjectSettings body that route expects.
+	const objectStorageBody: { [key: string]: (args: any) => Record<string, any> } = {
+		s3: (s3) => ({
+			type: 'S3',
+			region: s3.region,
+			bucket: s3.bucket,
+			endpoint: s3.endPoint,
+			port: s3.port,
+			allow_http: !s3.useSSL,
+			access_key: s3.accessKey,
+			secret_key: s3.secretKey,
+			path_style: s3.pathStyle
+		}),
+		azure_blob: (s3) => ({ type: 'Azure', ...s3 }),
+		s3_bucket: (bucket) => bucket
+	}
+
+	const OBJECT_STORAGE_TEST_SCRIPT = `
+export async function main(bucket: any, api_token: string) {
+	const res = await fetch(process.env.BASE_URL + '/api/settings/test_object_storage_config', {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: 'Bearer ' + api_token,
+		},
+		body: JSON.stringify(bucket),
+	})
+	if (!res.ok) {
+		throw new Error(await res.text())
+	}
+	return await res.text()
+}
+`
 
 	const scripts: {
 		[key: string]: {
@@ -29,11 +78,6 @@
 			argName: string
 			// Shown as an info tooltip next to the button, e.g. to clarify where the test executes
 			tooltip?: string
-			// The object-storage probe runs on the API server, whose route never treats a job token
-			// ($WM_TOKEN) as a super admin. A script naming this argument receives a short-lived
-			// `settings:write` token minted for the caller instead, so a super admin keeps the
-			// unrestricted path (private endpoints, ambient server credentials).
-			apiTokenArg?: string
 			additionalCheck?: (testResult: CompletedJob) => CompletedJob
 		}
 	} = {
@@ -73,71 +117,16 @@
 			argName: 'database'
 		},
 		s3: {
-			code: `
-import * as wmill from "windmill-client"
-
-type S3 = object
-
-export async function main(s3: S3, api_token: string) {
-	return fetch(process.env["BASE_URL"] + '/api/settings/test_object_storage_config', {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			Authorization: 'Bearer ' + api_token,
-		},
-		body: JSON.stringify({
-			type: "S3",
-			region: s3.region,
-			bucket: s3.bucket,
-			endpoint: s3.endPoint,
-			port: s3.port,
-			allow_http: !s3.useSSL,
-			access_key: s3.accessKey,
-			secret_key: s3.secretKey,
-			path_style: s3.pathStyle,
-		}),
-	}).then(async (res) => {
-		if (!res.ok) {
-			throw new Error(await res.text())
-		}
-		return res.text()
-	})
-}
-`,
+			code: OBJECT_STORAGE_TEST_SCRIPT,
 			lang: 'bun',
-			argName: 's3',
-			apiTokenArg: 'api_token',
+			argName: 'bucket',
 			tooltip:
 				'The storage operations of this test run on the Windmill server (the API process) with your permissions, not on the worker. Non-super-admins can only test public endpoints with an explicit access key and secret key; super admins can also test private endpoints and rely on the ambient AWS credentials of the server (environment variables, instance role). Scripts using this resource directly through an S3 SDK resolve credentials on the worker instead, so results may differ.'
 		},
 		azure_blob: {
-			code: `
-import * as wmill from "windmill-client"
-
-type S3 = object
-
-export async function main(s3: S3, api_token: string) {
-	return fetch(process.env["BASE_URL"] + '/api/settings/test_object_storage_config', {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			Authorization: 'Bearer ' + api_token,
-		},
-		body: JSON.stringify({
-			type: "Azure",
-			...s3
-		}),
-	}).then(async (res) => {
-		if (!res.ok) {
-			throw new Error(await res.text())
-		}
-		return res.text()
-	})
-}
-`,
+			code: OBJECT_STORAGE_TEST_SCRIPT,
 			lang: 'bun',
-			argName: 's3',
-			apiTokenArg: 'api_token',
+			argName: 'bucket',
 			tooltip:
 				'The storage operations of this test run on the Windmill server (the API process) with your permissions, not on the worker. Non-super-admins can only test public endpoints with an explicit access key.'
 		},
@@ -165,28 +154,9 @@ export async function main(s3: S3, api_token: string) {
 			}
 		},
 		s3_bucket: {
-			code: `
-
-const process = require('process');
-
-export async function main(bucket: any, api_token: string) {
-	const req = await fetch(process.env.BASE_URL + '/api/settings/test_object_storage_config', {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			Authorization: 'Bearer ' + api_token,
-		},
-		body: JSON.stringify(bucket),
-	});
-	if (!req.ok) {
-		throw new Error(await req.text());
-	}
-	return await req.text();
-}
-`,
+			code: OBJECT_STORAGE_TEST_SCRIPT,
 			lang: 'bun',
 			argName: 'bucket',
-			apiTokenArg: 'api_token',
 			tooltip:
 				"The storage operations of this test run on the Windmill server (the API process) with your permissions. Non-super-admins can only test public endpoints with explicit credentials; super admins can also test private endpoints and rely on the server's ambient credentials for the configured provider (environment variables, instance role)."
 		}
@@ -195,7 +165,7 @@ export async function main(bucket: any, api_token: string) {
 	let loading = $state(false)
 
 	// The token is revoked as soon as the job settles; the expiry only covers a browser that
-	// goes away mid-test. It stays visible in the job's stored args, hence the short life.
+	// goes away mid-test. It is readable in the job's stored args until then, hence the short life.
 	const API_TOKEN_TTL_MS = 60_000
 	// Tokens are addressed by their first 10 characters (TOKEN_PREFIX_LEN on the backend).
 	const API_TOKEN_PREFIX_LEN = 10
@@ -219,17 +189,35 @@ export async function main(bucket: any, api_token: string) {
 		}
 	}
 
+	async function testObjectStorageFromBrowser(body: Record<string, any>) {
+		try {
+			await SettingService.testObjectStorageConfig({ requestBody: body })
+			sendUserToast('Connection successful', false)
+		} catch (err: any) {
+			sendUserToast('Connection error: ' + (err?.body ?? err?.message ?? err), true)
+		} finally {
+			loading = false
+		}
+	}
+
 	async function testConnection() {
 		if (!resourceType) return
 		loading = true
 
 		const resourceScript = scripts[resourceType]
 		const workspace = workspaceOverride ?? $workspaceStore!
+		const objectStorageArgs: Record<string, any> | undefined =
+			resourceType in objectStorageBody ? objectStorageBody[resourceType](args) : undefined
+
+		if (objectStorageArgs && !viaWorker) {
+			await testObjectStorageFromBrowser(objectStorageArgs)
+			return
+		}
 
 		let apiToken: string | undefined = undefined
 		let job: string
 		try {
-			if (resourceScript.apiTokenArg) {
+			if (objectStorageArgs) {
 				apiToken = await mintApiToken()
 			}
 			job = await JobService.runScriptPreview({
@@ -238,12 +226,9 @@ export async function main(bucket: any, api_token: string) {
 					path: `testConnection: ${resourceType}`,
 					language: resourceScript.lang as Preview['language'],
 					content: resourceScript.code,
-					args: {
-						[resourceScript.argName]: args,
-						...(resourceScript.apiTokenArg && apiToken
-							? { [resourceScript.apiTokenArg]: apiToken }
-							: {})
-					}
+					args: objectStorageArgs
+						? { bucket: objectStorageArgs, api_token: apiToken }
+						: { [resourceScript.argName]: args }
 				}
 			})
 		} catch (err: any) {
