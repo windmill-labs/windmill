@@ -517,12 +517,14 @@ async fn validate_public_endpoint(endpoint: &str) -> error::Result<()> {
     // attempts (a name resolving to both a public and a private address).
     for addr in addrs {
         if is_forbidden_ip(addr.ip()) {
-            let ip = addr.ip();
+            // The resolved address stays out of the message: it is the server's resolver's
+            // answer, and this message is only ever shown to the caller being constrained.
             return Err(error::Error::NotAuthorized(format!(
-                "Testing object storage at '{host}' ({ip}, a private, loopback, or link-local \
-                 address) requires a super admin: this test runs on the Windmill server, which is \
-                 not allowed to probe internal addresses for non-super-admins. Ask a super admin \
-                 to run it, or test the resource from a script, which runs on a worker."
+                "Testing object storage at '{host}', which resolves to a private, loopback, or \
+                 link-local address, requires a super admin: this test runs on the Windmill \
+                 server, which is not allowed to probe internal addresses for non-super-admins. \
+                 Ask a super admin to run it, or test the resource from a script, which runs on \
+                 a worker."
             )));
         }
     }
