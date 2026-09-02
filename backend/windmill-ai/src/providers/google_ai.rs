@@ -689,14 +689,27 @@ impl QueryBuilder for GoogleAIQueryBuilder {
         // present on every tool-using turn, and thinking tokens. Reading the headline
         // fields alone under-reports the prompt of exactly the conversations compaction
         // has to notice.
-        let usage = gemini_usage.map(|u| {
-            let prompt = crate::ai_google::gemini_prompt_tokens(&u);
-            let completion = crate::ai_google::gemini_completion_tokens(&u);
-            TokenUsage::new(
-                Some(prompt),
-                Some(completion),
-                u.total_token_count.or(Some(prompt + completion)),
-            )
+        let usage = gemini_usage.and_then(|u| {
+            let has_prompt =
+                u.prompt_token_count.is_some() || u.tool_use_prompt_token_count.is_some();
+            let has_completion =
+                u.candidates_token_count.is_some() || u.thoughts_token_count.is_some();
+            if !has_prompt && !has_completion && u.total_token_count.is_none() {
+                // An endpoint that reported nothing has to stay `None`. A zeroed count
+                // reads downstream as an empty prompt, where absent means "fall back to
+                // estimating the conversation".
+                return None;
+            }
+            let prompt = has_prompt.then(|| crate::ai_google::gemini_prompt_tokens(&u));
+            let completion = has_completion.then(|| crate::ai_google::gemini_completion_tokens(&u));
+            Some(TokenUsage::new(
+                prompt,
+                completion,
+                u.total_token_count.or_else(|| match (prompt, completion) {
+                    (Some(p), Some(c)) => Some(p.saturating_add(c)),
+                    _ => None,
+                }),
+            ))
         });
 
         Ok(ParsedResponse::Text {
