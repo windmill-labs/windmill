@@ -807,14 +807,21 @@ pub async fn eval_fetch_timeout(
                     use windmill_common::result_stream::extract_stream_from_logs;
                     use windmill_common::tracing_init::{OTEL_JOB_LOGS, OTEL_PREFIX};
 
-                    // Masking is a log concern only, so the result stream below reads the
-                    // raw `log`, the way `handle_child` keeps its raw `line` for results.
-                    let logged = masker.mask(&log).into_owned();
+                    let stream = extract_stream_from_logs(&log.trim_end_matches("\n"));
+
+                    // A stream chunk stays raw: it is a data channel, and `merge_result_stream`
+                    // below can make it the job's result, which no more carries a redaction
+                    // than a returned value does. This deliberately differs from
+                    // `handle_child`, which extracts its stream from the masked text.
+                    // Deciding it before masking also keeps the one-shot notice for a line
+                    // that is persisted: spent on a chunk discarded here, it would leave a
+                    // later redaction in `job_logs` with nothing explaining it.
+                    let logged = stream.is_none().then(|| masker.mask(&log).into_owned());
 
                     // Mirror `process_streaming_log_lines` (EE) + the OTEL_JOB_LOGS
                     // hook from handle_child.rs, neither of which runs for nativets
                     // since nativets delivers logs in-process via the log channel.
-                    for line in logged.lines() {
+                    for line in logged.as_deref().unwrap_or(&log).lines() {
                         tracing::info!(
                             target: "windmill:job_log",
                             job_id = ?job_id,
@@ -828,7 +835,7 @@ pub async fn eval_fetch_timeout(
                         }
                     }
 
-                    if let Some(stream) = extract_stream_from_logs(&log.trim_end_matches("\n")) {
+                    if let Some(stream) = stream {
                         if !is_stream {
                             is_stream = true;
                             if let Some(ref f) = stream_notifier_update {
@@ -840,7 +847,7 @@ pub async fn eval_fetch_timeout(
                         if let Err(e) = result_stream_sender.send(stream) {
                             tracing::error!("failed to send result stream: {e}");
                         }
-                    } else {
+                    } else if let Some(logged) = logged {
                         if let Err(e) = append_logs_sender.send(logged) {
                             tracing::error!("failed to send log: {e}");
                         }

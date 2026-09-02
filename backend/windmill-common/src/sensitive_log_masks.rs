@@ -291,4 +291,20 @@ mod tests {
         assert!(!third.contains("secondsecretvalue"), "{third}");
         unregister_running_job(job_id);
     }
+
+    /// A sink can still be emitting after the job is unregistered — nativets never
+    /// joins its producing loop on the memory-limit path — so the masker has to keep
+    /// working off the masks it last saw rather than going quiet.
+    #[test]
+    fn job_masker_masks_after_the_job_is_unregistered() {
+        let job_id = Uuid::new_v4();
+        register_running_job(job_id);
+        register_secret_for_job(job_id, "supersecretvalue");
+        let mut masker = JobMasker::new(job_id);
+
+        unregister_running_job(job_id);
+
+        let masked = masker.mask("logged supersecretvalue here");
+        assert!(!masked.contains("supersecretvalue"), "{masked}");
+    }
 }

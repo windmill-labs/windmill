@@ -3859,14 +3859,6 @@ pub async fn run_worker(
 
                     let arc_job = Arc::new(job);
 
-                    windmill_common::sensitive_log_masks::register_running_job(arc_job.id);
-                    // The job token stays valid well past the job, and logs outlive it in the
-                    // database and object storage, so mask it in case a script echoes $WM_TOKEN.
-                    windmill_common::sensitive_log_masks::register_secret_for_job(
-                        arc_job.id,
-                        &authed_client.token,
-                    );
-
                     let span = create_span_with_name(&arc_job, &worker_name, Some(hostname), "job");
                     let log_ctx = log_context_for_job(&arc_job, &worker_name, Some(hostname));
 
@@ -3980,8 +3972,6 @@ pub async fn run_worker(
                         }
                         _ => {}
                     }
-
-                    windmill_common::sensitive_log_masks::unregister_running_job(job_id);
 
                     #[cfg(feature = "prometheus")]
                     if let Some(duration) = _timer.map(|x| x.stop_and_record()) {
@@ -4517,6 +4507,30 @@ async fn detect_and_store_runtime_assets_from_job_args(
     }
 }
 
+/// Holds a job's entry in the log-masking registry for as long as it executes, so
+/// that secrets it fetches can be registered against it, and masks the job's own
+/// token from the start: `$WM_TOKEN` stays valid well past the run, and a script
+/// that echoes it would otherwise leave a live credential in the persisted logs.
+///
+/// Lives here rather than at the call sites so that every way of running a job —
+/// the poller, the interactive worker shell, an inline AI agent tool — is covered
+/// by construction.
+struct RunningJobMasks(Uuid);
+
+impl RunningJobMasks {
+    fn register(job_id: Uuid, token: &str) -> Self {
+        windmill_common::sensitive_log_masks::register_running_job(job_id);
+        windmill_common::sensitive_log_masks::register_secret_for_job(job_id, token);
+        RunningJobMasks(job_id)
+    }
+}
+
+impl Drop for RunningJobMasks {
+    fn drop(&mut self) {
+        windmill_common::sensitive_log_masks::unregister_running_job(self.0);
+    }
+}
+
 pub async fn handle_queued_job(
     job: Arc<MiniPulledJob>,
     raw_code: Option<String>,
@@ -4538,6 +4552,8 @@ pub async fn handle_queued_job(
     flow_runners: Option<Arc<FlowRunners>>,
     #[cfg(feature = "benchmark")] _bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<JobOutcome> {
+    let _masks = RunningJobMasks::register(job.id, &client.token);
+
     if job.canceled_by.is_some() {
         return Err(Error::JsonErr(canceled_job_to_result(&job)));
     }
