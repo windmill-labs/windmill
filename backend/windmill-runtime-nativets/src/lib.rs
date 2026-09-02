@@ -793,12 +793,10 @@ pub async fn eval_fetch_timeout(
                 }
             }
             let w_id_for_tracing = w_id_for_tracing;
-            // nativets delivers logs in-process rather than through a child's pipes, so it
-            // never reaches the masking in `handle_child::write_lines` and a `console.log`
-            // of a secret, or of the job's own `$WM_TOKEN`, would be persisted verbatim.
-            // Mask here, on the producing side: this loop is joined before the job
-            // completes, so the job's secrets are always still registered, which is not
-            // true of the detached task that drains into `append_logs`.
+            // nativets delivers logs in-process, so they never reach the masking in
+            // `handle_child::write_lines` and a `console.log` of `$WM_TOKEN` would be
+            // persisted verbatim. Mask here rather than in the detached task draining into
+            // `append_logs`: this loop normally runs while the job is still registered.
             let mut masker = windmill_common::sensitive_log_masks::JobMasker::new(job_id);
             let handle = tokio::spawn(async move {
                 let mut result_stream = String::new();
@@ -809,13 +807,12 @@ pub async fn eval_fetch_timeout(
 
                     let stream = extract_stream_from_logs(&log.trim_end_matches("\n"));
 
-                    // A stream chunk stays raw: it is a data channel, and `merge_result_stream`
-                    // below can make it the job's result, which no more carries a redaction
-                    // than a returned value does. This deliberately differs from
-                    // `handle_child`, which extracts its stream from the masked text.
-                    // Deciding it before masking also keeps the one-shot notice for a line
-                    // that is persisted: spent on a chunk discarded here, it would leave a
-                    // later redaction in `job_logs` with nothing explaining it.
+                    // A stream chunk is result data, not a log line — it never reaches
+                    // `job_logs`, and `merge_result_stream` can make it the job's result —
+                    // so it stays raw wherever it goes, here and in the mirror below.
+                    // Deliberately unlike `handle_child`, which streams the masked text.
+                    // Routed before masking because the notice is one-shot: spent on a chunk
+                    // no sink persists, a later redaction in `job_logs` would go unexplained.
                     let logged = stream.is_none().then(|| masker.mask(&log).into_owned());
 
                     // Mirror `process_streaming_log_lines` (EE) + the OTEL_JOB_LOGS

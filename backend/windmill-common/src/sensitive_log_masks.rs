@@ -292,9 +292,8 @@ mod tests {
         unregister_running_job(job_id);
     }
 
-    /// A sink can still be emitting after the job is unregistered — nativets never
-    /// joins its producing loop on the memory-limit path — so the masker has to keep
-    /// working off the masks it last saw rather than going quiet.
+    /// Unregistration must not turn masking off under a sink that is still emitting:
+    /// the masker keeps working off the masks it last saw rather than going quiet.
     #[test]
     fn job_masker_masks_after_the_job_is_unregistered() {
         let job_id = Uuid::new_v4();
