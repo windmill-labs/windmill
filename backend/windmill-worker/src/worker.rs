@@ -3860,6 +3860,12 @@ pub async fn run_worker(
                     let arc_job = Arc::new(job);
 
                     windmill_common::sensitive_log_masks::register_running_job(arc_job.id);
+                    // The job token stays valid well past the job, and logs outlive it in the
+                    // database and object storage, so mask it in case a script echoes $WM_TOKEN.
+                    windmill_common::sensitive_log_masks::register_secret_for_job(
+                        arc_job.id,
+                        &authed_client.token,
+                    );
 
                     let span = create_span_with_name(&arc_job, &worker_name, Some(hostname), "job");
                     let log_ctx = log_context_for_job(&arc_job, &worker_name, Some(hostname));
