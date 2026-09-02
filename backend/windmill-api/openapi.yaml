@@ -5751,9 +5751,10 @@ paths:
       summary: enable or disable guest sessions for this workspace
       description: >-
         Guests are people the identity provider authenticates who are members of no
-        workspace, so they take no seat. Off by default. Checked where a guest session
-        is minted, so turning it off stops new guests immediately even for apps whose
-        policy already says `guest`; sessions already handed out run out on their own.
+        workspace, so they take no seat. Off by default. Re-read wherever a guest is
+        admitted — minting a session, reading an app, running its components — so
+        turning it off takes effect immediately, for sessions already issued and for
+        apps whose policy already says `guest`.
       operationId: editGuestAccess
       tags:
         - workspace

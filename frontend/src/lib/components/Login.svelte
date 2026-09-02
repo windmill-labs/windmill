@@ -597,7 +597,15 @@
 				return
 			}
 			try {
-				await UserService.getCurrentEmail()
+				// A guest session is pinned to its workspace and cannot authenticate on
+				// any workspace-less route, so the global probe would 401 forever and this
+				// fallback would never complete a guest sign-in.
+				const guestWorkspace = guestApp?.split('/')[0]
+				if (guestWorkspace) {
+					await UserService.whoami({ workspace: guestWorkspace })
+				} else {
+					await UserService.getCurrentEmail()
+				}
 			} catch {
 				return
 			}
@@ -606,13 +614,14 @@
 		}, 1500)
 	}
 
-	/** Mirrors the server-side write in the OAuth `login` handler (`set_unsensitive_cookie`)
-	 * attribute for attribute, including clearing it when this sign-in is not a guest
-	 * entry. `login_externally` consumes it. `SameSite=None` is required, not a choice:
-	 * the SAML ACS is a cross-site POST from the IdP, and a Lax cookie is not sent on
-	 * those. `None` needs `Secure`, so — exactly like the backend's own cookie — this
-	 * only survives the round trip over https; over plain http the browser drops it
-	 * and a guest sign-in falls through to ordinary provisioning. */
+	/** The SAML counterpart of the cookie the OAuth `login` handler writes server-side
+	 * (`set_unsensitive_cookie`), including clearing it when this sign-in is not a
+	 * guest entry. `login_externally` consumes it. `SameSite=None` is required: the
+	 * SAML ACS is a cross-site POST from the IdP, and a Lax cookie is not sent on
+	 * those. `None` needs `Secure`, so this only survives the round trip over https;
+	 * over plain http the browser drops it and a guest sign-in falls through to
+	 * ordinary provisioning. Host-only: a `COOKIE_DOMAIN` deployment that serves the
+	 * ACS from a different host than this page would need the domain set here too. */
 	function setGuestAppCookie(value: string | undefined) {
 		try {
 			const secure = window.location.protocol === 'https:' ? '; Secure' : ''

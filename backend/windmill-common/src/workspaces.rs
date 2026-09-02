@@ -778,11 +778,11 @@ pub struct BillableSeats {
 /// Whether `w_id` admits guest sessions — someone the identity provider authenticated
 /// who is a member of no workspace, and who therefore takes no seat.
 ///
-/// Read uncached, and only where a guest session is minted. An app carries its own
-/// `execution_mode` in its definition, so git-sync and the CLI can push `guest` past
-/// every deploy-time gate; the switch is only meaningful if the door itself checks it.
-/// Turning it off does not invalidate sessions already handed out — they expire on
-/// their own, which is why a guest session's validity is short.
+/// Read uncached, at every door a guest passes: where the session is minted
+/// ([`guest_app_admits`]), where a guest reads an app, and where a guest runs its
+/// components. An app carries its own `execution_mode` in its definition, so git-sync
+/// and the CLI can push `guest` past every deploy-time gate; re-reading here is what
+/// makes turning the switch off take effect on sessions already issued.
 pub async fn is_guest_access_enabled(db: &crate::DB, w_id: &str) -> Result<bool> {
     Ok(sqlx::query_scalar!(
         "SELECT guest_access_enabled FROM workspace_settings WHERE workspace_id = $1",

@@ -61,6 +61,9 @@
 	/** `<workspace>/<app_path>` when this app is open to guests. Resolved eagerly:
 	 * PublicAppFrame renders its sign-in gate before `onViewerReady` fires. */
 	let guestAppPath: string | undefined = $state(undefined)
+	/** The frame's sign-in gate must not mount before this is known: a configured
+	 * auto-login would otherwise fire an ordinary sign-in and provision an account. */
+	let guestEntryResolved = $state(false)
 
 	async function loadGuestEntry() {
 		try {
@@ -70,6 +73,8 @@
 			guestAppPath = `${entry.workspace_id}/${entry.app_path}`
 		} catch {
 			guestAppPath = undefined
+		} finally {
+			guestEntryResolved = true
 		}
 	}
 
@@ -143,6 +148,7 @@
 	}
 </script>
 
+{#if guestEntryResolved}
 <PublicAppFrame
 	{fetchEmbedToken}
 	{viewerUrl}
@@ -164,3 +170,4 @@
 		></PublicApp>
 	{/snippet}
 </PublicAppFrame>
+{/if}

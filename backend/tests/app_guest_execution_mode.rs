@@ -50,12 +50,13 @@ fn guest_scopes() -> Vec<String> {
 
 /// Insert a guest session for `test-workspace`, scoped to `APP_PATH`. Mirrors
 /// `create_guest_session_token`: the server-minted label, the narrow reads, the two
-/// path-scoped app grants, and the workspace pin.
+/// path-scoped app grants, the workspace pin, and an expiry — a derived token's
+/// lifetime is capped at it, so a guest session without one cannot mint.
 async fn insert_guest_token(db: &Pool<Postgres>, workspace: &str) -> anyhow::Result<()> {
     sqlx::query(
-        "INSERT INTO token (token_hash, token_prefix, token, email, label, scopes, workspace_id)
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, scopes, workspace_id, expiration)
          VALUES (encode(sha256($1::bytea), 'hex'), 'GUEST_SECR', $2, 'guest@example.com',
-                 'guest_session', $3, $4)",
+                 'guest_session', $3, $4, now() + interval '8 hours')",
     )
     .bind(GUEST_TOKEN.as_bytes())
     .bind(GUEST_TOKEN)
@@ -479,6 +480,23 @@ async fn a_guest_minted_embed_token_stays_a_guest(db: Pool<Postgres>) -> anyhow:
         .as_str()
         .expect("mint must return a token for an authenticated guest")
         .to_string();
+
+    // Its lifetime is capped at the session that minted it: the requested embed
+    // validity (12h) is longer than the guest session's (8h in this fixture), and the
+    // session's expiry is a guest's only revocation.
+    let parent_exp: chrono::DateTime<chrono::Utc> = sqlx::query_scalar(
+        "SELECT expiration FROM token WHERE token_prefix = 'GUEST_SECR'",
+    )
+    .fetch_one(&db)
+    .await?;
+    let child_exp: chrono::DateTime<chrono::Utc> = body["expiration"]
+        .as_str()
+        .and_then(|e| e.parse().ok())
+        .expect("mint must return the token's expiration");
+    assert!(
+        child_exp <= parent_exp,
+        "a guest's embed token must not outlive the session that minted it ({child_exp} > {parent_exp})"
+    );
 
     // Resolves — and as a guest, not as the non-member superadmin shape.
     let resp = authed(client().get(format!("{ws}/users/whoami")), &embed)

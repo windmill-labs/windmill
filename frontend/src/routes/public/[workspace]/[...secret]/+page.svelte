@@ -20,6 +20,9 @@
 	 * offer a guest session rather than a dead end. 404 (the common case) leaves it
 	 * undefined. */
 	let guestAppPath: string | undefined = $state(undefined)
+	/** The frame's sign-in gate must not mount before this is known: a configured
+	 * auto-login would otherwise fire an ordinary sign-in and provision an account. */
+	let guestEntryResolved = $state(false)
 
 	function parseSecret(secret: string): { secret: string; jwt: string | undefined } {
 		const parts = secret.split('/')
@@ -103,6 +106,8 @@
 			guestAppPath = `${workspace}/${entry.app_path}`
 		} catch {
 			guestAppPath = undefined
+		} finally {
+			guestEntryResolved = true
 		}
 	}
 
@@ -119,6 +124,7 @@
 	}
 </script>
 
+{#if guestEntryResolved}
 <PublicAppFrame
 	{fetchEmbedToken}
 	{viewerUrl}
@@ -140,3 +146,4 @@
 		></PublicApp>
 	{/snippet}
 </PublicAppFrame>
+{/if}

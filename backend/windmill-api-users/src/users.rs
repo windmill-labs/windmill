@@ -2931,7 +2931,7 @@ lazy_static::lazy_static! {
     /// there is nothing to disable when the workspace revokes guest access or the
     /// identity provider removes them — the expiry is the revocation. Much shorter
     /// than a member session for that reason.
-    pub static ref GUEST_SESSION_VALIDITY_SECONDS: i64 = std::env::var("GUEST_SESSION_VALIDITY_SECONDS")
+    static ref GUEST_SESSION_VALIDITY_SECONDS: i64 = std::env::var("GUEST_SESSION_VALIDITY_SECONDS")
         .ok()
         .and_then(|x| x.parse::<i64>().ok())
         .unwrap_or(8 * 60 * 60);
@@ -3311,11 +3311,9 @@ async fn update_token_scopes(
 
     let mut tx = db.begin().await?;
 
-    // A guest session's scopes are its entire confinement — the label grants the
-    // identity, the scopes bound it to one app. Once the same email holds a real
-    // account (promotion), that account could otherwise rescope the still-valid
-    // guest token into an unconfined non-member credential, so a guest-labelled
-    // token is not rescoped by anyone. Same shape as the relabel guard.
+    // A guest-labelled token is never rescoped: its scopes are its whole confinement,
+    // and after promotion the same email owns an account that could otherwise strip
+    // them from the still-valid guest credential. Same shape as the relabel guard.
     let updated: Option<String> = sqlx::query_scalar!(
         "UPDATE token SET scopes = $1
            WHERE email = $2 AND token_prefix = $3

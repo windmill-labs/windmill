@@ -1454,9 +1454,18 @@ async fn mint_raw_app_sdk_token(
     ensure_scopes_within_caller(authed, Some(scopes))?;
     let mut scopes = scopes.to_vec();
     scopes.push(windmill_api_auth::scopes::RAW_APP_SDK_SENTINEL.to_string());
-    let expiration = chrono::Utc::now() + chrono::Duration::hours(APP_EMBED_TOKEN_VALIDITY_HOURS);
+    let requested_exp =
+        chrono::Utc::now() + chrono::Duration::hours(APP_EMBED_TOKEN_VALIDITY_HOURS);
+    let (label, expiration) =
+        match guest_derived_token_constraints(db, authed, requested_exp).await? {
+            Some((label, exp)) => {
+                scopes.push(windmill_api_auth::scopes::GUEST_SENTINEL.to_string());
+                (label, exp)
+            }
+            None => (format!("sdk_app:{app_path}"), requested_exp),
+        };
     let token_config = NewToken::new(
-        Some(format!("sdk_app:{app_path}")),
+        Some(label),
         Some(expiration),
         None,
         Some(scopes),
@@ -1469,6 +1478,39 @@ async fn mint_raw_app_sdk_token(
     let token = create_token_internal(&mut *tx, db, authed, token_config).await?;
     tx.commit().await?;
     Ok((token, expiration))
+}
+
+/// Label and expiry a token minted *by* a guest session must carry, or `None` for a
+/// non-guest minter. The label is what lets it resolve (no `usr` row behind the email);
+/// the caller pushes the `guest` sentinel so every guest control still applies; the
+/// expiry is capped at the parent's, since that expiry is a guest's only revocation.
+async fn guest_derived_token_constraints(
+    db: &DB,
+    authed: &ApiAuthed,
+    requested: chrono::DateTime<chrono::Utc>,
+) -> Result<Option<(String, chrono::DateTime<chrono::Utc>)>> {
+    if !windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref()) {
+        return Ok(None);
+    }
+    // The minter is known by prefix only; MIN over a (theoretical) prefix collision is
+    // the conservative side.
+    let parent: Option<Option<chrono::DateTime<chrono::Utc>>> = sqlx::query_scalar(
+        "SELECT MIN(expiration) FROM token WHERE token_prefix = $1 AND email = $2 AND label = $3",
+    )
+    .bind(authed.token_prefix.as_deref().unwrap_or(""))
+    .bind(&authed.email)
+    .bind(windmill_common::auth::GUEST_SESSION_LABEL)
+    .fetch_optional(db)
+    .await?;
+    let Some(parent_exp) = parent.flatten() else {
+        return Err(Error::NotAuthorized(
+            "guest session not found or has no expiry".to_string(),
+        ));
+    };
+    Ok(Some((
+        windmill_common::auth::GUEST_SESSION_LABEL.to_string(),
+        requested.min(parent_exp),
+    )))
 }
 
 /// Shared tail of the three embed-token endpoints: which credential the viewer
@@ -1654,18 +1696,8 @@ pub async fn mint_app_embed_token(
                 "App embed tokens cannot mint or renew embed tokens".to_string(),
             ));
         }
-        let is_guest_minter =
-            windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref());
-        // A guest's embed token must not outlive the kind of session that minted it.
-        let validity = if is_guest_minter {
-            chrono::Duration::seconds(
-                (*windmill_api_users::users::GUEST_SESSION_VALIDITY_SECONDS)
-                    .min(APP_EMBED_TOKEN_VALIDITY_HOURS * 3600),
-            )
-        } else {
-            chrono::Duration::hours(APP_EMBED_TOKEN_VALIDITY_HOURS)
-        };
-        let expiration = chrono::Utc::now() + validity;
+        let requested_exp =
+            chrono::Utc::now() + chrono::Duration::hours(APP_EMBED_TOKEN_VALIDITY_HOURS);
         let mut scopes: Vec<String> = APP_EMBED_SCOPES
             .iter()
             .filter(|s| **s != windmill_api_auth::scopes::APP_EMBED_SENTINEL)
@@ -1687,19 +1719,14 @@ pub async fn mint_app_embed_token(
         // guest session is. `mint_raw_app_sdk_token` has the same shape.
         ensure_scopes_within_caller(authed, Some(&scopes))?;
         scopes.push(windmill_api_auth::scopes::APP_EMBED_SENTINEL.to_string());
-        // A guest's embed token is a guest twice over. The label is what lets it
-        // resolve at all — there is no `usr` row behind the email, so `AuthCache`
-        // admits it the same way it admits the session that minted it. The `guest`
-        // sentinel is what keeps every guest control on it: the workspace switch, the
-        // rate limit, the `whoami` role all key on the sentinel, and this is the one
-        // credential handed to untrusted app JS, so it must be at least as confined
-        // as its minter. Both sentinels compose — each is a default-deny allowlist.
-        let label = if is_guest_minter {
-            scopes.push(windmill_api_auth::scopes::GUEST_SENTINEL.to_string());
-            windmill_common::auth::GUEST_SESSION_LABEL.to_string()
-        } else {
-            format!("embed_app:{app_path}")
-        };
+        let (label, expiration) =
+            match guest_derived_token_constraints(db, authed, requested_exp).await? {
+                Some((label, exp)) => {
+                    scopes.push(windmill_api_auth::scopes::GUEST_SENTINEL.to_string());
+                    (label, exp)
+                }
+                None => (format!("embed_app:{app_path}"), requested_exp),
+            };
         let token_config = NewToken::new(
             Some(label),
             Some(expiration),
