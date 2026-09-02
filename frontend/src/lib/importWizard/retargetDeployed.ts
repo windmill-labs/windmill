@@ -41,21 +41,6 @@ import { updateRawAppPolicy } from '$lib/sharedUtils'
 import type { App } from '$lib/components/apps/types'
 import { apiErrorMessage as errorMessage } from '$lib/utils'
 
-/**
- * The source files a raw app was imported from, keyed by the path it landed at.
- *
- * A raw app is deployed as a value plus a compiled bundle, and the bundle is stored where
- * the browser cannot read it back (`/apps/get_data/v/{id}` decrypts an embed secret). The
- * export already carries that bundle prebuilt as `/bundle.js` and `/bundle.css` — it is what
- * `installProject` uploaded in the first place — so a rewrite re-uploads it rather than
- * re-running the bundler.
- *
- * An app whose sources the export does not yield carries no entry at all. An empty one reads
- * as "the app ships no sources", which `planRetarget` would let through to an upload that
- * wipes the deployed bundle.
- */
-export type ExportedAppFiles = Record<string, Record<string, string>>
-
 export type ReferrerKind = 'script' | 'flow' | 'app' | 'raw app' | 'trigger'
 
 export interface Referrer {
@@ -96,25 +81,6 @@ export interface RetargetOutcome {
 /** Everything under the project's folder, which is all this rewrites. */
 function inFolder(path: unknown, folder: string): boolean {
 	return typeof path === 'string' && path.startsWith(`f/${folder}/`)
-}
-
-/**
- * Whether the deployed sources differ from the ones the export shipped. The two bundle
- * entries are excluded: `installProject` strips them out of `files` before it deploys, so
- * they are never part of the deployed set.
- */
-function rawSourcesDiverged(
-	deployed: Record<string, string>,
-	exported: Record<string, string>
-): boolean {
-	const strip = (f: Record<string, string>) =>
-		Object.fromEntries(
-			Object.entries(f ?? {}).filter(([k]) => k !== '/bundle.js' && k !== '/bundle.css')
-		)
-	const a = strip(deployed)
-	const b = strip(exported)
-	const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])].sort()
-	return keys.some((k) => a[k] !== b[k])
 }
 
 /**
@@ -164,7 +130,7 @@ export async function planRetarget(
 	workspace: string,
 	folder: string,
 	from: string,
-	opts: { hasEeLicense: boolean; exportedAppFiles?: ExportedAppFiles }
+	opts: { hasEeLicense: boolean }
 ): Promise<RetargetPlan> {
 	const referrers: Referrer[] = []
 	const gaps: Gap[] = []
@@ -220,23 +186,7 @@ export async function planRetarget(
 		// `files` + `runnables` and no `grid` is the deployed shape of a raw app; the
 		// low-code one keeps its components under `grid`.
 		const isRaw = !!value.files && !!value.runnables
-		if (!isRaw) {
-			referrers.push({ kind: 'app', path: a.path! })
-			continue
-		}
-		const exported = opts.exportedAppFiles?.[a.path!]
-		if (!exported) {
-			gaps.push({ path: a.path!, reason: 'is a raw app the export does not describe' })
-			continue
-		}
-		// The bundle about to be re-uploaded was built from the export's sources. If the
-		// deployed sources have moved on, it is behind them, and uploading it would revert
-		// whatever was changed since the import.
-		if (rawSourcesDiverged(value.files ?? {}, exported)) {
-			gaps.push({ path: a.path!, reason: 'has been edited since the import' })
-			continue
-		}
-		referrers.push({ kind: 'raw app', path: a.path! })
+		referrers.push({ kind: isRaw ? 'raw app' : 'app', path: a.path! })
 	}
 
 	for (const kind of WORKSPACE_TRIGGER_KINDS) {
@@ -292,14 +242,12 @@ export async function applyRetarget(args: {
 	from: string
 	to: string
 	hasEeLicense: boolean
-	/** Raw-app sources from the export, retargeted to the folder. See `ExportedAppFiles`. */
-	exportedAppFiles?: ExportedAppFiles
 }): Promise<RetargetOutcome> {
-	const { workspace, folder, from, to, hasEeLicense, exportedAppFiles } = args
+	const { workspace, folder, from, to, hasEeLicense } = args
 	const map = new Map([[from, to]])
 	const rewritten: Referrer[] = []
 
-	const plan = await planRetarget(workspace, folder, from, { hasEeLicense, exportedAppFiles })
+	const plan = await planRetarget(workspace, folder, from, { hasEeLicense })
 	const gaps = [...plan.gaps]
 
 	for (const r of plan.referrers) {
@@ -308,8 +256,7 @@ export async function applyRetarget(args: {
 			if (r.kind === 'script') moved = await rewriteScript(workspace, r.path, map)
 			else if (r.kind === 'flow') moved = await rewriteFlow(workspace, r.path, map)
 			else if (r.kind === 'app') moved = await rewriteApp(workspace, r.path, map)
-			else if (r.kind === 'raw app')
-				moved = await rewriteRawApp(workspace, r.path, map, exportedAppFiles?.[r.path] ?? {})
+			else if (r.kind === 'raw app') moved = await rewriteRawApp(workspace, r.path, map)
 			else moved = await rewriteTrigger(workspace, r, map)
 		} catch (e: any) {
 			return { rewritten, gaps, stubDeleted: false, error: errorMessage(e) }
@@ -342,6 +289,23 @@ function relocated(next: unknown, map: Map<string, string>): boolean {
 }
 
 /**
+ * Every write here is an in-place edit of a deployed item, not a redeployment by whoever
+ * opened the wizard, so each one has to say so.
+ *
+ * `preserve_on_behalf_of` is the flag that says it. Without it the backend replaces the
+ * item's stored run identity with the caller's — `resolve_on_behalf_of` for scripts and
+ * flows, the `should_preserve` branch of `update_app` for apps — and an imported item that
+ * ran as a service account would silently start running as the person who picked a
+ * credential. The backend still gates it on `wm_deployers` membership, so a caller who
+ * cannot preserve gets what they would have got anyway.
+ *
+ * For apps the policy is the other half: it carries the run identity, the execution mode and
+ * the sandbox rules, so it is read from the deployed app and handed back to the recompute
+ * rather than rebuilt from nothing.
+ */
+const PRESERVE_DEPLOYED_IDENTITY = { preserve_on_behalf_of: true }
+
+/**
  * A new script version, the way the editor saves one. Spread rather than field-by-field:
  * `Script` and `NewScript` share their names, and listing them here would silently drop
  * whichever field someone adds next.
@@ -357,7 +321,13 @@ async function rewriteScript(
 	if (content === s.content) return true
 	await ScriptService.createScript({
 		workspace,
-		requestBody: { ...s, content, parent_hash: s.hash, deployment_message: undefined }
+		requestBody: {
+			...s,
+			...PRESERVE_DEPLOYED_IDENTITY,
+			content,
+			parent_hash: s.hash,
+			deployment_message: undefined
+		}
 	})
 	return true
 }
@@ -370,15 +340,24 @@ async function rewriteFlow(
 	const f: any = await FlowService.getFlowByPath({ workspace, path })
 	const value = rewriteFlowValue(f.value, map)
 	if (!relocated(value, map)) return false
-	await FlowService.updateFlow({ workspace, path, requestBody: { ...f, path, value } })
+	await FlowService.updateFlow({
+		workspace,
+		path,
+		requestBody: { ...f, ...PRESERVE_DEPLOYED_IDENTITY, path, value }
+	})
 	return true
 }
 
 /**
- * The policy is recomputed rather than carried over: `triggerables_v2` is keyed by
- * `<component>:rawscript/<sha256(inline content)>`, and rewriting an inline runnable's
- * content changes that key — a copied policy would leave it "forbidden by policy".
- * Mirrors what `installProject` does on import.
+ * The deployed policy is recomputed, not rebuilt. Recomputing is required: `triggerables_v2`
+ * is keyed by `<component>:rawscript/<sha256(inline content)>`, and rewriting an inline
+ * runnable's content changes that key, so a policy copied verbatim would leave the component
+ * "forbidden by policy". Handing the deployed policy to the recompute is what keeps the run
+ * identity, the sandbox rules and everything else it does not touch.
+ *
+ * No execution mode is defaulted. The backend keeps the deployed mode when the submitted
+ * policy states none, and stating one here would put a `viewer` app on the publisher's
+ * identity.
  */
 async function rewriteApp(
 	workspace: string,
@@ -388,23 +367,47 @@ async function rewriteApp(
 	const a: any = await AppService.getAppByPath({ workspace, path })
 	const next = rewriteAppValue(a.value ?? {}, map)
 	if (!relocated(next, map)) return false
-	const policy = (await updatePolicy(next as App, undefined)) as any
-	if (!policy.execution_mode) policy.execution_mode = 'publisher'
-	await AppService.updateApp({ workspace, path, requestBody: { path, value: next, policy } })
+	const policy = (await updatePolicy(next as App, a.policy)) as any
+	await AppService.updateApp({
+		workspace,
+		path,
+		requestBody: { ...PRESERVE_DEPLOYED_IDENTITY, path, value: next, policy }
+	})
 	return true
 }
 
 /**
+ * One half of a deployed raw app's compiled bundle, read back the way the Hub publish reads
+ * it: `/apps/get_data/v/{secret}.{ext}` serves it to anyone holding the secret, and the
+ * secret is minted for the caller against a plain `apps:read:<path>` check.
+ *
+ * A missing `.css` is an app that ships no styles. A missing `.js` is a broken deployment,
+ * and uploading an empty one in its place would break it further.
+ */
+async function fetchBundlePart(
+	workspace: string,
+	secret: string,
+	ext: 'js' | 'css'
+): Promise<string> {
+	const res = await fetch(
+		`/api/w/${encodeURIComponent(workspace)}/apps/get_data/v/${secret}.${ext}`,
+		{ credentials: 'include' }
+	)
+	if (res.ok) return await res.text()
+	if (ext === 'css' && res.status === 404) return ''
+	throw new Error(`the compiled bundle could not be read (${res.status})`)
+}
+
+/**
  * A raw app: its deployed value carries the sources and the runnables, and `updateAppRaw`
- * refuses without a bundle. The bundle comes from the export rather than the bundler — it is
- * the one the import uploaded, and `planRetarget` has already left the app out if the
- * deployed sources have moved on from it.
+ * refuses without a bundle. The bundle is the deployed one, read back and sent again
+ * unchanged — the sources are not being edited here, so rebuilding it is neither possible
+ * from the browser nor needed.
  */
 async function rewriteRawApp(
 	workspace: string,
 	path: string,
-	map: Map<string, string>,
-	exportedFiles: Record<string, string>
+	map: Map<string, string>
 ): Promise<boolean> {
 	const a: any = await AppService.getAppByPath({ workspace, path })
 	const value: any = a.value ?? {}
@@ -414,7 +417,11 @@ async function rewriteRawApp(
 	if (!relocated(next, map)) return false
 	const runnables = next.runnables ?? {}
 	const policy = (await updateRawAppPolicy(runnables, a.policy)) as any
-	if (!policy.execution_mode) policy.execution_mode = 'publisher'
+	const secret = await AppService.getPublicSecretOfLatestVersionOfApp({ workspace, path })
+	const [js, css] = await Promise.all([
+		fetchBundlePart(workspace, secret, 'js'),
+		fetchBundlePart(workspace, secret, 'css')
+	])
 	const files = { ...(next.files ?? {}) }
 	delete files['/bundle.js']
 	delete files['/bundle.css']
@@ -423,6 +430,7 @@ async function rewriteRawApp(
 		path,
 		formData: {
 			app: {
+				...PRESERVE_DEPLOYED_IDENTITY,
 				path,
 				summary: a.summary ?? '',
 				value: {
@@ -433,8 +441,8 @@ async function rewriteRawApp(
 				},
 				policy
 			},
-			js: exportedFiles['/bundle.js'] ?? '',
-			css: exportedFiles['/bundle.css'] ?? ''
+			js,
+			css
 		}
 	})
 	return true

@@ -31,6 +31,7 @@ vi.mock('$lib/gen', () => ({
 	AppService: {
 		listSearchApp: vi.fn(async () => state.apps),
 		getAppByPath: vi.fn(async ({ path }: any) => state.apps.find((a) => a.path === path)),
+		getPublicSecretOfLatestVersionOfApp: vi.fn(async () => 'secret'),
 		updateApp: vi.fn(),
 		updateAppRaw: vi.fn(async (p: any) => state.updatedRawApps.push(p))
 	},
@@ -65,37 +66,40 @@ vi.mock('$lib/components/triggers/workspaceTriggersList', () => ({
 vi.mock('$lib/components/apps/editor/appPolicy', () => ({ updatePolicy: vi.fn(async () => ({})) }))
 vi.mock('$lib/sharedUtils', () => ({ updateRawAppPolicy: vi.fn(async () => ({})) }))
 
+// The deployed bundle is served by secret, not through the generated client.
+vi.stubGlobal(
+	'fetch',
+	vi.fn(async (url: string) => ({
+		ok: true,
+		status: 200,
+		text: async () => (url.endsWith('.js') ? 'COMPILED' : 'STYLES')
+	}))
+)
+
 import { applyRetarget } from './retargetDeployed'
 
 const FROM = 'f/proj/smtp'
 const TO = 'f/shared/company_smtp'
 
-/** A deployed raw app: sources plus runnables, with the bundle already stripped out. */
-function rawApp(sources: Record<string, string>) {
-	return {
-		path: 'f/proj/dash',
-		value: { files: sources, runnables: { send: { fields: { smtp: `$res:${FROM}` } } } }
-	}
+/** A deployed raw app: sources plus runnables, with the bundle stored out of the value. */
+const rawApp = {
+	path: 'f/proj/dash',
+	value: { files: { '/App.tsx': 'v1' }, runnables: { send: { fields: { smtp: `$res:${FROM}` } } } }
 }
 
-const exportedFiles = {
-	'f/proj/dash': { '/App.tsx': 'v1', '/bundle.js': 'COMPILED', '/bundle.css': 'STYLES' }
-}
-
-async function run(exported?: typeof exportedFiles) {
+async function run() {
 	return applyRetarget({
 		workspace: 'w',
 		folder: 'proj',
 		from: FROM,
 		to: TO,
-		hasEeLicense: true,
-		exportedAppFiles: exported
+		hasEeLicense: true
 	})
 }
 
 describe('applyRetarget', () => {
 	beforeEach(() => {
-		state.apps = [rawApp({ '/App.tsx': 'v1' })]
+		state.apps = [rawApp]
 		state.scripts = []
 		state.triggers = []
 		state.scheduleListError = undefined
@@ -104,8 +108,10 @@ describe('applyRetarget', () => {
 		state.updatedTriggers = []
 	})
 
-	it("re-uploads the export's bundle rather than rebuilding it, then drops the stub", async () => {
-		const outcome = await run(exportedFiles)
+	// `updateAppRaw` refuses without a bundle, and the browser cannot rebuild one. The bundle
+	// that goes back is the deployed one, read back by secret.
+	it('sends the deployed bundle back with the rewritten value, then drops the stub', async () => {
+		const outcome = await run()
 		expect(outcome.error).toBeUndefined()
 		expect(outcome.gaps).toEqual([])
 		expect(outcome.stubDeleted).toBe(true)
@@ -118,24 +124,6 @@ describe('applyRetarget', () => {
 		expect(Object.keys(sent.formData.app.value.files)).toEqual(['/App.tsx'])
 	})
 
-	// The bundle in the export was built from the export's sources. Once the deployed sources
-	// have moved on, re-uploading it would revert whatever was changed since the import.
-	it('leaves a raw app edited since the import alone, and keeps the stub', async () => {
-		state.apps = [rawApp({ '/App.tsx': 'edited since' })]
-		const outcome = await run(exportedFiles)
-		expect(outcome.error).toBeUndefined()
-		expect(outcome.gaps.map((g) => g.reason)).toContain('has been edited since the import')
-		expect(outcome.stubDeleted).toBe(false)
-		expect(state.updatedRawApps).toEqual([])
-		expect(state.deletedResources).toEqual([])
-	})
-
-	it('keeps the stub when the export does not describe a raw app it found', async () => {
-		const outcome = await run({})
-		expect(outcome.gaps.map((g) => g.reason)).toContain('is a raw app the export does not describe')
-		expect(state.deletedResources).toEqual([])
-	})
-
 	// A trigger holds its resource as a bare path in its own column, not as a `$res:` token.
 	// Matching only the token spelling left the trigger on a stub that was then deleted.
 	it('finds a trigger that holds the resource as a bare path', async () => {
@@ -143,7 +131,7 @@ describe('applyRetarget', () => {
 		state.triggers = [
 			{ path: 'f/proj/ingest', script_path: 'f/proj/run', postgres_resource_path: FROM }
 		]
-		const outcome = await run(exportedFiles)
+		const outcome = await run()
 		expect(outcome.error).toBeUndefined()
 		expect(state.updatedTriggers[0].body.postgres_resource_path).toBe(TO)
 		// The trigger keeps its own path even though it was the string being remapped.
@@ -155,12 +143,12 @@ describe('applyRetarget', () => {
 	// then 404. Reading that as a failed listing keeps the stub on every stock build.
 	it('drops the stub when a trigger kind is not compiled in, keeps it when one truly fails', async () => {
 		state.scheduleListError = { status: 404 }
-		expect((await run(exportedFiles)).gaps).toEqual([])
+		expect((await run()).gaps).toEqual([])
 		expect(state.deletedResources).toEqual([FROM])
 
 		state.deletedResources = []
 		state.scheduleListError = { status: 500 }
-		expect((await run(exportedFiles)).gaps.map((g) => g.path)).toContain('Schedule triggers')
+		expect((await run()).gaps.map((g) => g.path)).toContain('Schedule triggers')
 		expect(state.deletedResources).toEqual([])
 	})
 
@@ -174,7 +162,7 @@ describe('applyRetarget', () => {
 				value: { grid: [{ data: { input: { type: 'static', value: FROM } } }] }
 			}
 		]
-		const outcome = await run(exportedFiles)
+		const outcome = await run()
 		expect(outcome.rewritten).toEqual([])
 		expect(outcome.gaps.map((g) => g.path)).toEqual(['f/proj/page'])
 		expect(state.deletedResources).toEqual([])
@@ -184,7 +172,7 @@ describe('applyRetarget', () => {
 	// may not hold the project's own app — and the stub would go anyway.
 	it('keeps the stub when the app listing comes back at its server-side cap', async () => {
 		state.apps = Array.from({ length: 1000 }, (_, i) => ({ path: `f/other/a${i}`, value: {} }))
-		const outcome = await run(exportedFiles)
+		const outcome = await run()
 		expect(outcome.gaps.map((g) => g.path)).toContain('Apps')
 		expect(state.deletedResources).toEqual([])
 	})
@@ -197,7 +185,7 @@ describe('applyRetarget', () => {
 		state.triggers = [
 			{ path: 'f/proj/ingest', script_path: 'f/proj/run', postgres_resource_path: FROM }
 		]
-		const outcome = await run(exportedFiles)
+		const outcome = await run()
 		expect(outcome.error).toBeUndefined()
 		expect(state.updatedTriggers[0].body.postgres_resource_path).toBe(TO)
 		expect(outcome.gaps.map((g) => g.path)).toEqual(['u/alice/report'])

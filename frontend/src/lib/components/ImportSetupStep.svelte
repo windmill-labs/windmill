@@ -16,7 +16,7 @@
 	import AppConnectDrawer from '$lib/components/AppConnectDrawer.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import Select from '$lib/components/select/Select.svelte'
-	import { applyRetarget, type ExportedAppFiles } from '$lib/importWizard/retargetDeployed'
+	import { applyRetarget } from '$lib/importWizard/retargetDeployed'
 	import { enterpriseLicense } from '$lib/stores'
 	import { OauthService } from '$lib/gen'
 	import { registryCcCapableFor } from '$lib/components/oauthRegistry'
@@ -125,11 +125,6 @@
 	 * editor, exactly as it did before.
 	 */
 	let candidates = $state<Record<string, string[]>>({})
-	/**
-	 * Raw-app sources from the export, keyed by where they landed. `applyRetarget` re-uploads
-	 * the `/bundle.js` in here rather than re-running the bundler — see `ExportedAppFiles`.
-	 */
-	let exportedAppFiles = $state<ExportedAppFiles>({})
 	/** The credential row whose choice dialog is open. */
 	let choosing = $state<Blank | undefined>(undefined)
 	let chosenPath = $state<string | undefined>(undefined)
@@ -293,21 +288,6 @@
 			// every new-workspace import.
 			const target = targetFolder
 			const retargeted = retargetProjectExport(exportData, exportData.project?.slug ?? slug, target)
-			const rawFiles: [string, Record<string, string>][] = []
-			for (const a of (retargeted.apps ?? []) as any[]) {
-				if (a.app_type !== 'raw' || typeof a.value?.raw !== 'string') continue
-				let files: any
-				try {
-					files = JSON.parse(a.value.raw)?.files
-				} catch {
-					files = undefined
-				}
-				// A bundle that cannot be read yields no entry rather than an empty one, so
-				// `planRetarget` leaves the app alone instead of uploading a bundle it does not have.
-				if (!files || typeof files !== 'object') continue
-				rawFiles.push([String(a.path), files as Record<string, string>])
-			}
-			exportedAppFiles = Object.fromEntries(rawFiles)
 			// Contained for the same reason the import contains: a crafted export can name a
 			// path outside the folder, and offering that for editing would reach a resource
 			// this import was never allowed to create.
@@ -548,8 +528,7 @@
 				folder: targetFolder,
 				from: b.path,
 				to: target,
-				hasEeLicense: !!$enterpriseLicense,
-				exportedAppFiles
+				hasEeLicense: !!$enterpriseLicense
 			})
 			const moved = `${outcome.rewritten.length} item${outcome.rewritten.length === 1 ? '' : 's'}`
 			if (outcome.error) {
