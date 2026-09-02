@@ -526,28 +526,17 @@ impl AuthCache {
                                                 }
                                             }
                                         }
-                                        // A guest session: authenticated by the IdP,
-                                        // member of nothing. Deliberately no `usr`
-                                        // lookup and no groups or folders, so every
-                                        // ACL denies it on its own and the token's
-                                        // scopes are its entire grant
-                                        // (`guest_route_denied`). Placed after the
-                                        // superadmin arm so a superadmin token can
-                                        // never be demoted into this one.
-                                        //
-                                        // Keyed on the server-minted label, never on
-                                        // the `guest` scope: this arm is the only
-                                        // thing in the codebase that turns "no `usr`
-                                        // row" from a rejection into an identity, and
-                                        // scopes on a user-minted token are whatever
-                                        // the caller typed.
+                                        // A guest session: IdP-authenticated, member of
+                                        // nothing. No `usr` lookup, groups or folders, so
+                                        // every ACL denies it and the token's scopes are
+                                        // its whole grant. After the superadmin arm, so
+                                        // that token is never demoted into this one.
                                         None if is_guest_session => {
-                                            // The label is the grant; every guest
-                                            // control downstream keys on the `guest`
-                                            // sentinel. Pin the two together here so
-                                            // a credential that carries the label is
-                                            // governed as a guest whatever its scopes
-                                            // say — nothing else may decide that.
+                                            // The server-minted label is the grant, never
+                                            // the `guest` scope (a user-minted token's
+                                            // scopes are whatever the caller typed); the
+                                            // sentinel is pinned on here so every guest
+                                            // control downstream sees a guest regardless.
                                             let scopes = Some(crate::scopes::with_guest_sentinel(
                                                 scopes.unwrap_or_default(),
                                             ));

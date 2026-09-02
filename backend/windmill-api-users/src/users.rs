@@ -2957,24 +2957,18 @@ fn guest_session_scopes(app_path: &str) -> Vec<String> {
 }
 
 /// Mint a browser session for someone the identity provider authenticated who is a
-/// member of no workspace, so they can open one guest-mode app.
+/// member of no workspace, so they can open one guest-mode app. Writes no `password`
+/// and no `usr` row: that absence is what keeps a guest off every seat counter, so
+/// nothing here may be "helpfully" upgraded into provisioning.
 ///
-/// Writes no `password` and no `usr` row: that absence is what keeps a guest off every
-/// seat counter, so nothing here may be "helpfully" upgraded into provisioning.
+/// Pinned to `w_id` (`AuthCache` matches on `token.workspace_id`): without the pin an
+/// `apps:run:<path>` scope would unlock a same-path app elsewhere. So a guest cannot
+/// authenticate on any workspace-less route (`/api/users/*`, `/api/settings/*`); a
+/// page that needs one for a guest must become workspace-scoped, not loosen the pin.
 ///
-/// The token is pinned to `w_id`: `AuthCache` matches on `token.workspace_id`, and
-/// without the pin an `apps:run:<path>` scope would also unlock a same-path app in
-/// another workspace. The pin also means a guest cannot authenticate on any
-/// workspace-less route at all — `/api/users/*`, `/api/settings/*` — since those
-/// resolve with a NULL workspace and the match fails. That is the intent, and the
-/// chrome-less public app page calls none of them; a page that needs one for a guest
-/// has to become workspace-scoped rather than the pin being loosened.
-///
-/// Refuses unless both gates say yes — the workspace admits guests and `app_path` is
-/// currently in `guest` execution mode — so no caller can mint a guest session where
-/// one is not wanted, whatever it believed when it decided to call. The one thing left
-/// to the caller is the authentication of `email`: this function trusts only that the
-/// identity provider vouched for who is asking.
+/// Refuses unless every gate says yes (`guest_app_admits`), so no caller can mint where
+/// a guest is not wanted, whatever it believed when it decided to call. All that is
+/// left to the caller is the authentication of `email`.
 pub async fn create_guest_session_token<'c>(
     email: &str,
     w_id: &str,
