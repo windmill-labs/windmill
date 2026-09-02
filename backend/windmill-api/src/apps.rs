@@ -335,12 +335,9 @@ fn deployment_rule_for_mode(mode: ExecutionMode) -> Option<ProtectionRuleKind> {
 /// A guest is authorized by its token's scope and never by an ACL probe: it holds no
 /// `usr` row, so RLS finds nothing for it and every guest would read as having no
 /// access. That scope is also what keeps a guest session to the one app it was minted
-/// for, even though the mode itself admits anyone signed in. The workspace switch is
-/// re-read for a guest here as it is on the run path, so turning guests off closes
-/// the app to sessions already issued rather than waiting out their expiry.
-pub async fn authorize_non_member_viewer(
-    db: &DB,
-    w_id: &str,
+/// for, even though the mode itself admits anyone signed in. The workspace's guest
+/// switch is not checked here: `AuthCache` enforces it for every guest request.
+pub fn authorize_non_member_viewer(
     mode: ExecutionMode,
     app_path: &str,
     opt_authed: &Option<ApiAuthed>,
@@ -356,11 +353,6 @@ pub async fn authorize_non_member_viewer(
     let is_guest = windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref());
     if matches!(mode, ExecutionMode::Guest) {
         if is_guest {
-            if !windmill_common::workspaces::is_guest_access_enabled(db, w_id).await? {
-                return Err(Error::PermissionDenied(format!(
-                    "app {app_path} is not open to guests"
-                )));
-            }
             check_scopes(authed, || format!("apps:read:{}", app_path))?;
         }
         return Ok(true);
@@ -376,7 +368,6 @@ pub async fn authorize_non_member_viewer(
 /// [`authorize_non_member_viewer`] plus the member read-access probe, for the
 /// entry points that address an app by id.
 async fn authorize_app_viewer(
-    db: &DB,
     mode: ExecutionMode,
     app_path: &str,
     app_id: i64,
@@ -384,7 +375,7 @@ async fn authorize_app_viewer(
     user_db: &UserDB,
     opt_authed: &Option<ApiAuthed>,
 ) -> Result<()> {
-    if authorize_non_member_viewer(db, w_id, mode, app_path, opt_authed).await? {
+    if authorize_non_member_viewer(mode, app_path, opt_authed)? {
         return Ok(());
     }
     let authed = opt_authed
@@ -1330,7 +1321,6 @@ async fn get_public_app_by_secret(
     let policy = serde_json::from_str::<Policy>(app.policy.0.get()).map_err(to_anyhow)?;
 
     authorize_app_viewer(
-        &db,
         policy.execution_mode(),
         &app.path,
         id,
@@ -1859,7 +1849,7 @@ async fn get_app_embed_token(
         } else {
             ExecutionMode::Publisher
         };
-        authorize_app_viewer(&db, mode, &app.path, id, &w_id, &user_db, &opt_authed).await?;
+        authorize_app_viewer(mode, &app.path, id, &w_id, &user_db, &opt_authed).await?;
         opt_authed
     };
 
@@ -4092,14 +4082,9 @@ async fn execute_component(
     // A guest session holds no ACL of its own, so the read-permit probe below would
     // deny every guest. What confines it is the scope the session was minted with,
     // naming the one app it may run — and the app has to be open to guests at all.
-    //
-    // The workspace switch is re-read here rather than trusted from mint time, so
-    // turning guests off stops them running code within the request, not within the
-    // session's remaining lifetime. One indexed lookup, and only on the guest path.
+    // The workspace's guest switch is enforced by `AuthCache` on every guest request.
     if let Some(authed) = opt_authed.as_ref().filter(|_| is_guest_caller) {
-        if !matches!(policy.execution_mode(), ExecutionMode::Guest)
-            || !windmill_common::workspaces::is_guest_access_enabled(&db, &w_id).await?
-        {
+        if !matches!(policy.execution_mode(), ExecutionMode::Guest) {
             return Err(Error::PermissionDenied(format!(
                 "app {path} is not open to guests"
             )));

@@ -36,6 +36,17 @@ fn authed(builder: reqwest::RequestBuilder, token: &str) -> reqwest::RequestBuil
     builder.header("Authorization", format!("Bearer {}", token))
 }
 
+async fn enable_guests(port: u16, ws: &str) -> anyhow::Result<()> {
+    authed(
+        client().post(format!("http://localhost:{port}/api/w/{ws}/workspaces/edit_guest_access")),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({ "guest_access_enabled": true }))
+    .send()
+    .await?;
+    Ok(())
+}
+
 fn guest_scopes() -> Vec<String> {
     vec![
         "guest".to_string(),
@@ -74,6 +85,7 @@ async fn guest_session_is_confined_to_its_app(db: Pool<Postgres>) -> anyhow::Res
     let port = server.addr.port();
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
+    enable_guests(port, "test-workspace").await?;
     insert_guest_token(&db, "test-workspace").await?;
 
     // Its own identity resolves, and reports the role rather than falling through to
@@ -346,11 +358,12 @@ fn execute(port: u16, ws: &str, app: &str, token: &str) -> reqwest::RequestBuild
     }))
 }
 
-/// The run path re-reads the workspace switch instead of trusting mint time. This is
-/// the only thing standing between a `guest` policy pushed by git-sync and execution
-/// once an admin has turned guests off.
+/// The workspace switch is enforced at the auth door for every guest request, not
+/// remembered per handler. This is what stands between a `guest` policy pushed by
+/// git-sync and execution once an admin has turned guests off — and it closes the
+/// app to sessions already issued.
 #[sqlx::test(fixtures("base"))]
-async fn execute_component_re_checks_the_workspace_switch(
+async fn the_door_re_checks_the_workspace_switch(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -365,34 +378,35 @@ async fn execute_component_re_checks_the_workspace_switch(
     assert_eq!(resp.status(), 201, "{}", resp.text().await?);
     insert_guest_token(&db, "test-workspace").await?;
 
-    // Switch off: refused at the gate, even though the app's policy says guest and
-    // the session was (in this fixture) issued regardless.
+    // Switch off: the session does not authenticate at all, even though the app's
+    // policy says guest and the session was (in this fixture) issued regardless. On
+    // the authed route that is a 401; on the optional-auth run route the rejected
+    // token reads as no token, and a guest-mode app then refuses the anonymous
+    // caller — a denial either way.
+    let resp = authed(client().get(format!("{ws}/users/whoami")), GUEST_TOKEN)
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 401, "a guest must not authenticate while guests are off");
     let resp = execute(port, "test-workspace", APP_PATH, GUEST_TOKEN)
         .send()
         .await?;
-    assert_eq!(
-        resp.status(),
-        403,
-        "a guest must not run components while the workspace has guests off"
+    assert!(
+        resp.status().is_client_error() && resp.status() != 404,
+        "a guest must not run while guests are off, got {}",
+        resp.status()
     );
 
-    // Switch on: past the gate. What follows is the runnable lookup, which fails on
-    // the nonexistent script — the point is that it is no longer a 403.
-    authed(
-        client().post(format!("{ws}/workspaces/edit_guest_access")),
-        ADMIN_TOKEN,
-    )
-    .json(&json!({ "guest_access_enabled": true }))
-    .send()
-    .await?;
+    // Switch on: through the door. What follows the run is the runnable lookup,
+    // which fails on the nonexistent script — the point is that it is no longer a
+    // denial.
+    enable_guests(port, "test-workspace").await?;
     let resp = execute(port, "test-workspace", APP_PATH, GUEST_TOKEN)
         .send()
         .await?;
-    assert_ne!(
-        resp.status(),
-        403,
-        "with guests on, the guest gate must let the run through: {}",
-        resp.text().await?
+    assert!(
+        resp.status() != 401 && resp.status() != 403,
+        "with guests on, the door must let the run through: {}",
+        resp.status()
     );
 
     Ok(())
@@ -445,13 +459,7 @@ async fn a_guest_minted_embed_token_stays_a_guest(db: Pool<Postgres>) -> anyhow:
     let port = server.addr.port();
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
-    authed(
-        client().post(format!("{ws}/workspaces/edit_guest_access")),
-        ADMIN_TOKEN,
-    )
-    .json(&json!({ "guest_access_enabled": true }))
-    .send()
-    .await?;
+    enable_guests(port, "test-workspace").await?;
     let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
         .json(&guest_app_with_runnable(APP_PATH, true))
         .send()
@@ -506,7 +514,7 @@ async fn a_guest_minted_embed_token_stays_a_guest(db: Pool<Postgres>) -> anyhow:
     let me: serde_json::Value = resp.json().await?;
     assert_eq!(me["role"], json!("guest"));
 
-    // Governed: the workspace switch closes it, iframe or not.
+    // Governed: the workspace switch closes it at the door, iframe or not.
     authed(
         client().post(format!("{ws}/workspaces/edit_guest_access")),
         ADMIN_TOKEN,
@@ -514,14 +522,23 @@ async fn a_guest_minted_embed_token_stays_a_guest(db: Pool<Postgres>) -> anyhow:
     .json(&json!({ "guest_access_enabled": false }))
     .send()
     .await?;
-    let resp = execute(port, "test-workspace", APP_PATH, &embed)
+    let resp = authed(client().get(format!("{ws}/users/whoami")), &embed)
         .send()
         .await?;
     assert_eq!(
         resp.status(),
-        403,
-        "turning guests off must stop a guest's embed token running components"
+        401,
+        "turning guests off must stop a guest's embed token authenticating"
     );
+    let resp = execute(port, "test-workspace", APP_PATH, &embed)
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_client_error() && resp.status() != 404,
+        "and running components, got {}",
+        resp.status()
+    );
+    enable_guests(port, "test-workspace").await?;
 
     // And its scopes are not something the guest's email can later rewrite. The
     // guest session itself cannot reach `/users/*` (workspace pin), so model the real
@@ -566,6 +583,7 @@ async fn a_guest_label_is_governed_without_the_sentinel(db: Pool<Postgres>) -> a
     let port = server.addr.port();
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
+    enable_guests(port, "test-workspace").await?;
     let scopes: Vec<String> = guest_scopes().into_iter().filter(|s| s != "guest").collect();
     sqlx::query(
         "INSERT INTO token (token_hash, token_prefix, token, email, label, scopes, workspace_id, expiration)

@@ -488,6 +488,8 @@
 				{#if !$enterpriseLicense}
 					Guest sign-in is a Windmill Enterprise Edition feature, so this app still admits members
 					only.
+				{:else if guestAccessEnabled === undefined}
+					Checking whether this workspace allows guests…
 				{:else if guestAccessEnabled === false}
 					Guests are turned off for this workspace, so this app still admits members only. A
 					workspace admin can turn them on in the workspace settings.

@@ -213,7 +213,14 @@
 	 * account is never given a guest session, so an account holder who is not a
 	 * member of this workspace lands here. */
 	let signedInHere = $state(false)
-	let signInDidNotHelp = $derived(status === 'noPermission' && signedInHere)
+	let deniedStatus: number | undefined = $state(undefined)
+	/** The sign-in card belongs on a 401, and on a 403 against an app that admits
+	 * guests (a session for another app of the same workspace; signing in again
+	 * replaces it). */
+	let offerSignIn = $derived(
+		status === 'noPermission' || (status === 'notExists' && deniedStatus === 403 && guestEntry === 'guest')
+	)
+	let signInDidNotHelp = $derived(offerSignIn && signedInHere)
 	let embedToken: string | null = $state(null)
 	let iframeEl: HTMLIFrameElement | undefined = $state(undefined)
 
@@ -312,6 +319,10 @@
 			}
 			finishReady()
 		} catch (e: any) {
+			// 401: no session. 403 on an app that admits guests: a guest session for a
+			// different app of this workspace, which a fresh sign-in replaces. Either
+			// way the sign-in card is the answer; anything else is not found.
+			deniedStatus = e?.status
 			status = e?.status === 401 ? 'noPermission' : 'notExists'
 		}
 	}
@@ -533,7 +544,7 @@
 	{/if}
 {:else if status === 'loading'}
 	<Skeleton layout={[[4], 0.5, [50]]} />
-{:else if status === 'notExists'}
+{:else if status === 'notExists' && !offerSignIn}
 	<div class="px-4 mt-20">
 		<Alert type="error" title="Not found">
 			There was an error loading the app, is the url correct?
@@ -548,15 +559,15 @@
 		onContinue={onSdkConsentContinue}
 		onDecline={onSdkConsentDecline}
 	/>
-{:else if status === 'noPermission' && guestEntry === 'pending'}
+{:else if offerSignIn && guestEntry === 'pending'}
 	<Skeleton layout={[[4], 0.5, [50]]} />
-{:else if status === 'noPermission' && guestEntry === 'error'}
+{:else if offerSignIn && guestEntry === 'error'}
 	<div class="px-4 mt-20">
 		<Alert type="error" title="Could not check access">
 			The app could not be reached to find out who may open it. Reload to try again.
 		</Alert>
 	</div>
-{:else if status === 'noPermission'}
+{:else if offerSignIn}
 	<!-- Login happens here, on the embedder (main) window, so the session cookie
 	     is set on the main origin only and never reaches the opaque iframe. -->
 	{#if signInDidNotHelp}

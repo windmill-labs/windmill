@@ -644,10 +644,12 @@
 		markLoginMethodPending({ kind: 'saml' })
 		// SAML goes straight to the IdP and never passes through
 		// `/api/oauth/login/<client>`, where the OAuth path has the server write the
-		// guest-entry cookie; ask for the same write here. It must have landed before
-		// we leave: without it the callback provisions an account, so a failed write
-		// is a stop, not a fall-through.
-		if (!(await setGuestAppCookie(guestApp))) {
+		// guest-entry cookie; ask for the same write here. With a guest target it must
+		// have landed before we leave — without it the callback provisions an account —
+		// so that failure is a stop. Without one this is only a clear, and the callback
+		// clears on consume anyway: an ordinary SAML sign-in must not depend on it.
+		const wrote = await setGuestAppCookie(guestApp)
+		if (guestApp && !wrote) {
 			clearPendingLoginMethod()
 			sendUserToast('Could not start sign-in, please try again.', true)
 			return false

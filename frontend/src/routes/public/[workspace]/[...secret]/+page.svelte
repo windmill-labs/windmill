@@ -104,6 +104,9 @@
 	}
 
 	async function loadGuestEntry() {
+		// Settled once: `loadApp` calls this again on failure, and a later transient
+		// fault must not overwrite an answer already in hand.
+		if (guestEntry === 'guest' || guestEntry === 'none') return
 		for (let attempt = 0; attempt < 3; attempt++) {
 			try {
 				const entry = await AppService.getGuestEntry({ workspace, path: parsedSecret.secret })

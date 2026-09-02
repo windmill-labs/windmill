@@ -138,12 +138,29 @@ impl AuthCache {
         w_id: Option<String>,
         token: &str,
     ) -> Option<OptJobAuthed> {
-        let mut opt_job_authed = self.get_opt_job_authed_inner(w_id, token).await?;
+        let mut opt_job_authed = self.get_opt_job_authed_inner(w_id.clone(), token).await?;
         // Single source of truth: mirror the resolved job_id onto the authed so
         // every consumer (require_super_admin, ...) sees that this identity came
         // from a job's WM_TOKEN, even on an AUTH_CACHE hit whose cached authed
         // predates this field.
         opt_job_authed.authed.job_id = opt_job_authed.job_id;
+        // The workspace's guest switch is enforced here, at the door, for every
+        // request a guest makes — not in the handlers, where each guest-reachable
+        // route would have to remember to re-check it. Uncached and per request, so
+        // turning guests off takes effect on the next request of every guest
+        // session and every token derived from one. Guests are a small share of
+        // traffic; the read is one primary-key lookup.
+        if crate::scopes::has_guest_sentinel(opt_job_authed.authed.scopes.as_deref()) {
+            let Some(w_id) = w_id else { return None };
+            match windmill_common::workspaces::is_guest_access_enabled(&self.db, &w_id).await {
+                Ok(true) => {}
+                Ok(false) => return None,
+                Err(e) => {
+                    tracing::error!("guest access check failed for {w_id}: {e:#}");
+                    return None;
+                }
+            }
+        }
         Some(opt_job_authed)
     }
 
