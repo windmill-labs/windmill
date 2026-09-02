@@ -37,6 +37,8 @@
 	import SearchItems from '../SearchItems.svelte'
 	import ListFilters from './ListFilters.svelte'
 	import NoItemFound from './NoItemFound.svelte'
+	import HubProjectSuggestions from './HubProjectSuggestions.svelte'
+	import { isCloudHosted } from '$lib/cloud'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
@@ -773,6 +775,13 @@
 		if (!includeWithoutMain) f.push('library scripts hidden')
 		return f
 	})
+	// Hub project suggestions replace the plain welcome message only on a workspace that is
+	// genuinely empty — no filter is narrowing the list — and, for now, only on cloud.
+	// `import.meta.env.DEV` keeps the screen reachable locally, where `isCloudHosted()` is
+	// false because it tests for the app.windmill.dev hostname.
+	let showHubSuggestions = $derived(
+		activeFilters.length === 0 && (isCloudHosted() || import.meta.env.DEV)
+	)
 	// Pipeline folders qualify for a chip whenever a pipeline can render: the kind must admit
 	// one and no label filter may be active, since pipelines carry no labels. Unlike
 	// `visiblePipelineFolders` this ignores the selected owner — the chips are how you switch
@@ -871,6 +880,18 @@
 	// survives a refetch, so an in-place scope change refreshes without flashing.
 	let treeCountsPending = $derived(
 		treeLazyMode && ownerCountsRes.current == undefined && ownerCountsRes.loading
+	)
+
+	// A workspace holding nothing, with no filter narrowing the view: the search box and
+	// the filter/sort controls would act on an empty list, so the empty state stands alone.
+	let emptyWorkspace = $derived(
+		!loading &&
+			!treeCountsPending &&
+			activeFilters.length === 0 &&
+			filteredItems != undefined &&
+			filteredItems.length === 0 &&
+			visiblePipelineFolders.size === 0 &&
+			!hasMoreServer
 	)
 
 	// Owners the counts found the user has something in, split by kind. They cover
@@ -1490,92 +1511,95 @@
 </Drawer>
 
 <CenteredPage wrapperClasses="w-full" handleOverflow={false}>
-	<div
-		class="flex flex-wrap gap-2 items-center justify-between w-full"
-		use:triggerableByAI={{
-			id: 'home-items-list',
-			description: 'Lists of scripts, flows, and apps'
-		}}
-	>
-		<div class="flex justify-start">
-			<ToggleButtonGroup
-				bind:selected={itemKind}
-				onSelected={(v) => {
-					if (itemKind != 'all') {
-						subtab = v
-					}
-					setQuery('kind', v)
-				}}
-			>
-				{#snippet children({ item })}
-					<ToggleButton value="all" label="All" size="md" {item} />
-					<ToggleButton value="script" icon={Code2} label="Scripts" size="md" {item} />
-					{#if HOME_SEARCH_SHOW_FLOW}
+	<!-- Nothing loaded yet, or a workspace with nothing in it: no list to search or narrow. -->
+	{#if !loading && !emptyWorkspace}
+		<div
+			class="flex flex-wrap gap-2 items-center justify-between w-full"
+			use:triggerableByAI={{
+				id: 'home-items-list',
+				description: 'Lists of scripts, flows, and apps'
+			}}
+		>
+			<div class="flex justify-start">
+				<ToggleButtonGroup
+					bind:selected={itemKind}
+					onSelected={(v) => {
+						if (itemKind != 'all') {
+							subtab = v
+						}
+						setQuery('kind', v)
+					}}
+				>
+					{#snippet children({ item })}
+						<ToggleButton value="all" label="All" size="md" {item} />
+						<ToggleButton value="script" icon={Code2} label="Scripts" size="md" {item} />
+						{#if HOME_SEARCH_SHOW_FLOW}
+							<ToggleButton
+								value="flow"
+								label="Flows"
+								icon={FlowIcon}
+								selectedColor="#14b8a6"
+								size="md"
+								{item}
+							/>
+						{/if}
 						<ToggleButton
-							value="flow"
-							label="Flows"
-							icon={FlowIcon}
-							selectedColor="#14b8a6"
+							value="app"
+							label="Apps"
+							icon={LayoutDashboard}
+							selectedColor="#fb923c"
 							size="md"
 							{item}
 						/>
-					{/if}
-					<ToggleButton
-						value="app"
-						label="Apps"
-						icon={LayoutDashboard}
-						selectedColor="#fb923c"
-						size="md"
-						{item}
-					/>
-				{/snippet}
-			</ToggleButtonGroup>
-		</div>
+					{/snippet}
+				</ToggleButtonGroup>
+			</div>
 
-		<div class="relative text-primary grow min-w-[100px]">
-			<!-- svelte-ignore a11y_autofocus -->
-			<TextInput
-				inputProps={{
-					autofocus: true,
-					placeholder: HOME_SEARCH_PLACEHOLDER,
-					id: 'home-search-input'
+			<div class="relative text-primary grow min-w-[100px]">
+				<!-- svelte-ignore a11y_autofocus -->
+				<TextInput
+					inputProps={{
+						autofocus: true,
+						placeholder: HOME_SEARCH_PLACEHOLDER,
+						id: 'home-search-input'
+					}}
+					size="md"
+					bind:value={filter}
+					class="!pr-10"
+				/>
+				<button aria-label="Search" type="submit" class="absolute right-0 top-0 mt-2 mr-4">
+					<svg
+						class="h-4 w-4 fill-current"
+						xmlns="http://www.w3.org/2000/svg"
+						xmlns:xlink="http://www.w3.org/1999/xlink"
+						version="1.1"
+						id="Capa_1"
+						x="0px"
+						y="0px"
+						viewBox="0 0 56.966 56.966"
+						style="enable-background:new 0 0 56.966 56.966;"
+						xml:space="preserve"
+						width="512px"
+						height="512px"
+					>
+						<path
+							d="M55.146,51.887L41.588,37.786c3.486-4.144,5.396-9.358,5.396-14.786c0-12.682-10.318-23-23-23s-23,10.318-23,23  s10.318,23,23,23c4.761,0,9.298-1.436,13.177-4.162l13.661,14.208c0.571,0.593,1.339,0.92,2.162,0.92  c0.779,0,1.518-0.297,2.079-0.837C56.255,54.982,56.293,53.08,55.146,51.887z M23.984,6c9.374,0,17,7.626,17,17s-7.626,17-17,17  s-17-7.626-17-17S14.61,6,23.984,6z"
+						/>
+					</svg>
+				</button>
+			</div>
+			<Button
+				on:click={() => openSearchWithPrefilledText('#')}
+				variant="default"
+				unifiedSize="md"
+				endIcon={{
+					icon: SearchCode
 				}}
-				size="md"
-				bind:value={filter}
-				class="!pr-10"
-			/>
-			<button aria-label="Search" type="submit" class="absolute right-0 top-0 mt-2 mr-4">
-				<svg
-					class="h-4 w-4 fill-current"
-					xmlns="http://www.w3.org/2000/svg"
-					xmlns:xlink="http://www.w3.org/1999/xlink"
-					version="1.1"
-					id="Capa_1"
-					x="0px"
-					y="0px"
-					viewBox="0 0 56.966 56.966"
-					style="enable-background:new 0 0 56.966 56.966;"
-					xml:space="preserve"
-					width="512px"
-					height="512px"
-				>
-					<path
-						d="M55.146,51.887L41.588,37.786c3.486-4.144,5.396-9.358,5.396-14.786c0-12.682-10.318-23-23-23s-23,10.318-23,23  s10.318,23,23,23c4.761,0,9.298-1.436,13.177-4.162l13.661,14.208c0.571,0.593,1.339,0.92,2.162,0.92  c0.779,0,1.518-0.297,2.079-0.837C56.255,54.982,56.293,53.08,55.146,51.887z M23.984,6c9.374,0,17,7.626,17,17s-7.626,17-17,17  s-17-7.626-17-17S14.61,6,23.984,6z"
-					/>
-				</svg>
-			</button>
+			>
+				Content
+			</Button>
 		</div>
-		<Button
-			on:click={() => openSearchWithPrefilledText('#')}
-			variant="default"
-			unifiedSize="md"
-			endIcon={{
-				icon: SearchCode
-			}}
-		>
-			Content
-		</Button>
-	</div>
+	{/if}
 	<div class="relative">
 		<ListFilters
 			syncQuery
@@ -1603,10 +1627,10 @@
 				{/each}
 			</div>
 		{/if}
-		{#if filteredItems?.length == 0}
+		{#if filteredItems?.length == 0 && !emptyWorkspace}
 			<div class="mt-10"></div>
 		{/if}
-		{#if !loading}
+		{#if !loading && !emptyWorkspace}
 			<div class="flex w-full flex-row-reverse gap-2 mt-2 mb-1 items-center h-6">
 				<Popover floatingConfig={{ placement: 'bottom-end' }}>
 					{#snippet trigger()}
@@ -1719,7 +1743,11 @@
 			<!-- Pipelines aren't part of the text filter, so only fall through to show
 			     them (list rows / injected tree folders) when not actively searching;
 			     a no-match search still reads as empty. -->
-			<NoItemFound {activeFilters} />
+			{#if showHubSuggestions}
+				<HubProjectSuggestions />
+			{:else}
+				<NoItemFound {activeFilters} />
+			{/if}
 			{#if hasMoreServer && !searching}
 				<!-- The active filter matched nothing on the loaded pages, but the server
 				     has more: keep paging reachable so matches on later pages aren't lost. -->
