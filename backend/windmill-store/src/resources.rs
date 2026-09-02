@@ -1993,28 +1993,22 @@ async fn update_resource(
     // Detect if this was a rename operation
     let old_path_if_renamed = if npath != path { Some(path) } else { None };
 
-    // An agent's eval runs are filed under `subject->>'path'`, a plain string with no FK, so a
-    // rename would strand every run the agent has ever had. In the rename's own transaction, which
-    // already holds the row lock the UPDATE above took: outside it, a second rename of the same
-    // agent can commit in between and leave the runs stranded at a path neither request looks at.
-    // The guard reads the destination, which by now holds the renamed row, so only agents are
-    // rewritten. Datasets and scorers are associated by naming convention alone and keep theirs.
-    if let Some(old_path) = old_path_if_renamed {
-        sqlx::query!(
-            "UPDATE eval_experiment e
-                SET subject = jsonb_set(e.subject, '{path}', to_jsonb($1::text))
-              WHERE e.workspace_id = $2
-                AND e.subject->>'path' = $3
-                AND EXISTS (SELECT 1 FROM resource r
-                             WHERE r.workspace_id = $2 AND r.path = $1
-                               AND r.resource_type = 'ai_agent')",
-            &npath,
+    // Whether the row that just moved is an agent, read here rather than after the commit: by then
+    // a second rename may have moved it on, and the answer would be about whatever sits at the
+    // destination instead.
+    let renamed_an_agent = if old_path_if_renamed.is_some() {
+        sqlx::query_scalar!(
+            "SELECT resource_type = 'ai_agent' FROM resource WHERE workspace_id = $1 AND path = $2",
             &w_id,
-            old_path
+            &npath
         )
-        .execute(&mut *tx)
-        .await?;
-    }
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten()
+        .unwrap_or(false)
+    } else {
+        false
+    };
 
     audit_log(
         &mut *tx,
@@ -2027,6 +2021,25 @@ async fn update_resource(
     )
     .await?;
     tx.commit().await?;
+
+    // An agent's eval runs are filed under `subject->>'path'`, a plain string with no FK, so a
+    // rename would strand every run the agent has ever had. On the unrestricted pool, and therefore
+    // outside the transaction above: `eval_experiment` grants `windmill_user` SELECT alone on
+    // purpose, so the same statement inside a `user_db` transaction updates nothing at all for
+    // anyone who is not a workspace admin. What that costs is atomicity — two renames of one agent
+    // racing here can leave its runs at an intermediate path — which is why the agent-ness above is
+    // read before the commit rather than from whatever holds the destination by now.
+    if let Some(old_path) = old_path_if_renamed.filter(|_| renamed_an_agent) {
+        sqlx::query!(
+            "UPDATE eval_experiment SET subject = jsonb_set(subject, '{path}', to_jsonb($1::text))
+              WHERE workspace_id = $2 AND subject->>'path' = $3",
+            &npath,
+            &w_id,
+            old_path
+        )
+        .execute(&db)
+        .await?;
+    }
 
     // On rename the draft at the OLD path orphans (no SQL FK); clear the deployer's
     // own (+ legacy NULL) there, teammates keep theirs (StaleDraftModal). The linked

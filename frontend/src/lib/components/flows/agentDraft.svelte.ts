@@ -4,6 +4,7 @@ import { ResourceService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { canWrite } from '$lib/utils'
 import { userStore } from '$lib/stores'
+import { getUserExt } from '$lib/user'
 import { useTriggerDraftSync, type TriggerDraftSync } from '../triggers/useTriggerDraftSync.svelte'
 import { AGENT_BRAIN_KEYS, type AIAgentConfig } from './agentResourceUtils'
 // Lives here rather than beside the other config helpers: `agentResourceUtils` is a leaf, and
@@ -128,8 +129,15 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 			if (loadedFor === key) return
 			loadedFor = key
 			loading = true
-			ResourceService.getResource({ workspace: ws, path, getDraft: true })
-				.then(async (r) => {
+			// The user alongside the resource, as the generic resource editor loads it: a session or
+			// fork editor operates on a workspace that is not the one being navigated, and groups,
+			// folders and the admin flag are all per workspace, so the nav user would answer for the
+			// wrong membership in both directions.
+			Promise.all([
+				ResourceService.getResource({ workspace: ws, path, getDraft: true }),
+				getUserExt(ws).catch(() => undefined)
+			])
+				.then(async ([r, user]) => {
 					// A slower response for a path we have left must not overwrite the current one.
 					if (loadedFor !== key) return
 					const deployedState: AgentResourceState = {
@@ -144,7 +152,11 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 					// Same rule the generic resource editor applies. The backend refuses the write
 					// either way, but without this the editor would invite edits it cannot save and
 					// autosave a draft on every keystroke against a resource the reader cannot deploy.
-					canWriteResource = canWrite(r.path, r.extra_perms ?? {}, get(userStore) ?? undefined)
+					canWriteResource = canWrite(
+						r.path,
+						r.extra_perms ?? {},
+						user ?? get(userStore) ?? undefined
+					)
 					// An agent that exists only as a draft has no deployed value to compare against or
 					// fall back to, and the response's is a synthetic echo of the draft. Leaving the
 					// baseline unset is what suppresses the unsaved-changes banner for it, exactly as

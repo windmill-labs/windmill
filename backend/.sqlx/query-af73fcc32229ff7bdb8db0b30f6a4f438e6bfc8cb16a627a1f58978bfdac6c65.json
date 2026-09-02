@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE eval_experiment SET subject = jsonb_set(subject, '{path}', to_jsonb($1::text))\n              WHERE workspace_id = $2 AND subject->>'path' = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "af73fcc32229ff7bdb8db0b30f6a4f438e6bfc8cb16a627a1f58978bfdac6c65"
+}

@@ -268,6 +268,7 @@
 			<ResourceVersionHistory
 				path={target.path}
 				workspace={ws}
+				canRestore={!readOnly}
 				onRestore={() => {
 					versionDrawer?.closeDrawer()
 					// Close the editor too, as the generic resource editor does on a restore: it holds
