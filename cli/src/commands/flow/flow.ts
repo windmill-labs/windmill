@@ -1144,7 +1144,7 @@ const command = new Command()
   .arguments("<path:string>")
   .option(
     "-d --data <data:string>",
-    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value (a variable, $var:<path>) — not an object wrapper keyed on $res, and not a plain path."
+    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path."
   )
   .option(
     "-s --silent",
@@ -1162,7 +1162,7 @@ const command = new Command()
   .arguments("<flow_path:string>")
   .option(
     "-d --data <data:string>",
-    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value (a variable, $var:<path>) — not an object wrapper keyed on $res, and not a plain path."
+    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path."
   )
   .option(
     "-s --silent",

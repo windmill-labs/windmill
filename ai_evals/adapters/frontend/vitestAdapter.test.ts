@@ -70,7 +70,7 @@ vi.mock('$lib/gen', async () => {
 		getBenchmarkResourceValue,
 		getBenchmarkVariableByPath,
 		hasBenchmarkWorkspace,
-		getBenchmarkPlainResource,
+		getBenchmarkResource,
 		listBenchmarkAiProviderResources,
 		listBenchmarkPlainResources,
 		listBenchmarkApps,
@@ -372,10 +372,9 @@ vi.mock('$lib/gen', async () => {
 				const wanted = data.resourceType?.split(',')
 				return wanted ? seeded.filter((r) => wanted.includes(r.resource_type)) : seeded
 			},
-			// AI provider seeds carry no full row — they are only ever referenced by path.
 			getResource: async (data: { workspace: string; path: string }) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
-					const resource = getBenchmarkPlainResource(data.workspace, data.path)
+					const resource = getBenchmarkResource(data.workspace, data.path)
 					if (!resource) {
 						throw new Error(`Resource "${data.path}" not found in benchmark workspace`)
 					}

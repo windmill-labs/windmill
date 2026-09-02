@@ -316,20 +316,33 @@ export function listBenchmarkPlainResources(workspace: string): ListableResource
 	}))
 }
 
-/** A seeded plain resource with its value, as `ResourceService.getResource` returns it. */
-export function getBenchmarkPlainResource(workspace: string, path: string): Resource | null {
-	const seed = benchmarkWorkspaceRunnables
-		.get(workspace)
-		?.resources?.find((entry) => entry.path === path)
-	if (!seed) {
+/** A seeded resource with its value, as `ResourceService.getResource` returns it. Covers both
+ * seed kinds, so it agrees with `existsResource` and `listResource` — both of those report AI
+ * providers too, and a case that lists resources and then reads one by path would otherwise get
+ * a row it cannot fetch. */
+export function getBenchmarkResource(workspace: string, path: string): Resource | null {
+	const runnables = benchmarkWorkspaceRunnables.get(workspace)
+	const seed = runnables?.resources?.find((entry) => entry.path === path)
+	if (seed) {
+		return {
+			workspace_id: workspace,
+			path: seed.path,
+			resource_type: seed.resource_type,
+			description: seed.description,
+			value: seed.value ?? {},
+			is_oauth: false,
+			extra_perms: {}
+		} as Resource
+	}
+	const provider = runnables?.aiProviders?.find((entry) => entry.path === path)
+	if (!provider) {
 		return null
 	}
 	return {
 		workspace_id: workspace,
-		path: seed.path,
-		resource_type: seed.resource_type,
-		description: seed.description,
-		value: seed.value ?? {},
+		path: provider.path,
+		resource_type: provider.kind,
+		value: getBenchmarkResourceValue(workspace, path) ?? {},
 		is_oauth: false,
 		extra_perms: {}
 	} as Resource
