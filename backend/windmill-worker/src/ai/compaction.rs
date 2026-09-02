@@ -29,6 +29,11 @@ const SUMMARY_OUTPUT_RESERVE_TOKENS: usize = 8000;
 /// on a small window, which would collapse the tail to one message and summarize the
 /// rest — a context wipe rather than a compaction.
 const MAX_SUMMARY_RESERVE_SHARE: usize = 10;
+/// Floor on it, because the reserve is also the summary's output cap: the prompt asks
+/// for a scratchpad followed by nine sections, and a response that stops inside the
+/// scratchpad is discarded. Scaled down without a floor, a small window would truncate
+/// every summary and switch the mode off after three of them.
+const MIN_SUMMARY_RESERVE_TOKENS: usize = 2000;
 /// Summarizing fewer messages than this costs a full model call to save almost nothing.
 const MIN_PREFIX_MESSAGES_TO_SUMMARIZE: usize = 4;
 /// After this many failed summarizations the run stops trying, so a provider that
@@ -158,13 +163,19 @@ pub struct LastRequest {
 /// last one plus an estimate of everything appended since. A single large tool result
 /// can be most of a context window, so measuring only the last request would let the
 /// conversation blow past the window without ever tripping the trigger.
-fn projected_prompt_tokens(messages: &[OpenAIMessage], last_request: LastRequest) -> usize {
+fn projected_prompt_tokens(
+    messages: &[OpenAIMessage],
+    last_request: LastRequest,
+    tool_schema_tokens: usize,
+) -> usize {
     match last_request.prompt_tokens {
         Some(counted) => {
             let appended = last_request.message_count.min(messages.len());
             (counted.max(0) as usize) + estimate_conversation_tokens(&messages[appended..])
         }
-        None => estimate_conversation_tokens(messages),
+        // The provider's count covers the tool definitions; an estimate over the message
+        // list alone does not, and they can be most of a small window.
+        None => estimate_conversation_tokens(messages) + tool_schema_tokens,
     }
 }
 
@@ -173,7 +184,9 @@ fn projected_prompt_tokens(messages: &[OpenAIMessage], last_request: LastRequest
 /// summary can come back larger than the room made for it and put the conversation
 /// straight back over the trigger, compacting its own previous summary every response.
 fn summary_reserve_tokens(context_window: usize) -> usize {
-    SUMMARY_OUTPUT_RESERVE_TOKENS.min(context_window / MAX_SUMMARY_RESERVE_SHARE)
+    SUMMARY_OUTPUT_RESERVE_TOKENS
+        .min(context_window / MAX_SUMMARY_RESERVE_SHARE)
+        .max(MIN_SUMMARY_RESERVE_TOKENS)
 }
 
 /// First message that may be summarized away. The leading system messages carry the
@@ -191,11 +204,21 @@ fn summarizable_start(messages: &[OpenAIMessage]) -> usize {
 /// The tail grows backwards from the newest message until it fills the target budget,
 /// then backs up over any leading `tool` messages so it never opens with a tool result
 /// whose `tool_calls` message was summarized away — every provider rejects that.
-fn plan_tail_start(messages: &[OpenAIMessage], context_window: usize) -> Option<usize> {
+fn plan_tail_start(
+    messages: &[OpenAIMessage],
+    context_window: usize,
+    tool_schema_tokens: usize,
+) -> Option<usize> {
     let prefix_start = summarizable_start(messages);
 
+    // The budget is for the tail alone, so what every request carries regardless — the
+    // system prompt compaction keeps, and the tool definitions, which are not in the
+    // message list at all — comes off the target first. Left in, a tail sized to the
+    // whole target puts the next request back over the trigger and compacts again.
+    let fixed_prompt_tokens =
+        estimate_conversation_tokens(&messages[..prefix_start]) + tool_schema_tokens;
     let budget = ((context_window as f64 * COMPACTION_TARGET_RATIO) as usize)
-        - summary_reserve_tokens(context_window);
+        .saturating_sub(summary_reserve_tokens(context_window) + fixed_prompt_tokens);
 
     let mut tail_start = messages.len();
     let mut tail_tokens = 0usize;
@@ -303,6 +326,9 @@ pub struct CompactionRequest<'a> {
 /// row have failed.
 pub struct Compactor {
     context_window: usize,
+    /// Estimated size of the tool definitions every request carries. They are not part
+    /// of the message list, so nothing else in here would see them.
+    tool_schema_tokens: usize,
     consecutive_failures: usize,
     /// Whether the current conversation has already been acted on. A compaction pass is
     /// worth taking once per provider response: a loop that exits without issuing
@@ -313,8 +339,13 @@ pub struct Compactor {
 }
 
 impl Compactor {
-    pub fn new(context_window: usize) -> Self {
-        Self { context_window, consecutive_failures: 0, measurement_spent: false }
+    pub fn new(context_window: usize, tool_schema_tokens: usize) -> Self {
+        Self {
+            context_window,
+            tool_schema_tokens,
+            consecutive_failures: 0,
+            measurement_spent: false,
+        }
     }
 
     /// Arms the next compaction pass. Called for each provider response, whose token
@@ -341,13 +372,15 @@ impl Compactor {
             return None;
         }
 
-        if (projected_prompt_tokens(messages, last_request) as f64)
+        if (projected_prompt_tokens(messages, last_request, self.tool_schema_tokens) as f64)
             < self.context_window as f64 * COMPACTION_TRIGGER_RATIO
         {
             return None;
         }
 
-        let Some(tail_start) = plan_tail_start(messages, self.context_window) else {
+        let Some(tail_start) =
+            plan_tail_start(messages, self.context_window, self.tool_schema_tokens)
+        else {
             // The trigger runs off the provider's count and the split off a character
             // estimate; when they disagree the step keeps growing with nothing done, so
             // say so rather than leaving the mode looking broken.
@@ -597,9 +630,29 @@ mod tests {
             messages.push(message("tool", &"x".repeat(40000)));
         }
 
-        let tail_start = plan_tail_start(&messages, 32000).expect("should compact");
+        let tail_start = plan_tail_start(&messages, 32000, 0).expect("should compact");
         assert_ne!(messages[tail_start].role, "tool");
         assert!(tail_start >= 1, "the system message is never summarized");
+    }
+
+    /// Tool definitions and the system prompt ride on every request but are not in the
+    /// tail; a budget that ignores them sizes the tail to the whole target and leaves the
+    /// next request back over the trigger.
+    #[test]
+    fn plan_tail_start_charges_the_budget_for_tools_and_the_system_prompt() {
+        let mut messages = vec![message("system", &"s".repeat(20000)), message("user", "hi")];
+        for _ in 0..8 {
+            messages.push(message("assistant", &"a".repeat(8000)));
+            messages.push(message("user", &"u".repeat(8000)));
+        }
+
+        let without_overhead = plan_tail_start(&messages, 40000, 0).expect("should compact");
+        let with_overhead = plan_tail_start(&messages, 40000, 10000).expect("should compact");
+
+        assert!(
+            with_overhead > without_overhead,
+            "tool schemas must shrink the tail: {without_overhead} -> {with_overhead}"
+        );
     }
 
     /// A single oversized tool result can fill the window on its own; measuring only
@@ -616,23 +669,22 @@ mod tests {
         let last_request = LastRequest { prompt_tokens: Some(500), message_count: 2 };
 
         assert_eq!(
-            projected_prompt_tokens(&messages, last_request),
+            projected_prompt_tokens(&messages, last_request, 0),
             500 + 10003
         );
     }
 
-    /// The reserve has to leave the tail room to grow on a small window, and the
-    /// summarization request asks for exactly this number: a larger cap lets a summary
-    /// land the conversation back over the trigger and compact its own summary next
-    /// response.
+    /// The reserve is both the room the split leaves and the summary's output cap, and
+    /// the two pull opposite ways: it has to shrink with the window so the tail does not
+    /// collapse, but never below what a full summary needs to come back complete.
     #[test]
-    fn summary_reserve_scales_with_the_window() {
+    fn summary_reserve_scales_with_the_window_down_to_a_floor() {
         assert_eq!(
             summary_reserve_tokens(128000),
             SUMMARY_OUTPUT_RESERVE_TOKENS
         );
         assert_eq!(summary_reserve_tokens(20000), 2000);
-        assert_eq!(summary_reserve_tokens(8000), 800);
+        assert_eq!(summary_reserve_tokens(8000), MIN_SUMMARY_RESERVE_TOKENS);
     }
 
     #[test]
@@ -642,6 +694,6 @@ mod tests {
             message("user", "hi"),
             message("assistant", "hello"),
         ];
-        assert_eq!(plan_tail_start(&messages, 1000), None);
+        assert_eq!(plan_tail_start(&messages, 1000, 0), None);
     }
 }

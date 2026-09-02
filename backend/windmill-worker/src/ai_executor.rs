@@ -1187,7 +1187,12 @@ pub async fn run_agent(
 
     let mut compactor = match &args.memory {
         Some(Memory::AutoCompacted { context_window, .. }) if is_text_output => {
-            Some(Compactor::new(*context_window))
+            let tool_schema_tokens = tool_defs
+                .as_ref()
+                .and_then(|defs| serde_json::to_string(defs).ok())
+                .map(|schemas| schemas.len() / 4)
+                .unwrap_or(0);
+            Some(Compactor::new(*context_window, tool_schema_tokens))
         }
         _ => None,
     };

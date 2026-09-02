@@ -374,7 +374,8 @@ pub struct AnthropicSSEParser {
     pub annotations: Vec<UrlCitation>,
     /// Whether web search was used in this response
     pub used_websearch: bool,
-    /// Token usage from message_delta event
+    /// Token usage, merged from the `message_start` (prompt side) and `message_delta`
+    /// (completion side) events
     pub usage: Option<AnthropicUsage>,
     /// Claude thinking block accumulated from `thinking`/`signature` deltas
     /// (or a redacted block). Attached to the first tool call of the turn so it
