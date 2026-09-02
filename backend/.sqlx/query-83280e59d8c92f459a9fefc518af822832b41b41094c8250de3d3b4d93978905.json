@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.workspace_id, s.path, s.schedule AS cron, s.timezone, s.cron_version,\n                MIN(q.scheduled_for) AS \"oldest!\"\n         FROM v2_job_queue q\n         JOIN v2_job j ON j.id = q.id\n         JOIN schedule s ON s.workspace_id = j.workspace_id\n                        AND s.path = j.trigger\n                        AND s.script_path = j.runnable_path\n         WHERE j.trigger_kind = 'schedule'\n             AND j.parent_job IS NULL\n             AND s.enabled\n             AND NOT s.is_flow\n             AND s.retry IS NULL\n             AND s.dynamic_skip IS NULL\n         GROUP BY s.workspace_id, s.path, s.schedule, s.timezone, s.cron_version",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "cron",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "timezone",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "cron_version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "oldest!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "83280e59d8c92f459a9fefc518af822832b41b41094c8250de3d3b4d93978905"
+}

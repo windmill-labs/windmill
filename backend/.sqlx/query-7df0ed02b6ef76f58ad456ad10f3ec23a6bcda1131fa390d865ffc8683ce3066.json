@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            schedule.path,\n            schedule.script_path,\n            schedule.schedule AS cron,\n            schedule.timezone,\n            schedule.cron_version,\n            schedule.occurrence_baseline_at,\n            -- Occurrences serialize only when the whole job re-arms on completion.\n            -- `retry` and `dynamic_skip` both wrap the script in a SingleStepFlow,\n            -- which re-arms at step 0 entry and therefore overlaps like a flow.\n            NOT schedule.is_flow\n                AND schedule.retry IS NULL\n                AND schedule.dynamic_skip IS NULL AS \"serialized!\",\n            t.jobs,\n            o.occurrences\n        FROM schedule,\n            LATERAL(SELECT ARRAY(\n                SELECT json_build_object('id', id, 'success', status = 'success', 'duration_ms', duration_ms)\n                FROM v2_job_completed c JOIN v2_job j USING (id)\n                WHERE trigger_kind = 'schedule'\n                    AND trigger = schedule.path\n                    AND c.workspace_id = $1\n                    AND j.workspace_id = $1\n                    AND parent_job IS NULL AND runnable_path = schedule.script_path\n                    AND status <> 'skipped'\n                ORDER BY completed_at DESC\n                LIMIT 20\n            ) AS jobs) t,\n            -- Every root occurrence, including the ones that completed as `skipped`\n            -- and the one currently queued: a hole here manufactures a phantom gap.\n            LATERAL(SELECT ARRAY(\n                SELECT j.created_at\n                FROM v2_job j\n                WHERE j.trigger_kind = 'schedule'\n                    AND j.trigger = schedule.path\n                    AND j.workspace_id = $1\n                    AND j.parent_job IS NULL AND j.runnable_path = schedule.script_path\n                ORDER BY j.created_at DESC\n                LIMIT $5\n            ) AS occurrences) o\n        WHERE workspace_id = $1 AND NOT starts_with(schedule.path, $4)\n        ORDER BY edited_at DESC\n        LIMIT $2 OFFSET $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "cron",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "timezone",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "cron_version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "occurrence_baseline_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "serialized!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "jobs",
+        "type_info": "JsonArray"
+      },
+      {
+        "ordinal": 8,
+        "name": "occurrences",
+        "type_info": "TimestamptzArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "7df0ed02b6ef76f58ad456ad10f3ec23a6bcda1131fa390d865ffc8683ce3066"
+}

@@ -1,0 +1,55 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT j.id, j.created_at,\n                c.started_at AS \"started_at?\",\n                c.completed_at AS \"completed_at?\",\n                c.duration_ms AS \"duration_ms?\",\n                c.status::text AS status\n         FROM v2_job j LEFT JOIN v2_job_completed c ON c.id = j.id\n         WHERE j.workspace_id = $1\n             AND j.trigger_kind = 'schedule'\n             AND j.trigger = $2\n             AND j.parent_job IS NULL\n             AND j.runnable_path = $3\n         ORDER BY j.created_at DESC\n         LIMIT $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "started_at?",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "completed_at?",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "duration_ms?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "status",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "4a84bbcb921ea319126afe5b359efaceaf4f2377df41d02afe366cb482128e34"
+}

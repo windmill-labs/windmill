@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        INSERT INTO schedule (\n            workspace_id, path, schedule, timezone, edited_by, script_path,\n            is_flow, args, enabled, email, permissioned_as,\n            on_failure, on_failure_times, on_failure_exact, on_failure_extra_args,\n            on_recovery, on_recovery_times, on_recovery_extra_args,\n            on_success, on_success_extra_args,\n            ws_error_handler_muted, retry, summary, no_flow_overlap,\n            tag, paused_until, cron_version, description, dynamic_skip, labels\n        ) VALUES (\n            $1, $2, $3, $4, $5, $6,\n            $7, $8, $9, $10, $11,\n            $12, $13, $14, $15,\n            $16, $17, $18,\n            $19, $20,\n            $21, $22, $23, $24,\n            $25, $26, $27, $28, $29, $30\n        )\n        RETURNING\n            workspace_id,\n            path,\n            edited_by,\n            edited_at,\n            schedule,\n            timezone,\n            enabled,\n            script_path,\n            is_flow,\n            args AS \"args: _\",\n            extra_perms,\n            email,\n            permissioned_as,\n            error,\n            on_failure,\n            on_failure_times,\n            on_failure_exact,\n            on_failure_extra_args AS \"on_failure_extra_args: _\",\n            on_recovery,\n            on_recovery_times,\n            on_recovery_extra_args AS \"on_recovery_extra_args: _\",\n            on_success,\n            on_success_extra_args  AS \"on_success_extra_args: _\",\n            ws_error_handler_muted,\n            retry,\n            no_flow_overlap,\n            summary,\n            description,\n            tag,\n            paused_until,\n            cron_version,\n            dynamic_skip,\n            labels\n        ",
+  "query": "\n        UPDATE schedule SET\n            enabled = $1,\n            email = $2,\n            -- Re-enabling opens a gap the length of the disabled window, which is\n            -- deliberate and must not be counted as lost occurrences.\n            occurrence_baseline_at = CASE\n                WHEN $1 THEN GREATEST(now(), paused_until)\n                ELSE occurrence_baseline_at\n            END\n        WHERE path = $3 AND workspace_id = $4\n        RETURNING\n            workspace_id,\n            path,\n            edited_by,\n            edited_at,\n            schedule,\n            timezone,\n            enabled,\n            script_path,\n            is_flow,\n            args AS \"args: _\",\n            extra_perms,\n            email,\n            permissioned_as,\n            error,\n            on_failure,\n            on_failure_times,\n            on_failure_exact,\n            on_failure_extra_args AS \"on_failure_extra_args: _\",\n            on_recovery,\n            on_recovery_times,\n            on_recovery_extra_args AS \"on_recovery_extra_args: _\",\n            on_success,\n            on_success_extra_args AS \"on_success_extra_args: _\",\n            ws_error_handler_muted,\n            retry,\n            no_flow_overlap,\n            summary,\n            description,\n            tag,\n            paused_until,\n            cron_version,\n            dynamic_skip,\n            labels\n        ",
   "describe": {
     "columns": [
       {
@@ -171,36 +171,10 @@
     ],
     "parameters": {
       "Left": [
-        "Varchar",
-        "Varchar",
-        "Varchar",
-        "Varchar",
-        "Varchar",
-        "Varchar",
-        "Bool",
-        "Jsonb",
         "Bool",
         "Varchar",
-        "Varchar",
-        "Varchar",
-        "Int4",
-        "Bool",
-        "Jsonb",
-        "Varchar",
-        "Int4",
-        "Jsonb",
-        "Varchar",
-        "Jsonb",
-        "Bool",
-        "Jsonb",
-        "Varchar",
-        "Bool",
-        "Varchar",
-        "Timestamptz",
         "Text",
-        "Text",
-        "Varchar",
-        "TextArray"
+        "Text"
       ]
     },
     "nullable": [
@@ -239,5 +213,5 @@
       true
     ]
   },
-  "hash": "2effe885aafaa0c5fc1f969b8c6ffbd38c53fb586251ba780b75a007e5a47ed6"
+  "hash": "bd51045809a723459a5d22c196c48a445f095ed4ecbd4eb2bdb0c5ea0906c287"
 }

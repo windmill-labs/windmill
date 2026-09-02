@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        UPDATE schedule SET\n            schedule                = $1,\n            timezone                = $2,\n            args                    = $3,\n            on_failure              = $4,\n            on_failure_times        = $5,\n            on_failure_exact        = $6,\n            on_failure_extra_args   = $7,\n            on_recovery             = $8,\n            on_recovery_times       = $9,\n            on_recovery_extra_args  = $10,\n            on_success              = $11,\n            on_success_extra_args   = $12,\n            ws_error_handler_muted  = $13,\n            retry                   = $14,\n            summary                 = $15,\n            no_flow_overlap         = $16,\n            tag                     = $17,\n            paused_until            = $18,\n            path                    = $19,\n            workspace_id            = $20,\n            cron_version            = COALESCE($21, cron_version),\n            description             = $22,\n            dynamic_skip            = $23,\n            email                   = $24,\n            edited_by               = $25,\n            permissioned_as         = $26,\n            labels                  = COALESCE($27, labels)\n        WHERE path = $19 AND workspace_id = $20\n        RETURNING\n            workspace_id,\n            path,\n            edited_by,\n            edited_at,\n            schedule,\n            timezone,\n            enabled,\n            script_path,\n            is_flow,\n            args AS \"args: _\",\n            extra_perms,\n            email,\n            permissioned_as,\n            error,\n            on_failure,\n            on_failure_times,\n            on_failure_exact,\n            on_failure_extra_args AS \"on_failure_extra_args: _\",\n            on_recovery,\n            on_recovery_times,\n            on_recovery_extra_args AS \"on_recovery_extra_args: _\",\n            on_success,\n            on_success_extra_args AS \"on_success_extra_args: _\",\n            ws_error_handler_muted,\n            retry,\n            no_flow_overlap,\n            summary,\n            description,\n            tag,\n            paused_until,\n            cron_version,\n            dynamic_skip,\n            labels\n        ",
+  "query": "\n        INSERT INTO schedule (\n            workspace_id, path, schedule, timezone, edited_by, script_path,\n            is_flow, args, enabled, email, permissioned_as,\n            on_failure, on_failure_times, on_failure_exact, on_failure_extra_args,\n            on_recovery, on_recovery_times, on_recovery_extra_args,\n            on_success, on_success_extra_args,\n            ws_error_handler_muted, retry, summary, no_flow_overlap,\n            tag, paused_until, cron_version, description, dynamic_skip, labels,\n            occurrence_baseline_at\n        ) VALUES (\n            $1, $2, $3, $4, $5, $6,\n            $7, $8, $9, $10, $11,\n            $12, $13, $14, $15,\n            $16, $17, $18,\n            $19, $20,\n            $21, $22, $23, $24,\n            $25, $26, $27, $28, $29, $30,\n            GREATEST(now(), $26)\n        )\n        RETURNING\n            workspace_id,\n            path,\n            edited_by,\n            edited_at,\n            schedule,\n            timezone,\n            enabled,\n            script_path,\n            is_flow,\n            args AS \"args: _\",\n            extra_perms,\n            email,\n            permissioned_as,\n            error,\n            on_failure,\n            on_failure_times,\n            on_failure_exact,\n            on_failure_extra_args AS \"on_failure_extra_args: _\",\n            on_recovery,\n            on_recovery_times,\n            on_recovery_extra_args AS \"on_recovery_extra_args: _\",\n            on_success,\n            on_success_extra_args  AS \"on_success_extra_args: _\",\n            ws_error_handler_muted,\n            retry,\n            no_flow_overlap,\n            summary,\n            description,\n            tag,\n            paused_until,\n            cron_version,\n            dynamic_skip,\n            labels\n        ",
   "describe": {
     "columns": [
       {
@@ -173,7 +173,15 @@
       "Left": [
         "Varchar",
         "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool",
         "Jsonb",
+        "Bool",
+        "Varchar",
+        "Varchar",
         "Varchar",
         "Int4",
         "Bool",
@@ -191,11 +199,6 @@
         "Timestamptz",
         "Text",
         "Text",
-        "Text",
-        "Text",
-        "Varchar",
-        "Varchar",
-        "Varchar",
         "Varchar",
         "TextArray"
       ]
@@ -236,5 +239,5 @@
       true
     ]
   },
-  "hash": "bd2609f999054c5a2a85f2aafe4005bc22731c27f0bf27b3b06ec426a05eda2e"
+  "hash": "8dea155ee43f5b63126b33cf8067894704b10624a7b67a4a38993746157c92e3"
 }

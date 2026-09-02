@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT j.trigger AS \"trigger!\", j.runnable_path AS \"runnable_path!\",\n                MIN(q.scheduled_for) AS \"oldest!\"\n         FROM v2_job_queue q JOIN v2_job j ON j.id = q.id\n         WHERE q.workspace_id = $1\n             AND j.trigger_kind = 'schedule'\n             AND j.parent_job IS NULL\n             AND j.trigger IS NOT NULL\n             AND j.runnable_path IS NOT NULL\n         GROUP BY j.trigger, j.runnable_path",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "trigger!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "runnable_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "oldest!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "8fd3f6c3083eff96a79ed90cf3806017fe2c126fe208e2799e29fca9c0c62b07"
+}

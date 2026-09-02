@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE schedule SET occurrence_baseline_at = GREATEST(now(), paused_until)\n         WHERE workspace_id = $1 AND path = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "40b88f42ab9255df957cbacc6ccd8a4ed7b500cadd3fab9cc96ebc3cfe5c5a3a"
+}

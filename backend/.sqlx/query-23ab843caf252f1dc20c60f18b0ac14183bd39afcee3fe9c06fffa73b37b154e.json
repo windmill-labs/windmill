@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT schedule AS cron, timezone, cron_version, script_path, occurrence_baseline_at\n         FROM schedule WHERE workspace_id = $1 AND path = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cron",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "timezone",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "cron_version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "occurrence_baseline_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "23ab843caf252f1dc20c60f18b0ac14183bd39afcee3fe9c06fffa73b37b154e"
+}
