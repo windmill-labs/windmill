@@ -245,6 +245,26 @@ describe('applyRetarget', () => {
 		expect(state.deletedResources).toEqual([])
 	})
 
+	// Both spellings at once. The token is moved so the item stops depending on the stub for
+	// what it could, and the mention it spells out still keeps the stub alive.
+	it('rewrites the token of an app that also names the resource in code, and keeps the stub', async () => {
+		state.apps = [
+			{
+				path: 'f/proj/dash',
+				value: {
+					files: { '/App.tsx': `// the credential lives at ${FROM}` },
+					runnables: { send: { fields: { smtp: `$res:${FROM}` } } }
+				}
+			}
+		]
+		const outcome = await run()
+		expect(outcome.error).toBeUndefined()
+		expect(outcome.rewritten.map((r) => r.path)).toEqual(['f/proj/dash'])
+		expect(outcome.gaps.map((g) => g.path)).toEqual(['f/proj/dash'])
+		expect(outcome.stubDeleted).toBe(false)
+		expect(JSON.stringify(state.updatedRawApps[0].formData.app.value)).toContain(`$res:${TO}`)
+	})
+
 	// `listSearchApp` caps at 1000 rows server-side, unordered and unpaginated, so a full page
 	// may not hold the project's own app — and the stub would go anyway.
 	it('keeps the stub when the app listing comes back at its server-side cap', async () => {

@@ -263,6 +263,27 @@ export function referencesResourcePath(value: unknown, path: string): boolean {
 }
 
 /**
+ * Whether a `$res:`/`res://` token for this path survives anywhere in the value — the one
+ * spelling the rewriters relocate, and so the only one whose survival means a rewrite did
+ * not take. A bare path is deliberately not matched: nothing here moves one, so its presence
+ * says nothing about whether the rewrite worked.
+ */
+export function holdsResourceToken(value: unknown, path: string): boolean {
+	const walk = (v: any): boolean => {
+		if (typeof v === 'string') {
+			RES_TOKEN_RE.lastIndex = 0
+			let m: RegExpExecArray | null
+			while ((m = RES_TOKEN_RE.exec(v)) !== null) if (m[1] === path) return true
+			return false
+		}
+		if (Array.isArray(v)) return v.some(walk)
+		if (v && typeof v === 'object') return Object.values(v).some(walk)
+		return false
+	}
+	return walk(value)
+}
+
+/**
  * Whether the text names the resource somewhere no rewriter reaches — a path written on its
  * own rather than inside a `$res:` token, the way `getResource("f/proj/db")` does. The
  * tokens are stripped first so the ones a rewrite would move do not count, and the match is

@@ -30,6 +30,7 @@ import {
 	rewriteRawAppContent,
 	rewriteTriggerConfig,
 	referencesResourcePath,
+	holdsResourceToken,
 	textHoldsBarePath
 } from '$lib/components/workspaceSettings/projectBundle'
 import {
@@ -182,37 +183,35 @@ export async function planRetarget(
 	}
 	for (const f of flows ?? []) {
 		const value: any = f.value ?? {}
-		const reads = referencesResourcePath(value, from)
+		// A token is the only spelling a rewriter moves. `referencesResourcePath` would also
+		// count a whole string equal to the path, which is the unreachable case `bare` covers.
+		const reads = holdsResourceToken(value, from)
 		const bare = namesPathUnreachably(value, from)
 		if (!reads && !bare) continue
 		if (!inFolder(f.path, folder)) {
 			gaps.push({ path: f.path!, reason: OUTSIDE_PROJECT })
 			continue
 		}
-		// Gapped rather than rewritten even when it also holds a `$res:` token. The stub
-		// survives either way, so the token still resolves, and rewriting half an item would
-		// only make the plan and the write disagree about what moved.
 		if (bare) {
 			gaps.push({ path: f.path!, reason: UNREACHABLE_REFERENCE })
-			continue
+			if (!reads) continue
 		}
 		referrers.push({ kind: 'flow', path: f.path! })
 	}
 	for (const a of apps ?? []) {
 		const value: any = a.value ?? {}
-		const reads = referencesResourcePath(value, from)
+		// A token is the only spelling a rewriter moves. `referencesResourcePath` would also
+		// count a whole string equal to the path, which is the unreachable case `bare` covers.
+		const reads = holdsResourceToken(value, from)
 		const bare = namesPathUnreachably(value, from)
 		if (!reads && !bare) continue
 		if (!inFolder(a.path, folder)) {
 			gaps.push({ path: a.path!, reason: OUTSIDE_PROJECT })
 			continue
 		}
-		// Gapped rather than rewritten even when it also holds a `$res:` token. The stub
-		// survives either way, so the token still resolves, and rewriting half an item would
-		// only make the plan and the write disagree about what moved.
 		if (bare) {
 			gaps.push({ path: a.path!, reason: UNREACHABLE_REFERENCE })
-			continue
+			if (!reads) continue
 		}
 		// `files` + `runnables` and no `grid` is the deployed shape of a raw app; the
 		// low-code one keeps its components under `grid`.
@@ -314,15 +313,16 @@ export async function applyRetarget(args: {
 const CHANGED_UNDER_US = 'changed while it was being retargeted'
 
 /**
- * Whether the rewritten value has left every path being moved.
+ * Whether the rewrite moved every `$res:` token it was there to move.
  *
- * `planRetarget` skips the items it can see a rewriter would not reach, so a `false` here
- * means the item changed between the plan and the write. Each rewriter answers with this
- * rather than writing: an item written while it still reads the stub is one the caller would
- * count as moved.
+ * Only tokens: a path the item also spells out unreachably is recorded as a gap by the plan,
+ * and re-reading it here would report the same item twice — once as unmovable and once as
+ * having changed underfoot. So a `false` here means what it says, that the item's tokens are
+ * not where the rewrite should have put them, which is a change between the plan and the
+ * write. Each rewriter answers with this rather than writing.
  */
 function relocated(next: unknown, map: Map<string, string>): boolean {
-	for (const from of map.keys()) if (referencesResourcePath(next, from)) return false
+	for (const from of map.keys()) if (holdsResourceToken(next, from)) return false
 	return true
 }
 
@@ -378,6 +378,8 @@ async function rewriteFlow(
 	const f: any = await FlowService.getFlowByPath({ workspace, path })
 	const value = rewriteFlowValue(f.value, map)
 	if (!relocated(value, map)) return CHANGED_UNDER_US
+	// Nothing moved: the item was listed for a reference no rewriter reaches, already gapped.
+	if (JSON.stringify(value) === JSON.stringify(f.value)) return true
 	await FlowService.updateFlow({
 		workspace,
 		path,
@@ -405,6 +407,8 @@ async function rewriteApp(
 	const a: any = await AppService.getAppByPath({ workspace, path })
 	const next = rewriteAppValue(a.value ?? {}, map)
 	if (!relocated(next, map)) return CHANGED_UNDER_US
+	// Nothing moved: the item was listed for a reference no rewriter reaches, already gapped.
+	if (JSON.stringify(next) === JSON.stringify(a.value ?? {})) return true
 	const policy = (await updatePolicy(next as App, a.policy)) as any
 	await AppService.updateApp({
 		workspace,
@@ -472,6 +476,10 @@ async function rewriteRawApp(
 	// is one nothing here can move, and uploading it would leave the app reading a resource
 	// about to be deleted.
 	for (const stub of map.keys()) if (textHoldsBarePath(js, stub)) return UNREACHABLE_REFERENCE
+	// Nothing moved: the app was listed for a reference no rewriter reaches, already gapped.
+	// Uploading an unchanged app would cut it a version that differs from the last in nothing.
+	if (js === deployedJs && css === deployedCss && JSON.stringify(next) === JSON.stringify(value))
+		return true
 	const files = { ...(next.files ?? {}) }
 	delete files['/bundle.js']
 	delete files['/bundle.css']

@@ -414,10 +414,11 @@
 			return
 		}
 		blanks = blanks.map((b) => {
-			// A row pointed at another resource is settled whatever is at its own path. The
-			// project's items read the chosen resource now, and the stub — kept when the scan
-			// could not account for everything — is no longer what the project depends on.
-			if (b.reusedFrom) return b
+			// A row pointed at another resource is settled once its own stub is gone: the
+			// project's items read the chosen resource and nothing is left at this path. A row
+			// whose stub was kept is not settled, and re-reading it is how filling that stub in
+			// finally closes the row.
+			if (b.reusedFrom && !b.stubKept) return b
 			const f = stillBlank.get(b.path)
 			// Every field the fresh read decides is taken from it, not merged selectively: these
 			// describe what is at the path *now*. Keeping a stale `unreadable` leaves a resource
@@ -587,8 +588,11 @@
 			if (row) {
 				row.reusedFrom = target
 				row.stubKept = !outcome.stubDeleted
-				row.done = true
-				row.justSaved = true
+				// Settled only when the stub is gone. A kept stub is empty and is still what
+				// every item the scan could not move reads, so the row stays outstanding and
+				// keeps its action: filling it in is the thing left to do.
+				row.done = outcome.stubDeleted
+				row.justSaved = outcome.stubDeleted
 			}
 			await refreshBlanks()
 			sendUserToast(
@@ -915,10 +919,11 @@
 										now uses <span class="font-mono">{b.reusedFrom}</span>
 									</span>
 									{#if b.stubKept}
-										<!-- The placeholder is still at this row's path and still empty, which
-										     otherwise reads as the retarget having half-worked. -->
+										<!-- Not a footnote: some items were not moved and still read this path,
+										     so the empty resource on it is a credential someone has to fill in. -->
 										<span class="truncate text-hint">
-											the empty placeholder was kept, because some items could not be checked
+											some items still read <span class="font-mono">{b.path}</span> — fill it in
+											too
 										</span>
 									{/if}
 								{:else if b.occupiedBy}
@@ -948,7 +953,7 @@
 									<span class="whitespace-nowrap text-2xs text-hint">
 										{b.occupiedBy ? 'Resolve in the workspace' : 'Check the workspace'}
 									</span>
-								{:else if b.reusedFrom}
+								{:else if b.reusedFrom && !b.stubKept}
 									<!-- No action either: the project reads the resource the detail line
 									     names and this row's own path is gone, so every way of filling it in
 									     leads to a resource nothing references. -->
