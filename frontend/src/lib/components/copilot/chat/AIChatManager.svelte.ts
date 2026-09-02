@@ -2887,6 +2887,12 @@ export class AIChatManager {
 			sendUserToast('This action needs the AI chat. Start an AI session to continue.', true)
 			return
 		}
+		// The workspace hid the assistant: every entry point is gone from the UI, so a turn
+		// reaching here comes from a path that missed the gate and would stream unseen.
+		if (!this.isSessionChat && get(copilotInfo).workspaceDisabled) {
+			sendUserToast('Windmill AI is hidden in this workspace.', true)
+			return
+		}
 		// Refused before anything mutates, so there is nothing to unwind: the
 		// draft (already taken by the composer) goes back where the user can see
 		// it, and the turn never starts. Only the message's own send restores it
