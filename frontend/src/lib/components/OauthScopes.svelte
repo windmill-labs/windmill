@@ -106,7 +106,9 @@
 	>
 		Add item
 	</Button>
-	<span class="ml-2 text-xs text-primary font-normal">
-		({custom.length} item{custom.length > 1 ? 's' : ''})
-	</span>
+	{#if custom.length > 0}
+		<span class="ml-2 text-xs text-primary font-normal">
+			({custom.length} item{custom.length > 1 ? 's' : ''})
+		</span>
+	{/if}
 </div>
