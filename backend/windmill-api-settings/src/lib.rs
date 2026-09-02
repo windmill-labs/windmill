@@ -284,13 +284,13 @@ pub async fn test_s3_bucket(
     use bytes::Bytes;
     use futures::StreamExt;
 
-    // The probe executes on the API server itself. On multi-tenant Cloud that is a shared control
-    // plane, so we constrain untrusted callers to remove the SSRF / credential-exfiltration /
-    // local-filesystem surface (see validate_object_storage_test). On self-hosted instances the
-    // object store usually lives on the local/private network and all authenticated users are
-    // trusted, so testing there stays unrestricted. Super admins keep the unrestricted path too.
+    // The probe executes on the API server itself and reflects the upstream response into the
+    // error, so any authenticated caller could otherwise use it as an SSRF / port-scan primitive
+    // against the server's network, exfiltrate its ambient credentials, or write to its local
+    // disk (see validate_object_storage_test). That holds on self-hosted instances as much as on
+    // Cloud, so only super admins get the unrestricted path.
     let is_super_admin = windmill_api_auth::is_super_admin_authed(&db, &authed).await?;
-    let restrict = !is_super_admin && *CLOUD_HOSTED;
+    let restrict = !is_super_admin;
     if restrict {
         validate_object_storage_test(&test_s3_bucket).await?;
     }
@@ -355,8 +355,8 @@ pub async fn test_s3_bucket(
     }
 }
 
-// Hardening for the object-storage connectivity test by an untrusted (non-super-admin) caller on
-// Cloud. The probe runs on the shared API server, so without these constraints an authenticated
+// Hardening for the object-storage connectivity test by an untrusted (non-super-admin) caller.
+// The probe runs on the API server, so without these constraints an authenticated
 // user could coerce the server into connecting to arbitrary internal endpoints (SSRF), signing
 // requests with the instance role (credential exfiltration), or reading/writing the server's local
 // disk (filesystem object store).
