@@ -17,7 +17,7 @@
 		buildWorkspaceHierarchy
 	} from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
-	import { canCreateFork } from '$lib/utils/editInFork'
+	import { forkBlockedReason, type ForkBlockedReason } from '$lib/utils/editInFork'
 	import { forkAccentStyle } from '$lib/utils/forkColor'
 	import { getUserExt } from '$lib/user'
 	import { WorkspaceService } from '$lib/gen'
@@ -27,7 +27,6 @@
 		canUserBypassRuleKindInRulesets
 	} from '$lib/workspaceProtectionRules.svelte'
 	import { resource } from 'runed'
-	import { isCloudHosted } from '$lib/cloud'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import InputError from '$lib/components/InputError.svelte'
@@ -169,19 +168,20 @@
 		rootRulesetsResource.loading || rootUserInfoResource.loading || !canDeployRoot
 	)
 
-	// Structural gate: hidden in the admins workspace, or when the user can't fork; on cloud, forking
-	// is premium-only (backend caps it per paid seat). DisableWorkspaceForking on the active workspace
-	// (a locked prod) doesn't apply when there's a dev to fork from instead — the dev isn't locked, and
-	// devOfRoot only resolves when the user is a member of it.
-	const forksGateOpen = $derived(
-		(!isCloudHosted() || $maybePremium) &&
-			$workspaceStore !== 'admins' &&
-			(canCreateFork($userStore) || !!devOfRoot)
+	// Why forking is unavailable here (admins workspace, non-premium cloud, or a protection rule), or
+	// undefined when it is available. DisableWorkspaceForking on the active workspace (a locked prod)
+	// doesn't apply when there's a dev to fork from instead — the dev isn't locked, and devOfRoot only
+	// resolves when the user is a member of it.
+	const forkGateReason = $derived(
+		forkBlockedReason($userStore, $workspaceStore, {
+			premium: $maybePremium,
+			hasDevWorkspace: !!devOfRoot
+		})
 	)
 	// A fork is a new workspace, so it's subject to the community-edition cap on
 	// the number of non-'admins' workspaces (backend _check_nb_of_workspaces,
 	// run only on community builds). An enterprise license lifts the cap. We
-	// mirror the backend count with the client-side workspace list to hide the
+	// mirror the backend count with the client-side workspace list to disable the
 	// affordance once the cap is reached; the server still enforces the real
 	// (instance-wide) check on commit, so this is purely UX.
 	const CE_MAX_NON_ADMIN_WORKSPACES = 2
@@ -189,20 +189,24 @@
 	const ceWorkspaceCapReached = $derived(
 		!$enterpriseLicense && nonAdminWorkspaceCount >= CE_MAX_NON_ADMIN_WORKSPACES
 	)
-	// The interactive create-fork row is shown unless the cap is reached;
-	// otherwise (structural gate open but cap hit) we surface a disabled row
-	// explaining the limit — never stage a fork the backend would reject.
+	// Structural: the consumer wired up a create path at all, and there's a family to fork from. The
+	// row is absent only in that case — every other blocker keeps it visible and names itself.
 	const forkAffordanceOpen = $derived(
-		allowCreateFork && forksGateOpen && (!!onCreateFork || !!onRequestCreateFork) && !!root
+		allowCreateFork && (!!onCreateFork || !!onRequestCreateFork) && !!root
 	)
-	// The upsell (CE workspace cap) only applies to in-place inline creation;
-	// onRequestCreateFork delegates to a flow that enforces its own limits.
-	const showCreateFork = $derived(
-		forkAffordanceOpen && (!ceWorkspaceCapReached || !!onRequestCreateFork)
+	// Blocker for the create-fork row: the gate above, else the CE workspace cap. The cap only applies
+	// to in-place inline creation; onRequestCreateFork delegates to a flow that enforces its own
+	// limits. Never stage a fork the backend would reject.
+	const createForkBlocked = $derived<ForkBlockedReason | undefined>(
+		forkGateReason ??
+			(ceWorkspaceCapReached && !onRequestCreateFork
+				? {
+						note: 'Workspace limit reached',
+						title: `Community edition is limited to ${CE_MAX_NON_ADMIN_WORKSPACES + 1} workspaces. Archive a workspace or upgrade to an enterprise license to create more forks.`
+					}
+				: undefined)
 	)
-	const showForkUpsell = $derived(
-		forkAffordanceOpen && ceWorkspaceCapReached && !onRequestCreateFork
-	)
+	const showCreateFork = $derived(forkAffordanceOpen && !createForkBlocked)
 
 	let dropdownOpen = $state(false)
 	let creatingFork = $state(false)
@@ -559,17 +563,16 @@
 						<span>{createForkLabel}</span>
 					</button>
 				{/if}
-			{:else if showForkUpsell}
+			{:else if forkAffordanceOpen && createForkBlocked}
 				<div class="my-1 border-t border-border-light shrink-0"></div>
 				<div
 					class={`${rowBase} opacity-60 cursor-not-allowed`}
 					aria-disabled="true"
-					title="Community edition is limited to {CE_MAX_NON_ADMIN_WORKSPACES +
-						1} workspaces. Archive a workspace or upgrade to an enterprise license to create more forks."
+					title={createForkBlocked.title}
 				>
 					<Plus size={14} class="shrink-0 text-tertiary" />
 					<span>{createForkLabel}</span>
-					<span class="ml-auto shrink-0 text-2xs text-tertiary"> Workspace limit reached </span>
+					<span class="ml-auto shrink-0 text-2xs text-tertiary">{createForkBlocked.note}</span>
 				</div>
 			{/if}
 			{#if settingsHref}

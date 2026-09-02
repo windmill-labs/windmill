@@ -37,7 +37,7 @@
 		findWorkspaceRoot,
 		isForkOwner
 	} from '$lib/utils/workspaceHierarchy'
-	import { canCreateFork } from '$lib/utils/editInFork'
+	import { forkBlockedReason } from '$lib/utils/editInFork'
 	import { getContrastTextColor } from '$lib/utils'
 	import { workspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
 	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
@@ -113,10 +113,10 @@
 		return withForks
 	})
 	// Gate for the "Workspace fork" entry pinned below the list (the global fork
-	// modal carries its own base-workspace picker). Hidden on non-premium cloud,
-	// in the admins workspace, or when forking is disabled.
-	const canForkHere = $derived(
-		(!isCloudHosted() || $maybePremium) && $workspaceStore !== 'admins' && canCreateFork($userStore)
+	// modal carries its own base-workspace picker). When forking is unavailable the
+	// entry stays, disabled and carrying the reason, rather than disappearing.
+	const forkBlocked = $derived(
+		forkBlockedReason($userStore, $workspaceStore, { premium: $maybePremium })
 	)
 	const familyWorkspaces = $derived.by(() => {
 		if (strictWorkspaceSelect) return hierarchy
@@ -375,7 +375,7 @@
 					</div>
 				{/each}
 			</div>
-			{#if (isCloudHosted() || $superadmin || canForkHere) && !strictWorkspaceSelect}
+			{#if !strictWorkspaceSelect}
 				<div class="py-1" role="none">
 					{#if isCloudHosted() || $superadmin}
 						<MenuItem href="{base}/user/create_workspace" class={itemClass} {item}>
@@ -383,7 +383,21 @@
 							Workspace
 						</MenuItem>
 					{/if}
-					{#if canForkHere}
+					{#if forkBlocked}
+						<!-- Kept visible so the reason forking is unavailable is readable here, rather than
+						     leaving the entry to silently vanish. -->
+						<div
+							class="text-primary font-normal w-full flex flex-row gap-2 items-center px-4 py-2 text-xs opacity-60 cursor-not-allowed"
+							role="menuitem"
+							tabindex="-1"
+							aria-disabled="true"
+							title={forkBlocked.title}
+						>
+							<Plus size={16} />
+							Workspace fork
+							<span class="ml-auto shrink-0 text-2xs text-tertiary">{forkBlocked.note}</span>
+						</div>
+					{:else}
 						<MenuItem
 							class={itemClass}
 							onClick={() => (globalForkModal.val = { opened: true })}

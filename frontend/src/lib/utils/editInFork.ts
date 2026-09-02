@@ -13,6 +13,7 @@ import { goto } from '$lib/navigation'
 import { sendUserToast } from '$lib/toast'
 import { checkItemExists } from '$lib/utils_workspace_deploy'
 import { updateDevWorkspaceModal } from '$lib/utils/editInForkModal.svelte'
+import { isCloudHosted } from '$lib/cloud'
 
 export type ItemType = 'script' | 'flow' | 'app' | 'raw_app'
 
@@ -53,6 +54,41 @@ export function canCreateFork(user: UserExt | undefined): boolean {
 		!isRuleActive('DisableWorkspaceForking') ||
 		canUserBypassRuleKind('DisableWorkspaceForking', user)
 	)
+}
+
+/** Why a create-fork entry is disabled: a short right-hand note, and the tooltip that explains it. */
+export type ForkBlockedReason = { note: string; title: string }
+
+/**
+ * The blocker on creating a fork of the given workspace, or undefined when there is none. Callers
+ * render the create-fork entry disabled and carrying this reason rather than dropping it, so a user
+ * who can't fork reads why instead of hunting for a missing entry. `premium` comes from
+ * `maybePremium` (forking is metered per paid seat on cloud); `hasDevWorkspace` relaxes the forking
+ * rule, since a locked prod's dev workspace is itself forkable.
+ */
+export function forkBlockedReason(
+	user: UserExt | undefined,
+	workspaceId: string | undefined,
+	{ premium, hasDevWorkspace = false }: { premium: boolean; hasDevWorkspace?: boolean }
+): ForkBlockedReason | undefined {
+	if (workspaceId === 'admins')
+		return {
+			note: 'Not forkable',
+			title: 'The admins workspace cannot be forked. Switch to another workspace to create a fork.'
+		}
+	if (isCloudHosted() && !premium)
+		return {
+			note: 'Paid plans only',
+			title:
+				'Forking a workspace is available on paid plans. Upgrade this workspace to create forks.'
+		}
+	if (!canCreateFork(user) && !hasDevWorkspace)
+		return {
+			note: 'Disabled',
+			title:
+				'A protection rule disables forking of this workspace. A workspace admin can change it in the workspace settings.'
+		}
+	return undefined
 }
 
 function editPathFor(itemType: ItemType, itemPath: string): string {
