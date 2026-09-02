@@ -4611,10 +4611,9 @@ struct EditGuestAccess {
 
 /// Turn guest sessions on or off for this workspace. Off by default, and off is
 /// authoritative and immediate: the switch is re-read where a guest session is
-/// minted, where a guest reads an app and where a guest runs its components
-/// (`guest_app_admits` / `is_guest_access_enabled`), so an app whose policy already
-/// says `guest` — pushed by git-sync, say — closes to guests on the next request,
-/// sessions already issued included.
+/// minted (`guest_app_admits`) and at the auth door on every guest request, so an app
+/// whose policy already says `guest` — pushed by git-sync, say — closes to guests on
+/// the next request, sessions already issued included.
 async fn edit_guest_access(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,

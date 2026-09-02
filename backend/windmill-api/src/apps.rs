@@ -3748,6 +3748,19 @@ async fn get_on_behalf_details_from_policy_and_authed(
     policy: &Policy,
     opt_authed: &Option<ApiAuthed>,
 ) -> Result<(String, String, String)> {
+    // A guest acts only through an app that is open to guests. Any other mode means
+    // the policy changed after the session was issued. Decided here because this is
+    // the one resolver every on-behalf path — component runs, S3 reads, uploads —
+    // goes through, so no route has to remember it.
+    if opt_authed
+        .as_ref()
+        .is_some_and(|a| windmill_api_auth::scopes::has_guest_sentinel(a.scopes.as_deref()))
+        && !matches!(policy.execution_mode(), ExecutionMode::Guest)
+    {
+        return Err(Error::PermissionDenied(
+            "this app is not open to guests".to_string(),
+        ));
+    }
     let (username, permissioned_as, email) = match policy.execution_mode() {
         ExecutionMode::Anonymous => {
             let username = opt_authed
@@ -4081,14 +4094,9 @@ async fn execute_component(
 
     // A guest session holds no ACL of its own, so the read-permit probe below would
     // deny every guest. What confines it is the scope the session was minted with,
-    // naming the one app it may run — and the app has to be open to guests at all.
-    // The workspace's guest switch is enforced by `AuthCache` on every guest request.
+    // naming the one app it may run. The app's mode and the workspace's switch are
+    // decided elsewhere: the on-behalf resolver and `AuthCache` respectively.
     if let Some(authed) = opt_authed.as_ref().filter(|_| is_guest_caller) {
-        if !matches!(policy.execution_mode(), ExecutionMode::Guest) {
-            return Err(Error::PermissionDenied(format!(
-                "app {path} is not open to guests"
-            )));
-        }
         check_scopes(authed, || format!("apps:run:{}", path))?;
     }
 

@@ -5751,10 +5751,10 @@ paths:
       summary: enable or disable guest sessions for this workspace
       description: >-
         Guests are people the identity provider authenticates who are members of no
-        workspace, so they take no seat. Off by default. Re-read wherever a guest is
-        admitted — minting a session, reading an app, running its components — so
-        turning it off takes effect immediately, for sessions already issued and for
-        apps whose policy already says `guest`.
+        workspace, so they take no seat. Off by default. Re-read where a guest session
+        is minted and at the auth door on every guest request, so turning it off takes
+        effect immediately, for sessions already issued and for apps whose policy
+        already says `guest`.
       operationId: editGuestAccess
       tags:
         - workspace
@@ -33222,8 +33222,8 @@ components:
             the app is already deployed under. Neither `anonymous`, which makes
             the app publicly executable, nor `guest`, which opens it to anyone the
             identity provider authenticates, is ever assumed. A guest is only
-            admitted where the workspace also has `guest_access_enabled`, which
-            gates both minting a guest session and running an app's components
+            admitted where the workspace also has `guest_access_enabled`, which is
+            checked when the session is minted and on every guest request after
         on_behalf_of:
           type: string
         on_behalf_of_email:

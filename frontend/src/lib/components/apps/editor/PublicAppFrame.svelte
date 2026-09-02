@@ -23,7 +23,7 @@
 	 * bearer token (no cookie); the raw wrapper document always carries `CSP: sandbox`.
 	 */
 	import { BROWSER } from 'esm-env'
-	import { OpenAPI } from '$lib/gen'
+	import { OpenAPI, UserService } from '$lib/gen'
 	import { page } from '$app/state'
 	import { onDestroy, onMount, setContext, type Snippet } from 'svelte'
 	import { Alert, Skeleton } from '$lib/components/common'
@@ -214,13 +214,27 @@
 	 * member of this workspace lands here. */
 	let signedInHere = $state(false)
 	let deniedStatus: number | undefined = $state(undefined)
-	/** The sign-in card belongs on a 401, and on a 403 against an app that admits
-	 * guests (a session for another app of the same workspace; signing in again
-	 * replaces it). */
+	/** The sign-in card belongs on a 401, and on a 403 unless discovery has settled
+	 * that the app is not open to guests — a 403 on a guest app is a session for a
+	 * different app of the same workspace, which a fresh sign-in replaces. While
+	 * discovery is still pending this stays true so the skeleton shows rather than
+	 * a flash of "Not found". */
 	let offerSignIn = $derived(
-		status === 'noPermission' || (status === 'notExists' && deniedStatus === 403 && guestEntry === 'guest')
+		status === 'noPermission' ||
+			(status === 'notExists' && deniedStatus === 403 && guestEntry !== 'none')
 	)
 	let signInDidNotHelp = $derived(offerSignIn && signedInHere)
+
+	// The stale guest session must go before the card mounts: it still authenticates
+	// in this workspace, so the popup's success poll would see it and complete the
+	// sign-in before the new session ever lands.
+	let staleGuestCleared = $state(false)
+	$effect(() => {
+		if (deniedStatus === 403 && guestEntry === 'guest' && !staleGuestCleared) {
+			staleGuestCleared = true
+			UserService.logout().catch(() => {})
+		}
+	})
 	let embedToken: string | null = $state(null)
 	let iframeEl: HTMLIFrameElement | undefined = $state(undefined)
 
