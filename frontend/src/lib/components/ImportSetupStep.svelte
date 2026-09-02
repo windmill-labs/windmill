@@ -434,12 +434,15 @@
 					justSaved: false
 				}
 			}
-			// Gone from the blank list entirely: it was read, and it is filled.
+			// Gone from the blank list entirely: it was read, and it is filled. `stubKept` goes
+			// with it — the placeholder the items this run could not move read is a credential
+			// now, so there is nothing left to tell anyone to fill in.
 			return {
 				...b,
 				missing: [],
 				unreadable: undefined,
 				occupiedBy: undefined,
+				stubKept: undefined,
 				done: true,
 				justSaved: !b.done
 			}
@@ -530,7 +533,11 @@
 	 * there is no choice to make, so it goes straight where it always went.
 	 */
 	function startFilling(b: Blank): void {
-		if (b.done || (candidates[b.resourceType] ?? []).length === 0) {
+		// A kept-stub row has already been pointed at a resource; what is left is the empty
+		// placeholder the items this run could not move still read. Reusing a second resource
+		// would move nothing — every rewritable referrer is off the stub — and would relabel
+		// the row after a retarget that did nothing.
+		if (b.done || b.stubKept || (candidates[b.resourceType] ?? []).length === 0) {
 			fillDirectly(b)
 			return
 		}

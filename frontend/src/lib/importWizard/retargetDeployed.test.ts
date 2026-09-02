@@ -16,6 +16,7 @@ const state = vi.hoisted(() => ({
 	deployedJs: 'COMPILED',
 	deletedResources: [] as string[],
 	updatedRawApps: [] as any[],
+	updatedApps: [] as any[],
 	updatedTriggers: [] as any[]
 }))
 
@@ -34,7 +35,7 @@ vi.mock('$lib/gen', () => ({
 		listSearchApp: vi.fn(async () => state.apps),
 		getAppByPath: vi.fn(async ({ path }: any) => state.apps.find((a) => a.path === path)),
 		getPublicSecretOfLatestVersionOfApp: vi.fn(async () => 'secret'),
-		updateApp: vi.fn(),
+		updateApp: vi.fn(async (p: any) => state.updatedApps.push(p)),
 		updateAppRaw: vi.fn(async (p: any) => state.updatedRawApps.push(p))
 	},
 	ScheduleService: { updateSchedule: vi.fn() },
@@ -110,6 +111,7 @@ describe('applyRetarget', () => {
 		state.failingTriggerPath = undefined
 		state.deletedResources = []
 		state.updatedRawApps = []
+		state.updatedApps = []
 		state.updatedTriggers = []
 	})
 
@@ -263,6 +265,26 @@ describe('applyRetarget', () => {
 		expect(outcome.gaps.map((g) => g.path)).toEqual(['f/proj/dash'])
 		expect(outcome.stubDeleted).toBe(false)
 		expect(JSON.stringify(state.updatedRawApps[0].formData.app.value)).toContain(`$res:${TO}`)
+	})
+
+	// Scripts, flows and resources share a path namespace, and the map holds a resource path.
+	// The import's rewriters remap a runnable's own `path` on an exact match, which here would
+	// repoint the step at the credential.
+	it('moves an app\'s tokens without repointing a runnable that shares the path', async () => {
+		state.apps = [
+			{
+				path: 'f/proj/page',
+				value: {
+					grid: [{ data: { type: 'runnableByPath', runType: 'script', path: FROM } }],
+					inline: `$res:${FROM}`
+				}
+			}
+		]
+		const outcome = await run()
+		expect(outcome.error).toBeUndefined()
+		const sent = state.updatedApps[0]
+		expect(sent.requestBody.value.inline).toBe(`$res:${TO}`)
+		expect(sent.requestBody.value.grid[0].data.path).toBe(FROM)
 	})
 
 	// `listSearchApp` caps at 1000 rows server-side, unordered and unpaginated, so a full page

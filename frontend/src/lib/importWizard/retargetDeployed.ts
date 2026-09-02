@@ -24,10 +24,7 @@
 
 import { AppService, FlowService, ResourceService, ScheduleService, ScriptService } from '$lib/gen'
 import {
-	rewriteAppValue,
 	rewriteContent,
-	rewriteFlowValue,
-	rewriteRawAppContent,
 	rewriteTriggerConfig,
 	referencesResourcePath,
 	holdsResourceToken,
@@ -309,6 +306,20 @@ export async function applyRetarget(args: {
 	return { rewritten, gaps, stubDeleted: true }
 }
 
+/**
+ * The rewrite this module needs: `$res:` tokens and nothing else.
+ *
+ * `rewriteFlowValue` and `rewriteAppValue` also remap a runnable's own `path` on an exact
+ * match. That is right for the folder-wide map the import hands them, where every path is
+ * moving. Here the map holds one entry, a resource path — and scripts, flows and resources
+ * share a namespace, so a project shipping both a script and a resource named `smtp` would
+ * have the step calling `f/<folder>/smtp` repointed at the credential. Rewriting the
+ * serialized value moves the tokens and leaves every path alone.
+ */
+function rewriteTokens<T>(value: T, map: Map<string, string>): T {
+	return JSON.parse(rewriteContent(JSON.stringify(value ?? null), map))
+}
+
 /** Why a rewriter left an item where it was, or `true` when it moved it. */
 const CHANGED_UNDER_US = 'changed while it was being retargeted'
 
@@ -376,10 +387,10 @@ async function rewriteFlow(
 	map: Map<string, string>
 ): Promise<true | string> {
 	const f: any = await FlowService.getFlowByPath({ workspace, path })
-	const value = rewriteFlowValue(f.value, map)
+	const value = rewriteTokens(f.value ?? {}, map)
 	if (!relocated(value, map)) return CHANGED_UNDER_US
-	// Nothing moved: the item was listed for a reference no rewriter reaches, already gapped.
-	if (JSON.stringify(value) === JSON.stringify(f.value)) return true
+	// The tokens the plan saw are gone from the deployed item, so there is nothing to write.
+	if (JSON.stringify(value) === JSON.stringify(f.value ?? {})) return true
 	await FlowService.updateFlow({
 		workspace,
 		path,
@@ -405,9 +416,9 @@ async function rewriteApp(
 	map: Map<string, string>
 ): Promise<true | string> {
 	const a: any = await AppService.getAppByPath({ workspace, path })
-	const next = rewriteAppValue(a.value ?? {}, map)
+	const next = rewriteTokens(a.value ?? {}, map)
 	if (!relocated(next, map)) return CHANGED_UNDER_US
-	// Nothing moved: the item was listed for a reference no rewriter reaches, already gapped.
+	// The tokens the plan saw are gone from the deployed item, so there is nothing to write.
 	if (JSON.stringify(next) === JSON.stringify(a.value ?? {})) return true
 	const policy = (await updatePolicy(next as App, a.policy)) as any
 	await AppService.updateApp({
@@ -461,7 +472,7 @@ async function rewriteRawApp(
 	const value: any = a.value ?? {}
 	// One walk over the whole value: `$res:` tokens live in the runnables and can appear in
 	// the sources too, and both are plain text inside this JSON.
-	const next = JSON.parse(rewriteRawAppContent(JSON.stringify(value), map))
+	const next = rewriteTokens(value, map)
 	if (!relocated(next, map)) return CHANGED_UNDER_US
 	const runnables = next.runnables ?? {}
 	const policy = (await updateRawAppPolicy(runnables, a.policy)) as any
@@ -476,8 +487,8 @@ async function rewriteRawApp(
 	// is one nothing here can move, and uploading it would leave the app reading a resource
 	// about to be deleted.
 	for (const stub of map.keys()) if (textHoldsBarePath(js, stub)) return UNREACHABLE_REFERENCE
-	// Nothing moved: the app was listed for a reference no rewriter reaches, already gapped.
-	// Uploading an unchanged app would cut it a version that differs from the last in nothing.
+	// The tokens the plan saw are gone from both the value and the bundle, so there is nothing
+	// to write, and uploading would cut a version differing from the last in nothing.
 	if (js === deployedJs && css === deployedCss && JSON.stringify(next) === JSON.stringify(value))
 		return true
 	const files = { ...(next.files ?? {}) }
