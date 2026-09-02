@@ -19,7 +19,7 @@
 		type AIAgentConfig,
 		type AgentTool
 	} from '../agentResourceUtils'
-	import { openAgentEditor } from '../agentEditorStore.svelte'
+	import { agentWriteCount, markAgentWritten, openAgentEditor } from '../agentEditorStore.svelte'
 	import {
 		setLinkedAgentTools,
 		clearLinkedAgentTools,
@@ -53,6 +53,11 @@
 
 	let ws = $derived(opWorkspace ?? $workspaceStore)
 
+	// How many times the linked agent has been written, from anywhere: this card's own save, or a
+	// deploy from the agent editor mounted alongside it. Both reads below key on it, so neither
+	// keeps naming the config and version a write has just replaced.
+	let writes = $derived(agentWriteCount(ws, agent))
+
 	let saveDrawer: Drawer | undefined = $state()
 	let newPath = $state('')
 	let pathError = $state('')
@@ -75,7 +80,7 @@
 	// load them here for display, and probe the provider resource so we can warn when it isn't
 	// accessible in this workspace (the user then needs to unlink/fork or gain access).
 	let linkedResource = resource(
-		() => ({ ws, path: agent }),
+		() => ({ ws, path: agent, writes }),
 		async ({ ws, path }): Promise<LinkedInfo> => {
 			if (!ws || !path) {
 				return { ws, path, config: {}, tools: [], providerOk: true }
@@ -125,9 +130,6 @@
 	let providerOk = $derived(linkedInfo?.providerOk ?? true)
 	/** The agent the card is about: the one this step links to, or the one being edited. */
 	let cardPath = $derived(agent)
-	// Bumped on every write to the resource, so a save that leaves the card on the same agent still
-	// refetches the version it just minted.
-	let writes = $state(0)
 	// The version eval runs are recorded against. The resource does not hold it; its newest history
 	// entry does, since recording is a database trigger on every write.
 	let versionResource = resource(
@@ -278,7 +280,7 @@
 		}
 		// The write minted a version, and nothing else the fetch keys on has to change for it to be
 		// the one the card should now be naming.
-		writes++
+		markAgentWritten(ws, path)
 		if (tools !== forkMarker) {
 			// The resource is written either way; say so, or the drawer just closes with no outcome.
 			sendUserToast(

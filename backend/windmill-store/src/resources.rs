@@ -1990,25 +1990,15 @@ async fn update_resource(
         }
     }
 
-    audit_log(
-        &mut *tx,
-        &authed,
-        "resources.update",
-        ActionKind::Update,
-        &w_id,
-        Some(path),
-        None,
-    )
-    .await?;
-    tx.commit().await?;
-
     // Detect if this was a rename operation
     let old_path_if_renamed = if npath != path { Some(path) } else { None };
 
     // An agent's eval runs are filed under `subject->>'path'`, a plain string with no FK, so a
-    // rename would strand every run the agent has ever had. The guard reads the destination, which
-    // by now holds the renamed row, so only agents are rewritten. Datasets and scorers are
-    // associated by naming convention alone and keep their names.
+    // rename would strand every run the agent has ever had. In the rename's own transaction, which
+    // already holds the row lock the UPDATE above took: outside it, a second rename of the same
+    // agent can commit in between and leave the runs stranded at a path neither request looks at.
+    // The guard reads the destination, which by now holds the renamed row, so only agents are
+    // rewritten. Datasets and scorers are associated by naming convention alone and keep theirs.
     if let Some(old_path) = old_path_if_renamed {
         sqlx::query!(
             "UPDATE eval_experiment e
@@ -2022,9 +2012,21 @@ async fn update_resource(
             &w_id,
             old_path
         )
-        .execute(&db)
+        .execute(&mut *tx)
         .await?;
     }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "resources.update",
+        ActionKind::Update,
+        &w_id,
+        Some(path),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
 
     // On rename the draft at the OLD path orphans (no SQL FK); clear the deployer's
     // own (+ legacy NULL) there, teammates keep theirs (StaleDraftModal). The linked

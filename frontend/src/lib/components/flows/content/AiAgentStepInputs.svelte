@@ -71,6 +71,10 @@
 		 *  agent's config is plain JSON, so an expression on a brain field would be dropped on save.
 		 *  A step's own agent has no such limit: its transforms are evaluated per run. */
 		staticOnly?: boolean
+		/** Show the agent without letting anything about it be changed, for a viewer who has read
+		 *  access only. The fields are made inert rather than merely losing their buttons: a field
+		 *  left editable would look saved while every write behind it is rejected. */
+		readOnly?: boolean
 		/** Passed to every field, for a nested agent used as a tool: its brain has to stand on its
 		 *  own as `staticOnly` does, but its `user_message` is still the agent's to fill. */
 		noConnect?: boolean
@@ -107,6 +111,7 @@
 		visibilityKey = undefined,
 		tools = [],
 		staticOnly = false,
+		readOnly = false,
 		noConnect = false,
 		noJavascript = false,
 		onSelectTool = undefined,
@@ -307,7 +312,7 @@
 	<!-- Not offered on a static-only surface, where what it fills a field with is a JavaScript
 	     expression such a store cannot hold; nor on a tool, whose empty fields are the ones the
 	     agent above fills at run time. -->
-	{#if enableAi && !staticOnly && !isAgentTool}
+	{#if enableAi && !staticOnly && !isAgentTool && !readOnly}
 		<div class="pt-2">
 			<StepInputsGen {pickableProperties} argNames={emptyArgNames} {schema} />
 		</div>
@@ -331,52 +336,58 @@
 										pickerPortal={toolPickerPortal}
 									/>
 								{:else}
-									<InputTransformForm
-										{previousModuleId}
-										bind:arg={args[spec.key]}
-										bind:schema
-										argName={spec.key}
-										label={spec.label}
-										headerTooltip={spec.tooltip}
-										hideDescription
-										subtleControls
-										argExtra={schemaProperties[spec.key] ?? {}}
-										bind:inputCheck={
-											() => inputCheck[spec.key] ?? false, (value) => (inputCheck[spec.key] = value)
-										}
-										bind:extraLib
-										{variableEditor}
-										{itemPicker}
-										bind:pickForField
-										{pickableProperties}
-										{enableAi}
-										{helperScript}
-										{isAgentTool}
-										{allowedAiTransforms}
-										noDynamicToggle={staticOnly}
-										noConnect={staticOnly || noConnect}
-										{noJavascript}
-										s3StorageConfigured={s3Storage.current}
-										{chatInputEnabled}
-										{workspace}
-										otherArgs={Object.fromEntries(
-											Object.entries(args ?? {}).filter(([key]) => key !== spec.key)
-										)}
-									>
-										{#snippet labelExtra()}
-											{#if !spec.core}
-												<Button
-													variant="subtle"
-													unifiedSize="2xs"
-													iconOnly
-													startIcon={{ icon: X }}
-													wrapperClasses="ml-1"
-													title="Unset {spec.label}"
-													on:click={() => removeField(spec)}
-												/>
-											{/if}
-										{/snippet}
-									</InputTransformForm>
+									<!-- Inert rather than merely button-less: every control below writes into
+									     `args`, and a read-only viewer's edit is rejected by the server. Dimmed
+									     with it, so a field that ignores a click looks like it meant to. -->
+									<div class="w-full {readOnly ? 'opacity-60' : ''}" inert={readOnly}>
+										<InputTransformForm
+											{previousModuleId}
+											bind:arg={args[spec.key]}
+											bind:schema
+											argName={spec.key}
+											label={spec.label}
+											headerTooltip={spec.tooltip}
+											hideDescription
+											subtleControls
+											argExtra={schemaProperties[spec.key] ?? {}}
+											bind:inputCheck={
+												() => inputCheck[spec.key] ?? false,
+												(value) => (inputCheck[spec.key] = value)
+											}
+											bind:extraLib
+											{variableEditor}
+											{itemPicker}
+											bind:pickForField
+											{pickableProperties}
+											{enableAi}
+											{helperScript}
+											{isAgentTool}
+											{allowedAiTransforms}
+											noDynamicToggle={staticOnly}
+											noConnect={staticOnly || noConnect}
+											{noJavascript}
+											s3StorageConfigured={s3Storage.current}
+											{chatInputEnabled}
+											{workspace}
+											otherArgs={Object.fromEntries(
+												Object.entries(args ?? {}).filter(([key]) => key !== spec.key)
+											)}
+										>
+											{#snippet labelExtra()}
+												{#if !spec.core && !readOnly}
+													<Button
+														variant="subtle"
+														unifiedSize="2xs"
+														iconOnly
+														startIcon={{ icon: X }}
+														wrapperClasses="ml-1"
+														title="Unset {spec.label}"
+														on:click={() => removeField(spec)}
+													/>
+												{/if}
+											{/snippet}
+										</InputTransformForm>
+									</div>
 								{/if}
 							</ResizeTransitionWrapper>
 						{/each}
@@ -384,7 +395,9 @@
 				</div>
 			{/if}
 		{/each}
-		{@render addFieldMenu()}
+		{#if !readOnly}
+			{@render addFieldMenu()}
+		{/if}
 	</div>
 </div>
 

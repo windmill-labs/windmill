@@ -50,3 +50,21 @@ export function retargetAgentEditor(path: string) {
 export function agentEditorTarget(): AgentEditorTarget | undefined {
 	return target
 }
+
+/** How many times each agent has been written, so a surface that reads the resource can refetch it.
+ *  The editor and the step card that opens it are separate components over one resource, neither
+ *  owning the other, and a deploy that leaves the path alone changes nothing they otherwise key on. */
+let agentWrites = $state<Record<string, number>>({})
+
+function writeKey(workspace: string | undefined, path: string | undefined): string {
+	return `${workspace ?? ''}:${path ?? ''}`
+}
+
+export function markAgentWritten(workspace: string | undefined, path: string) {
+	const key = writeKey(workspace, path)
+	agentWrites[key] = (agentWrites[key] ?? 0) + 1
+}
+
+export function agentWriteCount(workspace: string | undefined, path: string | undefined): number {
+	return agentWrites[writeKey(workspace, path)] ?? 0
+}

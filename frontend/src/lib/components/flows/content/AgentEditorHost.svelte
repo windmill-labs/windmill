@@ -59,6 +59,11 @@
 
 	const draft = useAgentDraft({ path: () => path, workspace: () => workspace })
 
+	/** Read access only. Everything that could write is blocked, down to the draft itself: an
+	 *  autosave the server rejects would look like a save and lose the edit. Running the agent,
+	 *  its history and its evals stay open, none of them being a write to the resource. */
+	let readOnly = $derived(!draft.canWrite)
+
 	// A path of its own, so the linked-agent tools scope, the preview job label and the form's
 	// remembered open fields can never collide with a host flow's.
 	let syntheticPath = $derived(`agent-editor:${path}`)
@@ -209,7 +214,7 @@
 	// placeholders `loadFlowModuleState` backfills, so the round trip is idempotent.
 	$effect(() => {
 		const v = agentValue
-		if (draft.loading || !v || !draft.state) return
+		if (draft.loading || readOnly || !v || !draft.state) return
 		const next = {
 			...unmodelledArgs(draft.state.args),
 			...(inputTransformsToAgentConfig(
@@ -313,9 +318,10 @@
 							staticOnly
 							visibilityKey={`agent:${path}`}
 							{tools}
+							{readOnly}
 							onSelectTool={(id) => onSelectTool?.(id)}
-							onAddTool={addTool}
-							onDeleteTool={deleteTool}
+							onAddTool={readOnly ? undefined : addTool}
+							onDeleteTool={readOnly ? undefined : deleteTool}
 							toolPickerPortal="#agent-editor"
 							bind:args={
 								() => (agentValue?.input_transforms ?? {}) as Record<string, InputTransform>,
@@ -369,14 +375,16 @@
 			noPadding
 		>
 			{#if tool}
-				<div class="h-full min-h-0 flex flex-col">
+				<!-- Inert to a read-only viewer for the same reason the form above is, and opened on its
+				     configuration rather than on a test it cannot fill in. -->
+				<div class="h-full min-h-0 flex flex-col {readOnly ? 'opacity-60' : ''}" inert={readOnly}>
 					<AgentToolWrapper
 						bind:tool={() => tools[toolIndex], (v) => (tools[toolIndex] = v)}
 						parentModule={agentModule as FlowModule}
 						{enableAi}
 						staticOnly
 						scriptSaveBasePath={path}
-						forceTestTab={{ [tool.id]: true }}
+						forceTestTab={readOnly ? undefined : { [tool.id]: true }}
 						siblingToolNames={tools.filter((t) => t.id !== tool?.id).map((t) => t.summary ?? '')}
 					/>
 				</div>

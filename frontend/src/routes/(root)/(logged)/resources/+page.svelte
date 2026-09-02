@@ -1545,4 +1545,4 @@
 
 <!-- Same capabilities as from a flow step: the editor is the same one, so which surface opened it
      must not decide whether its tools can be written with the copilot. -->
-<AgentEditorModal enableAi={$copilotInfo.enabled} />
+<AgentEditorModal enableAi={$copilotInfo.enabled} owns={(t) => t.host === undefined} />

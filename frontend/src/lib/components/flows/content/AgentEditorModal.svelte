@@ -14,8 +14,10 @@
 	import { workspaceStore } from '$lib/stores'
 	import {
 		agentEditorTarget,
+		agentWriteCount,
 		type AgentEditorTarget,
 		closeAgentEditor,
+		markAgentWritten,
 		retargetAgentEditor,
 		showAgentEditorTool,
 		showAgentEditorView
@@ -30,12 +32,12 @@
 		/** Which targets this mount is responsible for. The target is module-global while several
 		 *  flow editors can be alive at once (a session retains every tab it has visited), so without
 		 *  this each of them would build a whole editor — fetching, inferring tool schemas, and
-		 *  running its own two-way sync against the one draft row. Defaults to the surfaces that open
-		 *  an agent with no host flow, which is the resources page. */
-		owns?: (target: AgentEditorTarget) => boolean
+		 *  running its own two-way sync against the one draft row. Required rather than defaulted: a
+		 *  mount that guesses wrong renders nothing, and silence is a poor way to find that out. */
+		owns: (target: AgentEditorTarget) => boolean
 	}
 
-	let { enableAi = false, owns = (t) => t.host === undefined }: Props = $props()
+	let { enableAi = false, owns }: Props = $props()
 
 	let target = $derived.by(() => {
 		const t = agentEditorTarget()
@@ -46,9 +48,9 @@
 	let versionDrawer: Drawer | undefined = $state(undefined)
 	let saving = $state(false)
 
-	// Bumped after every write, so a deploy that leaves the editor on the same agent still refetches
-	// the version it just minted.
-	let writes = $state(0)
+	// Counted per agent, so a deploy that leaves the editor on the same agent still refetches the
+	// version it just minted. Shared, so the step card behind the dialog refetches on the same signal.
+	let writes = $derived(agentWriteCount(ws, target?.path))
 	let versionResource = resource(
 		() => ({ ws, path: target?.path, writes }),
 		async ({ ws, path }) => {
@@ -129,7 +131,7 @@
 	/** What a successful deploy has to reconcile. Keyed on the path the deploy actually wrote, not
 	 *  on the one the editor opened: a deploy can carry a rename. */
 	async function onSaved(savedPath: string) {
-		writes++
+		markAgentWritten(ws, savedPath)
 		retargetAgentEditor(savedPath)
 		const h = target?.host
 		if (h && ws) {
