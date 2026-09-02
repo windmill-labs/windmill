@@ -554,3 +554,92 @@ async fn a_guest_minted_embed_token_stays_a_guest(db: Pool<Postgres>) -> anyhow:
 
     Ok(())
 }
+
+/// The label is the single source of truth: a guest-labelled credential is governed
+/// as a guest even if its scopes carry no sentinel. Otherwise every mint that derives
+/// a token from a guest session is one forgotten `push` away from an ungoverned
+/// non-member credential.
+#[sqlx::test(fixtures("base"))]
+async fn a_guest_label_is_governed_without_the_sentinel(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let scopes: Vec<String> = guest_scopes().into_iter().filter(|s| s != "guest").collect();
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, scopes, workspace_id, expiration)
+         VALUES (encode(sha256($1::bytea), 'hex'), 'NOSENTINE_', $2, 'guest@example.com',
+                 'guest_session', $3, 'test-workspace', now() + interval '8 hours')",
+    )
+    .bind(b"NOSENTINEL".as_slice())
+    .bind("NOSENTINEL")
+    .bind(scopes)
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().get(format!("{ws}/users/whoami")), "NOSENTINEL")
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let me: serde_json::Value = resp.json().await?;
+    assert_eq!(
+        me["role"],
+        json!("guest"),
+        "the label alone must make a credential a guest"
+    );
+    let resp = authed(client().get(format!("{ws}/jobs/list")), "NOSENTINEL")
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 403, "and confine it like one");
+
+    Ok(())
+}
+
+/// A guest is someone with no account at all — including a deactivated one. The
+/// sign-in path's own account lookup filters on `disabled = false`, so a disabled
+/// account reads as absent there; the mint has to refuse on its own or deactivation
+/// (manual or SCIM, whose revocation is "delete the tokens") walks straight back in.
+#[sqlx::test(fixtures("base"))]
+async fn a_disabled_account_cannot_become_a_guest(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    authed(
+        client().post(format!("{ws}/workspaces/edit_guest_access")),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({ "guest_access_enabled": true }))
+    .send()
+    .await?;
+    let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
+        .json(&guest_app_with_runnable(APP_PATH, false))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    sqlx::query(
+        "INSERT INTO password (email, password_hash, login_type, super_admin, verified, disabled)
+         VALUES ('gone@example.com', 'x', 'password', false, true, true)",
+    )
+    .execute(&db)
+    .await?;
+
+    let mut tx = db.begin().await?;
+    let cookies = tower_cookies::Cookies::default();
+    let minted = windmill_api_users::users::create_guest_session_token(
+        "gone@example.com",
+        "test-workspace",
+        APP_PATH,
+        &mut tx,
+        cookies,
+    )
+    .await;
+    assert!(
+        matches!(minted, Err(windmill_common::error::Error::NotAuthorized(_))),
+        "a deactivated account must be refused a guest session, got {minted:?}"
+    );
+
+    Ok(())
+}

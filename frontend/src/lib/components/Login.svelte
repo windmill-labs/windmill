@@ -404,7 +404,9 @@
 		if (autoRedirect && autoLogin && !error && !shouldSkipAutoRedirect()) {
 			if (autoLogin === 'saml' && saml) {
 				autoRedirecting = true
-				if (!redirectSaml()) autoRedirecting = false
+				redirectSaml().then((ok) => {
+					if (!ok) autoRedirecting = false
+				})
 			} else if (logins?.some((l) => l.type === autoLogin)) {
 				autoRedirecting = true
 				if (!storeRedirect(autoLogin)) {
@@ -596,16 +598,14 @@
 				console.log('oauth: popup closed before login completed')
 				return
 			}
+			// A guest session is pinned to its workspace and cannot answer the global
+			// probe; an ordinary session for a non-member cannot answer the workspace
+			// one. Either answering means the popup signed someone in.
+			const guestWorkspace = guestApp?.split('/')[0]
+			const probes: Promise<unknown>[] = [UserService.getCurrentEmail()]
+			if (guestWorkspace) probes.push(UserService.whoami({ workspace: guestWorkspace }))
 			try {
-				// A guest session is pinned to its workspace and cannot authenticate on
-				// any workspace-less route, so the global probe would 401 forever and this
-				// fallback would never complete a guest sign-in.
-				const guestWorkspace = guestApp?.split('/')[0]
-				if (guestWorkspace) {
-					await UserService.whoami({ workspace: guestWorkspace })
-				} else {
-					await UserService.getCurrentEmail()
-				}
+				await Promise.any(probes)
 			} catch {
 				return
 			}
@@ -614,24 +614,26 @@
 		}, 1500)
 	}
 
-	/** The SAML counterpart of the cookie the OAuth `login` handler writes server-side
-	 * (`set_unsensitive_cookie`), including clearing it when this sign-in is not a
-	 * guest entry. `login_externally` consumes it. `SameSite=None` is required: the
-	 * SAML ACS is a cross-site POST from the IdP, and a Lax cookie is not sent on
-	 * those. `None` needs `Secure`, so this only survives the round trip over https;
-	 * over plain http the browser drops it and a guest sign-in falls through to
-	 * ordinary provisioning. Host-only: a `COOKIE_DOMAIN` deployment that serves the
-	 * ACS from a different host than this page would need the domain set here too. */
-	function setGuestAppCookie(value: string | undefined) {
+	/** Have the server write the guest-entry cookie, as the OAuth `login` handler does
+	 * on its own path. SAML goes straight to the IdP and never passes through `login`,
+	 * and a browser-set cookie would be host-only — on a `COOKIE_DOMAIN` deployment
+	 * whose ACS answers on a sibling host it would never arrive. Server-set, it carries
+	 * the same attributes as every other session cookie. Cleared (empty) when this
+	 * sign-in is not a guest entry. `login_externally` consumes it. */
+	async function setGuestAppCookie(value: string | undefined) {
 		try {
-			const secure = window.location.protocol === 'https:' ? '; Secure' : ''
-			document.cookie = `guest_app=${encodeURIComponent(value ?? '')}; path=/; SameSite=None${secure}`
+			await fetch(`${base}/api/oauth/guest_app`, {
+				method: 'POST',
+				credentials: 'include',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ guest_app: value ?? '' })
+			})
 		} catch (e) {
 			console.error('Could not set the guest app cookie', e)
 		}
 	}
 
-	function redirectSaml(): boolean {
+	async function redirectSaml(): Promise<boolean> {
 		if (!saml) {
 			sendUserToast('No SAML login available', true)
 			return false
@@ -644,7 +646,7 @@
 		// too. Client-set is safe: the callback still checks that the named app is in
 		// guest mode and that the workspace allows guests, so the worst a forged value
 		// can do is give its own author a narrower session than they'd otherwise get.
-		setGuestAppCookie(guestApp)
+		await setGuestAppCookie(guestApp)
 		let target = saml
 		let relayStateSet = false
 		// Carry the SP-initiated deep link through the IdP round-trip via SAML

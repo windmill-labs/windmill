@@ -527,6 +527,15 @@ impl AuthCache {
                                         // scopes on a user-minted token are whatever
                                         // the caller typed.
                                         None if is_guest_session => {
+                                            // The label is the grant; every guest
+                                            // control downstream keys on the `guest`
+                                            // sentinel. Pin the two together here so
+                                            // a credential that carries the label is
+                                            // governed as a guest whatever its scopes
+                                            // say — nothing else may decide that.
+                                            let scopes = Some(crate::scopes::with_guest_sentinel(
+                                                scopes.unwrap_or_default(),
+                                            ));
                                             Some(ApiAuthed {
                                                 username: email.clone(),
                                                 email,

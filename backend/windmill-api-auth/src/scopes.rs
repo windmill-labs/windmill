@@ -785,6 +785,14 @@ pub fn has_guest_sentinel(scopes: Option<&[String]>) -> bool {
     scopes.is_some_and(|s| s.iter().any(|x| x == GUEST_SENTINEL))
 }
 
+/// `scopes` with the guest sentinel present exactly once.
+pub fn with_guest_sentinel(mut scopes: Vec<String>) -> Vec<String> {
+    if !scopes.iter().any(|x| x == GUEST_SENTINEL) {
+        scopes.push(GUEST_SENTINEL.to_string());
+    }
+    scopes
+}
+
 /// Sentinel in raw-app SDK tokens. Grants nothing; `check_route_access` uses it
 /// to narrow the declared scopes to what the viewer's prompt promised.
 pub const RAW_APP_SDK_SENTINEL: &str = "raw_app_sdk";

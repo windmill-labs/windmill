@@ -1540,7 +1540,22 @@ pub async fn build_embed_token_response(
         && opt_authed.is_some()
         && !policy.frontend_sdk_scopes.is_empty()
     {
-        Some(policy.frontend_sdk_scopes.clone())
+        // An SDK token runs as the viewer, and a guest's session is the ceiling on what
+        // it may delegate — the mint enforces that. Advertise only what a guest can
+        // actually be granted, so the consent prompt never promises a scope the mint
+        // would then refuse.
+        let declared = policy.frontend_sdk_scopes.clone();
+        let offered = match opt_authed {
+            Some(a) if windmill_api_auth::scopes::has_guest_sentinel(a.scopes.as_deref()) => {
+                let held = a.scopes.as_deref().unwrap_or_default();
+                declared
+                    .into_iter()
+                    .filter(|sc| held.iter().any(|h| h == sc))
+                    .collect::<Vec<_>>()
+            }
+            _ => declared,
+        };
+        (!offered.is_empty()).then_some(offered)
     } else {
         None
     };

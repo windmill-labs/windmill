@@ -2994,6 +2994,19 @@ pub async fn create_guest_session_token<'c>(
     };
     let scopes = guest_session_scopes(app_path);
 
+    // A guest is someone with no account at all. Checked here, not only by the caller,
+    // because the sign-in path's own account lookup filters on `disabled = false` —
+    // a deactivated account (manual or SCIM, whose revocation is "delete the tokens")
+    // would otherwise read as absent and walk straight back in as a guest.
+    let has_account: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM password WHERE email = $1)")
+        .bind(email)
+        .fetch_one(&mut **tx)
+        .await?;
+    if has_account {
+        return Err(Error::NotAuthorized(
+            "an existing account cannot hold a guest session".to_string(),
+        ));
+    }
     if !windmill_common::workspaces::guest_app_admits(&mut **tx, w_id, app_path).await? {
         return Err(Error::NotAuthorized(format!(
             "app {app_path} is not open to guests"
