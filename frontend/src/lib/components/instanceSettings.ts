@@ -30,6 +30,10 @@ export interface Setting {
 	placeholder?: string
 	cloudonly?: boolean
 	ee_only?: string
+	/** Ceiling a `seconds` field enforces on a build without a license, when CE genuinely caps
+	 * the value. Not implied by `ee_only`: a setting can be EE-badged because the feature it
+	 * configures is EE while the value itself has the same range on either edition. */
+	ceMaxSeconds?: number
 	tooltip?: string
 	key: string
 	// If value is not specified for first element, it will automatcally use undefined
@@ -283,6 +287,8 @@ export const settings: Record<string, Setting[]> = {
 			placeholder: '30',
 			storage: 'setting',
 			ee_only: 'You can only adjust this setting to above 30 days in the EE version',
+			// Mirrors CE_MAX_RETENTION_PERIOD_SECS, which the backend clamps to on write.
+			ceMaxSeconds: 60 * 60 * 24 * 30,
 			cloudonly: false
 		},
 		{
@@ -970,6 +976,24 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: 'HTTP Request Tracing is an EE feature',
 			triggersRestart: true,
 			defaultValue: () => ({ enabled: false, enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES] })
+		},
+		{
+			label: 'HTTP Request Tracing retention in secs',
+			key: 'otel_traces_retention_secs',
+			description:
+				'How long a captured HTTP request span is kept in the database, and therefore how far back the job details view can show a job its requests. Independent of the job retention period, so a span may outlive its job or be swept while the job remains. Defaults to 7 days. Leave it empty for the default.',
+			fieldType: 'seconds',
+			storage: 'setting',
+			cloudonly: false,
+			// Badged EE because only the EE proxy captures spans, but deliberately no
+			// `ceMaxSeconds`: a CE build still sweeps rows an EE-era instance left behind, and
+			// the backend accepts the same range on either edition.
+			ee_only: 'HTTP Request Tracing is an EE feature',
+			error:
+				'HTTP Request Tracing retention must be between 1 second and 100 years, leave it empty for the default',
+			isValid: (value: any) =>
+				value == undefined ||
+				(typeof value === 'number' && value > 0 && value <= 60 * 60 * 24 * 365 * 100)
 		},
 		{
 			label: 'Prometheus',
