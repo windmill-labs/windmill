@@ -114,9 +114,13 @@ describe('agentStreamingEnabled', () => {
 		).toBe(false)
 		// A linked step carries no brain: the agent's own `streaming: false` is invisible here.
 		expect(agentStreamingEnabled(step({}, { agent: 'u/admin/a' }))).toBe(false)
-		// An expression has no value until the run it would decide is already under way.
+		// An expression has no value until the run it would decide is already under way, on either
+		// of the two fields the answer depends on.
 		expect(
 			agentStreamingEnabled(step({ streaming: { type: 'javascript', expr: 'flow_input.s' } }))
+		).toBe(false)
+		expect(
+			agentStreamingEnabled(step({ output_type: { type: 'javascript', expr: 'flow_input.o' } }))
 		).toBe(false)
 	})
 })

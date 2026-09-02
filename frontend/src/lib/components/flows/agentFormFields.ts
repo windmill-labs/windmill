@@ -182,19 +182,21 @@ export function agentFieldIsSet(
  *
  * A caller that reads this wrong does not merely mislabel the run: a chat surface that opens a
  * stream for an answer the worker sends in one piece re-runs the flow when its connection times
- * out. Every case this cannot settle from the step alone therefore reads as off, the cost of
- * being wrong that way being a live answer arriving at the end instead of as it is written:
- * an image answer, which never streams whatever `streaming` says; a linked agent, whose brain
- * lives in the resource where this has no sight of it; and an expression, whose value exists
- * only once the run it decides is already under way.
+ * out. So the rule is that anything this cannot settle from the step alone reads as off, the cost
+ * of being wrong that way being a live answer arriving at the end instead of as it is written.
+ * Unsettled means either of the two fields holding an expression, whose value exists only once the
+ * run it decides is already under way, or a linked agent, whose brain lives in the resource where
+ * this has no sight of it at all.
  */
 export function agentStreamingEnabled(value: Record<string, any> | undefined): boolean {
 	if (value?.agent) return false
 	const transforms = value?.input_transforms as Record<string, InputTransform | any> | undefined
+	const settled = (t: InputTransform | any | undefined) => t == undefined || t.type === 'static'
 	const outputType = transforms?.output_type
-	if (outputType?.type === 'static' && outputType.value === 'image') return false
 	const streaming = transforms?.streaming
-	if (streaming != undefined && streaming.type !== 'static') return false
+	if (!settled(outputType) || !settled(streaming)) return false
+	// An image answer never streams, whatever `streaming` says.
+	if (outputType?.value === 'image') return false
 	return streaming?.value !== false
 }
 
