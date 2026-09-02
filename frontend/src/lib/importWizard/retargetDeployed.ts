@@ -3,17 +3,23 @@
  *
  * The import writes `$res:f/<folder>/<name>` into every item that uses the project's
  * resource — except a trigger, which holds the bare path in its own `*_resource_path`
- * field. This rewrites those references to an existing resource and deletes the stub, so
- * the project reads the workspace's own credential — the same end state the import would
- * have produced, reached after the fact.
+ * field. This rewrites those references to an existing resource, so the project reads the
+ * workspace's own credential — the same end state the import would have produced, reached
+ * after the fact.
  *
  * Two rules make that safe to run over deployed items:
  *
- *  - Nothing is written unless every referrer can be rewritten. A run that gets halfway
- *    leaves some items on the stub and some on the chosen resource, and deleting the stub
- *    then breaks the ones left behind. `planRetarget` answers first, `applyRetarget` acts.
- *  - Only items inside the project's folder are touched. The import wrote nothing outside
- *    it, so a reference from elsewhere is the user's own and not ours to rewrite.
+ *  - Only items inside the project's folder are rewritten. The import wrote nothing outside
+ *    it, so a reference from elsewhere is the user's own and not ours to move.
+ *  - The stub is deleted only when the scan can prove it saw every reference to it.
+ *    Listings come back capped, a trigger kind can fail to list, and a reference can sit
+ *    where no rewriter reaches — each of those is a gap, and any gap keeps the stub.
+ *
+ * Rewriting is separable from deleting, and only the delete is destructive. An item moved
+ * onto the chosen resource resolves whether or not the stub survives; an item the scan never
+ * saw resolves only while the stub is there. So an incomplete scan downgrades the run to
+ * "rewritten, stub kept" rather than refusing it — the outcome names the gaps so the caller
+ * can say the placeholder is still around.
  */
 
 import { AppService, FlowService, ResourceService, ScheduleService, ScriptService } from '$lib/gen'
@@ -59,23 +65,35 @@ export interface Referrer {
 	triggerKind?: WorkspaceTriggerKind
 }
 
+/** Something the scan could not account for. `path` names an item, or a listing standing in
+ *  for every item it failed to return. */
+export interface Gap {
+	path: string
+	reason: string
+}
+
 export interface RetargetPlan {
+	/** Items whose reference this run will move. */
 	referrers: Referrer[]
 	/**
-	 * Referrers that cannot be rewritten, with the reason. Non-empty means the whole
-	 * retarget is refused: see the all-or-nothing rule above.
+	 * Why the scan cannot claim it saw every reference to the stub. Empty is the only state
+	 * in which deleting the stub is provably safe.
 	 */
-	blocked: { path: string; reason: string }[]
+	gaps: Gap[]
 }
 
 export interface RetargetOutcome {
+	/** Items now reading the chosen resource. */
 	rewritten: Referrer[]
-	/** Set when a write failed. The stub is then left in place, so nothing is broken. */
-	error?: string
+	/** Why the stub was kept, when it was. */
+	gaps: Gap[]
 	stubDeleted: boolean
+	/** Set when a write failed. The run stopped there and the stub stays, so what was
+	 *  rewritten before it and what was not both resolve. */
+	error?: string
 }
 
-/** Everything under the project's folder, so nothing outside it is ever rewritten. */
+/** Everything under the project's folder, which is all this rewrites. */
 function inFolder(path: unknown, folder: string): boolean {
 	return typeof path === 'string' && path.startsWith(`f/${folder}/`)
 }
@@ -105,9 +123,9 @@ function rawSourcesDiverged(
  * A script, flow or app spells a resource reference as a `$res:` token and nothing else, so a
  * bare match is either a reference no rewriter relocates — a static string value in a
  * component, an argument the code assembles itself — or something that is not the resource at
- * all, such as a step running a script that happens to share the path. Both make the retarget
- * unsafe: the first is orphaned when the stub goes, the second is repointed at the reused
- * resource. Triggers are the exception and hold the bare path by design.
+ * all, such as a step running a script that happens to share the path. Neither is rewritable:
+ * moving the first is beyond the rewriters, and moving the second would repoint a runnable at
+ * a credential. Triggers are the exception and hold the bare path by design.
  */
 function holdsBarePath(value: unknown, path: string): boolean {
 	const walk = (v: any): boolean => {
@@ -122,15 +140,25 @@ function holdsBarePath(value: unknown, path: string): boolean {
 /**
  * What each `listSearch*` endpoint caps its answer at, server-side. The queries carry no
  * `ORDER BY` and the routes take no pagination, so a full page is an arbitrary subset with no
- * page two to ask for — the only safe reading is that the scan may have missed an item.
+ * page two to ask for.
+ *
+ * A full page is a sound truncation test only for an unscoped caller, which a wizard session
+ * is. The server applies its scope-path predicate to the rows the `LIMIT` already returned,
+ * so a scoped token can be handed a short page cut from a truncated query — reuse this scan
+ * under one and the cap goes undetected.
  */
 const SEARCH_LIMITS = { script: 10000, flow: 1000, app: 1000 }
 
+/** A reference this run will not move, recorded so the stub outlives it. */
+const OUTSIDE_PROJECT = 'reads this resource from outside the project'
+const UNREACHABLE_REFERENCE = 'names the resource path outside a $res: reference'
+
 /**
- * Which deployed items reference the stub, and whether each can be rewritten.
+ * Which deployed items reference the stub, which of them this run can move, and what it
+ * could not account for.
  *
  * The `listSearch*` endpoints return each item's content in one call per kind, so this is
- * four calls plus one per trigger kind rather than one per item.
+ * three calls plus one per trigger kind rather than one per item.
  */
 export async function planRetarget(
 	workspace: string,
@@ -139,7 +167,7 @@ export async function planRetarget(
 	opts: { hasEeLicense: boolean; exportedAppFiles?: ExportedAppFiles }
 ): Promise<RetargetPlan> {
 	const referrers: Referrer[] = []
-	const blocked: { path: string; reason: string }[] = []
+	const gaps: Gap[] = []
 
 	const [scripts, flows, apps] = await Promise.all([
 		ScriptService.listSearchScript({ workspace }),
@@ -147,38 +175,46 @@ export async function planRetarget(
 		AppService.listSearchApp({ workspace })
 	])
 
-	// A truncated scan cannot answer which items reference the stub, and deleting it under an
-	// item the scan never saw is the failure this module exists to prevent.
 	for (const [label, rows, limit] of [
 		['Scripts', scripts, SEARCH_LIMITS.script],
 		['Flows', flows, SEARCH_LIMITS.flow],
 		['Apps', apps, SEARCH_LIMITS.app]
 	] as const) {
-		if ((rows?.length ?? 0) >= limit)
-			blocked.push({ path: label, reason: 'could not all be listed' })
+		if ((rows?.length ?? 0) >= limit) gaps.push({ path: label, reason: 'could not all be listed' })
 	}
 
+	// The listings are workspace-wide, so an item outside the folder is seen for free. It is
+	// the user's own and stays on the stub, which is the whole reason the stub stays too.
 	for (const s of scripts ?? []) {
-		if (!inFolder(s.path, folder)) continue
-		if (referencesResourcePath(s.content ?? '', from))
-			referrers.push({ kind: 'script', path: s.path! })
+		if (!referencesResourcePath(s.content ?? '', from)) continue
+		if (!inFolder(s.path, folder)) {
+			gaps.push({ path: s.path!, reason: OUTSIDE_PROJECT })
+			continue
+		}
+		referrers.push({ kind: 'script', path: s.path! })
 	}
 	for (const f of flows ?? []) {
-		if (!inFolder(f.path, folder)) continue
 		const value: any = f.value ?? {}
 		if (!referencesResourcePath(value, from)) continue
+		if (!inFolder(f.path, folder)) {
+			gaps.push({ path: f.path!, reason: OUTSIDE_PROJECT })
+			continue
+		}
 		if (holdsBarePath(value, from)) {
-			blocked.push({ path: f.path!, reason: 'names the resource path outside a $res: reference' })
+			gaps.push({ path: f.path!, reason: UNREACHABLE_REFERENCE })
 			continue
 		}
 		referrers.push({ kind: 'flow', path: f.path! })
 	}
 	for (const a of apps ?? []) {
-		if (!inFolder(a.path, folder)) continue
 		const value: any = a.value ?? {}
 		if (!referencesResourcePath(value, from)) continue
+		if (!inFolder(a.path, folder)) {
+			gaps.push({ path: a.path!, reason: OUTSIDE_PROJECT })
+			continue
+		}
 		if (holdsBarePath(value, from)) {
-			blocked.push({ path: a.path!, reason: 'names the resource path outside a $res: reference' })
+			gaps.push({ path: a.path!, reason: UNREACHABLE_REFERENCE })
 			continue
 		}
 		// `files` + `runnables` and no `grid` is the deployed shape of a raw app; the
@@ -190,14 +226,14 @@ export async function planRetarget(
 		}
 		const exported = opts.exportedAppFiles?.[a.path!]
 		if (!exported) {
-			blocked.push({ path: a.path!, reason: 'is a raw app the export does not describe' })
+			gaps.push({ path: a.path!, reason: 'is a raw app the export does not describe' })
 			continue
 		}
 		// The bundle about to be re-uploaded was built from the export's sources. If the
 		// deployed sources have moved on, it is behind them, and uploading it would revert
 		// whatever was changed since the import.
 		if (rawSourcesDiverged(value.files ?? {}, exported)) {
-			blocked.push({ path: a.path!, reason: 'has been edited since the import' })
+			gaps.push({ path: a.path!, reason: 'has been edited since the import' })
 			continue
 		}
 		referrers.push({ kind: 'raw app', path: a.path! })
@@ -207,10 +243,9 @@ export async function planRetarget(
 		const def = TRIGGER_KINDS[kind]
 		if (def.eeOnly && !opts.hasEeLicense) continue
 		let rows: Array<Record<string, any>> = []
-		// A kind whose listing is incomplete cannot be cleared either: refusing is the
-		// all-or-nothing rule, since a trigger left on the stub breaks when it is deleted.
-		// A 404 is not incompleteness — the instance has that trigger feature compiled out,
-		// so there is no trigger of the kind to leave behind.
+		// A 404 is not an incomplete listing — the instance has that trigger feature compiled
+		// out, so there is no trigger of the kind to have missed. Anything else means triggers
+		// of this kind may reference the stub without this ever seeing them.
 		let incomplete = false
 		try {
 			rows = await def.list(workspace, () => (incomplete = true))
@@ -219,16 +254,19 @@ export async function planRetarget(
 			incomplete = true
 		}
 		if (incomplete) {
-			blocked.push({ path: `${def.badge} triggers`, reason: 'could not be listed' })
+			gaps.push({ path: `${def.badge} triggers`, reason: 'could not be listed' })
 			continue
 		}
 		for (const t of rows) {
-			if (!inFolder(t.path, folder)) continue
 			if (!referencesResourcePath(t, from)) continue
+			if (!inFolder(t.path, folder)) {
+				gaps.push({ path: String(t.path), reason: OUTSIDE_PROJECT })
+				continue
+			}
 			// `schedule` has no `update` in the table because its service takes a different body
 			// shape; `rewriteTrigger` handles it directly, the way the import's create does.
 			if (kind !== 'schedule' && !def.update) {
-				blocked.push({
+				gaps.push({
 					path: String(t.path),
 					reason: `${def.badge} triggers cannot be updated from here`
 				})
@@ -238,15 +276,15 @@ export async function planRetarget(
 		}
 	}
 
-	return { referrers, blocked }
+	return { referrers, gaps }
 }
 
 /**
- * Rewrite every referrer and delete the stub.
+ * Rewrite every referrer the plan found, then delete the stub if the plan came back clean.
  *
- * Refuses outright when `planRetarget` reports anything blocked. The first write failure
- * stops the run and leaves the stub in place: the items already rewritten point at the
- * chosen resource, the rest still point at the stub, and both resolve.
+ * A gap never stops the rewriting — moving an item onto the chosen resource is safe on its
+ * own. It stops only the delete, which is the one step that can strand a reference nobody
+ * looked at.
  */
 export async function applyRetarget(args: {
 	workspace: string
@@ -262,37 +300,45 @@ export async function applyRetarget(args: {
 	const rewritten: Referrer[] = []
 
 	const plan = await planRetarget(workspace, folder, from, { hasEeLicense, exportedAppFiles })
-	if (plan.blocked.length > 0) {
-		const first = plan.blocked[0]
-		return {
-			rewritten,
-			stubDeleted: false,
-			error: `${first.path} ${first.reason} — nothing was changed`
-		}
-	}
+	const gaps = [...plan.gaps]
 
-	try {
-		for (const r of plan.referrers) {
-			if (r.kind === 'script') await rewriteScript(workspace, r.path, map)
-			else if (r.kind === 'flow') await rewriteFlow(workspace, r.path, map)
-			else if (r.kind === 'app') await rewriteApp(workspace, r.path, map)
+	for (const r of plan.referrers) {
+		let moved: boolean
+		try {
+			if (r.kind === 'script') moved = await rewriteScript(workspace, r.path, map)
+			else if (r.kind === 'flow') moved = await rewriteFlow(workspace, r.path, map)
+			else if (r.kind === 'app') moved = await rewriteApp(workspace, r.path, map)
 			else if (r.kind === 'raw app')
-				await rewriteRawApp(workspace, r.path, map, exportedAppFiles?.[r.path] ?? {})
-			else await rewriteTrigger(workspace, r, map)
-			rewritten.push(r)
+				moved = await rewriteRawApp(workspace, r.path, map, exportedAppFiles?.[r.path] ?? {})
+			else moved = await rewriteTrigger(workspace, r, map)
+		} catch (e: any) {
+			return { rewritten, gaps, stubDeleted: false, error: errorMessage(e) }
 		}
-	} catch (e: any) {
-		return { rewritten, stubDeleted: false, error: errorMessage(e) }
+		if (moved) rewritten.push(r)
+		else gaps.push({ path: r.path, reason: 'changed while it was being retargeted' })
 	}
 
-	// Last, and only once every referrer is off it: the stub is what keeps a reference this
-	// missed resolving, so it is the one thing that must not go early.
+	if (gaps.length > 0) return { rewritten, gaps, stubDeleted: false }
+
 	try {
 		await ResourceService.deleteResource({ workspace, path: from })
 	} catch (e: any) {
-		return { rewritten, stubDeleted: false, error: errorMessage(e) }
+		return { rewritten, gaps, stubDeleted: false, error: errorMessage(e) }
 	}
-	return { rewritten, stubDeleted: true }
+	return { rewritten, gaps, stubDeleted: true }
+}
+
+/**
+ * Whether the rewritten value has left every path being moved.
+ *
+ * `planRetarget` skips the items it can see a rewriter would not reach, so a `false` here
+ * means the item changed between the plan and the write. Each rewriter answers with this
+ * rather than writing: an item written while it still reads the stub is one the caller would
+ * count as moved.
+ */
+function relocated(next: unknown, map: Map<string, string>): boolean {
+	for (const from of map.keys()) if (referencesResourcePath(next, from)) return false
+	return true
 }
 
 /**
@@ -300,35 +346,32 @@ export async function applyRetarget(args: {
  * `Script` and `NewScript` share their names, and listing them here would silently drop
  * whichever field someone adds next.
  */
-async function rewriteScript(workspace: string, path: string, map: Map<string, string>) {
+async function rewriteScript(
+	workspace: string,
+	path: string,
+	map: Map<string, string>
+): Promise<boolean> {
 	const s: any = await ScriptService.getScriptByPath({ workspace, path })
 	const content = rewriteContent(s.content ?? '', map)
-	if (content === s.content) return
+	if (!relocated(content, map)) return false
+	if (content === s.content) return true
 	await ScriptService.createScript({
 		workspace,
 		requestBody: { ...s, content, parent_hash: s.hash, deployment_message: undefined }
 	})
+	return true
 }
 
-/**
- * The value about to be written still reaches a path being moved. `planRetarget` refuses
- * every item where that is possible, so getting here means the item changed between the plan
- * and the write. Throwing stops the run with the stub still in place, which is the state
- * where both the rewritten items and the untouched ones resolve.
- */
-function assertRelocated(next: unknown, path: string, map: Map<string, string>) {
-	for (const from of map.keys()) {
-		if (referencesResourcePath(next, from)) {
-			throw new Error(`${path} still references ${from} after the rewrite`)
-		}
-	}
-}
-
-async function rewriteFlow(workspace: string, path: string, map: Map<string, string>) {
+async function rewriteFlow(
+	workspace: string,
+	path: string,
+	map: Map<string, string>
+): Promise<boolean> {
 	const f: any = await FlowService.getFlowByPath({ workspace, path })
 	const value = rewriteFlowValue(f.value, map)
-	assertRelocated(value, path, map)
+	if (!relocated(value, map)) return false
 	await FlowService.updateFlow({ workspace, path, requestBody: { ...f, path, value } })
+	return true
 }
 
 /**
@@ -337,33 +380,38 @@ async function rewriteFlow(workspace: string, path: string, map: Map<string, str
  * content changes that key — a copied policy would leave it "forbidden by policy".
  * Mirrors what `installProject` does on import.
  */
-async function rewriteApp(workspace: string, path: string, map: Map<string, string>) {
+async function rewriteApp(
+	workspace: string,
+	path: string,
+	map: Map<string, string>
+): Promise<boolean> {
 	const a: any = await AppService.getAppByPath({ workspace, path })
 	const next = rewriteAppValue(a.value ?? {}, map)
-	assertRelocated(next, path, map)
+	if (!relocated(next, map)) return false
 	const policy = (await updatePolicy(next as App, undefined)) as any
 	if (!policy.execution_mode) policy.execution_mode = 'publisher'
 	await AppService.updateApp({ workspace, path, requestBody: { path, value: next, policy } })
+	return true
 }
 
 /**
  * A raw app: its deployed value carries the sources and the runnables, and `updateAppRaw`
  * refuses without a bundle. The bundle comes from the export rather than the bundler — it is
- * the one the import uploaded, and `planRetarget` has already refused if the deployed
- * sources have moved on from it.
+ * the one the import uploaded, and `planRetarget` has already left the app out if the
+ * deployed sources have moved on from it.
  */
 async function rewriteRawApp(
 	workspace: string,
 	path: string,
 	map: Map<string, string>,
 	exportedFiles: Record<string, string>
-) {
+): Promise<boolean> {
 	const a: any = await AppService.getAppByPath({ workspace, path })
 	const value: any = a.value ?? {}
 	// One walk over the whole value: `$res:` tokens live in the runnables and can appear in
 	// the sources too, and both are plain text inside this JSON.
 	const next = JSON.parse(rewriteRawAppContent(JSON.stringify(value), map))
-	assertRelocated(next, path, map)
+	if (!relocated(next, map)) return false
 	const runnables = next.runnables ?? {}
 	const policy = (await updateRawAppPolicy(runnables, a.policy)) as any
 	if (!policy.execution_mode) policy.execution_mode = 'publisher'
@@ -389,6 +437,7 @@ async function rewriteRawApp(
 			css: exportedFiles['/bundle.css'] ?? ''
 		}
 	})
+	return true
 }
 
 /**
@@ -401,7 +450,11 @@ async function rewriteRawApp(
  * hold — or running a script that does — would otherwise be renamed, or repointed at the
  * reused resource, along with the reference.
  */
-async function rewriteTrigger(workspace: string, r: Referrer, map: Map<string, string>) {
+async function rewriteTrigger(
+	workspace: string,
+	r: Referrer,
+	map: Map<string, string>
+): Promise<boolean> {
 	const def = TRIGGER_KINDS[r.triggerKind!]
 	const rows = await def.list(workspace)
 	const row: any = rows.find((t) => t.path === r.path)
@@ -411,6 +464,9 @@ async function rewriteTrigger(workspace: string, r: Referrer, map: Map<string, s
 		path: r.path,
 		...(typeof row.script_path === 'string' ? { script_path: row.script_path } : {})
 	}
+	// No `relocated` check: `rewriteTriggerConfig` remaps every bare match at every depth, so
+	// the resource field always moves. What can still read `from` afterwards is a restored
+	// identity field, which is not a reference to the resource at all.
 	if (r.triggerKind === 'schedule') {
 		// `EditSchedule` needs these three; everything else on the row carries over by name.
 		await ScheduleService.updateSchedule({
@@ -423,7 +479,8 @@ async function rewriteTrigger(workspace: string, r: Referrer, map: Map<string, s
 				args: rest.args ?? {}
 			}
 		})
-		return
+		return true
 	}
 	await def.update!(workspace, r.path, rest)
+	return true
 }

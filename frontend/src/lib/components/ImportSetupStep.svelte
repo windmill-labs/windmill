@@ -88,11 +88,16 @@
 		 */
 		unreadable?: boolean
 		/**
-		 * The workspace resource this row was pointed at. The project's items now reference it
-		 * directly and the stub is gone, so this is what the row has to say instead of the
-		 * path it used to name.
+		 * The workspace resource this row was pointed at. The project's items reference it
+		 * directly now, so this is what the row has to say instead of the path it used to name.
 		 */
 		reusedFrom?: string
+		/**
+		 * The empty placeholder is still at this row's path, because the retarget could not
+		 * account for every item that might read it. Worth saying: the workspace has a resource
+		 * on it that looks unfinished and is not.
+		 */
+		stubKept?: boolean
 	}
 
 	let loading = $state(true)
@@ -298,7 +303,7 @@
 					files = undefined
 				}
 				// A bundle that cannot be read yields no entry rather than an empty one, so
-				// `planRetarget` refuses the app instead of uploading a bundle it does not have.
+				// `planRetarget` leaves the app alone instead of uploading a bundle it does not have.
 				if (!files || typeof files !== 'object') continue
 				rawFiles.push([String(a.path), files as Record<string, string>])
 			}
@@ -411,6 +416,10 @@
 			return
 		}
 		blanks = blanks.map((b) => {
+			// A row pointed at another resource is settled whatever is at its own path. The
+			// project's items read the chosen resource now, and the stub — kept when the scan
+			// could not account for everything — is no longer what the project depends on.
+			if (b.reusedFrom) return b
 			const f = stillBlank.get(b.path)
 			// Every field the fresh read decides is taken from it, not merged selectively: these
 			// describe what is at the path *now*. Keeping a stale `unreadable` leaves a resource
@@ -422,8 +431,6 @@
 					missing: f.missing,
 					unreadable: f.unreadable,
 					occupiedBy: f.occupiedBy,
-					// Blank again, so it is not standing in for anything.
-					reusedFrom: undefined,
 					done: false,
 					justSaved: false
 				}
@@ -525,9 +532,9 @@
 
 	/**
 	 * Point the project at an existing resource: every imported item that referenced the stub
-	 * is rewritten to the chosen path and the stub is deleted. Nothing is copied and nothing
-	 * is left behind referring to a resource that no longer exists — `applyRetarget` refuses
-	 * outright rather than doing half of that.
+	 * is rewritten to the chosen path. Nothing is copied. The stub is deleted only when
+	 * `applyRetarget` can account for every item that might read it, and kept otherwise — so
+	 * the toast says how many items moved, and whether the placeholder is still there.
 	 */
 	async function reuseChosen(): Promise<void> {
 		const b = choosing
@@ -544,14 +551,28 @@
 				hasEeLicense: !!$enterpriseLicense,
 				exportedAppFiles
 			})
+			const moved = `${outcome.rewritten.length} item${outcome.rewritten.length === 1 ? '' : 's'}`
 			if (outcome.error) {
-				sendUserToast(`Could not point the project at ${target}: ${outcome.error}`, true)
+				sendUserToast(
+					`Could not point the project at ${target}: ${outcome.error}. ${moved} had already been updated, and ${b.path} was kept.`,
+					true
+				)
 				return
 			}
 			choosing = undefined
-			await refreshBlanks()
 			const row = blanks.find((x) => x.path === b.path)
-			if (row) row.reusedFrom = target
+			if (row) {
+				row.reusedFrom = target
+				row.stubKept = !outcome.stubDeleted
+				row.done = true
+				row.justSaved = true
+			}
+			await refreshBlanks()
+			sendUserToast(
+				outcome.stubDeleted
+					? `The project now uses ${target} — ${moved} updated.`
+					: `The project now uses ${target} — ${moved} updated. ${b.path} was kept, because some items could not be checked.`
+			)
 		} catch (e: any) {
 			sendUserToast(
 				`Could not point the project at ${target}: ${e?.body ?? e?.message ?? String(e)}`,
@@ -866,7 +887,18 @@
 								</div>
 							{/snippet}
 							{#snippet detail()}
-								{#if b.occupiedBy}
+								{#if b.reusedFrom}
+									<span class="truncate text-secondary">
+										now uses <span class="font-mono">{b.reusedFrom}</span>
+									</span>
+									{#if b.stubKept}
+										<!-- The placeholder is still at this row's path and still empty, which
+										     otherwise reads as the retarget having half-worked. -->
+										<span class="truncate text-hint">
+											the empty placeholder was kept, because some items could not be checked
+										</span>
+									{/if}
+								{:else if b.occupiedBy}
 									<span class="truncate text-secondary">
 										a {resourceTypeDisplayName(b.occupiedBy)} resource already holds this path — the
 										project did not get this one
@@ -878,10 +910,6 @@
 								{:else if !b.done && b.missing.length > 0}
 									<span class="truncate text-secondary">
 										Missing {b.missing.join(', ')}
-									</span>
-								{:else if b.reusedFrom}
-									<span class="truncate text-secondary">
-										now uses <span class="font-mono">{b.reusedFrom}</span>
 									</span>
 								{/if}
 							{/snippet}

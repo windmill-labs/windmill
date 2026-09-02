@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
- * The safety property: a retarget that cannot rewrite every referrer writes nothing at all.
- * Deleting the stub while an item still points at it is what breaks the imported project,
- * and that item is exactly the one nobody looks at afterwards.
+ * The safety property: the stub survives anything the scan cannot account for. Rewriting an
+ * item onto the chosen resource is safe on its own, so it always happens; deleting the stub
+ * while an item still reads it is what breaks the imported project, and that item is exactly
+ * the one nobody looks at afterwards.
  */
 
 const state = vi.hoisted(() => ({
 	apps: [] as any[],
+	scripts: [] as any[],
 	triggers: [] as any[],
 	scheduleListError: undefined as any,
 	deletedResources: [] as string[],
@@ -17,7 +19,7 @@ const state = vi.hoisted(() => ({
 
 vi.mock('$lib/gen', () => ({
 	ScriptService: {
-		listSearchScript: vi.fn(async () => []),
+		listSearchScript: vi.fn(async () => state.scripts),
 		getScriptByPath: vi.fn(),
 		createScript: vi.fn()
 	},
@@ -94,6 +96,7 @@ async function run(exported?: typeof exportedFiles) {
 describe('applyRetarget', () => {
 	beforeEach(() => {
 		state.apps = [rawApp({ '/App.tsx': 'v1' })]
+		state.scripts = []
 		state.triggers = []
 		state.scheduleListError = undefined
 		state.deletedResources = []
@@ -104,6 +107,7 @@ describe('applyRetarget', () => {
 	it("re-uploads the export's bundle rather than rebuilding it, then drops the stub", async () => {
 		const outcome = await run(exportedFiles)
 		expect(outcome.error).toBeUndefined()
+		expect(outcome.gaps).toEqual([])
 		expect(outcome.stubDeleted).toBe(true)
 		expect(state.deletedResources).toEqual([FROM])
 		const sent = state.updatedRawApps[0]
@@ -116,18 +120,19 @@ describe('applyRetarget', () => {
 
 	// The bundle in the export was built from the export's sources. Once the deployed sources
 	// have moved on, re-uploading it would revert whatever was changed since the import.
-	it('refuses when the app has been edited since the import, and writes nothing', async () => {
+	it('leaves a raw app edited since the import alone, and keeps the stub', async () => {
 		state.apps = [rawApp({ '/App.tsx': 'edited since' })]
 		const outcome = await run(exportedFiles)
-		expect(outcome.error).toContain('edited since the import')
+		expect(outcome.error).toBeUndefined()
+		expect(outcome.gaps.map((g) => g.reason)).toContain('has been edited since the import')
 		expect(outcome.stubDeleted).toBe(false)
 		expect(state.updatedRawApps).toEqual([])
 		expect(state.deletedResources).toEqual([])
 	})
 
-	it('refuses when the export does not describe a raw app it has to rewrite', async () => {
+	it('keeps the stub when the export does not describe a raw app it found', async () => {
 		const outcome = await run({})
-		expect(outcome.error).toContain('does not describe')
+		expect(outcome.gaps.map((g) => g.reason)).toContain('is a raw app the export does not describe')
 		expect(state.deletedResources).toEqual([])
 	})
 
@@ -147,22 +152,22 @@ describe('applyRetarget', () => {
 	})
 
 	// Most trigger kinds are cargo features an instance may not compile in, and their routes
-	// then 404. Reading that as a failed listing refuses every retarget on a stock build.
-	it('runs when a trigger kind is not compiled in, and refuses when one truly fails', async () => {
+	// then 404. Reading that as a failed listing keeps the stub on every stock build.
+	it('drops the stub when a trigger kind is not compiled in, keeps it when one truly fails', async () => {
 		state.scheduleListError = { status: 404 }
-		expect((await run(exportedFiles)).error).toBeUndefined()
+		expect((await run(exportedFiles)).gaps).toEqual([])
 		expect(state.deletedResources).toEqual([FROM])
 
 		state.deletedResources = []
 		state.scheduleListError = { status: 500 }
-		expect((await run(exportedFiles)).error).toContain('Schedule triggers could not be listed')
+		expect((await run(exportedFiles)).gaps.map((g) => g.path)).toContain('Schedule triggers')
 		expect(state.deletedResources).toEqual([])
 	})
 
 	// The referrer scan matches a bare path anywhere in an app's value, while the rewriter only
-	// relocates `$res:` tokens and runnable paths. Counting such an app as rewritable orphans it
-	// on a stub that is then deleted.
-	it('refuses an app that holds the resource path as a bare string', async () => {
+	// relocates `$res:` tokens and runnable paths. Rewriting such an app would claim a move that
+	// did not happen, and the stub it still reads would go.
+	it('leaves an app holding the resource path as a bare string alone, and keeps the stub', async () => {
 		state.apps = [
 			{
 				path: 'f/proj/page',
@@ -170,16 +175,33 @@ describe('applyRetarget', () => {
 			}
 		]
 		const outcome = await run(exportedFiles)
-		expect(outcome.error).toContain('f/proj/page')
+		expect(outcome.rewritten).toEqual([])
+		expect(outcome.gaps.map((g) => g.path)).toEqual(['f/proj/page'])
 		expect(state.deletedResources).toEqual([])
 	})
 
 	// `listSearchApp` caps at 1000 rows server-side, unordered and unpaginated, so a full page
 	// may not hold the project's own app — and the stub would go anyway.
-	it('refuses when the app listing comes back at its server-side cap', async () => {
+	it('keeps the stub when the app listing comes back at its server-side cap', async () => {
 		state.apps = Array.from({ length: 1000 }, (_, i) => ({ path: `f/other/a${i}`, value: {} }))
 		const outcome = await run(exportedFiles)
-		expect(outcome.error).toContain('Apps could not all be listed')
+		expect(outcome.gaps.map((g) => g.path)).toContain('Apps')
+		expect(state.deletedResources).toEqual([])
+	})
+
+	// The listings are workspace-wide. An item outside the project's folder is the user's own,
+	// so it is not rewritten — and it is exactly why the stub it reads has to stay.
+	it('rewrites what it owns and keeps the stub for a reference outside the project', async () => {
+		state.apps = []
+		state.scripts = [{ path: 'u/alice/report', content: `$res:${FROM}` }]
+		state.triggers = [
+			{ path: 'f/proj/ingest', script_path: 'f/proj/run', postgres_resource_path: FROM }
+		]
+		const outcome = await run(exportedFiles)
+		expect(outcome.error).toBeUndefined()
+		expect(state.updatedTriggers[0].body.postgres_resource_path).toBe(TO)
+		expect(outcome.gaps.map((g) => g.path)).toEqual(['u/alice/report'])
+		expect(outcome.stubDeleted).toBe(false)
 		expect(state.deletedResources).toEqual([])
 	})
 })
