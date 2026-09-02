@@ -16,6 +16,7 @@ import {
 	collectExportVarPaths,
 	extractTriggerConfigResourceRefs,
 	extractVarRefsFromValue,
+	projectReferencesResource,
 	type ProjectExport,
 	type FetchedItem,
 	type ItemRef
@@ -865,5 +866,33 @@ describe('flow_env and preprocessor_module', () => {
 		expect(out.preprocessor_module.value.path).toBe('f/proj/preproc')
 		expect(out.flow_env.SLACK).toBe('$res:f/proj/slack')
 		expect(out.flow_env.PLAIN).toBe('not-a-ref')
+	})
+})
+
+describe('projectReferencesResource', () => {
+	/**
+	 * A project declares one resource per `resource-<type>` input schema as well as one per
+	 * `$res:` reference, so an app pinning `f/proj/google_calendar` for a script whose schema
+	 * says `resource-gcal` ships both it and an unreferenced `f/proj/gcal`. Only the pinned
+	 * one has to hold a credential for the project to work.
+	 */
+	const bundle = {
+		project: { slug: 'proj', name: 'Proj', summary: '', readme: null },
+		scripts: [{ path: 'f/proj/send', content: 'const c = "$res:f/proj/google_calendar"' }],
+		flows: [],
+		apps: [],
+		resources: [
+			{ path: 'f/proj/gcal', resource_type: 'gcal' },
+			{ path: 'f/proj/google_calendar', resource_type: 'gcal' },
+			{ path: 'f/proj/db', resource_type: 'postgresql' }
+		],
+		triggers: [{ path: 'f/proj/ingest', config: { postgres_resource_path: 'f/proj/db' } }]
+	} as unknown as ProjectExport
+
+	it('sees a $res: token and a trigger\'s bare path, and not a stub nothing points at', () => {
+		expect(projectReferencesResource(bundle, 'f/proj/google_calendar')).toBe(true)
+		expect(projectReferencesResource(bundle, 'f/proj/db')).toBe(true)
+		// Declared only because a script's input schema names the type.
+		expect(projectReferencesResource(bundle, 'f/proj/gcal')).toBe(false)
 	})
 })

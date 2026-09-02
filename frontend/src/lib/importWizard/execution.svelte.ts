@@ -8,9 +8,10 @@ import {
 	installProject,
 	type InstallResult
 } from '$lib/components/workspaceSettings/projectInstall'
-import type {
-	ProjectExport,
-	ProjectMigration
+import {
+	projectReferencesResource,
+	type ProjectExport,
+	type ProjectMigration
 } from '$lib/components/workspaceSettings/projectBundle'
 import { planWorkspaceId, type ImportPlan } from './plan'
 import { probeImportedPaths, probeWorkspace } from './probe'
@@ -110,12 +111,16 @@ export class ImportExecution {
 	}
 
 	/**
-	 * How many resources the project shipped. Every one arrives as an empty stub —
-	 * the hub never publishes resource values — so a non-zero count means the setup
-	 * step has something to offer.
+	 * How many of the project's resources the setup step will ask about. Every resource
+	 * arrives as an empty stub — the hub never publishes resource values — but only the ones
+	 * something in the project points at have to hold a credential for it to work, and those
+	 * are the ones the step lists. Counting all of them here would offer a fourth step that
+	 * then has nothing on it.
 	 */
 	get resourceCount(): number {
-		return this.#export?.resources?.length ?? 0
+		const e = this.#export
+		if (!e) return 0
+		return (e.resources ?? []).filter((r) => projectReferencesResource(e, String(r.path))).length
 	}
 
 	get extraCounts(): { triggers: number; migrations: number } | undefined {

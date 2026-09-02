@@ -8,8 +8,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const state = vi.hoisted(() => ({
 	apps: [] as any[],
+	triggers: [] as any[],
 	deletedResources: [] as string[],
-	updatedRawApps: [] as any[]
+	updatedRawApps: [] as any[],
+	updatedTriggers: [] as any[]
 }))
 
 vi.mock('$lib/gen', () => ({
@@ -36,8 +38,17 @@ vi.mock('$lib/gen', () => ({
 }))
 
 vi.mock('$lib/components/triggers/workspaceTriggersList', () => ({
-	TRIGGER_KINDS: { schedule: { badge: 'Schedule', list: vi.fn(async () => []) } },
-	WORKSPACE_TRIGGER_KINDS: ['schedule'],
+	TRIGGER_KINDS: {
+		schedule: { badge: 'Schedule', list: vi.fn(async () => []) },
+		postgres: {
+			badge: 'Postgres',
+			list: vi.fn(async () => state.triggers),
+			update: vi.fn(async (_w: string, path: string, body: any) =>
+				state.updatedTriggers.push({ path, body })
+			)
+		}
+	},
+	WORKSPACE_TRIGGER_KINDS: ['schedule', 'postgres'],
 	createWorkspaceTriggerDisabled: vi.fn(),
 	triggerHandlerRefs: () => []
 }))
@@ -76,8 +87,10 @@ async function run(exported?: typeof exportedFiles) {
 describe('applyRetarget', () => {
 	beforeEach(() => {
 		state.apps = [rawApp({ '/App.tsx': 'v1' })]
+		state.triggers = []
 		state.deletedResources = []
 		state.updatedRawApps = []
+		state.updatedTriggers = []
 	})
 
 	it("re-uploads the export's bundle rather than rebuilding it, then drops the stub", async () => {
@@ -108,5 +121,20 @@ describe('applyRetarget', () => {
 		const outcome = await run({})
 		expect(outcome.error).toContain('does not describe')
 		expect(state.deletedResources).toEqual([])
+	})
+
+	// A trigger holds its resource as a bare path in its own column, not as a `$res:` token.
+	// Matching only the token spelling left the trigger on a stub that was then deleted.
+	it('finds a trigger that holds the resource as a bare path', async () => {
+		state.apps = []
+		state.triggers = [
+			{ path: 'f/proj/ingest', script_path: 'f/proj/run', postgres_resource_path: FROM }
+		]
+		const outcome = await run(exportedFiles)
+		expect(outcome.error).toBeUndefined()
+		expect(state.updatedTriggers[0].body.postgres_resource_path).toBe(TO)
+		// The trigger keeps its own path even though it was the string being remapped.
+		expect(state.updatedTriggers[0].path).toBe('f/proj/ingest')
+		expect(state.deletedResources).toEqual([FROM])
 	})
 })

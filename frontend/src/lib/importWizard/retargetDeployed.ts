@@ -2,9 +2,10 @@
  * Point an already-imported project at a resource the workspace already has.
  *
  * The import writes `$res:f/<folder>/<name>` into every item that uses the project's
- * resource. This rewrites those references to an existing resource and deletes the stub,
- * so the project reads the workspace's own credential — the same end state the import
- * would have produced, reached after the fact.
+ * resource — except a trigger, which holds the bare path in its own `*_resource_path`
+ * field. This rewrites those references to an existing resource and deletes the stub, so
+ * the project reads the workspace's own credential — the same end state the import would
+ * have produced, reached after the fact.
  *
  * Two rules make that safe to run over deployed items:
  *
@@ -21,7 +22,8 @@ import {
 	rewriteContent,
 	rewriteFlowValue,
 	rewriteRawAppContent,
-	rewriteTriggerConfig
+	rewriteTriggerConfig,
+	referencesResourcePath
 } from '$lib/components/workspaceSettings/projectBundle'
 import {
 	TRIGGER_KINDS,
@@ -93,11 +95,6 @@ function rawSourcesDiverged(
 	return keys.some((k) => a[k] !== b[k])
 }
 
-/** Whether a serialized item mentions the resource, in either reference spelling. */
-function mentions(blob: string, resourcePath: string): boolean {
-	return blob.includes(`$res:${resourcePath}`) || blob.includes(`res://${resourcePath}`)
-}
-
 /**
  * Which deployed items reference the stub, and whether each can be rewritten.
  *
@@ -121,17 +118,17 @@ export async function planRetarget(
 
 	for (const s of scripts ?? []) {
 		if (!inFolder(s.path, folder)) continue
-		if (mentions(String(s.content ?? ''), from)) referrers.push({ kind: 'script', path: s.path! })
+		if (referencesResourcePath(s.content ?? '', from))
+			referrers.push({ kind: 'script', path: s.path! })
 	}
 	for (const f of flows ?? []) {
 		if (!inFolder(f.path, folder)) continue
-		if (mentions(JSON.stringify(f.value ?? {}), from))
-			referrers.push({ kind: 'flow', path: f.path! })
+		if (referencesResourcePath(f.value ?? {}, from)) referrers.push({ kind: 'flow', path: f.path! })
 	}
 	for (const a of apps ?? []) {
 		if (!inFolder(a.path, folder)) continue
 		const value: any = a.value ?? {}
-		if (!mentions(JSON.stringify(value), from)) continue
+		if (!referencesResourcePath(value, from)) continue
 		// `files` + `runnables` and no `grid` is the deployed shape of a raw app; the
 		// low-code one keeps its components under `grid`.
 		const isRaw = !!value.files && !!value.runnables
@@ -168,7 +165,7 @@ export async function planRetarget(
 		}
 		for (const t of rows) {
 			if (!inFolder(t.path, folder)) continue
-			if (!mentions(JSON.stringify(t), from)) continue
+			if (!referencesResourcePath(t, from)) continue
 			// `schedule` has no `update` in the table because its service takes a different body
 			// shape; `rewriteTrigger` handles it directly, the way the import's create does.
 			if (kind !== 'schedule' && !def.update) {
@@ -325,13 +322,20 @@ async function rewriteRawApp(
  * The trigger's own row, rewritten and written back. `enabled` is deliberately not sent:
  * imported triggers are created disabled and re-enabling one is the user's decision, not a
  * side effect of pointing it at a credential.
+ *
+ * `path` is put back from the row afterwards. The rewrite remaps any string equal to the
+ * stub's path, and a trigger sitting at the path the resource used to hold would otherwise
+ * be renamed along with the reference.
  */
 async function rewriteTrigger(workspace: string, r: Referrer, map: Map<string, string>) {
 	const def = TRIGGER_KINDS[r.triggerKind!]
 	const rows = await def.list(workspace)
 	const row: any = rows.find((t) => t.path === r.path)
 	if (!row) throw new Error(`trigger ${r.path} is no longer there`)
-	const { enabled: _enabled, ...rest } = rewriteTriggerConfig(row, map) as any
+	const { enabled: _enabled, ...rest } = {
+		...(rewriteTriggerConfig(row, map) as any),
+		path: r.path
+	}
 	if (r.triggerKind === 'schedule') {
 		// `EditSchedule` needs these three; everything else on the row carries over by name.
 		await ScheduleService.updateSchedule({

@@ -24,6 +24,7 @@
 	import { applyOneMigration } from '$lib/components/workspaceSettings/projectInstall'
 	import { probeMigrationsApplied } from '$lib/importWizard/probe'
 	import {
+		projectReferencesResource,
 		retargetProjectExport,
 		type ProjectExport,
 		type ProjectMigration
@@ -99,6 +100,13 @@
 	let rows = $state<Row[]>([])
 	let blanks = $state<Blank[]>([])
 	let projectResources: { path: string; resource_type: string }[] = []
+	/**
+	 * The subset of `projectResources` the checklist asks about: the ones something in the
+	 * project actually points at. The rest are created and left alone — see
+	 * `projectReferencesResource`. Kept apart from `projectResources` because the full list
+	 * is still what a stub may not be replaced by.
+	 */
+	let askableResources: { path: string; resource_type: string }[] = []
 	let working = $state(false)
 	let resourceEditor: ResourceEditorDrawer | undefined = $state(undefined)
 
@@ -288,7 +296,10 @@
 					.filter((a: any) => a.app_type === 'raw' && typeof a.value?.raw === 'string')
 					.map((a: any) => {
 						try {
-							return [String(a.path), (JSON.parse(a.value.raw)?.files ?? {}) as Record<string, string>]
+							return [
+								String(a.path),
+								(JSON.parse(a.value.raw)?.files ?? {}) as Record<string, string>
+							]
 						} catch {
 							// Unparseable raw bundle: leave it out, and `planRetarget` refuses the app
 							// rather than uploading a bundle it could not read.
@@ -299,6 +310,9 @@
 			projectResources = (retargeted.resources ?? [])
 				.map((r) => ({ path: String(r.path), resource_type: String((r as any).resource_type) }))
 				.filter((r) => r.path.startsWith(`f/${target}/`))
+			askableResources = projectResources.filter((r) =>
+				projectReferencesResource(retargeted, r.path)
+			)
 			await refreshBlanks()
 		} catch (e: any) {
 			loadError = e?.body ?? e?.message ?? String(e)
@@ -390,7 +404,7 @@
 	 * it only moves a row from outstanding to done.
 	 */
 	async function refreshBlanks(): Promise<void> {
-		const fresh = await findBlankResources(projectResources)
+		const fresh = await findBlankResources(askableResources)
 		const stillBlank = new Map(fresh.map((b) => [b.path, b]))
 		if (blanks.length === 0) {
 			blanks = fresh
