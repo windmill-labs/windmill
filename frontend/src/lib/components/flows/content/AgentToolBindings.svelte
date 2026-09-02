@@ -4,6 +4,7 @@
 	import type { InputTransform, ScriptLang } from '$lib/gen'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import { Button } from '$lib/components/common'
 	import { ChevronDown, ChevronRight, Wrench } from 'lucide-svelte'
 	import type { PickableProperties } from '../previousResults'
 	import {
@@ -153,12 +154,15 @@
 			{@const code = toolCode(tool)}
 			{@const open = isOpen(tool)}
 			<div class="rounded-md border border-light">
-				<button
-					type="button"
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
 					aria-expanded={open}
-					onclick={() => (toggled[tool.id] = !open)}
-					class="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs
-						hover:bg-surface-hover {open ? 'border-b border-light' : ''}"
+					onClick={() => (toggled[tool.id] = !open)}
+					wrapperClasses="w-full"
+					btnClasses="w-full !justify-start !text-left !px-3 !font-normal !text-xs !gap-1.5 !rounded-b-none {open
+						? 'border-b border-light'
+						: ''}"
 				>
 					{#if open}
 						<ChevronDown size={14} class="shrink-0 text-tertiary" />
@@ -172,7 +176,7 @@
 							>{tool.description}</span
 						>
 					{/if}
-				</button>
+				</Button>
 				{#if !open}
 					<!-- collapsed: the agent's own inputs, nothing this flow has changed -->
 				{:else if schemas[tool.id] !== undefined && localArgs[tool.id] !== undefined}

@@ -277,19 +277,23 @@
 								{menuGroup.label}
 							</div>
 							{#each groupCandidates as spec (spec.key)}
-								<button
-									type="button"
-									class="py-2 px-4 w-full font-normal text-left text-primary text-xs hover:bg-surface-hover"
-									onclick={() => {
+								<Button
+									variant="subtle"
+									unifiedSize="md"
+									onClick={() => {
 										addField(spec)
 										close()
 									}}
+									wrapperClasses="w-full"
+									btnClasses="w-full !h-auto !justify-start !text-left !py-2 !px-4 !font-normal !text-xs text-primary !rounded-none"
 								>
-									{spec.label}
-									{#if spec.defaultHint}
-										<div class="text-2xs text-secondary">{spec.defaultHint}</div>
-									{/if}
-								</button>
+									<div class="w-full">
+										{spec.label}
+										{#if spec.defaultHint}
+											<div class="text-2xs text-secondary">{spec.defaultHint}</div>
+										{/if}
+									</div>
+								</Button>
 							{/each}
 						{/if}
 					{/each}

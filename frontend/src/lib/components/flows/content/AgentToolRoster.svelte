@@ -121,12 +121,13 @@
 			<!-- The delete sits beside the row rather than inside it: the row is itself a button, and
 			     a button cannot hold another. -->
 			<div class="flex flex-row items-stretch">
-				<button
-					type="button"
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
 					disabled={!onSelectTool}
-					onclick={() => onSelectTool?.(tool.id)}
-					class="grow min-w-0 flex flex-row items-center gap-2 px-2 py-1.5 text-left text-xs
-						text-primary enabled:hover:bg-surface-hover disabled:cursor-default"
+					onClick={() => onSelectTool?.(tool.id)}
+					wrapperClasses="grow min-w-0"
+					btnClasses="w-full min-w-0 !justify-start !text-left !px-2 !font-normal !text-xs text-primary"
 				>
 					<Wrench size={13} class="shrink-0 text-tertiary" />
 					<!-- A tool the worker will reject is named by its problem, not by an id no one
@@ -147,7 +148,7 @@
 					{#if onSelectTool}
 						<ChevronRight size={13} class="shrink-0 text-tertiary" />
 					{/if}
-				</button>
+				</Button>
 				{#if onDeleteTool}
 					<Button
 						unifiedSize="2xs"
