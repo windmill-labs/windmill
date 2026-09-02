@@ -1169,7 +1169,7 @@
 					class="absolute inset-0 z-20 bg-surface p-8 flex flex-col items-start gap-3 text-secondary text-sm"
 				>
 					<p class="text-primary font-medium">AI Sessions are hidden in this workspace</p>
-					<p>A workspace admin turned Windmill AI features off in the workspace settings.</p>
+					<p>A workspace admin hid AI sessions in the workspace settings.</p>
 					<Button unifiedSize="sm" onclick={() => goto('/')}>Back to workspace</Button>
 				</div>
 			{/if}

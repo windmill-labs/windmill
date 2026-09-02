@@ -390,20 +390,6 @@
 <SettingsPageHeader {title} {description} {link} />
 
 <div class="flex flex-col gap-6 mt-4 pb-8">
-	{#if promptScope === 'workspace'}
-		<SettingCard
-			label="Windmill AI features"
-			description="When off, the AI chat, AI sessions, code generation and completion, AI fix and every other AI button are hidden for all members of this workspace. AI agent steps and the AI sandbox in flows are not affected and keep using the providers configured below. This hides the assistant in the UI only; it does not restrict API access to the configured providers."
-		>
-			<Toggle
-				checked={!copilotDisabled}
-				on:change={(e) => {
-					copilotDisabled = !e.detail
-				}}
-				options={{ right: 'Show AI features in this workspace' }}
-			/>
-		</SettingCard>
-	{/if}
 	{#if usesInstanceAiConfig}
 		<div
 			class="p-3 border border-blue-200 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/20 rounded-md text-xs text-secondary"
@@ -656,8 +642,23 @@
 	<ModelPricing {aiProviders} bind:modelPricing />
 {/if}
 
+{#if promptScope === 'workspace'}
+	<SettingCard
+		label="Hide AI sessions"
+		description="Hides AI sessions and every other AI assistant button (chat, code generation and completion, AI fix) from all members of this workspace. AI agent steps and the AI sandbox in flows are not affected and keep using the providers configured above. This hides the assistant in the UI only; it does not restrict API access to the configured providers."
+	>
+		<Toggle
+			checked={copilotDisabled}
+			on:change={(e) => {
+				copilotDisabled = e.detail
+			}}
+			options={{ right: 'Hide AI sessions in this workspace' }}
+		/>
+	</SettingCard>
+{/if}
+
 <!-- Not gated on `showWorkspaceOverrideEditor`: a workspace on instance defaults still has
-     the AI features toggle above to save. -->
+     the hide toggle above to save. -->
 <SettingsFooter
 	hasUnsavedChanges={dirty}
 	onSave={editCopilotConfig}
