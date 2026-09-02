@@ -1166,12 +1166,14 @@
 	function itemLabels(x: { labels?: string[]; inherited_labels?: string[] }): string[] {
 		return [...(x.labels ?? []), ...(x.inherited_labels ?? [])]
 	}
-	// Labels ranked by how many loaded rows carry them (ties alphabetical), the same
-	// most-populated-first order the owner chips use.
+	// Labels ranked by how many loaded rows carry them (ties alphabetical). Unlike the owner
+	// chips there is no workspace-wide count endpoint, so the order is window-local and can
+	// shift as later pages load. A row carrying a label both directly and by inheritance
+	// counts once.
 	let allLabels = $derived.by(() => {
 		const counts = new Map<string, number>()
 		for (const x of combinedItems ?? [])
-			for (const l of itemLabels(x)) counts.set(l, (counts.get(l) ?? 0) + 1)
+			for (const l of new Set(itemLabels(x))) counts.set(l, (counts.get(l) ?? 0) + 1)
 		return [...counts.keys()].sort(
 			(a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0) || cmp(a, b)
 		)
@@ -1771,8 +1773,7 @@
 		<!-- Owner and label chips on one line. Each function binding routes the chip's
 		     selection into the searchbar key of the same name, and `queryName` points
 		     ListFilters' own mount-time URL read at the param the filter instance syncs, so
-		     both writers agree from the first paint. No `syncQuery`: the filter instance owns
-		     the URL. -->
+		     the two writers agree. No `syncQuery`: the filter instance owns the URL. -->
 		<div class="gap-2 w-full flex flex-wrap mt-3">
 			<ListFilters
 				inline

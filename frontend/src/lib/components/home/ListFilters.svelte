@@ -20,7 +20,8 @@
 		color?: BadgeColor
 		icon?: BadgeIconProps['icon']
 		// Emit the chips as flex items of the parent instead of a row of their own, so several
-		// ListFilters can share one line.
+		// ListFilters can share one line. The parent owns layout and spacing, so
+		// `bottomMargin` does not apply.
 		inline?: boolean
 	}
 
