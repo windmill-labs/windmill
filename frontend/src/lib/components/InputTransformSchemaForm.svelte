@@ -22,6 +22,9 @@
 		previousModuleId?: string | undefined
 		filter?: string[] | undefined
 		noDynamicToggle?: boolean
+		/** Passed to every field. See `InputTransformForm` for what each one drops. */
+		noConnect?: boolean
+		noJavascript?: boolean
 		pickableProperties?: PickableProperties | undefined
 		enableAi?: boolean
 		class?: string
@@ -40,6 +43,8 @@
 		previousModuleId = undefined,
 		filter = undefined,
 		noDynamicToggle = false,
+		noConnect = false,
+		noJavascript = false,
 		pickableProperties = undefined,
 		enableAi = false,
 		class: clazz = '',
@@ -125,7 +130,10 @@
 </script>
 
 <div class="w-full mb-6 {clazz}">
-	{#if enableAi}
+	<!-- Not offered on a tool: the fields it fills are exactly the ones left empty for the agent
+	     to fill at run time, and filling one rewrites it into an expression, which takes it out of
+	     the schema the model is given. -->
+	{#if enableAi && !isAgentTool}
 		<div class="pt-2">
 			<StepInputsGen
 				{pickableProperties}
@@ -160,6 +168,8 @@
 						{itemPicker}
 						bind:pickForField
 						{noDynamicToggle}
+						{noConnect}
+						{noJavascript}
 						{pickableProperties}
 						{enableAi}
 						{helperScript}

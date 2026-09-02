@@ -85,6 +85,10 @@
 		/** Hide the connect button, for a surface with nothing to connect to. Distinct from
 		 *  `noDynamicToggle`, which a field forced to an expression also sets. */
 		noConnect?: boolean
+		/** Drop the expression option, for a surface whose values have to stand on their own. The
+		 *  rest of the switch stays, so a field can still be AI-filled or static. A field already
+		 *  holding an expression keeps the option, or it could not be switched off it. */
+		noJavascript?: boolean
 		/** Replaces the default StepInputGen, for a field with its own AI helper. That
 		 *  helper drives `suggestion` (its ghost text) and `aiOnKeyUp` (Tab to accept),
 		 *  which the built-in one reaches through `stepInputGen` instead. */
@@ -131,6 +135,7 @@
 		itemPicker = undefined,
 		noDynamicToggle = false,
 		noConnect = false,
+		noJavascript = false,
 		aiGen = undefined,
 		suggestion = $bindable(),
 		focused = $bindable(),
@@ -195,6 +200,11 @@
 	let fieldAllowsAi = $derived(
 		allowedAiTransforms === undefined || allowedAiTransforms.includes(argName)
 	)
+
+	// A `${}` field is static text that interpolates JavaScript, so it is only on offer where
+	// expressions are. Elsewhere the same field is plain static: labelled `static`, edited in the
+	// ordinary input, with no `${...}` hint promising an escape hatch that isn't there.
+	let staticTemplateOffered = $derived(isStaticTemplate(inputCat) && !noJavascript)
 
 	// `argType` wins over whatever the value carries: a predicate has no `type` field, so
 	// inferring would land it on the static input instead of the expression editor.
@@ -621,7 +631,7 @@
 
 					{@render labelExtra?.()}
 
-					{#if isStaticTemplate(inputCat)}
+					{#if staticTemplateOffered}
 						<div>
 							<span
 								class="border text-gray-400 dark:text-gray-500 text-2xs font-medium mr-2 px-1 !py-[1px] rounded ml-2.5 {propertyType ==
@@ -758,16 +768,19 @@
 						>
 							{#snippet children({ item })}
 								{#if fieldAllowsAi}
+									<!-- `h-full`, as its siblings have: the group is a row shorter than a `sm`
+									     button, and without it this one stands proud of the others. -->
 									<ToggleButton
-										small
+										size="sm"
 										label="AI"
 										value="ai"
 										tooltip="Let the AI agent fill this field dynamically"
 										{item}
+										class="h-full text-xs"
 									/>
 								{/if}
 
-								{#if isStaticTemplate(inputCat)}
+								{#if staticTemplateOffered}
 									<ToggleButton
 										size="sm"
 										tooltip={`Write text or surround javascript with \`\$\{\` and \`\}\`. Use \`results\` to connect to another node\'s output.`}
@@ -786,7 +799,9 @@
 									/>
 								{/if}
 
-								{#if codeInjectionDetected && propertyType == 'static'}
+								{#if noJavascript && propertyType !== 'javascript'}
+									<!-- nothing: the expression option is not offered here -->
+								{:else if codeInjectionDetected && propertyType == 'static'}
 									<Button
 										size="xs2"
 										color="light"
@@ -879,7 +894,7 @@
 									</pre>
 									</div>
 								{/if}
-							{:else if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
+							{:else if staticTemplateOffered && propertyType == 'static' && !noDynamicToggle}
 								<div class="flex flex-col gap-1">
 									{#if fieldDescription}
 										<div class="text-xs text-secondary">

@@ -70,10 +70,17 @@
 		 *  agent's config is plain JSON, so an expression on a brain field would be dropped on save.
 		 *  A step's own agent has no such limit: its transforms are evaluated per run. */
 		staticOnly?: boolean
+		/** Passed to every field, for a nested agent used as a tool: its brain has to stand on its
+		 *  own as `staticOnly` does, but its `user_message` is still the agent's to fill. */
+		noConnect?: boolean
+		noJavascript?: boolean
 		onSelectTool?: (toolId: string) => void
 		/** Adds a tool to this agent. Without it the roster is read-only, as it is for a linked
 		 *  agent, whose tools belong to the agent rather than to the step. */
 		onAddTool?: (detail: { kind: string; script?: any; flow?: any; inlineScript?: any }) => void
+		/** Removes a tool from this agent. Same rule as `onAddTool`: absent where the tools are not
+		 *  the step's to change. */
+		onDeleteTool?: (toolId: string) => void
 		/** Where the tool picker's popover belongs, for a surface that is not the flow editor. */
 		toolPickerPortal?: string
 	}
@@ -99,8 +106,11 @@
 		visibilityKey = undefined,
 		tools = [],
 		staticOnly = false,
+		noConnect = false,
+		noJavascript = false,
 		onSelectTool = undefined,
 		onAddTool = undefined,
+		onDeleteTool = undefined,
 		toolPickerPortal = undefined
 	}: Props = $props()
 
@@ -319,9 +329,10 @@
 {/snippet}
 
 <div class="w-full mb-6 {clazz}">
-	<!-- Not offered on a static-only surface: what it fills a field with is a JavaScript
-	     expression, which such a store cannot hold. -->
-	{#if enableAi && !staticOnly}
+	<!-- Not offered on a static-only surface, where what it fills a field with is a JavaScript
+	     expression such a store cannot hold; nor on a tool, whose empty fields are the ones the
+	     agent above fills at run time. -->
+	{#if enableAi && !staticOnly && !isAgentTool}
 		<div class="pt-2">
 			<StepInputsGen {pickableProperties} argNames={emptyArgNames} {schema} />
 		</div>
@@ -341,6 +352,7 @@
 										{tools}
 										{onSelectTool}
 										{onAddTool}
+										{onDeleteTool}
 										pickerPortal={toolPickerPortal}
 									/>
 								{:else}
@@ -367,7 +379,8 @@
 										{isAgentTool}
 										{allowedAiTransforms}
 										noDynamicToggle={staticOnly}
-										noConnect={staticOnly}
+										noConnect={staticOnly || noConnect}
+										{noJavascript}
 										{s3StorageConfigured}
 										{chatInputEnabled}
 										{workspace}
