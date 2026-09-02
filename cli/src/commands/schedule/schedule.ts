@@ -106,7 +106,8 @@ export async function pushSchedule(
   path: string,
   schedule: Schedule | ScheduleFile | undefined,
   localSchedule: ScheduleFile,
-  permissionedAsContext?: PermissionedAsContext
+  permissionedAsContext?: PermissionedAsContext,
+  enabledOwnedByParent?: boolean
 ): Promise<void> {
   path = removeType(path, "schedule").replaceAll(SEP, "/");
   log.debug(`Processing local schedule ${path}`);
@@ -122,6 +123,14 @@ export async function pushSchedule(
 
   // Strip CLI-only boolean marker before sending to API
   delete (localSchedule as any).has_permissioned_as;
+
+  // In a fork, the file's `enabled` is the parent's for a path the parent
+  // also has (see sync push's `parentOwnedScheduleEnabled`): the fork's own
+  // flag stays as it is. A schedule the fork does not have yet is created as
+  // the file says, there being no fork state to keep.
+  if (enabledOwnedByParent && schedule) {
+    delete localSchedule.enabled;
+  }
 
   const preserveFields: { permissioned_as?: string; preserve_permissioned_as?: boolean } = {};
   if (permissionedAsContext?.userIsAdminOrDeployer) {
@@ -153,13 +162,9 @@ export async function pushSchedule(
           ...preserveFields,
         },
       });
-      // Tarball export from a fork strips `enabled` from schedule YAMLs so
-      // the fork→parent git-sync round-trip can't flip the parent's state.
-      // Skip the secondary setScheduleEnabled call when the local YAML
-      // doesn't carry `enabled` — sending `{ enabled: undefined }` would
-      // serialize to `{}` and the backend (`SetEnabled.enabled` is required)
-      // would reject the request. Preserving the target's existing flag is
-      // exactly the round-trip-safe behavior.
+      // No `enabled` in the file (absent from the YAML, or set aside above)
+      // leaves the remote flag alone: `SetEnabled.enabled` is required, so
+      // `{ enabled: undefined }` would be rejected rather than ignored.
       if (
         localSchedule.enabled !== undefined &&
         localSchedule.enabled !== schedule.enabled

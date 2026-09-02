@@ -25,7 +25,7 @@ import {
 } from "yaml";
 import JSZip from "jszip";
 import { minimatch } from "minimatch";
-import { yamlParseContent } from "../../utils/yaml.ts";
+import { yamlParseContent, yamlParseFile } from "../../utils/yaml.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 
 import {
@@ -1138,7 +1138,7 @@ export function rawAppPathWithinFolder(
   return resolved;
 }
 
-function ZipFSElement(
+export function ZipFSElement(
   zip: JSZip,
   useYaml: boolean,
   defaultTs: "bun" | "deno",
@@ -1146,6 +1146,14 @@ function ZipFSElement(
   resourceTypeToIsFileset: Record<string, boolean>,
   ignoreCodebaseChanges: boolean,
   stripOnBehalfOf: boolean,
+  // Names a flow's rendered inline-script files after the checkout's own
+  // `!inline` references (module id -> file). The export carries script
+  // source, never a reference, so without a checkout to defer to every file
+  // is named from the step summary, and a file the checkout names otherwise
+  // reads as a delete + add on every push while the resolved flows are equal.
+  localFlowInlineMapping?: (
+    flowDir: string,
+  ) => Promise<Record<string, string>>,
 ): DynFSElement {
   // Pre-scan: find zip base paths of scripts that have modules.
   // These scripts use the folder layout: {basePath}__mod/script.{ext}
@@ -1254,13 +1262,9 @@ function ZipFSElement(
               const assigner = newPathAssigner(defaultTs, {
                 skipInlineScriptSuffix: getNonDottedPaths(),
               });
-              // Preserve original !inline filenames from the flow to avoid phantom renames
-              const inlineMapping = extractCurrentMapping(
-                flow.value.modules as any,
-                {},
-                flow.value.failure_module,
-                flow.value.preprocessor_module,
-              );
+              const inlineMapping = localFlowInlineMapping
+                ? await localFlowInlineMapping(finalPath)
+                : {};
               inlineScripts = extractInlineScriptsForFlows(
                 flow.value.modules as any,
                 inlineMapping,
@@ -2581,7 +2585,7 @@ export function preservePendingScriptLocks(
   }
 }
 
-async function compareDynFSElement(
+export async function compareDynFSElement(
   els1: DynFSElement,
   els2: DynFSElement | undefined,
   ignore: (path: string, isDirectory: boolean) => boolean,
@@ -2594,6 +2598,9 @@ async function compareDynFSElement(
   branchOverride?: string,
   isEls1Remote?: boolean,
   caseInsensitiveFs?: boolean,
+  // Which schedule files carry an `enabled` that is not the target's to set
+  // (see push's `parentOwnedScheduleEnabled`): those compare without it.
+  parentOwnsScheduleEnabled?: (scheduleFilePath: string) => boolean,
 ): Promise<{ changes: Change[]; localMap: Record<string, string> }> {
   let [m1, m2] = els2
     ? await Promise.all([
@@ -2785,12 +2792,28 @@ async function compareDynFSElement(
           );
           throw error;
         }
+        if (
+          parentOwnsScheduleEnabled &&
+          getTypeStrFromPath(k) === "schedule" &&
+          parentOwnsScheduleEnabled(k)
+        ) {
+          delete parsedV?.enabled;
+          delete parsedM2?.enabled;
+        }
         if (deepEqual(parsedV, parsedM2)) {
           continue;
         }
       } else if (k.endsWith(".yaml")) {
         const before = parseYaml(k, m2[k]);
         const after = parseYaml(k, v);
+        if (
+          parentOwnsScheduleEnabled &&
+          getTypeStrFromPath(k) === "schedule" &&
+          parentOwnsScheduleEnabled(k)
+        ) {
+          delete before?.enabled;
+          delete after?.enabled;
+        }
         if (deepEqual(before, after)) {
           continue;
         }
@@ -4543,6 +4566,58 @@ async function checkServerLockJobs(
   }
 }
 
+// A fork clones every schedule disabled and the backend refuses to enable one
+// whose path the parent also has (`fork-conflict:schedule`), while for those
+// paths a fork's export writes the *parent's* `enabled` into the file. So on a
+// push into a fork such a file's `enabled` describes the parent, not the
+// target: the push leaves the fork's flag alone rather than aborting on the
+// refusal, or reporting the file as edited on every run when the two differ.
+// A schedule only the fork has keeps toggling from the file. When the parent
+// cannot be listed from here (a job token is scoped to the fork), every
+// schedule may be the parent's, and none is toggled.
+//
+// Returns undefined when the target is not a fork; otherwise whether a
+// schedule file's `enabled` belongs to the parent.
+async function parentOwnedScheduleEnabled(
+  workspaceId: string,
+): Promise<((scheduleFilePath: string) => boolean) | undefined> {
+  let parentWorkspaceId: string | null | undefined;
+  try {
+    const { workspaces } = await wmill.listUserWorkspaces();
+    parentWorkspaceId = workspaces?.find(
+      (w) => w.id === workspaceId,
+    )?.parent_workspace_id;
+  } catch {
+    // The id prefix still identifies a throwaway fork.
+  }
+  if (!isForkWorkspace(workspaceId, parentWorkspaceId)) {
+    return undefined;
+  }
+  let parentPaths: Set<string> | undefined;
+  if (parentWorkspaceId) {
+    try {
+      parentPaths = new Set();
+      const perPage = 100;
+      for (let page = 1; ; page++) {
+        const batch = await wmill.listSchedules({
+          workspace: parentWorkspaceId,
+          page,
+          perPage,
+        });
+        batch.forEach((s) => parentPaths!.add(s.path));
+        if (batch.length < perPage) break;
+      }
+    } catch {
+      parentPaths = undefined;
+    }
+  }
+  return (scheduleFilePath) =>
+    parentPaths === undefined ||
+    parentPaths.has(
+      removeType(scheduleFilePath, "schedule").replaceAll(SEP, "/"),
+    );
+}
+
 export async function push(
   opts: GlobalOptions &
     SyncOptions & {
@@ -4596,6 +4671,9 @@ export async function push(
 
   const workspace = await resolveWorkspace(opts, wsNameForConfig);
   await requireLogin(opts);
+  const parentOwnsScheduleEnabled = await parentOwnedScheduleEnabled(
+    workspace.workspaceId,
+  );
 
   // If wsNameForConfig wasn't set from flags, infer from the resolved profile
   if (!wsNameForConfig) {
@@ -4696,6 +4774,24 @@ export async function push(
     // ignore
   }
 
+  // See ZipFSElement's `localFlowInlineMapping`.
+  const localFlowInlineMapping = async (
+    flowDir: string,
+  ): Promise<Record<string, string>> => {
+    let flow: any;
+    try {
+      flow = await yamlParseFile(path.join(process.cwd(), flowDir, "flow.yaml"));
+    } catch {
+      return {};
+    }
+    return extractCurrentMapping(
+      flow?.value?.modules,
+      {},
+      flow?.value?.failure_module,
+      flow?.value?.preprocessor_module,
+    );
+  };
+
   const remote = ZipFSElement(
     (await downloadZip(
       workspace,
@@ -4721,6 +4817,7 @@ export async function push(
     resourceTypeToIsFileset,
     false,
     parseSyncBehavior(opts.syncBehavior) >= 1,
+    localFlowInlineMapping,
   );
 
   const local = await FSFSElement(
@@ -4741,6 +4838,7 @@ export async function push(
     wsNameForFiles,
     false, // els1 (local) is not the remote source
     await isCaseInsensitiveFilesystem(process.cwd()),
+    parentOwnsScheduleEnabled,
   );
 
   // Detect resources/variables that the local config flags as ws_specific
@@ -5807,6 +5905,9 @@ export async function push(
                   originalLocalPath: originalWorkspaceSpecificPath,
                   permissionedAsContext,
                   wsSpecific: isWsSpecific ? true : undefined,
+                  enabledOwnedByParent: parentOwnsScheduleEnabled?.(
+                    change.path,
+                  ),
                   keyPushOpts: {
                     noninteractive:
                       (opts.yes ?? false) || !process.stdin.isTTY,
@@ -5942,6 +6043,9 @@ export async function push(
                   originalLocalPath: localFilePath,
                   permissionedAsContext,
                   wsSpecific: isAddedWsSpecific ? true : undefined,
+                  enabledOwnedByParent: parentOwnsScheduleEnabled?.(
+                    change.path,
+                  ),
                   keyPushOpts: {
                     noninteractive:
                       (opts.yes ?? false) || !process.stdin.isTTY,
