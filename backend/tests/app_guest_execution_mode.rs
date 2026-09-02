@@ -456,6 +456,53 @@ async fn guest_cannot_run_another_guest_app(db: Pool<Postgres>) -> anyhow::Resul
     Ok(())
 }
 
+/// An upload goes through an app's `s3_inputs` policy or not at all for a guest: the
+/// legacy branch for an app without one uploads with the caller's own standing, which a
+/// guest has none of, and an app path with no row must not slip past the confinement.
+#[cfg(feature = "parquet")]
+#[sqlx::test(fixtures("base"))]
+async fn a_guest_cannot_upload_outside_a_policy(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    enable_guests(port, "test-workspace").await?;
+    let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
+        .json(&guest_app_with_runnable(APP_PATH, false)) // no `s3_inputs`
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    insert_guest_token(&db, "test-workspace").await?;
+
+    let upload = |app: &str| {
+        authed(
+            client().post(format!(
+                "{ws}/apps_u/upload_s3_file/{app}?file_key=anything"
+            )),
+            GUEST_TOKEN,
+        )
+        .body("x")
+        .send()
+    };
+    let resp = upload("u/test-user/no_such_app").await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "a path with no app must not escape the guest's confinement: {}",
+        resp.text().await?
+    );
+    let resp = upload(APP_PATH).await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "without an upload policy a guest is refused like an anonymous caller: {}",
+        resp.text().await?
+    );
+
+    Ok(())
+}
+
 /// An anonymous app is open to anyone, a guest included, and the guest uses it as
 /// itself: the component run and the result read that follows are one identity, so
 /// the read's launched-by-me grant matches. Acting as nobody for the run and as the

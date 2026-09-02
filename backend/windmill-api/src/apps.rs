@@ -4516,10 +4516,14 @@ async fn upload_s3_file_from_app(
             .map(|p| serde_json::from_value::<Policy>(p).map_err(to_anyhow))
             .transpose()?
     };
-    let opt_authed = match policy.as_ref() {
-        Some(policy) => guest_caller_for_mode(opt_authed, policy.execution_mode(), path.to_path())?,
-        None => opt_authed,
-    };
+    let opt_authed = guest_caller_for_mode(
+        opt_authed,
+        policy
+            .as_ref()
+            .map(Policy::execution_mode)
+            .unwrap_or_default(),
+        path.to_path(),
+    )?;
 
     let user_db = UserDB::new(db.clone());
 
@@ -4677,8 +4681,12 @@ async fn upload_s3_file_from_app(
         }
     } else {
         // backward compatibility (no policy)
-        // if no policy but logged in, use the user's auth to get the s3 resource
-        if let Some(authed) = opt_authed {
+        // if no policy but logged in, use the user's auth to get the s3 resource. A guest
+        // has no standing of its own to upload with, so without a policy it is refused
+        // exactly as an anonymous caller is.
+        if let Some(authed) = opt_authed
+            .filter(|a| !windmill_api_auth::scopes::has_guest_sentinel(a.scopes.as_deref()))
+        {
             let file_key = query
                 .file_key
                 .unwrap_or_else(|| get_random_file_name(query.file_extension));
