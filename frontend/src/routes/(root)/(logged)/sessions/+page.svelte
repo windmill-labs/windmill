@@ -76,15 +76,6 @@
 
 	const globalEnabled = isGlobalAiEnabled()
 
-	// Nothing else loads the copilot config here before a session is selected: the layout
-	// skips it in session mode and SessionWrapper only mounts with a session. Read the
-	// navigation workspace's config once, synchronously at init, so the hidden-workspace
-	// gate below can fire on a cold load; a session mounting later loads its own acting
-	// workspace and, being the later call, supersedes this one.
-	if ($workspaceStore) {
-		loadCopilot($workspaceStore)
-	}
-
 	// One observer shared by every tab host, which mirrors it into page iframes
 	// (see PreviewTabHost).
 	const isDarkMode = useIsDarkMode()
@@ -145,6 +136,17 @@
 	// Resolve by name without applying the sidebar scope filter so an open
 	// chat survives within-family workspace switches.
 	const activeSession = $derived(sessionState.sessions.find((s) => s.name === sessionName))
+
+	// With no session selected nothing else loads the copilot config here: the layout skips
+	// it in session mode and SessionWrapper only mounts with a session. Load the navigation
+	// workspace's config so the hidden-workspace gate below can fire on a cold load and
+	// follows an in-page workspace switch. Once a session is active its wrapper owns the
+	// load for the acting workspace, so this must not fire over it.
+	$effect(() => {
+		if ($workspaceStore && !activeSession) {
+			loadCopilot($workspaceStore)
+		}
+	})
 
 	// Family reconcile: a workspace switch can land this page with no session
 	// selected or with another family's session in the URL (the sidebar picker's
@@ -837,7 +839,7 @@
 		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
 			<p class="text-primary font-medium">AI Sessions are hidden in this workspace</p>
 			<p>A workspace admin turned Windmill AI features off in the workspace settings.</p>
-			<Button size="xs" onclick={() => goto('/')}>Back to workspace</Button>
+			<Button unifiedSize="sm" onclick={() => goto('/')}>Back to workspace</Button>
 		</div>
 	{:else if !sessionState.hydrated}
 		<!-- Sessions hydrate from IndexedDB after the user resolves; until then an
