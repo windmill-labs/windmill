@@ -17,6 +17,8 @@ const state = vi.hoisted(() => ({
 	deletedResources: [] as string[],
 	updatedRawApps: [] as any[],
 	updatedApps: [] as any[],
+	updatedFlows: [] as any[],
+	flows: [] as any[],
 	updatedTriggers: [] as any[]
 }))
 
@@ -27,9 +29,9 @@ vi.mock('$lib/gen', () => ({
 		createScript: vi.fn()
 	},
 	FlowService: {
-		listSearchFlow: vi.fn(async () => []),
-		getFlowByPath: vi.fn(),
-		updateFlow: vi.fn()
+		listSearchFlow: vi.fn(async () => state.flows),
+		getFlowByPath: vi.fn(async ({ path }: any) => state.flows.find((f: any) => f.path === path)),
+		updateFlow: vi.fn(async (p: any) => state.updatedFlows.push(p))
 	},
 	AppService: {
 		listSearchApp: vi.fn(async () => state.apps),
@@ -96,8 +98,7 @@ async function run() {
 		workspace: 'w',
 		folder: 'proj',
 		from: FROM,
-		to: TO,
-		hasEeLicense: true
+		to: TO
 	})
 }
 
@@ -112,6 +113,8 @@ describe('applyRetarget', () => {
 		state.deletedResources = []
 		state.updatedRawApps = []
 		state.updatedApps = []
+		state.flows = []
+		state.updatedFlows = []
 		state.updatedTriggers = []
 	})
 
@@ -285,6 +288,24 @@ describe('applyRetarget', () => {
 		const sent = state.updatedApps[0]
 		expect(sent.requestBody.value.inline).toBe(`$res:${TO}`)
 		expect(sent.requestBody.value.grid[0].data.path).toBe(FROM)
+	})
+
+	// `rewriteFlowValue` reached module content, static inputs and flow_env only. Rewriting the
+	// serialized value moves a token wherever it sits, and still leaves a step's own path.
+	it('moves a flow token outside the fields the import rewriter reached', async () => {
+		state.flows = [
+			{
+				path: 'f/proj/pipeline',
+				value: {
+					modules: [{ id: 'a', summary: `reads $res:${FROM}`, value: { type: 'script', path: FROM } }]
+				}
+			}
+		]
+		const outcome = await run()
+		expect(outcome.error).toBeUndefined()
+		const sent = state.updatedFlows[0]
+		expect(sent.requestBody.value.modules[0].summary).toBe(`reads $res:${TO}`)
+		expect(sent.requestBody.value.modules[0].value.path).toBe(FROM)
 	})
 
 	// `listSearchApp` caps at 1000 rows server-side, unordered and unpaginated, so a full page

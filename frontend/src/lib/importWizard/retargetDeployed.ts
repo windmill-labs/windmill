@@ -48,6 +48,12 @@ export interface Referrer {
 	/** Present for triggers: which kind's table it lives in. */
 	triggerKind?: WorkspaceTriggerKind
 	/**
+	 * The plan already recorded this item as naming the path somewhere no rewrite reaches, so
+	 * the stub survives whatever the write does. Its tokens are still worth moving, and the
+	 * write's own staleness check has nothing left to add.
+	 */
+	gapped?: true
+	/**
 	 * Present for triggers: the row the scan read, which is also what the write sends back.
 	 * Re-reading it costs another listing of the whole kind per trigger — and for schedules a
 	 * listing plus a detail fetch per row, since `list` resolves each one.
@@ -139,8 +145,7 @@ const UNREACHABLE_REFERENCE = 'names the resource path outside a $res: reference
 export async function planRetarget(
 	workspace: string,
 	folder: string,
-	from: string,
-	opts: { hasEeLicense: boolean }
+	from: string
 ): Promise<RetargetPlan> {
 	const referrers: Referrer[] = []
 	const gaps: Gap[] = []
@@ -176,7 +181,7 @@ export async function planRetarget(
 			gaps.push({ path: s.path!, reason: UNREACHABLE_REFERENCE })
 			if (!reads) continue
 		}
-		referrers.push({ kind: 'script', path: s.path! })
+		referrers.push({ kind: 'script', path: s.path!, ...(bare ? { gapped: true as const } : {}) })
 	}
 	for (const f of flows ?? []) {
 		const value: any = f.value ?? {}
@@ -193,7 +198,8 @@ export async function planRetarget(
 			gaps.push({ path: f.path!, reason: UNREACHABLE_REFERENCE })
 			if (!reads) continue
 		}
-		referrers.push({ kind: 'flow', path: f.path! })
+		const gapped = bare ? ({ gapped: true } as const) : undefined
+		referrers.push({ kind: 'flow', path: f.path!, ...gapped })
 	}
 	for (const a of apps ?? []) {
 		const value: any = a.value ?? {}
@@ -210,15 +216,20 @@ export async function planRetarget(
 			gaps.push({ path: a.path!, reason: UNREACHABLE_REFERENCE })
 			if (!reads) continue
 		}
+		const gapped = bare ? ({ gapped: true } as const) : undefined
 		// `files` + `runnables` and no `grid` is the deployed shape of a raw app; the
 		// low-code one keeps its components under `grid`.
 		const isRaw = !!value.files && !!value.runnables
-		referrers.push({ kind: isRaw ? 'raw app' : 'app', path: a.path! })
+		referrers.push({ kind: isRaw ? 'raw app' : 'app', path: a.path!, ...gapped })
 	}
 
 	for (const kind of WORKSPACE_TRIGGER_KINDS) {
 		const def = TRIGGER_KINDS[kind]
-		if (def.eeOnly && !opts.hasEeLicense) continue
+		// No `eeOnly` skip. That reads a client-side store, which is empty on an EE instance
+		// whose licence is unset or whose fetch failed — while the rows are still in the
+		// database and the routes still answer. A kind skipped that way leaves no gap, so the
+		// stub would go while an EE trigger still points at it. On CE the routes are not
+		// registered and the 404 below says so, from the server.
 		let rows: Array<Record<string, any>> = []
 		// A 404 is not an incomplete listing — the instance has that trigger feature compiled
 		// out, so there is no trigger of the kind to have missed. Anything else means triggers
@@ -272,22 +283,21 @@ export async function applyRetarget(args: {
 	folder: string
 	from: string
 	to: string
-	hasEeLicense: boolean
 }): Promise<RetargetOutcome> {
-	const { workspace, folder, from, to, hasEeLicense } = args
+	const { workspace, folder, from, to } = args
 	const map = new Map([[from, to]])
 	const rewritten: Referrer[] = []
 
-	const plan = await planRetarget(workspace, folder, from, { hasEeLicense })
+	const plan = await planRetarget(workspace, folder, from)
 	const gaps = [...plan.gaps]
 
 	for (const r of plan.referrers) {
 		let moved: true | string
 		try {
-			if (r.kind === 'script') moved = await rewriteScript(workspace, r.path, map)
-			else if (r.kind === 'flow') moved = await rewriteFlow(workspace, r.path, map)
-			else if (r.kind === 'app') moved = await rewriteApp(workspace, r.path, map)
-			else if (r.kind === 'raw app') moved = await rewriteRawApp(workspace, r.path, map)
+			if (r.kind === 'script') moved = await rewriteScript(workspace, r, map)
+			else if (r.kind === 'flow') moved = await rewriteFlow(workspace, r, map)
+			else if (r.kind === 'app') moved = await rewriteApp(workspace, r, map)
+			else if (r.kind === 'raw app') moved = await rewriteRawApp(workspace, r, map)
 			else moved = await rewriteTrigger(workspace, r, map)
 		} catch (e: any) {
 			return { rewritten, gaps, stubDeleted: false, error: errorMessage(e) }
@@ -320,21 +330,19 @@ function rewriteTokens<T>(value: T, map: Map<string, string>): T {
 	return JSON.parse(rewriteContent(JSON.stringify(value ?? null), map))
 }
 
-/** Why a rewriter left an item where it was, or `true` when it moved it. */
-const CHANGED_UNDER_US = 'changed while it was being retargeted'
 
 /**
- * Whether the rewrite moved every `$res:` token it was there to move.
+ * Whether the item as just read names a path where no rewrite reaches it.
  *
- * Only tokens: a path the item also spells out unreachably is recorded as a gap by the plan,
- * and re-reading it here would report the same item twice — once as unmovable and once as
- * having changed underfoot. So a `false` here means what it says, that the item's tokens are
- * not where the rewrite should have put them, which is a change between the plan and the
- * write. Each rewriter answers with this rather than writing.
+ * The plan classifies items from the `listSearch*` rows; every rewriter then re-reads its
+ * item by path. A value that has gained an unreachable mention in between is one the plan
+ * cleared and the write must not: rewriting its tokens is fine, but the stub it still names
+ * has to survive. Checking the read the write is about to send is the only place that can be
+ * seen.
  */
-function relocated(next: unknown, map: Map<string, string>): boolean {
-	for (const from of map.keys()) if (holdsResourceToken(next, from)) return false
-	return true
+function readsPathUnreachably(value: unknown, map: Map<string, string>): boolean {
+	for (const from of map.keys()) if (namesPathUnreachably(value, from)) return true
+	return false
 }
 
 /**
@@ -361,12 +369,15 @@ const PRESERVE_DEPLOYED_IDENTITY = { preserve_on_behalf_of: true }
  */
 async function rewriteScript(
 	workspace: string,
-	path: string,
+	r: Referrer,
 	map: Map<string, string>
 ): Promise<true | string> {
+	const path = r.path
 	const s: any = await ScriptService.getScriptByPath({ workspace, path })
+	if (!r.gapped)
+		for (const stub of map.keys())
+			if (textHoldsBarePath(String(s.content ?? ''), stub)) return UNREACHABLE_REFERENCE
 	const content = rewriteContent(s.content ?? '', map)
-	if (!relocated(content, map)) return CHANGED_UNDER_US
 	if (content === s.content) return true
 	await ScriptService.createScript({
 		workspace,
@@ -383,12 +394,13 @@ async function rewriteScript(
 
 async function rewriteFlow(
 	workspace: string,
-	path: string,
+	r: Referrer,
 	map: Map<string, string>
 ): Promise<true | string> {
+	const path = r.path
 	const f: any = await FlowService.getFlowByPath({ workspace, path })
+	if (!r.gapped && readsPathUnreachably(f.value ?? {}, map)) return UNREACHABLE_REFERENCE
 	const value = rewriteTokens(f.value ?? {}, map)
-	if (!relocated(value, map)) return CHANGED_UNDER_US
 	// The tokens the plan saw are gone from the deployed item, so there is nothing to write.
 	if (JSON.stringify(value) === JSON.stringify(f.value ?? {})) return true
 	await FlowService.updateFlow({
@@ -412,12 +424,13 @@ async function rewriteFlow(
  */
 async function rewriteApp(
 	workspace: string,
-	path: string,
+	r: Referrer,
 	map: Map<string, string>
 ): Promise<true | string> {
+	const path = r.path
 	const a: any = await AppService.getAppByPath({ workspace, path })
+	if (!r.gapped && readsPathUnreachably(a.value ?? {}, map)) return UNREACHABLE_REFERENCE
 	const next = rewriteTokens(a.value ?? {}, map)
-	if (!relocated(next, map)) return CHANGED_UNDER_US
 	// The tokens the plan saw are gone from the deployed item, so there is nothing to write.
 	if (JSON.stringify(next) === JSON.stringify(a.value ?? {})) return true
 	const policy = (await updatePolicy(next as App, a.policy)) as any
@@ -465,15 +478,16 @@ async function fetchBundlePart(
  */
 async function rewriteRawApp(
 	workspace: string,
-	path: string,
+	r: Referrer,
 	map: Map<string, string>
 ): Promise<true | string> {
+	const path = r.path
 	const a: any = await AppService.getAppByPath({ workspace, path })
 	const value: any = a.value ?? {}
 	// One walk over the whole value: `$res:` tokens live in the runnables and can appear in
 	// the sources too, and both are plain text inside this JSON.
+	if (!r.gapped && readsPathUnreachably(value, map)) return UNREACHABLE_REFERENCE
 	const next = rewriteTokens(value, map)
-	if (!relocated(next, map)) return CHANGED_UNDER_US
 	const runnables = next.runnables ?? {}
 	const policy = (await updateRawAppPolicy(runnables, a.policy)) as any
 	const secret = await AppService.getPublicSecretOfLatestVersionOfApp({ workspace, path })
@@ -547,9 +561,9 @@ async function rewriteTrigger(
 			? { permissioned_as: row.permissioned_as, preserve_permissioned_as: true }
 			: {})
 	}
-	// No `relocated` check: `rewriteTriggerConfig` remaps every bare match at every depth, so
-	// the resource field always moves. What can still read `from` afterwards is a restored
-	// identity field, which is not a reference to the resource at all.
+	// No unreachable-mention check: a trigger holds the bare path by design, in its own
+	// resource field, and `rewriteTriggerConfig` remaps every bare match at every depth. What
+	// can still read `from` afterwards is a restored identity field, not a reference.
 	if (r.triggerKind === 'schedule') {
 		// `EditSchedule` needs these three; everything else on the row carries over by name.
 		await ScheduleService.updateSchedule({

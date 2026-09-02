@@ -17,7 +17,6 @@
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import { applyRetarget } from '$lib/importWizard/retargetDeployed'
-	import { enterpriseLicense } from '$lib/stores'
 	import { OauthService } from '$lib/gen'
 	import { registryCcCapableFor } from '$lib/components/oauthRegistry'
 	import { resourceTypeDisplayName } from '$lib/components/resourceTypeDisplay'
@@ -305,16 +304,16 @@
 			// spells out in code is not rewritten by the retarget, so only the raw export has
 			// its references and its resource paths agreeing. `resourceCount` asks the same
 			// question the same way, and the step and the stepper have to give one answer.
-			const fromSlug = exportData.project?.slug ?? slug
+			// Paired by position, not by reconstructing the retargeted path: `retargetProjectExport`
+			// maps `resources` in order, and an external path the bundle pulled in lands at
+			// `f/<folder>/<name>` with a `_2` suffix on collision, which no slicing recovers.
 			const askable = new Set(
-				(exportData.resources ?? [])
-					.map((r) => String(r.path))
-					.filter((p) => projectReferencesResource(exportData, p))
-					.map((p) => p.slice(`f/${fromSlug}/`.length))
+				(retargeted.resources ?? [])
+					.map((r, i) => [String(r.path), (exportData.resources ?? [])[i]] as const)
+					.filter(([, raw]) => raw && projectReferencesResource(exportData, String(raw.path)))
+					.map(([path]) => path)
 			)
-			askableResources = projectResources.filter((r) =>
-				askable.has(r.path.slice(`f/${target}/`.length))
-			)
+			askableResources = projectResources.filter((r) => askable.has(r.path))
 			await refreshBlanks()
 		} catch (e: any) {
 			loadError = e?.body ?? e?.message ?? String(e)
@@ -579,8 +578,7 @@
 				workspace,
 				folder: targetFolder,
 				from: b.path,
-				to: target,
-				hasEeLicense: !!$enterpriseLicense
+				to: target
 			})
 			const moved = `${outcome.rewritten.length} item${outcome.rewritten.length === 1 ? '' : 's'}`
 			if (outcome.error) {
@@ -961,9 +959,8 @@
 										{b.occupiedBy ? 'Resolve in the workspace' : 'Check the workspace'}
 									</span>
 								{:else if b.reusedFrom && !b.stubKept}
-									<!-- No action either: the project reads the resource the detail line
-									     names and this row's own path is gone, so every way of filling it in
-									     leads to a resource nothing references. -->
+									<!-- No action either: this row is done with, whether its own path was
+									     deleted with the retarget or filled in afterwards. -->
 									<span class="whitespace-nowrap text-2xs text-hint">Reused</span>
 								{:else}
 									<Button
