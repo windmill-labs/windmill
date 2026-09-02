@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.802.0](https://github.com/windmill-labs/windmill/compare/v1.801.0...v1.802.0) (2026-09-02)
+
+
+### Features
+
+* add retention cleanup for the otel_traces table ([#10949](https://github.com/windmill-labs/windmill/issues/10949)) ([d472193](https://github.com/windmill-labs/windmill/commit/d472193e5bf5f6428e0096a402eb2c9299634fb2))
+* open path links from chat messages in the session preview panel ([#10881](https://github.com/windmill-labs/windmill/issues/10881)) ([f10ac6c](https://github.com/windmill-labs/windmill/commit/f10ac6c2b3644fb16697e650efbc4f7cd3c6944c))
+* restore owner and label filter chips on the homepage ([#10942](https://github.com/windmill-labs/windmill/issues/10942)) ([ccf8476](https://github.com/windmill-labs/windmill/commit/ccf84761dd664b9228dfe2f65867e8c32cd20c21))
+* **sessions:** offer the item you came from when starting a new session ([#10940](https://github.com/windmill-labs/windmill/issues/10940)) ([d3747d6](https://github.com/windmill-labs/windmill/commit/d3747d62555ebcb09c78cfabcaa3b6177758d6ea))
+* workspace setting to hide the AI assistant, agent steps unaffected ([#10941](https://github.com/windmill-labs/windmill/issues/10941)) ([fdd3b36](https://github.com/windmill-labs/windmill/commit/fdd3b36423344a2e1a464674179406581074e926))
+
+
+### Bug Fixes
+
+* apply object-storage test SSRF validation to all non-super-admins ([#10933](https://github.com/windmill-labs/windmill/issues/10933)) ([4fef119](https://github.com/windmill-labs/windmill/commit/4fef1195adaa9fa036a219884bd6c996460ca37f))
+* connect to dev server instead of localhost ([#10912](https://github.com/windmill-labs/windmill/issues/10912)) ([337154b](https://github.com/windmill-labs/windmill/commit/337154b8304a5969f35216add627b5c1153c0f6c))
+* preselect first row of AI agent and AI sandbox insert panes ([#10937](https://github.com/windmill-labs/windmill/issues/10937)) ([95b6bbd](https://github.com/windmill-labs/windmill/commit/95b6bbd46ada11d96a914ae5b0e92aba4dd02530))
+* record supplied script lock hashes so importers can skip relocking ([#10915](https://github.com/windmill-labs/windmill/issues/10915)) ([17ba521](https://github.com/windmill-labs/windmill/commit/17ba521c352aec65a8270893752bbadd7f3d6eaa))
+* sandbox script-controlled content types in result_to_response ([#10932](https://github.com/windmill-labs/windmill/issues/10932)) ([419741e](https://github.com/windmill-labs/windmill/commit/419741e5d226c67c51429094fb6ded9474afed99))
+
 ## [1.801.0](https://github.com/windmill-labs/windmill/compare/v1.800.1...v1.801.0) (2026-09-01)
 
 
