@@ -2004,6 +2004,12 @@ struct CachedResourceType {
     #[allow(dead_code)]
     app: String,
     description: Option<String>,
+    /// Doubly optional, and read through a wrapping deserializer: this struct also
+    /// decodes the on-disk cache, where an absent key means "written before the
+    /// column, leave the stored extension alone" and an explicit null means the hub
+    /// dropped it. Plain serde folds both into `None`.
+    #[serde(default, deserialize_with = "windmill_common::more_serde::double_option")]
+    format_extension: Option<Option<String>>,
 }
 
 #[derive(serde::Deserialize)]
@@ -2013,6 +2019,8 @@ struct HubResourceTypeRaw {
     schema: Option<String>,
     app: String,
     description: Option<String>,
+    #[serde(default)]
+    format_extension: Option<String>,
 }
 
 async fn fetch_resource_types_from_hub() -> error::Result<Vec<CachedResourceType>> {
@@ -2054,6 +2062,7 @@ async fn fetch_resource_types_from_hub() -> error::Result<Vec<CachedResourceType
                 schema,
                 app: rt.app,
                 description: rt.description,
+                format_extension: Some(rt.format_extension),
             })
         })
         .collect())
@@ -2107,10 +2116,12 @@ async fn sync_cached_resource_types(
 
     for rt in &resource_types {
         let exists: Option<bool> = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM resource_type WHERE workspace_id = 'admins' AND name = $1 AND schema IS NOT DISTINCT FROM $2 AND description IS NOT DISTINCT FROM $3)",
+            "SELECT EXISTS(SELECT 1 FROM resource_type WHERE workspace_id = 'admins' AND name = $1 AND schema IS NOT DISTINCT FROM $2 AND description IS NOT DISTINCT FROM $3 AND ($5 IS NOT TRUE OR format_extension IS NOT DISTINCT FROM $4))",
             &rt.name,
             rt.schema.as_ref(),
             rt.description.as_deref(),
+            rt.format_extension.clone().flatten(),
+            rt.format_extension.is_some(),
         )
         .fetch_one(&db)
         .await?;
@@ -2120,13 +2131,27 @@ async fn sync_cached_resource_types(
         }
 
         sqlx::query!(
-            "INSERT INTO resource_type (workspace_id, name, schema, description, edited_at)
-             VALUES ('admins', $1, $2, $3, now())
+            // Whether the payload carried the key at all is what decides: present
+            // (even as null) is authoritative and may clear, absent means a cache
+            // written before the column and must leave the stored value alone.
+            "INSERT INTO resource_type (workspace_id, name, schema, description, format_extension, edited_at)
+             VALUES ('admins', $1, $2, $3, $4, now())
              ON CONFLICT (workspace_id, name) DO UPDATE
-             SET schema = EXCLUDED.schema, description = EXCLUDED.description, edited_at = now()",
+             SET schema = EXCLUDED.schema, description = EXCLUDED.description,
+                 -- A fileset is a set of files, so it cannot also be one file.
+                 -- Create and update reject the pair; this writer bypasses both, so
+                 -- it declines the extension rather than persisting the forbidden
+                 -- combination onto a same-named local fileset.
+                 format_extension = CASE
+                     WHEN resource_type.is_fileset THEN NULL
+                     WHEN $5 THEN EXCLUDED.format_extension
+                     ELSE resource_type.format_extension END,
+                 edited_at = now()",
             &rt.name,
             rt.schema.as_ref(),
             rt.description.as_deref(),
+            rt.format_extension.clone().flatten(),
+            rt.format_extension.is_some(),
         )
         .execute(&db)
         .await?;

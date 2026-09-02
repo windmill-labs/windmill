@@ -405,8 +405,9 @@ export function takeSessionAutoSend(sessionId: string): boolean {
 
 // Persist a session on a genuine user edit, promoting an in-memory-only
 // (transient) pending session to a durable IndexedDB record on first touch.
-// Non-touch writers (runtime chatId seeding, unread watermark) call putSession
-// directly, so an untouched draft stays in memory and vanishes on reload.
+// Non-touch writers (runtime chatId seeding via patchStoredSessionChatId, the
+// unread watermark via putSession) persist directly, so an untouched draft
+// stays in memory and vanishes on reload.
 function persistTouched(s: Session): void {
 	if (s.transient) delete s.transient
 	s.lastActivityAt = Date.now()
@@ -437,10 +438,10 @@ async function deleteSessionRow(db: IDBPDatabase<SessionSchema>, id: string): Pr
 	await db.delete('sessions', id)
 }
 
-// The one way to write a session's record, and the other half of the invariant above:
-// every caller reaches its write across an await — putSession on the DB handle, the
-// reconcile and hydrate passes on a getAll() snapshot that an interleaved delete
-// invalidates — so the tombstone has to be consulted here, not only at the entry points.
+// The way a session record is written (patchStoredSessionChatId is the one
+// exception: it re-checks the tombstone inline to stay inside its own
+// transaction). Every caller reaches its write across an await, so the
+// tombstone has to be consulted here, not only at the entry points.
 async function putSessionRow(db: IDBPDatabase<SessionSchema>, s: Session): Promise<void> {
 	if (deletedSessionIds.has(s.id)) return
 	await db.put('sessions', s)
@@ -1151,7 +1152,36 @@ export function setSessionChatId(sessionId: string, chatId: string) {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
 	if (s && s.chatId !== chatId) {
 		s.chatId = chatId
-		void putSession(s)
+		void patchStoredSessionChatId(s, chatId)
+	}
+}
+
+// Persists the pointer through the STORED row, not this tab's copy: another
+// tab may have written newer fields (summary, tabs, archive state) since this
+// tab last read the record, and a whole-object put would roll them back — a
+// watcher adopting the driver's rotation reaches here with exactly that copy.
+async function patchStoredSessionChatId(s: Session, chatId: string): Promise<void> {
+	if (!BROWSER || s.transient || deletedSessionIds.has(s.id)) return
+	const db = await sessionsDb.whenReady()
+	if (!db) return
+	try {
+		const tx = db.transaction('sessions', 'readwrite')
+		const stored = await tx.store.get(s.id)
+		// Inline tombstone re-check in place of putSessionRow's: routing through
+		// it would put outside this transaction and lose the read's atomicity.
+		if (stored && !deletedSessionIds.has(s.id)) {
+			stored.chatId = chatId
+			await tx.store.put(stored)
+			await tx.done
+			return
+		}
+		await tx.done
+		// No stored row: either the record is not yet persisted — its own
+		// materialization writes it later with the chatId already set in memory —
+		// or another tab deleted it, and an upsert here would resurrect it. No
+		// write either way.
+	} catch (e) {
+		console.error('Failed to persist session chat id', e)
 	}
 }
 

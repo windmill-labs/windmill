@@ -15,12 +15,11 @@
 		workspaceStore
 	} from '$lib/stores'
 	import type { SupportedLanguage } from '$lib/common'
-	import { createEventDispatcher, getContext, onDestroy, onMount, untrack } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import { type Script, type ScriptLang, type HubScriptKind } from '$lib/gen'
 	import ListFiltersQuick from '$lib/components/home/ListFiltersQuick.svelte'
 	import { ExternalLink, Folder, User, X } from 'lucide-svelte'
-	import type { FlowEditorContext } from '../../flows/types'
 	import { fade } from 'svelte/transition'
 	import { flip } from 'svelte/animate'
 	import { Button } from '$lib/components/common'
@@ -86,8 +85,6 @@
 	let filteredWorkspaceItems: (Script & { marked?: string })[] = $state([])
 
 	let hubCompletions: HubCompletion[] = $state([])
-
-	const { insertButtonOpen } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let selected: { kind: 'owner' | 'integrations'; name: string | undefined } | undefined =
 		$state(undefined)
@@ -221,13 +218,6 @@
 		selectedByKeyboard = index
 	}
 
-	onMount(() => {
-		$insertButtonOpen = true
-	})
-
-	onDestroy(() => {
-		$insertButtonOpen = false
-	})
 	let langs = $derived(
 		processInlineLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
 			.map((l) => [defaultScriptLanguages[l], l])

@@ -46,6 +46,10 @@
 
 	let input: TextInput | undefined = $state()
 
+	export function focus() {
+		input?.focus()
+	}
+
 	$effect(() => {
 		preFilter &&
 			setTimeout(() => {
