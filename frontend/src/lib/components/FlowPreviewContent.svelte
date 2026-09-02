@@ -42,6 +42,7 @@
 	import FlowRestartButton from './FlowRestartButton.svelte'
 	import { useNestedRestartState } from './useNestedRestartState.svelte'
 	import { buildFlowRecording, downloadRecordingJson } from './recording/runRecording'
+	import { agentStreamingEnabled } from './flows/agentFormFields'
 
 	interface Props {
 		previewMode: 'upTo' | 'whole'
@@ -161,11 +162,8 @@
 	let shouldUseStreaming = $derived.by(() => {
 		const modules = flowStore.val.value?.modules
 		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
-		return (
-			lastModule?.value?.type === 'aiagent' &&
-			lastModule?.value?.input_transforms?.streaming?.type === 'static' &&
-			lastModule?.value?.input_transforms?.streaming?.value === true
-		)
+		if (lastModule?.value?.type !== 'aiagent') return false
+		return agentStreamingEnabled(lastModule.value.input_transforms?.streaming)
 	})
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {

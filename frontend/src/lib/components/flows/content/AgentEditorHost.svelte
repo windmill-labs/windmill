@@ -40,8 +40,8 @@
 		/** The tool drilled into, if any. Owned by the caller so it can drive the breadcrumb. */
 		toolId?: string | undefined
 		onSelectTool?: (toolId: string | undefined) => void
-		/** Ran after a successful deploy, so a host flow can re-resolve its graph. */
-		onSaved?: (path: string) => void
+		/** Ran after a successful deploy, with the path actually written, which a rename can move. */
+		onSaved?: (path: string) => void | Promise<void>
 	}
 
 	let {
@@ -194,15 +194,29 @@
 		})
 	})
 
+	/** Everything the form does not model. `inputTransformsToAgentConfig` rebuilds the value from
+	 *  `AGENT_BRAIN_KEYS` alone, so a key this editor never renders — one a newer backend added, or
+	 *  the `user_message` default a resource may carry, which the runtime does read when the step
+	 *  supplies none — would be dropped into the draft merely by opening the agent. */
+	const MODELLED_AGENT_KEYS = new Set<string>([...AGENT_BRAIN_KEYS, 'tools'])
+	function unmodelledArgs(args: AIAgentConfig | undefined): Record<string, unknown> {
+		return Object.fromEntries(
+			Object.entries(args ?? {}).filter(([key]) => !MODELLED_AGENT_KEYS.has(key))
+		)
+	}
+
 	// module -> draft.args. `inputTransformsToAgentConfig` drops the `{static, undefined}`
 	// placeholders `loadFlowModuleState` backfills, so the round trip is idempotent.
 	$effect(() => {
 		const v = agentValue
 		if (draft.loading || !v || !draft.state) return
-		const next = inputTransformsToAgentConfig(
-			v.input_transforms as Record<string, InputTransform>,
-			(v.tools ?? []) as AgentTool[]
-		) as AIAgentConfig
+		const next = {
+			...unmodelledArgs(draft.state.args),
+			...(inputTransformsToAgentConfig(
+				v.input_transforms as Record<string, InputTransform>,
+				(v.tools ?? []) as AgentTool[]
+			) as AIAgentConfig)
+		} as AIAgentConfig
 		const serialized = JSON.stringify(next)
 		untrack(() => {
 			if (serialized === lastArgs) return
@@ -261,8 +275,8 @@
 	}
 
 	export function deploy(): Promise<boolean> {
-		return draft.deploy().then((ok) => {
-			if (ok) onSaved?.(draft.state?.path ?? path)
+		return draft.deploy().then(async (ok) => {
+			if (ok) await onSaved?.(draft.state?.path ?? path)
 			return ok
 		})
 	}

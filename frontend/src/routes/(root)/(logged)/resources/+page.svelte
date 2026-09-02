@@ -656,14 +656,29 @@
 			return
 		}
 		if (hash === handledHash || !resourceEditor) return
-		// The type decides which editor opens, so wait for the list that carries it. Opening the
-		// generic form on an `ai_agent` renders its config as raw JSON, and the fields it fills in
-		// on the way become a draft that turns streaming off.
+		// The type decides which editor opens, so wait for the list that carries it.
 		if (!resources) return
 		handledHash = hash
 		const path = hash.slice(11)
-		openResourceEditor(path, resources.find((r) => r.path === path)?.resource_type)
+		void openResourceFromHash(path)
 	})
+
+	/** The listing is narrowed by the active filters, so a deep-linked resource may not be in it.
+	 *  Treating that absence as "unknown type" would open the generic form, which materializes a
+	 *  default into every field the value omits and so writes a draft just by rendering. Ask the
+	 *  server instead. */
+	async function openResourceFromHash(path: string) {
+		let resourceType = resources?.find((r) => r.path === path)?.resource_type
+		if (resourceType === undefined) {
+			try {
+				resourceType = (await ResourceService.getResource({ workspace: $workspaceStore!, path }))
+					.resource_type
+			} catch {
+				// Gone, or not readable. The generic editor reports that better than we can here.
+			}
+		}
+		openResourceEditor(path, resourceType)
+	}
 
 	let showTable = $derived(
 		tab == 'workspace' || tab == 'states' || tab == 'cache' || tab == 'theme'

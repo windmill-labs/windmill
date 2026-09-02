@@ -84,6 +84,7 @@
 		onEditInForkClick
 	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
+	import { agentStreamingEnabled } from '$lib/components/flows/agentFormFields'
 
 	let flow: Flow | undefined = $state()
 	let can_write = $state(false)
@@ -525,11 +526,8 @@
 	let shouldUseStreaming = $derived.by(() => {
 		const modules = flow?.value?.modules
 		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
-		return (
-			lastModule?.value?.type === 'aiagent' &&
-			lastModule?.value?.input_transforms?.streaming?.type === 'static' &&
-			lastModule?.value?.input_transforms?.streaming?.value === true
-		)
+		if (lastModule?.value?.type !== 'aiagent') return false
+		return agentStreamingEnabled(lastModule.value.input_transforms?.streaming)
 	})
 </script>
 

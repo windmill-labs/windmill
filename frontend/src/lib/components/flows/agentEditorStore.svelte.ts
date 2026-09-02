@@ -39,6 +39,14 @@ export function showAgentEditorView(view: AgentEditorTarget['view']) {
 	target = { ...target, view, toolId: undefined }
 }
 
+/** Follow the agent to a new path. A deploy can carry a rename, since the generic editor writes the
+ *  same draft row and can change its path; everything here keyed on the old one would then address
+ *  a resource that no longer exists. */
+export function retargetAgentEditor(path: string) {
+	if (!target || target.path === path) return
+	target = { ...target, path }
+}
+
 export function agentEditorTarget(): AgentEditorTarget | undefined {
 	return target
 }

@@ -4,6 +4,7 @@ import {
 	AGENT_FIELD_BY_KEY,
 	AGENT_FIELDS,
 	agentFieldIsSet,
+	agentStreamingEnabled,
 	initialVisibleAgentFields
 } from './agentFormFields'
 
@@ -78,5 +79,20 @@ describe('initialVisibleAgentFields', () => {
 	it('covers every schema key, so no field can only be reached through the raw doc', () => {
 		const registered = new Set(AGENT_FIELDS.map((f) => f.key))
 		expect(Object.keys(schemaProperties).filter((k) => !registered.has(k))).toEqual([])
+	})
+})
+
+// Three chat surfaces decide whether to consume a stream from this, and the worker decides whether
+// to send one from `streaming.unwrap_or(true)`. They agree only while absent means on here.
+describe('agentStreamingEnabled', () => {
+	it('reads an unwritten field as streaming', () => {
+		expect(agentStreamingEnabled(undefined)).toBe(true)
+		// What the API returns for the `{"type":"static"}` placeholder the schema backfill seeds.
+		expect(agentStreamingEnabled({ type: 'static', value: null })).toBe(true)
+		expect(agentStreamingEnabled({ type: 'static', value: true })).toBe(true)
+	})
+
+	it('only an explicit false holds the answer back', () => {
+		expect(agentStreamingEnabled({ type: 'static', value: false })).toBe(false)
 	})
 })

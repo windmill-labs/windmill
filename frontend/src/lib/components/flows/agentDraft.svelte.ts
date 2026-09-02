@@ -60,6 +60,9 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 	let noDeployed = $state(false)
 	/** Guards the load against a path that changed under a slow response. */
 	let loadedFor = $state<string | undefined>(undefined)
+	/** Bumped by `reload`. Read as a dependency of the load effect, which `loadedFor` cannot be:
+	 *  that one is read inside `untrack`, so clearing it alone would re-run nothing. */
+	let loadRequest = $state(0)
 
 	const sync = useTriggerDraftSync({
 		itemKind: 'resource',
@@ -79,6 +82,7 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 	$effect(() => {
 		const path = opts.path()
 		const ws = opts.workspace()
+		loadRequest
 		untrack(() => {
 			if (!path || !ws) {
 				state = undefined
@@ -129,7 +133,9 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		// rather than dropping it on the floor.
 		const nonStatic = AGENT_BRAIN_KEYS.filter((key) => {
 			const v = (s.args as Record<string, unknown>)[key]
-			return v !== null && typeof v === 'object' && 'type' in (v as object) && 'expr' in (v as object)
+			return (
+				v !== null && typeof v === 'object' && 'type' in (v as object) && 'expr' in (v as object)
+			)
 		})
 		if (nonStatic.length > 0) {
 			sendUserToast(
@@ -176,6 +182,7 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 
 	function reload() {
 		loadedFor = undefined
+		loadRequest++
 	}
 
 	return {

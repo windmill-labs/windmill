@@ -13,6 +13,7 @@
 	import {
 		agentEditorTarget,
 		closeAgentEditor,
+		retargetAgentEditor,
 		showAgentEditorTool,
 		showAgentEditorView
 	} from '../agentEditorStore.svelte'
@@ -97,23 +98,22 @@
 	async function onDeploy() {
 		saving = true
 		try {
-			const ok = await host?.deploy()
-			if (ok) {
-				writes++
-				const h = target?.host
-				if (h && ws && target?.path) {
-					// The host graph resolves a linked agent's tool nodes from the resource, so it has
-					// to re-read now that the resource moved.
-					await publishLinkedAgentTools(
-						target.path,
-						ws,
-						linkedToolsScope(ws, h.flowPath),
-						h.moduleId
-					)
-				}
-			}
+			await host?.deploy()
 		} finally {
 			saving = false
+		}
+	}
+
+	/** What a successful deploy has to reconcile. Keyed on the path the deploy actually wrote, not
+	 *  on the one the editor opened: a deploy can carry a rename. */
+	async function onSaved(savedPath: string) {
+		writes++
+		retargetAgentEditor(savedPath)
+		const h = target?.host
+		if (h && ws) {
+			// The host graph resolves a linked agent's tool nodes from the resource, so it has to
+			// re-read now that the resource moved.
+			await publishLinkedAgentTools(savedPath, ws, linkedToolsScope(ws, h.flowPath), h.moduleId)
 		}
 	}
 </script>
@@ -208,6 +208,7 @@
 							{enableAi}
 							toolId={target.toolId}
 							onSelectTool={(id) => showAgentEditorTool(id)}
+							{onSaved}
 						/>
 					</div>
 					{#if inEvals}
