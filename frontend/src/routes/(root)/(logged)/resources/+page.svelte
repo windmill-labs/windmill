@@ -670,12 +670,16 @@
 	async function openResourceFromHash(path: string) {
 		let resourceType = resources?.find((r) => r.path === path)?.resource_type
 		if (resourceType === undefined) {
+			// The hash can move on while this is in flight, and two lookups can land out of order.
+			// Whichever resolves last must not open an editor the URL has already left.
+			const openingFor = handledHash
 			try {
 				resourceType = (await ResourceService.getResource({ workspace: $workspaceStore!, path }))
 					.resource_type
 			} catch {
 				// Gone, or not readable. The generic editor reports that better than we can here.
 			}
+			if (handledHash !== openingFor) return
 		}
 		openResourceEditor(path, resourceType)
 	}
