@@ -972,6 +972,20 @@ export const settings: Record<string, Setting[]> = {
 			defaultValue: () => ({ enabled: false, enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES] })
 		},
 		{
+			label: 'HTTP Request Tracing retention in secs',
+			key: 'otel_traces_retention_secs',
+			description:
+				'How long a captured HTTP request span is kept in the database, and therefore how far back the job details view can show a job its requests. Independent of the job retention period, so a span may outlive its job or be swept while the job remains. Defaults to 7 days. Leave it empty for the default.',
+			fieldType: 'seconds',
+			storage: 'setting',
+			cloudonly: false,
+			error:
+				'HTTP Request Tracing retention must be between 1 second and 100 years, leave it empty for the default',
+			isValid: (value: any) =>
+				value == undefined ||
+				(typeof value === 'number' && value > 0 && value <= 60 * 60 * 24 * 365 * 100)
+		},
+		{
 			label: 'Prometheus',
 			description:
 				'Expose Prometheus metrics for workers and servers on port 8001 at /metrics. <a target="_blank" href="https://www.windmill.dev/docs/advanced/instance_settings#expose-metrics">Learn more</a>',
