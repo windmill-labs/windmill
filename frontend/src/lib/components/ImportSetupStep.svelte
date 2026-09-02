@@ -125,6 +125,13 @@
 	 * editor, exactly as it did before.
 	 */
 	let candidates = $state<Record<string, string[]>>({})
+	/**
+	 * How many candidates are worth reading back to find the unfilled ones. Past this a
+	 * workspace holds too many resources of these types to be the case worth filtering —
+	 * one project's stub offered as another's credential — and they are all offered rather
+	 * than costing a request each.
+	 */
+	const CANDIDATE_READ_CAP = 40
 	/** The credential row whose choice dialog is open. */
 	let choosing = $state<Blank | undefined>(undefined)
 	let chosenPath = $state<string | undefined>(undefined)
@@ -475,7 +482,33 @@
 			candidates = {}
 			return
 		}
+		// An unfilled resource is never the answer to "which credential should this use" —
+		// another project's stub above all, which the path filter above cannot recognise.
+		const paths = Object.values(next).flat()
+		if (paths.length <= CANDIDATE_READ_CAP) {
+			const settled = await Promise.all(paths.map(async (p) => [p, await isUnfilled(p)] as const))
+			const unfilled = new Set(settled.filter(([, empty]) => empty).map(([p]) => p))
+			for (const t of Object.keys(next)) next[t] = next[t].filter((p) => !unfilled.has(p))
+		}
 		candidates = next
+	}
+
+	/**
+	 * Whether a resource holds nothing. Same test the checklist uses to call one of the
+	 * project's own resources blank, so a resource this drops is exactly one the wizard
+	 * would have asked someone to fill in.
+	 */
+	async function isUnfilled(path: string): Promise<boolean> {
+		try {
+			const found = await ResourceService.getResource({ workspace, path })
+			const value = found?.value
+			if (!value || typeof value !== 'object') return true
+			return !Object.values(value).some((v) => v !== undefined && v !== null && v !== '')
+		} catch {
+			// A read that fails says nothing about the value, and offering it is what this did
+			// before the check existed.
+			return false
+		}
 	}
 
 	/**
@@ -1074,8 +1107,7 @@
 				This workspace already has {existing.length}
 				{resourceTypeDisplayName(forRow.resourceType)}
 				{existing.length === 1 ? 'resource' : 'resources'}. Use one and this project's apps, flows
-				and triggers are pointed at it — the empty
-				<span class="font-mono text-emphasis">{forRow.path}</span> it imported is removed.
+				and triggers are pointed at it.
 			</p>
 			<Select
 				bind:value={chosenPath}
