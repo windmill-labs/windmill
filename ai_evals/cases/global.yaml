@@ -2387,14 +2387,13 @@
       - write_script
       - deploy_workspace_item
     toolCallArgs:
+      # Full value as the prefix, so a right-prefix-wrong-path token like
+      # `$res:wrong/f/evals/global/github_main` fails rather than passing on two
+      # independently-satisfied halves.
       - tool: test_run_script
         field: args.gh_auth
         stringStartsWithAnyOf:
-          - "$res:"
-      - tool: test_run_script
-        field: args.gh_auth
-        stringIncludesAnyOf:
-          - f/evals/global/github_main
+          - "$res:f/evals/global/github_main"
   # The judge only sees drafts, and this case makes none — the deliverable is the shape of the
   # run argument, checked deterministically above.
   skipJudge: true

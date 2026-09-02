@@ -645,7 +645,7 @@ const writeVariableSchema = variableRequestSchema.extend({
 		.string()
 		.optional()
 		.describe(
-			'The value of the variable. Omit it to leave the value alone — required only when creating a new variable, or when changing a secret variable into a non-secret one. Never invent or guess the value of an existing variable: you cannot read it, and a "$var:..." reference is NOT a valid value (that syntax only references a variable from inside a resource). Omitting it keeps whatever the draft already holds, so a value you set earlier in this conversation stays set; discard_local_draft abandons it.'
+			'The value of the variable. Omit it to leave the value alone — required only when creating a new variable, or when changing a secret variable into a non-secret one. Never invent or guess the value of an existing variable: you cannot read it, and a "$var:..." reference is NOT a valid value (a variable cannot reference itself). Omitting it keeps whatever the draft already holds, so a value you set earlier in this conversation stays set; discard_local_draft abandons it.'
 		),
 	is_secret: z
 		.boolean()
@@ -5107,7 +5107,7 @@ function writeVariableDraft(args: WriteVariableArgs, ctx: WriteDraftCtx): Promis
 	// is always the model echoing the reference syntax back instead of a real value.
 	if (args.value === `$var:${args.path}`) {
 		throw new Error(
-			`"${args.value}" is not a valid value for variable "${args.path}" — it is a self-reference. The "$var:" syntax only references a variable from inside a resource value. Omit value to keep the current one.`
+			`"${args.value}" is not a valid value for variable "${args.path}" — it is a self-reference. Omit value to keep the current one.`
 		)
 	}
 	return writeDraft(VARIABLE_SPEC, 'variable', args.path, args, ctx, { override: args.override })

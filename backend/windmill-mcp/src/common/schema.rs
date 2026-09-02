@@ -147,7 +147,7 @@ fn apply_resource_enrichment(
         prop_map.insert(
             "description".to_string(),
             Value::String(format!(
-                "{}\nHere are the available resources, one per line as `title: $res:path`. The title can be empty; pass the `$res:path` part verbatim as this argument's value:\n{}",
+                "{}\nHere are the available resources, one per line as `title: $res:path`. The title is only a label; pass the `$res:path` part verbatim as this argument's value:\n{}",
                 prior_description, resources_description
             )),
         );
@@ -804,6 +804,10 @@ mod tests {
         let desc = node["description"].as_str().unwrap();
         assert!(desc.contains("c_aws_account"));
         assert!(desc.contains("$res:f/platform/aws_dev"));
+        // MCP clients render this description verbatim, so the separators must be
+        // real newlines rather than the two-character escape.
+        assert!(desc.contains('\n'));
+        assert!(!desc.contains("\\n"));
     }
 
     #[test]

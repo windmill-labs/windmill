@@ -6196,7 +6196,7 @@ A script or flow argument typed as a resource (schema \`format: resource-<type>\
 the **bare string** \`$res:<path>\` — the whole argument value. Same for a variable, with
 \`$var:<path>\`. This applies everywhere job arguments are supplied: \`wmill script run/preview\`,
 \`wmill flow run/preview\`, the \`runScriptByPath\` / \`runFlowByPath\` API, a schedule's \`args\`, a
-trigger's payload.
+trigger's configured static args.
 
 \`\`\`json
 {
