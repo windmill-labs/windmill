@@ -5,6 +5,7 @@
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { AIBtnClasses } from './chat/AIButtonStyle'
 	import { workspaceStore } from '$lib/stores'
+	import { copilotInfo } from '$lib/aiStore'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 
 	interface Props {
@@ -49,45 +50,47 @@
 	)
 </script>
 
-<div class="my-3 p-3 bg-surface-secondary rounded-md relative flex flex-col gap-3">
-	<div class="flex flex-row gap-2 justify-between items-center">
-		<!-- Heading stays neutral because the two branches do different things: the
+{#if !$copilotInfo.workspaceDisabled}
+	<div class="my-3 p-3 bg-surface-secondary rounded-md relative flex flex-col gap-3">
+		<div class="flex flex-row gap-2 justify-between items-center">
+			<!-- Heading stays neutral because the two branches do different things: the
 		     hand-off runs the item, the legacy path fills the form. Each button
 		     names its own action. A plain Button rather than AskAiButton, whose own
 		     session branch would fire here too and open an empty session. -->
-		<h3 class="text-sm font-medium">AI can help with these inputs</h3>
-		<OpenInSessionButton
-			source={sessionSource}
-			label="Run in AI session"
-			tooltip="Open an AI session that picks inputs and runs this"
-			btnProps={{ iconOnly: false, startIcon: { icon: WandSparkles } }}
-		>
-			{#snippet fallback()}
-				<Button
-					unifiedSize="md"
-					startIcon={{ icon: WandSparkles }}
-					btnClasses={AIBtnClasses('default')}
-					on:click={fillFormWithAI}
-				>
-					Fill with AI
-				</Button>
-			{/snippet}
-		</OpenInSessionButton>
+			<h3 class="text-sm font-medium">AI can help with these inputs</h3>
+			<OpenInSessionButton
+				source={sessionSource}
+				label="Run in AI session"
+				tooltip="Open an AI session that picks inputs and runs this"
+				btnProps={{ iconOnly: false, startIcon: { icon: WandSparkles } }}
+			>
+				{#snippet fallback()}
+					<Button
+						unifiedSize="md"
+						startIcon={{ icon: WandSparkles }}
+						btnClasses={AIBtnClasses('default')}
+						on:click={fillFormWithAI}
+					>
+						Fill with AI
+					</Button>
+				{/snippet}
+			</OpenInSessionButton>
+		</div>
+		<div class="flex flex-row gap-2 items-center">
+			<p class="text-sm text-primary">
+				{instructions
+					? 'Instructions: ' + instructions
+					: 'No AI instructions provided. Click edit to add guidance for AI form filling.'}
+			</p>
+			<Button
+				color="light"
+				size="xs2"
+				startIcon={{
+					icon: Pencil
+				}}
+				iconOnly
+				on:click={onEditInstructions}
+			/>
+		</div>
 	</div>
-	<div class="flex flex-row gap-2 items-center">
-		<p class="text-sm text-primary">
-			{instructions
-				? 'Instructions: ' + instructions
-				: 'No AI instructions provided. Click edit to add guidance for AI form filling.'}
-		</p>
-		<Button
-			color="light"
-			size="xs2"
-			startIcon={{
-				icon: Pencil
-			}}
-			iconOnly
-			on:click={onEditInstructions}
-		/>
-	</div>
-</div>
+{/if}

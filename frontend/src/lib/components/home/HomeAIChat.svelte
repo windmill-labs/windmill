@@ -96,11 +96,18 @@
 
 	// The composer hands off to /sessions, which refuses operators — so hide it from them (the
 	// prompt would be silently dropped) while the AI-independent CLI/MCP row below stays.
-	let showComposer = $derived(prefersSessionHandoff($userStore?.operator) && !runOnlyWorkspace)
+	let showComposer = $derived(
+		prefersSessionHandoff($userStore?.operator) &&
+			!runOnlyWorkspace &&
+			!$copilotInfo.workspaceDisabled
+	)
 
-	// The hero's margins are for the full block; around the lone button row left by a collapsed,
-	// operator or run-only view they would just be empty page.
-	let outerSpacing = $derived(showComposer && !collapsed ? 'mt-20 mb-16' : 'mt-8 mb-2')
+	// The hero's margins and centered column are for the full block. The lone button row left
+	// by a collapsed, operator, run-only or hidden-assistant view is a hint line and should
+	// cost the page almost nothing: no top margin, and the content column's full width so it
+	// hugs the right edge instead of floating centered in empty space.
+	let hero = $derived(showComposer && !collapsed)
+	let outerSpacing = $derived(hero ? 'mt-20 mb-16' : 'mt-0 mb-1')
 
 	let starting = $state(false)
 	async function start() {
@@ -167,7 +174,7 @@
 </script>
 
 <div class="w-full flex justify-center {outerSpacing}">
-	<div class="max-w-[40rem] grow relative group">
+	<div class="{hero ? 'max-w-[40rem]' : ''} grow relative group">
 		{#if showComposer && !collapsed}
 			{#if !disabled}
 				<!-- The one dismiss control while the composer is usable; the overlay below carries its

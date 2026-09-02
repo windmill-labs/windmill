@@ -69,11 +69,13 @@
 				: freeTierExhausted
 					? ''
 					: !hasCopilot
-						? $aiUserDisabled
-							? 'Windmill AI is disabled in your account settings'
-							: isAdmin
-								? `Enable Windmill AI in your [workspace settings](${base}/workspace_settings?tab=ai) to use this chat`
-								: 'Ask an admin to enable Windmill AI in this workspace to use this chat'
+						? $copilotInfo.workspaceDisabled
+							? 'Windmill AI is hidden in this workspace'
+							: $aiUserDisabled
+								? 'Windmill AI is disabled in your account settings'
+								: isAdmin
+									? `Enable Windmill AI in your [workspace settings](${base}/workspace_settings?tab=ai) to use this chat`
+									: 'Ask an admin to enable Windmill AI in this workspace to use this chat'
 						: aiChatManager.mode === AIMode.SCRIPT &&
 							  aiChatManager.scriptEditorOptions?.lang &&
 							  !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(aiChatManager.scriptEditorOptions.lang)
