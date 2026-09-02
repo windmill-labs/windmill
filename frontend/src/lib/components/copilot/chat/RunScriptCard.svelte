@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { onMount } from 'svelte'
+	import { cubicOut } from 'svelte/easing'
+	import { prefersReducedMotion } from 'svelte/motion'
 	import { Ban, Loader2, TimerOff } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { Button, Tab, Tabs } from '$lib/components/common'
@@ -135,6 +138,34 @@
 	const formInPreview = $derived(
 		pending && (aiChatManager.isRunFormInPreview?.(message.tool_call_id) ?? false)
 	)
+
+	// The three moments a run moves the card — a tab arrives, the selection follows it, the body
+	// changes under it — used to land in one frame each, which is why the card was hard to follow.
+	// A tab already on screen when the card mounts never arrived, so a settled call restored from
+	// history renders its strip at rest.
+	let liveStrip = $state(false)
+	onMount(() => (liveStrip = true))
+
+	function growIn(node: HTMLElement, { live }: { live: boolean }) {
+		const width = node.getBoundingClientRect().width
+		return {
+			duration: live && !prefersReducedMotion.current ? 170 : 0,
+			easing: cubicOut,
+			css: (t: number) => `width:${t * width}px; opacity:${t}`
+		}
+	}
+
+	/** The body fades in over the time the bar takes to travel, so the two halves of a tab change
+	 * land together rather than one instantly and one over 200ms. No shift with it: the logs open
+	 * pinned to the end of their own scroll, which clips one, and a pane that moves on two tabs
+	 * out of three reads as a glitch rather than as direction. */
+	function enterPane(_node: HTMLElement) {
+		return {
+			duration: liveStrip && !prefersReducedMotion.current ? 200 : 0,
+			easing: cubicOut,
+			css: (t: number) => `opacity:${t}`
+		}
+	}
 
 	let bodyEl: HTMLDivElement | undefined = $state()
 
@@ -303,22 +334,29 @@
 				on:selected={(e) => (userTab = e.detail)}
 				class="h-8 px-3 font-main"
 				wrapperClass="shrink-0"
+				slidingIndicator
+				indicatorClass="bg-border-accent"
 			>
 				{#if !jsonView}
 					{#each tabs as tab (tab.value)}
-						<Tab
-							value={tab.value}
-							label={tab.label}
-							class="py-0.5 text-2xs font-medium leading-4 text-secondary"
-							selectedClass="text-accent border-border-accent"
-							exact
-						>
-							{#snippet extra()}
-								{#if tab.value === 'logs' && logLineCount > 0}
-									<span class="text-2xs text-hint">{logLineCount}</span>
-								{/if}
-							{/snippet}
-						</Tab>
+						<!-- The tab widens in first and the bar follows it, because a run adds its tabs as
+						     it produces them: landing the selection on a tab in the frame it appears reads
+						     as one unexplained jump. `border-b-0` because the bar is the selection now. -->
+						<span class="inline-flex overflow-hidden" in:growIn={{ live: liveStrip }}>
+							<Tab
+								value={tab.value}
+								label={tab.label}
+								class="border-b-0 py-0.5 text-2xs font-medium leading-4 text-secondary"
+								selectedClass="text-accent"
+								exact
+							>
+								{#snippet extra()}
+									{#if tab.value === 'logs' && logLineCount > 0}
+										<span class="text-2xs text-hint">{logLineCount}</span>
+									{/if}
+								{/snippet}
+							</Tab>
+						</span>
 					{/each}
 				{/if}
 				<div class="ml-auto flex items-center pl-2">
@@ -358,78 +396,89 @@
 								showFade
 							/>
 						</div>
-					{:else if activeTab === 'input'}
-						<!-- What the runs page shows a finished job's arguments as: the operator has already
+					{:else}
+						<!-- Keyed on the tab so the body arrives rather than cuts. One region serves every
+						     tab, so only the incoming pane moves: overlapping them would ask this scroller
+						     to hold two at once. -->
+						{#key activeTab}
+							<div class="flex min-h-full flex-1 flex-col" in:enterPane>
+								{#if activeTab === 'input'}
+									<!-- What the runs page shows a finished job's arguments as: the operator has already
 					     read this table. The job id is what lets it fetch arguments too big to have been
 					     persisted with the card. -->
-						<JobArgs
-							args={parameters}
-							id={chatJob?.jobId}
-							workspace={chatJob?.workspace}
-							disableExpand
-						/>
-					{:else if activeTab === 'logs'}
-						{#if logs.trim()}
-							{#if logs.length >= MAX_LOG_LENGTH}
-								<p class="mb-1 text-2xs text-tertiary">
-									Tail of the logs, the last {MAX_LOG_LENGTH} characters.
-								</p>
-							{/if}
-							<pre class="whitespace-pre-wrap break-words font-mono text-2xs text-primary"
-								>{logs}</pre
-							>
-						{:else}
-							<p class="text-2xs text-tertiary">No logs yet.</p>
-						{/if}
-						{#if running}
-							<div class="mt-1 flex items-center gap-1.5 text-2xs text-tertiary">
-								<Loader2 class="h-3 w-3 animate-spin" />
-								streaming
-							</div>
-						{/if}
-					{:else if failed}
-						<pre
-							class="whitespace-pre-wrap break-words font-mono text-2xs text-red-700 dark:text-red-300"
-							>{message.error}</pre
-						>
-					{:else if streaming}
-						<!-- The same renderer as a landed result, handed the partial: it is the one that
+									<JobArgs
+										args={parameters}
+										id={chatJob?.jobId}
+										workspace={chatJob?.workspace}
+										disableExpand
+									/>
+								{:else if activeTab === 'logs'}
+									{#if logs.trim()}
+										{#if logs.length >= MAX_LOG_LENGTH}
+											<p class="mb-1 text-2xs text-tertiary">
+												Tail of the logs, the last {MAX_LOG_LENGTH} characters.
+											</p>
+										{/if}
+										<pre class="whitespace-pre-wrap break-words font-mono text-2xs text-primary"
+											>{logs}</pre
+										>
+									{:else}
+										<p class="text-2xs text-tertiary">No logs yet.</p>
+									{/if}
+									{#if running}
+										<div class="mt-1 flex items-center gap-1.5 text-2xs text-tertiary">
+											<Loader2 class="h-3 w-3 animate-spin" />
+											streaming
+										</div>
+									{/if}
+								{:else if failed}
+									<pre
+										class="whitespace-pre-wrap break-words font-mono text-2xs text-red-700 dark:text-red-300"
+										>{message.error}</pre
+									>
+								{:else if streaming}
+									<!-- The same renderer as a landed result, handed the partial: it is the one that
 					     knows how to show a result arriving in pieces. -->
-						<DisplayResult
-							result={undefined}
-							result_stream={resultStream}
-							jobId={chatJob?.jobId}
-							workspaceId={chatJob?.workspace}
-							disableExpand
-							hideAsJson
-						/>
-					{:else if resultValue !== undefined}
-						<!-- The run page's own renderer, not a second one invented for the chat: it handles
+									<DisplayResult
+										result={undefined}
+										result_stream={resultStream}
+										jobId={chatJob?.jobId}
+										workspaceId={chatJob?.workspace}
+										disableExpand
+										hideAsJson
+									/>
+								{:else if resultValue !== undefined}
+									<!-- The run page's own renderer, not a second one invented for the chat: it handles
 					     markdown, tables, images and deep nesting without the card guessing at the
 					     shape, and reaches the job through jobId/workspace for an S3 preview.
 					     `disableExpand` drops its toolbar and `hideAsJson` its Pretty/JSON switch,
 					     which the row already owns. -->
-						<DisplayResult
-							result={resultValue}
-							jobId={chatJob?.jobId}
-							workspaceId={chatJob?.workspace}
-							disableExpand
-							hideAsJson
-						/>
-					{:else if canceled}
-						<!-- All that is left to render is the fact itself: a form cancelled before Run
+									<DisplayResult
+										result={resultValue}
+										jobId={chatJob?.jobId}
+										workspaceId={chatJob?.workspace}
+										disableExpand
+										hideAsJson
+									/>
+								{:else if canceled}
+									<!-- All that is left to render is the fact itself: a form cancelled before Run
 						     never reached a job, so there is no result the way a cancelled run has one. -->
-						<div class="flex flex-1 flex-col items-center justify-center gap-1.5 px-4 text-center">
-							<Ban class="h-4 w-4 text-tertiary" />
-							<p class="text-2xs font-medium leading-4 text-secondary">{cancelReason}</p>
-							{#if !ran}
-								<p class="text-2xs leading-4 text-tertiary">
-									The inputs it would have run with are on the Inputs tab.
-								</p>
-							{/if}
-						</div>
-					{:else}
-						<p class="text-2xs text-tertiary">This run returned no result.</p>
+									<div
+										class="flex flex-1 flex-col items-center justify-center gap-1.5 px-4 text-center"
+									>
+										<Ban class="h-4 w-4 text-tertiary" />
+										<p class="text-2xs font-medium leading-4 text-secondary">{cancelReason}</p>
+										{#if !ran}
+											<p class="text-2xs leading-4 text-tertiary">
+												The inputs it would have run with are on the Inputs tab.
+											</p>
+										{/if}
+									</div>
+								{:else}
+									<p class="text-2xs text-tertiary">This run returned no result.</p>
+								{/if}
+							</div>
+						{/key}
 					{/if}
 				</div>
 			</div>
