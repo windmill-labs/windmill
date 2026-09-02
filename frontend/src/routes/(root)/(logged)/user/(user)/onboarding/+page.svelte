@@ -80,9 +80,9 @@
 		currentStep = STEP_SOURCE
 	}
 
-	// Cloud signup creates a workspace for the user, so the picker would show a single
-	// entry and one more click. Enter it directly; fall back to the picker for anyone
-	// with none or several.
+	// Cloud signup creates one workspace for the user, so the picker would be a page with a
+	// single choice on it. Land in that workspace instead, and only fall back to the picker
+	// when there is an actual choice to make (an invite to accept, several workspaces, none).
 	async function leaveOnboarding() {
 		try {
 			const workspaces = await WorkspaceService.listUserWorkspaces()
