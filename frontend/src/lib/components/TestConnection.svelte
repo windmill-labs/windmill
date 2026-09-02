@@ -231,15 +231,34 @@ export async function main(bucket: any, api_token: string) {
 		return value
 	}
 
+	// The route bounds the probe only for non-super-admins; a super admin's probe against an
+	// endpoint that accepts the connection and never answers would otherwise spin here forever.
+	const BROWSER_TEST_TIMEOUT_MS = 15_000
+
 	async function testObjectStorageFromBrowser(body: Record<string, any>, workspace: string) {
+		let timer: ReturnType<typeof setTimeout> | undefined = undefined
 		try {
-			await SettingService.testObjectStorageConfig({
+			const request = SettingService.testObjectStorageConfig({
 				requestBody: await resolveReferences(body, workspace)
 			})
+			await Promise.race([
+				request,
+				new Promise<never>((_, reject) => {
+					timer = setTimeout(() => {
+						request.cancel()
+						reject(
+							new Error(
+								`no answer from the storage endpoint after ${BROWSER_TEST_TIMEOUT_MS / 1000}s`
+							)
+						)
+					}, BROWSER_TEST_TIMEOUT_MS)
+				})
+			])
 			sendUserToast('Connection successful', false)
 		} catch (err: any) {
 			sendUserToast('Connection error: ' + (err?.body ?? err?.message ?? err), true)
 		} finally {
+			clearTimeout(timer)
 			loading = false
 		}
 	}
