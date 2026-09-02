@@ -2994,14 +2994,17 @@ pub async fn create_guest_session_token<'c>(
     };
     let scopes = guest_session_scopes(app_path);
 
-    // A guest is someone with no account at all. Checked here, not only by the caller,
-    // because the sign-in path's own account lookup filters on `disabled = false` —
-    // a deactivated account (manual or SCIM, whose revocation is "delete the tokens")
-    // would otherwise read as absent and walk straight back in as a guest.
-    let has_account: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM password WHERE email = $1)")
-        .bind(email)
-        .fetch_one(&mut **tx)
-        .await?;
+    // A guest is someone with no account at all — no `password` row (deactivated ones
+    // included: the sign-in path's own lookup filters on `disabled = false`, so a
+    // SCIM-offboarded account reads as absent there) and no `usr` row anywhere, which
+    // is what a service account has instead of a password.
+    let has_account: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM password WHERE email = $1)
+             OR EXISTS(SELECT 1 FROM usr WHERE email = $1)",
+    )
+    .bind(email)
+    .fetch_one(&mut **tx)
+    .await?;
     if has_account {
         return Err(Error::NotAuthorized(
             "an existing account cannot hold a guest session".to_string(),

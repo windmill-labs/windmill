@@ -620,16 +620,18 @@
 	 * whose ACS answers on a sibling host it would never arrive. Server-set, it carries
 	 * the same attributes as every other session cookie. Cleared (empty) when this
 	 * sign-in is not a guest entry. `login_externally` consumes it. */
-	async function setGuestAppCookie(value: string | undefined) {
+	async function setGuestAppCookie(value: string | undefined): Promise<boolean> {
 		try {
-			await fetch(`${base}/api/oauth/guest_app`, {
+			const res = await fetch(`${base}/api/oauth/guest_app`, {
 				method: 'POST',
 				credentials: 'include',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ guest_app: value ?? '' })
 			})
+			return res.ok
 		} catch (e) {
 			console.error('Could not set the guest app cookie', e)
+			return false
 		}
 	}
 
@@ -641,12 +643,15 @@
 		if (previewConfig) return true
 		markLoginMethodPending({ kind: 'saml' })
 		// SAML goes straight to the IdP and never passes through
-		// `/api/oauth/login/<client>`, which is where the OAuth path has the server
-		// write this cookie. Write it here so a SAML-only instance can admit guests
-		// too. Client-set is safe: the callback still checks that the named app is in
-		// guest mode and that the workspace allows guests, so the worst a forged value
-		// can do is give its own author a narrower session than they'd otherwise get.
-		await setGuestAppCookie(guestApp)
+		// `/api/oauth/login/<client>`, where the OAuth path has the server write the
+		// guest-entry cookie; ask for the same write here. It must have landed before
+		// we leave: without it the callback provisions an account, so a failed write
+		// is a stop, not a fall-through.
+		if (!(await setGuestAppCookie(guestApp))) {
+			clearPendingLoginMethod()
+			sendUserToast('Could not start sign-in, please try again.', true)
+			return false
+		}
 		let target = saml
 		let relayStateSet = false
 		// Carry the SP-initiated deep link through the IdP round-trip via SAML

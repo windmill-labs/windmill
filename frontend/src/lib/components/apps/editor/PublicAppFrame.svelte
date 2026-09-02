@@ -51,7 +51,7 @@
 		viewer,
 		viewerUrl,
 		guestAppPath = undefined,
-		guestEntryResolved = true
+		guestEntry = 'none'
 	}: {
 		/** Embedder-side: validate access + mint the scoped token. Throws with a
 		 * `.status` of 401 (login required) or 404 (not found). Pass
@@ -75,10 +75,11 @@
 		 * up front and pass it down — otherwise a signed-out visitor is offered an
 		 * ordinary sign-in that creates an account and still cannot open the app. */
 		guestAppPath?: string | undefined
-		/** False while the page is still finding out whether the app admits guests. The
-		 * sign-in card waits for it (a configured auto-login would otherwise start an
-		 * ordinary sign-in); nothing else does. */
-		guestEntryResolved?: boolean
+		/** Whether the app admits guests, as far as the page has found out. The sign-in
+		 * card waits while `pending` (a configured auto-login would otherwise start an
+		 * ordinary sign-in) and refuses to offer one on `error` — a transient fault must
+		 * not become an account and a seat. Nothing else waits on it. */
+		guestEntry?: 'pending' | 'none' | 'guest' | 'error'
 	} = $props()
 
 	const EMBED_PARAM = 'wm_embed'
@@ -547,8 +548,14 @@
 		onContinue={onSdkConsentContinue}
 		onDecline={onSdkConsentDecline}
 	/>
-{:else if status === 'noPermission' && !guestEntryResolved}
+{:else if status === 'noPermission' && guestEntry === 'pending'}
 	<Skeleton layout={[[4], 0.5, [50]]} />
+{:else if status === 'noPermission' && guestEntry === 'error'}
+	<div class="px-4 mt-20">
+		<Alert type="error" title="Could not check access">
+			The app could not be reached to find out who may open it. Reload to try again.
+		</Alert>
+	</div>
 {:else if status === 'noPermission'}
 	<!-- Login happens here, on the embedder (main) window, so the session cookie
 	     is set on the main origin only and never reaches the opaque iframe. -->

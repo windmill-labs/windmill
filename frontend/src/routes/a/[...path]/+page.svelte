@@ -63,20 +63,31 @@
 	let guestAppPath: string | undefined = $state(undefined)
 	/** The frame's sign-in card must not mount before this is known: a configured
 	 * auto-login would otherwise fire an ordinary sign-in and provision an account.
-	 * Only the card waits — the app load itself runs in parallel with discovery. */
-	let guestEntryResolved = $state(false)
+	 * Only the card waits — the app load itself runs in parallel with discovery.
+	 * Only a confirmed 404 means "not a guest app"; any other failure is `error`, since
+	 * offering an ordinary sign-in on a transient fault would provision an account. */
+	let guestEntry: 'pending' | 'none' | 'guest' | 'error' = $state('pending')
 
 	async function loadGuestEntry() {
-		try {
-			const entry = await AppService.getGuestEntryByCustomPath({
-				customPath: parsedCustomPath.path
-			})
-			guestAppPath = `${entry.workspace_id}/${entry.app_path}`
-		} catch {
-			guestAppPath = undefined
-		} finally {
-			guestEntryResolved = true
+		for (let attempt = 0; attempt < 3; attempt++) {
+			try {
+				const entry = await AppService.getGuestEntryByCustomPath({
+					customPath: parsedCustomPath.path
+				})
+				guestAppPath = `${entry.workspace_id}/${entry.app_path}`
+				guestEntry = 'guest'
+				return
+			} catch (e) {
+				if (e?.status === 404) {
+					guestAppPath = undefined
+					guestEntry = 'none'
+					return
+				}
+				await new Promise((r) => setTimeout(r, 500 * (attempt + 1)))
+			}
 		}
+		guestAppPath = undefined
+		guestEntry = 'error'
 	}
 
 	// Embedder side: validate access (main session cookie or shared JWT) and mint
@@ -153,7 +164,7 @@
 	{fetchEmbedToken}
 	{viewerUrl}
 	{guestAppPath}
-	{guestEntryResolved}
+	{guestEntry}
 	onViewerReady={(_token, requestTokenRefresh) => {
 		refresh = requestTokenRefresh
 		loadApp()
