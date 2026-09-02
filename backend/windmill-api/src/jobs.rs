@@ -18,6 +18,7 @@ use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -108,6 +109,7 @@ use windmill_common::{
     flows::{add_virtual_items_if_necessary, resolve_maybe_value, FlowValue},
     jobs::{script_path_to_payload, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode},
     oauth2::HmacSha256,
+    query_builders,
     scripts::{ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
     utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
@@ -8136,9 +8138,11 @@ pub async fn run_wait_result_flow_by_version(
 /// non-operator authored. The job must still be running, and the request must have the
 /// shape `wmill.datatable()` sends (PostgreSQL against a `datatable://` database), so a
 /// WM_TOKEN that leaked into job logs cannot be replayed to run anything else while the
-/// job lives, in particular DuckDB, which runs in-process in the worker. The executor honors
-/// a `-- database` directive in the SQL over the database argument and an `-- s3` directive
-/// redirects the result set, so both are refused too.
+/// job lives, in particular DuckDB, which runs in-process in the worker. The database
+/// argument is only half the target: the executor honors a `-- database` directive in the
+/// SQL over it, and `-- s3` redirects the result set, so both are refused. Check them
+/// against the code the executor runs rather than the request's `content`, which is not the
+/// same string once a `WM_INTERNAL_DB` marker expands.
 async fn operator_may_run_datatable_query(
     db: &DB,
     w_id: &str,
@@ -8153,8 +8157,16 @@ async fn operator_may_run_datatable_query(
     if language != Some(&ScriptLang::Postgresql) {
         return Ok(false);
     }
-    if windmill_parser_sql::parse_db_resource(content).is_some()
-        || !matches!(windmill_parser_sql::parse_s3_mode(content), Ok(None))
+    // Parse the directives out of the code the executor actually runs: it expands a
+    // `WM_INTERNAL_DB` marker first, and a directive can be embedded in the expansion.
+    let executed =
+        match query_builders::try_expand_internal_db_query(content, &ScriptLang::Postgresql) {
+            Some(Ok(expanded)) => Cow::Owned(expanded.code),
+            Some(Err(_)) => return Ok(false),
+            None => Cow::Borrowed(content),
+        };
+    if windmill_parser_sql::parse_db_resource(&executed).is_some()
+        || !matches!(windmill_parser_sql::parse_s3_mode(&executed), Ok(None))
     {
         return Ok(false);
     }

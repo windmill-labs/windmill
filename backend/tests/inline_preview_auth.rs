@@ -27,7 +27,8 @@
 //!     job is running, on the inline route and on the `/jobs/run/preview`
 //!     fallback the SDKs use when the worker has no internal server,
 //!   - the same token is rejected for any other payload (in-process DuckDB, or a
-//!     `-- database` directive redirecting the query) and for a deferred run,
+//!     `-- database` directive redirecting the query, whether written literally or
+//!     reached through a `WM_INTERNAL_DB` marker) and for a deferred run,
 //!   - an Operator's job token for a job that is not running, whether finished or
 //!     merely queued, is rejected.
 
@@ -171,11 +172,19 @@ async fn test_inline_preview_authorization(db: Pool<Postgres>) -> anyhow::Result
     to_s3["content"] = json!("-- s3\nSELECT 1 AS x;");
     let mut resource_db = datatable_query_body();
     resource_db["args"]["database"] = json!("$res:u/test-user/other_db");
+    // A marker is a single line the directive regexes cannot match; the directive only
+    // appears once the executor expands it, so the guard must check the expansion.
+    let mut marker = datatable_query_body();
+    marker["content"] = json!(concat!(
+        r#"-- WM_INTERNAL_DB_SELECT {"table":"t","columnDefs":[{"field":"id","datatype":"int4"}],"#,
+        r#""whereClause":"true\n-- database u/test-user/other_db\n AND true"}"#
+    ));
     for (label, payload) in [
         ("DuckDB", inline_preview_body()),
         ("database directive", redirected),
         ("s3 directive", to_s3),
         ("resource database", resource_db),
+        ("marker-expanded database directive", marker),
     ] {
         let (status, body) = post(&url, &running_job_token, &payload).await;
         assert_eq!(
