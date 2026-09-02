@@ -172,13 +172,27 @@ export async function pushSchedule(
         log.info(colors.bold.yellow(
           `Schedule ${path} is ${localSchedule.enabled ? "enabled" : "disabled"} locally but not on remote, updating remote`
         ));
-        await wmill.setScheduleEnabled({
-          workspace: workspace,
-          path,
-          requestBody: {
-            enabled: localSchedule.enabled,
-          },
-        });
+        try {
+          await wmill.setScheduleEnabled({
+            workspace: workspace,
+            path,
+            requestBody: {
+              enabled: localSchedule.enabled,
+            },
+          });
+        } catch (e) {
+          // The parent listing behind `enabledOwnedByParent` sees what the
+          // pusher may read; the backend's check does not. A path it turns
+          // out the parent has is the parent's after all: keep the fork's
+          // flag rather than fail the whole push.
+          const conflict = parseForkConflict(e);
+          if (!conflict) {
+            throw e;
+          }
+          log.warn(
+            `Schedule ${path} left ${schedule.enabled ? "enabled" : "disabled"}: the parent workspace '${conflict.parentWorkspaceId}' has the same schedule, so its flag is the parent's to set`
+          );
+        }
       }
     } catch (e) {
       console.error((e as any).body);

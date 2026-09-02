@@ -229,3 +229,50 @@ test("push: an inline script the checkout names differently from the step summar
     ),
   ).toEqual(["edited f/mail/flow_v2.flow/process_mail.inline_script.py"]);
 });
+
+test("push: a checkout name that collides with another step's summary-derived name keeps two files", async () => {
+  const zip = new JSZip();
+  zip.file(
+    "f/mail/flow_v2.flow.json",
+    JSON.stringify({
+      summary: "Flow V2",
+      description: "",
+      value: {
+        modules: [
+          {
+            id: "a",
+            summary: SUMMARY,
+            value: {
+              type: "rawscript",
+              content: "a",
+              input_transforms: {},
+              language: "python3",
+            },
+          },
+          {
+            id: "b",
+            summary: "process_mail",
+            value: {
+              type: "rawscript",
+              content: "b",
+              input_transforms: {},
+              language: "python3",
+            },
+          },
+        ],
+      },
+      schema: { type: "object", properties: {} },
+    }),
+    { createFolders: false },
+  );
+  // Nothing local: every rendered file is a "deleted" row, one per path.
+  const rows = await diff(
+    local({}),
+    ZipFSElement(zip, true, "bun", {}, {}, false, true, checkoutNames) as any,
+    { includeSchedules: false },
+  );
+  expect(rows.filter((r) => r.endsWith(".py")).sort()).toEqual([
+    "deleted f/mail/flow_v2.flow/process_mail.inline_script.py",
+    "deleted f/mail/flow_v2.flow/process_one_mail_end-to-end_(spam_check,_classify).inline_script.py",
+  ]);
+});

@@ -1257,55 +1257,71 @@ export function ZipFSElement(
               log.error(`Failed to parse flow.yaml at path: ${p}`);
               throw error;
             }
-            let inlineScripts;
+            let inlineScripts: InlineScript[];
             try {
-              const assigner = newPathAssigner(defaultTs, {
-                skipInlineScriptSuffix: getNonDottedPaths(),
-              });
+              // Extraction rewrites the modules' content into `!inline` refs,
+              // so each attempt works on its own copy of the flow.
+              const render = (
+                source: OpenFlow,
+                inlineMapping: Record<string, string>,
+              ): [OpenFlow, InlineScript[]] => {
+                const f: OpenFlow = structuredClone(source);
+                const assigner = newPathAssigner(defaultTs, {
+                  skipInlineScriptSuffix: getNonDottedPaths(),
+                });
+                const options = {
+                  skipInlineScriptSuffix: getNonDottedPaths(),
+                  failOnInlineDirective: true,
+                };
+                const scripts = extractInlineScriptsForFlows(
+                  f.value.modules as any,
+                  inlineMapping,
+                  SEP,
+                  defaultTs,
+                  assigner,
+                  options,
+                );
+                if (f.value.failure_module) {
+                  scripts.push(
+                    ...extractInlineScriptsForFlows(
+                      [f.value.failure_module],
+                      inlineMapping,
+                      SEP,
+                      defaultTs,
+                      assigner,
+                      options,
+                    ),
+                  );
+                }
+                if (f.value.preprocessor_module) {
+                  scripts.push(
+                    ...extractInlineScriptsForFlows(
+                      [f.value.preprocessor_module],
+                      inlineMapping,
+                      SEP,
+                      defaultTs,
+                      assigner,
+                      options,
+                    ),
+                  );
+                }
+                return [f, scripts];
+              };
               const inlineMapping = localFlowInlineMapping
                 ? await localFlowInlineMapping(finalPath)
                 : {};
-              inlineScripts = extractInlineScriptsForFlows(
-                flow.value.modules as any,
-                inlineMapping,
-                SEP,
-                defaultTs,
-                assigner,
-                {
-                  skipInlineScriptSuffix: getNonDottedPaths(),
-                  failOnInlineDirective: true,
-                },
-              );
-              if (flow.value.failure_module) {
-                inlineScripts.push(
-                  ...extractInlineScriptsForFlows(
-                    [flow.value.failure_module],
-                    inlineMapping,
-                    SEP,
-                    defaultTs,
-                    assigner,
-                    {
-                      skipInlineScriptSuffix: getNonDottedPaths(),
-                      failOnInlineDirective: true,
-                    },
-                  ),
-                );
+              let rendered = render(flow, inlineMapping);
+              // The assigner keeps the names it hands out unique, not the
+              // checkout's: one of those equal to another step's
+              // summary-derived name would leave two files at one path, so
+              // such a flow renders the export's way.
+              if (
+                new Set(rendered[1].map((s) => s.path)).size !==
+                rendered[1].length
+              ) {
+                rendered = render(flow, {});
               }
-              if (flow.value.preprocessor_module) {
-                inlineScripts.push(
-                  ...extractInlineScriptsForFlows(
-                    [flow.value.preprocessor_module],
-                    inlineMapping,
-                    SEP,
-                    defaultTs,
-                    assigner,
-                    {
-                      skipInlineScriptSuffix: getNonDottedPaths(),
-                      failOnInlineDirective: true,
-                    },
-                  ),
-                );
-              }
+              [flow, inlineScripts] = rendered;
             } catch (error) {
               log.error(
                 `Failed to extract inline scripts for flow at path: ${p}`,
@@ -4671,9 +4687,6 @@ export async function push(
 
   const workspace = await resolveWorkspace(opts, wsNameForConfig);
   await requireLogin(opts);
-  const parentOwnsScheduleEnabled = await parentOwnedScheduleEnabled(
-    workspace.workspaceId,
-  );
 
   // If wsNameForConfig wasn't set from flags, infer from the resolved profile
   if (!wsNameForConfig) {
@@ -4711,6 +4724,9 @@ export async function push(
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
+  const parentOwnsScheduleEnabled = opts.includeSchedules
+    ? await parentOwnedScheduleEnabled(workspace.workspaceId)
+    : undefined;
 
   if (opts.lint) {
     log.info("Running lint validation before push...");
