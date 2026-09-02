@@ -138,7 +138,7 @@
 				</div>
 				{#if showFade && fades.bottom}
 					<div
-						class="absolute bottom-0 left-0 right-0 h-[min(2rem,25%)] pointer-events-none bg-gradient-to-t from-surface via-surface/70 via-surface/40 to-transparent"
+						class="absolute bottom-0 left-0 right-0 h-[min(2.5rem,35%)] pointer-events-none bg-gradient-to-t from-surface via-surface/70 to-transparent"
 					></div>
 				{/if}
 			</div>

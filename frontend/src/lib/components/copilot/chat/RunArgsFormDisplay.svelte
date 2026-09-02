@@ -160,7 +160,10 @@
 		     having scrolled down is itself the knowledge that there is more up there. -->
 		{#if fades.bottom}
 			<div
-				class={twMerge('pointer-events-none absolute inset-x-0 bottom-0 h-[min(2rem,25%)]', fadeTo)}
+				class={twMerge(
+					'pointer-events-none absolute inset-x-0 bottom-0 h-[min(2.5rem,35%)]',
+					fadeTo
+				)}
 			></div>
 		{/if}
 	</div>

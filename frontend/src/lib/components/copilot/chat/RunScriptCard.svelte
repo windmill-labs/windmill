@@ -438,11 +438,11 @@
 			     on the wrong colour and leave a band at the very edge. -->
 			{#if fades.bottom && fadeBody}
 				<div
-					class="pointer-events-none absolute inset-x-0 bottom-0 h-[min(2rem,25%)] bg-gradient-to-t from-surface via-surface/60 to-transparent"
+					class="pointer-events-none absolute inset-x-0 bottom-0 h-[min(2.5rem,35%)] bg-gradient-to-t from-surface via-surface/60 to-transparent"
 				></div>
 				{#if activeTab === 'logs'}
 					<div
-						class="pointer-events-none absolute inset-x-0 bottom-0 h-[min(2rem,25%)] bg-gradient-to-t from-surface-secondary/50 via-surface-secondary/30 to-transparent"
+						class="pointer-events-none absolute inset-x-0 bottom-0 h-[min(2.5rem,35%)] bg-gradient-to-t from-surface-secondary/50 via-surface-secondary/30 to-transparent"
 					></div>
 				{/if}
 			{/if}
