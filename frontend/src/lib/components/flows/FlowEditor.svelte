@@ -40,7 +40,8 @@
 	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
 	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { userStore } from '$lib/stores'
-	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, selectionManager, pathStore } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 	const sessionScopedManager = getContext<AIChatManager>('aiChatManager')
 	const aiChatManager = sessionScopedManager ?? singletonAiChatManager
 
@@ -530,5 +531,7 @@
 </Disposable>
 
 <!-- Mounted here rather than in the panel, which is keyed on the selection and would take the
-     dialog down with it the moment the graph selection moved. -->
-<AgentEditorModal enableAi={!disableAi} />
+     dialog down with it the moment the graph selection moved. Claims only agents opened from this
+     flow: a session keeps every visited tab alive, and each would otherwise build its own editor
+     over the same draft. -->
+<AgentEditorModal enableAi={!disableAi} owns={(t) => t.host?.flowPath === $pathStore} />

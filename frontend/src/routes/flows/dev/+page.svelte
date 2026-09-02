@@ -347,6 +347,6 @@
 		<!-- Every surface that can select an agent step needs one: the card's Edit only sets a
 		     module-global target, and without a mount here it would do nothing. `disableAi` matches
 		     the map and panel above. -->
-		<AgentEditorModal />
+		<AgentEditorModal owns={() => true} />
 	</div>
 </main>

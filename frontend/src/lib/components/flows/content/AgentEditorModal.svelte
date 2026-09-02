@@ -14,6 +14,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import {
 		agentEditorTarget,
+		type AgentEditorTarget,
 		closeAgentEditor,
 		retargetAgentEditor,
 		showAgentEditorTool,
@@ -26,11 +27,20 @@
 
 	interface Props {
 		enableAi?: boolean
+		/** Which targets this mount is responsible for. The target is module-global while several
+		 *  flow editors can be alive at once (a session retains every tab it has visited), so without
+		 *  this each of them would build a whole editor — fetching, inferring tool schemas, and
+		 *  running its own two-way sync against the one draft row. Defaults to the surfaces that open
+		 *  an agent with no host flow, which is the resources page. */
+		owns?: (target: AgentEditorTarget) => boolean
 	}
 
-	let { enableAi = false }: Props = $props()
+	let { enableAi = false, owns = (t) => t.host === undefined }: Props = $props()
 
-	let target = $derived(agentEditorTarget())
+	let target = $derived.by(() => {
+		const t = agentEditorTarget()
+		return t && owns(t) ? t : undefined
+	})
 	let ws = $derived(target?.workspace ?? $workspaceStore)
 	let host = $state<ReturnType<typeof AgentEditorHost> | undefined>(undefined)
 	let versionDrawer: Drawer | undefined = $state(undefined)
@@ -56,6 +66,8 @@
 
 	let draft = $derived(host?.draftHandle())
 	let inEvals = $derived(target?.view === 'evals')
+	let readOnly = $derived(draft ? !draft.canWrite : false)
+	let draftOnly = $derived(draft?.noDeployed ?? false)
 
 	// Where the evals pane is within itself, so its levels extend this dialog's trail rather than
 	// opening a dialog of their own. Cleared on the way in: the pane reports a level once it is on
@@ -165,15 +177,28 @@
 			{#snippet settings()}
 				<div class="flex flex-row items-center gap-2 shrink-0">
 					{#if !inEvals}
-						<Button
-							unifiedSize="sm"
-							variant="default"
-							startIcon={{ icon: FlaskConical }}
-							title="Run this agent against a dataset of cases"
-							on:click={() => showAgentEditorView('evals')}
-						>
-							Evals
-						</Button>
+						{#if readOnly}
+							<Badge
+								color="gray"
+								class="shrink-0"
+								title="You do not have write access to this agent"
+							>
+								Read only
+							</Badge>
+						{/if}
+						<!-- Evals run against the deployed agent, and a draft-only one has none: the
+						     backend's `require_agent` would reject every run. -->
+						{#if !draftOnly}
+							<Button
+								unifiedSize="sm"
+								variant="default"
+								startIcon={{ icon: FlaskConical }}
+								title="Run this agent against a dataset of cases"
+								on:click={() => showAgentEditorView('evals')}
+							>
+								Evals
+							</Button>
+						{/if}
 						<Button
 							unifiedSize="sm"
 							variant="default"
@@ -187,6 +212,8 @@
 							variant="accent"
 							startIcon={{ icon: Save }}
 							loading={saving}
+							disabled={readOnly}
+							title={readOnly ? 'You do not have write access to this agent' : undefined}
 							on:click={onDeploy}
 						>
 							Deploy

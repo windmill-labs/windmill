@@ -80,6 +80,8 @@
 	import AgentEditorModal from '$lib/components/flows/content/AgentEditorModal.svelte'
 	import { openAgentEditor } from '$lib/components/flows/agentEditorStore.svelte'
 	import { copilotInfo } from '$lib/aiStore'
+	import { setPageDrawerAnchor } from '$lib/components/sessions/pageDrawerSession'
+	import { RESOURCES_PATH } from '$lib/components/sessions/previewPaths'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import ExploreAssetButton, {
 		assetCanBeExplored
@@ -136,7 +138,12 @@
 	 *  presentational and either can open a path the other left a draft at. */
 	function openResourceEditor(path: string, resourceType: string | undefined) {
 		if (resourceType === 'ai_agent') {
+			// The generic editor anchors itself from `initEdit`; this one has to, or the URL, a
+			// refresh, and the AI session's idea of where you are all miss the open agent. Claim the
+			// hash first so the deep-link effect does not treat our own write as a new navigation.
+			handledHash = `#/resource/${path}`
 			openAgentEditor({ path })
+			setPageDrawerAnchor(RESOURCES_PATH, path)
 		} else {
 			resourceEditor?.initEdit?.(path)
 		}

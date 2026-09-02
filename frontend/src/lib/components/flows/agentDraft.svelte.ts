@@ -1,6 +1,9 @@
 import { untrack } from 'svelte'
+import { get } from 'svelte/store'
 import { ResourceService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
+import { canWrite } from '$lib/utils'
+import { userStore } from '$lib/stores'
 import { useTriggerDraftSync, type TriggerDraftSync } from '../triggers/useTriggerDraftSync.svelte'
 import { AGENT_BRAIN_KEYS, type AIAgentConfig } from './agentResourceUtils'
 // Lives here rather than beside the other config helpers: `agentResourceUtils` is a leaf, and
@@ -29,6 +32,12 @@ function agentConfigRunError(args: Record<string, any> | undefined): string | un
 	for (const tool of named) {
 		const err = getToolNameError(tool?.summary ?? '', tool?.value?.tool_type, siblingNames)
 		if (err) return `${err}. Name every tool before deploying.`
+	}
+	// An MCP tool is named by its server rather than by a summary, and it starts with none. The
+	// worker loads every MCP config before the model runs, so one unresolved path fails every run
+	// of the agent rather than just the call that needed it.
+	if (tools.some((t) => t?.value?.tool_type === 'mcp' && !t?.value?.resource_path)) {
+		return 'Pick a server for every MCP tool before deploying.'
 	}
 	return undefined
 }
@@ -69,6 +78,8 @@ export interface AgentDraftHandle {
 	readonly loading: boolean
 	/** No deployed row at this path, so a deploy has to create rather than update. */
 	readonly noDeployed: boolean
+	/** Whether this user may write the resource. False makes the editor a read-only view. */
+	readonly canWrite: boolean
 	readonly sync: TriggerDraftSync
 	/** Write the current state to the resource and drop the draft. */
 	deploy: () => Promise<boolean>
@@ -84,6 +95,7 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 	let deployed = $state<AgentResourceState | undefined>(undefined)
 	let loading = $state(true)
 	let noDeployed = $state(false)
+	let canWriteResource = $state(true)
 	/** Guards the load against a path that changed under a slow response. */
 	let loadedFor = $state<string | undefined>(undefined)
 
@@ -129,6 +141,10 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 						wsSpecific: r.ws_specific ?? false
 					}
 					noDeployed = Boolean((r as any).no_deployed)
+					// Same rule the generic resource editor applies. The backend refuses the write
+					// either way, but without this the editor would invite edits it cannot save and
+					// autosave a draft on every keystroke against a resource the reader cannot deploy.
+					canWriteResource = canWrite(r.path, r.extra_perms ?? {}, get(userStore) ?? undefined)
 					// An agent that exists only as a draft has no deployed value to compare against or
 					// fall back to, and the response's is a synthetic echo of the draft. Leaving the
 					// baseline unset is what suppresses the unsaved-changes banner for it, exactly as
@@ -231,6 +247,9 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		},
 		get noDeployed() {
 			return noDeployed
+		},
+		get canWrite() {
+			return canWriteResource
 		},
 		sync,
 		deploy

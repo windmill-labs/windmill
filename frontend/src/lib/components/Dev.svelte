@@ -1316,6 +1316,6 @@
 		</div>
 		<!-- Outside the panel, which is keyed on the selection: the dialog stays on the step it was
 		opened for while the graph is used behind it. -->
-		<AgentEditorModal enableAi />
+		<AgentEditorModal enableAi owns={() => true} />
 	{/if}
 </main>
