@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { FlaskConical, History, Save } from 'lucide-svelte'
-	import { untrack } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import { resource } from 'runed'
 	import Modal, { type ModalTrailSegment } from '$lib/components/common/modal/Modal.svelte'
 	import { Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
@@ -118,6 +118,15 @@
 		closeAgentEditor()
 		void clearPageDrawerAnchor(RESOURCES_PATH)
 	}
+
+	// The target is module-global and outlives this component: navigating away takes the mount that
+	// owns it without passing through `close()`, and what it leaves behind reopens the dialog on the
+	// way back and tells the flow editor a dialog is over its graph. Only its own, so a mount going
+	// down never drops a target another one is showing.
+	onDestroy(() => {
+		const t = agentEditorTarget()
+		if (t && owns(t)) closeAgentEditor()
+	})
 
 	async function onDeploy() {
 		saving = true

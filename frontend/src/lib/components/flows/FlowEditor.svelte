@@ -16,7 +16,7 @@
 	import { useFlowPanelMode } from './flowPanelMode.svelte'
 	import { useFlowPanelPlacementTelemetry } from './flowEditorTelemetry'
 
-	import { writable } from 'svelte/store'
+	import { get, writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
 	import type { Flow, Job } from '$lib/gen'
@@ -235,8 +235,11 @@
 		flowPropPickerConfig,
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined),
 		// The agent editor is a dialog over the same graph, so a connect started inside it has the
-		// same closure hazard as one started from the modal panel.
-		inModalPanel: () => panelMode === 'modal' || agentEditorTarget() !== undefined
+		// same closure hazard as one started from the modal panel. Only this flow's own, on the same
+		// rule the mount below claims one by: a session keeps every visited tab alive, and a target
+		// belonging to another of them is not a dialog over this graph.
+		inModalPanel: () =>
+			panelMode === 'modal' || agentEditorTarget()?.host?.flowPath === get(pathStore)
 	})
 
 	// Read by graph step items (VirtualItem) to show a per-step "explore" hint on hover,
