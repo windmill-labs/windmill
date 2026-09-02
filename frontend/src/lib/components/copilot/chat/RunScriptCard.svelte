@@ -299,7 +299,7 @@
 			<Tabs
 				selected={activeTab}
 				on:selected={(e) => (userTab = e.detail)}
-				class="h-8 px-3"
+				class="h-8 px-3 font-main"
 				wrapperClass="shrink-0"
 			>
 				{#if !jsonView}

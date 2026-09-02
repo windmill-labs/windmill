@@ -110,9 +110,12 @@
      as one phase of the same card. The keyboard-scope marker says a form owns the keys
      here, so a list's own shortcuts stand down (ItemsList's SKIP_SELECTOR) — it belongs
      on this phase only, which is why a settled card drops it with the form. -->
+<!-- font-main because the card hosting this in the chat is a tool row, and those are
+     font-mono throughout: a field label is UI text, and the pane copy of this same form
+     already reads that way. (Not font-sans — this Tailwind config defines main and mono.) -->
 <div
 	bind:this={cardNode}
-	class={twMerge('flex flex-col', layout === 'pane' ? 'h-full min-h-0' : 'pt-3')}
+	class={twMerge('flex flex-col font-main', layout === 'pane' ? 'h-full min-h-0' : 'pt-3')}
 	data-chat-keyboard-scope="run-args-form"
 >
 	<!-- Only the fields scroll, sized by their content rather than filling the host: the actions
