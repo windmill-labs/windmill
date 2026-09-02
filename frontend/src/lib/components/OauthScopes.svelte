@@ -42,9 +42,10 @@
 		lastWritten = JSON.stringify([scopes, options])
 	}
 
+	// Ticking an option absorbs a free-text row holding the same value.
 	function toggle(option: string, on: boolean) {
 		const rest = checkedOptions().filter((o) => o != option)
-		write(on ? [...rest, option] : rest, custom)
+		write(on ? [...rest, option] : rest, on ? custom.filter((r) => r != option) : custom)
 	}
 
 	function setRow(i: number, value: string) {
@@ -59,7 +60,7 @@
 		{#each options as option (option)}
 			<label class="flex items-center gap-2 text-xs">
 				<Checkbox
-					checked={scopes?.includes(option) ?? false}
+					checked={checkedOptions().includes(option)}
 					onChange={(e) => toggle(option, e.currentTarget.checked)}
 				/>
 				<span class="font-mono break-all">{option}</span>

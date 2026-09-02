@@ -88,6 +88,8 @@ pub struct OAuthConfig {
     #[serde(default = "empty_string")]
     pub token_url: String,
     pub userinfo_url: Option<String>,
+    /// The registry JSON may also carry `scope_options`, a frontend-only pick
+    /// list for the connect dialog; it is deliberately not modelled here.
     pub scopes: Option<Vec<String>>,
     /// Default scopes for the client-credentials (2-legged) flow. These differ
     /// from the authorization-code `scopes` for most providers (member/consent
@@ -96,12 +98,6 @@ pub struct OAuthConfig {
     /// provider-specific scopes themselves.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cc_scopes: Option<Vec<String>>,
-    /// Scopes the provider is known to accept beyond the `scopes` default, offered
-    /// as pick-list entries in the connect dialog so users don't have to type
-    /// scope URLs. Purely advisory: the request still carries whatever the user
-    /// selected or typed.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub scope_options: Option<Vec<String>>,
     pub extra_params: Option<HashMap<String, String>>,
     pub extra_params_callback: Option<HashMap<String, String>>,
     pub req_body_auth: Option<bool>,
