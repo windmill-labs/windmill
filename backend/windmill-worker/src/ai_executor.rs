@@ -141,8 +141,6 @@ async fn compact_if_needed(
                 credentials: ctx.credentials,
                 model: ctx.args.provider.get_model(),
                 temperature: ctx.args.temperature,
-                reasoning_effort: ctx.args.provider.get_reasoning_effort(),
-                step_max_tokens: ctx.args.max_completion_tokens,
                 timeout,
                 client: ctx.client,
                 workspace_id: ctx.workspace_id,

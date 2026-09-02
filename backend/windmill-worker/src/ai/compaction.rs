@@ -168,6 +168,14 @@ fn projected_prompt_tokens(messages: &[OpenAIMessage], last_request: LastRequest
     }
 }
 
+/// How much of the window the summary may occupy. Both the split that decides what to
+/// keep and the cap the summarization request asks for read this: if they disagree, a
+/// summary can come back larger than the room made for it and put the conversation
+/// straight back over the trigger, compacting its own previous summary every response.
+fn summary_reserve_tokens(context_window: usize) -> usize {
+    SUMMARY_OUTPUT_RESERVE_TOKENS.min(context_window / MAX_SUMMARY_RESERVE_SHARE)
+}
+
 /// First message that may be summarized away. The leading system messages carry the
 /// step's own system prompt, which has to survive compaction.
 fn summarizable_start(messages: &[OpenAIMessage]) -> usize {
@@ -186,8 +194,8 @@ fn summarizable_start(messages: &[OpenAIMessage]) -> usize {
 fn plan_tail_start(messages: &[OpenAIMessage], context_window: usize) -> Option<usize> {
     let prefix_start = summarizable_start(messages);
 
-    let reserve = SUMMARY_OUTPUT_RESERVE_TOKENS.min(context_window / MAX_SUMMARY_RESERVE_SHARE);
-    let budget = ((context_window as f64 * COMPACTION_TARGET_RATIO) as usize) - reserve;
+    let budget = ((context_window as f64 * COMPACTION_TARGET_RATIO) as usize)
+        - summary_reserve_tokens(context_window);
 
     let mut tail_start = messages.len();
     let mut tail_tokens = 0usize;
@@ -282,10 +290,6 @@ pub struct CompactionRequest<'a> {
     pub credentials: &'a ProviderCredentials,
     pub model: &'a str,
     pub temperature: Option<f32>,
-    pub reasoning_effort: Option<&'a str>,
-    /// The step's own completion cap, used only to raise the summary's budget when the
-    /// step allows more than a summary needs.
-    pub step_max_tokens: Option<u32>,
     pub timeout: std::time::Duration,
     pub client: &'a AuthedClient,
     pub workspace_id: &'a str,
@@ -358,7 +362,13 @@ impl Compactor {
 
         self.measurement_spent = true;
 
-        match summarize_prefix(&messages[..tail_start], request).await {
+        match summarize_prefix(
+            &messages[..tail_start],
+            summary_reserve_tokens(self.context_window),
+            request,
+        )
+        .await
+        {
             Ok((summary, usage)) => {
                 let formatted = format_compact_summary(&summary);
                 if formatted.is_empty() {
@@ -393,6 +403,7 @@ impl Compactor {
 /// Sends the prefix to the same model with the compaction prompt appended and no tools.
 async fn summarize_prefix(
     prefix: &[OpenAIMessage],
+    reserve_tokens: usize,
     request: &CompactionRequest<'_>,
 ) -> Result<(String, Option<TokenUsage>), Error> {
     let mut summary_messages = prefix.to_vec();
@@ -417,16 +428,17 @@ async fn summarize_prefix(
         tools: None,
         model: request.model,
         temperature: request.temperature,
-        reasoning_effort: request.reasoning_effort,
-        // The reserve is what the split already set aside for the summary, so asking for
-        // it keeps the budget honest. It has to be stated rather than left to the
-        // provider default, which is 64000 on Anthropic (over several Claude models'
-        // output ceiling) and the model's own small default on Bedrock (short enough to
-        // cut the response off inside its scratchpad). The step's own cap only raises it:
-        // a low one is about the answers the agent gives, not about summaries.
-        max_tokens: Some(
-            (SUMMARY_OUTPUT_RESERVE_TOKENS as u32).max(request.step_max_tokens.unwrap_or(0)),
-        ),
+        // The step's reasoning effort is deliberately dropped. Every provider counts
+        // thinking against this same budget, so a high-effort model can spend the whole
+        // reserve before writing anything and hand back a summary cut off inside its
+        // scratchpad — which counts as a failure. The prompt asks for an `<analysis>`
+        // block, which is the reasoning this call needs.
+        reasoning_effort: None,
+        // Exactly the room the split set aside. Asking for more lets a summary land the
+        // conversation back over the trigger; leaving it to the provider default gives
+        // 64000 on Anthropic (over several Claude models' output ceiling) and the model's
+        // own small default on Bedrock, short enough to truncate the response.
+        max_tokens: Some(reserve_tokens as u32),
         output_schema: None,
         output_type: &OutputType::Text,
         system_prompt: None,
@@ -447,7 +459,7 @@ async fn summarize_prefix(
                     None,
                     request.model,
                     request.temperature,
-                    request.reasoning_effort,
+                    build_args.reasoning_effort,
                     build_args.max_tokens,
                     request.credentials.api_key.as_deref().unwrap_or(""),
                     request
@@ -607,6 +619,20 @@ mod tests {
             projected_prompt_tokens(&messages, last_request),
             500 + 10003
         );
+    }
+
+    /// The reserve has to leave the tail room to grow on a small window, and the
+    /// summarization request asks for exactly this number: a larger cap lets a summary
+    /// land the conversation back over the trigger and compact its own summary next
+    /// response.
+    #[test]
+    fn summary_reserve_scales_with_the_window() {
+        assert_eq!(
+            summary_reserve_tokens(128000),
+            SUMMARY_OUTPUT_RESERVE_TOKENS
+        );
+        assert_eq!(summary_reserve_tokens(20000), 2000);
+        assert_eq!(summary_reserve_tokens(8000), 800);
     }
 
     #[test]
