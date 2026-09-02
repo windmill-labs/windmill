@@ -1861,7 +1861,7 @@ export class AIChatManager {
 	requestRunArgs = (
 		toolId: string,
 		form: RunFormDisplay,
-		opts?: { autoAcceptable?: boolean }
+		opts?: { autoAccepted?: boolean }
 	): Promise<Record<string, any> | undefined> => {
 		// The tool reads the schema before it asks, so a stop during that read drains the
 		// callbacks and settles the card before this runs. Installing one then would park
@@ -1875,11 +1875,9 @@ export class AIChatManager {
 			this.#patchRunForm(toolId, { canceled: true })
 			return Promise.resolve(undefined)
 		}
-		// Ahead of the wait, not of the stop above: the same skip a yes/no confirmation gets
-		// under YOLO, for the forms that opted in. A test run is the model's own iteration
-		// loop, and a form nobody answers would stop it dead. What the form opened with is
-		// what runs, so the card still records what it ran. A deployed run never opts in.
-		if (opts?.autoAcceptable && this.autoAcceptToolConfirmationsActive) {
+		// Ahead of the wait, not of the stop above: the caller settled this form before
+		// attaching it, so its card renders no fields and nothing here could ever resolve.
+		if (opts?.autoAccepted) {
 			return Promise.resolve(form.args)
 		}
 		return new Promise((resolve) => {

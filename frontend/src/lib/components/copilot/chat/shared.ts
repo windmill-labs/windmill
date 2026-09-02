@@ -1310,13 +1310,12 @@ export interface ToolCallbacks {
 	/** Park the loop on an argument form and resolve with the args the user submitted,
 	 * or undefined if they cancelled. Wired only where the form can be rendered.
 	 *
-	 * `autoAcceptable` opts the form into the YOLO posture, which answers it with what it
-	 * opened with. Only a run the user can undo by editing the code may set it: a deployed
-	 * run is not one, which is why its form is the confirmation YOLO cannot skip. */
+	 * `autoAccepted` says the caller already answered the form with what it opened with,
+	 * under the YOLO posture, and attached it settled — so there is no card to wait on. */
 	requestRunArgs?: (
 		toolId: string,
 		form: RunFormDisplay,
-		opts?: { autoAcceptable?: boolean }
+		opts?: { autoAccepted?: boolean }
 	) => Promise<Record<string, any> | undefined>
 	/** The submitted form's job is queued. Wired alongside requestRunArgs. */
 	markRunFormStarted?: (toolId: string) => void

@@ -699,25 +699,6 @@ describe('AIChatManager autonomy mode', () => {
 		vi.clearAllMocks()
 	})
 
-	// The whole asymmetry between the two run forms: YOLO answers a test's, so the model
-	// can keep iterating on the code it is writing, and never a deployed run's, whose form
-	// is the only consent that run has.
-	it('answers only an auto-acceptable run form under yolo', async () => {
-		const manager = new AIChatManager()
-		manager.mode = AIMode.GLOBAL
-		manager.setAutonomyMode(AIAutonomyMode.YOLO)
-		const form = { path: 'f/qa/x', args: { name: 'Ada' } }
-
-		await expect(manager.requestRunArgs('t1', form, { autoAcceptable: true })).resolves.toEqual({
-			name: 'Ada'
-		})
-
-		let deployedSettled = false
-		void manager.requestRunArgs('t2', form).then(() => (deployedSettled = true))
-		await Promise.resolve()
-		expect(deployedSettled).toBe(false)
-	})
-
 	it('accepts pending flow edits when auto-accept is enabled from script mode', async () => {
 		const manager = new AIChatManager()
 		const acceptAllModuleActions = vi.fn()

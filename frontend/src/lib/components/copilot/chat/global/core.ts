@@ -5545,7 +5545,9 @@ type FormRunSpec = {
 	proposed: Record<string, any> | null | undefined
 	startMessage: string
 	contextName: 'script' | 'flow'
-	/** Whether YOLO may answer this form. See requestRunArgs. */
+	/** Whether YOLO may answer this form with what it opened with. Only a run the user can
+	 * undo by editing the code may set it: a deployed run is not one, which is why its form
+	 * is the confirmation YOLO cannot skip. */
 	autoAcceptable?: boolean
 	background?: boolean
 	detachAfterMs?: number
@@ -5571,11 +5573,20 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		schema as any,
 		strippedKeys
 	)
+	// Decided before the form is attached, not once it is waiting: a form answered a tick
+	// after it mounts flashes its fields at a user who was never going to fill them in.
+	// Settled from the start, the same card renders without ever showing a field — so the
+	// run still reads as a run, and the schema it would have built them from is never
+	// attached to a message the transcript persists.
+	const autoAccepted = Boolean(
+		spec.autoAcceptable && toolCallbacks.shouldAutoAcceptToolConfirmations?.(spec.toolName)
+	)
 	const form: RunFormDisplay = {
 		path: spec.path,
 		summary: spec.summary || undefined,
 		kind: spec.kind,
-		schema,
+		schema: autoAccepted ? undefined : schema,
+		submitted: autoAccepted || undefined,
 		args: proposed,
 		droppedKeys: conformed.dropped.undeclared.length ? conformed.dropped.undeclared : undefined,
 		unshowableKeys: conformed.dropped.unshowable.length ? conformed.dropped.unshowable : undefined,
@@ -5584,7 +5595,9 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	}
 
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Waiting for you to confirm the arguments of "${spec.path}"`,
+		content: autoAccepted
+			? spec.startMessage
+			: `Waiting for you to confirm the arguments of "${spec.path}"`,
 		runForm: form,
 		// Not the raw tool-call arguments: the card settles on what the form opened with.
 		// Only settles it — the raw proposal still renders while the call streams in.
@@ -5593,7 +5606,7 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	})
 
 	const submitted = toolCallbacks.requestRunArgs
-		? await toolCallbacks.requestRunArgs(toolId, form, { autoAcceptable: spec.autoAcceptable })
+		? await toolCallbacks.requestRunArgs(toolId, form, { autoAccepted })
 		: proposed
 	if (!submitted) {
 		toolCallbacks.setToolStatus(toolId, {
