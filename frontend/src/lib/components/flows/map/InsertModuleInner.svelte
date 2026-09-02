@@ -133,8 +133,18 @@
 	// points past the last rendered row.
 	let aiSelected = $derived(Math.min(selectedByKeyboard, Math.max(aiRows.length - 1, 0)))
 	let aiScrollable: HTMLElement | undefined = $state()
+	let stepGen: StepGenQuick | undefined = $state()
 	function onAiKeyDown(e: KeyboardEvent) {
 		if (aiRows.length === 0) {
+			return
+		}
+		// Enter activates the highlighted row only from the search box (or nothing focused); a
+		// focused button, link or field keeps its own native activation.
+		if (
+			e.key === 'Enter' &&
+			e.target instanceof HTMLElement &&
+			e.target.closest('button, a, select, textarea')
+		) {
 			return
 		}
 		if (e.key === 'ArrowDown') {
@@ -171,6 +181,7 @@
 >
 	<div class="flex flex-row items-center gap-2">
 		<StepGenQuick
+			bind:this={stepGen}
 			on:escape={() => dispatch('close')}
 			{disableAi}
 			on:insert
@@ -298,6 +309,8 @@
 								selectedKind = 'aiagent'
 								selectedByKeyboard = 0
 								loadSavedAgents()
+								// Clicking leaves focus on this button, where Enter would only re-select it.
+								stepGen?.focus()
 							}}
 						/>
 					{/if}
@@ -308,6 +321,7 @@
 							onSelect={() => {
 								selectedKind = 'aisandbox'
 								selectedByKeyboard = 0
+								stepGen?.focus()
 							}}
 						/>
 					{/if}
