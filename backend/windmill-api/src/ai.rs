@@ -438,10 +438,15 @@ async fn resolve_bedrock_oidc_credentials(
         return Ok(());
     };
 
+    // Ahead of the cache: STS credentials are region-independent, so a resource
+    // with the same role but no region would otherwise reuse an entry and sign a
+    // request against the empty region the guard exists to reject.
+    let region = windmill_ai::ai_bedrock::bedrock_oidc_region(credentials.region.as_deref())?;
+
     let session_name = aws_role_session_name("windmill-ai-copilot", &authed.username);
-    // Keyed on the email rather than the session name: AWS caps a session name at
-    // 64 characters, so two long usernames sharing a prefix would otherwise share
-    // an entry and one would sign with the other's assumed session.
+    // Keyed on the email, the identity the OIDC token is minted for, rather than
+    // on the session name derived from it: that name is sanitised and length
+    // capped, so it is a lossy stand-in for the caller.
     let cache_key = (w_id.to_string(), role_arn.to_string(), authed.email.clone());
 
     let assumed = match BEDROCK_ASSUMED_ROLE_CACHE
@@ -450,8 +455,6 @@ async fn resolve_bedrock_oidc_credentials(
     {
         Some(cached) => cached,
         None => {
-            let region =
-                windmill_ai::ai_bedrock::bedrock_oidc_region(credentials.region.as_deref())?;
             let assumed =
                 assume_bedrock_role(db, w_id, authed, role_arn, region, &session_name).await?;
             BEDROCK_ASSUMED_ROLE_CACHE.insert(cache_key, assumed.clone());

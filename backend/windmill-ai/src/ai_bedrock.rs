@@ -361,11 +361,14 @@ pub async fn refresh_bedrock_oidc_credentials<'a>(
         return Ok(None);
     };
 
+    // Ahead of the reuse check, so a request never signs against the empty region
+    // just because an earlier one had already assumed the role.
+    let region = bedrock_oidc_region(credentials.region.as_deref())?;
+
     if !cached
         .as_ref()
         .is_some_and(AssumedRoleCredentials::is_fresh)
     {
-        let region = bedrock_oidc_region(credentials.region.as_deref())?;
         // A worker holds no OIDC signing key, so it asks the API to mint the
         // token for this job; the session name carries the job into CloudTrail.
         let id_token = client
