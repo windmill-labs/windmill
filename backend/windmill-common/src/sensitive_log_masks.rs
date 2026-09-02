@@ -86,11 +86,10 @@ impl MaskSnapshot {
     }
 }
 
-/// A masker for log sinks that persist asynchronously and can still be flushing
-/// after the job is unregistered: nativets hands `console.log` output to a task
-/// that drains a channel, so a tail of lines can be written past the end of the
-/// run. It keeps the last masks it saw, so that tail is masked like the rest of
-/// the log, and picks up secrets registered mid-run on the way there.
+/// A masker for sinks that mask line by line rather than in batches, like nativets
+/// masking each `console.log` chunk as V8 produces it. `snapshot` per line would
+/// re-arm the security notice on every one; this keeps it to once per distinct set
+/// of secrets while still picking up secrets registered mid-run.
 ///
 /// Masks by job id alone — the caller is the one that knows the text it passes
 /// belongs to that job.
@@ -100,14 +99,13 @@ pub struct JobMasker {
 }
 
 impl JobMasker {
-    /// Construct this while the job is still registered — from the job's own
-    /// execution, not from the draining task, whose first poll may already be
-    /// past the end of the run and would then find nothing to mask with.
     pub fn new(job_id: Uuid) -> Self {
         JobMasker { job_id, snapshot: snapshot(&job_id) }
     }
 
     /// Mask every secret registered for the job. Returns `Cow::Borrowed` when no match.
+    /// Falls back to the masks it last saw once the job is unregistered, so a sink
+    /// still draining past the end of a run does not start emitting secrets.
     pub fn mask<'a>(&mut self, text: &'a str) -> Cow<'a, str> {
         if let Some(fresh) = snapshot(&self.job_id) {
             // Replacing an equivalent snapshot would re-arm the notice, so only take
@@ -251,20 +249,46 @@ pub fn register_secret_for_job(job_id: Uuid, secret: &str) {
 mod tests {
     use super::*;
 
-    /// An asynchronous log sink can be draining its last lines after the job is
-    /// unregistered, and can even be polled for the first time there, so a masker
-    /// has to carry its masks from construction instead of consulting the registry
-    /// per line.
+    /// The compiled automaton is cached per job, so a secret registered after the
+    /// first snapshot only gets masked if the cache is invalidated.
     #[test]
-    fn job_masker_masks_after_the_job_is_unregistered() {
+    fn snapshot_rebuilds_after_a_new_secret_is_registered() {
         let job_id = Uuid::new_v4();
         register_running_job(job_id);
-        register_secret_for_job(job_id, "supersecretvalue");
+        register_secret_for_job(job_id, "firstsecretvalue");
+        let _ = snapshot(&job_id)
+            .expect("secret registered")
+            .mask("firstsecretvalue");
+
+        register_secret_for_job(job_id, "secondsecretvalue");
+
+        let snap = snapshot(&job_id).expect("secrets registered");
+        let masked = snap.mask("firstsecretvalue then secondsecretvalue");
+        assert!(!masked.contains("firstsecretvalue"), "{masked}");
+        assert!(!masked.contains("secondsecretvalue"), "{masked}");
+        unregister_running_job(job_id);
+    }
+
+    /// A line-by-line sink must not repeat the notice on every line, and must still
+    /// pick up a secret registered after the masker was built.
+    #[test]
+    fn job_masker_notices_once_per_secret_set() {
+        let job_id = Uuid::new_v4();
+        register_running_job(job_id);
+        register_secret_for_job(job_id, "firstsecretvalue");
         let mut masker = JobMasker::new(job_id);
 
-        unregister_running_job(job_id);
+        let first = masker.mask("saw firstsecretvalue").into_owned();
+        assert!(!first.contains("firstsecretvalue"), "{first}");
+        assert!(first.contains(MASKED_NOTICE), "{first}");
 
-        let masked = masker.mask("logged supersecretvalue here");
-        assert!(!masked.contains("supersecretvalue"), "{masked}");
+        let second = masker.mask("saw firstsecretvalue again").into_owned();
+        assert!(!second.contains("firstsecretvalue"), "{second}");
+        assert!(!second.contains(MASKED_NOTICE), "{second}");
+
+        register_secret_for_job(job_id, "secondsecretvalue");
+        let third = masker.mask("saw secondsecretvalue").into_owned();
+        assert!(!third.contains("secondsecretvalue"), "{third}");
+        unregister_running_job(job_id);
     }
 }

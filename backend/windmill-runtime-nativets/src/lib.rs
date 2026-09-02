@@ -712,14 +712,9 @@ pub async fn eval_fetch_timeout(
 
     let conn_ = conn.clone();
     let w_id_ = w_id.to_string();
-    // nativets delivers logs in-process rather than through a child's pipes, so they never
-    // reach the masking in `handle_child::write_lines`. Without this a `console.log` of a
-    // secret, or of the job's own `$WM_TOKEN`, is persisted verbatim.
-    let mut masker = windmill_common::sensitive_log_masks::JobMasker::new(job_id);
     tokio::spawn(async move {
         while let Some(log) = append_logs_receiver.recv().await {
-            let log = masker.mask(&log);
-            windmill_queue::append_logs(&job_id, &w_id_, log.as_ref(), &conn_).await
+            windmill_queue::append_logs(&job_id, &w_id_, log, &conn_).await
         }
     });
 
@@ -798,6 +793,13 @@ pub async fn eval_fetch_timeout(
                 }
             }
             let w_id_for_tracing = w_id_for_tracing;
+            // nativets delivers logs in-process rather than through a child's pipes, so it
+            // never reaches the masking in `handle_child::write_lines` and a `console.log`
+            // of a secret, or of the job's own `$WM_TOKEN`, would be persisted verbatim.
+            // Mask here, on the producing side: this loop is joined before the job
+            // completes, so the job's secrets are always still registered, which is not
+            // true of the detached task that drains into `append_logs`.
+            let mut masker = windmill_common::sensitive_log_masks::JobMasker::new(job_id);
             let handle = tokio::spawn(async move {
                 let mut result_stream = String::new();
                 let mut is_stream = false;
@@ -805,10 +807,14 @@ pub async fn eval_fetch_timeout(
                     use windmill_common::result_stream::extract_stream_from_logs;
                     use windmill_common::tracing_init::{OTEL_JOB_LOGS, OTEL_PREFIX};
 
+                    // Masking is a log concern only, so the result stream below reads the
+                    // raw `log`, the way `handle_child` keeps its raw `line` for results.
+                    let logged = masker.mask(&log).into_owned();
+
                     // Mirror `process_streaming_log_lines` (EE) + the OTEL_JOB_LOGS
                     // hook from handle_child.rs, neither of which runs for nativets
                     // since nativets delivers logs in-process via the log channel.
-                    for line in log.lines() {
+                    for line in logged.lines() {
                         tracing::info!(
                             target: "windmill:job_log",
                             job_id = ?job_id,
@@ -835,7 +841,7 @@ pub async fn eval_fetch_timeout(
                             tracing::error!("failed to send result stream: {e}");
                         }
                     } else {
-                        if let Err(e) = append_logs_sender.send(log) {
+                        if let Err(e) = append_logs_sender.send(logged) {
                             tracing::error!("failed to send log: {e}");
                         }
                     }

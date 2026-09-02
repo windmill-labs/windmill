@@ -62,8 +62,7 @@ async fn test_job_token_masked_in_persisted_logs(db: Pool<Postgres>) -> anyhow::
 
 /// nativets runs V8 in-process and persists `console.log` output through its own
 /// channel, so it is masked by a different mechanism than the bash case above and
-/// needs its own guard. Tagged `deno` because a standalone nativets job defaults to
-/// the `nativets` tag, which the default worker tag set does not advertise.
+/// needs its own guard.
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_job_token_masked_in_nativets_logs(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -84,7 +83,7 @@ async fn test_job_token_masked_in_nativets_logs(db: Pool<Postgres>) -> anyhow::R
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
-        tag: Some("deno".to_string()),
+        tag: None,
     }))
     .run_until_complete(&db, false, port)
     .await;
