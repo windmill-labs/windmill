@@ -84,9 +84,18 @@ export function isWebsearchTool(tool: AgentTool): tool is WebsearchTool {
 
 /** What to call a tool on screen: its summary is the name the model is given, so it is also the
  *  name a reader knows it by. Falls back to whatever else identifies it. */
-export function toolDisplayName(tool: AgentTool): string {
+/** The only input a nested agent used as a tool has the calling agent fill: the rest is its own
+ *  configuration, not something to generate. Mirrors the server, which offers such a tool a schema
+ *  of `{user_message}` and nothing else (`AI_AGENT_TOOL_SCHEMA` in `ai_executor.rs`); anything else
+ *  left AI-filled here is dropped from that schema and never reaches the model. */
+export const AI_AGENT_TOOL_AI_KEYS = ['user_message']
+
+/** What a tool is called wherever it is named: its own name, else what it points at. Never its id,
+ *  which is internal. Undefined when it has nothing to be called yet — an MCP tool with no server
+ *  picked is unnamed rather than misnamed, so each surface words that for itself. */
+export function toolDisplayName(tool: AgentTool): string | undefined {
 	const value = tool.value as Record<string, any>
-	return tool.summary || value?.path || value?.resource_path || tool.id || 'tool'
+	return tool.summary || value?.path || value?.resource_path || undefined
 }
 
 /**

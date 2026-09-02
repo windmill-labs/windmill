@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ChevronRight, Plus, Wrench } from 'lucide-svelte'
+	import { ChevronRight, Plus, Wrench, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { getToolNameError, toolDisplayName } from '../agentToolUtils'
 	import type { AgentTool } from '../agentToolUtils'
@@ -14,6 +14,9 @@
 		onSelectTool?: (toolId: string) => void
 		/** Adds a tool. Without it the empty state only says where to add one. */
 		onAddTool?: (detail: { kind: string; script?: any; flow?: any; inlineScript?: any }) => void
+		/** Removes a tool. Without it the rows carry no delete, as they must not for a linked
+		 *  agent's tools, which belong to the agent rather than to the step showing them. */
+		onDeleteTool?: (toolId: string) => void
 		emptyMessage?: string
 		/** Where the picker's popover belongs, when the roster is not inside the flow editor. */
 		pickerPortal?: string
@@ -23,6 +26,7 @@
 		tools = [],
 		onSelectTool = undefined,
 		onAddTool = undefined,
+		onDeleteTool = undefined,
 		emptyMessage = 'No tools yet. Add one from the agent on the flow graph.',
 		pickerPortal = '#flow-editor'
 	}: Props = $props()
@@ -49,6 +53,14 @@
 	function nameError(tool: AgentTool): string | undefined {
 		if (!isNamed(tool)) return undefined
 		return getToolNameError(tool.summary ?? '', tool.value?.tool_type, siblingNames)
+	}
+
+	/** What to call a tool that has nothing to be called yet. A kind that carries no name says what
+	 *  it is still missing instead; the rest are named by their problem, since the run cannot start
+	 *  without one. There is room here for the full wording the graph node has to abbreviate. */
+	function unnamedLabel(tool: AgentTool): string {
+		if (tool.value?.tool_type === 'mcp') return 'No MCP server selected'
+		return 'Missing tool name'
 	}
 </script>
 
@@ -106,31 +118,48 @@
 		{#each tools as tool (tool.id)}
 			{@const kind = toolKind(tool)}
 			{@const error = nameError(tool)}
-			<button
-				type="button"
-				disabled={!onSelectTool}
-				onclick={() => onSelectTool?.(tool.id)}
-				class="flex flex-row items-center gap-2 px-2 py-1.5 text-left text-xs text-primary
-					enabled:hover:bg-surface-hover disabled:cursor-default"
-			>
-				<Wrench size={13} class="shrink-0 text-tertiary" />
-				<!-- A tool the worker will reject is named by its problem, not by an id no one chose:
-				     the id would read as a name and hide that the run cannot start. -->
-				<span class={twMerge('truncate shrink min-w-0', error && 'text-red-400')}>
-					{error ? tool.summary || 'Missing name' : toolDisplayName(tool)}
-				</span>
-				{#if error && tool.summary}
-					<span class="truncate grow min-w-0 text-2xs text-red-400">{error}</span>
-				{:else}
-					<span class="grow"></span>
+			<!-- The delete sits beside the row rather than inside it: the row is itself a button, and
+			     a button cannot hold another. -->
+			<div class="flex flex-row items-stretch">
+				<button
+					type="button"
+					disabled={!onSelectTool}
+					onclick={() => onSelectTool?.(tool.id)}
+					class="grow min-w-0 flex flex-row items-center gap-2 px-2 py-1.5 text-left text-xs
+						text-primary enabled:hover:bg-surface-hover disabled:cursor-default"
+				>
+					<Wrench size={13} class="shrink-0 text-tertiary" />
+					<!-- A tool the worker will reject is named by its problem, not by an id no one
+					     chose: the id would read as a name and hide that the run cannot start. -->
+					<span class={twMerge('truncate shrink min-w-0', error && 'text-red-400')}>
+						{error
+							? tool.summary || unnamedLabel(tool)
+							: (toolDisplayName(tool) ?? unnamedLabel(tool))}
+					</span>
+					{#if error && tool.summary}
+						<span class="truncate grow min-w-0 text-2xs text-red-400">{error}</span>
+					{:else}
+						<span class="grow"></span>
+					{/if}
+					{#if kind}
+						<span class="text-2xs text-tertiary shrink-0">{kind}</span>
+					{/if}
+					{#if onSelectTool}
+						<ChevronRight size={13} class="shrink-0 text-tertiary" />
+					{/if}
+				</button>
+				{#if onDeleteTool}
+					<Button
+						unifiedSize="2xs"
+						variant="subtle"
+						iconOnly
+						startIcon={{ icon: X }}
+						title="Delete {toolDisplayName(tool) ?? 'this tool'}"
+						wrapperClasses="shrink-0 self-center pr-1"
+						onclick={() => onDeleteTool?.(tool.id)}
+					/>
 				{/if}
-				{#if kind}
-					<span class="text-2xs text-tertiary shrink-0">{kind}</span>
-				{/if}
-				{#if onSelectTool}
-					<ChevronRight size={13} class="shrink-0 text-tertiary" />
-				{/if}
-			</button>
+			</div>
 		{/each}
 	</div>
 	{#if onAddTool}

@@ -4,11 +4,12 @@
 	import type { InputTransform, ScriptLang } from '$lib/gen'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import { Wrench } from 'lucide-svelte'
+	import { ChevronDown, ChevronRight, Wrench } from 'lucide-svelte'
 	import type { PickableProperties } from '../previousResults'
 	import {
 		agentToolToFlowModule,
 		isFlowModuleTool,
+		AI_AGENT_TOOL_AI_KEYS,
 		type AgentTool,
 		type FlowModuleTool
 	} from '../agentToolUtils'
@@ -129,14 +130,41 @@
 		const v = tool.value as { type?: string; language?: ScriptLang; content?: string }
 		return v.type === 'rawscript' && v.content ? v : undefined
 	}
+
+	/** How many of this tool's inputs this flow binds. `toolInputs` holds the diff from the
+	 *  resource, so its size is the count. */
+	function overrideCount(tool: FlowModuleTool): number {
+		return Object.keys(toolInputs?.[tool.id] ?? {}).length
+	}
+
+	// Which sections the reader opened or closed. Absent means the default below, so a tool that
+	// gains an override while untouched still opens on its own.
+	let toggled = $state<Record<string, boolean>>({})
+	/** Open where there is something to see: a tool this flow binds. The rest are the agent's own
+	 *  business, and a linked agent's roster is mostly that. */
+	function isOpen(tool: FlowModuleTool): boolean {
+		return toggled[tool.id] ?? overrideCount(tool) > 0
+	}
 </script>
 
 {#if flowTools.length > 0}
 	<div class="flex flex-col gap-2 px-2 pb-8 xl:px-4">
 		{#each flowTools as tool (tool.id)}
 			{@const code = toolCode(tool)}
+			{@const open = isOpen(tool)}
 			<div class="rounded-md border border-light">
-				<div class="flex items-center gap-1.5 border-b border-light px-3 py-1.5 text-xs">
+				<button
+					type="button"
+					aria-expanded={open}
+					onclick={() => (toggled[tool.id] = !open)}
+					class="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs
+						hover:bg-surface-hover {open ? 'border-b border-light' : ''}"
+				>
+					{#if open}
+						<ChevronDown size={14} class="shrink-0 text-tertiary" />
+					{:else}
+						<ChevronRight size={14} class="shrink-0 text-tertiary" />
+					{/if}
 					<Wrench size={14} class="shrink-0 text-tertiary" />
 					<span class="font-medium">{tool.summary || tool.id}</span>
 					{#if tool.description}
@@ -144,8 +172,10 @@
 							>{tool.description}</span
 						>
 					{/if}
-				</div>
-				{#if schemas[tool.id] !== undefined && localArgs[tool.id] !== undefined}
+				</button>
+				{#if !open}
+					<!-- collapsed: the agent's own inputs, nothing this flow has changed -->
+				{:else if schemas[tool.id] !== undefined && localArgs[tool.id] !== undefined}
 					<InputTransformSchemaForm
 						class="px-3 pt-1"
 						schema={schemas[tool.id]}
@@ -153,6 +183,9 @@
 						{extraLib}
 						{workspace}
 						isAgentTool
+						allowedAiTransforms={(tool.value as { type?: string }).type === 'aiagent'
+							? AI_AGENT_TOOL_AI_KEYS
+							: undefined}
 						bind:args={
 							() => localArgs[tool.id],
 							(v) => {
@@ -163,7 +196,7 @@
 				{:else}
 					<div class="px-3 py-2 text-2xs text-tertiary">Loading inputs...</div>
 				{/if}
-				{#if code}
+				{#if open && code}
 					<details class="border-t border-light">
 						<summary class="cursor-pointer px-3 py-1.5 text-2xs font-medium text-tertiary">
 							Tool code (read-only)
