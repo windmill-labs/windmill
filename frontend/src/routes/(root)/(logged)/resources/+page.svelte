@@ -79,6 +79,7 @@
 	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
 	import AgentEditorModal from '$lib/components/flows/content/AgentEditorModal.svelte'
 	import { openAgentEditor } from '$lib/components/flows/agentEditorStore.svelte'
+	import { copilotInfo } from '$lib/aiStore'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import ExploreAssetButton, {
 		assetCanBeExplored
@@ -1295,6 +1296,27 @@
 																	openResourceEditor(path, resource_type)
 																}
 															},
+															// The agent form covers an agent's configuration, not everything a
+															// resource carries: the workspace-specific toggle in particular is
+															// only in the generic form, which manages a draft per target
+															// workspace. Both write the same draft row, so this is a second view
+															// of the same edits rather than a second place to make them.
+															...(resource_type === 'ai_agent'
+																? [
+																		{
+																			displayName: 'Edit as resource',
+																			icon: Pen,
+																			disabled: !canWrite || !showCreateButtons,
+																			action: () => {
+																				// The drawer anchors itself in the hash, which the deep-link
+																				// effect would then read and route back to the agent editor.
+																				// Claim it first, as the row's own link does.
+																				handledHash = `#/resource/${path}`
+																				resourceEditor?.initEdit?.(path)
+																			}
+																		}
+																	]
+																: []),
 															...(!ws_specific && isDeployable('resource', path, deployUiSettings)
 																? [
 																		{
@@ -1494,4 +1516,6 @@
 	}}
 />
 
-<AgentEditorModal />
+<!-- Same capabilities as from a flow step: the editor is the same one, so which surface opened it
+     must not decide whether its tools can be written with the copilot. -->
+<AgentEditorModal enableAi={$copilotInfo.enabled} />
