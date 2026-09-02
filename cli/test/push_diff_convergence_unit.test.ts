@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import JSZip from "jszip";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import {
+  checkoutInlineNames,
   compareDynFSElement,
   ZipFSElement,
 } from "../src/commands/sync/sync.ts";
@@ -280,4 +281,18 @@ test("push: a checkout name that collides with another step's summary-derived na
     "deleted f/mail/flow_v2.flow/process_mail.inline_script.py",
     "deleted f/mail/flow_v2.flow/process_one_mail_end-to-end_(spam_check,_classify).inline_script.py",
   ]);
+});
+
+test("push: checkout inline names stay inside the flow folder", async () => {
+  const flowYaml = join(process.cwd(), "flow.yaml");
+  writeFileSync(
+    flowYaml,
+    `summary: x\nvalue:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        content: '!inline a.inline_script.py'\n        language: python3\n    - id: b\n      value:\n        type: rawscript\n        content: '!inline ../shared/b.py'\n        language: python3\n    - id: c\n      value:\n        type: rawscript\n        content: '!inline /tmp/c.py'\n        language: python3\n`,
+  );
+  expect(await checkoutInlineNames(flowYaml)).toEqual({
+    a: "a.inline_script.py",
+  });
+  expect(
+    await checkoutInlineNames(join(process.cwd(), "missing.yaml")),
+  ).toEqual({});
 });

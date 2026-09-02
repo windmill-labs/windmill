@@ -129,6 +129,14 @@ export async function pushSchedule(
   // flag stays as it is. A schedule the fork does not have yet is created as
   // the file says, there being no fork state to keep.
   if (enabledOwnedByParent && schedule) {
+    if (
+      localSchedule.enabled !== undefined &&
+      localSchedule.enabled !== schedule.enabled
+    ) {
+      log.warnAlways(
+        `Schedule ${path} stays ${schedule.enabled ? "enabled" : "disabled"}: the file says ${localSchedule.enabled ? "enabled" : "disabled"}, but in a fork that flag is the parent workspace's`
+      );
+    }
     delete localSchedule.enabled;
   }
 
@@ -189,7 +197,7 @@ export async function pushSchedule(
           if (!conflict) {
             throw e;
           }
-          log.warn(
+          log.warnAlways(
             `Schedule ${path} left ${schedule.enabled ? "enabled" : "disabled"}: the parent workspace '${conflict.parentWorkspaceId}' has the same schedule, so its flag is the parent's to set`
           );
         }

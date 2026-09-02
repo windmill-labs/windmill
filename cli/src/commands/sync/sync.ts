@@ -4582,6 +4582,34 @@ async function checkServerLockJobs(
   }
 }
 
+// The checkout's `!inline` references of one flow (module id -> file), as
+// `ZipFSElement`'s `localFlowInlineMapping` names the remote render. Empty
+// when the flow has no local flow.yaml.
+export async function checkoutInlineNames(
+  flowYamlPath: string,
+): Promise<Record<string, string>> {
+  let flow: any;
+  try {
+    flow = await yamlParseFile(flowYamlPath);
+  } catch {
+    return {};
+  }
+  const mapping = extractCurrentMapping(
+    flow?.value?.modules,
+    {},
+    flow?.value?.failure_module,
+    flow?.value?.preprocessor_module,
+  );
+  // A reference that leaves the flow folder would render the remote step
+  // onto another item's path; such a step keeps its summary-derived name.
+  for (const [id, ref] of Object.entries(mapping)) {
+    if (path.isAbsolute(ref) || ref.split(/[\\/]/).includes("..")) {
+      delete mapping[id];
+    }
+  }
+  return mapping;
+}
+
 // A fork clones every schedule disabled and the backend refuses to enable one
 // whose path the parent also has (`fork-conflict:schedule`), while for those
 // paths a fork's export writes the *parent's* `enabled` into the file. So on a
@@ -4791,22 +4819,8 @@ export async function push(
   }
 
   // See ZipFSElement's `localFlowInlineMapping`.
-  const localFlowInlineMapping = async (
-    flowDir: string,
-  ): Promise<Record<string, string>> => {
-    let flow: any;
-    try {
-      flow = await yamlParseFile(path.join(process.cwd(), flowDir, "flow.yaml"));
-    } catch {
-      return {};
-    }
-    return extractCurrentMapping(
-      flow?.value?.modules,
-      {},
-      flow?.value?.failure_module,
-      flow?.value?.preprocessor_module,
-    );
-  };
+  const localFlowInlineMapping = (flowDir: string) =>
+    checkoutInlineNames(path.join(process.cwd(), flowDir, "flow.yaml"));
 
   const remote = ZipFSElement(
     (await downloadZip(
