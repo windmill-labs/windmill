@@ -41,7 +41,10 @@
 		lastWritten = JSON.stringify([scopes, options])
 	}
 
-	// Ticking an option absorbs a free-text row holding the same value.
+	// Ticking an option absorbs a free-text row holding the same value. The
+	// target state comes from `ticked`, not the DOM: `Checkbox` re-asserts its
+	// `checked` prop on every click, so the input already reads the old value
+	// again by the time `change` fires.
 	function toggle(option: string, on: boolean) {
 		const rest = ticked.filter((o) => o != option)
 		write(on ? [...rest, option] : rest, on ? custom.filter((r) => r != option) : custom)
@@ -60,7 +63,7 @@
 			<label class="flex items-center gap-2 text-xs">
 				<Checkbox
 					checked={ticked.includes(option)}
-					onChange={(e) => toggle(option, e.currentTarget.checked)}
+					onChange={() => toggle(option, !ticked.includes(option))}
 				/>
 				<span class="font-mono break-all">{option}</span>
 			</label>
