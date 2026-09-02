@@ -48,6 +48,12 @@ export interface Referrer {
 	path: string
 	/** Present for triggers: which kind's table it lives in. */
 	triggerKind?: WorkspaceTriggerKind
+	/**
+	 * Present for triggers: the row the scan read, which is also what the write sends back.
+	 * Re-reading it costs another listing of the whole kind per trigger — and for schedules a
+	 * listing plus a detail fetch per row, since `list` resolves each one.
+	 */
+	row?: Record<string, any>
 }
 
 /** Something the scan could not account for. `path` names an item, or a listing standing in
@@ -222,7 +228,7 @@ export async function planRetarget(
 				})
 				continue
 			}
-			referrers.push({ kind: 'trigger', path: String(t.path), triggerKind: kind })
+			referrers.push({ kind: 'trigger', path: String(t.path), triggerKind: kind, row: t })
 		}
 	}
 
@@ -464,9 +470,7 @@ async function rewriteTrigger(
 	map: Map<string, string>
 ): Promise<boolean> {
 	const def = TRIGGER_KINDS[r.triggerKind!]
-	const rows = await def.list(workspace)
-	const row: any = rows.find((t) => t.path === r.path)
-	if (!row) throw new Error(`trigger ${r.path} is no longer there`)
+	const row: any = r.row ?? {}
 	const { enabled: _enabled, ...rest } = {
 		...(rewriteTriggerConfig(row, map) as any),
 		path: r.path,

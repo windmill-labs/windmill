@@ -12,6 +12,7 @@ const state = vi.hoisted(() => ({
 	scripts: [] as any[],
 	triggers: [] as any[],
 	scheduleListError: undefined as any,
+	failingTriggerPath: undefined as string | undefined,
 	deletedResources: [] as string[],
 	updatedRawApps: [] as any[],
 	updatedTriggers: [] as any[]
@@ -53,9 +54,10 @@ vi.mock('$lib/components/triggers/workspaceTriggersList', () => ({
 		postgres: {
 			badge: 'Postgres',
 			list: vi.fn(async () => state.triggers),
-			update: vi.fn(async (_w: string, path: string, body: any) =>
+			update: vi.fn(async (_w: string, path: string, body: any) => {
+				if (path === state.failingTriggerPath) throw new Error('the update was rejected')
 				state.updatedTriggers.push({ path, body })
-			)
+			})
 		}
 	},
 	WORKSPACE_TRIGGER_KINDS: ['schedule', 'postgres'],
@@ -103,6 +105,7 @@ describe('applyRetarget', () => {
 		state.scripts = []
 		state.triggers = []
 		state.scheduleListError = undefined
+		state.failingTriggerPath = undefined
 		state.deletedResources = []
 		state.updatedRawApps = []
 		state.updatedTriggers = []
@@ -129,14 +132,38 @@ describe('applyRetarget', () => {
 	it('finds a trigger that holds the resource as a bare path', async () => {
 		state.apps = []
 		state.triggers = [
-			{ path: 'f/proj/ingest', script_path: 'f/proj/run', postgres_resource_path: FROM }
+			{
+				path: 'f/proj/ingest',
+				script_path: 'f/proj/run',
+				postgres_resource_path: FROM,
+				enabled: true
+			}
 		]
 		const outcome = await run()
 		expect(outcome.error).toBeUndefined()
 		expect(state.updatedTriggers[0].body.postgres_resource_path).toBe(TO)
 		// The trigger keeps its own path even though it was the string being remapped.
 		expect(state.updatedTriggers[0].path).toBe('f/proj/ingest')
+		// Pointing a trigger at a credential must not also start it: `enabled` is left out so
+		// the backend keeps whatever the trigger is set to.
+		expect(state.updatedTriggers[0].body).not.toHaveProperty('enabled')
 		expect(state.deletedResources).toEqual([FROM])
+	})
+
+	// The stub is what a reference this run did not move still resolves through, so a write
+	// that fails partway must not take it: the moved items and the rest both keep working.
+	it('keeps the stub when a write fails, and reports what had already moved', async () => {
+		state.apps = []
+		state.triggers = [
+			{ path: 'f/proj/first', postgres_resource_path: FROM },
+			{ path: 'f/proj/second', postgres_resource_path: FROM }
+		]
+		state.failingTriggerPath = 'f/proj/second'
+		const outcome = await run()
+		expect(outcome.error).toContain('the update was rejected')
+		expect(outcome.rewritten.map((r) => r.path)).toEqual(['f/proj/first'])
+		expect(outcome.stubDeleted).toBe(false)
+		expect(state.deletedResources).toEqual([])
 	})
 
 	// Most trigger kinds are cargo features an instance may not compile in, and their routes
