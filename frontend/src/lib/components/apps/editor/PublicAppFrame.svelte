@@ -208,11 +208,12 @@
 	// ---------------------------- embedder mode ----------------------------
 	type FrameStatus = 'loading' | 'ready' | 'noPermission' | 'notExists' | 'sdkPrompt'
 	let status = $state<FrameStatus>('loading')
-	/** Set once a sign-in completed on this page. A second `noPermission` after that
-	 * is not something signing in again can fix — an identity that already has an
-	 * account is never given a guest session, so an account holder who is not a
-	 * member of this workspace lands here. */
-	let signedInHere = $state(false)
+	/** Whether the visitor holds an account session, probed whenever the app denies
+	 * them: `/api/users/email` answers for an account and never for a guest (pinned
+	 * to its workspace) or for nobody. An account this app still refuses is not
+	 * something signing in again can fix — an identity with an account is never given
+	 * a guest session — so the card gives way to an explanation. */
+	let accountSession = $state<'unknown' | 'none' | 'held'>('unknown')
 	let deniedStatus: number | undefined = $state(undefined)
 	/** The sign-in card belongs on a 401, and on a 403 unless discovery has settled
 	 * that the app is not open to guests — a 403 on a guest app is a session for a
@@ -223,7 +224,14 @@
 		status === 'noPermission' ||
 			(status === 'notExists' && deniedStatus === 403 && guestEntry !== 'none')
 	)
-	let signInDidNotHelp = $derived(offerSignIn && signedInHere)
+	let signInDidNotHelp = $derived(offerSignIn && accountSession === 'held')
+	$effect(() => {
+		if (offerSignIn && accountSession === 'unknown') {
+			UserService.getCurrentEmail()
+				.then(() => (accountSession = 'held'))
+				.catch(() => (accountSession = 'none'))
+		}
+	})
 
 	// The stale guest session must be gone before the card mounts: it still
 	// authenticates in this workspace, so the popup's success poll would see it and
@@ -577,7 +585,7 @@
 		onContinue={onSdkConsentContinue}
 		onDecline={onSdkConsentDecline}
 	/>
-{:else if offerSignIn && (guestEntry === 'pending' || (deniedStatus === 403 && guestEntry === 'guest' && !staleGuestCleared && !staleGuestLogoutFailed))}
+{:else if offerSignIn && (guestEntry === 'pending' || accountSession === 'unknown' || (deniedStatus === 403 && guestEntry === 'guest' && !staleGuestCleared && !staleGuestLogoutFailed))}
 	<Skeleton layout={[[4], 0.5, [50]]} />
 {:else if offerSignIn && (guestEntry === 'error' || staleGuestLogoutFailed)}
 	<div class="px-4 mt-20">
@@ -595,8 +603,9 @@
 			You are signed in, but this app is not open to you
 		</div>
 		<div class="text-center mt-8 text-sm text-primary">
-			It is open to members of its workspace, and to guests who have no Windmill account. Ask the
-			person who shared it to give your account access.
+			It is open to members of its workspace{guestAppPath
+				? ', and to guests who have no Windmill account'
+				: ''}. Ask the person who shared it to give your account access.
 		</div>
 	{:else}
 		{#if guestAppPath}
@@ -612,7 +621,7 @@
 		<div class="px-2 mx-auto mt-20 max-w-xl w-full">
 			<Login
 				onLoginSuccess={() => {
-					signedInHere = true
+					accountSession = 'unknown'
 					initEmbedder()
 				}}
 				popup

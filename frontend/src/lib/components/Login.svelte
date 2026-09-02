@@ -404,9 +404,7 @@
 		if (autoRedirect && autoLogin && !error && !shouldSkipAutoRedirect()) {
 			if (autoLogin === 'saml' && saml) {
 				autoRedirecting = true
-				redirectSaml().then((ok) => {
-					if (!ok) autoRedirecting = false
-				})
+				if (!redirectSaml()) autoRedirecting = false
 			} else if (logins?.some((l) => l.type === autoLogin)) {
 				autoRedirecting = true
 				if (!storeRedirect(autoLogin)) {
@@ -614,46 +612,13 @@
 		}, 1500)
 	}
 
-	/** Have the server write the guest-entry cookie, as the OAuth `login` handler does
-	 * on its own path. SAML goes straight to the IdP and never passes through `login`,
-	 * and a browser-set cookie would be host-only — on a `COOKIE_DOMAIN` deployment
-	 * whose ACS answers on a sibling host it would never arrive. Server-set, it carries
-	 * the same attributes as every other session cookie. Cleared (empty) when this
-	 * sign-in is not a guest entry. `login_externally` consumes it. */
-	async function setGuestAppCookie(value: string | undefined): Promise<boolean> {
-		try {
-			const res = await fetch(`${base}/api/oauth/guest_app`, {
-				method: 'POST',
-				credentials: 'include',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ guest_app: value ?? '' })
-			})
-			return res.ok
-		} catch (e) {
-			console.error('Could not set the guest app cookie', e)
-			return false
-		}
-	}
-
-	async function redirectSaml(): Promise<boolean> {
+	function redirectSaml(): boolean {
 		if (!saml) {
 			sendUserToast('No SAML login available', true)
 			return false
 		}
 		if (previewConfig) return true
 		markLoginMethodPending({ kind: 'saml' })
-		// SAML goes straight to the IdP and never passes through
-		// `/api/oauth/login/<client>`, where the OAuth path has the server write the
-		// guest-entry cookie; ask for the same write here. With a guest target it must
-		// have landed before we leave — without it the callback provisions an account —
-		// so that failure is a stop. Without one this is only a clear, and the callback
-		// clears on consume anyway: an ordinary SAML sign-in must not depend on it.
-		const wrote = await setGuestAppCookie(guestApp)
-		if (guestApp && !wrote) {
-			clearPendingLoginMethod()
-			sendUserToast('Could not start sign-in, please try again.', true)
-			return false
-		}
 		let target = saml
 		let relayStateSet = false
 		// Carry the SP-initiated deep link through the IdP round-trip via SAML
@@ -662,7 +627,17 @@
 		// full URLs (e.g. the page URL from /a/[...path]) are reduced to their
 		// path component first. The backend re-validates. Cross-origin or
 		// otherwise unsafe values fall through to the localStorage fallback.
-		const safePath = toSameOriginRelativePath(rd)
+		// A guest entry rides in the same RelayState as a `guest_app` query parameter
+		// the ACS lifts out: SAML never passes through `/api/oauth/login/<client>`,
+		// where the OAuth path hands its target to the server.
+		let safePath = toSameOriginRelativePath(rd)
+		if (guestApp && safePath) {
+			const hashAt = safePath.indexOf('#')
+			const pathAndQuery = hashAt === -1 ? safePath : safePath.slice(0, hashAt)
+			const hash = hashAt === -1 ? '' : safePath.slice(hashAt)
+			const sep = pathAndQuery.includes('?') ? '&' : '?'
+			safePath = `${pathAndQuery}${sep}guest_app=${encodeURIComponent(guestApp)}${hash}`
+		}
 		if (safePath) {
 			try {
 				const url = new URL(saml)
@@ -672,6 +647,13 @@
 			} catch (e) {
 				console.error('Could not set SAML RelayState', e)
 			}
+		}
+		if (guestApp && !relayStateSet) {
+			// Without the target the callback provisions an account, so a guest
+			// sign-in that cannot carry it does not start.
+			clearPendingLoginMethod()
+			sendUserToast('Could not start sign-in, please try again.', true)
+			return false
 		}
 		// Only use the localStorage fallback when RelayState is NOT carrying the
 		// deep link. With RelayState the ACS redirects straight to the target and
