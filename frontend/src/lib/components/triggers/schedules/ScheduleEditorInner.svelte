@@ -21,6 +21,7 @@
 	import {
 		FlowService,
 		ScheduleService,
+		type ScheduleOccurrence,
 		type Script,
 		ScriptService,
 		type Flow,
@@ -33,6 +34,7 @@
 	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
 	import { base } from '$lib/base'
 	import Section from '$lib/components/Section.svelte'
+	import { displayDate } from '$lib/utils'
 	import { List, Loader2, Save, AlertTriangle } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
 	import TriggerEditorToolbar from '$lib/components/triggers/TriggerEditorToolbar.svelte'
@@ -119,6 +121,7 @@
 	let path: string = $state('')
 	let enabled: boolean = $state(false)
 	let pathError = $state('')
+	let occurrences: ScheduleOccurrence[] = $state([])
 	let summary = $state('')
 	let labels: string[] | undefined = $state(undefined)
 	let description = $state('')
@@ -158,6 +161,26 @@
 		deployed: () => initialConfig
 	})
 
+	// Diagnostics rather than form state, so a failure here must not block the editor.
+	async function loadOccurrences(schedulePath: string) {
+		occurrences = []
+		try {
+			occurrences = await ScheduleService.listScheduleOccurrences({
+				workspace: wsId!,
+				path: schedulePath
+			})
+		} catch (err) {
+			console.error('could not load the occurrences of schedule', schedulePath, err)
+		}
+	}
+
+	function formatMs(ms: number | undefined): string {
+		if (ms == undefined) {
+			return '-'
+		}
+		return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
+	}
+
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
@@ -178,6 +201,9 @@
 			const { overlay: draftOverlay, noDeployed } = await loadSchedule(defaultCfg)
 			// Draft-only schedules have no deployed row, so saving must CREATE (update 404s).
 			edit = !noDeployed
+			if (edit) {
+				loadOccurrences(ePath)
+			}
 			if (!defaultCfg) {
 				// Form holds DEPLOYED here; capture it as `initialConfig` so the
 				// dirty check / banner fires whenever a saved draft exists.
@@ -334,6 +360,7 @@
 			drawer?.openDrawer()
 			runnable = undefined
 			edit = false
+			occurrences = []
 			// No deployed baseline for a brand-new schedule. The editor instance
 			// is reused across open() calls, so clear any baseline left by a prior
 			// openEdit — otherwise the "unsaved changes" banner / dirty check would
@@ -935,6 +962,45 @@
 					</div>
 				</div>
 			</Section>
+
+			{#if edit && occurrences.length > 0}
+				<Section label="Recent occurrences">
+					{#snippet header()}
+						<Tooltip>
+							An occurrence is skipped when the run before it finishes after that occurrence was
+							already due. A long wait means not enough workers; a long run means the job outgrew
+							its interval.
+						</Tooltip>
+					{/snippet}
+					<div class="flex flex-col gap-1 text-xs">
+						<div class="flex gap-4 text-secondary font-semibold">
+							<div class="w-40">Due</div>
+							<div class="w-16 text-right">Waited</div>
+							<div class="w-16 text-right">Ran for</div>
+							<div class="grow"></div>
+						</div>
+						{#each occurrences as occurrence (occurrence.job_id)}
+							<div class="flex gap-4 items-baseline">
+								<div class="w-40 text-secondary">
+									{displayDate(occurrence.scheduled_for, true)}
+								</div>
+								<div class="w-16 text-right">{formatMs(occurrence.wait_ms)}</div>
+								<div class="w-16 text-right">{formatMs(occurrence.duration_ms)}</div>
+								<div class="grow">
+									{#if occurrence.status == undefined}
+										<span class="text-secondary">still running</span>
+									{:else if occurrence.skipped_after}
+										<span class="text-yellow-600">
+											skipped {occurrence.skipped_after}{occurrence.skipped_after_capped ? '+' : ''}
+											occurrences
+										</span>
+									{/if}
+								</div>
+							</div>
+						{/each}
+					</div>
+				</Section>
+			{/if}
 
 			<Section label="Runnable">
 				{#if !hideTarget}
