@@ -13,10 +13,12 @@
 
 	let { scopes = $bindable(), options = [] }: Props = $props()
 
-	// Free-text rows are kept apart from `scopes` (the only value the parent
-	// binds) so a row survives while its text transiently equals an option, e.g.
-	// typing `…/calendar` on the way to `…/calendar.acls`. `lastWritten` tells a
-	// parent-side reset apart from the echo of our own write.
+	// Ticked options and free-text rows are kept apart from `scopes` (the only
+	// value the parent binds) so a row can pass through an option's exact value
+	// while typing (`…/calendar` on the way to `…/calendar.acls`) without ticking
+	// or unticking anything. `lastWritten` tells a parent-side reset apart from
+	// the echo of our own write.
+	let ticked: string[] = $state([])
 	let custom: string[] = $state([])
 	let lastWritten: string | undefined = undefined
 
@@ -27,31 +29,28 @@
 		const json = JSON.stringify([scopes, options])
 		if (json != lastWritten) {
 			lastWritten = json
+			ticked = scopes.filter((v) => options.includes(v))
 			custom = scopes.filter((v) => !options.includes(v))
 		}
 	})
 
-	// Options ticked by checkbox, excluding values a free-text row currently holds.
-	function checkedOptions(): string[] {
-		return (scopes ?? []).filter((v) => options.includes(v) && !custom.includes(v))
-	}
-
-	function write(checked: string[], rows: string[]) {
+	function write(nextTicked: string[], rows: string[]) {
+		ticked = nextTicked
 		custom = rows
-		scopes = [...checked.filter((o) => !rows.includes(o)), ...rows]
+		scopes = [...nextTicked.filter((o) => !rows.includes(o)), ...rows]
 		lastWritten = JSON.stringify([scopes, options])
 	}
 
 	// Ticking an option absorbs a free-text row holding the same value.
 	function toggle(option: string, on: boolean) {
-		const rest = checkedOptions().filter((o) => o != option)
+		const rest = ticked.filter((o) => o != option)
 		write(on ? [...rest, option] : rest, on ? custom.filter((r) => r != option) : custom)
 	}
 
 	function setRow(i: number, value: string) {
 		const rows = [...custom]
 		rows[i] = value
-		write(checkedOptions(), rows)
+		write(ticked, rows)
 	}
 </script>
 
@@ -60,7 +59,7 @@
 		{#each options as option (option)}
 			<label class="flex items-center gap-2 text-xs">
 				<Checkbox
-					checked={checkedOptions().includes(option)}
+					checked={ticked.includes(option)}
 					onChange={(e) => toggle(option, e.currentTarget.checked)}
 				/>
 				<span class="font-mono break-all">{option}</span>
@@ -83,7 +82,7 @@
 			btnClasses="mx-6"
 			onclick={() => {
 				write(
-					checkedOptions(),
+					ticked,
 					custom.filter((_, j) => j != i)
 				)
 			}}
@@ -99,7 +98,7 @@
 		unifiedSize="sm"
 		startIcon={{ icon: Plus }}
 		onclick={() => {
-			write(checkedOptions(), [...custom, ''])
+			write(ticked, [...custom, ''])
 		}}
 	>
 		Add item
