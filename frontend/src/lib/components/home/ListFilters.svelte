@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Folder, User } from 'lucide-svelte'
 	import { Badge } from '../common'
+	import type { BadgeColor, BadgeIconProps } from '../common/badge/model'
 	import { appIconComponent } from '../icons'
 	import { onDestroy, onMount } from 'svelte'
 
@@ -14,6 +15,11 @@
 		// Keep only the first N filters visible, the rest behind a "…" toggle. Unset
 		// shows every one.
 		maxDisplayed?: number
+		// Chip look. `icon` is drawn before every chip; unset, the icon follows the value
+		// (user/folder prefix, or the app icon under `resourceType`).
+		color?: BadgeColor
+		small?: boolean
+		icon?: BadgeIconProps['icon']
 	}
 
 	let {
@@ -23,7 +29,10 @@
 		queryName = 'filter',
 		syncQuery = false,
 		bottomMargin = true,
-		maxDisplayed
+		maxDisplayed,
+		color = 'transparent',
+		small = false,
+		icon
 	}: Props = $props()
 
 	const queryChange: (value: URL) => void = (url: URL) => {
@@ -100,12 +109,16 @@
 							setQuery(new URL(window.location.href), queryName, undefined)
 						}
 					}}
-					color={'transparent'}
+					{color}
+					{small}
 					clickable
 					selected={filter === selectedFilter}
 				>
 					<span style="height: 12px" class="-mt-0.5">
-						{#if resourceType}
+						{#if icon}
+							{@const Icon = icon}
+							<Icon class="mr-0.5" size={12} />
+						{:else if resourceType}
 							{@const SvelteComponent = appIconComponent(filter)}
 							<SvelteComponent height="14px" width="14px" />
 						{:else if filter.startsWith('u/')}
@@ -123,7 +136,8 @@
 			<div>
 				<Badge
 					class="inline-flex items-center gap-1 align-middle"
-					color={'transparent'}
+					{color}
+					{small}
 					clickable
 					title={expanded ? 'Show fewer' : `Show ${hiddenCount} more`}
 					onclick={() => (expanded = !expanded)}

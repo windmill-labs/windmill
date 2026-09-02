@@ -1,7 +1,7 @@
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { PIPELINE_DRAFT_KIND, pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
-	import { Badge, Button, Skeleton } from '$lib/components/common'
+	import { Button, Skeleton } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
 		AssetService,
@@ -724,9 +724,15 @@
 	// the single derived source. Empty string reads as "no filter".
 	let ownerFilter = $derived((filterValues.val.owner || undefined) as string | undefined)
 	let labelFilter = $derived((filterValues.val.label || undefined) as string | undefined)
+	// Chip-row setters. Clearing deletes the key rather than writing null, which the
+	// searchbar would otherwise render as a `key: null` tag.
 	function setOwnerFilter(o: string | undefined) {
 		if (o == undefined) delete filterValues.val.owner
 		else filterValues.val.owner = o
+	}
+	function setLabelFilter(l: string | undefined) {
+		if (l == undefined) delete filterValues.val.label
+		else filterValues.val.label = l
 	}
 
 	const cmp = new Intl.Collator('en').compare
@@ -1163,13 +1169,6 @@
 	}
 	let allLabels = $derived(
 		Array.from(new Set(combinedItems?.flatMap((x) => itemLabels(x)) ?? [])).sort()
-	)
-	// Label chips under the header: every label the loaded rows carry, plus the active one
-	// when it arrived by URL and no loaded row carries it, so there is still a chip to clear it.
-	let labelChips = $derived(
-		labelFilter != undefined && !allLabels.includes(labelFilter)
-			? [labelFilter, ...allLabels]
-			: allLabels
 	)
 	// FilterSearchbar presets: the owner prefixes and labels the list actually holds, so
 	// scoping to one is a click in the searchbar dropdown.
@@ -1757,10 +1756,10 @@
 		</div>
 	</div>
 	{#if !contentActive}
-		<!-- Owner chips. The function binding routes the chip's selection into the searchbar's
-		     `owner` key, and `queryName` points ListFilters' own mount-time URL read at the same
-		     `?owner=` param the filter instance syncs, so both writers agree from the first paint.
-		     No `syncQuery`: the filter instance owns the URL. -->
+		<!-- Owner and label chip rows. Each function binding routes the chip's selection into
+		     the searchbar key of the same name, and `queryName` points ListFilters' own
+		     mount-time URL read at the param the filter instance syncs, so both writers agree
+		     from the first paint. No `syncQuery`: the filter instance owns the URL. -->
 		<ListFilters
 			bind:selectedFilter={() => ownerFilter, setOwnerFilter}
 			filters={owners}
@@ -1768,31 +1767,16 @@
 			maxDisplayed={20}
 			bottomMargin={false}
 		/>
-	{/if}
-	{#if !contentActive && labelChips.length > 0}
-		<!-- A chip writes the searchbar's `label` key, so chip, searchbar tag and URL are one
-		     state; clicking the selected chip clears it (delete, so no `label: null` tag). -->
-		<div class="gap-1.5 w-full flex flex-wrap mt-2">
-			{#each labelChips as label (label)}
-				<Badge
-					color="blue"
-					small
-					clickable
-					selected={label === labelFilter}
-					title="Label: {label}"
-					onclick={() => {
-						if (labelFilter === label) {
-							delete filterValues.val.label
-						} else {
-							filterValues.val.label = label
-						}
-					}}
-				>
-					<Tag size={10} class="inline -mt-px" />{label}
-					{#if label === labelFilter}&cross;{/if}
-				</Badge>
-			{/each}
-		</div>
+		<ListFilters
+			bind:selectedFilter={() => labelFilter, setLabelFilter}
+			filters={allLabels}
+			queryName="label"
+			maxDisplayed={20}
+			bottomMargin={false}
+			color="blue"
+			small
+			icon={Tag}
+		/>
 	{/if}
 	{#if filteredItems?.length == 0}
 		<div class="mt-10"></div>
