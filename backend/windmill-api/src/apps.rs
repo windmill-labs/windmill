@@ -365,10 +365,10 @@ pub fn authorize_non_member_viewer(
     Ok(false)
 }
 
-/// The caller an app-scoped operation proceeds with, once the app's mode is known. A
-/// guest session names one app: on an anonymous app a mismatch means "act as anyone",
-/// on any other it is the refusal the page answers with a fresh sign-in. Non-guest
-/// scoped callers are confined at the top of each handler instead, before any read.
+/// Confines a guest to its app once the app's mode is known; a no-op for every other
+/// caller. An anonymous app is open to anyone, so the guest stays the caller there,
+/// as itself: the run and the reads that follow it (job results, S3 provenance) must
+/// carry one identity. Anywhere else a mismatch is refused.
 fn guest_caller_for_mode(
     opt_authed: Option<ApiAuthed>,
     mode: ExecutionMode,
@@ -377,16 +377,14 @@ fn guest_caller_for_mode(
     let Some(authed) = opt_authed.as_ref() else {
         return Ok(None);
     };
-    if !windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref()) {
+    if !windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref())
+        || matches!(mode, ExecutionMode::Anonymous)
+    {
         return Ok(opt_authed);
     }
-    match check_scopes(authed, || format!("apps:run:{app_path}"))
-        .or_else(|_| check_scopes(authed, || format!("apps:read:{app_path}")))
-    {
-        Ok(()) => Ok(opt_authed),
-        Err(_) if matches!(mode, ExecutionMode::Anonymous) => Ok(None),
-        Err(e) => Err(e),
-    }
+    check_scopes(authed, || format!("apps:run:{app_path}"))
+        .or_else(|_| check_scopes(authed, || format!("apps:read:{app_path}")))?;
+    Ok(opt_authed)
 }
 
 /// [`authorize_non_member_viewer`] plus the member read-access probe, for the
@@ -4461,8 +4459,7 @@ async fn upload_s3_file_from_app(
     request: axum::extract::Request,
 ) -> JsonResult<AppUploadFileResponse> {
     // Same path confinement as `execute_component`: without it a token scoped to app A
-    // could drive app B's upload policy. A guest's waits for the app's mode, inside
-    // `get_on_behalf_authed_from_app`.
+    // could drive app B's upload policy. A guest's waits for the app's mode, below.
     if let Some(authed) = opt_authed
         .as_ref()
         .filter(|a| !windmill_api_auth::scopes::has_guest_sentinel(a.scopes.as_deref()))
@@ -4518,6 +4515,10 @@ async fn upload_s3_file_from_app(
         policy_o
             .map(|p| serde_json::from_value::<Policy>(p).map_err(to_anyhow))
             .transpose()?
+    };
+    let opt_authed = match policy.as_ref() {
+        Some(policy) => guest_caller_for_mode(opt_authed, policy.execution_mode(), path.to_path())?,
+        None => opt_authed,
     };
 
     let user_db = UserDB::new(db.clone());

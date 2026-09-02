@@ -38,7 +38,9 @@ fn authed(builder: reqwest::RequestBuilder, token: &str) -> reqwest::RequestBuil
 
 async fn enable_guests(port: u16, ws: &str) -> anyhow::Result<()> {
     authed(
-        client().post(format!("http://localhost:{port}/api/w/{ws}/workspaces/edit_guest_access")),
+        client().post(format!(
+            "http://localhost:{port}/api/w/{ws}/workspaces/edit_guest_access"
+        )),
         ADMIN_TOKEN,
     )
     .json(&json!({ "guest_access_enabled": true }))
@@ -330,12 +332,16 @@ async fn a_self_declared_guest_scope_grants_nothing(db: Pool<Postgres>) -> anyho
 /// gets past the triggerables lookup and reaches the guest gate. `sandbox` is what
 /// makes the embed-token endpoint actually mint a token.
 fn guest_app_with_runnable(path: &str, sandbox: bool) -> serde_json::Value {
+    app_with_runnable(path, "guest", sandbox)
+}
+
+fn app_with_runnable(path: &str, execution_mode: &str, sandbox: bool) -> serde_json::Value {
     json!({
         "path": path,
-        "summary": "Guest app",
+        "summary": "App",
         "value": {},
         "policy": {
-            "execution_mode": "guest",
+            "execution_mode": execution_mode,
             "sandbox": sandbox,
             "triggerables_v2": {
                 "script/u/test-user/noop": { "static_inputs": {}, "one_of_inputs": {} }
@@ -363,9 +369,7 @@ fn execute(port: u16, ws: &str, app: &str, token: &str) -> reqwest::RequestBuild
 /// git-sync and execution once an admin has turned guests off — and it closes the
 /// app to sessions already issued.
 #[sqlx::test(fixtures("base"))]
-async fn the_door_re_checks_the_workspace_switch(
-    db: Pool<Postgres>,
-) -> anyhow::Result<()> {
+async fn the_door_re_checks_the_workspace_switch(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -386,7 +390,11 @@ async fn the_door_re_checks_the_workspace_switch(
     let resp = authed(client().get(format!("{ws}/users/whoami")), GUEST_TOKEN)
         .send()
         .await?;
-    assert_eq!(resp.status(), 401, "a guest must not authenticate while guests are off");
+    assert_eq!(
+        resp.status(),
+        401,
+        "a guest must not authenticate while guests are off"
+    );
     let resp = execute(port, "test-workspace", APP_PATH, GUEST_TOKEN)
         .send()
         .await?;
@@ -448,6 +456,59 @@ async fn guest_cannot_run_another_guest_app(db: Pool<Postgres>) -> anyhow::Resul
     Ok(())
 }
 
+/// An anonymous app is open to anyone, a guest included, and the guest uses it as
+/// itself: the component run and the result read that follows are one identity, so
+/// the read's launched-by-me grant matches. Acting as nobody for the run and as the
+/// guest for the read would start a job whose result the page can never fetch.
+#[sqlx::test(fixtures("base"))]
+async fn a_guest_uses_an_anonymous_app_as_itself(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    enable_guests(port, "test-workspace").await?;
+    let resp = authed(client().post(format!("{ws}/scripts/create")), ADMIN_TOKEN)
+        .json(&json!({
+            "path": "u/test-user/noop",
+            "summary": "",
+            "description": "",
+            "content": "echo 42",
+            "language": "bash",
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    let anon = "u/test-user/anon_app";
+    let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
+        .json(&app_with_runnable(anon, "anonymous", false))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    insert_guest_token(&db, "test-workspace").await?; // scoped to APP_PATH, not `anon`
+
+    let resp = execute(port, "test-workspace", anon, GUEST_TOKEN)
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let job_id = resp.text().await?;
+
+    let resp = authed(
+        client().get(format!("{ws}/jobs_u/getupdate/{job_id}")),
+        GUEST_TOKEN,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "the guest that started the run must be able to read it back: {}",
+        resp.text().await?
+    );
+
+    Ok(())
+}
+
 /// The embed token a guest mints for a sandboxed app is the one credential handed to
 /// untrusted app JS. It must be a guest twice over — resolve like its minter (the
 /// label) and be governed like its minter (the sentinel) — or every guest control
@@ -482,7 +543,12 @@ async fn a_guest_minted_embed_token_stays_a_guest(db: Pool<Postgres>) -> anyhow:
     )
     .send()
     .await?;
-    assert_eq!(resp.status(), 200, "a guest must be able to mint: {}", resp.text().await?);
+    assert_eq!(
+        resp.status(),
+        200,
+        "a guest must be able to mint: {}",
+        resp.text().await?
+    );
     let body: serde_json::Value = resp.json().await?;
     let embed = body["token"]
         .as_str()
@@ -492,11 +558,10 @@ async fn a_guest_minted_embed_token_stays_a_guest(db: Pool<Postgres>) -> anyhow:
     // Its lifetime is capped at the session that minted it: the requested embed
     // validity (12h) is longer than the guest session's (8h in this fixture), and the
     // session's expiry is a guest's only revocation.
-    let parent_exp: chrono::DateTime<chrono::Utc> = sqlx::query_scalar(
-        "SELECT expiration FROM token WHERE token_prefix = 'GUEST_SECR'",
-    )
-    .fetch_one(&db)
-    .await?;
+    let parent_exp: chrono::DateTime<chrono::Utc> =
+        sqlx::query_scalar("SELECT expiration FROM token WHERE token_prefix = 'GUEST_SECR'")
+            .fetch_one(&db)
+            .await?;
     let child_exp: chrono::DateTime<chrono::Utc> = body["expiration"]
         .as_str()
         .and_then(|e| e.parse().ok())
@@ -584,7 +649,10 @@ async fn a_guest_label_is_governed_without_the_sentinel(db: Pool<Postgres>) -> a
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
     enable_guests(port, "test-workspace").await?;
-    let scopes: Vec<String> = guest_scopes().into_iter().filter(|s| s != "guest").collect();
+    let scopes: Vec<String> = guest_scopes()
+        .into_iter()
+        .filter(|s| s != "guest")
+        .collect();
     sqlx::query(
         "INSERT INTO token (token_hash, token_prefix, token, email, label, scopes, workspace_id, expiration)
          VALUES (encode(sha256($1::bytea), 'hex'), 'NOSENTINE_', $2, 'guest@example.com',

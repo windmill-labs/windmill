@@ -209,10 +209,9 @@
 	type FrameStatus = 'loading' | 'ready' | 'noPermission' | 'notExists' | 'sdkPrompt'
 	let status = $state<FrameStatus>('loading')
 	/** Whether the visitor holds an account session, probed whenever the app denies
-	 * them: `/api/users/email` answers for an account and never for a guest (pinned
-	 * to its workspace) or for nobody. An account this app still refuses is not
-	 * something signing in again can fix — an identity with an account is never given
-	 * a guest session — so the card gives way to an explanation. */
+	 * them. An account this app still refuses is not something signing in again can
+	 * fix — an identity with an account is never given a guest session — so the card
+	 * gives way to an explanation. */
 	let accountSession = $state<'unknown' | 'none' | 'held'>('unknown')
 	let deniedStatus: number | undefined = $state(undefined)
 	/** The sign-in card belongs on a 401, and on a 403 unless discovery has settled
@@ -227,6 +226,8 @@
 	let signInDidNotHelp = $derived(offerSignIn && accountSession === 'held')
 	$effect(() => {
 		if (offerSignIn && accountSession === 'unknown') {
+			// Workspace-less, so it answers for an account and never for a guest
+			// (pinned to its workspace) or for nobody.
 			UserService.getCurrentEmail()
 				.then(() => (accountSession = 'held'))
 				.catch(() => (accountSession = 'none'))
@@ -603,7 +604,7 @@
 			You are signed in, but this app is not open to you
 		</div>
 		<div class="text-center mt-8 text-sm text-primary">
-			It is open to members of its workspace{guestAppPath
+			It is open to the people it was shared with{guestAppPath
 				? ', and to guests who have no Windmill account'
 				: ''}. Ask the person who shared it to give your account access.
 		</div>
