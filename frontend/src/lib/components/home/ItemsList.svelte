@@ -1,7 +1,7 @@
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { PIPELINE_DRAFT_KIND, pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
-	import { Button, Skeleton } from '$lib/components/common'
+	import { Badge, Button, Skeleton } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
 		AssetService,
@@ -24,7 +24,8 @@
 		ChevronsDownUp,
 		ChevronsUpDown,
 		Code2,
-		LayoutDashboard
+		LayoutDashboard,
+		Tag
 	} from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import CreateActionsMenu from './CreateActionsMenu.svelte'
@@ -75,8 +76,8 @@
 
 	// FilterSearchbar schema — `_default_` is the free-text search; the rest mirror the
 	// boolean/kind list filters. Owner and label scoping are offered as searchbar presets
-	// (searchPresets) and resolve server-side (path_start / label) rather than filtering
-	// client-side. `content` is a distinct mode: it swaps the list for the client-side
+	// (searchPresets); label is also a row of on-page chips (labelChips) writing the same
+	// key. `content` is a distinct mode: it swaps the list for the client-side
 	// content-match view below (usable on any instance, not EE-gated).
 	let searchFilterSchema = $derived({
 		_default_: { type: 'string' as const, hidden: true },
@@ -86,8 +87,8 @@
 			description: 'Search across item contents'
 		},
 		// Owner (u/<user> or f/<folder>) and label are offered as presets built from what the
-		// list actually holds (see searchPresets); they drive the same server path-scope / label
-		// filter the old on-page chips did.
+		// list actually holds (see searchPresets); owner is a server path-scope, label a
+		// client-side filter over the loaded rows.
 		owner: { type: 'string' as const, label: 'Owner' },
 		label: { type: 'string' as const, label: 'Label' },
 		kind: {
@@ -1158,8 +1159,15 @@
 	let allLabels = $derived(
 		Array.from(new Set(combinedItems?.flatMap((x) => itemLabels(x)) ?? [])).sort()
 	)
+	// Label chips under the header: every label the loaded rows carry, plus the active one
+	// when it arrived by URL and no loaded row carries it, so there is still a chip to clear it.
+	let labelChips = $derived(
+		labelFilter != undefined && !allLabels.includes(labelFilter)
+			? [labelFilter, ...allLabels]
+			: allLabels
+	)
 	// FilterSearchbar presets: the owner prefixes and labels the list actually holds, so
-	// scoping to one is a click in the searchbar dropdown instead of a wall of on-page chips.
+	// scoping to one is a click in the searchbar dropdown.
 	// Owner sets the `owner` filter (server path-scope), label sets `label` (client filter).
 	// The `:\ ` separator and escaped spaces match the canonical `key:\ value` form parseToText
 	// emits, so the "already applied" check finds them after a reparse and won't re-offer a
@@ -1743,6 +1751,31 @@
 			{/if}
 		</div>
 	</div>
+	{#if !contentActive && labelChips.length > 0}
+		<!-- A chip writes the searchbar's `label` key, so chip, searchbar tag and URL are one
+		     state; clicking the selected chip clears it (delete, so no `label: null` tag). -->
+		<div class="gap-1.5 w-full flex flex-wrap mt-2">
+			{#each labelChips as label (label)}
+				<Badge
+					color="blue"
+					small
+					clickable
+					selected={label === labelFilter}
+					title="Label: {label}"
+					onclick={() => {
+						if (labelFilter === label) {
+							delete filterValues.val.label
+						} else {
+							filterValues.val.label = label
+						}
+					}}
+				>
+					<Tag size={10} class="inline -mt-px" />{label}
+					{#if label === labelFilter}&cross;{/if}
+				</Badge>
+			{/each}
+		</div>
+	{/if}
 	{#if filteredItems?.length == 0}
 		<div class="mt-10"></div>
 	{/if}
