@@ -296,13 +296,12 @@ pub async fn test_s3_bucket(
             .await
             .map_err(|e| match e {
                 // A job token never counts as a super admin (it is capped at workspace admin), so
-                // a super admin reaching this route through a preview job ("Test from a worker",
-                // the resource form) is told why rather than that they lack a privilege they hold.
+                // a super admin calling this route from a script is told why rather than that
+                // they lack a privilege they hold.
                 error::Error::NotAuthorized(msg) if authed.job_id.is_some() => {
                     error::Error::NotAuthorized(format!(
-                        "{msg}; a job token ($WM_TOKEN) is never treated as a super admin, so run \
-                         this test with a user token instead (e.g. \"Test from a server\" in the \
-                         instance settings)"
+                        "{msg}; a job token ($WM_TOKEN) is never treated as a super admin, call \
+                         this route with a user token instead"
                     ))
                 }
                 e => e,

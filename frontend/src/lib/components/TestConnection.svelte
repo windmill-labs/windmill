@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { type CompletedJob, JobService, type Preview } from '$lib/gen'
+	import { type CompletedJob, JobService, type Preview, UserService } from '$lib/gen'
 
 	import { Database, Loader2 } from 'lucide-svelte'
 	import Button from './common/button/Button.svelte'
@@ -29,6 +29,11 @@
 			argName: string
 			// Shown as an info tooltip next to the button, e.g. to clarify where the test executes
 			tooltip?: string
+			// The object-storage probe runs on the API server, whose route never treats a job token
+			// ($WM_TOKEN) as a super admin. A script naming this argument receives a short-lived
+			// `settings:write` token minted for the caller instead, so a super admin keeps the
+			// unrestricted path (private endpoints, ambient server credentials).
+			apiTokenArg?: string
 			additionalCheck?: (testResult: CompletedJob) => CompletedJob
 		}
 	} = {
@@ -73,12 +78,12 @@ import * as wmill from "windmill-client"
 
 type S3 = object
 
-export async function main(s3: S3) {
+export async function main(s3: S3, api_token: string) {
 	return fetch(process.env["BASE_URL"] + '/api/settings/test_object_storage_config', {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
-			Authorization: 'Bearer ' + process.env["WM_TOKEN"],
+			Authorization: 'Bearer ' + api_token,
 		},
 		body: JSON.stringify({
 			type: "S3",
@@ -101,8 +106,9 @@ export async function main(s3: S3) {
 `,
 			lang: 'bun',
 			argName: 's3',
+			apiTokenArg: 'api_token',
 			tooltip:
-				'The storage operations of this test run on the Windmill server (the API process), not on the worker. If no access key/secret key is set, the ambient AWS credentials of the server (environment variables, instance role) are used — scripts using this resource directly through an S3 SDK resolve credentials on the worker instead, so results may differ.'
+				'The storage operations of this test run on the Windmill server (the API process) with your permissions, not on the worker. Non-super-admins can only test public endpoints with an explicit access key and secret key; super admins can also test private endpoints and rely on the ambient AWS credentials of the server (environment variables, instance role). Scripts using this resource directly through an S3 SDK resolve credentials on the worker instead, so results may differ.'
 		},
 		azure_blob: {
 			code: `
@@ -110,12 +116,12 @@ import * as wmill from "windmill-client"
 
 type S3 = object
 
-export async function main(s3: S3) {
+export async function main(s3: S3, api_token: string) {
 	return fetch(process.env["BASE_URL"] + '/api/settings/test_object_storage_config', {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
-			Authorization: 'Bearer ' + process.env["WM_TOKEN"],
+			Authorization: 'Bearer ' + api_token,
 		},
 		body: JSON.stringify({
 			type: "Azure",
@@ -131,8 +137,9 @@ export async function main(s3: S3) {
 `,
 			lang: 'bun',
 			argName: 's3',
+			apiTokenArg: 'api_token',
 			tooltip:
-				'The storage operations of this test run on the Windmill server (the API process), not on the worker.'
+				'The storage operations of this test run on the Windmill server (the API process) with your permissions, not on the worker. Non-super-admins can only test public endpoints with an explicit access key.'
 		},
 		graphql: {
 			code: '{ __typename }',
@@ -162,12 +169,12 @@ export async function main(s3: S3) {
 
 const process = require('process');
 
-export async function main(bucket: any) {
+export async function main(bucket: any, api_token: string) {
 	const req = await fetch(process.env.BASE_URL + '/api/settings/test_object_storage_config', {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
-			Authorization: 'Bearer ' + process.env.WM_TOKEN,
+			Authorization: 'Bearer ' + api_token,
 		},
 		body: JSON.stringify(bucket),
 	});
@@ -179,40 +186,84 @@ export async function main(bucket: any) {
 `,
 			lang: 'bun',
 			argName: 'bucket',
+			apiTokenArg: 'api_token',
 			tooltip:
-				"The storage operations of this test run on the Windmill server (the API process). If no credentials are configured, the server's ambient credentials for the configured provider (environment variables, instance role) are used."
+				"The storage operations of this test run on the Windmill server (the API process) with your permissions. Non-super-admins can only test public endpoints with explicit credentials; super admins can also test private endpoints and rely on the server's ambient credentials for the configured provider (environment variables, instance role)."
 		}
 	}
 
 	let loading = $state(false)
+
+	// The token is revoked as soon as the job settles; the expiry only covers a browser that
+	// goes away mid-test. It stays visible in the job's stored args, hence the short life.
+	const API_TOKEN_TTL_MS = 60_000
+	// Tokens are addressed by their first 10 characters (TOKEN_PREFIX_LEN on the backend).
+	const API_TOKEN_PREFIX_LEN = 10
+
+	async function mintApiToken(): Promise<string> {
+		return await UserService.createToken({
+			requestBody: {
+				label: `test connection: ${resourceType}`,
+				expiration: new Date(Date.now() + API_TOKEN_TTL_MS).toISOString(),
+				scopes: ['settings:write']
+			}
+		})
+	}
+
+	async function revokeApiToken(token: string | undefined) {
+		if (!token) return
+		try {
+			await UserService.deleteToken({ tokenPrefix: token.slice(0, API_TOKEN_PREFIX_LEN) })
+		} catch (err) {
+			console.error(err)
+		}
+	}
+
 	async function testConnection() {
 		if (!resourceType) return
 		loading = true
 
 		const resourceScript = scripts[resourceType]
+		const workspace = workspaceOverride ?? $workspaceStore!
 
-		const job = await JobService.runScriptPreview({
-			workspace: workspaceOverride ?? $workspaceStore!,
-			requestBody: {
-				path: `testConnection: ${resourceType}`,
-				language: resourceScript.lang as Preview['language'],
-				content: resourceScript.code,
-				args: {
-					[resourceScript.argName]: args
-				}
+		let apiToken: string | undefined = undefined
+		let job: string
+		try {
+			if (resourceScript.apiTokenArg) {
+				apiToken = await mintApiToken()
 			}
-		})
+			job = await JobService.runScriptPreview({
+				workspace,
+				requestBody: {
+					path: `testConnection: ${resourceType}`,
+					language: resourceScript.lang as Preview['language'],
+					content: resourceScript.code,
+					args: {
+						[resourceScript.argName]: args,
+						...(resourceScript.apiTokenArg && apiToken
+							? { [resourceScript.apiTokenArg]: apiToken }
+							: {})
+					}
+				}
+			})
+		} catch (err: any) {
+			loading = false
+			await revokeApiToken(apiToken)
+			sendUserToast('Connection error: ' + (err?.body ?? err?.message ?? err), true)
+			return
+		}
 
 		tryEvery({
 			tryCode: async () => {
 				let testResult = await JobService.getCompletedJob({
-					workspace: workspaceOverride ?? $workspaceStore!,
+					workspace,
 					id: job
 				})
 				if (resourceScript.additionalCheck) {
 					testResult = resourceScript.additionalCheck(testResult)
 				}
 				loading = false
+				revokeApiToken(apiToken)
 				sendUserToast(
 					testResult.success
 						? 'Connection successful'
@@ -222,13 +273,14 @@ export async function main(bucket: any) {
 			},
 			timeoutCode: async () => {
 				loading = false
+				revokeApiToken(apiToken)
 				sendUserToast(
 					'Connection did not resolve after 5s or job did not start. Do you have native workers or a worker group listening to the proper tag available?',
 					true
 				)
 				try {
 					await JobService.cancelQueuedJob({
-						workspace: workspaceOverride ?? $workspaceStore!,
+						workspace,
 						id: job,
 						requestBody: {
 							reason:
