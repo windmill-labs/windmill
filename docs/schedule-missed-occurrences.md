@@ -1,6 +1,7 @@
 # Detecting skipped schedule occurrences
 
-Design plan. Nothing in this document is implemented yet.
+The design behind the schedule occurrence counting, and the reasoning that
+settled each choice.
 
 ## The problem
 
@@ -248,16 +249,14 @@ Vocabulary: **occurrence**, matching `schedule.rs` throughout. Not "tick".
 
 ## Delivery
 
-Three pieces, three changes, in order. Each is useful on its own.
+All three pieces ship together. The first two share the same API response and the
+same indicator on the schedules row, so splitting them would mean writing that
+code once and rewriting it straight after.
 
-1. **Skipped-occurrence counting** (CE): the migration, the pure reconstruction
-   function, the two API surfaces, the list badge and the editor detail. Carries
-   the whole user-facing story and touches no Enterprise file.
-2. **"Late right now" badge** (CE): the aggregating join on `v2_job_queue`.
-3. **Overrun alert** (EE): the monitor pass and its companion PR.
-
-The blind spot described under "Which cause is caught, and when" is closed by 2
-and 3, not by 1.
+The Enterprise half cannot join them: `*_ee.rs` files are symlinks into
+`windmill-ee-private`, so the alert needs a companion PR there and an
+`ee-repo-ref.txt` bump, with only the monitor wiring on this side. That is a
+repository boundary, not a staging decision.
 
 ## Tests
 

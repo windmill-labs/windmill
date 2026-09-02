@@ -35,7 +35,7 @@ use windmill_api::native_triggers::sync::sync_all_triggers;
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::low_disk_alerts;
 #[cfg(feature = "enterprise")]
-use windmill_common::ee_oss::{jobs_waiting_alerts, worker_groups_alerts};
+use windmill_common::ee_oss::{jobs_waiting_alerts, schedule_overrun_alerts, worker_groups_alerts};
 
 use windmill_common::global_settings::OAUTH_SETTING;
 use windmill_common::otel_oss::{
@@ -4054,6 +4054,18 @@ pub async fn monitor_db(
         }
     };
 
+    // run every 30 iterations (~5min at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
+    // Covers the case `jobs_waiting_alerts` structurally cannot: its predicate
+    // carries `running = false`, so a schedule whose run overruns is invisible to it.
+    let schedule_overrun_alerts_f = async {
+        #[cfg(feature = "enterprise")]
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(30) {
+            if let Some(db) = conn.as_sql() {
+                schedule_overrun_alerts(&db).await;
+            }
+        }
+    };
+
     let low_disk_alerts_f = async {
         #[cfg(feature = "enterprise")]
         if let Some(db) = conn.as_sql() {
@@ -4259,6 +4271,7 @@ pub async fn monitor_db(
         enforce_offline_caps_f,
         worker_groups_alerts_f,
         jobs_waiting_alerts_f,
+        schedule_overrun_alerts_f,
         low_disk_alerts_f,
         apply_autoscaling_f,
         update_min_worker_version_f,
