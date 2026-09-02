@@ -443,7 +443,8 @@
 
 	// The item createAndOpen is asking about. Closing the dialog any other way than
 	// answering (Escape, the corner X, the backdrop) creates nothing: the click was
-	// met with a question, not a session.
+	// met with a question, not a session. Kept after the dialog closes, since the
+	// title reads it through the close fade; `seedOfferOpen` alone gates rendering.
 	let seedOffer = $state<NewSessionSeed | undefined>(undefined)
 	let seedOfferOpen = $state(false)
 	async function answerSeedOffer(keep: boolean) {

@@ -42,12 +42,13 @@ export function rememberNavRoute(pathnameWithSearch: string): void {
 export type NewSessionSeed = { url: string; route: PreviewItemRoute }
 
 // The item (flow, script, app) the user came to session mode from, or undefined
-// when they came from anywhere else. A "New session" asked for right after
-// arriving from an item is usually a session about that item, but the arrival
-// route (`enterSessionMode`) resumes whatever session was open, so the picker
-// offers the item back. Offered once per arrival: a later "New session" starts
-// empty without asking, since by then the item is no longer what the user just
-// left, and a dismissed offer is not repeated.
+// when they came from anywhere else. A "New session" asked for after arriving
+// from an item is usually a session about that item, but the arrival route
+// (`enterSessionMode`) resumes whatever session was open, so the picker offers
+// the item back. Offered once per remembered route: the first "New session" of
+// a visit gets the question, however long the visit has run and whatever was
+// done in between; later ones start empty without asking, and a dismissed offer
+// is not repeated until the user leaves for another page and comes back.
 export function takeNewSessionSeed(): NewSessionSeed | undefined {
 	if (navRouteOffered) return undefined
 	navRouteOffered = true
