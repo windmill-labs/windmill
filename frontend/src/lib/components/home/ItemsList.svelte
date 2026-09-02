@@ -40,6 +40,7 @@
 		type FilterSchemaRec
 	} from '$lib/components/FilterSearchbar.svelte'
 	import NoItemFound from './NoItemFound.svelte'
+	import ListFilters from './ListFilters.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
@@ -76,8 +77,8 @@
 
 	// FilterSearchbar schema — `_default_` is the free-text search; the rest mirror the
 	// boolean/kind list filters. Owner and label scoping are offered as searchbar presets
-	// (searchPresets); label is also a row of on-page chips (labelChips) writing the same
-	// key. `content` is a distinct mode: it swaps the list for the client-side
+	// (searchPresets) and as rows of on-page chips (ListFilters / labelChips) writing the
+	// same keys. `content` is a distinct mode: it swaps the list for the client-side
 	// content-match view below (usable on any instance, not EE-gated).
 	let searchFilterSchema = $derived({
 		_default_: { type: 'string' as const, hidden: true },
@@ -718,11 +719,15 @@
 		return true // should not happen
 	}
 
-	// Owner/label scope now live on the URL-synced searchbar filters (set via the presets),
-	// not standalone chip state — the whole data layer below still reads these two, so keep
-	// them as the single derived source. Empty string reads as "no filter".
+	// Owner/label scope lives on the URL-synced searchbar filters, written by the presets and
+	// by the on-page chip rows; the whole data layer below reads these two, so keep them as
+	// the single derived source. Empty string reads as "no filter".
 	let ownerFilter = $derived((filterValues.val.owner || undefined) as string | undefined)
 	let labelFilter = $derived((filterValues.val.label || undefined) as string | undefined)
+	function setOwnerFilter(o: string | undefined) {
+		if (o == undefined) delete filterValues.val.owner
+		else filterValues.val.owner = o
+	}
 
 	const cmp = new Intl.Collator('en').compare
 
@@ -1751,6 +1756,19 @@
 			{/if}
 		</div>
 	</div>
+	{#if !contentActive}
+		<!-- Owner chips. The function binding routes the chip's selection into the searchbar's
+		     `owner` key, and `queryName` points ListFilters' own mount-time URL read at the same
+		     `?owner=` param the filter instance syncs, so both writers agree from the first paint.
+		     No `syncQuery`: the filter instance owns the URL. -->
+		<ListFilters
+			bind:selectedFilter={() => ownerFilter, setOwnerFilter}
+			filters={owners}
+			queryName="owner"
+			maxDisplayed={20}
+			bottomMargin={false}
+		/>
+	{/if}
 	{#if !contentActive && labelChips.length > 0}
 		<!-- A chip writes the searchbar's `label` key, so chip, searchbar tag and URL are one
 		     state; clicking the selected chip clears it (delete, so no `label: null` tag). -->
