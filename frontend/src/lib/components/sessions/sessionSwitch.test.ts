@@ -3,7 +3,9 @@ import { get } from 'svelte/store'
 import {
 	enterSessionMode,
 	openSourceInSession,
-	startSessionWithPrompt
+	rememberNavRoute,
+	startSessionWithPrompt,
+	takeNewSessionSeed
 } from './sessionSwitch.svelte'
 import {
 	peekSessionAutoSend,
@@ -246,5 +248,28 @@ describe('startSessionWithPrompt', () => {
 			usersWorkspaceStore.set(prevUsers)
 			workspaceStore.set(prevWs)
 		}
+	})
+})
+
+describe('takeNewSessionSeed', () => {
+	it('offers the item editor the user came from, once per arrival', () => {
+		rememberNavRoute('/flows/edit/u/me/my_flow?workspace=ws')
+		expect(takeNewSessionSeed()).toEqual({
+			url: '/flows/edit/u/me/my_flow?workspace=ws',
+			route: { kind: 'flow', raw_app: false, itemPath: 'u/me/my_flow' }
+		})
+		// A dismissed or taken offer is not repeated until the user leaves again.
+		expect(takeNewSessionSeed()).toBeUndefined()
+		rememberNavRoute('/apps_raw/edit/f/team/dashboard?workspace=ws')
+		expect(takeNewSessionSeed()?.route).toEqual({
+			kind: 'app',
+			raw_app: true,
+			itemPath: 'f/team/dashboard'
+		})
+	})
+
+	it('offers nothing for a non-item page', () => {
+		rememberNavRoute('/runs?workspace=ws')
+		expect(takeNewSessionSeed()).toBeUndefined()
 	})
 })

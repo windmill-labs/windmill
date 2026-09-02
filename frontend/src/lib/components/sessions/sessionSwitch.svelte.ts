@@ -12,6 +12,7 @@ import {
 	type SessionTarget
 } from './sessionState.svelte'
 import { sessionTargetHref, withPreviewParams } from './sessionMode.svelte'
+import { parsePreviewItemRoute, type PreviewItemRoute } from './previewPaths'
 // Type-only: erased at compile time, so the component graph stays out of this
 // navigation seam (see the dynamic import in openEditorInSession).
 import type { OpenInSessionSource } from './OpenInSessionButton.svelte'
@@ -27,9 +28,31 @@ import type { OpenInSessionSource } from './OpenInSessionButton.svelte'
 // is safe. Plain module state: it is read only inside click handlers, never
 // rendered, so it needs no reactivity.
 let lastNavRoute = '/'
+// Whether `lastNavRoute` has been offered as a new session's starting point since
+// it was remembered (see takeNewSessionSeed).
+let navRouteOffered = false
 
 export function rememberNavRoute(pathnameWithSearch: string): void {
 	lastNavRoute = pathnameWithSearch
+	navRouteOffered = false
+}
+
+/** An item editor the user reached session mode from, as the in-app href a new
+ * session's preview can open, plus the item it edits (for naming it). */
+export type NewSessionSeed = { url: string; route: PreviewItemRoute }
+
+// The item (flow, script, app) the user came to session mode from, or undefined
+// when they came from anywhere else. A "New session" asked for right after
+// arriving from an item is usually a session about that item, but the arrival
+// route (`enterSessionMode`) resumes whatever session was open, so the picker
+// offers the item back. Offered once per arrival: a later "New session" starts
+// empty without asking, since by then the item is no longer what the user just
+// left, and a dismissed offer is not repeated.
+export function takeNewSessionSeed(): NewSessionSeed | undefined {
+	if (navRouteOffered) return undefined
+	navRouteOffered = true
+	const route = parsePreviewItemRoute(lastNavRoute)
+	return route ? { url: lastNavRoute, route } : undefined
 }
 
 // Enter session mode: open the active session if one is selected, else the most
