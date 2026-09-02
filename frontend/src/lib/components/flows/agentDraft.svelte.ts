@@ -18,12 +18,16 @@ function agentConfigRunError(args: Record<string, any> | undefined): string | un
 	if (!provider?.resource || !provider?.model) {
 		return 'Select a provider resource and model before deploying.'
 	}
+	// Only a flowmodule tool's summary is a callable name: the worker never reads an mcp or
+	// websearch summary, so a blank one there is not an error and must not count as a sibling.
+	// Same filter as `collectInvalidAgentToolNames`, which is the rule the graph enforces.
 	const tools = (args?.tools ?? []) as Record<string, any>[]
-	const named = tools
-		.filter((t) => t?.value?.tool_type !== 'websearch')
-		.map((t) => t?.summary ?? '')
-	for (const tool of tools) {
-		const err = getToolNameError(tool?.summary ?? '', tool?.value?.tool_type, named)
+	const named = tools.filter(
+		(t) => t?.value?.tool_type !== 'mcp' && t?.value?.tool_type !== 'websearch'
+	)
+	const siblingNames = named.map((t) => t?.summary ?? '')
+	for (const tool of named) {
+		const err = getToolNameError(tool?.summary ?? '', tool?.value?.tool_type, siblingNames)
 		if (err) return `${err}. Name every tool before deploying.`
 	}
 	return undefined
@@ -124,8 +128,13 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 						labels: r.labels ?? undefined,
 						wsSpecific: r.ws_specific ?? false
 					}
-					deployed = deployedState
 					noDeployed = Boolean((r as any).no_deployed)
+					// An agent that exists only as a draft has no deployed value to compare against or
+					// fall back to, and the response's is a synthetic echo of the draft. Leaving the
+					// baseline unset is what suppresses the unsaved-changes banner for it, exactly as
+					// `useTriggerDraftSync` intends: its Discard would otherwise reset to that synthetic
+					// value and delete the one row the agent lives in.
+					deployed = noDeployed ? undefined : deployedState
 					// Open on the draft when there is one, so the editor never flashes the deployed
 					// config before the autosave lands.
 					state =
