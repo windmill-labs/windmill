@@ -185,10 +185,21 @@ What the assistant should do when this skill applies.
 			Object.values(rowMenuOpen).some(Boolean)
 	})
 
+	// Parked with the section: an editor left open behind another section would go on
+	// reporting `blocksClose`, and the modal would refuse to close with nothing on
+	// screen explaining why. The body and the skill it belongs to are kept, so coming
+	// back to the section returns to them.
+	$effect(() => {
+		if (!active) editorOpen = false
+	})
+
 	/** Escape leaves the editor rather than the whole modal: `blocksClose` stops the
 	 * modal's own handler, so this is the only thing left to answer the key. */
 	function onKeydown(event: KeyboardEvent) {
-		if (event.key !== 'Escape' || !editorOpen) return
+		// Every section stays mounted while the modal is open, and `stopPropagation`
+		// does nothing between listeners on `window`: without this, a key aimed at the
+		// section on screen is answered by the four behind it too.
+		if (!active || event.key !== 'Escape' || !editorOpen) return
 		if (toDelete !== undefined || pendingImport !== undefined) return
 		event.preventDefault()
 		event.stopPropagation()
@@ -204,6 +215,7 @@ What the assistant should do when this skill applies.
 	 * opened: before that it holds no skill. `editing` is deliberately not cleared on the
 	 * way out — both entry points set it, so it stays the skill the parked page shows. */
 	function navigate(key: string) {
+		if (!active) return
 		if (key === 'list') closeEditor()
 		else if (editorSeq > 0) editorOpen = true
 	}

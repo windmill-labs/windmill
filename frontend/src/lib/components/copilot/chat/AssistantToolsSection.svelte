@@ -80,11 +80,20 @@ individually switchable, they follow the mode and the connected servers.
 	$effect(() => {
 		blocksClose = detailOpen
 	})
+	// Parked with the section: a detail page left open behind another section would go
+	// on reporting `blocksClose`, and the modal would refuse to close with nothing on
+	// screen explaining why.
+	$effect(() => {
+		if (!active) detailOpen = false
+	})
 
 	/** Escape steps back to the list rather than closing the whole modal: `blocksClose`
 	 * stops the modal's own handler, so this is the only thing left to answer the key. */
 	function onKeydown(event: KeyboardEvent) {
-		if (event.key !== 'Escape' || !detailOpen) return
+		// Every section stays mounted while the modal is open, and `stopPropagation`
+		// does nothing between listeners on `window`: without this, a key aimed at the
+		// section on screen is answered by the four behind it too.
+		if (!active || event.key !== 'Escape' || !detailOpen) return
 		event.preventDefault()
 		event.stopPropagation()
 		detailOpen = false
@@ -94,6 +103,7 @@ individually switchable, they follow the mode and the connected servers.
 	 * arrows once it is given this. Forward only goes somewhere once a tool has been
 	 * opened: the detail page has nothing to show before that. */
 	function navigate(key: string) {
+		if (!active) return
 		if (key === 'list') detailOpen = false
 		else if (selected) detailOpen = true
 	}

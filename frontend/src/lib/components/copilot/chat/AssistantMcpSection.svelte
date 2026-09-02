@@ -129,10 +129,24 @@ switch that decides whether this chat carries its tools.
 			Object.values(rowMenuOpen).some(Boolean)
 	})
 
+	// Parked with the section: a page left open behind another section would go on
+	// reporting `blocksClose`, and the modal would refuse to close with nothing on
+	// screen explaining why. Set directly rather than through `closeConnect`, whose
+	// rebuild would throw away a half-filled connect form.
+	$effect(() => {
+		if (!active) {
+			detailOpen = false
+			connectOpen = false
+		}
+	})
+
 	/** Escape steps back to the list rather than closing the whole modal: `blocksClose`
 	 * stops the modal's own handler, so this is the only thing left to answer the key. */
 	function onKeydown(event: KeyboardEvent) {
-		if (event.key !== 'Escape' || page === 'list' || pendingDelete !== undefined) return
+		// Every section stays mounted while the modal is open, and `stopPropagation`
+		// does nothing between listeners on `window`: without this, a key aimed at the
+		// section on screen is answered by the four behind it too.
+		if (!active || event.key !== 'Escape' || page === 'list' || pendingDelete !== undefined) return
 		event.preventDefault()
 		event.stopPropagation()
 		if (connectOpen) closeConnect()
@@ -172,6 +186,7 @@ switch that decides whether this chat carries its tools.
 	 * from the connect form asks for the detail page. Both of those are levels below the
 	 * list rather than a sequence, so backwards out of either lands on the list. */
 	function navigate(key: string) {
+		if (!active) return
 		if (key === 'list' || connectOpen) {
 			connectOpen = false
 			detailOpen = false
@@ -185,7 +200,10 @@ switch that decides whether this chat carries its tools.
 	async function saveEditing() {
 		const server = editing
 		if (!server) return
-		await resourceEditor?.save()
+		// A failed save leaves the connection exactly as it was, so none of the
+		// bookkeeping below may run: moving the enablement then would turn a server
+		// that still exists off, and turn on a path that was never created.
+		if (!(await resourceEditor?.save())) return
 		// Enablement is keyed by path, so a rename would leave the switch on the path
 		// that no longer exists and the server itself off.
 		if (editingPath && editingPath !== server.path) {

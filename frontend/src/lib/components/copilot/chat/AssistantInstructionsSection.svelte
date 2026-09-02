@@ -130,7 +130,10 @@ writes whichever of the two changed, including the tab that is not on screen.
 	 * modal shut while there is unsaved text, so this is the way out of a draft, and a
 	 * second press then closes. */
 	function onKeydown(event: KeyboardEvent) {
-		if (event.key !== 'Escape' || !dirty) return
+		// Only while this is the section on screen: every section stays mounted, so an
+		// Escape meant for another one would revert these drafts with nothing visible
+		// to say that it had.
+		if (!active || event.key !== 'Escape' || !dirty) return
 		event.preventDefault()
 		event.stopPropagation()
 		workspaceDraft = workspaceSaved

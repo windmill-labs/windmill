@@ -46,6 +46,39 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	let mcpBusy = $state(false)
 	let filesBusy = $state(false)
 	let blocksClose = $derived(toolsBusy || skillsBusy || instructionsBusy || mcpBusy || filesBusy)
+	// Which section is holding the modal open. The page-based ones park themselves when
+	// navigated away from, so in practice this is Instructions holding unsaved text —
+	// but a blocker behind another section is the case worth naming either way.
+	let blockingSection = $derived<AssistantSettingsSection | undefined>(
+		toolsBusy
+			? 'tools'
+			: skillsBusy
+				? 'skills'
+				: instructionsBusy
+					? 'instructions'
+					: mcpBusy
+						? 'mcp'
+						: filesBusy
+							? 'files'
+							: undefined
+	)
+
+	/** Escape with something blocking behind another section would look like a dead key:
+	 * `Modal2` ignores it, and the section that answers it is not on screen. Show that
+	 * section instead, so the reason the modal will not close is in front of the user.
+	 *
+	 * `stopImmediatePropagation` because this listener is the parent's and runs before
+	 * the sections': showing a section makes it `active` within this same dispatch, and
+	 * it would then answer the key it was revealed by — reverting the very draft the
+	 * user was brought here to see. */
+	function onKeydown(event: KeyboardEvent) {
+		if (!isOpen || event.key !== 'Escape') return
+		const blocker = blockingSection
+		if (!blocker || blocker === section) return
+		event.preventDefault()
+		event.stopImmediatePropagation()
+		select(blocker)
+	}
 
 	// A session chat operates on its own (possibly forked) workspace without switching
 	// `workspaceStore`, and that is the workspace every list here is read under.
@@ -113,6 +146,8 @@ callers that already know which section they mean, such as the "+" menu's Manage
 		}
 	}
 </script>
+
+<svelte:window onkeydown={onKeydown} />
 
 <Tooltip small placement="top">
 	<Button
