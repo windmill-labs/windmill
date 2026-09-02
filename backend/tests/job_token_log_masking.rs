@@ -59,3 +59,51 @@ async fn test_job_token_masked_in_persisted_logs(db: Pool<Postgres>) -> anyhow::
     );
     Ok(())
 }
+
+/// nativets runs V8 in-process and persists `console.log` output through its own
+/// channel, so it is masked by a different mechanism than the bash case above and
+/// needs its own guard. Tagged `deno` because a standalone nativets job defaults to
+/// the `nativets` tag, which the default worker tag set does not advertise.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_job_token_masked_in_nativets_logs(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let job = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content: "export async function main() {\n  console.log('running with --token ' + process.env.WM_TOKEN);\n  return 'ok';\n}".to_string(),
+        path: None,
+        lock: None,
+        language: ScriptLang::Nativets,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
+        tag: Some("deno".to_string()),
+    }))
+    .run_until_complete(&db, false, port)
+    .await;
+    assert!(job.success, "job should have succeeded");
+
+    let logs =
+        sqlx::query_scalar::<_, Option<String>>("SELECT logs FROM job_logs WHERE job_id = $1")
+            .bind(job.id)
+            .fetch_one(&db)
+            .await?
+            .unwrap_or_default();
+
+    assert!(
+        !logs.contains(RAW_TOKEN_PREFIX),
+        "an unmasked job token reached the persisted logs: {logs}"
+    );
+    assert!(
+        logs.contains("secret value was masked"),
+        "expected the masking notice in logs: {logs}"
+    );
+    Ok(())
+}

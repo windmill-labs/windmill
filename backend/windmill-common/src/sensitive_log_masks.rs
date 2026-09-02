@@ -100,8 +100,11 @@ pub struct JobMasker {
 }
 
 impl JobMasker {
+    /// Construct this while the job is still registered — from the job's own
+    /// execution, not from the draining task, whose first poll may already be
+    /// past the end of the run and would then find nothing to mask with.
     pub fn new(job_id: Uuid) -> Self {
-        JobMasker { job_id, snapshot: None }
+        JobMasker { job_id, snapshot: snapshot(&job_id) }
     }
 
     /// Mask every secret registered for the job. Returns `Cow::Borrowed` when no match.
@@ -241,5 +244,27 @@ pub fn register_secret_for_job(job_id: Uuid, secret: &str) {
         if job.secrets.insert(secret.to_string()) {
             job.compiled = None;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An asynchronous log sink can be draining its last lines after the job is
+    /// unregistered, and can even be polled for the first time there, so a masker
+    /// has to carry its masks from construction instead of consulting the registry
+    /// per line.
+    #[test]
+    fn job_masker_masks_after_the_job_is_unregistered() {
+        let job_id = Uuid::new_v4();
+        register_running_job(job_id);
+        register_secret_for_job(job_id, "supersecretvalue");
+        let mut masker = JobMasker::new(job_id);
+
+        unregister_running_job(job_id);
+
+        let masked = masker.mask("logged supersecretvalue here");
+        assert!(!masked.contains("supersecretvalue"), "{masked}");
     }
 }
