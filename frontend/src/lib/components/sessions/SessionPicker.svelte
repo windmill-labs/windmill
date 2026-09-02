@@ -447,6 +447,14 @@
 	// title reads it through the close fade; `seedOfferOpen` alone gates rendering.
 	let seedOffer = $state<NewSessionSeed | undefined>(undefined)
 	let seedOfferOpen = $state(false)
+	// Focus moves onto the primary answer as the dialog opens. Enter is left to
+	// the focused button (the dialog does not bind it), and the "New session"
+	// button that opened the dialog would otherwise keep focus and answer Enter
+	// with a second, unasked session underneath.
+	let keepButton: Button | undefined = $state(undefined)
+	$effect(() => {
+		if (seedOfferOpen) keepButton?.focus()
+	})
 	async function answerSeedOffer(keep: boolean) {
 		const offer = seedOffer
 		seedOfferOpen = false
@@ -1330,12 +1338,14 @@
 	</div>
 </ConfirmationModal>
 
+<!-- Two answers of equal standing, so Enter is left to whichever button has
+     focus rather than bound to one of them by the dialog. -->
 <Modal
 	bind:open={seedOfferOpen}
 	kind="X"
+	enterConfirms={false}
 	title="Keep this {seedOffer?.route.kind ?? 'item'} in the new session?"
 	description="You came here from {seedOffer?.route.itemPath ?? ''}."
-	on:confirmed={() => answerSeedOffer(true)}
 >
 	<p class="text-sm text-secondary">
 		Keeping it opens it in the preview, so the chat starts with it as context.
@@ -1344,7 +1354,12 @@
 		<Button variant="default" unifiedSize="sm" onClick={() => answerSeedOffer(false)}>
 			Start empty
 		</Button>
-		<Button variant="accent" unifiedSize="sm" onClick={() => answerSeedOffer(true)}>
+		<Button
+			bind:this={keepButton}
+			variant="accent"
+			unifiedSize="sm"
+			onClick={() => answerSeedOffer(true)}
+		>
 			Keep in preview
 		</Button>
 	</div>
