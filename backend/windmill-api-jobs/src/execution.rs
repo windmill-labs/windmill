@@ -428,6 +428,24 @@ pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result
                 }
             }
 
+            // The script picks the content type (`wm_content_type`, or a `content-type`
+            // entry in `wm_headers`) and the body, and the run_wait_result routes are
+            // reachable by top-level GET navigation with the session cookie. Sandbox the
+            // document into an opaque origin so a `text/html` result can never run with
+            // the viewer's session; inserted after the custom headers so they can't
+            // override it. Programmatic API consumers ignore both headers.
+            headers.insert(
+                http::header::X_CONTENT_TYPE_OPTIONS,
+                HeaderValue::from_static("nosniff"),
+            );
+            headers.insert(
+                http::header::CONTENT_SECURITY_POLICY,
+                HeaderValue::from_static(
+                    "sandbox allow-scripts allow-forms allow-popups \
+                     allow-popups-to-escape-sandbox allow-downloads allow-modals",
+                ),
+            );
+
             if let Some(content_type) = windmill_content_type {
                 let serialized_json_result = result_value
                     .map(|val| val.get().to_owned())
@@ -1104,6 +1122,41 @@ mod result_to_response_tests {
             resp.headers().get(http::header::CONTENT_TYPE).unwrap(),
             "text/html"
         );
+        assert_sandboxed(resp.headers());
         assert_eq!(body_bytes(resp).await, b"<h1>hi</h1>");
+    }
+
+    fn assert_sandboxed(headers: &HeaderMap) {
+        assert_eq!(
+            headers.get(http::header::X_CONTENT_TYPE_OPTIONS).unwrap(),
+            "nosniff"
+        );
+        let csp = headers
+            .get(http::header::CONTENT_SECURITY_POLICY)
+            .expect("content-security-policy")
+            .to_str()
+            .unwrap();
+        assert!(csp.starts_with("sandbox "), "csp: {csp}");
+        assert!(!csp.contains("allow-same-origin"), "csp: {csp}");
+    }
+
+    #[tokio::test]
+    async fn custom_headers_cannot_override_sandbox() {
+        // wm_headers is script-controlled: a content-type set there replaces the JSON
+        // one even without wm_content_type, and the sandbox headers must survive an
+        // attempt to override them.
+        let resp = result_to_response(
+            raw(
+                r#"{"wm_headers":{"content-type":"text/html","content-security-policy":"default-src *","x-content-type-options":"none"},"result":"<h1>hi</h1>"}"#,
+            ),
+            true,
+        )
+        .expect("response");
+
+        assert_eq!(
+            resp.headers().get(http::header::CONTENT_TYPE).unwrap(),
+            "text/html"
+        );
+        assert_sandboxed(resp.headers());
     }
 }
