@@ -12,7 +12,7 @@ use windmill_ai::{
     credentials::ProviderCredentials,
     proxy::{common_outbound_headers, retain_effective_credentials},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder},
-    types::{OpenAIContent, OpenAIMessage, OutputType, TokenUsage},
+    types::{ContentPart, OpenAIContent, OpenAIMessage, OutputType, TokenUsage},
     utils::pinned_ai_client_for,
 };
 use windmill_common::{client::AuthedClient, error::Error};
@@ -36,6 +36,15 @@ const MAX_SUMMARY_RESERVE_SHARE: usize = 10;
 const MIN_SUMMARY_RESERVE_TOKENS: usize = 2000;
 /// Summarizing fewer messages than this costs a full model call to save almost nothing.
 const MIN_PREFIX_MESSAGES_TO_SUMMARIZE: usize = 4;
+/// Unless those few messages are large. A prefix worth this share of the window is worth
+/// summarizing on its own — one attachment reaches it, and waiting for a fourth message
+/// would mean carrying it past the window first.
+const MIN_PREFIX_SHARE_TO_SUMMARIZE: usize = 4;
+/// What one attachment costs once the provider's request builder turns the S3 path the
+/// message list holds into the image or PDF it points at. Nominal, but three orders of
+/// magnitude closer than the path's own length, which is what the estimate would
+/// otherwise charge for a page of a document.
+const S3_ATTACHMENT_NOMINAL_TOKENS: usize = 1500;
 /// After this many failed summarizations the run stops trying, so a provider that
 /// rejects the summarization request does not add a wasted call to every iteration. The
 /// count is per run: a chat turn is its own job, and its conversation has grown since
@@ -127,9 +136,14 @@ Please provide your summary following this structure, ensuring precision and tho
 /// The trigger itself runs off the provider's own count; this only has to rank
 /// messages by size consistently.
 fn estimate_message_tokens(message: &OpenAIMessage) -> usize {
+    let mut attachments = 0;
     let content_len = match message.content.as_ref() {
         Some(OpenAIContent::Text(text)) => text.len(),
         Some(OpenAIContent::Parts(parts)) => {
+            attachments = parts
+                .iter()
+                .filter(|part| matches!(part, ContentPart::S3Object { .. }))
+                .count();
             serde_json::to_string(parts).map(|s| s.len()).unwrap_or(0)
         }
         None => 0,
@@ -140,7 +154,7 @@ fn estimate_message_tokens(message: &OpenAIMessage) -> usize {
         .and_then(|calls| serde_json::to_string(calls).ok())
         .map(|s| s.len())
         .unwrap_or(0);
-    (content_len + tool_calls_len) / 4
+    (content_len + tool_calls_len) / 4 + attachments * S3_ATTACHMENT_NOMINAL_TOKENS
 }
 
 /// Whole-conversation estimate, used only when the provider reported no usage for the
@@ -268,8 +282,15 @@ fn plan_tail_start(
         tail_start -= 1;
     }
 
-    (tail_start.saturating_sub(prefix_start) >= MIN_PREFIX_MESSAGES_TO_SUMMARIZE)
-        .then_some(tail_start)
+    // Worth a model call either because there is a run of messages to fold up, or
+    // because the few there are cost enough on their own — one attachment does.
+    let prefix = &messages[prefix_start..tail_start];
+    let worth_summarizing = prefix.len() >= MIN_PREFIX_MESSAGES_TO_SUMMARIZE
+        || (!prefix.is_empty()
+            && prefix.iter().map(scaled).sum::<usize>()
+                >= context_window / MIN_PREFIX_SHARE_TO_SUMMARIZE);
+
+    worth_summarizing.then_some(tail_start)
 }
 
 /// Strips the `<analysis>` drafting scratchpad and unwraps the `<summary>` block.
@@ -750,6 +771,35 @@ mod tests {
             scaled > unscaled,
             "a heavier real cost must shrink the tail: {unscaled} -> {scaled}"
         );
+    }
+
+    /// An attachment is a short S3 path in the message list and a whole image once the
+    /// provider expands it, and it arrives early enough that the message-count guard
+    /// would otherwise refuse to summarize the one or two turns carrying it.
+    #[test]
+    fn plan_tail_start_summarizes_a_short_prefix_that_carries_an_attachment() {
+        fn attachment(role: &str) -> OpenAIMessage {
+            OpenAIMessage {
+                role: role.to_string(),
+                content: Some(OpenAIContent::Parts(vec![ContentPart::S3Object {
+                    s3_object: windmill_types::s3::S3Object {
+                        s3: "u/admin/report.pdf".to_string(),
+                        ..Default::default()
+                    },
+                }])),
+                ..Default::default()
+            }
+        }
+
+        let messages = vec![
+            message("system", "sys"),
+            attachment("user"),
+            attachment("user"),
+            message("assistant", &"a".repeat(20000)),
+        ];
+
+        // Two attachments are worth more than a quarter of this window on their own.
+        assert!(plan_tail_start(&messages, 10000, 0, UNMEASURED).is_some());
     }
 
     #[test]
