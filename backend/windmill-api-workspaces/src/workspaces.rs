@@ -7140,28 +7140,7 @@ async fn clone_workspace_runnable_dependencies(
     .execute(&mut **tx)
     .await?;
 
-    // Carried so the clone's own relocks have something to match; with no row they record NULL and
-    // nothing in it ever skips. Only where the source's live lock is present and still the one the
-    // clone got, though: one that moved since `clone_scripts` ran earlier in this READ COMMITTED
-    // transaction pairs the clone with a hash its importers never resolved against.
-    sqlx::query!(
-        "INSERT INTO lock_hash (workspace_id, path, lockfile_hash)
-         SELECT $1, lh.path, lh.lockfile_hash
-         FROM lock_hash lh
-         JOIN script src ON src.workspace_id = lh.workspace_id AND src.path = lh.path
-              AND NOT src.archived AND NOT src.deleted
-         JOIN script cloned ON cloned.workspace_id = $1 AND cloned.path = lh.path
-              AND NOT cloned.archived AND NOT cloned.deleted
-         WHERE lh.workspace_id = $2 AND src.lock IS NOT NULL AND cloned.lock = src.lock",
-        target_workspace_id,
-        source_workspace_id
-    )
-    .execute(&mut **tx)
-    .await?;
-
-    // Deliberately without `imported_lockfile_hash`: it records what an importer resolved against
-    // when it was last locked, which nothing here can establish for the version the clone got.
-    // Left NULL, every importer relocks once and re-anchors both sides to what the clone holds.
+    // Clone dependency_map to preserve import relationships
     sqlx::query!(
         "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id)
          SELECT $1, importer_path, importer_kind, imported_path, importer_node_id
