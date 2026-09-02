@@ -171,7 +171,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 			<!-- Every section stays mounted while the modal is open: the sidebar badges
 			     count what each one loaded, so hiding is display-only. The scroll lives
 			     here rather than inside the sections, so each one is a plain Section. -->
-			<div class="{section === 'tools' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto">
+			<div class="{section === 'tools' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto pr-2">
 				<AssistantToolsSection {tools} />
 			</div>
 			<!-- Skills owns its own scrolling: its list and its editor are PagedContent pages
@@ -184,15 +184,22 @@ callers that already know which section they mean, such as the "+" menu's Manage
 					bind:blocksClose={skillsBusy}
 				/>
 			</div>
-			<div class="{section === 'instructions' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto">
+			<div class="{section === 'instructions' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto pr-2">
 				<AssistantInstructionsSection
 					{ws}
 					active={section === 'instructions'}
 					bind:blocksClose={instructionsBusy}
 				/>
 			</div>
-			<div class="{section === 'mcp' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto">
-				<AssistantMcpSection {ws} bind:count={mcpCount} bind:blocksClose={mcpBusy} />
+			<!-- Like Skills, MCP owns its own scrolling: its list and its connect form are
+			     PagedContent pages laid over each other. -->
+			<div class="{section === 'mcp' ? 'flex' : 'hidden'} grow min-h-0 flex-col overflow-hidden">
+				<AssistantMcpSection
+					{ws}
+					active={section === 'mcp'}
+					bind:count={mcpCount}
+					bind:blocksClose={mcpBusy}
+				/>
 			</div>
 		</div>
 	</div>

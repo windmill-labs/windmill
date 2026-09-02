@@ -14,13 +14,3 @@ export function summarizeTools(tools: readonly Tool<any>[]): ToolSummary[] {
 		}))
 		.sort((a, b) => a.name.localeCompare(b.name))
 }
-
-/** Descriptions are matched as well as names: a user looking for "screenshot" or
- * "postgres" is describing what they want done, not recalling a tool's name. */
-export function filterTools(tools: readonly ToolSummary[], query: string): ToolSummary[] {
-	const needle = query.trim().toLowerCase()
-	if (!needle) return [...tools]
-	return tools.filter(
-		(t) => t.name.toLowerCase().includes(needle) || t.description.toLowerCase().includes(needle)
-	)
-}

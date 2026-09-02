@@ -541,7 +541,7 @@ What the assistant should do when this skill applies.
 />
 
 {#snippet listPage()}
-	<div class="grow min-h-0 overflow-y-auto">
+	<div class="grow min-h-0 overflow-y-auto pr-2">
 		<Section
 			label="Skills"
 			description="Reusable instruction sets the assistant loads when they apply. Turning one on is personal to you and to this workspace."
@@ -656,7 +656,7 @@ What the assistant should do when this skill applies.
 	<!-- The editor takes the panel over rather than opening on top of it: a form
 	     stacked on the settings modal leaves two surfaces arguing over which one a
 	     click or an Escape belongs to. -->
-	<div class="grow min-h-0 overflow-y-auto">
+	<div class="grow min-h-0 overflow-y-auto pr-2">
 		<div class="flex">
 			<Button
 				variant="subtle"
