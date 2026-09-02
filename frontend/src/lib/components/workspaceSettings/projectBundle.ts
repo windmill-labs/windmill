@@ -263,6 +263,23 @@ export function referencesResourcePath(value: unknown, path: string): boolean {
 }
 
 /**
+ * Whether the text names the resource somewhere no rewriter reaches — a path written on its
+ * own rather than inside a `$res:` token, the way `getResource("f/proj/db")` does. The
+ * tokens are stripped first so the ones a rewrite would move do not count, and the match is
+ * bounded so `f/proj/db` is not found inside `f/proj/db_prod`.
+ */
+export function textHoldsBarePath(text: string, path: string): boolean {
+	const withoutTokens = text.replace(RES_TOKEN_RE, '')
+	const boundary = /[\w\-./]/
+	for (let i = withoutTokens.indexOf(path); i !== -1; i = withoutTokens.indexOf(path, i + 1)) {
+		const before = withoutTokens[i - 1] ?? ''
+		const after = withoutTokens[i + path.length] ?? ''
+		if (!boundary.test(before) && !boundary.test(after)) return true
+	}
+	return false
+}
+
+/**
  * Whether anything the project ships points at one of its own resources.
  *
  * A project declares two kinds of resource. One is referenced — an app pins `$res:` for a
@@ -276,7 +293,11 @@ export function referencesResourcePath(value: unknown, path: string): boolean {
  */
 export function projectReferencesResource(bundle: ProjectExport, path: string): boolean {
 	const { resources: _resources, ...rest } = bundle as any
-	return referencesResourcePath(rest, path)
+	if (referencesResourcePath(rest, path)) return true
+	// A script that reads the resource by name rather than through a `$res:` token still needs
+	// it filled in. Asked about is the safe side of this answer: the cost of a wrong yes is a
+	// row nobody had to act on, and of a wrong no a credential nobody was told to set up.
+	return textHoldsBarePath(JSON.stringify(rest ?? {}), path)
 }
 
 /**

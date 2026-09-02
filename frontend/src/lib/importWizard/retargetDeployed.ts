@@ -29,7 +29,8 @@ import {
 	rewriteFlowValue,
 	rewriteRawAppContent,
 	rewriteTriggerConfig,
-	referencesResourcePath
+	referencesResourcePath,
+	textHoldsBarePath
 } from '$lib/components/workspaceSettings/projectBundle'
 import {
 	TRIGGER_KINDS,
@@ -121,6 +122,13 @@ function holdsBarePath(value: unknown, path: string): boolean {
  */
 const SEARCH_LIMITS = { script: 10000, flow: 1000, app: 1000 }
 
+/**
+ * What a trigger listing caps at. The kinds' list routes take pagination this table does not
+ * pass, so each answers with the server's `DEFAULT_PER_PAGE`. A full page is read the same
+ * way as a full `listSearch*` page: as a listing that cannot account for the rest.
+ */
+const TRIGGER_LIST_LIMIT = 1000
+
 /** A reference this run will not move, recorded so the stub outlives it. */
 const OUTSIDE_PROJECT = 'reads this resource from outside the project'
 const UNREACHABLE_REFERENCE = 'names the resource path outside a $res: reference'
@@ -158,10 +166,20 @@ export async function planRetarget(
 	// The listings are workspace-wide, so an item outside the folder is seen for free. It is
 	// the user's own and stays on the stub, which is the whole reason the stub stays too.
 	for (const s of scripts ?? []) {
-		if (!referencesResourcePath(s.content ?? '', from)) continue
+		const content = String(s.content ?? '')
+		const reads = referencesResourcePath(content, from)
+		// A script's content is one string, so the whole-string match `holdsBarePath` makes for
+		// a flow or an app cannot see a path written inside it. `rewriteContent` moves the
+		// `$res:` tokens and nothing else, so a bare mention is a reference this leaves behind.
+		const bare = textHoldsBarePath(content, from)
+		if (!reads && !bare) continue
 		if (!inFolder(s.path, folder)) {
 			gaps.push({ path: s.path!, reason: OUTSIDE_PROJECT })
 			continue
+		}
+		if (bare) {
+			gaps.push({ path: s.path!, reason: UNREACHABLE_REFERENCE })
+			if (!reads) continue
 		}
 		referrers.push({ kind: 'script', path: s.path! })
 	}
@@ -211,6 +229,10 @@ export async function planRetarget(
 		}
 		if (incomplete) {
 			gaps.push({ path: `${def.badge} triggers`, reason: 'could not be listed' })
+			continue
+		}
+		if (rows.length >= TRIGGER_LIST_LIMIT) {
+			gaps.push({ path: `${def.badge} triggers`, reason: 'could not all be listed' })
 			continue
 		}
 		for (const t of rows) {
@@ -406,9 +428,15 @@ async function fetchBundlePart(
 
 /**
  * A raw app: its deployed value carries the sources and the runnables, and `updateAppRaw`
- * refuses without a bundle. The bundle is the deployed one, read back and sent again
- * unchanged — the sources are not being edited here, so rebuilding it is neither possible
- * from the browser nor needed.
+ * refuses without a bundle. The bundle is the deployed one, read back, rewritten and sent
+ * again — rebuilding it is not possible from the browser and is not needed, but re-uploading
+ * it untouched is not an option either.
+ *
+ * The bundle is compiled from the sources, so a `$res:` a source file spells out is baked
+ * into it. The import rewrites that copy — `retargetProjectExport` runs while `/bundle.js`
+ * is still one of `files`, and only `installProject` splits it out afterwards. Sending the
+ * deployed bundle back unrewritten would undo on reuse what the import got right, and the
+ * app would keep reading a resource this run is about to delete.
  */
 async function rewriteRawApp(
 	workspace: string,
@@ -424,10 +452,16 @@ async function rewriteRawApp(
 	const runnables = next.runnables ?? {}
 	const policy = (await updateRawAppPolicy(runnables, a.policy)) as any
 	const secret = await AppService.getPublicSecretOfLatestVersionOfApp({ workspace, path })
-	const [js, css] = await Promise.all([
+	const [deployedJs, deployedCss] = await Promise.all([
 		fetchBundlePart(workspace, secret, 'js'),
 		fetchBundlePart(workspace, secret, 'css')
 	])
+	const js = rewriteContent(deployedJs, map)
+	const css = rewriteContent(deployedCss, map)
+	// `rewriteContent` moves the `$res:` tokens. A path the bundle spells out any other way
+	// is one nothing here can move, and uploading it would leave the app reading a resource
+	// about to be deleted.
+	for (const stub of map.keys()) if (textHoldsBarePath(js, stub)) return false
 	const files = { ...(next.files ?? {}) }
 	delete files['/bundle.js']
 	delete files['/bundle.css']
@@ -463,6 +497,11 @@ async function rewriteRawApp(
  * string equal to the stub's path, so a trigger sitting at the path the resource used to
  * hold — or running a script that does — would otherwise be renamed, or repointed at the
  * reused resource, along with the reference.
+ *
+ * A trigger states its run identity as `permissioned_as`, not the `on_behalf_of` the other
+ * kinds use, and `resolve_permissioned_as` keeps the row's value only when
+ * `preserve_permissioned_as` says so. Without the pair a trigger created under a folder's
+ * `default_permissioned_as` would start running as whoever picked the credential.
  */
 async function rewriteTrigger(
 	workspace: string,
@@ -474,7 +513,10 @@ async function rewriteTrigger(
 	const { enabled: _enabled, ...rest } = {
 		...(rewriteTriggerConfig(row, map) as any),
 		path: r.path,
-		...(typeof row.script_path === 'string' ? { script_path: row.script_path } : {})
+		...(typeof row.script_path === 'string' ? { script_path: row.script_path } : {}),
+		...(typeof row.permissioned_as === 'string'
+			? { permissioned_as: row.permissioned_as, preserve_permissioned_as: true }
+			: {})
 	}
 	// No `relocated` check: `rewriteTriggerConfig` remaps every bare match at every depth, so
 	// the resource field always moves. What can still read `from` afterwards is a restored

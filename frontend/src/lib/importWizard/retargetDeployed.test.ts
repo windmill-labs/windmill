@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
 	triggers: [] as any[],
 	scheduleListError: undefined as any,
 	failingTriggerPath: undefined as string | undefined,
+	deployedJs: 'COMPILED',
 	deletedResources: [] as string[],
 	updatedRawApps: [] as any[],
 	updatedTriggers: [] as any[]
@@ -74,7 +75,7 @@ vi.stubGlobal(
 	vi.fn(async (url: string) => ({
 		ok: true,
 		status: 200,
-		text: async () => (url.endsWith('.js') ? 'COMPILED' : 'STYLES')
+		text: async () => (url.endsWith('.js') ? state.deployedJs : 'STYLES')
 	}))
 )
 
@@ -104,6 +105,7 @@ describe('applyRetarget', () => {
 		state.apps = [rawApp]
 		state.scripts = []
 		state.triggers = []
+		state.deployedJs = 'COMPILED'
 		state.scheduleListError = undefined
 		state.failingTriggerPath = undefined
 		state.deletedResources = []
@@ -127,6 +129,30 @@ describe('applyRetarget', () => {
 		expect(Object.keys(sent.formData.app.value.files)).toEqual(['/App.tsx'])
 	})
 
+	// The bundle is compiled from the sources, so a `$res:` a source spells out is baked into
+	// it. `retargetProjectExport` rewrites that copy on import, while /bundle.js is still one
+	// of `files` — sending the deployed bundle back untouched would undo exactly that.
+	it("rewrites the deployed bundle's own tokens before sending it back", async () => {
+		state.deployedJs = `const cfg = "$res:${FROM}"; export default cfg`
+		const outcome = await run()
+		expect(outcome.error).toBeUndefined()
+		expect(outcome.stubDeleted).toBe(true)
+		const sent = state.updatedRawApps[0]
+		expect(sent.formData.js).toContain(`$res:${TO}`)
+		expect(sent.formData.js).not.toContain(`$res:${FROM}`)
+	})
+
+	// A path the bundle names any other way is one nothing here can move, so the app is left
+	// alone and the stub it still reads has to survive.
+	it('keeps the stub when the bundle names the resource outside a $res: token', async () => {
+		state.deployedJs = `const cfg = await getResource("${FROM}")`
+		const outcome = await run()
+		expect(outcome.error).toBeUndefined()
+		expect(outcome.stubDeleted).toBe(false)
+		expect(state.deletedResources).toEqual([])
+		expect(state.updatedRawApps).toEqual([])
+	})
+
 	// A trigger holds its resource as a bare path in its own column, not as a `$res:` token.
 	// Matching only the token spelling left the trigger on a stub that was then deleted.
 	it('finds a trigger that holds the resource as a bare path', async () => {
@@ -136,6 +162,7 @@ describe('applyRetarget', () => {
 				path: 'f/proj/ingest',
 				script_path: 'f/proj/run',
 				postgres_resource_path: FROM,
+				permissioned_as: 'u/service_account',
 				enabled: true
 			}
 		]
@@ -147,6 +174,10 @@ describe('applyRetarget', () => {
 		// Pointing a trigger at a credential must not also start it: `enabled` is left out so
 		// the backend keeps whatever the trigger is set to.
 		expect(state.updatedTriggers[0].body).not.toHaveProperty('enabled')
+		// Nor run it as whoever picked the credential: a trigger states its identity as
+		// `permissioned_as`, which the backend keeps only when told to preserve it.
+		expect(state.updatedTriggers[0].body.permissioned_as).toBe('u/service_account')
+		expect(state.updatedTriggers[0].body.preserve_permissioned_as).toBe(true)
 		expect(state.deletedResources).toEqual([FROM])
 	})
 
