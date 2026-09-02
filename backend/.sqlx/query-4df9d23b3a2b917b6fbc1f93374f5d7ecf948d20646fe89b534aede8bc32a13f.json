@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO lock_hash (workspace_id, path, lockfile_hash)\n         SELECT $1, * FROM UNNEST($2::text[], $3::bigint[])\n         ON CONFLICT (workspace_id, path) DO UPDATE SET lockfile_hash = EXCLUDED.lockfile_hash",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "TextArray",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4df9d23b3a2b917b6fbc1f93374f5d7ecf948d20646fe89b534aede8bc32a13f"
+}

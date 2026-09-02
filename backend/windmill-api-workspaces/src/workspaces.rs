@@ -12,6 +12,7 @@ use windmill_api_auth::{
 };
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
+use windmill_common::scripts::hash_script;
 use windmill_common::usernames::{get_instance_username_or_create_pending, VALID_USERNAME};
 use windmill_common::webhook::WebhookShared;
 use windmill_common::{BASE_URL, DB};
@@ -7140,24 +7141,32 @@ async fn clone_workspace_runnable_dependencies(
     .execute(&mut **tx)
     .await?;
 
-    // Carried so the clone's own relocks have something to match; with no row they record NULL and
-    // nothing in it ever skips. Only where the source's live lock is present and still the one the
-    // clone got, though: one that moved since `clone_scripts` ran earlier in this READ COMMITTED
-    // transaction pairs the clone with a hash its importers never resolved against.
-    // Nothing stops a path holding two live versions, which both joins then fan out; every such
-    // row carries the one hash the path has, so the first settles it and the rest are redundant.
+    // Recorded so the clone's own relocks have something to match; with no row they record NULL
+    // and nothing in it ever skips. Hashed from the locks the clone holds rather than copied from
+    // the source's rows, which are only as current as the last write to them: one left stale by a
+    // supplied lock deployed before this was recorded names a lock the clone no longer has, and an
+    // importer that resolved against the real one would then skip a relock it needed.
+    let cloned_locks = sqlx::query!(
+        "SELECT DISTINCT ON (path) path, lock FROM script
+         WHERE workspace_id = $1 AND NOT archived AND NOT deleted AND lock IS NOT NULL
+         ORDER BY path, created_at DESC",
+        target_workspace_id
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let (paths, hashes): (Vec<String>, Vec<i64>) = cloned_locks
+        .into_iter()
+        .filter_map(|r| r.lock.map(|lock| (r.path, hash_script(&lock))))
+        .unzip();
+
     sqlx::query!(
         "INSERT INTO lock_hash (workspace_id, path, lockfile_hash)
-         SELECT $1, lh.path, lh.lockfile_hash
-         FROM lock_hash lh
-         JOIN script src ON src.workspace_id = lh.workspace_id AND src.path = lh.path
-              AND NOT src.archived AND NOT src.deleted
-         JOIN script cloned ON cloned.workspace_id = $1 AND cloned.path = lh.path
-              AND NOT cloned.archived AND NOT cloned.deleted
-         WHERE lh.workspace_id = $2 AND src.lock IS NOT NULL AND cloned.lock = src.lock
-         ON CONFLICT (workspace_id, path) DO NOTHING",
+         SELECT $1, * FROM UNNEST($2::text[], $3::bigint[])
+         ON CONFLICT (workspace_id, path) DO UPDATE SET lockfile_hash = EXCLUDED.lockfile_hash",
         target_workspace_id,
-        source_workspace_id
+        &paths[..],
+        &hashes[..]
     )
     .execute(&mut **tx)
     .await?;
