@@ -5,7 +5,7 @@ operating workspace, each with the switch that decides whether this chat carries
 and the actions that create, edit, import and delete them.
 -->
 <script lang="ts">
-	import { Button, Section } from '$lib/components/common'
+	import { Button, ListRow, Section } from '$lib/components/common'
 	import EmptyState from '$lib/components/common/emptyState/EmptyState.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import PagedContent from '$lib/components/common/modal/PagedContent.svelte'
@@ -195,7 +195,15 @@ What the assistant should do when this skill applies.
 
 	function closeEditor() {
 		editorOpen = false
-		editing = undefined
+	}
+
+	/** Left and Right step between the two pages, which is `PagedContent` answering the
+	 * arrows once it is given this. Forward only goes somewhere once the editor has been
+	 * opened: before that it holds no skill. `editing` is deliberately not cleared on the
+	 * way out — both entry points set it, so it stays the skill the parked page shows. */
+	function navigate(key: string) {
+		if (key === 'list') closeEditor()
+		else if (editorSeq > 0) editorOpen = true
 	}
 
 	// Rows describe one workspace. A switch while the section is open must not leave
@@ -534,6 +542,7 @@ What the assistant should do when this skill applies.
 	warm={active}
 	class="grow min-h-0"
 	current={editorOpen ? 'editor' : 'list'}
+	onNavigate={navigate}
 	pages={[
 		{ key: 'list', content: listPage },
 		{ key: 'editor', content: editorPage }
@@ -596,29 +605,18 @@ What the assistant should do when this skill applies.
 					action={{ label: 'New skill', icon: Plus, onClick: openCreate, disabled: saving }}
 				/>
 			{:else}
-				<!-- `overflow-hidden`: the rows light up on hover and a square corner would
-				     otherwise poke out of the card's rounded one. -->
-				<div class="flex flex-col divide-y border rounded-md bg-surface-tertiary overflow-hidden">
+				<div class="flex flex-col gap-0.5">
 					{#each skills as skill (skill.path)}
-						<div class="flex items-center gap-3 px-4 py-3 hover:bg-surface-hover transition-colors">
-							<!-- The row opens the skill. Only the label is the button: the switch and the
-							     menu beside it are controls of their own, and nesting them inside one
-							     would be invalid and would fire both. -->
-							<button
-								type="button"
-								class="flex items-center gap-3 grow min-w-0 text-left"
-								onclick={() => openSkill(skill)}
-							>
-								<BookOpen size={16} class="shrink-0 text-tertiary" />
-								<div class="min-w-0 grow">
-									<div class="text-xs font-semibold text-emphasis truncate">
-										{ambiguous.has(skill.name) ? skill.path : skill.name}
-									</div>
-									{#if skill.description}
-										<div class="text-xs text-secondary truncate">{skill.description}</div>
-									{/if}
-								</div>
-							</button>
+						{#snippet icon()}
+							<BookOpen size={16} class="text-tertiary" />
+						{/snippet}
+						{#snippet title()}
+							<span class="truncate leading-5">
+								{ambiguous.has(skill.name) ? skill.path : skill.name}
+							</span>
+						{/snippet}
+						{#snippet subtitle()}{skill.description}{/snippet}
+						{#snippet trailing()}
 							<Toggle
 								size="xs"
 								checked={skill.enabled}
@@ -644,7 +642,14 @@ What the assistant should do when this skill applies.
 									}
 								]}
 							/>
-						</div>
+						{/snippet}
+						<ListRow
+							{icon}
+							{title}
+							{trailing}
+							subtitle={skill.description ? subtitle : undefined}
+							onClick={() => openSkill(skill)}
+						/>
 					{/each}
 				</div>
 			{/if}
@@ -657,7 +662,8 @@ What the assistant should do when this skill applies.
 	     stacked on the settings modal leaves two surfaces arguing over which one a
 	     click or an Escape belongs to. -->
 	<div class="grow min-h-0 overflow-y-auto pr-2">
-		<div class="flex">
+		<!-- Sticky so the way back is always one click away, however far the page scrolls. -->
+		<div class="flex sticky top-0 z-10 bg-surface pb-1">
 			<Button
 				variant="subtle"
 				unifiedSize="xs"

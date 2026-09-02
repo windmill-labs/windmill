@@ -5,7 +5,7 @@ an external MCP server to this chat, and the servers already connected, each wit
 switch that decides whether this chat carries its tools.
 -->
 <script lang="ts">
-	import { Button, Section } from '$lib/components/common'
+	import { Button, ListRow, Section } from '$lib/components/common'
 	import EmptyState from '$lib/components/common/emptyState/EmptyState.svelte'
 	import PagedContent from '$lib/components/common/modal/PagedContent.svelte'
 	import McpConnect from '$lib/components/mcp/McpConnect.svelte'
@@ -73,7 +73,9 @@ switch that decides whether this chat carries its tools.
 	// The row being edited, on the third page. `ResourceEditor` is the same editor the
 	// resource drawer opens, so a connection is edited here the way it is edited
 	// anywhere else — url, token, description, path.
+	// Kept when the detail page is left so the Right arrow steps back into it.
 	let editing = $state<{ path: string; enabled: boolean } | undefined>(undefined)
+	let detailOpen = $state(false)
 	// The path the editor holds, which is not `editing.path` once someone renames it.
 	let editingPath = $state('')
 	let canSaveEditing = $state(false)
@@ -109,13 +111,13 @@ switch that decides whether this chat carries its tools.
 	// stays mounted, so without a remount the second server opened would be the first.
 	let detailSeq = $state(0)
 
-	let page = $derived(connectOpen ? 'connect' : editing ? 'detail' : 'list')
+	let page = $derived(connectOpen ? 'connect' : detailOpen ? 'detail' : 'list')
 
 	$effect(() => {
 		count = servers.length
 	})
 	$effect(() => {
-		blocksClose = pendingDisconnect !== undefined || connectOpen || editing !== undefined
+		blocksClose = pendingDisconnect !== undefined || connectOpen || detailOpen
 	})
 
 	/** Escape steps back to the list rather than closing the whole modal: `blocksClose`
@@ -146,10 +148,29 @@ switch that decides whether this chat carries its tools.
 		editingBaseline = undefined
 		editingTouched = false
 		detailSeq++
+		detailOpen = true
 	}
 
 	function closeDetail() {
-		editing = undefined
+		detailOpen = false
+	}
+
+	/** Left and Right step between the pages, which is `PagedContent` answering the
+	 * arrows once it is given this. Each forward step only goes somewhere it has
+	 * something to show: the detail page holds a connection only once one was opened.
+	 *
+	 * The three pages are a strip and the arrows walk it by position, so stepping back
+	 * from the connect form asks for the detail page. Both of those are levels below the
+	 * list rather than a sequence, so backwards out of either lands on the list. */
+	function navigate(key: string) {
+		if (key === 'list' || connectOpen) {
+			connectOpen = false
+			detailOpen = false
+		} else if (key === 'connect') {
+			openConnect()
+		} else if (editing) {
+			detailOpen = true
+		}
 	}
 
 	async function saveEditing() {
@@ -179,6 +200,7 @@ switch that decides whether this chat carries its tools.
 			// Back to the list too: the editor holds one workspace's resource, and the
 			// path it is on names a different server in the workspace switched to.
 			editing = undefined
+			detailOpen = false
 			connectOpen = false
 			void loadServers(target)
 		})
@@ -312,6 +334,7 @@ switch that decides whether this chat carries its tools.
 	warm={active}
 	class="grow min-h-0"
 	current={page}
+	onNavigate={navigate}
 	pages={[
 		{ key: 'list', content: listPage },
 		{ key: 'detail', content: detailPage },
@@ -346,32 +369,21 @@ switch that decides whether this chat carries its tools.
 					action={{ label: 'Connect a server', icon: Plus, onClick: openConnect }}
 				/>
 			{:else}
-				<!-- `overflow-hidden`: the rows light up on hover and a square corner would
-				     otherwise poke out of the card's rounded one. -->
-				<div class="flex flex-col divide-y border rounded-md bg-surface-tertiary overflow-hidden">
+				<div class="flex flex-col gap-0.5">
 					{#each servers as server (server.path)}
-						<div class="flex items-center gap-3 px-4 py-3 hover:bg-surface-hover transition-colors">
-							<!-- The row opens the connection. Only the label is the button: the switch
-							     and the disconnect beside it are controls of their own, and nesting them
-							     inside one would be invalid and would fire both. -->
-							<button
-								type="button"
-								class="flex items-center gap-3 grow min-w-0 text-left"
-								onclick={() => openServer(server)}
-							>
-								{#if server.icon}
-									{@const Icon = server.icon}
-									<Icon width="16px" height="16px" class="shrink-0" />
-								{:else}
-									<Plug size={16} class="shrink-0 text-tertiary" />
-								{/if}
-								<div class="min-w-0 grow">
-									<div class="text-xs font-semibold text-emphasis truncate">{server.path}</div>
-									{#if server.description}
-										<div class="text-xs text-secondary truncate">{server.description}</div>
-									{/if}
-								</div>
-							</button>
+						{#snippet icon()}
+							{#if server.icon}
+								{@const Icon = server.icon}
+								<Icon width="16px" height="16px" />
+							{:else}
+								<Plug size={16} class="text-tertiary" />
+							{/if}
+						{/snippet}
+						{#snippet title()}
+							<span class="truncate leading-5">{server.path}</span>
+						{/snippet}
+						{#snippet subtitle()}{server.description}{/snippet}
+						{#snippet trailing()}
 							<Toggle
 								size="xs"
 								checked={server.enabled}
@@ -385,7 +397,14 @@ switch that decides whether this chat carries its tools.
 								title="Disconnect"
 								onClick={() => (pendingDisconnect = server.path)}
 							/>
-						</div>
+						{/snippet}
+						<ListRow
+							{icon}
+							{title}
+							{trailing}
+							subtitle={server.description ? subtitle : undefined}
+							onClick={() => openServer(server)}
+						/>
 					{/each}
 				</div>
 			{/if}
@@ -395,7 +414,8 @@ switch that decides whether this chat carries its tools.
 
 {#snippet detailPage()}
 	<div class="grow min-h-0 overflow-y-auto pr-2">
-		<div class="flex">
+		<!-- Sticky so the way back is always one click away, however far the page scrolls. -->
+		<div class="flex sticky top-0 z-10 bg-surface pb-1">
 			<Button
 				variant="subtle"
 				unifiedSize="xs"
@@ -453,7 +473,8 @@ switch that decides whether this chat carries its tools.
 	     Escape belongs to. `McpConnect` carries its own heading, so there is no Section
 	     around it. -->
 	<div class="grow min-h-0 overflow-y-auto pr-2">
-		<div class="flex">
+		<!-- Sticky so the way back is always one click away, however far the page scrolls. -->
+		<div class="flex sticky top-0 z-10 bg-surface pb-1">
 			<Button
 				variant="subtle"
 				unifiedSize="xs"

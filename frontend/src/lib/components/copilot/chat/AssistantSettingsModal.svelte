@@ -17,6 +17,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	import { BookOpen, Boxes, Plug, ScrollText, SlidersHorizontal } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
+	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
@@ -37,10 +38,11 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	// popover portaled to the body (where a click inside reads as a click outside this
 	// modal), or an editor holding text nobody has saved yet. While one is up, Escape
 	// and an outside click belong to the section, which answers them itself.
+	let toolsBusy = $state(false)
 	let skillsBusy = $state(false)
 	let instructionsBusy = $state(false)
 	let mcpBusy = $state(false)
-	let blocksClose = $derived(skillsBusy || instructionsBusy || mcpBusy)
+	let blocksClose = $derived(toolsBusy || skillsBusy || instructionsBusy || mcpBusy)
 
 	// A session chat operates on its own (possibly forked) workspace without switching
 	// `workspaceStore`, and that is the workspace every list here is read under.
@@ -57,18 +59,14 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	// alongside `tools` there, so listing only `tools` would under-report.
 	let tools = $derived(summarizeTools([...aiChatManager.tools, ...aiChatManager.planMode.tools]))
 
-	const sections: {
-		key: AssistantSettingsSection
-		label: string
-		/** A lucide icon component; typed loosely the way `Item.icon` is. */
-		icon: any
-		count?: () => number
-	}[] = [
-		{ key: 'tools', label: 'Tools', icon: Boxes, count: () => tools.length },
-		{ key: 'skills', label: 'Skills', icon: BookOpen, count: () => skillCount },
-		{ key: 'instructions', label: 'Instructions', icon: ScrollText },
-		{ key: 'mcp', label: 'MCP connections', icon: Plug, count: () => mcpCount }
-	]
+	// `SidebarNavigation`'s item shape, which is what the instance and workspace settings
+	// navs are built from too.
+	let sections = $derived([
+		{ id: 'tools', label: 'Tools', icon: Boxes, count: tools.length },
+		{ id: 'skills', label: 'Skills', icon: BookOpen, count: skillCount },
+		{ id: 'instructions', label: 'Instructions', icon: ScrollText },
+		{ id: 'mcp', label: 'MCP connections', icon: Plug, count: mcpCount }
+	])
 
 	/** Opens on `target`, or back on whichever section was last read. */
 	export function open(target: AssistantSettingsSection = section) {
@@ -113,7 +111,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 <Tooltip small placement="top">
 	<Button
 		unifiedSize="2xs"
-		variant="default"
+		variant="subtle"
 		iconOnly
 		startIcon={{ icon: SlidersHorizontal }}
 		aria-label="Assistant settings"
@@ -142,37 +140,25 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	{/snippet}
 
 	<div class="w-full flex min-h-0 gap-4">
-		<nav class="w-52 shrink-0 flex flex-col border-r border-border-light pr-3">
-			<div class="flex flex-col gap-0.5">
-				{#each sections as s (s.key)}
-					{@const count = s.count?.()}
-					<Button
-						variant="subtle"
-						unifiedSize="sm"
-						selected={section === s.key}
-						startIcon={{ icon: s.icon }}
-						btnClasses="w-full !justify-between font-normal"
-						wrapperClasses="w-full"
-						onClick={() => select(s.key)}
-					>
-						<span class="grow min-w-0 text-left truncate">{s.label}</span>
-						{#if count !== undefined}
-							<span class="shrink-0 text-2xs tabular-nums text-secondary">{count}</span>
-						{/if}
-					</Button>
-				{/each}
-			</div>
-			<div class="mt-auto pt-3 text-2xs text-hint truncate" title={ws}>
-				Acting on <span class="font-mono">{ws}</span>
-			</div>
-		</nav>
+		<div class="w-52 shrink-0 flex flex-col border-r border-border-light pr-3">
+			<SidebarNavigation
+				groups={[{ items: sections }]}
+				selectedId={section}
+				onNavigate={(id) => select(id as AssistantSettingsSection)}
+			/>
+		</div>
 
 		<div class="grow min-w-0 flex flex-col min-h-0">
 			<!-- Every section stays mounted while the modal is open: the sidebar badges
-			     count what each one loaded, so hiding is display-only. The scroll lives
-			     here rather than inside the sections, so each one is a plain Section. -->
-			<div class="{section === 'tools' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto pr-2">
-				<AssistantToolsSection {tools} />
+			     count what each one loaded, so hiding is display-only. Tools, Skills and MCP
+			     own their own scrolling — each is a list and a detail page laid over each
+			     other — so only Instructions scrolls here. -->
+			<div class="{section === 'tools' ? 'flex' : 'hidden'} grow min-h-0 flex-col overflow-hidden">
+				<AssistantToolsSection
+					{tools}
+					active={section === 'tools'}
+					bind:blocksClose={toolsBusy}
+				/>
 			</div>
 			<!-- Skills owns its own scrolling: its list and its editor are PagedContent pages
 			     laid over each other, and each keeps a scroll position of its own. -->
@@ -184,7 +170,9 @@ callers that already know which section they mean, such as the "+" menu's Manage
 					bind:blocksClose={skillsBusy}
 				/>
 			</div>
-			<div class="{section === 'instructions' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto pr-2">
+			<div
+				class="{section === 'instructions' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto pr-2"
+			>
 				<AssistantInstructionsSection
 					{ws}
 					active={section === 'instructions'}
