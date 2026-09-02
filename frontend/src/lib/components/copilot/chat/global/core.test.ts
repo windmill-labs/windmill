@@ -4376,6 +4376,49 @@ describe('global AI tools', () => {
 		})
 	})
 
+	// A test run meets the same card as a deployed one, so what previews is what the form
+	// submitted — not what the model proposed. The two tests above cover the other half:
+	// a schema with no fields to build a form from still runs the proposal as sent.
+	it('test_run_script previews the arguments the form submitted', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/formed-test',
+			summary: 'Formed test script',
+			content: 'export async function main(name: string) {}',
+			language: 'bun',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any)
+
+		let opened: Record<string, any> | undefined
+		let kind: string | undefined
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_script',
+				{ path: 'f/scripts/formed-test', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => {
+						opened = form.args
+						kind = form.kind
+						return { name: 'Grace' }
+					}
+				}
+			)
+		)
+
+		expect(opened).toEqual({ name: 'Ada' })
+		// Drives the card's tense: a test says it tested, not that it ran.
+		expect(kind).toBe('test')
+		expect(JobService.runScriptPreview).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/scripts/formed-test',
+				content: 'export async function main(name: string) {}',
+				args: { name: 'Grace' },
+				language: 'bun'
+			}
+		})
+	})
+
 	it('test_run_flow previews draft flow content by path', async () => {
 		const modules = [{ id: 'start', value: { type: 'identity' } }]
 		await callGlobalTool('write_flow', {

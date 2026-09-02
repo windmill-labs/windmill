@@ -899,7 +899,7 @@ const testRunScriptSchema = z.object({
 const testRunScriptToolDef = createToolDef(
 	testRunScriptSchema,
 	'test_run_script',
-	'Execute a preview-style test run of a script by path, preferring draft content when it exists.',
+	'Execute a preview-style test run of a script by path, preferring draft content when it exists. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer.',
 	{ strict: false }
 )
 
@@ -3665,8 +3665,9 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = testRunScriptSchema.parse(ctx.args)
 			return testRunScriptByPath(parsed, ctx)
 		},
-		requiresConfirmation: true,
-		confirmationMessage: (args) => `Run a test of ${pathLeaf(args?.path, 'the script')}`,
+		// No requiresConfirmation: like run_script, the argument form is the confirmation —
+		// but this one is auto-acceptable, so YOLO answers it and the model keeps iterating.
+		streamingLabel: 'Preparing the test form...',
 		queuedLabel: (args) => `Test ${args?.path ?? 'the script'}`,
 		showDetails: true,
 		autoCollapseDetails: false
@@ -5164,16 +5165,50 @@ function writeVariableDraft(args: WriteVariableArgs, ctx: WriteDraftCtx): Promis
 async function loadScriptForEdit(
 	path: string,
 	workspace: string
-): Promise<{ content: string; language: ScriptLang; summary?: string }> {
+): Promise<{
+	content: string
+	language: ScriptLang
+	summary?: string
+	schema?: Record<string, any>
+}> {
 	const draft = await getGlobalDraft(workspace, 'script', path)
 	if (draft) {
 		if (typeof draft.value !== 'string' || !draft.language) {
 			throw new Error(`Draft script "${path}" is missing content or language.`)
 		}
-		return { content: draft.value, language: draft.language, summary: draft.summary }
+		return {
+			content: draft.value,
+			language: draft.language,
+			summary: draft.summary,
+			schema: draft.schema as Record<string, any> | undefined
+		}
 	}
 	const script = await ScriptService.getScriptByPath({ workspace, path })
-	return { content: script.content, language: script.language, summary: script.summary }
+	return {
+		content: script.content,
+		language: script.language,
+		summary: script.summary,
+		schema: script.schema as Record<string, any> | undefined
+	}
+}
+
+/** The fields a test form offers, for code that may never have been deployed. A draft the
+ * chat wrote carries the schema it inferred at write time; anything else — a draft written
+ * elsewhere, a deployed script whose schema predates an edit — is inferred here from the
+ * content that is about to run, so the form cannot offer a field the code no longer takes. */
+async function schemaForTestRun(script: {
+	content: string
+	language: ScriptLang
+	schema?: Record<string, any>
+}): Promise<Record<string, any>> {
+	if (script.schema?.properties) return script.schema
+	const schema = emptySchema()
+	try {
+		await inferArgs(script.language, script.content, schema)
+	} catch (e) {
+		console.error('Failed to infer script schema for the test run form', e)
+	}
+	return schema as unknown as Record<string, any>
 }
 
 async function editScript(
@@ -5420,54 +5455,113 @@ async function testRunScriptByPath(
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
 	const script = await loadScriptForEdit(args.path, workspace)
+	const schema = await schemaForTestRun(script)
 	const testArgs = normalizeTestRunArgs(args.args)
 
-	return executeTestRun({
-		jobStarter: () =>
-			JobService.runScriptPreview({
-				workspace,
-				requestBody: {
-					path: args.path,
-					content: script.content,
-					args: testArgs,
-					language: script.language
-				}
-			}),
-		workspace,
-		toolCallbacks,
-		toolId,
-		startMessage: `Running test for script "${args.path}"...`,
-		contextName: 'script',
-		background: args.background,
-		detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
-		label: args.path
-	})
+	// A schema declaring no field at all is indistinguishable from one this could not read,
+	// and a form built from it would drop every argument the model proposed without either
+	// of them being able to tell why. Run what was asked for instead — it is what this tool
+	// did before it grew a form, and a form with no fields was never going to add consent.
+	if (Object.keys(schema.properties ?? {}).length === 0 && Object.keys(testArgs ?? {}).length > 0) {
+		return executeTestRun({
+			jobStarter: () =>
+				JobService.runScriptPreview({
+					workspace,
+					requestBody: {
+						path: args.path,
+						content: script.content,
+						args: testArgs,
+						language: script.language
+					}
+				}),
+			workspace,
+			toolCallbacks,
+			toolId,
+			startMessage: `Running test for script "${args.path}"...`,
+			contextName: 'script',
+			background: args.background,
+			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
+			label: args.path
+		})
+	}
+
+	return runThroughForm(
+		{
+			path: args.path,
+			schema,
+			summary: script.summary,
+			kind: 'test',
+			// Never "deployed" here: the code about to run is the draft the model is still
+			// writing, and a line telling it to re-read the deployed schema would send it
+			// to the wrong version.
+			schemaNoun: 'script',
+			toolName: 'test_run_script',
+			proposed: args.args,
+			startMessage: `Running test for script "${args.path}"...`,
+			contextName: 'script',
+			// Its own loop: the model is told to test and iterate, so YOLO answers the form
+			// with what it opened with rather than parking the loop on a card.
+			autoAcceptable: true,
+			background: args.background,
+			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
+			startJob: (submitted) =>
+				JobService.runScriptPreview({
+					workspace,
+					requestBody: {
+						path: args.path,
+						content: script.content,
+						args: submitted,
+						language: script.language
+					}
+				})
+		},
+		ctx
+	)
 }
 
 /** The "do not call again" half is load-bearing: without it the model re-proposes the
  * call, which re-opens the form the user just dismissed, and Stop becomes their only
  * way out. */
-const RUN_FORM_CANCELLED =
-	'The user cancelled the run form. The script did NOT run. Do not call run_script again unless the user asks for it.'
+const runFormCancelled = (toolName: string) =>
+	`The user cancelled the run form. The script did NOT run. Do not call ${toolName} again unless the user asks for it.`
 
 /** The model only needs to see what the user changed, and nothing bounds an object or
  * array argument the form let them paste into. */
 const MAX_SUBMITTED_ARGS_LENGTH = 4000
 
-async function runDeployedScript(
-	args: z.infer<typeof runScriptSchema>,
-	ctx: WriteDraftCtx
-): Promise<string> {
+/** One run through an argument form: conform what the model proposed to the schema of the
+ * version about to run, open the form on it, then run whatever came back. Both tools that
+ * run a script are this, differing only in where the schema comes from and how the job
+ * starts — so the user meets one card whichever they asked for. */
+type FormRunSpec = {
+	path: string
+	schema: Record<string, any>
+	summary?: string
+	kind: 'run' | 'test'
+	/** How the lines the model reads back name the version this ran: telling it to re-read
+	 * the "deployed schema" of a draft would send it to the wrong code. */
+	schemaNoun: string
+	toolName: string
+	proposed: Record<string, any> | null | undefined
+	startMessage: string
+	contextName: 'script' | 'flow'
+	/** Whether YOLO may answer this form. See requestRunArgs. */
+	autoAcceptable?: boolean
+	background?: boolean
+	detachAfterMs?: number
+	startJob: (submitted: Record<string, any>) => Promise<string>
+}
+
+async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
-	if (!toolCallbacks.requestRunArgs) {
+	// A host with no form can still run what YOLO would have answered for; a deployed run
+	// has no such fallback, since the form is the only place its consent comes from.
+	if (!toolCallbacks.requestRunArgs && !spec.autoAcceptable) {
 		return 'This chat cannot show a run form, so a deployed script cannot be run from here.'
 	}
 
-	// No getDraft: this runs the script as it is live, so the form has to offer the
-	// inputs the live version accepts and not a draft's.
-	const script = await ScriptService.getScriptByPath({ workspace, path: args.path })
-	const schema = (script.schema as Record<string, any>) ?? {}
-	const conformed = conformArgsToSchema(normalizeTestRunArgs(args.args), schema)
+	const schema = spec.schema
+	const conformed = conformArgsToSchema(normalizeTestRunArgs(spec.proposed), schema)
 	// A secret the model picked is not consent, whatever it holds: a literal is a value
 	// the user never chose, a reference names something the card cannot show them. Files
 	// go the same way — prefilled bytes are bytes the stored transcript then carries.
@@ -5478,8 +5572,9 @@ async function runDeployedScript(
 		strippedKeys
 	)
 	const form: RunFormDisplay = {
-		path: args.path,
-		summary: script.summary || undefined,
+		path: spec.path,
+		summary: spec.summary || undefined,
+		kind: spec.kind,
 		schema,
 		args: proposed,
 		droppedKeys: conformed.dropped.undeclared.length ? conformed.dropped.undeclared : undefined,
@@ -5489,7 +5584,7 @@ async function runDeployedScript(
 	}
 
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Waiting for you to confirm the arguments of "${args.path}"`,
+		content: `Waiting for you to confirm the arguments of "${spec.path}"`,
 		runForm: form,
 		// Not the raw tool-call arguments: the card settles on what the form opened with.
 		// Only settles it — the raw proposal still renders while the call streams in.
@@ -5497,16 +5592,18 @@ async function runDeployedScript(
 		isLoading: true
 	})
 
-	const submitted = await toolCallbacks.requestRunArgs(toolId, form)
+	const submitted = toolCallbacks.requestRunArgs
+		? await toolCallbacks.requestRunArgs(toolId, form, { autoAcceptable: spec.autoAcceptable })
+		: proposed
 	if (!submitted) {
 		toolCallbacks.setToolStatus(toolId, {
-			content: `Run of "${args.path}" cancelled by user`,
+			content: `Run of "${spec.path}" cancelled by user`,
 			isLoading: false,
 			isStreamingArguments: false,
 			error: 'Cancelled by user',
 			declinedByUser: true
 		})
-		return RUN_FORM_CANCELLED
+		return runFormCancelled(spec.toolName)
 	}
 
 	// processToolCall re-gates plan mode after a standard confirmation, because it can be
@@ -5532,11 +5629,7 @@ async function runDeployedScript(
 
 	const outcome = await executeTestRun({
 		jobStarter: async () => {
-			const jobId = await JobService.runScriptByPath({
-				workspace,
-				path: args.path,
-				requestBody: submitted
-			})
+			const jobId = await spec.startJob(submitted)
 			// The form's own submitted flag flips a round trip earlier, when the user presses
 			// Run; only from here is there a job for a stopped turn to say it left running.
 			toolCallbacks.markRunFormStarted?.(toolId)
@@ -5545,22 +5638,25 @@ async function runDeployedScript(
 		workspace,
 		toolCallbacks,
 		toolId,
-		startMessage: `Running "${args.path}"...`,
-		contextName: 'script',
-		actionNoun: 'run',
-		label: args.path
+		startMessage: spec.startMessage,
+		contextName: spec.contextName,
+		actionNoun: spec.kind === 'test' ? 'test' : 'run',
+		background: spec.background,
+		detachAfterMs: spec.detachAfterMs,
+		label: spec.path
 	})
 
+	const schemaNoun = `${spec.schemaNoun} schema`
 	const dropped = conformed.dropped.undeclared.length
-		? `\nThe deployed schema declares no ${conformed.dropped.undeclared.join(', ')}, so the form never offered ${conformed.dropped.undeclared.length > 1 ? 'them' : 'it'} and the run did not carry ${conformed.dropped.undeclared.length > 1 ? 'them' : 'it'}.`
+		? `\nThe ${schemaNoun} declares no ${conformed.dropped.undeclared.join(', ')}, so the form never offered ${conformed.dropped.undeclared.length > 1 ? 'them' : 'it'} and the run did not carry ${conformed.dropped.undeclared.length > 1 ? 'them' : 'it'}.`
 		: ''
 	// Told apart from `dropped`, or the model reads "no such argument" and stops sending
 	// one the script does have, instead of sending it in the shape the schema asks for.
 	const unshowable = conformed.dropped.unshowable.length
-		? `\nThe deployed schema does declare ${conformed.dropped.unshowable.join(', ')}, but you sent ${conformed.dropped.unshowable.length > 1 ? 'them in shapes' : 'it in a shape'} the form has no field for, so the run did not carry ${conformed.dropped.unshowable.length > 1 ? 'them' : 'it'}. Re-read the input schema and match ${conformed.dropped.unshowable.length > 1 ? 'their declared types' : 'its declared type'}.`
+		? `\nThe ${schemaNoun} does declare ${conformed.dropped.unshowable.join(', ')}, but you sent ${conformed.dropped.unshowable.length > 1 ? 'them in shapes' : 'it in a shape'} the form has no field for, so the run did not carry ${conformed.dropped.unshowable.length > 1 ? 'them' : 'it'}. Re-read the input schema and match ${conformed.dropped.unshowable.length > 1 ? 'their declared types' : 'its declared type'}.`
 		: ''
 	const reset = conformed.resetKeys.length
-		? `\nThe deployed schema disables ${conformed.resetKeys.join(', ')}, so the form held ${conformed.resetKeys.length > 1 ? 'their defaults' : 'its default'} rather than the proposed ${conformed.resetKeys.length > 1 ? 'values' : 'value'}. Do not propose ${conformed.resetKeys.length > 1 ? 'them' : 'it'} again.`
+		? `\nThe ${schemaNoun} disables ${conformed.resetKeys.join(', ')}, so the form held ${conformed.resetKeys.length > 1 ? 'their defaults' : 'its default'} rather than the proposed ${conformed.resetKeys.length > 1 ? 'values' : 'value'}. Do not propose ${conformed.resetKeys.length > 1 ? 'them' : 'it'} again.`
 		: ''
 	// Otherwise an emptied field reads as the user having deleted it, and the next call
 	// proposes the same secret again.
@@ -5582,6 +5678,33 @@ async function runDeployedScript(
 		? 'Ran with the arguments the form opened with, unedited.'
 		: `Ran with arguments: ${shown}`
 	return `${ran}${dropped}${unshowable}${reset}${stripped}\n${outcome}`
+}
+
+async function runDeployedScript(
+	args: z.infer<typeof runScriptSchema>,
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace } = ctx
+	// No getDraft: this runs the script as it is live, so the form has to offer the
+	// inputs the live version accepts and not a draft's.
+	const script = await ScriptService.getScriptByPath({ workspace, path: args.path })
+	return runThroughForm(
+		{
+			path: args.path,
+			schema: (script.schema as Record<string, any>) ?? {},
+			summary: script.summary,
+			kind: 'run',
+			schemaNoun: 'deployed',
+			toolName: 'run_script',
+			proposed: args.args,
+			startMessage: `Running "${args.path}"...`,
+			contextName: 'script',
+			// The form is this call's only consent, so nothing may answer it but the user.
+			startJob: (submitted) =>
+				JobService.runScriptByPath({ workspace, path: args.path, requestBody: submitted })
+		},
+		ctx
+	)
 }
 
 async function testRunFlowByPath(
