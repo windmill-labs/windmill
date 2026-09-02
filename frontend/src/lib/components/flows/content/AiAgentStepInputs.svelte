@@ -19,17 +19,18 @@
 
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { CancelError, VariableService, WorkspaceService, type InputTransform } from '$lib/gen'
+	import { type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue, type DynamicInput as DynamicInputTypes } from '$lib/utils'
 	import { getContext, untrack } from 'svelte'
 	import { SvelteSet } from 'svelte/reactivity'
-	import { resource, watch } from 'runed'
 	import { Button } from '$lib/components/common'
 	import StepInputsGen from '$lib/components/copilot/StepInputsGen.svelte'
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
-	import ItemPicker from '$lib/components/ItemPicker.svelte'
-	import VariableEditor from '$lib/components/VariableEditor.svelte'
+	import InputTransformPickers from '$lib/components/InputTransformPickers.svelte'
+	import { useS3StorageConfigured } from '$lib/components/inputTransformEnv.svelte'
+	import type ItemPicker from '$lib/components/ItemPicker.svelte'
+	import type VariableEditor from '$lib/components/VariableEditor.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import ResizeTransitionWrapper from '$lib/components/common/ResizeTransitionWrapper.svelte'
 	import { Plus, X } from 'lucide-svelte'
@@ -136,37 +137,7 @@
 	let itemPicker: ItemPicker | undefined = $state(undefined)
 	let variableEditor: VariableEditor | undefined = $state(undefined)
 
-	const settings = resource(
-		() => ws,
-		async (ws, _previousWs, { onCleanup }) => {
-			if (!ws) return undefined
-			const req = WorkspaceService.getPublicSettings({ workspace: ws })
-			// `resource` keeps whatever lands last: cancel a superseded request so a slow
-			// reply for a workspace we have left cannot overwrite the current one.
-			onCleanup(() => req.cancel())
-			try {
-				return { ws, settings: await req }
-			} catch (err) {
-				if (!(err instanceof CancelError)) {
-					console.error('Failed to fetch workspace settings:', err)
-				}
-				return undefined
-			}
-		}
-	)
-	// Assume configured until this workspace's own answer lands: the warning must not
-	// linger from the previous workspace, nor appear merely because the fetch failed.
-	let s3StorageConfigured = $derived.by(() => {
-		const loaded = settings.current
-		return loaded && loaded.ws === ws
-			? loaded.settings.large_file_storage?.s3_resource_path !== undefined
-			: true
-	})
-
-	watch(
-		() => ws,
-		() => itemPicker?.reloadItems()
-	)
+	const s3Storage = useS3StorageConfigured(() => ws)
 
 	let schemaProperties = $derived((schema?.properties ?? {}) as Record<string, any>)
 
@@ -381,7 +352,7 @@
 										noDynamicToggle={staticOnly}
 										noConnect={staticOnly || noConnect}
 										{noJavascript}
-										{s3StorageConfigured}
+										s3StorageConfigured={s3Storage.current}
 										{chatInputEnabled}
 										{workspace}
 										otherArgs={Object.fromEntries(
@@ -413,35 +384,4 @@
 	</div>
 </div>
 
-<ItemPicker
-	bind:this={itemPicker}
-	pickCallback={(path, _) => {
-		if (pickForField) {
-			args[pickForField].value = '$var:' + path
-		}
-	}}
-	itemName="Variable"
-	extraField="path"
-	loadItems={async () =>
-		(await VariableService.listVariable({ workspace: ws ?? '' })).map((x) => ({
-			name: x.path,
-			...x
-		}))}
->
-	{#snippet submission()}
-		<div class="flex flex-row-reverse w-full border-t border-gray-200 rounded-bl-lg rounded-br-lg">
-			<Button
-				variant="accent"
-				size="sm"
-				startIcon={{ icon: Plus }}
-				on:click={() => {
-					variableEditor?.initNew?.()
-				}}
-			>
-				New variable
-			</Button>
-		</div>
-	{/snippet}
-</ItemPicker>
-
-<VariableEditor bind:this={variableEditor} workspace={ws} />
+<InputTransformPickers {args} {pickForField} {workspace} bind:itemPicker bind:variableEditor />
