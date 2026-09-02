@@ -288,25 +288,24 @@
 			// every new-workspace import.
 			const target = targetFolder
 			const retargeted = retargetProjectExport(exportData, exportData.project?.slug ?? slug, target)
+			const rawFiles: [string, Record<string, string>][] = []
+			for (const a of (retargeted.apps ?? []) as any[]) {
+				if (a.app_type !== 'raw' || typeof a.value?.raw !== 'string') continue
+				let files: any
+				try {
+					files = JSON.parse(a.value.raw)?.files
+				} catch {
+					files = undefined
+				}
+				// A bundle that cannot be read yields no entry rather than an empty one, so
+				// `planRetarget` refuses the app instead of uploading a bundle it does not have.
+				if (!files || typeof files !== 'object') continue
+				rawFiles.push([String(a.path), files as Record<string, string>])
+			}
+			exportedAppFiles = Object.fromEntries(rawFiles)
 			// Contained for the same reason the import contains: a crafted export can name a
 			// path outside the folder, and offering that for editing would reach a resource
 			// this import was never allowed to create.
-			exportedAppFiles = Object.fromEntries(
-				(retargeted.apps ?? [])
-					.filter((a: any) => a.app_type === 'raw' && typeof a.value?.raw === 'string')
-					.map((a: any) => {
-						try {
-							return [
-								String(a.path),
-								(JSON.parse(a.value.raw)?.files ?? {}) as Record<string, string>
-							]
-						} catch {
-							// Unparseable raw bundle: leave it out, and `planRetarget` refuses the app
-							// rather than uploading a bundle it could not read.
-							return [String(a.path), {}]
-						}
-					})
-			)
 			projectResources = (retargeted.resources ?? [])
 				.map((r) => ({ path: String(r.path), resource_type: String((r as any).resource_type) }))
 				.filter((r) => r.path.startsWith(`f/${target}/`))
@@ -898,6 +897,11 @@
 									<span class="whitespace-nowrap text-2xs text-hint">
 										{b.occupiedBy ? 'Resolve in the workspace' : 'Check the workspace'}
 									</span>
+								{:else if b.reusedFrom}
+									<!-- No action either: the project reads the resource the detail line
+									     names and this row's own path is gone, so every way of filling it in
+									     leads to a resource nothing references. -->
+									<span class="whitespace-nowrap text-2xs text-hint">Reused</span>
 								{:else}
 									<Button
 										variant={b.done ? 'subtle' : 'accent'}
@@ -905,13 +909,7 @@
 										disabled={working}
 										onClick={() => startFilling(b)}
 									>
-										{b.done
-											? b.reusedFrom
-												? 'Reused'
-												: 'Saved'
-											: canConnect
-												? 'Connect'
-												: 'Fill in'}
+										{b.done ? 'Saved' : canConnect ? 'Connect' : 'Fill in'}
 									</Button>
 								{/if}
 							{/snippet}

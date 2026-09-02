@@ -43,6 +43,10 @@ import { apiErrorMessage as errorMessage } from '$lib/utils'
  * export already carries that bundle prebuilt as `/bundle.js` and `/bundle.css` — it is what
  * `installProject` uploaded in the first place — so a rewrite re-uploads it rather than
  * re-running the bundler.
+ *
+ * An app whose sources the export does not yield carries no entry at all. An empty one reads
+ * as "the app ships no sources", which `planRetarget` would let through to an upload that
+ * wipes the deployed bundle.
  */
 export type ExportedAppFiles = Record<string, Record<string, string>>
 
@@ -96,6 +100,33 @@ function rawSourcesDiverged(
 }
 
 /**
+ * A bare string exactly equal to the resource path, anywhere in the structure.
+ *
+ * A script, flow or app spells a resource reference as a `$res:` token and nothing else, so a
+ * bare match is either a reference no rewriter relocates — a static string value in a
+ * component, an argument the code assembles itself — or something that is not the resource at
+ * all, such as a step running a script that happens to share the path. Both make the retarget
+ * unsafe: the first is orphaned when the stub goes, the second is repointed at the reused
+ * resource. Triggers are the exception and hold the bare path by design.
+ */
+function holdsBarePath(value: unknown, path: string): boolean {
+	const walk = (v: any): boolean => {
+		if (typeof v === 'string') return v === path
+		if (Array.isArray(v)) return v.some(walk)
+		if (v && typeof v === 'object') return Object.values(v).some(walk)
+		return false
+	}
+	return walk(value)
+}
+
+/**
+ * What each `listSearch*` endpoint caps its answer at, server-side. The queries carry no
+ * `ORDER BY` and the routes take no pagination, so a full page is an arbitrary subset with no
+ * page two to ask for — the only safe reading is that the scan may have missed an item.
+ */
+const SEARCH_LIMITS = { script: 10000, flow: 1000, app: 1000 }
+
+/**
  * Which deployed items reference the stub, and whether each can be rewritten.
  *
  * The `listSearch*` endpoints return each item's content in one call per kind, so this is
@@ -116,6 +147,17 @@ export async function planRetarget(
 		AppService.listSearchApp({ workspace })
 	])
 
+	// A truncated scan cannot answer which items reference the stub, and deleting it under an
+	// item the scan never saw is the failure this module exists to prevent.
+	for (const [label, rows, limit] of [
+		['Scripts', scripts, SEARCH_LIMITS.script],
+		['Flows', flows, SEARCH_LIMITS.flow],
+		['Apps', apps, SEARCH_LIMITS.app]
+	] as const) {
+		if ((rows?.length ?? 0) >= limit)
+			blocked.push({ path: label, reason: 'could not all be listed' })
+	}
+
 	for (const s of scripts ?? []) {
 		if (!inFolder(s.path, folder)) continue
 		if (referencesResourcePath(s.content ?? '', from))
@@ -123,12 +165,22 @@ export async function planRetarget(
 	}
 	for (const f of flows ?? []) {
 		if (!inFolder(f.path, folder)) continue
-		if (referencesResourcePath(f.value ?? {}, from)) referrers.push({ kind: 'flow', path: f.path! })
+		const value: any = f.value ?? {}
+		if (!referencesResourcePath(value, from)) continue
+		if (holdsBarePath(value, from)) {
+			blocked.push({ path: f.path!, reason: 'names the resource path outside a $res: reference' })
+			continue
+		}
+		referrers.push({ kind: 'flow', path: f.path! })
 	}
 	for (const a of apps ?? []) {
 		if (!inFolder(a.path, folder)) continue
 		const value: any = a.value ?? {}
 		if (!referencesResourcePath(value, from)) continue
+		if (holdsBarePath(value, from)) {
+			blocked.push({ path: a.path!, reason: 'names the resource path outside a $res: reference' })
+			continue
+		}
 		// `files` + `runnables` and no `grid` is the deployed shape of a raw app; the
 		// low-code one keeps its components under `grid`.
 		const isRaw = !!value.files && !!value.runnables
@@ -155,11 +207,18 @@ export async function planRetarget(
 		const def = TRIGGER_KINDS[kind]
 		if (def.eeOnly && !opts.hasEeLicense) continue
 		let rows: Array<Record<string, any>> = []
+		// A kind whose listing is incomplete cannot be cleared either: refusing is the
+		// all-or-nothing rule, since a trigger left on the stub breaks when it is deleted.
+		// A 404 is not incompleteness — the instance has that trigger feature compiled out,
+		// so there is no trigger of the kind to leave behind.
+		let incomplete = false
 		try {
-			rows = await def.list(workspace)
-		} catch {
-			// A kind that cannot be listed cannot be cleared either: refusing is the
-			// all-or-nothing rule, since a trigger left on the stub breaks when it is deleted.
+			rows = await def.list(workspace, () => (incomplete = true))
+		} catch (e: any) {
+			if (e?.status === 404) continue
+			incomplete = true
+		}
+		if (incomplete) {
 			blocked.push({ path: `${def.badge} triggers`, reason: 'could not be listed' })
 			continue
 		}
@@ -251,13 +310,25 @@ async function rewriteScript(workspace: string, path: string, map: Map<string, s
 	})
 }
 
+/**
+ * The value about to be written still reaches a path being moved. `planRetarget` refuses
+ * every item where that is possible, so getting here means the item changed between the plan
+ * and the write. Throwing stops the run with the stub still in place, which is the state
+ * where both the rewritten items and the untouched ones resolve.
+ */
+function assertRelocated(next: unknown, path: string, map: Map<string, string>) {
+	for (const from of map.keys()) {
+		if (referencesResourcePath(next, from)) {
+			throw new Error(`${path} still references ${from} after the rewrite`)
+		}
+	}
+}
+
 async function rewriteFlow(workspace: string, path: string, map: Map<string, string>) {
 	const f: any = await FlowService.getFlowByPath({ workspace, path })
-	await FlowService.updateFlow({
-		workspace,
-		path,
-		requestBody: { ...f, path, value: rewriteFlowValue(f.value, map) }
-	})
+	const value = rewriteFlowValue(f.value, map)
+	assertRelocated(value, path, map)
+	await FlowService.updateFlow({ workspace, path, requestBody: { ...f, path, value } })
 }
 
 /**
@@ -269,6 +340,7 @@ async function rewriteFlow(workspace: string, path: string, map: Map<string, str
 async function rewriteApp(workspace: string, path: string, map: Map<string, string>) {
 	const a: any = await AppService.getAppByPath({ workspace, path })
 	const next = rewriteAppValue(a.value ?? {}, map)
+	assertRelocated(next, path, map)
 	const policy = (await updatePolicy(next as App, undefined)) as any
 	if (!policy.execution_mode) policy.execution_mode = 'publisher'
 	await AppService.updateApp({ workspace, path, requestBody: { path, value: next, policy } })
@@ -291,6 +363,7 @@ async function rewriteRawApp(
 	// One walk over the whole value: `$res:` tokens live in the runnables and can appear in
 	// the sources too, and both are plain text inside this JSON.
 	const next = JSON.parse(rewriteRawAppContent(JSON.stringify(value), map))
+	assertRelocated(next, path, map)
 	const runnables = next.runnables ?? {}
 	const policy = (await updateRawAppPolicy(runnables, a.policy)) as any
 	if (!policy.execution_mode) policy.execution_mode = 'publisher'
@@ -323,9 +396,10 @@ async function rewriteRawApp(
  * imported triggers are created disabled and re-enabling one is the user's decision, not a
  * side effect of pointing it at a credential.
  *
- * `path` is put back from the row afterwards. The rewrite remaps any string equal to the
- * stub's path, and a trigger sitting at the path the resource used to hold would otherwise
- * be renamed along with the reference.
+ * `path` and `script_path` are put back from the row afterwards. The rewrite remaps any
+ * string equal to the stub's path, so a trigger sitting at the path the resource used to
+ * hold — or running a script that does — would otherwise be renamed, or repointed at the
+ * reused resource, along with the reference.
  */
 async function rewriteTrigger(workspace: string, r: Referrer, map: Map<string, string>) {
 	const def = TRIGGER_KINDS[r.triggerKind!]
@@ -334,7 +408,8 @@ async function rewriteTrigger(workspace: string, r: Referrer, map: Map<string, s
 	if (!row) throw new Error(`trigger ${r.path} is no longer there`)
 	const { enabled: _enabled, ...rest } = {
 		...(rewriteTriggerConfig(row, map) as any),
-		path: r.path
+		path: r.path,
+		...(typeof row.script_path === 'string' ? { script_path: row.script_path } : {})
 	}
 	if (r.triggerKind === 'schedule') {
 		// `EditSchedule` needs these three; everything else on the row carries over by name.

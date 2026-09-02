@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const state = vi.hoisted(() => ({
 	apps: [] as any[],
 	triggers: [] as any[],
+	scheduleListError: undefined as any,
 	deletedResources: [] as string[],
 	updatedRawApps: [] as any[],
 	updatedTriggers: [] as any[]
@@ -39,7 +40,13 @@ vi.mock('$lib/gen', () => ({
 
 vi.mock('$lib/components/triggers/workspaceTriggersList', () => ({
 	TRIGGER_KINDS: {
-		schedule: { badge: 'Schedule', list: vi.fn(async () => []) },
+		schedule: {
+			badge: 'Schedule',
+			list: vi.fn(async () => {
+				if (state.scheduleListError) throw state.scheduleListError
+				return []
+			})
+		},
 		postgres: {
 			badge: 'Postgres',
 			list: vi.fn(async () => state.triggers),
@@ -88,6 +95,7 @@ describe('applyRetarget', () => {
 	beforeEach(() => {
 		state.apps = [rawApp({ '/App.tsx': 'v1' })]
 		state.triggers = []
+		state.scheduleListError = undefined
 		state.deletedResources = []
 		state.updatedRawApps = []
 		state.updatedTriggers = []
@@ -136,5 +144,42 @@ describe('applyRetarget', () => {
 		// The trigger keeps its own path even though it was the string being remapped.
 		expect(state.updatedTriggers[0].path).toBe('f/proj/ingest')
 		expect(state.deletedResources).toEqual([FROM])
+	})
+
+	// Most trigger kinds are cargo features an instance may not compile in, and their routes
+	// then 404. Reading that as a failed listing refuses every retarget on a stock build.
+	it('runs when a trigger kind is not compiled in, and refuses when one truly fails', async () => {
+		state.scheduleListError = { status: 404 }
+		expect((await run(exportedFiles)).error).toBeUndefined()
+		expect(state.deletedResources).toEqual([FROM])
+
+		state.deletedResources = []
+		state.scheduleListError = { status: 500 }
+		expect((await run(exportedFiles)).error).toContain('Schedule triggers could not be listed')
+		expect(state.deletedResources).toEqual([])
+	})
+
+	// The referrer scan matches a bare path anywhere in an app's value, while the rewriter only
+	// relocates `$res:` tokens and runnable paths. Counting such an app as rewritable orphans it
+	// on a stub that is then deleted.
+	it('refuses an app that holds the resource path as a bare string', async () => {
+		state.apps = [
+			{
+				path: 'f/proj/page',
+				value: { grid: [{ data: { input: { type: 'static', value: FROM } } }] }
+			}
+		]
+		const outcome = await run(exportedFiles)
+		expect(outcome.error).toContain('f/proj/page')
+		expect(state.deletedResources).toEqual([])
+	})
+
+	// `listSearchApp` caps at 1000 rows server-side, unordered and unpaginated, so a full page
+	// may not hold the project's own app — and the stub would go anyway.
+	it('refuses when the app listing comes back at its server-side cap', async () => {
+		state.apps = Array.from({ length: 1000 }, (_, i) => ({ path: `f/other/a${i}`, value: {} }))
+		const outcome = await run(exportedFiles)
+		expect(outcome.error).toContain('Apps could not all be listed')
+		expect(state.deletedResources).toEqual([])
 	})
 })
