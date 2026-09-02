@@ -292,9 +292,9 @@ pub enum ExecutionMode {
     /// Login required, workspace membership not: anyone the instance's identity
     /// provider authenticates may open the app, and the runnables execute as the
     /// publisher exactly as in [`ExecutionMode::Publisher`]. Such a viewer holds a
-    /// guest session — no `usr` row, no `password` row, no seat — so it is only
-    /// honored where `workspace_settings.guest_access_enabled` is on, checked
-    /// where the session is minted rather than here.
+    /// guest session — no `usr` row, no `password` row, no seat — honored only where
+    /// `workspace_settings.guest_access_enabled` is on, which `AuthCache` re-reads on
+    /// every guest request.
     Guest,
     /// Default for a policy that omits `execution_mode`. It MUST stay a mode
     /// that requires an authenticated viewer: an omitted field must never be
@@ -1841,8 +1841,10 @@ async fn get_app_embed_token(
 
     let authed_for_token = if policy.anonymous_execution {
         // Anonymous app: still mint a scoped token if the viewer happens to be
-        // logged in (so the app sees their identity), otherwise stay anonymous.
-        opt_authed
+        // logged in (so the app sees their identity), otherwise stay anonymous. A
+        // guest's session names another app and cannot contain this one's scopes,
+        // so it renders anonymously here rather than being refused.
+        opt_authed.filter(|a| !windmill_api_auth::scopes::has_guest_sentinel(a.scopes.as_deref()))
     } else {
         let mode = if policy.guest_execution {
             ExecutionMode::Guest
@@ -3748,14 +3750,16 @@ async fn get_on_behalf_details_from_policy_and_authed(
     policy: &Policy,
     opt_authed: &Option<ApiAuthed>,
 ) -> Result<(String, String, String)> {
-    // A guest acts only through an app that is open to guests. Any other mode means
-    // the policy changed after the session was issued. Decided here because this is
-    // the one resolver every on-behalf path — component runs, S3 reads, uploads —
-    // goes through, so no route has to remember it.
+    // A guest acts only through an app open to guests — or to everyone. A members-only
+    // mode means the policy changed after the session was issued. Decided here, in the
+    // one resolver every on-behalf path (runs, S3 reads, uploads) goes through.
     if opt_authed
         .as_ref()
         .is_some_and(|a| windmill_api_auth::scopes::has_guest_sentinel(a.scopes.as_deref()))
-        && !matches!(policy.execution_mode(), ExecutionMode::Guest)
+        && !matches!(
+            policy.execution_mode(),
+            ExecutionMode::Guest | ExecutionMode::Anonymous
+        )
     {
         return Err(Error::PermissionDenied(
             "this app is not open to guests".to_string(),
@@ -4094,10 +4098,13 @@ async fn execute_component(
 
     // A guest session holds no ACL of its own, so the read-permit probe below would
     // deny every guest. What confines it is the scope the session was minted with,
-    // naming the one app it may run. The app's mode and the workspace's switch are
-    // decided elsewhere: the on-behalf resolver and `AuthCache` respectively.
+    // naming the one app it may run — except an anonymous app, open to a guest as to
+    // anyone. Mode and workspace switch are decided by the on-behalf resolver and
+    // `AuthCache` respectively.
     if let Some(authed) = opt_authed.as_ref().filter(|_| is_guest_caller) {
-        check_scopes(authed, || format!("apps:run:{}", path))?;
+        if !matches!(policy.execution_mode(), ExecutionMode::Anonymous) {
+            check_scopes(authed, || format!("apps:run:{}", path))?;
+        }
     }
 
     // Execution is publisher and an user is authenticated: check if the user is authorized to

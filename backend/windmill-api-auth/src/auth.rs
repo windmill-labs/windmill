@@ -144,12 +144,10 @@ impl AuthCache {
         // from a job's WM_TOKEN, even on an AUTH_CACHE hit whose cached authed
         // predates this field.
         opt_job_authed.authed.job_id = opt_job_authed.job_id;
-        // The workspace's guest switch is enforced here, at the door, for every
-        // request a guest makes — not in the handlers, where each guest-reachable
-        // route would have to remember to re-check it. Uncached and per request, so
-        // turning guests off takes effect on the next request of every guest
-        // session and every token derived from one. Guests are a small share of
-        // traffic; the read is one primary-key lookup.
+        // The workspace's guest switch is enforced here, once, for every guest request
+        // — not per handler, where each guest-reachable route would have to remember
+        // it. Uncached, so turning guests off takes effect on the next request of every
+        // guest session and every token derived from one.
         if crate::scopes::has_guest_sentinel(opt_job_authed.authed.scopes.as_deref()) {
             let Some(w_id) = w_id else { return None };
             match windmill_common::workspaces::is_guest_access_enabled(&self.db, &w_id).await {

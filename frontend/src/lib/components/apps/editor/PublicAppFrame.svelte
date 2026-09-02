@@ -225,14 +225,18 @@
 	)
 	let signInDidNotHelp = $derived(offerSignIn && signedInHere)
 
-	// The stale guest session must go before the card mounts: it still authenticates
-	// in this workspace, so the popup's success poll would see it and complete the
-	// sign-in before the new session ever lands.
+	// The stale guest session must be gone before the card mounts: it still
+	// authenticates in this workspace, so the popup's success poll would see it and
+	// complete the sign-in before the new session ever lands. The card waits on
+	// `staleGuestCleared`, and a failed logout fails closed rather than offering a
+	// sign-in that could not complete.
 	let staleGuestCleared = $state(false)
+	let staleGuestLogoutFailed = $state(false)
 	$effect(() => {
 		if (deniedStatus === 403 && guestEntry === 'guest' && !staleGuestCleared) {
-			staleGuestCleared = true
-			UserService.logout().catch(() => {})
+			UserService.logout()
+				.then(() => (staleGuestCleared = true))
+				.catch(() => (staleGuestLogoutFailed = true))
 		}
 	})
 	let embedToken: string | null = $state(null)
@@ -573,9 +577,9 @@
 		onContinue={onSdkConsentContinue}
 		onDecline={onSdkConsentDecline}
 	/>
-{:else if offerSignIn && guestEntry === 'pending'}
+{:else if offerSignIn && (guestEntry === 'pending' || (deniedStatus === 403 && guestEntry === 'guest' && !staleGuestCleared && !staleGuestLogoutFailed))}
 	<Skeleton layout={[[4], 0.5, [50]]} />
-{:else if offerSignIn && guestEntry === 'error'}
+{:else if offerSignIn && (guestEntry === 'error' || staleGuestLogoutFailed)}
 	<div class="px-4 mt-20">
 		<Alert type="error" title="Could not check access">
 			The app could not be reached to find out who may open it. Reload to try again.

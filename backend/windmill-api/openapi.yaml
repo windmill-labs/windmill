@@ -33223,7 +33223,7 @@ components:
             the app publicly executable, nor `guest`, which opens it to anyone the
             identity provider authenticates, is ever assumed. A guest is only
             admitted where the workspace also has `guest_access_enabled`, which is
-            checked when the session is minted and on every guest request after
+            checked when the session is minted and again on every guest request
         on_behalf_of:
           type: string
         on_behalf_of_email:
