@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use futures::TryStreamExt;
 use sqlx::{Postgres, Transaction};
 use windmill_common::error::Result;
@@ -7,21 +9,35 @@ use windmill_common::scripts::hash_script;
 /// skip makes against what each importer resolved against.
 ///
 /// Writes any path in `w_id` and checks nothing: callers are responsible for having established
-/// the caller's access to that workspace. Callers that write the lock itself in the same statement
-/// fold the upsert into that statement instead; this is for the ones with nothing to fold it into.
+/// the caller's access to that workspace. A path repeated in `entries` keeps its last hash.
+///
+/// Callers that write the lock itself in the same statement fold the upsert into that statement
+/// instead; this is for the ones with nothing to fold it into.
 pub async fn record_lock_hashes(
     tx: &mut Transaction<'_, Postgres>,
     w_id: &str,
     entries: &[(String, i64)],
 ) -> Result<()> {
-    if entries.is_empty() {
+    // Postgres rejects a whole statement that resolves a conflict on one key twice, so a path
+    // given more than once keeps its last hash, as it would if the two were written in order.
+    let mut deduped: HashMap<&str, i64> = HashMap::with_capacity(entries.len());
+    for (path, hash) in entries {
+        deduped.insert(path.as_str(), *hash);
+    }
+    if deduped.is_empty() {
         return Ok(());
     }
-    let (paths, hashes): (Vec<String>, Vec<i64>) = entries.iter().cloned().unzip();
+    let (paths, hashes): (Vec<String>, Vec<i64>) = deduped
+        .into_iter()
+        .map(|(path, hash)| (path.to_string(), hash))
+        .unzip();
+    // Recording a hash a path already has would still cut a row version, and the no-op push this
+    // is reached from is the mode a git-sync of an unchanged workspace runs in.
     sqlx::query!(
         "INSERT INTO lock_hash (workspace_id, path, lockfile_hash)
          SELECT $1, * FROM UNNEST($2::text[], $3::bigint[])
-         ON CONFLICT (workspace_id, path) DO UPDATE SET lockfile_hash = EXCLUDED.lockfile_hash",
+         ON CONFLICT (workspace_id, path) DO UPDATE SET lockfile_hash = EXCLUDED.lockfile_hash
+         WHERE lock_hash.lockfile_hash IS DISTINCT FROM EXCLUDED.lockfile_hash",
         w_id,
         &paths[..],
         &hashes[..]
