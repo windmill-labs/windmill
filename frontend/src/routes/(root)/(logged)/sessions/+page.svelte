@@ -283,19 +283,32 @@
 	// Whether that workspace hid the AI assistant (`ai_config.copilot_disabled`). Read
 	// directly rather than from `copilotInfo`: that store holds whichever workspace loaded
 	// last, and the gate below unmounts the session wrapper that would refresh it, so a
-	// hidden verdict would stick across session and workspace switches. A failed read
-	// leaves the page usable, as an unloaded config does everywhere else.
+	// hidden verdict would stick across session and workspace switches. Tagged with its
+	// workspace and guarded against a superseded response like the protection-rules
+	// resource: runed keeps the previous `current` while a new source loads, so a switch
+	// would otherwise be judged on the previous workspace's verdict. A failed read leaves
+	// the page usable, as an unloaded config does everywhere else.
 	const workspaceAiHidden = resource(
 		() => previewWorkspace,
-		async (workspace) => {
-			if (!workspace) return false
+		async (workspace, _prev, { signal }) => {
+			if (!workspace) return { workspace, hidden: false }
+			let hidden = false
 			try {
-				return (await WorkspaceService.getCopilotInfo({ workspace })).copilot_disabled === true
-			} catch {
-				return false
+				hidden = (await WorkspaceService.getCopilotInfo({ workspace })).copilot_disabled === true
+			} catch (e) {
+				console.error(`Failed to read the AI config of workspace ${workspace}:`, e)
 			}
+			// The generated client can't take an abort signal, so drop a superseded response here.
+			if (signal.aborted) throw new DOMException('superseded', 'AbortError')
+			return { workspace, hidden }
 		}
 	)
+	// Only a verdict for the workspace currently judged counts; `undefined` means it has not
+	// landed yet.
+	const aiHiddenVerdict = $derived.by(() => {
+		const current = workspaceAiHidden.current
+		return current && current.workspace === previewWorkspace ? current.hidden : undefined
+	})
 
 	// Lazy-mount gate: a tab's content only renders once its key lands here (on
 	// first activation) — so restoring a session with N saved tabs boots just
@@ -846,7 +859,13 @@
 		<div class="flex-1 flex items-center justify-center">
 			<Loader2 class="animate-spin" />
 		</div>
-	{:else if workspaceAiHidden.current === true}
+	{:else if aiHiddenVerdict === undefined}
+		<!-- The judged workspace's verdict is still loading: mounting the session UI now
+		     could show a session the verdict then hides. -->
+		<div class="flex-1 flex items-center justify-center">
+			<Loader2 class="animate-spin" />
+		</div>
+	{:else if aiHiddenVerdict}
 		<!-- After hydration, so a session named in the URL decides which workspace is
 		     judged. The workspace hid the assistant, and the sidebar switch with it, so
 		     only a direct URL or a session acting on such a workspace lands here. -->
