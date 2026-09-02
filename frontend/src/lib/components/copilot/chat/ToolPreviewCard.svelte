@@ -12,9 +12,12 @@
 		 * it owns, which is a form before it is a run. */
 		onOpen?: () => void
 		title?: string
+		/** The kind icon says what the chip opens. A card that already names its own runnable
+		 * in the row above has said it, and repeating it there reads as a second subject. */
+		kindIcon?: boolean
 	}
 
-	let { card, onOpen, title }: Props = $props()
+	let { card, onOpen, title, kindIcon = true }: Props = $props()
 
 	const kindLabel = $derived(card.kind === 'raw_app' ? 'app' : card.kind)
 
@@ -40,7 +43,9 @@
 	disabled={opening}
 	title={title ?? `Open ${kindLabel} preview: ${card.path}`}
 	onClick={open}
-	startIcon={{ icon: RowIcon as unknown as IconType, props: { kind: card.kind, size: 12 } }}
+	startIcon={kindIcon
+		? { icon: RowIcon as unknown as IconType, props: { kind: card.kind, size: 12 } }
+		: undefined}
 	endIcon={{ icon: PanelRight }}
 	wrapperClasses="shrink-0"
 >

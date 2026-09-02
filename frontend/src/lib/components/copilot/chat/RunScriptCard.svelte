@@ -174,28 +174,29 @@
 		chatJob?.durationMs !== undefined ? msToReadableTime(chatJob.durationMs, 2) : ''
 	)
 
-	// The colours the jobs tray paints its status dots (JobsSegment's dotClass), as ink on a
-	// row that stays transparent: blue running, violet approval, orange queued, green ok, red
-	// fail. The card outlives its job and sometimes precedes it, so the states only it knows
-	// about — cancelled before Run, failed to start — read off its own flags instead.
+	// The ink of the status badge the jobs bar shows for the same job (Badge's `colors`,
+	// through JobStatusIcon), on a row that stays transparent: the hue reads against both
+	// grounds instead of one. Hues follow the tray's own vocabulary — blue running, violet
+	// approval, orange queued, green ok, red fail. The card outlives its job and sometimes
+	// precedes it, so the states only it knows about read off its own flags instead.
 	const statusClass = $derived.by(() => {
 		if (canceled) return 'text-tertiary'
-		if (failed) return 'text-red-500'
+		if (failed) return 'text-red-800 dark:text-red-100'
 		if (!ran) return 'text-tertiary'
 		switch (chatJob?.status) {
 			case 'running':
-				return 'text-blue-500'
+				return 'text-blue-800 dark:text-blue-100'
 			case 'suspended':
-				return 'text-violet-500'
+				return 'text-violet-800 dark:text-violet-100'
 			case 'queued':
 			case 'scheduled':
-				return 'text-orange-500'
+				return 'text-orange-800 dark:text-orange-100'
 			case 'failure':
-				return 'text-red-500'
+				return 'text-red-800 dark:text-red-100'
 			case 'success':
-				return 'text-green-500'
+				return 'text-green-700 dark:text-green-100'
 			default:
-				return settled ? 'text-green-500' : 'text-blue-500'
+				return settled ? 'text-green-700 dark:text-green-100' : 'text-blue-800 dark:text-blue-100'
 		}
 	})
 	// How long it took, which is the one thing the colour cannot say. A run that never started
@@ -265,6 +266,7 @@
 		card={{ kind: 'script', path: runForm.path }}
 		title={previewTitle}
 		onOpen={openPreview}
+		kindIcon={false}
 	/>
 {/snippet}
 
