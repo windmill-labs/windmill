@@ -126,8 +126,7 @@ export async function pushSchedule(
 
   // In a fork, the file's `enabled` is the parent's for a path the parent
   // also has (see sync push's `parentOwnedScheduleEnabled`): the fork's own
-  // flag stays as it is. A schedule the fork does not have yet is created as
-  // the file says, there being no fork state to keep.
+  // flag stays as it is.
   if (enabledOwnedByParent && schedule) {
     if (
       localSchedule.enabled !== undefined &&
@@ -180,27 +179,12 @@ export async function pushSchedule(
         log.info(colors.bold.yellow(
           `Schedule ${path} is ${localSchedule.enabled ? "enabled" : "disabled"} locally but not on remote, updating remote`
         ));
-        try {
-          await wmill.setScheduleEnabled({
-            workspace: workspace,
-            path,
-            requestBody: {
-              enabled: localSchedule.enabled,
-            },
-          });
-        } catch (e) {
-          // The parent listing behind `enabledOwnedByParent` sees what the
-          // pusher may read; the backend's check does not. A path it turns
-          // out the parent has is the parent's after all: keep the fork's
-          // flag rather than fail the whole push.
-          const conflict = parseForkConflict(e);
-          if (!conflict) {
-            throw e;
-          }
-          log.warnAlways(
-            `Schedule ${path} left ${schedule.enabled ? "enabled" : "disabled"}: the parent workspace '${conflict.parentWorkspaceId}' has the same schedule, so its flag is the parent's to set`
-          );
-        }
+        await setEnabledUnlessParentOwned(
+          workspace,
+          path,
+          localSchedule.enabled,
+          schedule.enabled
+        );
       }
     } catch (e) {
       console.error((e as any).body);
@@ -221,6 +205,44 @@ export async function pushSchedule(
       console.error((e as any).body);
       throw e;
     }
+    // A create in a fork lands disabled whatever the request says. A fork-only
+    // path the file wants enabled is enabled here, so one push converges; a
+    // parent-owned one stays disabled.
+    if (enabledOwnedByParent !== undefined && localSchedule.enabled === true) {
+      if (enabledOwnedByParent) {
+        log.warnAlways(
+          `Schedule ${path} created disabled: the file says enabled, but in a fork that flag is the parent workspace's`
+        );
+      } else {
+        await setEnabledUnlessParentOwned(workspace, path, true, false);
+      }
+    }
+  }
+}
+
+// The parent listing behind `enabledOwnedByParent` sees only what the pusher
+// may read; the backend's `fork-conflict` refusal is the last word, so a path
+// it says the parent has keeps the fork's flag rather than failing the push.
+async function setEnabledUnlessParentOwned(
+  workspace: string,
+  path: string,
+  enabled: boolean,
+  remoteEnabled: boolean
+): Promise<void> {
+  try {
+    await wmill.setScheduleEnabled({
+      workspace,
+      path,
+      requestBody: { enabled },
+    });
+  } catch (e) {
+    const conflict = parseForkConflict(e);
+    if (!conflict) {
+      throw e;
+    }
+    log.warnAlways(
+      `Schedule ${path} left ${remoteEnabled ? "enabled" : "disabled"}: the parent workspace '${conflict.parentWorkspaceId}' has the same schedule, so its flag is the parent's to set`
+    );
   }
 }
 

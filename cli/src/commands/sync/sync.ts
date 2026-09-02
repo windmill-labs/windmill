@@ -4610,30 +4610,30 @@ export async function checkoutInlineNames(
   return mapping;
 }
 
-// A fork clones every schedule disabled and the backend refuses to enable one
-// whose path the parent also has (`fork-conflict:schedule`), while for those
-// paths a fork's export writes the *parent's* `enabled` into the file. So on a
-// push into a fork such a file's `enabled` describes the parent, not the
-// target: the push leaves the fork's flag alone rather than aborting on the
-// refusal, or reporting the file as edited on every run when the two differ.
-// A schedule only the fork has keeps toggling from the file. When the parent
-// cannot be listed from here (a job token is scoped to the fork), every
-// schedule may be the parent's, and none is toggled.
-//
-// Returns undefined when the target is not a fork; otherwise whether a
-// schedule file's `enabled` belongs to the parent.
+// For a path the parent also has, a fork's export writes the parent's
+// `enabled` and the backend refuses to enable the fork's copy: the file's flag
+// is the parent's. A parent that cannot be listed (a fork-scoped job token)
+// may own every path. Undefined when the target is not a fork.
 async function parentOwnedScheduleEnabled(
   workspaceId: string,
 ): Promise<((scheduleFilePath: string) => boolean) | undefined> {
   let parentWorkspaceId: string | null | undefined;
+  let known = false;
   try {
     const { workspaces } = await wmill.listUserWorkspaces();
-    parentWorkspaceId = workspaces?.find(
-      (w) => w.id === workspaceId,
-    )?.parent_workspace_id;
+    const entry = workspaces?.find((w) => w.id === workspaceId);
+    known = entry !== undefined;
+    parentWorkspaceId = entry?.parent_workspace_id;
   } catch {
-    // The id prefix still identifies a throwaway fork.
+    // A fork-scoped token cannot list workspaces.
   }
+  // No parent on record (a fork whose parent was deleted keeps its
+  // `wm-fork-` id): nothing defers to a parent any more.
+  if (known && !parentWorkspaceId) {
+    return undefined;
+  }
+  // Without the listing only the `wm-fork-` prefix says fork: a dev
+  // workspace (custom id) reached with a fork-scoped token counts as none.
   if (!isForkWorkspace(workspaceId, parentWorkspaceId)) {
     return undefined;
   }
