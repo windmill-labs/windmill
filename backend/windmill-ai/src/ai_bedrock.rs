@@ -370,6 +370,7 @@ pub async fn refresh_bedrock_oidc_credentials<'a>(
         .as_ref()
         .is_some_and(AssumedRoleCredentials::is_fresh)
     {
+        let region = bedrock_oidc_region(credentials.region.as_deref())?;
         // A worker holds no OIDC signing key, so it asks the API to mint the
         // token for this job; the session name carries the job into CloudTrail.
         let id_token = client
@@ -380,15 +381,8 @@ pub async fn refresh_bedrock_oidc_credentials<'a>(
             "windmill-ai-job",
             &job_id.simple().to_string()[..JOB_ID_SESSION_NAME_LEN],
         );
-        *cached = Some(
-            assume_role_with_oidc_token(
-                role_arn,
-                credentials.region.as_deref(),
-                id_token,
-                &session_name,
-            )
-            .await?,
-        );
+        *cached =
+            Some(assume_role_with_oidc_token(role_arn, region, id_token, &session_name).await?);
     }
 
     Ok(cached.as_ref())
@@ -412,26 +406,30 @@ pub fn aws_role_session_name(prefix: &str, identity: &str) -> String {
         .collect()
 }
 
-/// Exchange a Windmill OIDC token for temporary IAM credentials on `role_arn`.
+/// The region an OIDC role assumption runs in.
 ///
-/// The role assumption resolves to explicit IAM keys, and the SDK client built
-/// from those has no ambient-region fallback the way [`BedrockClient::from_env`]
-/// does — so an unset region is refused here rather than producing an SDK client
-/// pointed at an empty region.
+/// The assumption resolves to explicit IAM keys, and the SDK client built from
+/// those has no ambient-region fallback the way [`BedrockClient::from_env`] does,
+/// so a resource that assumes a role has to name its region. Callers check this
+/// before minting the OIDC token, so a misconfigured resource never issues an
+/// identity token it is only going to throw away.
+pub fn bedrock_oidc_region(region: Option<&str>) -> Result<&str, Error> {
+    region.filter(|r| !r.is_empty()).ok_or_else(|| {
+        Error::BadRequest(
+            "AWS Bedrock resources that assume a role through OIDC must set a region".to_string(),
+        )
+    })
+}
+
+/// Exchange a Windmill OIDC token for temporary IAM credentials on `role_arn`.
 pub async fn assume_role_with_oidc_token(
     role_arn: &str,
-    region: Option<&str>,
+    region: &str,
     id_token: String,
     session_name: &str,
 ) -> Result<AssumedRoleCredentials, Error> {
     use windmill_common::auth::aws::{
         get_assume_role_with_web_identity_fluent_builder, GetAuthenticationOutput, OidcAuth,
-    };
-
-    let Some(region) = region.filter(|r| !r.is_empty()) else {
-        return Err(Error::BadRequest(
-            "AWS Bedrock resources that assume a role through OIDC must set a region".to_string(),
-        ));
     };
 
     let oidc_auth = OidcAuth { region: Some(region.to_string()), role_arn: role_arn.to_string() };
@@ -1200,6 +1198,19 @@ mod tests {
             bedrock_oidc_role_to_assume(None, None, None, Some("")),
             None
         );
+    }
+
+    #[test]
+    fn credentials_stop_being_fresh_before_aws_expires_them() {
+        let at = |d: std::time::Duration| AssumedRoleCredentials {
+            access_key_id: String::new(),
+            secret_access_key: String::new(),
+            session_token: String::new(),
+            expires_at: std::time::SystemTime::now() + d,
+        };
+        // Reused only while there is still margin left to finish a request.
+        assert!(at(ASSUMED_ROLE_REFRESH_MARGIN * 2).is_fresh());
+        assert!(!at(ASSUMED_ROLE_REFRESH_MARGIN / 2).is_fresh());
     }
 
     #[test]

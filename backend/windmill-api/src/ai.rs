@@ -423,6 +423,12 @@ async fn resolve_bedrock_oidc_credentials(
 ) -> Result<()> {
     use windmill_ai::ai_bedrock::{aws_role_session_name, bedrock_oidc_role_to_assume};
 
+    // Only the Bedrock resource type carries a role ARN; leaving the field set on
+    // any other resource inert keeps a hand-edited one from reaching STS.
+    if credentials.provider != AIProvider::AWSBedrock {
+        return Ok(());
+    }
+
     let Some(role_arn) = bedrock_oidc_role_to_assume(
         credentials.api_key.as_deref(),
         credentials.aws_access_key_id.as_deref(),
@@ -444,15 +450,10 @@ async fn resolve_bedrock_oidc_credentials(
     {
         Some(cached) => cached,
         None => {
-            let assumed = assume_bedrock_role(
-                db,
-                w_id,
-                authed,
-                role_arn,
-                credentials.region.as_deref(),
-                &session_name,
-            )
-            .await?;
+            let region =
+                windmill_ai::ai_bedrock::bedrock_oidc_region(credentials.region.as_deref())?;
+            let assumed =
+                assume_bedrock_role(db, w_id, authed, role_arn, region, &session_name).await?;
             BEDROCK_ASSUMED_ROLE_CACHE.insert(cache_key, assumed.clone());
             assumed
         }
@@ -471,7 +472,7 @@ async fn assume_bedrock_role(
     w_id: &str,
     authed: &ApiAuthed,
     role_arn: &str,
-    region: Option<&str>,
+    region: &str,
     session_name: &str,
 ) -> Result<windmill_ai::ai_bedrock::AssumedRoleCredentials> {
     #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]

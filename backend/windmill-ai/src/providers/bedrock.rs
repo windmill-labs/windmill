@@ -1255,10 +1255,7 @@ mod tests {
         // recovers the uncached share by subtracting the details back out.
         assert_eq!(usage["usage"]["prompt_tokens"], 1010);
         assert_eq!(usage["usage"]["completion_tokens"], 7);
-        assert_eq!(
-            usage["usage"]["prompt_tokens_details"]["cached_tokens"],
-            900
-        );
+        assert_eq!(usage["usage"]["prompt_tokens_details"]["cached_tokens"], 900);
         assert_eq!(
             usage["usage"]["prompt_tokens_details"]["cache_write_tokens"],
             100
