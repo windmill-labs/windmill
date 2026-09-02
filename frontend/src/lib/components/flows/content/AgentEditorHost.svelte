@@ -31,6 +31,7 @@
 	import { AGENT_TOOLS_ROW } from '../agentFormFields'
 	import { toolDisplayName, type AgentTool } from '../agentToolUtils'
 	import { useAgentDraft } from '../agentDraft.svelte'
+	import { agentEditorHostPath } from '../agentEditorStore.svelte'
 
 	interface Props {
 		/** The `ai_agent` resource being edited. */
@@ -66,7 +67,7 @@
 
 	// A path of its own, so the linked-agent tools scope, the preview job label and the form's
 	// remembered open fields can never collide with a host flow's.
-	let syntheticPath = $derived(`agent-editor:${path}`)
+	let syntheticPath = $derived(agentEditorHostPath(path))
 
 	const flowStore = $state({
 		val: {

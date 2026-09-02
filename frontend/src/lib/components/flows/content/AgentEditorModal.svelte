@@ -13,6 +13,8 @@
 	import { ResourceService, type AgentDraft } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import {
+		AGENT_EDITOR_HOST_PREFIX,
+		agentEditorHostPath,
 		agentEditorTarget,
 		agentWriteCount,
 		type AgentEditorTarget,
@@ -38,9 +40,35 @@
 
 	let { enableAi = false, owns }: Props = $props()
 
+	// A tool that is itself a linked agent opens from inside the editor, so it names the editor's own
+	// synthetic flow as its host, which no `owns` can recognise: the mount showing that editor is the
+	// one that has to take it, or the dialog vanishes onto a target nothing renders. Deliberately
+	// plain rather than `$state`: what claims the next target is what this mount rendered for the
+	// last one, and a reactive read would re-run the claim against its own answer and undo it.
+	let shownPath: string | undefined = undefined
+	let adoptedPath: string | undefined = undefined
+
+	function claims(t: AgentEditorTarget): boolean {
+		if (owns(t)) return true
+		// Only ever a target opened from inside an agent editor, never one belonging to a flow.
+		if (!t.host?.flowPath?.startsWith(AGENT_EDITOR_HOST_PREFIX)) return false
+		// Already taken, or opened from the agent this mount is showing.
+		return (
+			t.path === adoptedPath ||
+			(shownPath != undefined && t.host.flowPath === agentEditorHostPath(shownPath))
+		)
+	}
+
 	let target = $derived.by(() => {
 		const t = agentEditorTarget()
-		return t && owns(t) ? t : undefined
+		return t && claims(t) ? t : undefined
+	})
+	$effect(() => {
+		const t = target
+		untrack(() => {
+			shownPath = t?.path
+			adoptedPath = t && !owns(t) ? t.path : undefined
+		})
 	})
 	let ws = $derived(target?.workspace ?? $workspaceStore)
 	let host = $state<ReturnType<typeof AgentEditorHost> | undefined>(undefined)
@@ -124,7 +152,7 @@
 	// down never drops a target another one is showing.
 	onDestroy(() => {
 		const t = agentEditorTarget()
-		if (t && owns(t)) closeAgentEditor()
+		if (t && claims(t)) closeAgentEditor()
 	})
 
 	/** What the flow behind a write has to be told about it, captured before the request rather than

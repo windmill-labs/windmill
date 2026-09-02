@@ -43,6 +43,15 @@ export function agentEditorTarget(): AgentEditorTarget | undefined {
 	return target
 }
 
+/** The flow path an agent editor gives its synthetic host flow. It scopes the linked-tools store,
+ *  the preview job label and the form's remembered fields, and it is what an agent opened from
+ *  inside the editor names as its host, so the mount showing that editor can claim it. */
+export const AGENT_EDITOR_HOST_PREFIX = 'agent-editor:'
+
+export function agentEditorHostPath(path: string): string {
+	return `${AGENT_EDITOR_HOST_PREFIX}${path}`
+}
+
 /** How many times each agent has been written, so a surface that reads the resource can refetch it.
  *  The editor and the step card that opens it are separate components over one resource, neither
  *  owning the other, and a deploy that leaves the path alone changes nothing they otherwise key on. */
