@@ -40,6 +40,11 @@ const MIN_PREFIX_MESSAGES_TO_SUMMARIZE: usize = 4;
 /// summarizing on its own — one attachment reaches it, and waiting for a fourth message
 /// would mean carrying it past the window first.
 const MIN_PREFIX_SHARE_TO_SUMMARIZE: usize = 4;
+/// Opening of the message a compaction leaves behind. It is how a later pass recognises
+/// its own output, so it has to stay in step with `build_summary_message` and survive a
+/// round trip through persisted memory — which it does, being part of the content.
+const SUMMARY_MESSAGE_OPENING: &str =
+    "This conversation is being continued from an earlier portion that ran out of context.";
 /// What one attachment costs once the provider's request builder turns the S3 path the
 /// message list holds into the image or PDF it points at. Nominal, but three orders of
 /// magnitude closer than the path's own length, which is what the estimate would
@@ -283,12 +288,18 @@ fn plan_tail_start(
     }
 
     // Worth a model call either because there is a run of messages to fold up, or
-    // because the few there are cost enough on their own — one attachment does.
+    // because the few there are cost enough on their own — one attachment does. A
+    // previous summary does not count towards the second test: it is reserve-sized
+    // whatever it holds, so a prefix of nothing else would be swapped for one the same
+    // size, again on the next response.
     let prefix = &messages[prefix_start..tail_start];
+    let new_prefix_tokens = prefix
+        .iter()
+        .filter(|message| !is_compaction_summary(message))
+        .map(scaled)
+        .sum::<usize>();
     let worth_summarizing = prefix.len() >= MIN_PREFIX_MESSAGES_TO_SUMMARIZE
-        || (!prefix.is_empty()
-            && prefix.iter().map(scaled).sum::<usize>()
-                >= context_window / MIN_PREFIX_SHARE_TO_SUMMARIZE);
+        || new_prefix_tokens >= context_window / MIN_PREFIX_SHARE_TO_SUMMARIZE;
 
     worth_summarizing.then_some(tail_start)
 }
@@ -350,13 +361,25 @@ fn build_summary_message(formatted_summary: &str) -> OpenAIMessage {
     OpenAIMessage {
         role: "user".to_string(),
         content: Some(OpenAIContent::Text(format!(
-            "This conversation is being continued from an earlier portion that ran out of context. \
+            "{SUMMARY_MESSAGE_OPENING} \
              The summary below covers that earlier portion. Recent messages after the summary are \
              preserved verbatim.\n\n{formatted_summary}\n\nContinue from where it left off. Do not \
              re-introduce the summary or recap it; pick up the work as if the break never happened."
         ))),
         ..Default::default()
     }
+}
+
+/// Whether this is a summary a previous compaction inserted. A summary is reserve-sized
+/// by construction, so a prefix that holds nothing else would clear the share threshold
+/// and be swapped for another summary of the same size, once per response, losing
+/// fidelity each time and never shrinking the prompt.
+fn is_compaction_summary(message: &OpenAIMessage) -> bool {
+    message.role == "user"
+        && matches!(
+            message.content.as_ref(),
+            Some(OpenAIContent::Text(text)) if text.starts_with(SUMMARY_MESSAGE_OPENING)
+        )
 }
 
 /// Everything the summarization call needs that the agent loop already has in hand.
@@ -800,6 +823,20 @@ mod tests {
 
         // Two attachments are worth more than a quarter of this window on their own.
         assert!(plan_tail_start(&messages, 10000, 0, UNMEASURED).is_some());
+    }
+
+    /// A summary is reserve-sized whatever it holds, so a prefix of nothing else would
+    /// clear the share threshold and be swapped for one the same size, once per response.
+    #[test]
+    fn plan_tail_start_will_not_summarize_a_lone_previous_summary() {
+        let summary = build_summary_message(&"s".repeat(8000));
+        let messages = vec![
+            message("system", "sys"),
+            summary,
+            message("assistant", &"a".repeat(40000)),
+        ];
+
+        assert_eq!(plan_tail_start(&messages, 10000, 0, UNMEASURED), None);
     }
 
     #[test]
