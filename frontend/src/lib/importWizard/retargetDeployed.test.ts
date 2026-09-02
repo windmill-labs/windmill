@@ -153,6 +153,25 @@ describe('applyRetarget', () => {
 		expect(state.updatedRawApps).toEqual([])
 	})
 
+	// The path written inside a source file is a reference too, and no rewriter reaches it.
+	// Seeing only whole-string matches left this app un-gapped and the stub was deleted.
+	it('keeps the stub when a source file names the resource in code', async () => {
+		state.apps = [
+			{
+				path: 'f/proj/dash',
+				value: {
+					files: { '/App.tsx': `const c = await getResource("${FROM}")` },
+					runnables: {}
+				}
+			}
+		]
+		const outcome = await run()
+		expect(outcome.error).toBeUndefined()
+		expect(outcome.stubDeleted).toBe(false)
+		expect(state.deletedResources).toEqual([])
+		expect(state.updatedRawApps).toEqual([])
+	})
+
 	// A trigger holds its resource as a bare path in its own column, not as a `$res:` token.
 	// Matching only the token spelling left the trigger on a stub that was then deleted.
 	it('finds a trigger that holds the resource as a bare path', async () => {

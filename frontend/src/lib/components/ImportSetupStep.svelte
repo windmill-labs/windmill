@@ -301,8 +301,19 @@
 			projectResources = (retargeted.resources ?? [])
 				.map((r) => ({ path: String(r.path), resource_type: String((r as any).resource_type) }))
 				.filter((r) => r.path.startsWith(`f/${target}/`))
+			// Asked against the export as published, not the retargeted copy: a path the project
+			// spells out in code is not rewritten by the retarget, so only the raw export has
+			// its references and its resource paths agreeing. `resourceCount` asks the same
+			// question the same way, and the step and the stepper have to give one answer.
+			const fromSlug = exportData.project?.slug ?? slug
+			const askable = new Set(
+				(exportData.resources ?? [])
+					.map((r) => String(r.path))
+					.filter((p) => projectReferencesResource(exportData, p))
+					.map((p) => p.slice(`f/${fromSlug}/`.length))
+			)
 			askableResources = projectResources.filter((r) =>
-				projectReferencesResource(retargeted, r.path)
+				askable.has(r.path.slice(`f/${target}/`.length))
 			)
 			await refreshBlanks()
 		} catch (e: any) {
@@ -461,8 +472,8 @@
 		const next: Record<string, string[]> = Object.fromEntries(types.map((t) => [t, []]))
 		try {
 			// One call for every type at once — `resource_type` takes a comma-separated list —
-			// and every page of it: the endpoint defaults to 30 rows, so a single call would
-			// offer a workspace's first 30 resources and silently hide the rest.
+			// and every page of it: `perPage` is what bounds the answer, so without the loop a
+			// workspace past one page would have the rest of its resources silently hidden.
 			for (let page = 1; page <= 100; page++) {
 				const rows = await ResourceService.listResource({
 					workspace,

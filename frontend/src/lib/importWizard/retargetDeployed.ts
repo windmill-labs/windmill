@@ -91,23 +91,21 @@ function inFolder(path: unknown, folder: string): boolean {
 }
 
 /**
- * A bare string exactly equal to the resource path, anywhere in the structure.
+ * Whether the item names the resource path anywhere a rewriter would not reach it.
  *
- * A script, flow or app spells a resource reference as a `$res:` token and nothing else, so a
- * bare match is either a reference no rewriter relocates — a static string value in a
- * component, an argument the code assembles itself — or something that is not the resource at
+ * A script, flow or app spells a reference the rewriters move as a `$res:` token and nothing
+ * else. The path appearing any other way is either a reference beyond them — a static string
+ * value in a component, an argument inline code assembles itself — or not the resource at
  * all, such as a step running a script that happens to share the path. Neither is rewritable:
  * moving the first is beyond the rewriters, and moving the second would repoint a runnable at
- * a credential. Triggers are the exception and hold the bare path by design.
+ * a credential. Both are reasons the stub has to outlive the run.
+ *
+ * The whole serialized item is searched, because inline code is a string inside it and a path
+ * written in code is no less a reference for being surrounded by other characters. Triggers
+ * are the exception and hold the bare path by design, so they never come here.
  */
-function holdsBarePath(value: unknown, path: string): boolean {
-	const walk = (v: any): boolean => {
-		if (typeof v === 'string') return v === path
-		if (Array.isArray(v)) return v.some(walk)
-		if (v && typeof v === 'object') return Object.values(v).some(walk)
-		return false
-	}
-	return walk(value)
+function namesPathUnreachably(value: unknown, path: string): boolean {
+	return textHoldsBarePath(JSON.stringify(value ?? null), path)
 }
 
 /**
@@ -168,9 +166,8 @@ export async function planRetarget(
 	for (const s of scripts ?? []) {
 		const content = String(s.content ?? '')
 		const reads = referencesResourcePath(content, from)
-		// A script's content is one string, so the whole-string match `holdsBarePath` makes for
-		// a flow or an app cannot see a path written inside it. `rewriteContent` moves the
-		// `$res:` tokens and nothing else, so a bare mention is a reference this leaves behind.
+		// `rewriteContent` moves the `$res:` tokens and nothing else, so a path the code spells
+		// out is a reference this run leaves behind.
 		const bare = textHoldsBarePath(content, from)
 		if (!reads && !bare) continue
 		if (!inFolder(s.path, folder)) {
@@ -185,12 +182,17 @@ export async function planRetarget(
 	}
 	for (const f of flows ?? []) {
 		const value: any = f.value ?? {}
-		if (!referencesResourcePath(value, from)) continue
+		const reads = referencesResourcePath(value, from)
+		const bare = namesPathUnreachably(value, from)
+		if (!reads && !bare) continue
 		if (!inFolder(f.path, folder)) {
 			gaps.push({ path: f.path!, reason: OUTSIDE_PROJECT })
 			continue
 		}
-		if (holdsBarePath(value, from)) {
+		// Gapped rather than rewritten even when it also holds a `$res:` token. The stub
+		// survives either way, so the token still resolves, and rewriting half an item would
+		// only make the plan and the write disagree about what moved.
+		if (bare) {
 			gaps.push({ path: f.path!, reason: UNREACHABLE_REFERENCE })
 			continue
 		}
@@ -198,12 +200,17 @@ export async function planRetarget(
 	}
 	for (const a of apps ?? []) {
 		const value: any = a.value ?? {}
-		if (!referencesResourcePath(value, from)) continue
+		const reads = referencesResourcePath(value, from)
+		const bare = namesPathUnreachably(value, from)
+		if (!reads && !bare) continue
 		if (!inFolder(a.path, folder)) {
 			gaps.push({ path: a.path!, reason: OUTSIDE_PROJECT })
 			continue
 		}
-		if (holdsBarePath(value, from)) {
+		// Gapped rather than rewritten even when it also holds a `$res:` token. The stub
+		// survives either way, so the token still resolves, and rewriting half an item would
+		// only make the plan and the write disagree about what moved.
+		if (bare) {
 			gaps.push({ path: a.path!, reason: UNREACHABLE_REFERENCE })
 			continue
 		}
@@ -279,7 +286,7 @@ export async function applyRetarget(args: {
 	const gaps = [...plan.gaps]
 
 	for (const r of plan.referrers) {
-		let moved: boolean
+		let moved: true | string
 		try {
 			if (r.kind === 'script') moved = await rewriteScript(workspace, r.path, map)
 			else if (r.kind === 'flow') moved = await rewriteFlow(workspace, r.path, map)
@@ -289,8 +296,8 @@ export async function applyRetarget(args: {
 		} catch (e: any) {
 			return { rewritten, gaps, stubDeleted: false, error: errorMessage(e) }
 		}
-		if (moved) rewritten.push(r)
-		else gaps.push({ path: r.path, reason: 'changed while it was being retargeted' })
+		if (moved === true) rewritten.push(r)
+		else gaps.push({ path: r.path, reason: moved })
 	}
 
 	if (gaps.length > 0) return { rewritten, gaps, stubDeleted: false }
@@ -302,6 +309,9 @@ export async function applyRetarget(args: {
 	}
 	return { rewritten, gaps, stubDeleted: true }
 }
+
+/** Why a rewriter left an item where it was, or `true` when it moved it. */
+const CHANGED_UNDER_US = 'changed while it was being retargeted'
 
 /**
  * Whether the rewritten value has left every path being moved.
@@ -342,10 +352,10 @@ async function rewriteScript(
 	workspace: string,
 	path: string,
 	map: Map<string, string>
-): Promise<boolean> {
+): Promise<true | string> {
 	const s: any = await ScriptService.getScriptByPath({ workspace, path })
 	const content = rewriteContent(s.content ?? '', map)
-	if (!relocated(content, map)) return false
+	if (!relocated(content, map)) return CHANGED_UNDER_US
 	if (content === s.content) return true
 	await ScriptService.createScript({
 		workspace,
@@ -364,10 +374,10 @@ async function rewriteFlow(
 	workspace: string,
 	path: string,
 	map: Map<string, string>
-): Promise<boolean> {
+): Promise<true | string> {
 	const f: any = await FlowService.getFlowByPath({ workspace, path })
 	const value = rewriteFlowValue(f.value, map)
-	if (!relocated(value, map)) return false
+	if (!relocated(value, map)) return CHANGED_UNDER_US
 	await FlowService.updateFlow({
 		workspace,
 		path,
@@ -391,10 +401,10 @@ async function rewriteApp(
 	workspace: string,
 	path: string,
 	map: Map<string, string>
-): Promise<boolean> {
+): Promise<true | string> {
 	const a: any = await AppService.getAppByPath({ workspace, path })
 	const next = rewriteAppValue(a.value ?? {}, map)
-	if (!relocated(next, map)) return false
+	if (!relocated(next, map)) return CHANGED_UNDER_US
 	const policy = (await updatePolicy(next as App, a.policy)) as any
 	await AppService.updateApp({
 		workspace,
@@ -442,13 +452,13 @@ async function rewriteRawApp(
 	workspace: string,
 	path: string,
 	map: Map<string, string>
-): Promise<boolean> {
+): Promise<true | string> {
 	const a: any = await AppService.getAppByPath({ workspace, path })
 	const value: any = a.value ?? {}
 	// One walk over the whole value: `$res:` tokens live in the runnables and can appear in
 	// the sources too, and both are plain text inside this JSON.
 	const next = JSON.parse(rewriteRawAppContent(JSON.stringify(value), map))
-	if (!relocated(next, map)) return false
+	if (!relocated(next, map)) return CHANGED_UNDER_US
 	const runnables = next.runnables ?? {}
 	const policy = (await updateRawAppPolicy(runnables, a.policy)) as any
 	const secret = await AppService.getPublicSecretOfLatestVersionOfApp({ workspace, path })
@@ -461,7 +471,7 @@ async function rewriteRawApp(
 	// `rewriteContent` moves the `$res:` tokens. A path the bundle spells out any other way
 	// is one nothing here can move, and uploading it would leave the app reading a resource
 	// about to be deleted.
-	for (const stub of map.keys()) if (textHoldsBarePath(js, stub)) return false
+	for (const stub of map.keys()) if (textHoldsBarePath(js, stub)) return UNREACHABLE_REFERENCE
 	const files = { ...(next.files ?? {}) }
 	delete files['/bundle.js']
 	delete files['/bundle.css']
@@ -507,7 +517,7 @@ async function rewriteTrigger(
 	workspace: string,
 	r: Referrer,
 	map: Map<string, string>
-): Promise<boolean> {
+): Promise<true | string> {
 	const def = TRIGGER_KINDS[r.triggerKind!]
 	const row: any = r.row ?? {}
 	const { enabled: _enabled, ...rest } = {

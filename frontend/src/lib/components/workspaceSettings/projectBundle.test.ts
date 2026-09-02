@@ -17,6 +17,7 @@ import {
 	extractTriggerConfigResourceRefs,
 	extractVarRefsFromValue,
 	projectReferencesResource,
+	textHoldsBarePath,
 	type ProjectExport,
 	type FetchedItem,
 	type ItemRef
@@ -894,5 +895,20 @@ describe('projectReferencesResource', () => {
 		expect(projectReferencesResource(bundle, 'f/proj/db')).toBe(true)
 		// Declared only because a script's input schema names the type.
 		expect(projectReferencesResource(bundle, 'f/proj/gcal')).toBe(false)
+	})
+})
+
+describe('textHoldsBarePath', () => {
+	// Gates three deletion decisions, and its two directions cost differently: a false yes
+	// keeps a stub nobody needed, a false no deletes one something still reads.
+	const P = 'f/proj/db'
+	it.each([
+		['a token only', `const c = "$res:${P}"`, false],
+		['a path written in code', `await getResource("${P}")`, true],
+		['both spellings', `"$res:${P}"; getResource("${P}")`, true],
+		['a longer path that starts the same', `await getResource("${P}_prod")`, false],
+		['the same path inside a longer token', `"$res:${P}_prod"`, false]
+	])('%s', (_label, text, expected) => {
+		expect(textHoldsBarePath(text, P)).toBe(expected)
 	})
 })
