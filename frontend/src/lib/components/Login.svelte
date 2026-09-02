@@ -606,16 +606,17 @@
 		}, 1500)
 	}
 
-	/** Mirrors the server-side write in the OAuth `login` handler, including clearing
-	 * it when this sign-in is not a guest entry. `login_externally` consumes it.
-	 * `Secure` only over https, as the backend does with its own cookies: a browser
-	 * drops a `Secure` cookie set from an http origin, and a SAML guest sign-in there
-	 * would then silently provision a real account instead. Lax suffices, since the
-	 * ACS redirect that consumes it is a same-site top-level navigation. */
+	/** Mirrors the server-side write in the OAuth `login` handler (`set_unsensitive_cookie`)
+	 * attribute for attribute, including clearing it when this sign-in is not a guest
+	 * entry. `login_externally` consumes it. `SameSite=None` is required, not a choice:
+	 * the SAML ACS is a cross-site POST from the IdP, and a Lax cookie is not sent on
+	 * those. `None` needs `Secure`, so — exactly like the backend's own cookie — this
+	 * only survives the round trip over https; over plain http the browser drops it
+	 * and a guest sign-in falls through to ordinary provisioning. */
 	function setGuestAppCookie(value: string | undefined) {
 		try {
 			const secure = window.location.protocol === 'https:' ? '; Secure' : ''
-			document.cookie = `guest_app=${encodeURIComponent(value ?? '')}; path=/; SameSite=Lax${secure}`
+			document.cookie = `guest_app=${encodeURIComponent(value ?? '')}; path=/; SameSite=None${secure}`
 		} catch (e) {
 			console.error('Could not set the guest app cookie', e)
 		}

@@ -1654,8 +1654,18 @@ pub async fn mint_app_embed_token(
                 "App embed tokens cannot mint or renew embed tokens".to_string(),
             ));
         }
-        let expiration =
-            chrono::Utc::now() + chrono::Duration::hours(APP_EMBED_TOKEN_VALIDITY_HOURS);
+        let is_guest_minter =
+            windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref());
+        // A guest's embed token must not outlive the kind of session that minted it.
+        let validity = if is_guest_minter {
+            chrono::Duration::seconds(
+                (*windmill_api_users::users::GUEST_SESSION_VALIDITY_SECONDS)
+                    .min(APP_EMBED_TOKEN_VALIDITY_HOURS * 3600),
+            )
+        } else {
+            chrono::Duration::hours(APP_EMBED_TOKEN_VALIDITY_HOURS)
+        };
+        let expiration = chrono::Utc::now() + validity;
         let mut scopes: Vec<String> = APP_EMBED_SCOPES
             .iter()
             .filter(|s| **s != windmill_api_auth::scopes::APP_EMBED_SENTINEL)
@@ -1677,12 +1687,15 @@ pub async fn mint_app_embed_token(
         // guest session is. `mint_raw_app_sdk_token` has the same shape.
         ensure_scopes_within_caller(authed, Some(&scopes))?;
         scopes.push(windmill_api_auth::scopes::APP_EMBED_SENTINEL.to_string());
-        // An embed token minted by a guest has to resolve the same way the guest's
-        // own session does — through the label, since there is no `usr` row behind
-        // the email. With the ordinary label the iframe's every request would 401.
-        // The `app_embed` sentinel pushed above still confines it more tightly than
-        // the session that minted it.
-        let label = if windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref()) {
+        // A guest's embed token is a guest twice over. The label is what lets it
+        // resolve at all — there is no `usr` row behind the email, so `AuthCache`
+        // admits it the same way it admits the session that minted it. The `guest`
+        // sentinel is what keeps every guest control on it: the workspace switch, the
+        // rate limit, the `whoami` role all key on the sentinel, and this is the one
+        // credential handed to untrusted app JS, so it must be at least as confined
+        // as its minter. Both sentinels compose — each is a default-deny allowlist.
+        let label = if is_guest_minter {
+            scopes.push(windmill_api_auth::scopes::GUEST_SENTINEL.to_string());
             windmill_common::auth::GUEST_SESSION_LABEL.to_string()
         } else {
             format!("embed_app:{app_path}")
@@ -1738,17 +1751,14 @@ async fn get_guest_entry(
 ) -> JsonResult<GuestEntry> {
     let id = get_id_from_secret(&db, &w_id, secret, None).await?;
     let app = sqlx::query!(
-        "SELECT path, policy->>'execution_mode' as execution_mode
-         FROM app WHERE id = $1 AND workspace_id = $2",
+        "SELECT path FROM app WHERE id = $1 AND workspace_id = $2",
         id,
         &w_id
     )
     .fetch_optional(&db)
     .await?;
     let app = not_found_if_none(app, "App", id.to_string())?;
-    if app.execution_mode.as_deref() != Some(ExecutionMode::Guest.as_str())
-        || !windmill_common::workspaces::is_guest_access_enabled(&db, &w_id).await?
-    {
+    if !windmill_common::workspaces::guest_app_admits(&db, &w_id, &app.path).await? {
         return Err(Error::NotFound("App is not open to guests".to_string()));
     }
     Ok(Json(GuestEntry { workspace_id: w_id, app_path: app.path }))

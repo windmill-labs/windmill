@@ -314,14 +314,16 @@ async fn a_self_declared_guest_scope_grants_nothing(db: Pool<Postgres>) -> anyho
 }
 
 /// A guest-mode policy that names one runnable, so an `execute_component` request
-/// gets past the triggerables lookup and reaches the guest gate.
-fn guest_app_with_runnable(path: &str) -> serde_json::Value {
+/// gets past the triggerables lookup and reaches the guest gate. `sandbox` is what
+/// makes the embed-token endpoint actually mint a token.
+fn guest_app_with_runnable(path: &str, sandbox: bool) -> serde_json::Value {
     json!({
         "path": path,
         "summary": "Guest app",
         "value": {},
         "policy": {
             "execution_mode": "guest",
+            "sandbox": sandbox,
             "triggerables_v2": {
                 "script/u/test-user/noop": { "static_inputs": {}, "one_of_inputs": {} }
             }
@@ -356,7 +358,7 @@ async fn execute_component_re_checks_the_workspace_switch(
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
     let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
-        .json(&guest_app_with_runnable(APP_PATH))
+        .json(&guest_app_with_runnable(APP_PATH, false))
         .send()
         .await?;
     assert_eq!(resp.status(), 201, "{}", resp.text().await?);
@@ -413,7 +415,7 @@ async fn guest_cannot_run_another_guest_app(db: Pool<Postgres>) -> anyhow::Resul
     .await?;
     let other = "u/test-user/other_guest_app";
     let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
-        .json(&guest_app_with_runnable(other))
+        .json(&guest_app_with_runnable(other, false))
         .send()
         .await?;
     assert_eq!(resp.status(), 201, "{}", resp.text().await?);
@@ -427,6 +429,110 @@ async fn guest_cannot_run_another_guest_app(db: Pool<Postgres>) -> anyhow::Resul
         403,
         "a guest session scoped to one app must not run another, even one open to guests"
     );
+
+    Ok(())
+}
+
+/// The embed token a guest mints for a sandboxed app is the one credential handed to
+/// untrusted app JS. It must be a guest twice over — resolve like its minter (the
+/// label) and be governed like its minter (the sentinel) — or every guest control
+/// silently skips the most exposed credential there is.
+#[sqlx::test(fixtures("base"))]
+async fn a_guest_minted_embed_token_stays_a_guest(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    authed(
+        client().post(format!("{ws}/workspaces/edit_guest_access")),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({ "guest_access_enabled": true }))
+    .send()
+    .await?;
+    let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
+        .json(&guest_app_with_runnable(APP_PATH, true))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    let secret: String = authed(
+        client().get(format!("{ws}/apps/secret_of/{APP_PATH}")),
+        ADMIN_TOKEN,
+    )
+    .send()
+    .await?
+    .text()
+    .await?;
+    insert_guest_token(&db, "test-workspace").await?;
+
+    // The guest page mints the iframe's token from the guest session.
+    let resp = authed(
+        client().get(format!("{ws}/apps_u/embed_token/{secret}")),
+        GUEST_TOKEN,
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "a guest must be able to mint: {}", resp.text().await?);
+    let body: serde_json::Value = resp.json().await?;
+    let embed = body["token"]
+        .as_str()
+        .expect("mint must return a token for an authenticated guest")
+        .to_string();
+
+    // Resolves — and as a guest, not as the non-member superadmin shape.
+    let resp = authed(client().get(format!("{ws}/users/whoami")), &embed)
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "the minted token must authenticate");
+    let me: serde_json::Value = resp.json().await?;
+    assert_eq!(me["role"], json!("guest"));
+
+    // Governed: the workspace switch closes it, iframe or not.
+    authed(
+        client().post(format!("{ws}/workspaces/edit_guest_access")),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({ "guest_access_enabled": false }))
+    .send()
+    .await?;
+    let resp = execute(port, "test-workspace", APP_PATH, &embed)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "turning guests off must stop a guest's embed token running components"
+    );
+
+    // And its scopes are not something the guest's email can later rewrite. The
+    // guest session itself cannot reach `/users/*` (workspace pin), so model the real
+    // threat: the same email after promotion, holding an ordinary unpinned session.
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label)
+         VALUES (encode(sha256($1::bytea), 'hex'), 'PROMOTED_S', $2, 'guest@example.com',
+                 'session')",
+    )
+    .bind(b"PROMOTED_SESSION".as_slice())
+    .bind("PROMOTED_SESSION")
+    .execute(&db)
+    .await?;
+    for prefix in [&embed[..10], &GUEST_TOKEN[..10]] {
+        let resp = authed(
+            client().post(format!(
+                "http://localhost:{port}/api/users/tokens/update_scopes/{prefix}"
+            )),
+            "PROMOTED_SESSION",
+        )
+        .json(&json!({ "scopes": null }))
+        .send()
+        .await?;
+        assert_eq!(
+            resp.status(),
+            404,
+            "a promoted account must not be able to rescope its old guest credentials"
+        );
+    }
 
     Ok(())
 }
