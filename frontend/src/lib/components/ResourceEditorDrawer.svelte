@@ -78,6 +78,10 @@
 		resource_type = resourceType
 		defaultValues = nDefaultValues
 		selected = effectiveWorkspace
+		// This drawer outlives what it opens on, so the view has to be set by every entry point
+		// rather than left where the last one put it: a new resource is a typed form, whoever was
+		// looking at JSON before.
+		viewJsonSchema = false
 		drawer?.openDrawer?.()
 	}
 
