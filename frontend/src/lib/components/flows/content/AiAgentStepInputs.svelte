@@ -146,6 +146,12 @@
 
 	const s3Storage = useS3StorageConfigured(() => ws)
 
+	// The per-field copilot only ever writes a JavaScript transform, so it belongs only where one can
+	// be stored. On a static-only field the write lands in a key the config drops on deploy, which
+	// reports success over a visible edit, or persists an expression into a saved agent that every
+	// flow linking it would then have to satisfy.
+	let fieldAiEnabled = $derived(enableAi && !staticOnly && !noJavascript)
+
 	let schemaProperties = $derived((schema?.properties ?? {}) as Record<string, any>)
 
 	let scopedFields = $derived(
@@ -361,7 +367,7 @@
 											{itemPicker}
 											bind:pickForField
 											{pickableProperties}
-											{enableAi}
+											enableAi={fieldAiEnabled}
 											{helperScript}
 											{isAgentTool}
 											{allowedAiTransforms}

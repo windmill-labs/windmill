@@ -18,7 +18,6 @@
 		type AgentEditorTarget,
 		closeAgentEditor,
 		markAgentWritten,
-		retargetAgentEditor,
 		showAgentEditorTool,
 		showAgentEditorView
 	} from '../agentEditorStore.svelte'
@@ -137,15 +136,14 @@
 		}
 	}
 
-	/** What a successful deploy has to reconcile. Keyed on the path the deploy actually wrote, not
-	 *  on the one the editor opened: a deploy can carry a rename. */
+	/** What a successful deploy has to reconcile. The path is the one it wrote, which `deploy`
+	 *  holds to the one the editor opened: this editor does not rename. */
 	async function onSaved(savedPath: string) {
 		markAgentWritten(ws, savedPath)
-		retargetAgentEditor(savedPath)
 		const h = target?.host
 		if (h && ws) {
 			// The host graph resolves a linked agent's tool nodes from the resource, so it has to
-			// re-read now that the resource moved.
+			// re-read what the deploy just changed.
 			await publishLinkedAgentTools(savedPath, ws, linkedToolsScope(ws, h.flowPath), h.moduleId)
 		}
 	}

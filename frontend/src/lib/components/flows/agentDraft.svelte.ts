@@ -207,6 +207,18 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 			sendUserToast(blocked, true)
 			return false
 		}
+		// Renaming is not this editor's to do: moving the resource leaves every step that links to it
+		// naming a path that no longer exists, and reconciling those is a feature of its own. A
+		// renamed path can still reach here, the generic editor writing the same draft row and
+		// offering a path field, so refuse it rather than performing half of a rename.
+		const currentPath = opts.path()
+		if (currentPath && s.path !== currentPath) {
+			sendUserToast(
+				`This draft renames the agent to ${s.path}. Deploy it from the resource editor instead.`,
+				true
+			)
+			return false
+		}
 		// The form stays editable while the request is in flight, so everything below works from a
 		// snapshot taken now. Adopting the live state as `deployed` afterwards would count an edit
 		// made during the request as saved, and the banner would clear on a value the server never
