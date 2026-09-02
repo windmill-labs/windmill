@@ -775,10 +775,10 @@ pub struct BillableSeats {
     pub seats: i64,
 }
 
-/// Guests are an Enterprise-plan feature, so a Pro key refuses them at every gate —
-/// the workspace switch, the mint, the door — not only in the UI that hides them. A
-/// build without `enterprise` has no plan to consult and cannot mint a guest session
-/// at all (the mint lives in EE code), so nothing is gated there.
+/// Guests are an Enterprise-plan feature, refused on any other plan and on any build
+/// without `enterprise` at every gate: the switch write, discovery, the mint, the
+/// door. The CE image compiles the OAuth callback that mints, so the build check is
+/// load-bearing, not a formality.
 pub async fn guest_access_licensed() -> bool {
     #[cfg(feature = "enterprise")]
     {
@@ -789,12 +789,13 @@ pub async fn guest_access_licensed() -> bool {
     }
     #[cfg(not(feature = "enterprise"))]
     {
-        true
+        false
     }
 }
 
 /// Whether `w_id` admits guest sessions — someone the identity provider authenticated
-/// who is a member of no workspace, and who therefore takes no seat.
+/// who is a member of no workspace, and who therefore takes no seat. The plan is
+/// checked first: a switch left on by a plan that no longer admits guests is shut.
 ///
 /// Read uncached where a session is minted ([`guest_app_admits`]) and then once per
 /// request at the auth door (`AuthCache::get_opt_job_authed`) for every guest. An app
@@ -815,7 +816,7 @@ pub async fn is_guest_access_enabled(db: &crate::DB, w_id: &str) -> Result<bool>
     .unwrap_or(false))
 }
 
-/// Both gates at once: the workspace admits guests and `app_path` is in `guest`
+/// Every gate at once: the plan, the workspace switch, and `app_path` being in `guest`
 /// execution mode. The single answer to "may a guest session be minted for this app",
 /// used by the mint itself and by the sign-in branch that decides whether to call it.
 /// A missing app or a policy with no stated mode reads as "no".

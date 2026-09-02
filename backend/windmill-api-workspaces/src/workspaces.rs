@@ -1099,6 +1099,10 @@ async fn get_settings(
     if let Some(git_sync) = settings.git_sync.as_mut() {
         redact_git_sync_webhook_secrets(git_sync);
     }
+    // The effective value, not the column: a switch left on by a plan that no longer
+    // admits guests must not read as open when every gate says shut.
+    settings.guest_access_enabled =
+        settings.guest_access_enabled && windmill_common::workspaces::guest_access_licensed().await;
 
     Ok(Json(settings))
 }
@@ -1135,8 +1139,10 @@ async fn get_public_settings(
     .await
     .map_err(|e| Error::internal_err(format!("getting public settings: {e:#}")))?;
 
-    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+    let mut settings = not_found_if_none(settings, "workspace settings", &w_id)?;
     tx.commit().await?;
+    settings.guest_access_enabled =
+        settings.guest_access_enabled && windmill_common::workspaces::guest_access_licensed().await;
 
     Ok(Json(settings))
 }

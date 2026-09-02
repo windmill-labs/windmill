@@ -215,10 +215,9 @@
 	let accountSession = $state<'unknown' | 'none' | 'held'>('unknown')
 	let deniedStatus: number | undefined = $state(undefined)
 	/** The sign-in card belongs on a 401, and on a 403 unless discovery has settled
-	 * that the app is not open to guests — a 403 on a guest app is a session for a
-	 * different app of the same workspace, which a fresh sign-in replaces. While
-	 * discovery is still pending this stays true so the skeleton shows rather than
-	 * a flash of "Not found". */
+	 * that the app is not open to guests: a 403 on a guest app is a session for another
+	 * app of the workspace, which a fresh sign-in replaces. True while discovery is
+	 * pending, so the skeleton shows rather than a flash of "Not found". */
 	let offerSignIn = $derived(
 		status === 'noPermission' ||
 			(status === 'notExists' && deniedStatus === 403 && guestEntry !== 'none')
@@ -235,10 +234,9 @@
 	})
 
 	// The stale guest session must be gone before the card mounts: it still
-	// authenticates in this workspace, so the popup's success poll would see it and
-	// complete the sign-in before the new session ever lands. The card waits on
-	// `staleGuestCleared`, and a failed logout fails closed rather than offering a
-	// sign-in that could not complete.
+	// authenticates here, so the popup's success poll would see it and complete the
+	// sign-in before the new session lands. The card waits on `staleGuestCleared`; a
+	// failed logout fails closed rather than offering a sign-in that cannot complete.
 	let staleGuestCleared = $state(false)
 	let staleGuestLogoutFailed = $state(false)
 	$effect(() => {
