@@ -3,8 +3,6 @@
 	import { twMerge } from 'tailwind-merge'
 	import { Button, Tab, Tabs } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import JobStatusIcon from '$lib/components/runs/JobStatusIcon.svelte'
-	import type { Job } from '$lib/gen'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import { msToReadableTime } from '$lib/utils'
 	import JobArgs from '$lib/components/JobArgs.svelte'
@@ -170,27 +168,35 @@
 		chatJob?.durationMs !== undefined ? msToReadableTime(chatJob.durationMs, 2) : ''
 	)
 
-	// The card outlives its job, and sometimes precedes it: a call cancelled before Run never
-	// had one, and one that failed to start has none either. Synthesizing the shape
-	// JobStatusIcon discriminates on keeps a single vocabulary of status badges rather than a
-	// second one for the states only the card knows about.
-	const statusJob = $derived(
-		chatJob?.job ??
-			((canceled
-				? { canceled: true, success: false }
-				: failed
-					? { success: false, canceled: false }
-					: { running: false }) as unknown as Job)
-	)
-	// The badge carries the outcome, so this is only ever how long it took, and 'Not run' where
-	// there is no time to give because nothing ran.
-	const statusTime = $derived(
-		running
-			? elapsed
-			: ran
-				? duration || (failed ? 'Failed' : canceled ? 'Cancelled' : 'Done')
-				: 'Not run'
-	)
+	// The colours the jobs tray paints its status dots (JobsSegment's dotClass), as ink on a
+	// row that stays transparent: blue running, violet approval, orange queued, green ok, red
+	// fail. The card outlives its job and sometimes precedes it, so the states only it knows
+	// about — cancelled before Run, failed to start — read off its own flags instead.
+	const statusClass = $derived.by(() => {
+		if (canceled) return 'text-tertiary'
+		if (failed) return 'text-red-500'
+		if (!ran) return 'text-tertiary'
+		switch (chatJob?.status) {
+			case 'running':
+				return 'text-blue-500'
+			case 'suspended':
+				return 'text-violet-500'
+			case 'queued':
+			case 'scheduled':
+				return 'text-orange-500'
+			case 'failure':
+				return 'text-red-500'
+			case 'success':
+				return 'text-green-500'
+			default:
+				return settled ? 'text-green-500' : 'text-blue-500'
+		}
+	})
+	// How long it took, which is the one thing the colour cannot say. A run that never started
+	// has no time to give, so its outcome takes the slot — as a word, never "Not run", which
+	// stutters against the "Run <path>" label beside it.
+	const outcome = $derived(failed ? 'Failed' : canceled ? 'Cancelled' : 'Done')
+	const statusTime = $derived(running ? elapsed : duration || outcome)
 
 	// What the preview button opens changes with the card: the form while the call is still
 	// waiting on one, the run once a job exists. Neither, and there is nothing to open, so
@@ -233,13 +239,13 @@
 	}
 </script>
 
-<!-- The run page's own status badge, so a run reads the same wherever it is met, with the
-     time beside it: the badge says how it went, the number how long it took, and while it
-     runs that number is still moving. -->
+<!-- One readout rather than a badge beside a number: the colour says how the run went and the
+     text how long it took, which is how the rest of the chat states a status. While it runs
+     that number is still moving. `font-medium` because the row is a button and the base layer
+     sets those semibold, which would leave this the one bold word in the header. -->
 {#snippet status()}
 	{#if !pending}
-		<span class="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-2xs text-hint">
-			<JobStatusIcon job={statusJob} roundedFull size={11} badgeClass="p-1" />
+		<span class={twMerge('shrink-0 whitespace-nowrap text-2xs font-medium', statusClass)}>
 			{statusTime}
 		</span>
 	{/if}
@@ -274,11 +280,12 @@
 	{:else if pending}
 		<RunArgsFormDisplay toolCallId={message.tool_call_id} {runForm} />
 	{:else}
-		<!-- One fixed-height region holding the strip and the body, so the card is the same size
-		     on every tab and switching to the raw JSON does not resize it under the cursor. A cap
-		     would not do it — the body is a scroll region, and a max-height silently beats
-		     flex-grow. -->
-		<div class="relative flex h-[20rem] flex-col">
+		<!-- One region holding the strip and the body, fixed so the card is the same size on every
+		     tab — a cap would not do it, since the body is a scroll region and a max-height
+		     silently beats flex-grow. The raw view takes that height as a floor instead: its
+		     blocks scroll on their own, as an ordinary tool call's do, so a scroller around them
+		     would be one too many. -->
+		<div class={twMerge('relative flex flex-col', jsonView ? 'min-h-[20rem]' : 'h-[20rem]')}>
 			<!-- The tabs go in raw view — they name the parts of the body, and the raw call is not
 			     one of them — while the strip stays, since the JSON toggle lives there. Hence its
 			     fixed height: a row sized by its contents would step every time the tabs leave, and
@@ -323,7 +330,8 @@
 				use:fades.container
 				onscroll={fades.measure}
 				class={twMerge(
-					'min-h-0 flex-1 overflow-auto px-3 py-2',
+					'min-h-0 flex-1 px-3 py-2',
+					jsonView ? '' : 'overflow-auto',
 					!jsonView && activeTab === 'logs' ? 'bg-surface-secondary/50' : ''
 				)}
 			>

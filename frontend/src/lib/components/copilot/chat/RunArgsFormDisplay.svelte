@@ -115,19 +115,23 @@
 	class={twMerge('flex flex-col', layout === 'pane' ? 'h-full min-h-0' : 'pt-3')}
 	data-chat-keyboard-scope="run-args-form"
 >
-	<!-- Only the fields scroll. A script with many arguments would otherwise grow a card
-	     taller than the pane, pushing the Run button and the lines naming what the form
-	     dropped — a secret it opened empty among them — below the fold. `both-edges` reserves
-	     the gutter on both sides, so the fields stay centred rather than drifting left of it. -->
-	<div class={twMerge('relative flex flex-col', layout === 'pane' ? 'min-h-0 flex-1' : '')}>
+	<!-- Only the fields scroll, sized by their content rather than filling the host: the actions
+	     follow the last field of a short form, and a long one scrolls under them rather than
+	     pushing the Run button — and the lines naming what the form dropped — below the fold. -->
+	<div class={twMerge('relative flex flex-col', layout === 'pane' ? 'min-h-0' : '')}>
+		<!-- `pl-9` is the rail the pane header's title stands on, its padding plus the icon and
+		     the gap beside it, so the tab reads down one edge. The card has no such rail to meet
+		     and reserves the gutter on both sides instead, which keeps its fields centred. -->
 		<div
 			use:fadeContainer
 			onscroll={measureFades}
 			class={twMerge(
-				'overflow-y-auto px-3',
-				layout === 'pane' ? 'min-h-0 flex-1' : 'max-h-[min(28rem,50vh)]'
+				'overflow-y-auto',
+				layout === 'pane' ? 'min-h-0 pl-9 pr-3' : 'max-h-[min(28rem,50vh)] px-3'
 			)}
-			style="scrollbar-gutter: stable both-edges;"
+			style={layout === 'pane'
+				? 'scrollbar-gutter: stable;'
+				: 'scrollbar-gutter: stable both-edges;'}
 		>
 			<div use:fadeContent>
 				{#if hasArgs}
@@ -143,7 +147,6 @@
 						disabled={planMode}
 						{workspace}
 						prettifyHeader
-						lightHeader
 						bind:isValid
 						bind:args={draft.args}
 					/>
@@ -163,8 +166,17 @@
 	</div>
 
 	<!-- One region with the actions: these lines report on the run the button below launches,
-	     and separating them would read as two subjects. -->
-	<div class="flex flex-col gap-2 p-3">
+	     and separating them would read as two subjects. No padding of its own over the fields:
+	     every one of them ends on the room ArgInput keeps for a validation message, and adding
+	     to it would sit the buttons twice as far below the last field as the first label sits
+	     from the top. A form with no fields keeps none of that room, so there it comes back. -->
+	<div
+		class={twMerge(
+			'flex flex-col gap-2 px-3 pb-3',
+			hasArgs ? '' : 'pt-3',
+			layout === 'pane' ? 'pl-9' : ''
+		)}
+	>
 		{#if runForm.droppedKeys?.length}
 			<p class="text-2xs text-secondary">
 				Not an input of this script, so it will not be sent:

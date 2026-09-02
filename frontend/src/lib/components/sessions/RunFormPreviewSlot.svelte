@@ -42,8 +42,8 @@
 	{#if message?.runForm && pending}
 		<!-- No rule under it, as ArtifactViewer's header has none: the fields scroll under a
 		     fade, and a border would draw that same boundary a second time. -->
-		<div class="flex items-start gap-2 p-3">
-			<Code class="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+		<div class="flex items-center gap-2 p-3">
+			<Code class="h-4 w-4 shrink-0 text-accent" />
 			<div class="min-w-0 flex-1">
 				<p class="truncate text-xs font-semibold text-emphasis">
 					Run {message.runForm.summary || message.runForm.path}
