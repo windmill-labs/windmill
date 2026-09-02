@@ -176,7 +176,9 @@
 
 	<p class="text-xs text-secondary">
 		Check if AWS credentials are available from the environment. If available, you do not need to
-		configure credentials manually.
+		configure credentials manually. To attribute usage to the job or user that made the request
+		instead, set <span class="font-mono">oidcRoleArn</span> to an IAM role Windmill assumes through its
+		OIDC provider.
 	</p>
 
 	<div class="grid grid-cols-2 gap-3">

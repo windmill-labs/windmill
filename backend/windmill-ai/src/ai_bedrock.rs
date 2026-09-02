@@ -2,6 +2,7 @@
 //!
 //! This module provides:
 //! - BedrockClient: SDK wrapper with bearer token and IAM credentials auth
+//! - OIDC role assumption: exchange a Windmill OIDC token for temporary IAM keys
 //! - Message/tool conversion: OpenAI format <-> Bedrock Converse API format
 //! - Stream event parsing: Extract text/tool deltas from Bedrock stream events
 //!
@@ -289,6 +290,103 @@ impl BedrockClient {
     pub fn client(&self) -> &BedrockRuntimeClient {
         &self.client
     }
+}
+
+// ============================================================================
+// OIDC Role Assumption
+// ============================================================================
+
+pub use windmill_common::auth::aws::AWS_OIDC_AUDIENCE;
+
+/// Bedrock credential precedence: a bearer API key wins, then a complete pair of
+/// explicit IAM keys, then OIDC role assumption, then the ambient environment.
+/// Returns the role to assume only when both higher-priority modes are unset, so
+/// a resource can carry a role ARN without it ever overriding keys set on it.
+pub fn bedrock_oidc_role_to_assume<'a>(
+    api_key: Option<&str>,
+    aws_access_key_id: Option<&str>,
+    aws_secret_access_key: Option<&str>,
+    oidc_role_arn: Option<&'a str>,
+) -> Option<&'a str> {
+    let has_bearer_token = api_key.is_some_and(|key| !key.is_empty());
+    let has_iam_keys = aws_access_key_id.is_some_and(|key| !key.is_empty())
+        && aws_secret_access_key.is_some_and(|key| !key.is_empty());
+
+    if has_bearer_token || has_iam_keys {
+        return None;
+    }
+
+    oidc_role_arn.filter(|arn| !arn.is_empty())
+}
+
+/// Temporary IAM credentials minted by STS `AssumeRoleWithWebIdentity`.
+#[derive(Clone, Debug)]
+pub struct AssumedRoleCredentials {
+    pub access_key_id: String,
+    pub secret_access_key: String,
+    pub session_token: String,
+    pub expires_at: std::time::SystemTime,
+}
+
+/// Build a role session name AWS accepts: it constrains them to
+/// `[\w+=,.@-]{2,64}`, and rejects the whole request otherwise. The name is what
+/// carries the calling job or user into the assumed-role ARN and CloudTrail, so
+/// disallowed characters are replaced rather than dropped.
+pub fn aws_role_session_name(prefix: &str, identity: &str) -> String {
+    format!("{}-{}", prefix, identity)
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '_' | '+' | '=' | ',' | '.' | '@' | '-') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .take(64)
+        .collect()
+}
+
+/// Exchange a Windmill OIDC token for temporary IAM credentials on `role_arn`.
+///
+/// `region` is where the STS call is made; Bedrock's empty "use the environment"
+/// region sentinel is treated as unset so the shared helper picks its default.
+pub async fn assume_role_with_oidc_token(
+    role_arn: &str,
+    region: Option<&str>,
+    id_token: String,
+    session_name: &str,
+) -> Result<AssumedRoleCredentials, Error> {
+    use windmill_common::auth::aws::{
+        get_assume_role_with_web_identity_fluent_builder, GetAuthenticationOutput, OidcAuth,
+    };
+
+    let oidc_auth = OidcAuth {
+        region: region.filter(|r| !r.is_empty()).map(str::to_string),
+        role_arn: role_arn.to_string(),
+    };
+
+    let output =
+        get_assume_role_with_web_identity_fluent_builder(&oidc_auth, id_token, Some(session_name))
+            .await?
+            .send()
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to assume AWS role {} with Windmill's OIDC token: {}",
+                    role_arn,
+                    format_bedrock_error(&e)
+                ))
+            })?;
+
+    let credentials = output.get_credentials()?;
+
+    Ok(AssumedRoleCredentials {
+        access_key_id: credentials.access_key_id.clone(),
+        secret_access_key: credentials.secret_access_key.clone(),
+        session_token: credentials.session_token.clone(),
+        expires_at: std::time::UNIX_EPOCH
+            + std::time::Duration::from_secs(credentials.expiration.secs().max(0) as u64),
+    })
 }
 
 // ============================================================================
@@ -999,6 +1097,59 @@ mod tests {
     use super::*;
     use aws_sdk_bedrockruntime::types::ReasoningContentBlock;
     use serde_json::value::RawValue;
+
+    #[test]
+    fn oidc_role_yields_only_to_bearer_and_complete_iam_keys() {
+        let arn = Some("arn:aws:iam::1:role/bedrock");
+
+        assert_eq!(
+            bedrock_oidc_role_to_assume(None, None, None, arn),
+            arn,
+            "nothing else set: assume the role rather than fall through to the environment"
+        );
+        assert_eq!(
+            bedrock_oidc_role_to_assume(Some("key"), None, None, arn),
+            None
+        );
+        assert_eq!(
+            bedrock_oidc_role_to_assume(None, Some("id"), Some("secret"), arn),
+            None
+        );
+        assert_eq!(
+            bedrock_oidc_role_to_assume(None, Some("id"), None, arn),
+            arn,
+            "half a key pair is not usable IAM credentials, so the role still wins"
+        );
+        // Cleared resource fields arrive as empty strings, not as absent ones.
+        assert_eq!(
+            bedrock_oidc_role_to_assume(Some(""), Some(""), Some(""), arn),
+            arn
+        );
+        assert_eq!(
+            bedrock_oidc_role_to_assume(None, None, None, Some("")),
+            None
+        );
+    }
+
+    #[test]
+    fn role_session_name_stays_within_what_aws_accepts() {
+        assert_eq!(
+            aws_role_session_name("windmill-ai-job", "0a1b2c3d"),
+            "windmill-ai-job-0a1b2c3d"
+        );
+        // Usernames and emails routinely carry characters AWS rejects.
+        assert_eq!(
+            aws_role_session_name("windmill-ai-copilot", "ada/lovelace (admin)"),
+            "windmill-ai-copilot-ada-lovelace--admin-"
+        );
+
+        let long = aws_role_session_name("windmill-ai-copilot", &"é".repeat(100));
+        assert_eq!(long.chars().count(), 64);
+        assert!(long
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric()
+                || matches!(c, '_' | '+' | '=' | ',' | '.' | '@' | '-')));
+    }
 
     fn text_message(role: &str, content: &str) -> OpenAIMessage {
         OpenAIMessage {

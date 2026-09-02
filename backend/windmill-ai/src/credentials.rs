@@ -19,6 +19,13 @@ pub struct ProviderCredentials {
     pub aws_access_key_id: Option<String>,
     pub aws_secret_access_key: Option<String>,
     pub aws_session_token: Option<String>,
+    /// AWS IAM role to assume through Windmill's OIDC provider. Only consulted
+    /// when no bearer key and no explicit IAM keys are set — see
+    /// [`crate::ai_bedrock::bedrock_oidc_role_to_assume`]. The API proxy
+    /// exchanges it for temporary keys before it builds the request; the worker
+    /// exchanges it at the Bedrock call, because only the API can sign an OIDC
+    /// token.
+    pub oidc_role_arn: Option<String>,
     pub platform: AIPlatform,
     pub custom_headers: HashMap<String, String>,
 }

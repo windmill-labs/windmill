@@ -1166,6 +1166,8 @@ pub async fn run_agent(
                         credentials.aws_access_key_id.as_deref(),
                         credentials.aws_secret_access_key.as_deref(),
                         credentials.aws_session_token.as_deref(),
+                        credentials.oidc_role_arn.as_deref(),
+                        &job.id,
                     )
                     .await?
             }
