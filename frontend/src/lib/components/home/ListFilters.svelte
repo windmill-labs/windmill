@@ -19,6 +19,9 @@
 		// (user/folder prefix, or the app icon under `resourceType`).
 		color?: BadgeColor
 		icon?: BadgeIconProps['icon']
+		// Emit the chips as flex items of the parent instead of a row of their own, so several
+		// ListFilters can share one line.
+		inline?: boolean
 	}
 
 	let {
@@ -30,7 +33,8 @@
 		bottomMargin = true,
 		maxDisplayed,
 		color = 'transparent',
-		icon
+		icon,
+		inline = false
 	}: Props = $props()
 
 	const queryChange: (value: URL) => void = (url: URL) => {
@@ -94,7 +98,9 @@
 </script>
 
 {#if Array.isArray(filtersAndSelected) && filtersAndSelected.length > 0}
-	<div class={`gap-2 w-full flex flex-wrap ${bottomMargin ? 'my-4' : 'mt-4'}`}>
+	<div
+		class={inline ? 'contents' : `gap-2 w-full flex flex-wrap ${bottomMargin ? 'my-4' : 'mt-4'}`}
+	>
 		{#each displayedFilters as filter (filter)}
 			<div>
 				<Badge

@@ -1166,8 +1166,21 @@
 	function itemLabels(x: { labels?: string[]; inherited_labels?: string[] }): string[] {
 		return [...(x.labels ?? []), ...(x.inherited_labels ?? [])]
 	}
-	let allLabels = $derived(
-		Array.from(new Set(combinedItems?.flatMap((x) => itemLabels(x)) ?? [])).sort()
+	// Labels ranked by how many loaded rows carry them (ties alphabetical), the same
+	// most-populated-first order the owner chips use.
+	let allLabels = $derived.by(() => {
+		const counts = new Map<string, number>()
+		for (const x of combinedItems ?? [])
+			for (const l of itemLabels(x)) counts.set(l, (counts.get(l) ?? 0) + 1)
+		return [...counts.keys()].sort(
+			(a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0) || cmp(a, b)
+		)
+	})
+	let hasChips = $derived(
+		owners.length > 0 ||
+			allLabels.length > 0 ||
+			ownerFilter != undefined ||
+			labelFilter != undefined
 	)
 	// FilterSearchbar presets: the owner prefixes and labels the list actually holds, so
 	// scoping to one is a click in the searchbar dropdown.
@@ -1754,27 +1767,30 @@
 			{/if}
 		</div>
 	</div>
-	{#if !contentActive}
-		<!-- Owner and label chip rows. Each function binding routes the chip's selection into
-		     the searchbar key of the same name, and `queryName` points ListFilters' own
-		     mount-time URL read at the param the filter instance syncs, so both writers agree
-		     from the first paint. No `syncQuery`: the filter instance owns the URL. -->
-		<ListFilters
-			bind:selectedFilter={() => ownerFilter, setOwnerFilter}
-			filters={owners}
-			queryName="owner"
-			maxDisplayed={20}
-			bottomMargin={false}
-		/>
-		<ListFilters
-			bind:selectedFilter={() => labelFilter, setLabelFilter}
-			filters={allLabels}
-			queryName="label"
-			maxDisplayed={20}
-			bottomMargin={false}
-			color="blue"
-			icon={Tag}
-		/>
+	{#if !contentActive && hasChips}
+		<!-- Owner and label chips on one line. Each function binding routes the chip's
+		     selection into the searchbar key of the same name, and `queryName` points
+		     ListFilters' own mount-time URL read at the param the filter instance syncs, so
+		     both writers agree from the first paint. No `syncQuery`: the filter instance owns
+		     the URL. -->
+		<div class="gap-2 w-full flex flex-wrap mt-3">
+			<ListFilters
+				inline
+				bind:selectedFilter={() => ownerFilter, setOwnerFilter}
+				filters={owners}
+				queryName="owner"
+				maxDisplayed={10}
+			/>
+			<ListFilters
+				inline
+				bind:selectedFilter={() => labelFilter, setLabelFilter}
+				filters={allLabels}
+				queryName="label"
+				maxDisplayed={10}
+				color="blue"
+				icon={Tag}
+			/>
+		</div>
 	{/if}
 	{#if filteredItems?.length == 0}
 		<div class="mt-10"></div>
