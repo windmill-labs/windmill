@@ -21,8 +21,8 @@
 		type Scope
 	} from '$lib/components/sessions/PreviewRouterPicker.svelte'
 	import { goto } from '$lib/navigation'
-	import { copilotInfo } from '$lib/aiStore'
-	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
+	import { resource } from 'runed'
+	import { WorkspaceService } from '$lib/gen'
 	import SessionWrapper from '$lib/components/sessions/SessionWrapper.svelte'
 	import PreviewTabHost from '$lib/components/sessions/PreviewTabHost.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
@@ -136,17 +136,6 @@
 	// Resolve by name without applying the sidebar scope filter so an open
 	// chat survives within-family workspace switches.
 	const activeSession = $derived(sessionState.sessions.find((s) => s.name === sessionName))
-
-	// With no session selected nothing else loads the copilot config here: the layout skips
-	// it in session mode and SessionWrapper only mounts with a session. Load the navigation
-	// workspace's config so the hidden-workspace gate below can fire on a cold load and
-	// follows an in-page workspace switch. Once a session is active its wrapper owns the
-	// load for the acting workspace, so this must not fire over it.
-	$effect(() => {
-		if ($workspaceStore && !activeSession) {
-			loadCopilot($workspaceStore)
-		}
-	})
 
 	// Family reconcile: a workspace switch can land this page with no session
 	// selected or with another family's session in the URL (the sidebar picker's
@@ -289,6 +278,23 @@
 	// lists or opens against the navigation workspace ($workspaceStore).
 	const previewWorkspace = $derived(
 		(activeSession ? getEffectiveWorkspaceId(activeSession) : undefined) ?? $workspaceStore
+	)
+
+	// Whether that workspace hid the AI assistant (`ai_config.copilot_disabled`). Read
+	// directly rather than from `copilotInfo`: that store holds whichever workspace loaded
+	// last, and the gate below unmounts the session wrapper that would refresh it, so a
+	// hidden verdict would stick across session and workspace switches. A failed read
+	// leaves the page usable, as an unloaded config does everywhere else.
+	const workspaceAiHidden = resource(
+		() => previewWorkspace,
+		async (workspace) => {
+			if (!workspace) return false
+			try {
+				return (await WorkspaceService.getCopilotInfo({ workspace })).copilot_disabled === true
+			} catch {
+				return false
+			}
+		}
 	)
 
 	// Lazy-mount gate: a tab's content only renders once its key lands here (on
@@ -833,20 +839,21 @@
 				Activate AI Sessions
 			</Button>
 		</div>
-	{:else if $copilotInfo.workspaceDisabled}
-		<!-- The workspace hid the assistant, and the sidebar switch with it, so only a
-		     direct URL lands here. -->
-		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
-			<p class="text-primary font-medium">AI Sessions are hidden in this workspace</p>
-			<p>A workspace admin turned Windmill AI features off in the workspace settings.</p>
-			<Button unifiedSize="sm" onclick={() => goto('/')}>Back to workspace</Button>
-		</div>
 	{:else if !sessionState.hydrated}
 		<!-- Sessions hydrate from IndexedDB after the user resolves; until then an
 		     empty list means "loading", so recovery below must not fire and strand
 		     the user in a new session while their own is still arriving. -->
 		<div class="flex-1 flex items-center justify-center">
 			<Loader2 class="animate-spin" />
+		</div>
+	{:else if workspaceAiHidden.current === true}
+		<!-- After hydration, so a session named in the URL decides which workspace is
+		     judged. The workspace hid the assistant, and the sidebar switch with it, so
+		     only a direct URL or a session acting on such a workspace lands here. -->
+		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
+			<p class="text-primary font-medium">AI Sessions are hidden in this workspace</p>
+			<p>A workspace admin turned Windmill AI features off in the workspace settings.</p>
+			<Button unifiedSize="sm" onclick={() => goto('/')}>Back to workspace</Button>
 		</div>
 	{:else if !sessionName}
 		<div class="p-8 text-secondary">No session selected — pick one in the sidebar.</div>
