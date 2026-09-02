@@ -44,7 +44,9 @@ export class SkillsMenu {
 	async #load(ws: string) {
 		const seq = ++this.#seq
 		try {
-			const found = await listSkillResources(ws, get(userStore) ?? undefined)
+			// The truncation flag is for the settings modal, which is where a partial
+			// read is explained; the menu shows what it got.
+			const { skills: found } = await listSkillResources(ws, get(userStore) ?? undefined)
 			if (seq !== this.#seq) return
 			this.#rows = found.map((s) => ({ ...s, enabled: isSkillEnabled(ws, s.path) }))
 			this.#rowsWorkspace = ws

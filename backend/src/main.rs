@@ -411,6 +411,7 @@ struct HubResourceTypeRaw {
     pub format_extension: Option<String>,
 }
 
+
 /// Processed resource type with parsed schema
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
 pub struct HubResourceType {
@@ -419,8 +420,18 @@ pub struct HubResourceType {
     pub schema: Option<serde_json::Value>,
     pub app: String,
     pub description: Option<String>,
-    #[serde(default)]
-    pub format_extension: Option<String>,
+    /// Doubly optional on purpose. A cache written before this column has no key at
+    /// all (`None`) and must leave the stored extension alone; one written since
+    /// always writes the key, so an explicit null (`Some(None)`) is the hub genuinely
+    /// dropping it and must clear. A single `Option` conflates the two, and picking
+    /// either meaning breaks the other — as does plain serde, which folds `null`
+    /// into the outer `None`, hence the wrapping deserializer.
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub format_extension: Option<Option<String>>,
 }
 
 const HUB_RT_CACHE_FILE: &str = "resource_types.json";
@@ -467,7 +478,7 @@ async fn cache_hub_resource_types() -> anyhow::Result<()> {
                 schema,
                 app: rt.app,
                 description: rt.description,
-                format_extension: rt.format_extension,
+                format_extension: Some(rt.format_extension),
             })
         })
         .collect();
@@ -509,9 +520,17 @@ pub async fn sync_cached_resource_types(db: &sqlx::Pool<sqlx::Postgres>) -> anyh
 
     tracing::info!("Found {} cached resource types", cached_types.len());
 
-    // Get existing resource types in admins workspace
-    let existing_types: Vec<(String, Option<serde_json::Value>, Option<String>)> = sqlx::query_as(
-        "SELECT name, schema, description FROM resource_type WHERE workspace_id = 'admins'",
+    // Get existing resource types in admins workspace. `format_extension` is part of
+    // the comparison below, so a type whose only change is gaining or losing it is
+    // not mistaken for unchanged; `is_fileset` decides whether it may take one.
+    let existing_types: Vec<(
+        String,
+        Option<serde_json::Value>,
+        Option<String>,
+        Option<String>,
+        bool,
+    )> = sqlx::query_as(
+        "SELECT name, schema, description, format_extension, is_fileset FROM resource_type WHERE workspace_id = 'admins'",
     )
     .fetch_all(db)
     .await
@@ -519,19 +538,42 @@ pub async fn sync_cached_resource_types(db: &sqlx::Pool<sqlx::Postgres>) -> anyh
 
     let existing_map: std::collections::HashMap<
         String,
-        (Option<serde_json::Value>, Option<String>),
+        (Option<serde_json::Value>, Option<String>, Option<String>, bool),
     > = existing_types
         .into_iter()
-        .map(|(name, schema, desc)| (name, (schema, desc)))
+        .map(|(name, schema, desc, format_extension, is_fileset)| {
+            (name, (schema, desc, format_extension, is_fileset))
+        })
         .collect();
 
     let mut synced_count = 0;
     let mut skipped_count = 0;
 
     for rt in cached_types {
-        // Check if resource type already exists with same schema and description
-        if let Some((existing_schema, existing_desc)) = existing_map.get(&rt.name) {
-            if existing_schema == &rt.schema && existing_desc == &rt.description {
+        let existing = existing_map.get(&rt.name);
+        let is_fileset = existing.map(|(_, _, _, f)| *f).unwrap_or(false);
+        let stored_extension = existing.and_then(|(_, _, e, _)| e.clone());
+        // A fileset is a set of files, so it cannot also be one file. Create, update
+        // and the manual sync all reject the pair; this writer would otherwise
+        // persist it onto a same-named local fileset.
+        //
+        // A cache with no key at all leaves the stored value alone, so the target is
+        // what is already there — which is also what makes the comparison below
+        // agree with the write instead of re-upserting the row on every boot.
+        let format_extension = if is_fileset {
+            None
+        } else {
+            match &rt.format_extension {
+                Some(from_cache) => from_cache.clone(),
+                None => stored_extension.clone(),
+            }
+        };
+
+        if let Some((existing_schema, existing_desc, _, _)) = existing {
+            if existing_schema == &rt.schema
+                && existing_desc == &rt.description
+                && stored_extension == format_extension
+            {
                 skipped_count += 1;
                 continue;
             }
@@ -539,20 +581,19 @@ pub async fn sync_cached_resource_types(db: &sqlx::Pool<sqlx::Postgres>) -> anyh
 
         // Insert or update resource type
         sqlx::query(
-            // `format_extension` is only written when it is actually known: a cache
-            // file written before the column carries none, and taking that as
-            // "clear it" would strip the extension off a file type on every boot.
+            // `format_extension` is resolved above rather than coalesced here: a
+            // COALESCE could never clear one, so a hub that dropped an extension
+            // would leave the stale value behind forever.
             "INSERT INTO resource_type (workspace_id, name, schema, description, format_extension, edited_at)
              VALUES ('admins', $1, $2, $3, $4, now())
              ON CONFLICT (workspace_id, name) DO UPDATE
              SET schema = EXCLUDED.schema, description = EXCLUDED.description,
-                 format_extension = COALESCE(EXCLUDED.format_extension, resource_type.format_extension),
-                 edited_at = now()",
+                 format_extension = EXCLUDED.format_extension, edited_at = now()",
         )
         .bind(&rt.name)
         .bind(&rt.schema)
         .bind(&rt.description)
-        .bind(&rt.format_extension)
+        .bind(&format_extension)
         .execute(db)
         .await
         .with_context(|| format!("Failed to upsert resource type {}", rt.name))?;

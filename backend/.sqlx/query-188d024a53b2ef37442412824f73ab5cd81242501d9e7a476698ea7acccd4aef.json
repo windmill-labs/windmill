@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM draft dest\n         WHERE dest.email = $1\n           AND EXISTS (SELECT 1 FROM draft src\n                       WHERE src.email = $2\n                         AND src.workspace_id = dest.workspace_id\n                         AND src.path = dest.path\n                         AND src.typ = dest.typ)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "188d024a53b2ef37442412824f73ab5cd81242501d9e7a476698ea7acccd4aef"
+}

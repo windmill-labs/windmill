@@ -35,8 +35,20 @@ export function ambiguousSkillNames(skills: readonly { name: string }[]): Set<st
 	return new Set([...seen].filter(([, n]) => n > 1).map(([name]) => name))
 }
 
-/** Every skill resource readable in the workspace. The cap matches the resource
- * picker's: past it the list stops being something a person can choose from.
+const SKILLS_PAGE_SIZE = 100
+/** Pages to walk before giving up. Ordinary resources and repeated imports can
+ * make any number of skills, and a single page would drop the rest — including a
+ * selected one, which would then vanish from the prompt with nothing to explain
+ * it. The bound is a guard against a paging bug looping forever, not a product
+ * cap, so reaching it is reported rather than passed off as the whole set. */
+const MAX_SKILLS_PAGES = 100
+
+/** The rows read, and whether the walk stopped at the bound rather than the end.
+ * Reported rather than thrown: a truncated read is still most of the skills, and
+ * dropping them all would take every selected skill out of the prompt at once. */
+export type SkillListing = { skills: SkillResource[]; truncated: boolean }
+
+/** Every skill resource readable in the workspace.
  *
  * `user` decides which rows the drawer offers to edit rather than only view; pass
  * the account the workspace is being browsed as. Ownership is mostly implicit in
@@ -45,28 +57,43 @@ export function ambiguousSkillNames(skills: readonly { name: string }[]): Set<st
 export async function listSkillResources(
 	workspace: string,
 	user?: UserExt
-): Promise<SkillResource[]> {
-	if (!workspace) return []
-	const resources = await ResourceService.listResource({
-		workspace,
-		resourceType: SKILLS_RESOURCE_TYPE,
-		perPage: 100
-	})
-	return resources.map((r) => ({
-		path: r.path,
-		name: skillNameFromPath(r.path),
-		description: r.description ?? '',
-		editedAt: r.edited_at,
-		canWrite: canWrite(r.path, r.extra_perms ?? {}, user)
-	}))
+): Promise<SkillListing> {
+	if (!workspace) return { skills: [], truncated: false }
+	const rows: SkillResource[] = []
+	for (let page = 1; page <= MAX_SKILLS_PAGES; page++) {
+		const resources = await ResourceService.listResource({
+			workspace,
+			resourceType: SKILLS_RESOURCE_TYPE,
+			page,
+			perPage: SKILLS_PAGE_SIZE
+		})
+		rows.push(
+			...resources.map((r) => ({
+				path: r.path,
+				name: skillNameFromPath(r.path),
+				description: r.description ?? '',
+				editedAt: r.edited_at,
+				canWrite: canWrite(r.path, r.extra_perms ?? {}, user)
+			}))
+		)
+		if (resources.length < SKILLS_PAGE_SIZE) return { skills: rows, truncated: false }
+	}
+	return { skills: rows, truncated: true }
+}
+
+/** Cut `text` to `maxChars` code points. For the description, whose cap is stated
+ * in characters — cutting that one by bytes would reduce a legal 1,024-character
+ * CJK description to about a third of itself. */
+export function truncateChars(text: string, maxChars: number): string {
+	const points = [...text]
+	return points.length <= maxChars ? text : `${points.slice(0, maxChars).join('')}… [truncated]`
 }
 
 /** Cut `text` to `maxBytes` of UTF-8, marking the cut so a reader (the model
  * included) can tell truncation from a body that simply ends there.
  *
- * Bounded in bytes, not code units: the caps this enforces are byte budgets, and
- * 64k CJK characters are ~192 KiB, so a code-unit cut would let three times the
- * intended payload through. Cutting on a code point keeps the result valid. */
+ * For the body, whose cap is a byte budget: 64k CJK characters are ~192 KiB, so a
+ * code-unit cut would let three times the intended payload through. */
 export function truncateForPrompt(text: string, maxBytes: number): string {
 	const encoded = new TextEncoder().encode(text)
 	if (encoded.byteLength <= maxBytes) return text

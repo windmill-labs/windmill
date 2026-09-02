@@ -2004,11 +2004,12 @@ struct CachedResourceType {
     #[allow(dead_code)]
     app: String,
     description: Option<String>,
-    /// File extension for a type whose value is one file rather than a set of
-    /// fields, which is what makes the resource editor a file editor. Absent from
-    /// hubs predating the column, hence the default.
-    #[serde(default)]
-    format_extension: Option<String>,
+    /// Doubly optional, and read through a wrapping deserializer: this struct also
+    /// decodes the on-disk cache, where an absent key means "written before the
+    /// column, leave the stored extension alone" and an explicit null means the hub
+    /// dropped it. Plain serde folds both into `None`.
+    #[serde(default, deserialize_with = "windmill_common::more_serde::double_option")]
+    format_extension: Option<Option<String>>,
 }
 
 #[derive(serde::Deserialize)]
@@ -2061,7 +2062,7 @@ async fn fetch_resource_types_from_hub() -> error::Result<Vec<CachedResourceType
                 schema,
                 app: rt.app,
                 description: rt.description,
-                format_extension: rt.format_extension,
+                format_extension: Some(rt.format_extension),
             })
         })
         .collect())
@@ -2119,8 +2120,8 @@ async fn sync_cached_resource_types(
             &rt.name,
             rt.schema.as_ref(),
             rt.description.as_deref(),
-            rt.format_extension.as_deref(),
-            from_hub,
+            rt.format_extension.clone().flatten(),
+            rt.format_extension.is_some(),
         )
         .fetch_one(&db)
         .await?;
@@ -2130,10 +2131,9 @@ async fn sync_cached_resource_types(
         }
 
         sqlx::query!(
-            // `format_extension` is only written when the rows came from the hub
-            // itself. The on-disk cache is also read by hubs predating the column, so
-            // its rows deserialize the field as absent — taking that literally would
-            // clear a perfectly good extension on every offline sync.
+            // Whether the payload carried the key at all is what decides: present
+            // (even as null) is authoritative and may clear, absent means a cache
+            // written before the column and must leave the stored value alone.
             "INSERT INTO resource_type (workspace_id, name, schema, description, format_extension, edited_at)
              VALUES ('admins', $1, $2, $3, $4, now())
              ON CONFLICT (workspace_id, name) DO UPDATE
@@ -2150,8 +2150,8 @@ async fn sync_cached_resource_types(
             &rt.name,
             rt.schema.as_ref(),
             rt.description.as_deref(),
-            rt.format_extension.as_deref(),
-            from_hub,
+            rt.format_extension.clone().flatten(),
+            rt.format_extension.is_some(),
         )
         .execute(&db)
         .await?;

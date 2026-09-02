@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.801.0](https://github.com/windmill-labs/windmill/compare/v1.800.1...v1.801.0) (2026-09-01)
+
+
+### Features
+
+* **ai-chat:** make reusable skills ai_skill resources you select per workspace ([#10914](https://github.com/windmill-labs/windmill/issues/10914)) ([cfcfe29](https://github.com/windmill-labs/windmill/commit/cfcfe298dd9ab50196bd64926ef78c4563f58c2c))
+* **ai-sessions:** show a running session across tabs and reload finished turns ([#10916](https://github.com/windmill-labs/windmill/issues/10916)) ([816dc9d](https://github.com/windmill-labs/windmill/commit/816dc9dcd2c310e499d2d210a0abcd403469f29c))
+* edit folders and groups in a drawer that saves once ([#10873](https://github.com/windmill-labs/windmill/issues/10873)) ([5d5ad4e](https://github.com/windmill-labs/windmill/commit/5d5ad4e8974e076ef53a26a5584e4209255a2248))
+* make the home Build with AI composer dismissible, quiet the rest of the home page ([#10930](https://github.com/windmill-labs/windmill/issues/10930)) ([772fafe](https://github.com/windmill-labs/windmill/commit/772fafec8316a1e0c0e76b9a0737cc41d40a9a8c))
+
+
+### Bug Fixes
+
+* let a principal without a login account own a draft ([#10925](https://github.com/windmill-labs/windmill/issues/10925)) ([94af8d0](https://github.com/windmill-labs/windmill/commit/94af8d0fb5aceebe83936fd6761c6c1c02c75323))
+* resolve chat path links against the session's operating workspace ([#10924](https://github.com/windmill-labs/windmill/issues/10924)) ([9074de2](https://github.com/windmill-labs/windmill/commit/9074de25ea730ca02653c9a2e2b8b99eda6f3137))
+* tolerate string app_id in GHES app config deserialization ([#10923](https://github.com/windmill-labs/windmill/issues/10923)) ([af8ff38](https://github.com/windmill-labs/windmill/commit/af8ff3868748412cb658c803ebc8a71edc3cd8fb))
+
+## [1.800.1](https://github.com/windmill-labs/windmill/compare/v1.800.0...v1.800.1) (2026-09-01)
+
+
+### Bug Fixes
+
+* add top margin to the home Build with AI section ([#10909](https://github.com/windmill-labs/windmill/issues/10909)) ([bedf5ae](https://github.com/windmill-labs/windmill/commit/bedf5ae57445025729e94e16f1b5f13f6ff38ffa))
+* **ai-chat:** consume an @ mention with the message that carried it ([#10907](https://github.com/windmill-labs/windmill/issues/10907)) ([c512110](https://github.com/windmill-labs/windmill/commit/c512110a1f8d0d3437c20048f6446ef62b10222c))
+* keep a local dbt descriptor under sync pull --keep-deleted ([#10911](https://github.com/windmill-labs/windmill/issues/10911)) ([4b5be38](https://github.com/windmill-labs/windmill/commit/4b5be386ce0f851a087f43c0b0ac6e4b1b055a47))
+* keep windmill-indexer out of builds without tantivy ([#10908](https://github.com/windmill-labs/windmill/issues/10908)) ([db0f004](https://github.com/windmill-labs/windmill/commit/db0f004613e3f90428fea4c824cc53f1b2fc03b0))
+
 ## [1.800.0](https://github.com/windmill-labs/windmill/compare/v1.799.0...v1.800.0) (2026-08-31)
 
 

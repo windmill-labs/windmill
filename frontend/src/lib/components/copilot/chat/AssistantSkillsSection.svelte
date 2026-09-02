@@ -7,6 +7,7 @@ and the actions that create, edit, import and delete them.
 <script lang="ts">
 	import { Button, ListRow, Section } from '$lib/components/common'
 	import EmptyState from '$lib/components/common/emptyState/EmptyState.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import PagedContent from '$lib/components/common/modal/PagedContent.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -103,6 +104,7 @@ What the assistant should do when this skill applies.
 	let skills = $state<Row[]>([])
 	let loading = $state(false)
 	let loadError = $state<string | undefined>(undefined)
+	let listNotice = $state<string | undefined>(undefined)
 	let saving = $state(false)
 	let toDelete: Row | undefined = $state(undefined)
 	let folderInput: HTMLInputElement | undefined = $state(undefined)
@@ -226,14 +228,23 @@ What the assistant should do when this skill applies.
 		loading = true
 		loadError = undefined
 		try {
-			const found = await listSkillResources(target, $userStore ?? undefined)
-			if (seq !== loadSeq) return
+			const { skills: found, truncated } = await listSkillResources(target, $userStore ?? undefined)
+			// Newest-request-wins is not enough on its own: an action started in A and
+			// finishing after a switch to B holds the newest sequence, and would put
+			// A's rows on screen under B — where the next row action would edit or
+			// delete that path in B. The workspace has to still be the one asked for.
+			if (seq !== loadSeq || target !== ws) return
 			skills = found.map((s) => ({ ...s, enabled: isSkillEnabled(target, s.path) }))
+			// A notice, not `loadError`: that one replaces the list, and a truncated
+			// read still has skills worth showing.
+			listNotice = truncated
+				? `Showing the first ${found.length} skills; this workspace has more. Delete unused ones so the rest can be selected.`
+				: undefined
 			// Seeded rather than filled by the bindings: an unset entry would hand
 			// DropdownV2 an `undefined` open state instead of a closed one.
 			rowMenuOpen = Object.fromEntries(found.map((s) => [s.path, false]))
 		} catch (e) {
-			if (seq !== loadSeq) return
+			if (seq !== loadSeq || target !== ws) return
 			// Without this the section would render the empty state, which reads as
 			// "this workspace has no skills" rather than "we could not load them".
 			loadError = e.body ?? e.message
@@ -591,6 +602,11 @@ What the assistant should do when this skill applies.
 				/>
 			</div>
 
+			{#if listNotice}
+				<Alert type="warning" title="Not all skills are shown" size="xs" class="mb-4">
+					{listNotice}
+				</Alert>
+			{/if}
 			{#if loading}
 				<div class="text-xs text-secondary p-4 text-center">Loading skills…</div>
 			{:else if loadError}

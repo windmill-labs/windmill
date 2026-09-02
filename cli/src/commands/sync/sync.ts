@@ -3175,15 +3175,40 @@ export function untrackedDatatableMigrationDeletions<
 }
 
 /**
+ * Whether a pull change removes a local dbt descriptor. A dbt project's
+ * descriptor is optional and the remote spells "this project names none" as
+ * empty content, so its removal reaches the apply loop as an add or an edit
+ * whose content is `""` — a `deleted` change is never produced for it.
+ */
+function removesDbtDescriptor(change: Change): boolean {
+  return (
+    isDbtDescriptorPath(change.path) &&
+    ((change.name === "added" && change.content === "") ||
+      (change.name === "edited" && change.after === ""))
+  );
+}
+
+/**
  * `--keep-deleted`: strip every deletion from the changeset, in place, so the
  * sync only adds and updates. A path missing on one side is not on its own
  * evidence that it should go from the other — a partial clone, a scoped
  * checkout or an item authored in the UI all read as deletions here.
+ *
+ * A dbt descriptor the remote no longer names counts too, but only on a pull,
+ * where applying it removes a local file — `added` as much as `edited`, since a
+ * stateful pull compares `.wmill` and absence from that map says nothing about
+ * the working tree the apply loop deletes from. A push removes nothing: the
+ * descriptor is a script's content, so an empty one updates the script in place.
  */
-function dropDeletions(changes: Change[], keptOn: "local" | "remote"): void {
-  const deletions = changes.filter((c) => c.name === "deleted");
+export function dropDeletions(
+  changes: Change[],
+  keptOn: "local" | "remote",
+): void {
+  const isDeletion = (c: Change) =>
+    c.name === "deleted" || (keptOn === "local" && removesDbtDescriptor(c));
+  const deletions = changes.filter(isDeletion);
   if (deletions.length === 0) return;
-  const kept = changes.filter((c) => c.name !== "deleted");
+  const kept = changes.filter((c) => !isDeletion(c));
   changes.length = 0;
   changes.push(...kept);
   log.info(
@@ -3808,22 +3833,17 @@ export async function pull(
 
       const target = path.join(process.cwd(), targetPath);
       const stateTarget = path.join(process.cwd(), ".wmill", targetPath);
-      // An empty dbt descriptor is not a file: the remote spells "this project
-      // named no descriptor" as empty content, and writing that would put a
-      // Windmill file inside a project that has none. ABSENCE is the state to
-      // reach, so both copies are removed if present and their being missing —
-      // a project pulled for the first time — is the goal, not an error. The
-      // `.wmill` copy goes too, or the same change is reported on every pull.
+      // ABSENCE is the state to reach, never an empty file: writing one would
+      // put a Windmill file inside a project that has none. So both copies are
+      // removed if present, and their being missing — a project pulled for the
+      // first time — is the goal, not an error. The `.wmill` copy goes too, or
+      // the same change is reported on every pull.
       //
       // `force` covers the missing file and NOTHING else: a permission or
       // read-only-filesystem failure has to surface, or the pull reports
       // success while the old descriptor — its warehouse, its command, its
       // arguments — is still what runs locally.
-      if (
-        isDbtDescriptorPath(change.path) &&
-        ((change.name === "added" && change.content === "") ||
-          (change.name === "edited" && change.after === ""))
-      ) {
+      if (removesDbtDescriptor(change)) {
         await rm(target, { force: true });
         if (opts.stateful) {
           await rm(stateTarget, { force: true });

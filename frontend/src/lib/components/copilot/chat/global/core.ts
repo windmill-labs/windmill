@@ -88,6 +88,7 @@ import {
 	listSkillResources,
 	readSkillBody,
 	skillNameFromPath,
+	truncateChars,
 	truncateForPrompt
 } from '../skills/skillResources'
 import { MAX_SKILL_DESCRIPTION_LENGTH, MAX_SKILL_INSTRUCTIONS_LENGTH } from '../skills/skillMd'
@@ -2349,7 +2350,10 @@ export async function loadWorkspaceSkills(workspace: string): Promise<AiSkillLis
 		// Filtered against what is actually readable now, so a skill that was
 		// deleted or whose folder access was revoked drops out instead of being
 		// advertised to the model as something read_skill can load.
-		return (await listSkillResources(workspace))
+		// A truncated listing still carries most of the workspace, and the drawer is
+		// where that is surfaced; dropping everything here would silently empty the
+		// Skills section instead.
+		return (await listSkillResources(workspace)).skills
 			.filter((s) => enabled.has(s.path))
 			.map(({ path, name, description }) => ({
 				path,
@@ -2358,7 +2362,7 @@ export async function loadWorkspaceSkills(workspace: string): Promise<AiSkillLis
 				// resource of this type can be selected — including ones written through
 				// git sync or the resource editor, which never saw the authoring form's
 				// bounds. One unbounded description would crowd out the conversation.
-				description: truncateForPrompt(description, MAX_SKILL_DESCRIPTION_LENGTH)
+				description: truncateChars(description, MAX_SKILL_DESCRIPTION_LENGTH)
 			}))
 	} catch (e) {
 		console.error('Failed to load AI skills', e)

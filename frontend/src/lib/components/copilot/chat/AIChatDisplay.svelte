@@ -319,7 +319,10 @@
 		}
 	})
 
-	const showTypingIndicator = $derived(aiChatManager.loading)
+	// Also shown for a run held by another tab, labeled with where it is: the
+	// dots say a turn is in flight even before the reader reaches the footer
+	// note. Remote runs pause nothing and offer no Stop — this tab can't cancel.
+	const showTypingIndicator = $derived(aiChatManager.loading || aiChatManager.runHeldElsewhere)
 
 	// The manual `@` context-picker button. Shown in SCRIPT/FLOW (workspace items +
 	// code blocks) and APP (datatables, frontend files). Hidden in GLOBAL — there
@@ -575,8 +578,14 @@
 		(aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false) &&
 			!aiChatManager.autoAcceptEditsActive
 	)
+	// A disabled state with no message (a remote hold, a spent free grant) keeps
+	// the footer toolbar in place — swapping it for an empty strip would make
+	// the model/mode row flash out and back on every remote turn. A state with
+	// a real message (archived, AI off) still shows it, hold or not, matching
+	// the precedence disabledMessage itself encodes.
+	const footerMessageShown = $derived(disabled && disabledMessage !== '')
 	const showFooterLeftControls = $derived(
-		!disabled &&
+		!footerMessageShown &&
 			(showContextPicker ||
 				showAutonomyModeSelector ||
 				(aiChatManager.mode === AIMode.SCRIPT && hasDiff))
@@ -677,10 +686,14 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 									{#each pastChats as chat (chat.id)}
 										<button
 											class="text-left flex flex-row items-center gap-2 justify-between hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md p-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
-											disabled={aiChatManager.loading || aiChatManager.sendInFlight}
-											title={aiChatManager.loading || aiChatManager.sendInFlight
-												? 'Stop the current answer to switch conversation'
-												: undefined}
+											disabled={aiChatManager.loading ||
+												aiChatManager.sendInFlight ||
+												aiChatManager.runHeldElsewhere}
+											title={aiChatManager.runHeldElsewhere
+												? 'Wait for the turn in the other tab to switch conversation'
+												: aiChatManager.loading || aiChatManager.sendInFlight
+													? 'Stop the current answer to switch conversation'
+													: undefined}
 											onclick={() => {
 												loadPastChat(chat.id)
 												close()
@@ -710,7 +723,10 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					{/snippet}
 				</Popover>
 				<Button
-					title="New chat"
+					title={aiChatManager.runHeldElsewhere
+						? 'Wait for the turn in the other tab to start a new chat'
+						: 'New chat'}
+					disabled={aiChatManager.runHeldElsewhere}
 					on:click={() => {
 						saveAndClear()
 					}}
@@ -774,17 +790,19 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							)}
 						>
 							<ChatTypingIndicator
-								loading={aiChatManager.loading}
+								loading={showTypingIndicator}
 								paused={waitingForUserAction}
-								label={aiChatManager.loadingLabel
-									? aiChatManager.loadingLabel
-									: aiChatManager.compacting
-										? 'Compacting conversation'
-										: aiChatManager.currentReasoningActive &&
-											  !aiChatManager.currentReply &&
-											  !aiChatManager.currentReasoning
-											? (aiChatManager.reasoningHiddenIndicatorLabel ?? 'Thinking')
-											: undefined}
+								label={aiChatManager.runHeldElsewhere
+									? 'Running in another tab'
+									: aiChatManager.loadingLabel
+										? aiChatManager.loadingLabel
+										: aiChatManager.compacting
+											? 'Compacting conversation'
+											: aiChatManager.currentReasoningActive &&
+												  !aiChatManager.currentReply &&
+												  !aiChatManager.currentReasoning
+												? (aiChatManager.reasoningHiddenIndicatorLabel ?? 'Thinking')
+												: undefined}
 							/>
 						</div>
 					{/if}
@@ -1108,12 +1126,12 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								{/snippet}
 							</Tooltip>
 						{/if}
-						{#if aiChatManager.mode === AIMode.SCRIPT && hasDiff}
+						{#if aiChatManager.mode === AIMode.SCRIPT && hasDiff && !disabled}
 							<ChatQuickActions {askAi} {diffMode} />
 						{/if}
 					</div>
 				{/if}
-				{#if disabled}
+				{#if footerMessageShown}
 					<div class="text-primary text-xs my-2 px-2">
 						<Markdown md={disabledMessage} />
 					</div>

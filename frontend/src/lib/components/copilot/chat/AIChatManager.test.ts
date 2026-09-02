@@ -7,6 +7,7 @@ import type { ChatCompletionMessageParam } from 'openai/resources/chat/completio
 import type { DisplayMessage } from './shared'
 import type { AttachedImage } from './imageUtils'
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
+import { makePasteToken } from './pasteTokens'
 import { chatState } from './sharedChatState.svelte'
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
 import { runChatLoop } from './chatLoop'
@@ -2227,6 +2228,98 @@ describe('AIChatManager queued messages', () => {
 		expect(chips.map((c) => c.selector)).toEqual(['div.card'])
 	})
 
+	// The composer consumes an `@` mention on send, so a send that never became a
+	// turn has to give it back — otherwise the restored text keeps its `@` token
+	// with nothing behind it.
+	it('restores a cancelled GLOBAL send’s @ mentions', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		const cm = manager.contextManager
+		const mention = {
+			type: 'workspace_script' as const,
+			path: 'f/etl/sync',
+			title: 'f/etl/sync'
+		}
+		// What the composer does at submit: pin what it carries, then consume.
+		const carried = [mention]
+		cm.setSelectedContext([])
+		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
+			abortController.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+
+		await manager.sendRequest({
+			instructions: 'why does this retry',
+			contextOverride: carried,
+			contextOverrideOrigin: 'pinned'
+		})
+
+		expect(cm.getSelectedContext()).toEqual([mention])
+	})
+
+	// The mode switcher stays live while a turn streams, so the restore is keyed
+	// to the mode the send was submitted in. Reading the mode at rollback time
+	// would strand the mention behind a `@` token that resolves to nothing.
+	it('restores a GLOBAL send’s @ mentions after a mid-turn switch to SCRIPT', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		const cm = manager.contextManager
+		const mention = { type: 'workspace_script' as const, path: 'f/etl/sync', title: 'f/etl/sync' }
+		cm.setSelectedContext([])
+		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
+			// The user navigates to a script editor while the turn is streaming.
+			manager.mode = AIMode.SCRIPT
+			abortController.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+
+		await manager.sendRequest({
+			instructions: 'why does this retry',
+			contextOverride: [mention],
+			contextOverrideOrigin: 'pinned'
+		})
+
+		expect(cm.getSelectedContext()).toEqual([mention])
+	})
+
+	// Attachments are refused outside GLOBAL, and the refusal sits past the
+	// preflight awaits — so it is reached exactly when a GLOBAL submit's mode
+	// changed underneath it, and owes that send its mentions back.
+	it('restores mentions when a GLOBAL send is refused for switching modes with attachments', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		const cm = manager.contextManager
+		const mention = { type: 'workspace_script' as const, path: 'f/etl/sync', title: 'f/etl/sync' }
+		cm.setSelectedContext([])
+
+		const pending = manager.sendRequest({
+			instructions: 'describe this image',
+			images: [{ id: 'img-1', dataUrl: 'data:image/png;base64,AAAA' } as any],
+			contextOverride: [mention],
+			contextOverrideOrigin: 'pinned'
+		})
+		manager.mode = AIMode.SCRIPT
+		await pending
+
+		expect(cm.getSelectedContext()).toEqual([mention])
+	})
+
+	// The editor modes show mentions as chips the user deletes by hand, so the
+	// restore must never re-add one they removed.
+	it('leaves an editor mode’s context alone when a queued draft comes back', () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.SCRIPT
+		const cm = manager.contextManager
+		const mention = { type: 'workspace_script' as const, path: 'f/etl/sync', title: 'f/etl/sync' }
+		manager.queueMessage('fix this', [], [mention])
+		// The user deletes the chip while the turn streams.
+		cm.setSelectedContext([])
+
+		manager.dequeueMessage()
+
+		expect(cm.getSelectedContext()).toEqual([])
+	})
+
 	it('restores a dequeued inline prompt’s pinned DOM context, replacing the live selection', () => {
 		const manager = createManager(createInputMock())
 		const cm = manager.contextManager
@@ -2342,6 +2435,90 @@ describe('AIChatManager queued messages', () => {
 		expect(input.restoreInstructions).toHaveBeenCalledWith('look', [], [img('a')], [])
 		// the optimistic bubble is rolled back
 		expect(manager.displayMessages).toHaveLength(0)
+	})
+
+	// The composer consumes mentions before calling in, so a send that never left
+	// the preflight has to give them back with the text. GLOBAL renders no chip for
+	// them, so a mention lost here is invisible: the restored `@` token silently
+	// resolves to nothing, and a mention-only draft comes back empty.
+	it('restores consumed mentions when beforeSend rejects a GLOBAL send', async () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		manager.mode = AIMode.GLOBAL
+		const mention = { type: 'workspace_script' as const, path: 'f/etl/sync', title: 'f/etl/sync' }
+		manager.contextManager.setSelectedContext([])
+		manager.beforeSend = vi.fn().mockRejectedValue(new Error('workspace fork failed'))
+
+		const accepted = await manager.sendRequest({
+			instructions: '@f/etl/sync fix this',
+			contextOverride: [mention],
+			contextOverrideOrigin: 'pinned'
+		})
+
+		expect(accepted).toBe(false)
+		expect(manager.contextManager.getSelectedContext()).toEqual([mention])
+	})
+
+	it('restores consumed mentions when a GLOBAL send is cancelled during the preflight', async () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		manager.mode = AIMode.GLOBAL
+		const mention = { type: 'workspace_script' as const, path: 'f/etl/sync', title: 'f/etl/sync' }
+		manager.contextManager.setSelectedContext([])
+		// Stop/Escape while "Creating workspace fork..." is showing.
+		manager.beforeSend = vi.fn().mockImplementation(async () => {
+			manager.cancel('user_cancelled')
+		})
+
+		await manager.sendRequest({
+			instructions: '@f/etl/sync fix this',
+			contextOverride: [mention],
+			contextOverrideOrigin: 'pinned'
+		})
+
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(manager.contextManager.getSelectedContext()).toEqual([mention])
+	})
+
+	// The gate, and the reason the restore is not unconditional: an occupied
+	// composer declines the dead draft's text, and its mentions would then ride the
+	// draft the user is writing now and every turn after it.
+	it('does not restore mentions into a draft the composer kept', async () => {
+		const input = createInputMock()
+		input.restoreInstructions.mockReturnValue(false)
+		const manager = createManager(input)
+		manager.mode = AIMode.GLOBAL
+		const mention = { type: 'workspace_script' as const, path: 'f/etl/sync', title: 'f/etl/sync' }
+		manager.contextManager.setSelectedContext([])
+		manager.beforeSend = vi.fn().mockRejectedValue(new Error('workspace fork failed'))
+
+		await manager.sendRequest({
+			instructions: '@f/etl/sync fix this',
+			contextOverride: [mention],
+			contextOverrideOrigin: 'pinned'
+		})
+
+		expect(manager.contextManager.getSelectedContext()).toEqual([])
+	})
+
+	// The bit-identity tripwire: an editor mode reaches these same bailouts with a
+	// contextOverride (a replay, a queued flush) and must come out of them with the
+	// selection main would have left.
+	it('leaves an editor mode’s selection untouched through the same bailout', async () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		manager.mode = AIMode.SCRIPT
+		const mention = { type: 'workspace_script' as const, path: 'f/etl/sync', title: 'f/etl/sync' }
+		manager.contextManager.setSelectedContext([])
+		manager.beforeSend = vi.fn().mockRejectedValue(new Error('workspace fork failed'))
+
+		await manager.sendRequest({
+			instructions: 'fix this',
+			contextOverride: [mention],
+			contextOverrideOrigin: 'pinned'
+		})
+
+		expect(manager.contextManager.getSelectedContext()).toEqual([])
 	})
 
 	it('drops the queued message when switching conversations (no cross-chat leak)', async () => {
@@ -3819,5 +3996,137 @@ describe('AIChatManager reasoning duration', () => {
 		await manager.sendRequest()
 
 		expect(assistantDurations(manager)).toEqual([3_000, 7_000])
+	})
+})
+
+describe('AIChatManager cross-tab run seams', () => {
+	// The whole cross-tab feature hangs off these two seams: `loading`'s edges
+	// are the "running here" / "safe to re-read" signals, and the resolver is
+	// the advisory lock. Reverting `loading` to a plain $state field would
+	// silently disconnect every tab.
+	it('reports loading transitions, and only transitions, through onRunningChanged', () => {
+		const manager = new AIChatManager()
+		const seen: boolean[] = []
+		manager.onRunningChanged = (running) => seen.push(running)
+		manager.loading = true
+		manager.loading = true
+		manager.loading = false
+		manager.loading = false
+		expect(seen).toEqual([true, false])
+	})
+
+	it('refuses a send while another tab holds the run, keeping the draft', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.runHeldElsewhereResolver = () => true
+
+		const accepted = await manager.sendRequest({ instructions: 'race loser' })
+
+		expect(accepted).toBe(false)
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(manager.loading).toBe(false)
+		// restoreToInput falls back to the queued draft when no composer is
+		// mounted, so the refused text must surface there rather than vanish.
+		expect(manager.queuedMessage).toBe('race loser')
+	})
+
+	// A synthetic (auto-resume) prompt is client-authored: a refusal must
+	// release it rather than hand it back as a draft the user never wrote —
+	// staged instructions would otherwise block every later auto-resume.
+	it('releases a refused synthetic send instead of restoring it as a draft', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.runHeldElsewhereResolver = () => true
+		manager.instructions = 'A background job just finished.'
+
+		const accepted = await manager.sendRequest({ synthetic: true })
+
+		expect(accepted).toBe(false)
+		expect(manager.instructions).toBe('')
+		expect(manager.queuedMessage).toBe('')
+	})
+
+	// The restore lanes carry no pastes, so a refusal must expand the tokens
+	// into the text — dangling markers with the content gone otherwise.
+	it('expands paste tokens into the text a refusal hands back', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.runHeldElsewhereResolver = () => true
+		const paste = { id: 1, lines: 1, content: 'the pasted block' }
+
+		await manager.sendRequest({
+			instructions: `see ${makePasteToken(paste)}`,
+			pastes: [paste]
+		})
+
+		expect(manager.queuedMessage).toBe('see the pasted block')
+	})
+
+	// The wrapper's check runs before the attachment upkeep awaits; a run
+	// announced by another tab during that upkeep must still be refused before
+	// the turn takes visible effect.
+	it('refuses a run announced by another tab during the preflight awaits', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		let held = false
+		manager.runHeldElsewhereResolver = () => held
+		let releaseUpkeep: (() => void) | undefined
+		vi.spyOn(manager.attachedFiles, 'refreshFolders').mockImplementation(
+			() => new Promise<void>((resolve) => (releaseUpkeep = resolve))
+		)
+
+		const sending = manager.sendRequest({ instructions: 'racing turn' })
+		await vi.waitFor(() => expect(manager.sendInFlight).toBe(true))
+		held = true
+		releaseUpkeep?.()
+
+		expect(await sending).toBe(false)
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(manager.loading).toBe(false)
+	})
+
+	it('refuses a retry/edit while another tab holds the run, before mutating the transcript', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.displayMessages = [
+			{ role: 'user', content: 'original prompt', index: 0 },
+			{ role: 'assistant', content: 'original reply' }
+		] as DisplayMessage[]
+		manager.messages = [
+			{ role: 'user', content: 'original prompt' }
+		] as ChatCompletionMessageParam[]
+		manager.runHeldElsewhereResolver = () => true
+
+		await manager.restartGeneration(0, 'edited prompt')
+
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(manager.displayMessages).toHaveLength(2)
+		expect(manager.messages).toHaveLength(1)
+		// The edited text survives the refusal via restoreToInput's queued-draft
+		// fallback.
+		expect(manager.queuedMessage).toBe('edited prompt')
+	})
+
+	// A cross-tab catch-up re-reads the conversation on screen; the queued
+	// draft is unsent user input (possibly the refusal's kept message) that
+	// this non-switch reload must not destroy — while a real conversation
+	// switch still drops it.
+	it('keeps the queued draft when a catch-up reload preserves it', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		vi.spyOn(manager.historyManager, 'loadPastChat').mockResolvedValue({
+			id: 'c1',
+			actualMessages: [],
+			displayMessages: [],
+			title: '',
+			lastModified: 1
+		} as never)
+
+		manager.queueMessage('kept across catch-up')
+		await manager.loadPastChat('c1', { preserveQueue: true })
+		expect(manager.queuedMessage).toBe('kept across catch-up')
+
+		await manager.loadPastChat('c1')
+		expect(manager.queuedMessage).toBe('')
 	})
 })
