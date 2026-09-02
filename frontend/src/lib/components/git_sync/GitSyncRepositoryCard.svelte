@@ -187,9 +187,20 @@
 			}
 		}
 		const days = credentialDaysLeft
-		if (credential.rotatable || days === undefined || days > 30) return undefined
+		if (days === undefined) return undefined
 		const when =
 			days <= 0 ? 'has expired' : days === 1 ? 'expires tomorrow' : `expires in ${days} days`
+		if (credential.rotatable) {
+			// Renewal starts three weeks out, so a rotatable token this close to expiry
+			// means it has been failing silently and only a person can find out why.
+			if (days > 7) return undefined
+			return {
+				type: days <= 0 ? ('error' as const) : ('warning' as const),
+				title: `Repository token ${when}`,
+				body: 'Windmill renews this token automatically but has not managed to. Check that the instance can reach GitLab, and replace the token if sync has already stopped.'
+			}
+		}
+		if (days > 30) return undefined
 		return {
 			type: days <= 7 ? ('error' as const) : days <= 14 ? ('warning' as const) : ('info' as const),
 			title: `Repository token ${when}`,

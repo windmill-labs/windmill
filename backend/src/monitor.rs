@@ -4229,7 +4229,7 @@ pub async fn monitor_db(
     // and rotate the ones close to it. Every ~40 min: the values move over days, and
     // `should_run` counts iterations in a u8.
     let git_credential_maintenance_f = async {
-        #[cfg(feature = "private")]
+        #[cfg(all(feature = "enterprise", feature = "private"))]
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(240) {
             if let Some(db) = conn.as_sql() {
                 maintain_git_credentials(db).await;
@@ -4615,13 +4615,13 @@ const AUTO_PULL_POLL_SLACK_S: i64 = 30;
 
 /// Advisory lock id ensuring only one server replica maintains git credentials at
 /// a time (adjacent to GIT_AUTO_PULL_LOCK_ID).
-#[cfg(feature = "private")]
+#[cfg(all(feature = "enterprise", feature = "private"))]
 const GIT_CREDENTIAL_LOCK_ID: i64 = 737_483_923;
 
 /// Refresh every git-sync repository's credential status and rotate the ones near
 /// expiry, so a token dies visibly (and usually not at all) rather than taking
 /// sync down on its expiry date.
-#[cfg(feature = "private")]
+#[cfg(all(feature = "enterprise", feature = "private"))]
 pub async fn maintain_git_credentials(db: &Pool<Postgres>) {
     use windmill_common::ee_oss::{get_license_plan, LicensePlan};
 
@@ -4664,7 +4664,7 @@ pub async fn maintain_git_credentials(db: &Pool<Postgres>) {
     }
 }
 
-#[cfg(feature = "private")]
+#[cfg(all(feature = "enterprise", feature = "private"))]
 async fn maintain_git_credentials_inner(db: &Pool<Postgres>) -> error::Result<()> {
     use windmill_common::workspaces::WorkspaceGitSyncSettings;
 
@@ -4718,7 +4718,6 @@ async fn maintain_git_credentials_inner(db: &Pool<Postgres>) -> error::Result<()
     Ok(())
 }
 
-#[cfg(feature = "private")]
 #[cfg(feature = "private")]
 async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
     use windmill_common::workspaces::{AutoPullMode, WorkspaceGitSyncSettings};
