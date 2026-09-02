@@ -152,6 +152,44 @@
 	// Only GitHub App-backed repos can register webhooks; PAT repos poll only.
 	let isGithubApp = $state(false)
 
+	const MS_PER_DAY = 86_400_000
+
+	/**
+	 * Days until the repository's own token expires, or undefined when it never
+	 * expires and when nothing has checked it yet.
+	 */
+	const credentialDaysLeft = $derived.by(() => {
+		const expiresAt = repo.credential?.expires_at
+		if (!expiresAt) return undefined
+		return Math.floor((new Date(`${expiresAt}T00:00:00Z`).getTime() - Date.now()) / MS_PER_DAY)
+	})
+
+	/**
+	 * Only raised when a person has to act. A token Windmill renews on its own is
+	 * reported in the quiet status line instead, so the alert keeps meaning
+	 * "this needs you".
+	 */
+	const credentialAlert = $derived.by(() => {
+		const credential = repo.credential
+		if (!credential) return undefined
+		if (credential.error) {
+			return {
+				type: 'error' as const,
+				title: 'Repository token needs attention',
+				body: credential.error
+			}
+		}
+		const days = credentialDaysLeft
+		if (credential.rotatable || days === undefined || days > 30) return undefined
+		const when =
+			days <= 0 ? 'has expired' : days === 1 ? 'expires tomorrow' : `expires in ${days} days`
+		return {
+			type: days <= 7 ? ('error' as const) : days <= 14 ? ('warning' as const) : ('info' as const),
+			title: `Repository token ${when}`,
+			body: 'Give the token the api or self_rotate scope and Windmill will renew it on its own. Otherwise, replace it before it expires to keep sync running.'
+		}
+	})
+
 	// Update target branch when repository changes
 	$effect(() => {
 		const abortController = new AbortController()
@@ -533,6 +571,21 @@
 					</div>
 				{:else if resourceInfo?.error}
 					<div class="text-red-600">{resourceInfo.error}</div>
+				{/if}
+			</div>
+		{/if}
+
+		{#if credentialAlert}
+			<Alert type={credentialAlert.type} title={credentialAlert.title} size="xs">
+				{credentialAlert.body}
+			</Alert>
+		{:else if repo.credential && !repo.credential.error}
+			<div class="text-xs text-secondary">
+				{#if credentialDaysLeft === undefined}
+					Repository token does not expire.
+				{:else}
+					Repository token expires on {repo.credential.expires_at}, and Windmill renews it
+					automatically.
 				{/if}
 			</div>
 		{/if}

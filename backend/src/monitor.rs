@@ -353,7 +353,9 @@ pub async fn initial_load(
                     )
                 }
             });
-            pass.action(windmill_common::min_version::store_min_keep_alive_version(db));
+            pass.action(windmill_common::min_version::store_min_keep_alive_version(
+                db,
+            ));
             pass.setting(
                 windmill_common::global_settings::INSTANCE_EVENTS_WEBHOOK_SETTING,
                 false,
@@ -698,7 +700,6 @@ pub async fn initial_load(
 
     pass.run(conn).await;
 }
-
 
 pub fn apply_metrics_enabled(value: Option<serde_json::Value>) {
     if let Some(serde_json::Value::Bool(t)) = value {
@@ -1056,8 +1057,8 @@ pub fn apply_fork_workspace_tag_append_fork_suffix(value: Option<serde_json::Val
 }
 
 pub async fn reload_critical_alert_mute_ui_setting(conn: &Connection) -> error::Result<()> {
-    let v =
-        load_value_from_global_settings_with_conn(conn, CRITICAL_ALERT_MUTE_UI_SETTING, true).await?;
+    let v = load_value_from_global_settings_with_conn(conn, CRITICAL_ALERT_MUTE_UI_SETTING, true)
+        .await?;
     apply_critical_alert_mute_ui_setting(v);
     Ok(())
 }
@@ -2656,7 +2657,6 @@ pub async fn reload_timeout_wait_result_setting(conn: &Connection) {
     .await;
 }
 
-
 pub async fn reload_extra_pip_index_url_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
         conn,
@@ -2746,7 +2746,6 @@ pub async fn reload_bunfig_install_scopes_setting(conn: &Connection) {
     )
     .await;
 }
-
 
 pub async fn reload_nuget_config_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
@@ -2854,7 +2853,6 @@ pub async fn reload_ruby_repos_setting(conn: &Connection) {
     )
     .await;
 }
-
 
 pub async fn reload_workspace_registries_setting(conn: &Connection) {
     match load_value_from_global_settings_with_conn(
@@ -3093,7 +3091,6 @@ pub async fn apply_job_isolation_setting(value: Option<serde_json::Value>) {
         );
     }
 }
-
 
 async fn resolve_license_key_value(conn: &Connection, quiet: bool) -> anyhow::Result<String> {
     let q = load_value_from_global_settings_with_conn(conn, LICENSE_KEY_SETTING, true)
@@ -3389,7 +3386,10 @@ impl<'a> SettingsPass<'a> {
         // on compile-time defaults until the next full reload. Only the single-query transport
         // can fail this way; over HTTP the batch already is the per-setting read.
         if matches!(conn, Connection::Sql(_)) && values.is_empty() && !names.is_empty() {
-            tracing::warn!("Falling back to per-setting reads for {} settings", names.len());
+            tracing::warn!(
+                "Falling back to per-setting reads for {} settings",
+                names.len()
+            );
             values = fetch_settings_individually(conn, &names).await;
         }
         for (name, http) in &declared {
@@ -3780,7 +3780,6 @@ pub fn parse_setting_value<T: FromStr + DeserializeOwned + Display>(
 
     value
 }
-
 
 #[cfg(feature = "prometheus")]
 pub async fn monitor_pool(db: &DB) {
@@ -4225,6 +4224,18 @@ pub async fn monitor_db(
         }
     };
 
+    // Re-check what each git-sync repository's own credential says about its expiry,
+    // and rotate the ones close to it. Every ~40 min: the values move over days, and
+    // `should_run` counts iterations in a u8.
+    let git_credential_maintenance_f = async {
+        #[cfg(feature = "private")]
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(240) {
+            if let Some(db) = conn.as_sql() {
+                maintain_git_credentials(db).await;
+            }
+        }
+    };
+
     // run every 2 iterations (~20s at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
     // Enterprise feature: the active `// freshness` backstop lives in
     // windmill-queue's `freshness_watchdog` (`private`); OSS gets a no-op stub.
@@ -4278,6 +4289,7 @@ pub async fn monitor_db(
         export_audit_logs_to_object_store_f,
         cleanup_scheduled_job_deletions_f,
         git_auto_pull_f,
+        git_credential_maintenance_f,
         pipeline_freshness_watchdog_f,
         reconcile_unarmed_schedules_f,
     );
@@ -4599,6 +4611,111 @@ lazy_static::lazy_static! {
 /// equals the ~60s tick isn't skipped by tick jitter.
 #[cfg(feature = "private")]
 const AUTO_PULL_POLL_SLACK_S: i64 = 30;
+
+/// Advisory lock id ensuring only one server replica maintains git credentials at
+/// a time (adjacent to GIT_AUTO_PULL_LOCK_ID).
+#[cfg(feature = "private")]
+const GIT_CREDENTIAL_LOCK_ID: i64 = 737_483_923;
+
+/// Refresh every git-sync repository's credential status and rotate the ones near
+/// expiry, so a token dies visibly (and usually not at all) rather than taking
+/// sync down on its expiry date.
+#[cfg(feature = "private")]
+pub async fn maintain_git_credentials(db: &Pool<Postgres>) {
+    use windmill_common::ee_oss::{get_license_plan, LicensePlan};
+
+    if !matches!(get_license_plan().await, LicensePlan::Enterprise) {
+        return;
+    }
+
+    let mut lock_conn = match db.acquire().await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("git credentials: failed to acquire connection: {e:#}");
+            return;
+        }
+    };
+    let locked: bool = match sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+        .bind(GIT_CREDENTIAL_LOCK_ID)
+        .fetch_one(&mut *lock_conn)
+        .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("git credentials: advisory lock failed: {e:#}");
+            return;
+        }
+    };
+    if !locked {
+        return;
+    }
+
+    if let Err(e) = maintain_git_credentials_inner(db).await {
+        tracing::error!("git credentials: maintenance error: {e:#}");
+    }
+
+    if let Err(e) = sqlx::query("SELECT pg_advisory_unlock($1)")
+        .bind(GIT_CREDENTIAL_LOCK_ID)
+        .execute(&mut *lock_conn)
+        .await
+    {
+        tracing::error!("git credentials: advisory unlock failed: {e:#}");
+    }
+}
+
+#[cfg(feature = "private")]
+async fn maintain_git_credentials_inner(db: &Pool<Postgres>) -> error::Result<()> {
+    use windmill_common::workspaces::WorkspaceGitSyncSettings;
+
+    // Same deleted/archived exclusion as the auto-pull poller: a dead workspace's
+    // settings row survives, and rotating a token for one would be pure damage.
+    let rows = sqlx::query!(
+        r#"SELECT ws.workspace_id, ws.git_sync
+           FROM workspace_settings ws
+           JOIN workspace w ON w.id = ws.workspace_id
+           WHERE NOT w.deleted
+             AND ws.git_sync IS NOT NULL
+             AND jsonb_typeof(ws.git_sync->'repositories') = 'array'"#
+    )
+    .fetch_all(db)
+    .await?;
+
+    for row in rows {
+        let Some(git_sync) = row.git_sync else {
+            continue;
+        };
+        let settings: WorkspaceGitSyncSettings = match serde_json::from_value(git_sync) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(
+                    "git credentials: invalid git_sync settings for workspace {}: {e}",
+                    row.workspace_id
+                );
+                continue;
+            }
+        };
+
+        for repo in &settings.repositories {
+            let path = &repo.git_repo_resource_path;
+            // This refreshes and records the status on every repository it looks at,
+            // rotating only the ones near expiry, so it is the whole maintenance pass
+            // rather than just the rotation half.
+            if let Err(e) = windmill_common::git_sync_ee::rotate_git_credential_if_due(
+                db,
+                &row.workspace_id,
+                path,
+            )
+            .await
+            {
+                tracing::error!(
+                    "git credentials: maintenance failed for {path} in workspace {}: {e:#}",
+                    row.workspace_id
+                );
+            }
+        }
+    }
+    Ok(())
+}
 
 #[cfg(feature = "private")]
 async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
@@ -6496,7 +6613,6 @@ pub async fn reload_critical_alerts_on_db_oversize(conn: &DB) -> error::Result<(
 
     Ok(())
 }
-
 
 pub async fn reload_jwt_secret_setting(db: &DB) -> error::Result<()> {
     let v = load_value_from_global_settings(db, JWT_SECRET_SETTING).await?;

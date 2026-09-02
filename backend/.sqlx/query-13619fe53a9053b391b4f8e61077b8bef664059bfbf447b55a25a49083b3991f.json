@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE resource SET value = $1 WHERE workspace_id = $2 AND path = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "13619fe53a9053b391b4f8e61077b8bef664059bfbf447b55a25a49083b3991f"
+}

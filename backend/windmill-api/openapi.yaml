@@ -33981,8 +33981,41 @@ components:
         open_pr_error:
           type: string
           description: server-owned, last failure opening a PR for a deploy branch of this repo
+        credential:
+          $ref: "#/components/schemas/GitCredentialStatus"
       required:
         - git_repo_resource_path
+
+    GitCredentialStatus:
+      type: object
+      description: server-owned, what the repo's own credential reports about itself
+      properties:
+        provider:
+          type: string
+          enum:
+            - gitlab
+        token_id:
+          type: integer
+          format: int64
+        expires_at:
+          type: string
+          format: date
+          description: absent for a non-expiring token
+        scopes:
+          type: array
+          items:
+            type: string
+        rotatable:
+          type: boolean
+        checked_at:
+          type: integer
+          format: int64
+        error:
+          type: string
+      required:
+        - provider
+        - rotatable
+        - checked_at
 
     AutoPullMode:
       type: string

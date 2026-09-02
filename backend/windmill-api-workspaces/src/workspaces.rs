@@ -4119,6 +4119,18 @@ async fn edit_git_sync_config(
             {
                 tracing::warn!("git auto-pull: webhook sync error: {}", e);
             }
+            // Check the credential while the operator is still on the settings page,
+            // so a token that is short-lived or missing a scope is visible now rather
+            // than when it expires.
+            if let Err(e) = windmill_common::git_sync_ee::refresh_git_credential_status(
+                &db,
+                &w_id,
+                &repo.git_repo_resource_path,
+            )
+            .await
+            {
+                tracing::warn!("git credential check error: {}", e);
+            }
         }
         for (path, hook_id) in removed_webhooks {
             if let Ok(url) =
@@ -4351,6 +4363,15 @@ async fn edit_git_sync_repository(
     {
         if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await {
             tracing::warn!("git auto-pull: webhook sync error: {}", e);
+        }
+        if let Err(e) = windmill_common::git_sync_ee::refresh_git_credential_status(
+            &db,
+            &w_id,
+            &repo.git_repo_resource_path,
+        )
+        .await
+        {
+            tracing::warn!("git credential check error: {}", e);
         }
     }
 
