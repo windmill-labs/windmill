@@ -11,9 +11,14 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import SessionStatusPopover from './SessionStatusPopover.svelte'
 	import WorkspaceFamilyPicker from './WorkspaceFamilyPicker.svelte'
-	import { maybePremium, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
-	import { canCreateFork } from '$lib/utils/editInFork'
-	import { isCloudHosted } from '$lib/cloud'
+	import {
+		maybePremium,
+		premiumFetchFailed,
+		userStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
+	import { forkBlockedReason } from '$lib/utils/editInFork'
 	import { sessionState, type Session } from './sessionState.svelte'
 	import { getRuntime } from './sessionRuntime.svelte'
 	import SessionDiffDrawer from './SessionDiffDrawer.svelte'
@@ -60,10 +65,13 @@
 	)
 	const isFork = $derived(!!parentWorkspaceId)
 
-	// Same gate as the sidebar WorkspaceMenu / SessionWorkspaceBar. On cloud,
-	// forking is a premium-only feature (backend caps it per paid seat).
+	// Same blockers the fork dropdowns explain, minus their dev-workspace relaxation: this gates
+	// whether the bar renders at all, so it needs the answer for the active workspace itself.
 	const forksAllowed = $derived(
-		(!isCloudHosted() || $maybePremium) && canCreateFork($userStore) && $workspaceStore !== 'admins'
+		!forkBlockedReason($userStore, $workspaceStore, {
+			premium: $maybePremium,
+			premiumUnknown: $premiumFetchFailed
+		})
 	)
 
 	const runtime = $derived(getRuntime(session.id))

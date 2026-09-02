@@ -56,36 +56,51 @@ export function canCreateFork(user: UserExt | undefined): boolean {
 	)
 }
 
-/** Why a create-fork entry is disabled: a short right-hand note, and the tooltip that explains it. */
-export type ForkBlockedReason = { note: string; title: string }
+/**
+ * Why a create-fork entry is disabled: a short right-hand note and the sentence explaining it. Both
+ * render as visible text — a disabled row can't take focus and a native `title` never opens on
+ * touch, so a tooltip would keep the reason from the users most likely to be stuck on it.
+ */
+export type ForkBlockedReason = { note: string; detail: string }
 
 /**
  * The blocker on creating a fork of the given workspace, or undefined when there is none. Callers
  * render the create-fork entry disabled and carrying this reason rather than dropping it, so a user
  * who can't fork reads why instead of hunting for a missing entry. `premium` comes from
- * `maybePremium` (forking is metered per paid seat on cloud); `hasDevWorkspace` relaxes the forking
- * rule, since a locked prod's dev workspace is itself forkable.
+ * `maybePremium` (forking is metered per paid seat on cloud) and `premiumUnknown` from
+ * `premiumFetchFailed`, which is the half of `maybePremium` that must not be reported as "you don't
+ * pay for this"; `hasDevWorkspace` relaxes the forking rule, since a locked prod's dev workspace is
+ * itself forkable.
  */
 export function forkBlockedReason(
 	user: UserExt | undefined,
 	workspaceId: string | undefined,
-	{ premium, hasDevWorkspace = false }: { premium: boolean; hasDevWorkspace?: boolean }
+	{
+		premium,
+		premiumUnknown = false,
+		hasDevWorkspace = false
+	}: { premium: boolean; premiumUnknown?: boolean; hasDevWorkspace?: boolean }
 ): ForkBlockedReason | undefined {
 	if (workspaceId === 'admins')
 		return {
 			note: 'Not forkable',
-			title: 'The admins workspace cannot be forked. Switch to another workspace to create a fork.'
+			detail: 'The admins workspace cannot be forked. Switch to another workspace first.'
 		}
 	if (isCloudHosted() && !premium)
-		return {
-			note: 'Paid plans only',
-			title:
-				'Forking a workspace is available on paid plans. Upgrade this workspace to create forks.'
-		}
+		return premiumUnknown
+			? {
+					note: 'Plan unknown',
+					detail:
+						"This workspace's plan could not be checked, and forking needs a paid plan. Reload to try again."
+				}
+			: {
+					note: 'Paid plans only',
+					detail: 'Forking a workspace needs a paid plan. Upgrade this workspace to create forks.'
+				}
 	if (!canCreateFork(user) && !hasDevWorkspace)
 		return {
 			note: 'Disabled',
-			title:
+			detail:
 				'A protection rule disables forking of this workspace. A workspace admin can change it in the workspace settings.'
 		}
 	return undefined

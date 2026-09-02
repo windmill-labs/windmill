@@ -3,6 +3,7 @@
 	import {
 		enterpriseLicense,
 		maybePremium,
+		premiumFetchFailed,
 		superadmin,
 		userStore,
 		userWorkspaces,
@@ -175,6 +176,7 @@
 	const forkGateReason = $derived(
 		forkBlockedReason($userStore, $workspaceStore, {
 			premium: $maybePremium,
+			premiumUnknown: $premiumFetchFailed,
 			hasDevWorkspace: !!devOfRoot
 		})
 	)
@@ -202,7 +204,7 @@
 			(ceWorkspaceCapReached && !onRequestCreateFork
 				? {
 						note: 'Workspace limit reached',
-						title: `Community edition is limited to ${CE_MAX_NON_ADMIN_WORKSPACES + 1} workspaces. Archive a workspace or upgrade to an enterprise license to create more forks.`
+						detail: `Community edition is limited to ${CE_MAX_NON_ADMIN_WORKSPACES + 1} workspaces. Archive a workspace or upgrade to an enterprise license to create more forks.`
 					}
 				: undefined)
 	)
@@ -566,13 +568,15 @@
 			{:else if forkAffordanceOpen && createForkBlocked}
 				<div class="my-1 border-t border-border-light shrink-0"></div>
 				<div
-					class={`${rowBase} opacity-60 cursor-not-allowed`}
+					class="px-3 py-1.5 flex flex-col gap-0.5 opacity-60 cursor-not-allowed"
 					aria-disabled="true"
-					title={createForkBlocked.title}
 				>
-					<Plus size={14} class="shrink-0 text-tertiary" />
-					<span>{createForkLabel}</span>
-					<span class="ml-auto shrink-0 text-2xs text-tertiary">{createForkBlocked.note}</span>
+					<div class="flex flex-row gap-2 items-center text-xs font-normal text-primary">
+						<Plus size={14} class="shrink-0 text-tertiary" />
+						<span>{createForkLabel}</span>
+						<span class="ml-auto shrink-0 text-2xs text-tertiary">{createForkBlocked.note}</span>
+					</div>
+					<span class="text-2xs text-tertiary pl-6">{createForkBlocked.detail}</span>
 				</div>
 			{/if}
 			{#if settingsHref}
