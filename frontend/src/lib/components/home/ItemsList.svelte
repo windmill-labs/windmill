@@ -76,10 +76,10 @@
 	)
 
 	// FilterSearchbar schema — `_default_` is the free-text search; the rest mirror the
-	// boolean/kind list filters. Owner and label scoping are offered as searchbar presets
-	// (searchPresets) and as rows of on-page chips (ListFilters / labelChips) writing the
-	// same keys. `content` is a distinct mode: it swaps the list for the client-side
-	// content-match view below (usable on any instance, not EE-gated).
+	// boolean/kind list filters. Owner and label are also reachable as searchbar presets
+	// (searchPresets) and as on-page chip rows (the ListFilters markup below). `content` is
+	// a distinct mode: it swaps the list for the client-side content-match view below
+	// (usable on any instance, not EE-gated).
 	let searchFilterSchema = $derived({
 		_default_: { type: 'string' as const, hidden: true },
 		content: {
@@ -719,9 +719,8 @@
 		return true // should not happen
 	}
 
-	// Owner/label scope lives on the URL-synced searchbar filters, written by the presets and
-	// by the on-page chip rows; the whole data layer below reads these two, so keep them as
-	// the single derived source. Empty string reads as "no filter".
+	// The whole data layer below reads these two derived views of the searchbar filters, so
+	// keep them the single source. Empty string reads as "no filter".
 	let ownerFilter = $derived((filterValues.val.owner || undefined) as string | undefined)
 	let labelFilter = $derived((filterValues.val.label || undefined) as string | undefined)
 	// Chip-row setters. Clearing deletes the key rather than writing null, which the
@@ -1774,7 +1773,6 @@
 			maxDisplayed={20}
 			bottomMargin={false}
 			color="blue"
-			small
 			icon={Tag}
 		/>
 	{/if}

@@ -18,7 +18,6 @@
 		// Chip look. `icon` is drawn before every chip; unset, the icon follows the value
 		// (user/folder prefix, or the app icon under `resourceType`).
 		color?: BadgeColor
-		small?: boolean
 		icon?: BadgeIconProps['icon']
 	}
 
@@ -31,7 +30,6 @@
 		bottomMargin = true,
 		maxDisplayed,
 		color = 'transparent',
-		small = false,
 		icon
 	}: Props = $props()
 
@@ -110,7 +108,6 @@
 						}
 					}}
 					{color}
-					{small}
 					clickable
 					selected={filter === selectedFilter}
 				>
@@ -137,7 +134,6 @@
 				<Badge
 					class="inline-flex items-center gap-1 align-middle"
 					{color}
-					{small}
 					clickable
 					title={expanded ? 'Show fewer' : `Show ${hiddenCount} more`}
 					onclick={() => (expanded = !expanded)}
