@@ -4419,6 +4419,53 @@ describe('global AI tools', () => {
 		})
 	})
 
+	// YOLO answers a test form so the model can keep iterating on the code it is writing,
+	// and the card must never render one first: a form nobody will fill in is attached
+	// already settled, so no field is ever mounted. A deployed run's form is the only
+	// consent that run has, so the same posture still opens it.
+	it('mounts no field on a test run form under yolo, and still opens a deployed one', async () => {
+		const script = {
+			path: 'f/scripts/yolo',
+			content: 'export async function main(name: string) {}',
+			language: 'bun',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce(script)
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce(script)
+
+		const statuses: any[] = []
+		const requestRunArgs = vi.fn(async (_toolId: string, form: any) => form.args)
+		const yolo = {
+			...toolCallbacks,
+			setToolStatus: (_toolId: string, status: any) => statuses.push(status),
+			shouldAutoAcceptToolConfirmations: () => true,
+			requestRunArgs
+		}
+
+		await withCompletedTestJob(() =>
+			callGlobalTool('test_run_script', { path: 'f/scripts/yolo', args: { name: 'Ada' } }, yolo)
+		)
+
+		const testForm = statuses.find((s) => s.runForm)?.runForm
+		expect(testForm.submitted).toBe(true)
+		// Nothing is left to render it, and a card carrying one persists it forever.
+		expect(testForm.schema).toBeUndefined()
+		// Told the form is already answered, or the loop parks on a card with no fields.
+		expect(requestRunArgs.mock.calls[0][2]).toEqual({ autoAccepted: true })
+		expect(JobService.runScriptPreview).toHaveBeenCalledWith(
+			expect.objectContaining({ requestBody: expect.objectContaining({ args: { name: 'Ada' } }) })
+		)
+
+		statuses.length = 0
+		await withCompletedTestJob(() =>
+			callGlobalTool('run_script', { path: 'f/scripts/yolo', args: { name: 'Ada' } }, yolo)
+		)
+
+		const deployedForm = statuses.find((s) => s.runForm)?.runForm
+		expect(deployedForm.submitted).toBeUndefined()
+		expect(deployedForm.schema).toBeDefined()
+	})
+
 	it('test_run_flow previews draft flow content by path', async () => {
 		const modules = [{ id: 'start', value: { type: 'identity' } }]
 		await callGlobalTool('write_flow', {
