@@ -71,6 +71,49 @@ async fn test_create_script_persists_supplied_lock_hash(db: Pool<Postgres>) -> a
     .await?;
     assert_eq!(stored_hash, windmill_common::scripts::hash_script(lock));
 
+    // A script deployed before the create recorded hashes has no row, and pushing it unchanged
+    // creates no version to hang one off. Without the write on that path it would keep its
+    // importers relocking until someone edited it.
+    sqlx::query!(
+        "DELETE FROM lock_hash WHERE workspace_id = $1 AND path = $2",
+        "test-workspace",
+        path,
+    )
+    .execute(&db)
+    .await?;
+
+    // The no-op comparison covers every field, so the push has to carry what the first deploy
+    // filled in by itself; `auto_parent` both resolves the parent and keeps the hash distinct.
+    script["auto_parent"] = json!(true);
+    script["ws_error_handler_muted"] = json!(false);
+    script["assets"] = json!([]);
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/w/test-workspace/scripts/create?skip_if_noop=true"
+    )))
+    .json(&script)
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 201, "no-op push: {}", resp.text().await?);
+
+    let versions: i64 = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM script WHERE workspace_id = $1 AND path = $2",
+        "test-workspace",
+        path,
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or_default();
+    assert_eq!(versions, 1, "no-op push must not create a version");
+
+    let repaired_hash = sqlx::query_scalar!(
+        "SELECT lockfile_hash FROM lock_hash WHERE workspace_id = $1 AND path = $2",
+        "test-workspace",
+        path,
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(repaired_hash, windmill_common::scripts::hash_script(lock));
+
     Ok(())
 }
 
