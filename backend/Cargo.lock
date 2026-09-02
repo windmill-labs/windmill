@@ -15649,6 +15649,7 @@ name = "windmill-dep-map"
 version = "1.799.0"
 dependencies = [
  "chrono",
+ "futures",
  "itertools 0.14.0",
  "lazy_static",
  "serde",

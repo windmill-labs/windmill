@@ -12,8 +12,7 @@ use windmill_api_auth::{
 };
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
-use windmill_common::scripts::hash_script;
-use windmill_dep_map::lock_hash::record_lock_hashes;
+use windmill_dep_map::lock_hash::record_lock_hashes_for_workspace;
 use windmill_common::usernames::{get_instance_username_or_create_pending, VALID_USERNAME};
 use windmill_common::webhook::WebhookShared;
 use windmill_common::{BASE_URL, DB};
@@ -7125,9 +7124,6 @@ async fn clone_drafts(
     Ok(())
 }
 
-/// How many of a clone's lockfiles are held at once while their hashes are recorded.
-const LOCK_HASH_CLONE_PAGE: i64 = 100;
-
 async fn clone_workspace_runnable_dependencies(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
@@ -7150,32 +7146,7 @@ async fn clone_workspace_runnable_dependencies(
     // the source's rows, which are only as current as the last write to them: one left stale by a
     // supplied lock deployed before this was recorded names a lock the clone no longer has, and an
     // importer that resolved against the real one would then skip a relock it needed.
-    // Hashing needs the lock itself, so they are walked a page at a time: one is small, but a
-    // workspace holds as many as it has scripts and nothing bounds their total size.
-    let mut after = String::new();
-    loop {
-        let entries: Vec<(String, i64)> = sqlx::query!(
-            "SELECT DISTINCT ON (path) path, lock FROM script
-             WHERE workspace_id = $1 AND NOT archived AND NOT deleted AND lock IS NOT NULL
-               AND path > $2
-             ORDER BY path, created_at DESC
-             LIMIT $3",
-            target_workspace_id,
-            after,
-            LOCK_HASH_CLONE_PAGE,
-        )
-        .fetch_all(&mut **tx)
-        .await?
-        .into_iter()
-        .filter_map(|r| r.lock.map(|lock| (r.path, hash_script(&lock))))
-        .collect();
-
-        let Some((last, _)) = entries.last() else {
-            break;
-        };
-        after = last.clone();
-        record_lock_hashes(&mut *tx, target_workspace_id, &entries).await?;
-    }
+    record_lock_hashes_for_workspace(tx, target_workspace_id).await?;
 
     // Deliberately without `imported_lockfile_hash`: it records what an importer resolved against
     // when it was last locked, which nothing here can establish for the version the clone got.
