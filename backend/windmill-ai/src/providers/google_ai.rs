@@ -684,11 +684,18 @@ impl QueryBuilder for GoogleAIQueryBuilder {
             stream_event_processor.send(event, &mut events_str).await?;
         }
 
+        // Through the shared helpers, which fold in the two counts Gemini reports beside
+        // the headline ones: tool-use prompt tokens, disjoint from `promptTokenCount` and
+        // present on every tool-using turn, and thinking tokens. Reading the headline
+        // fields alone under-reports the prompt of exactly the conversations compaction
+        // has to notice.
         let usage = gemini_usage.map(|u| {
+            let prompt = crate::ai_google::gemini_prompt_tokens(&u);
+            let completion = crate::ai_google::gemini_completion_tokens(&u);
             TokenUsage::new(
-                u.prompt_token_count,
-                u.candidates_token_count,
-                u.total_token_count,
+                Some(prompt),
+                Some(completion),
+                u.total_token_count.or(Some(prompt + completion)),
             )
         });
 
@@ -1010,5 +1017,23 @@ mod tests {
         assert!(request
             .headers
             .contains(&("x-goog-api-key".to_string(), "api-key".to_string())));
+    }
+
+    /// Gemini reports a tool-using turn's input across two disjoint fields. Reading only
+    /// the headline one hides the tool results from the agent step's usage — and from the
+    /// compaction trigger, which is what would notice them.
+    #[test]
+    fn gemini_agent_usage_counts_tool_use_and_thinking_tokens() {
+        let usage = crate::ai_google::GeminiUsageMetadata {
+            prompt_token_count: Some(17),
+            candidates_token_count: Some(17),
+            total_token_count: Some(146),
+            tool_use_prompt_token_count: Some(60),
+            thoughts_token_count: Some(52),
+            ..Default::default()
+        };
+
+        assert_eq!(crate::ai_google::gemini_prompt_tokens(&usage), 77);
+        assert_eq!(crate::ai_google::gemini_completion_tokens(&usage), 69);
     }
 }
