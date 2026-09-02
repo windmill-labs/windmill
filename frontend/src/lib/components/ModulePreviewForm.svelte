@@ -14,6 +14,7 @@
 	import { getResourceTypes } from './resourceTypesStore'
 	import { twMerge } from 'tailwind-merge'
 	import { workspaceStore } from '$lib/stores'
+	import { AGENT_FIELDS, initialVisibleAgentFields } from './flows/agentFormFields'
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any>; required?: string[] }
@@ -43,9 +44,23 @@
 		isValid = allTrue(inputCheck) ?? false
 	})
 
+	/** An agent asks for the same fields here that its own form shows: a setting the step leaves
+	 *  unset is not something a run needs told, and listing all eleven buries the message under the
+	 *  configuration. What the step configures stays, as it does on any other step. A schema key the
+	 *  field registry doesn't know is kept, so a new one is never silently dropped. */
+	let visibleKeys = $derived.by(() => {
+		const all = Object.keys(schema?.properties ?? {})
+		if ((mod.value as { type?: string })?.type !== 'aiagent') return all
+		const transforms = (mod.value as { input_transforms?: Record<string, unknown> })
+			?.input_transforms
+		const visible = initialVisibleAgentFields(transforms, schema?.properties)
+		const known = new Set(AGENT_FIELDS.map((f) => f.key))
+		return all.filter((key) => !known.has(key) || visible.has(key))
+	})
+
 	let keys: string[] = $state([])
 	$effect(() => {
-		let lkeys = Object.keys(schema?.properties ?? {})
+		let lkeys = visibleKeys
 		if (schema?.properties && JSON.stringify(lkeys) != JSON.stringify(keys)) {
 			keys = lkeys
 			untrack(() => stepsInputArgs?.removeExtraKey(mod.id, keys))
