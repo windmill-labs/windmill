@@ -6,6 +6,22 @@ import type { AgentTool } from './agentToolUtils'
 // keeps flows shown at the same time (an editor and an embedded preview) from aliasing each other.
 let byScope = $state<Record<string, Record<string, AgentTool[]>>>({})
 
+// Which agent each entry resolved from, so a write to one agent can be reflected on every step that
+// links it rather than only the one that triggered the write. Plain, not reactive: it is read
+// imperatively when reconciling a deploy, never rendered.
+const agentRefByEntry = new Map<string, string>()
+
+function entryKey(scope: string, moduleId: string): string {
+	return `${scope}\u0000${moduleId}`
+}
+
+function forgetScopeRefs(scope: string) {
+	const prefix = `${scope}\u0000`
+	for (const key of agentRefByEntry.keys()) {
+		if (key.startsWith(prefix)) agentRefByEntry.delete(key)
+	}
+}
+
 // A long-lived tab would otherwise keep every flow it ever visited (raw tool script contents
 // included). Past this cap the least recently used scope is evicted, skipping any a mounted view
 // still holds.
@@ -61,6 +77,7 @@ function evictOverCap(protect?: string) {
 		}
 		scopeOrder = scopeOrder.filter((s) => s !== victim)
 		delete byScope[victim]
+		forgetScopeRefs(victim)
 	}
 }
 
@@ -97,9 +114,31 @@ export function setLinkedAgentTools(scope: string, moduleId: string, tools: Agen
 /** Move one scope's resolutions into another: used when a rename moves readers to a new scope,
  * and to sweep republished data (keyed by the flow doc's path) into the live-edited scope. The
  * source bucket carries the newer resolution in both cases, so it wins the merge. */
+/** Records which agent an entry resolved from. Called by the publisher, which is the only place
+ *  that knows the ref the tools came from. */
+export function noteLinkedAgentRef(scope: string, moduleId: string, agentRef: string) {
+	agentRefByEntry.set(entryKey(scope, moduleId), agentRef)
+}
+
+/** Every module in this scope resolved from `agentRef`. A saved agent can be linked by more than
+ *  one step, and all of them show tools that a write to it has just changed. */
+export function linkedModulesForAgent(scope: string, agentRef: string): string[] {
+	const prefix = `${scope}\u0000`
+	const out: string[] = []
+	for (const [key, ref] of agentRefByEntry) {
+		if (key.startsWith(prefix) && ref === agentRef) out.push(key.slice(prefix.length))
+	}
+	return out
+}
+
 export function migrateLinkedAgentToolsScope(oldScope: string, newScope: string) {
 	if (oldScope === newScope || byScope[oldScope] === undefined) return
 	byScope[newScope] = { ...(byScope[newScope] ?? {}), ...(byScope[oldScope] ?? {}) }
+	for (const moduleId of Object.keys(byScope[oldScope] ?? {})) {
+		const ref = agentRefByEntry.get(entryKey(oldScope, moduleId))
+		if (ref !== undefined) agentRefByEntry.set(entryKey(newScope, moduleId), ref)
+	}
+	forgetScopeRefs(oldScope)
 	delete byScope[oldScope]
 	pendingMigration = newScope
 	// Mark the new key most-recently-used but don't evict here: the next publish or release enforces
@@ -109,6 +148,7 @@ export function migrateLinkedAgentToolsScope(oldScope: string, newScope: string)
 }
 
 export function clearLinkedAgentTools(scope: string, moduleId: string) {
+	agentRefByEntry.delete(entryKey(scope, moduleId))
 	if (byScope[scope]?.[moduleId] === undefined) return
 	const rest = { ...byScope[scope] }
 	delete rest[moduleId]

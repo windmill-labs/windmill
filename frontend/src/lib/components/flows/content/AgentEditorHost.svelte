@@ -223,6 +223,12 @@
 				(v.tools ?? []) as AgentTool[]
 			) as AIAgentConfig)
 		} as AIAgentConfig
+		// An agent with no tools may carry no `tools` key at all, which the worker reads the same as
+		// an empty list. `inputTransformsToAgentConfig` always writes one, and that difference alone
+		// would autosave a draft for an agent nobody has edited.
+		if (next.tools?.length === 0 && draft.state.args?.tools === undefined) {
+			delete next.tools
+		}
 		const serialized = JSON.stringify(next)
 		untrack(() => {
 			if (serialized === lastArgs) return

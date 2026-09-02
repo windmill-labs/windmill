@@ -37,9 +37,12 @@
 
 {#if isFlowModuleTool(tool)}
 	<!-- FlowModule tool - use existing FlowModuleComponent -->
+	<!-- Bound, not passed: "Save to workspace" and "Fork" replace the module wholesale, and an
+	     unbound prop would leave that replacement inside the component while the tool this drawer
+	     belongs to keeps the original — which is then what a deploy writes. -->
 	<FlowModuleComponent
 		{noEditor}
-		flowModule={tool as FlowModule}
+		bind:flowModule={() => tool as FlowModule, (v) => (tool = v as unknown as AgentTool)}
 		{parentModule}
 		{previousModule}
 		failureModule={false}

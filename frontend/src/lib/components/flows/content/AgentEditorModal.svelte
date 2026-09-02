@@ -25,7 +25,7 @@
 	} from '../agentEditorStore.svelte'
 	import { agentConfigToInputTransforms } from '../agentResourceUtils'
 	import { publishLinkedAgentTools } from '../flowState'
-	import { linkedToolsScope } from '../linkedAgentToolsStore.svelte'
+	import { linkedModulesForAgent, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
 	import AgentEditorHost from './AgentEditorHost.svelte'
 
 	interface Props {
@@ -168,12 +168,13 @@
 		markAgentWritten(at.ws, path)
 		if (!at.host) return
 		// The host graph resolves a linked agent's tool nodes from the resource, so it has to re-read
-		// what the write just changed.
-		return publishLinkedAgentTools(
-			path,
-			at.ws,
-			linkedToolsScope(at.ws, at.host.flowPath),
-			at.host.moduleId
+		// what the write just changed. Every step of that flow linking this agent, not only the one
+		// the editor was opened from: they all show tools the write may have moved.
+		const scope = linkedToolsScope(at.ws, at.host.flowPath)
+		const moduleIds = new Set(linkedModulesForAgent(scope, path))
+		moduleIds.add(at.host.moduleId)
+		return Promise.all(
+			[...moduleIds].map((moduleId) => publishLinkedAgentTools(path, at.ws, scope, moduleId))
 		)
 	}
 

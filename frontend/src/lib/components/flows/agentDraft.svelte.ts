@@ -1,5 +1,6 @@
 import { untrack } from 'svelte'
 import { get } from 'svelte/store'
+import { deepEqual } from 'fast-equals'
 import { ResourceService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { canWrite } from '$lib/utils'
@@ -250,6 +251,15 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		}
 		deployed = submitted
 		noDeployed = false
+		// Only when the form still holds exactly what was sent. `discard` resets the handle's cell to
+		// what it is given, and the apply-effect copies that back over the form: against an edit made
+		// while the request was in flight that would erase it, draft and all. Such an edit is a real
+		// unsaved change over the version just deployed, so it keeps its draft and its banner.
+		if (!deepEqual($state.snapshot(state), submitted)) {
+			sendUserToast(`Saved agent ${submitted.path}. Later edits are still unsaved`)
+			loadedFor = `${ws}:${submitted.path}`
+			return true
+		}
 		// `discard`, not `remove`: it resets the handle's cell to what was just saved, so the
 		// apply-effect cannot bounce the form back to the now-stale draft.
 		sync.discard(opts.path()!, submitted)
