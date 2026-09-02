@@ -34,6 +34,7 @@
 	import AgentToolBindings from './AgentToolBindings.svelte'
 	import { getLinkedAgentTools, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
 	import { flowLocalAgentSchema } from '../agentResourceUtils'
+	import { AI_AGENT_TOOL_AI_KEYS } from '../agentToolUtils'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import type { ButtonProp } from '$lib/components/diffEditorTypes'
 	import { loadSchemaFromModule } from '../flowInfers'
@@ -117,6 +118,15 @@
 		forceTestTab?: boolean
 		highlightArg?: string
 		isAgentTool?: boolean
+		/** Offer only values that stand on their own: no connect button, no expression option, no
+		 *  prop picker column. For a tool of a saved agent, whose inputs are stored on the resource
+		 *  and so cannot name any one flow's `flow_input` or `results`. A flow binds those on the
+		 *  step instead, through `tool_inputs`. */
+		staticOnly?: boolean
+		/** Where "Save to workspace" puts the script it creates, as `<base>/<module id>`. Defaults to
+		 *  the flow's path. The agent editor overrides it: its flow is synthetic and its path is not
+		 *  one a script could be created under. */
+		scriptSaveBasePath?: string
 		/** Lets the agent's Tools section add a tool through the graph's own insert path. */
 		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
 		toolDescription?: string | undefined
@@ -137,6 +147,8 @@
 		forceTestTab = false,
 		highlightArg = undefined,
 		isAgentTool = false,
+		staticOnly = false,
+		scriptSaveBasePath = undefined,
 		flowModuleSchemaMap = undefined,
 		toolDescription = $bindable(undefined),
 		siblingToolNames = undefined
@@ -849,7 +861,7 @@
 							flowModule,
 							flowModule.id,
 							flowStateStore.val[flowModule.id]?.schema,
-							$pathStore,
+							scriptSaveBasePath ?? $pathStore,
 							opWs
 						)
 						if (flowModule.value.type == 'rawscript') {
@@ -1093,10 +1105,12 @@
 										}}
 										wrapperClass="shrink-0"
 									>
+										<!-- A tool's inputs are arguments of the tool, not of a step in the flow;
+										     `tool_inputs` is what the rest of the codebase calls them. -->
 										{#if !preprocessorModule}
-											<Tab value="inputs" label="Step Input" />
+											<Tab value="inputs" label={isAgentTool ? 'Tool input' : 'Step Input'} />
 										{/if}
-										<Tab value="test" label="Test this step" />
+										<Tab value="test" label={isAgentTool ? 'Test this tool' : 'Test this step'} />
 										{#if canShowChatTab && flowModule.value.type === 'aiagent'}
 											<Tab
 												value="chat"
@@ -1114,10 +1128,13 @@
 									</Tabs>
 									{#if visibleSelected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}
 										<div class="flex-1 overflow-auto" id="flow-editor-step-input">
+											<!-- `sidePane` under `staticOnly`: that column only opens on a connect,
+											     and there is no connect button to open it. -->
 											<PropPickerWrapper
 												pickableProperties={stepPropPicker.pickableProperties}
 												error={failureModule}
 												noPadding
+												sidePane={staticOnly}
 											>
 												{#if reloadError}
 													<div
@@ -1183,7 +1200,9 @@
 														bind:this={inputTransformSchemaForm}
 														pickableProperties={stepPropPicker.pickableProperties}
 														schema={agentLinked
-															? flowLocalAgentSchema(flowStateStore.val[flowModule.id]?.schema ?? {})
+															? flowLocalAgentSchema(
+																	flowStateStore.val[flowModule.id]?.schema ?? {}
+																)
 															: (flowStateStore.val[flowModule.id]?.schema ?? {})}
 														previousModuleId={previousModule?.id}
 														bind:args={
@@ -1204,7 +1223,9 @@
 														extraLib={stepPropPicker.extraLib}
 														{enableAi}
 														{isAgentTool}
-														allowedAiTransforms={isAgentTool ? ['user_message'] : undefined}
+														noConnect={staticOnly}
+														noJavascript={staticOnly}
+														allowedAiTransforms={isAgentTool ? AI_AGENT_TOOL_AI_KEYS : undefined}
 														helperScript={retrieveDynCodeAndLang(flowModule.value)}
 														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 														workspace={opWs}
@@ -1242,6 +1263,8 @@
 														extraLib={stepPropPicker.extraLib}
 														{enableAi}
 														{isAgentTool}
+														noConnect={staticOnly}
+														noJavascript={staticOnly}
 														allowedAiTransforms={undefined}
 														helperScript={retrieveDynCodeAndLang(flowModule.value)}
 														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}

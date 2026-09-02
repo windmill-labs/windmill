@@ -15,6 +15,10 @@
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
 		siblingToolNames?: string[]
+		/** See `FlowModuleComponent`: set when the tool belongs to a saved agent rather than to a
+		 *  step of this flow. */
+		staticOnly?: boolean
+		scriptSaveBasePath?: string
 	}
 
 	let {
@@ -25,7 +29,9 @@
 		previousModule = undefined,
 		forceTestTab,
 		highlightArg,
-		siblingToolNames = undefined
+		siblingToolNames = undefined,
+		staticOnly = false,
+		scriptSaveBasePath = undefined
 	}: Props = $props()
 </script>
 
@@ -45,6 +51,8 @@
 		forceTestTab={forceTestTab?.[tool.id]}
 		highlightArg={highlightArg?.[tool.id]}
 		isAgentTool={true}
+		{staticOnly}
+		{scriptSaveBasePath}
 		bind:toolDescription={tool.description}
 		{siblingToolNames}
 	/>
