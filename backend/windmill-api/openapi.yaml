@@ -29828,6 +29828,11 @@ components:
             runs_examined:
               type: integer
               description: consecutive occurrence pairs that could be compared
+            running_late:
+              type: boolean
+              description: >-
+                the occurrence in flight has already outlived its own successor,
+                so the next one is overdue
 
     ScheduleOccurrence:
       type: object

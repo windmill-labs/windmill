@@ -15,6 +15,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sql_builder::{prelude::Bind, SqlBuilder};
 use sqlx::{Postgres, Transaction};
+use std::collections::HashMap;
 use std::str::FromStr;
 use windmill_api_auth::{
     build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_super_admin, ApiAuthed,
@@ -26,7 +27,7 @@ use windmill_common::{
     can_preserve_on_behalf_of,
     db::UserDB,
     error::{Error, JsonResult, Result},
-    schedule::{reconstruct_occurrences, Schedule, SkipDetail},
+    schedule::{is_overdue, reconstruct_occurrences, Schedule, SkipDetail},
     trigger_history::{
         self, TriggerHistoryEvent, TriggerOperation, TriggerSource, SCHEDULE_TRIGGER_KIND,
     },
@@ -35,7 +36,8 @@ use windmill_common::{
         UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
     },
     utils::{
-        escape_ilike_pattern, not_found_if_none, paginate, Pagination, ScheduleType, StripPath,
+        escape_ilike_pattern, not_found_if_none, now_from_db, paginate, Pagination, ScheduleType,
+        StripPath,
     },
     worker::to_raw_value,
 };
@@ -1012,6 +1014,10 @@ pub struct ScheduleWJobs {
     /// of occurrences fetched, since the oldest has nothing before it and pairs
     /// straddling `occurrence_baseline_at` say nothing.
     pub runs_examined: i64,
+    /// The occurrence in flight has already outlived its own successor, so the
+    /// next one is overdue. Only ever true for a schedule whose occurrences are
+    /// serialized, since an overlapping one starts its successor on time.
+    pub running_late: bool,
 }
 
 /// Occurrences read back per schedule for the skip count. One more than the 20
@@ -1037,10 +1043,17 @@ async fn list_schedule_with_jobs(
         // them apart leaves the displayed array untouched.
         "SELECT
             schedule.path,
+            schedule.script_path,
             schedule.schedule AS cron,
             schedule.timezone,
             schedule.cron_version,
             schedule.occurrence_baseline_at,
+            -- Occurrences serialize only when the whole job re-arms on completion.
+            -- `retry` and `dynamic_skip` both wrap the script in a SingleStepFlow,
+            -- which re-arms at step 0 entry and therefore overlaps like a flow.
+            NOT schedule.is_flow
+                AND schedule.retry IS NULL
+                AND schedule.dynamic_skip IS NULL AS \"serialized!\",
             t.jobs,
             o.occurrences
         FROM schedule,
@@ -1079,7 +1092,34 @@ async fn list_schedule_with_jobs(
     )
     .fetch_all(&mut *tx)
     .await?;
+
+    // One aggregating pass over the queue, not a lookup per schedule: a subquery
+    // in the LATERAL above would be a nested loop across the whole page, and the
+    // queue is small enough to group in one go. An overlapping schedule holds more
+    // than one root row, hence the aggregate rather than an assumed single row.
+    let queued = sqlx::query!(
+        "SELECT j.trigger AS \"trigger!\", j.runnable_path AS \"runnable_path!\",
+                MIN(q.scheduled_for) AS \"oldest!\"
+         FROM v2_job_queue q JOIN v2_job j ON j.id = q.id
+         WHERE q.workspace_id = $1
+             AND j.trigger_kind = 'schedule'
+             AND j.parent_job IS NULL
+             AND j.trigger IS NOT NULL
+             AND j.runnable_path IS NOT NULL
+         GROUP BY j.trigger, j.runnable_path",
+        w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    // Compare against the database clock, which is the one the pushes anchored on.
+    let now = now_from_db(&mut *tx).await?;
     tx.commit().await?;
+
+    let oldest_queued: HashMap<(String, String), DateTime<Utc>> = queued
+        .into_iter()
+        .map(|q| ((q.trigger, q.runnable_path), q.oldest))
+        .collect();
+
     let allowed = build_scope_path_predicate(&authed, "schedules", "read");
     Ok(Json(
         rows.into_iter()
@@ -1093,7 +1133,26 @@ async fn list_schedule_with_jobs(
                     r.occurrences.as_deref().unwrap_or_default(),
                     r.occurrence_baseline_at,
                 );
-                ScheduleWJobs { path: r.path, jobs: r.jobs, skipped_runs, runs_examined }
+                let running_late = r.serialized
+                    && oldest_queued
+                        .get(&(r.path.clone(), r.script_path.clone()))
+                        .is_some_and(|oldest| {
+                            is_overdue(
+                                &r.cron,
+                                r.cron_version.as_deref(),
+                                &r.timezone,
+                                *oldest,
+                                now,
+                            )
+                            .unwrap_or(false)
+                        });
+                ScheduleWJobs {
+                    path: r.path,
+                    jobs: r.jobs,
+                    skipped_runs,
+                    runs_examined,
+                    running_late,
+                }
             })
             .collect(),
     ))

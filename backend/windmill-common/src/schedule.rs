@@ -147,6 +147,28 @@ pub fn reconstruct_occurrences(
     Ok(out)
 }
 
+/// Whether an occurrence due at `scheduled_for` that has not finished yet has
+/// already outlived its own successor, so that successor is overdue and, on a
+/// schedule whose occurrences are serialized, will be lost.
+///
+/// Reconstruction cannot see this: a gap only appears once the *next* occurrence
+/// has a row, which needs this one to finish first.
+pub fn is_overdue(
+    schedule: &str,
+    cron_version: Option<&str>,
+    timezone: &str,
+    scheduled_for: DateTime<Utc>,
+    now: DateTime<Utc>,
+) -> Result<bool> {
+    let sched = ScheduleType::from_str(schedule, cron_version, false)?;
+    let tz = chrono_tz::Tz::from_str(timezone)
+        .map_err(|e| Error::BadRequest(format!("invalid timezone {timezone}: {e}")))?;
+    let successor_due = sched
+        .find_next(&scheduled_for.with_timezone(&tz))
+        .with_timezone(&Utc);
+    Ok(now > successor_due)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,6 +278,21 @@ mod tests {
         );
         assert_eq!(got[1].skipped_count, Some(MAX_COUNTED_SKIPS));
         assert!(got[1].count_capped);
+    }
+
+    #[test]
+    fn an_occurrence_is_overdue_once_it_outlives_its_successor() {
+        let due = at("2026-01-01T08:20:20Z");
+        let overdue = |now: &str| is_overdue(EVERY_10S, Some("v2"), "UTC", due, at(now)).unwrap();
+        assert!(
+            !overdue("2026-01-01T08:20:25Z"),
+            "still before the next one"
+        );
+        assert!(
+            !overdue("2026-01-01T08:20:30Z"),
+            "the next one is due, not late"
+        );
+        assert!(overdue("2026-01-01T08:20:31Z"), "the next one is now late");
     }
 
     /// The list surface answers the cheap question and never walks.
