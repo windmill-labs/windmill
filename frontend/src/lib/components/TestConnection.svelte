@@ -3,8 +3,10 @@
 		type CompletedJob,
 		JobService,
 		type Preview,
+		ResourceService,
 		SettingService,
-		UserService
+		UserService,
+		VariableService
 	} from '$lib/gen'
 
 	import { Database, Loader2 } from 'lucide-svelte'
@@ -19,11 +21,10 @@
 		resourceType: string | undefined
 		args?: Record<string, any> | any
 		buttonTextOverride?: string | undefined
-		// Object-storage types only: run the probe from a preview job instead of the browser, to
-		// prove a worker can reach the API. The job gets a short-lived token minted for the
-		// caller (a job token is never treated as a super admin), and that token sits in the
-		// job's stored arguments until it is revoked, so keep this to workspaces whose job
-		// readers you trust with the caller's privileges.
+		// Object-storage types only: probe from a preview job (proves a worker reaches the API)
+		// instead of the browser. The job gets a short-lived token minted for the caller, since a
+		// job token is never a super admin, and that token is readable in the job's stored args
+		// until revoked: only use it where the workspace's job readers may hold the caller's rights.
 		viaWorker?: boolean
 	}
 
@@ -189,9 +190,52 @@ export async function main(bucket: any, api_token: string) {
 		}
 	}
 
-	async function testObjectStorageFromBrowser(body: Record<string, any>) {
+	// A preview job gets its arguments interpolated on the worker: `$var:`, `$jsonvar:` and
+	// `$res:` references are replaced with the job's privileges before the script runs. The
+	// browser path has to do the same with the caller's session, or a secret stored as a linked
+	// variable (what the "Add resource" drawer saves) is sent verbatim as the credential.
+	async function resolveReferences(value: any, workspace: string): Promise<any> {
+		if (typeof value === 'string') {
+			if (value.startsWith('$var:')) {
+				return await VariableService.getVariableValue({
+					workspace,
+					path: value.slice('$var:'.length)
+				})
+			}
+			if (value.startsWith('$jsonvar:')) {
+				return JSON.parse(
+					await VariableService.getVariableValue({
+						workspace,
+						path: value.slice('$jsonvar:'.length)
+					})
+				)
+			}
+			if (value.startsWith('$res:')) {
+				return await ResourceService.getResourceValueInterpolated({
+					workspace,
+					path: value.slice('$res:'.length)
+				})
+			}
+			return value
+		}
+		if (Array.isArray(value)) {
+			return await Promise.all(value.map((v) => resolveReferences(v, workspace)))
+		}
+		if (value && typeof value === 'object') {
+			const resolved: Record<string, any> = {}
+			for (const [key, v] of Object.entries(value)) {
+				resolved[key] = await resolveReferences(v, workspace)
+			}
+			return resolved
+		}
+		return value
+	}
+
+	async function testObjectStorageFromBrowser(body: Record<string, any>, workspace: string) {
 		try {
-			await SettingService.testObjectStorageConfig({ requestBody: body })
+			await SettingService.testObjectStorageConfig({
+				requestBody: await resolveReferences(body, workspace)
+			})
 			sendUserToast('Connection successful', false)
 		} catch (err: any) {
 			sendUserToast('Connection error: ' + (err?.body ?? err?.message ?? err), true)
@@ -210,7 +254,7 @@ export async function main(bucket: any, api_token: string) {
 			resourceType in objectStorageBody ? objectStorageBody[resourceType](args) : undefined
 
 		if (objectStorageArgs && !viaWorker) {
-			await testObjectStorageFromBrowser(objectStorageArgs)
+			await testObjectStorageFromBrowser(objectStorageArgs, workspace)
 			return
 		}
 
