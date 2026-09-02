@@ -80,13 +80,19 @@
 	})
 
 	// The row is the card's whole heading, in the tense the call is in: a run cancelled
-	// before it started never ran, so it is still the thing that was going to be run.
+	// before it started never ran, so it is still the thing that was going to be run. A
+	// test says so, since what it ran is the draft rather than what is deployed.
+	const verbs = $derived(
+		runForm.kind === 'test'
+			? { present: 'Testing', past: 'Tested', future: 'Test' }
+			: { present: 'Running', past: 'Ran', future: 'Run' }
+	)
 	const label = $derived(
 		running
-			? `Running ${runForm.path}`
+			? `${verbs.present} ${runForm.path}`
 			: settled && ran
-				? `Ran ${runForm.path}`
-				: `Run ${runForm.path}`
+				? `${verbs.past} ${runForm.path}`
+				: `${verbs.future} ${runForm.path}`
 	)
 
 	// Being cancelled is an outcome like any other, and it is the one the card has to say out

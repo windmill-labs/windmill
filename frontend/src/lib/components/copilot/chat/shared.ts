@@ -558,10 +558,13 @@ export function answeredChoices(q: UserQuestionDisplay): string[] | undefined {
 export type RunFormDisplay = {
 	path: string
 	summary?: string
-	/** Of the DEPLOYED script, not a draft. Only the rendered form reads it, so it is
-	 * dropped once one of the flags below unmounts that form: kept, every settled card
-	 * would carry a copy of the schema — password and file defaults included — in
-	 * history forever. */
+	/** What the run is, in the card's own words: a deployed script run, or a preview of the
+	 * draft being written. Only the tense of the row's label turns on it. */
+	kind?: 'run' | 'test'
+	/** Of whatever version is about to run: the deployed script, or the draft a test
+	 * previews. Only the rendered form reads it, so it is dropped once one of the flags
+	 * below unmounts that form: kept, every settled card would carry a copy of the schema
+	 * — password and file defaults included — in history forever. */
 	schema?: Record<string, any>
 	/** Prefill only: the card's `parameters` records what the job started with. */
 	args: Record<string, any>
@@ -1305,10 +1308,15 @@ export interface ToolCallbacks {
 		question: UserQuestionDisplay
 	) => Promise<string[] | undefined>
 	/** Park the loop on an argument form and resolve with the args the user submitted,
-	 * or undefined if they cancelled. Wired only where the form can be rendered. */
+	 * or undefined if they cancelled. Wired only where the form can be rendered.
+	 *
+	 * `autoAcceptable` opts the form into the YOLO posture, which answers it with what it
+	 * opened with. Only a run the user can undo by editing the code may set it: a deployed
+	 * run is not one, which is why its form is the confirmation YOLO cannot skip. */
 	requestRunArgs?: (
 		toolId: string,
-		form: RunFormDisplay
+		form: RunFormDisplay,
+		opts?: { autoAcceptable?: boolean }
 	) => Promise<Record<string, any> | undefined>
 	/** The submitted form's job is queued. Wired alongside requestRunArgs. */
 	markRunFormStarted?: (toolId: string) => void
