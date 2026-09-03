@@ -743,6 +743,11 @@
 										if (arg) {
 											arg.value = codeToStaticTemplate(arg.expr)
 											arg.expr = undefined
+											// Stated here, as the other branches state it. `setPropertyType`
+											// only writes a type when the text is an interpolation, so leaving
+											// it to that call means a field switched off `ai` keeps carrying
+											// `ai` and reads straight back as it on the next render.
+											arg.type = 'static'
 										}
 										setPropertyType(arg?.value)
 									} else if (inputCat == 'list' || inputCat == 'object') {
@@ -765,6 +770,14 @@
 											arg.value = undefined
 											arg.expr = undefined
 										}
+									}
+									// On a field the agent can fill, "static with no value" is itself the
+									// AI state (see `getPropertyType`), so leaving the value unset reads
+									// this choice straight back as AI and the field can never be typed
+									// into. An empty value of the field's own kind is what makes "I will
+									// supply this one" representable.
+									if (fieldAllowsAi && arg && arg.value === undefined) {
+										arg.value = isStaticTemplate(inputCat) ? '' : null
 									}
 									propertyType = 'static'
 								}
