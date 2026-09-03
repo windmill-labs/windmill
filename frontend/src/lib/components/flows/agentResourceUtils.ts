@@ -20,6 +20,21 @@ export const AGENT_FLOW_LOCAL_KEYS = ['user_message', 'user_attachments'] as con
 
 export type AgentTool = Record<string, any>
 
+/**
+ * Why this resource cannot be edited as an agent, if it cannot. A path with no deployed row answers
+ * with its own draft, whose type the generic resource editor never writes, so an unknown type is
+ * refused rather than assumed: deploying it would create that path as an agent.
+ */
+export function agentEditorRefusal(
+	path: string,
+	resourceType: string | undefined
+): string | undefined {
+	if (resourceType === 'ai_agent') return undefined
+	return resourceType
+		? `${path} is a ${resourceType} resource, not an agent.`
+		: `${path} has no deployed agent to edit.`
+}
+
 /** Brain keys whose step transform is non-static and would be dropped by a save-as-agent snapshot. */
 export function nonStaticBrainKeys(
 	inputTransforms: Record<string, InputTransform> | undefined

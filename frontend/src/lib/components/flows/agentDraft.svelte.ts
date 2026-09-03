@@ -8,7 +8,7 @@ import { userStore } from '$lib/stores'
 import { getUserExt } from '$lib/user'
 import { useTriggerDraftSync, type TriggerDraftSync } from '../triggers/useTriggerDraftSync.svelte'
 import { logReusableAgentUsage } from './agentTelemetry'
-import { AGENT_BRAIN_KEYS, type AIAgentConfig } from './agentResourceUtils'
+import { AGENT_BRAIN_KEYS, agentEditorRefusal, type AIAgentConfig } from './agentResourceUtils'
 // Lives here rather than beside the other config helpers: `agentResourceUtils` is a leaf, and
 // importing tool-name validation into it would cycle back through `flowInfers` and pull the whole
 // editor into every module that reads a brain key.
@@ -66,9 +66,9 @@ export interface AgentResourceState {
 	path: string
 	description: string
 	args: AIAgentConfig
-	/** Carried so the deploy page's diff doesn't read the draft as dropping it, and so a
-	 *  draft-only agent creates with the right type. */
-	resource_type: string
+	/** Present only for a path with no deployed row, whose type the draft is the sole record of.
+	 *  Elsewhere it is left out to match the generic resource editor, which has no field for it. */
+	resource_type?: string
 	labels?: string[]
 	wsSpecific: boolean
 }
@@ -89,6 +89,8 @@ export interface AgentDraftHandle {
 	readonly noDeployed: boolean
 	/** Whether this user may write the resource. False makes the editor a read-only view. */
 	readonly canWrite: boolean
+	/** Why this path cannot be edited here, if it cannot. Render it instead of the form. */
+	readonly refusal: string | undefined
 	readonly sync: TriggerDraftSync
 	/** Write the current state to the resource and drop the draft. */
 	deploy: () => Promise<boolean>
@@ -107,12 +109,16 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 	let canWriteResource = $state(true)
 	/** Guards the load against a path that changed under a slow response. */
 	let loadedFor = $state<string | undefined>(undefined)
+	/** Why the loaded path cannot be edited here, if it cannot. Gates the sync for as long as that
+	 *  path stays, so a resource this editor refuses can neither restore its draft into the form nor
+	 *  have one autosaved from it. Set it through `refuse`, which also clears what was loaded. */
+	let refusal = $state<string | undefined>(undefined)
 
 	const sync = useTriggerDraftSync({
 		itemKind: 'resource',
 		path: () => opts.path() ?? '',
 		workspace: () => opts.workspace(),
-		drawerLoading: () => loading,
+		drawerLoading: () => loading || refusal != null,
 		// `$state.snapshot` deep-reads, so the sync effects re-run when a nested field of `args`
 		// changes. Returning the object itself only subscribes to the reference, and every edit the
 		// form makes is a nested one.
@@ -123,6 +129,16 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		deployed: () => deployed as Record<string, any> | undefined
 	})
 
+	function refuse(reason: string) {
+		loading = false
+		refusal = reason
+		state = undefined
+		deployed = undefined
+		noDeployed = false
+		canWriteResource = false
+		sendUserToast(reason, true)
+	}
+
 	$effect(() => {
 		const path = opts.path()
 		const ws = opts.workspace()
@@ -131,12 +147,14 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 				state = undefined
 				deployed = undefined
 				loadedFor = undefined
+				refusal = undefined
 				return
 			}
 			const key = `${ws}:${path}`
 			if (loadedFor === key) return
 			loadedFor = key
 			loading = true
+			refusal = undefined
 			// The user alongside the resource, as the generic resource editor loads it: a session or
 			// fork editor operates on a workspace that is not the one being navigated, and groups,
 			// folders and the admin flag are all per workspace, so the nav user would answer for the
@@ -145,55 +163,62 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 				ResourceService.getResource({ workspace: ws, path, getDraft: true }),
 				getUserExt(ws).catch(() => undefined)
 			])
-				.then(async ([r, user]) => {
-					// A slower response for a path we have left must not overwrite the current one.
-					if (loadedFor !== key) return
-					// A step's `agent` is caller-authored, so it can name a resource of any type. Deploy
-					// replaces the whole value and never sends a type, so opening one here and saving
-					// would leave a postgres resource typed postgres with an agent config inside it.
-					if (r.resource_type && r.resource_type !== 'ai_agent') {
-						loading = false
-						sendUserToast(
-							`${path} is a ${r.resource_type} resource, not an agent. Refusing to open it here.`,
-							true
+				// The rejection handler is `then`'s second argument rather than a trailing `catch`, so
+				// it answers for the fetch alone: a throw in the body below leaves a loaded editor
+				// standing instead of tearing it down as an unreadable resource.
+				.then(
+					async ([r, user]) => {
+						// A slower response for a path we have left must not overwrite the current one.
+						if (loadedFor !== key) return
+						// A step's `agent` is caller-authored, so it can name a resource of any type, and a
+						// deploy from here would replace that resource's whole value while keeping its type.
+						const refused = agentEditorRefusal(path, r.resource_type)
+						if (refused) {
+							refuse(refused)
+							return
+						}
+						noDeployed = Boolean((r as any).no_deployed)
+						const deployedState: AgentResourceState = {
+							path: r.path,
+							description: r.description ?? '',
+							args: (r.value ?? {}) as AIAgentConfig,
+							// Only where nothing else answers for the type: with a deployed row both the
+							// create below and the review page's `deployDraft` read it from there, and
+							// carrying it would make every draft the generic resource editor writes — which
+							// has no field for it — differ from this baseline on that key alone.
+							...(noDeployed ? { resource_type: r.resource_type } : {}),
+							labels: r.labels ?? undefined,
+							wsSpecific: r.ws_specific ?? false
+						}
+						// Same rule the generic resource editor applies. The backend refuses the write
+						// either way, but without this the editor would invite edits it cannot save and
+						// autosave a draft on every keystroke against a resource the reader cannot deploy.
+						canWriteResource = canWrite(
+							r.path,
+							r.extra_perms ?? {},
+							user ?? get(userStore) ?? undefined
 						)
-						return
+						// An agent that exists only as a draft has no deployed value to compare against or
+						// fall back to, and the response's is a synthetic echo of the draft. Leaving the
+						// baseline unset is what suppresses the unsaved-changes banner for it, exactly as
+						// `useTriggerDraftSync` intends: its Discard would otherwise reset to that synthetic
+						// value and delete the one row the agent lives in.
+						deployed = noDeployed ? undefined : deployedState
+						// Open on the draft when there is one, so the editor never flashes the deployed
+						// config before the autosave lands.
+						state =
+							((r as any).draft as AgentResourceState | undefined) ?? structuredClone(deployedState)
+						loading = false
+						await sync.maybeRestore()
+					},
+					(err) => {
+						// A failed load knows neither the resource's type nor its value, so it refuses:
+						// clearing `loading` alone would let the sync restore a persisted draft into a form
+						// that would then deploy over a resource nobody read.
+						if (loadedFor !== key) return
+						refuse(`Could not load agent ${path}: ${err}`)
 					}
-					const deployedState: AgentResourceState = {
-						path: r.path,
-						description: r.description ?? '',
-						args: (r.value ?? {}) as AIAgentConfig,
-						resource_type: r.resource_type ?? 'ai_agent',
-						labels: r.labels ?? undefined,
-						wsSpecific: r.ws_specific ?? false
-					}
-					noDeployed = Boolean((r as any).no_deployed)
-					// Same rule the generic resource editor applies. The backend refuses the write
-					// either way, but without this the editor would invite edits it cannot save and
-					// autosave a draft on every keystroke against a resource the reader cannot deploy.
-					canWriteResource = canWrite(
-						r.path,
-						r.extra_perms ?? {},
-						user ?? get(userStore) ?? undefined
-					)
-					// An agent that exists only as a draft has no deployed value to compare against or
-					// fall back to, and the response's is a synthetic echo of the draft. Leaving the
-					// baseline unset is what suppresses the unsaved-changes banner for it, exactly as
-					// `useTriggerDraftSync` intends: its Discard would otherwise reset to that synthetic
-					// value and delete the one row the agent lives in.
-					deployed = noDeployed ? undefined : deployedState
-					// Open on the draft when there is one, so the editor never flashes the deployed
-					// config before the autosave lands.
-					state =
-						((r as any).draft as AgentResourceState | undefined) ?? structuredClone(deployedState)
-					loading = false
-					await sync.maybeRestore()
-				})
-				.catch((err) => {
-					if (loadedFor !== key) return
-					loading = false
-					sendUserToast(`Could not load agent ${path}: ${err}`, true)
-				})
+				)
 		})
 	})
 
@@ -238,10 +263,9 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 			)
 			return false
 		}
-		// The load refuses anything else, so this only catches a draft row carrying another type.
-		// An update sends no type, so it would leave that resource typed as it was with an agent
-		// config inside it.
-		if (s.resource_type !== 'ai_agent') {
+		// Only a draft naming another type: the load refuses a resource that is not an agent, while a
+		// draft the generic resource editor wrote names no type at all and inherits the loaded one.
+		if (s.resource_type && s.resource_type !== 'ai_agent') {
 			sendUserToast(`This draft is a ${s.resource_type} resource, not an agent.`, true)
 			return false
 		}
@@ -261,7 +285,8 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 			if (noDeployed) {
 				await ResourceService.createResource({
 					workspace: ws,
-					requestBody: { ...body, resource_type: submitted.resource_type }
+					// A create needs a type, and the load proved this path is an agent before opening.
+					requestBody: { ...body, resource_type: submitted.resource_type ?? 'ai_agent' }
 				})
 			} else {
 				await ResourceService.updateResource({
@@ -312,6 +337,9 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		},
 		get canWrite() {
 			return canWriteResource
+		},
+		get refusal() {
+			return refusal
 		},
 		sync,
 		deploy

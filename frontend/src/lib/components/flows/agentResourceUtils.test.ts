@@ -2,12 +2,25 @@ import { describe, expect, it } from 'vitest'
 
 import {
 	agentConfigToInputTransforms,
+	agentEditorRefusal,
 	flowLocalInputs,
 	inputTransformsToAgentConfig,
 	nonStaticBrainKeys,
 	summarizeAgentBrain,
 	toolInputOverrides
 } from './agentResourceUtils'
+
+describe('agentEditorRefusal', () => {
+	it('opens an agent', () => {
+		expect(agentEditorRefusal('u/admin/agent', 'ai_agent')).toBeUndefined()
+	})
+
+	// A path with no deployed row answers with its own draft, and the generic resource editor writes
+	// no type: assuming `ai_agent` there would create that path as an agent on deploy.
+	it('refuses an unknown type rather than assuming one', () => {
+		expect(agentEditorRefusal('u/admin/db', undefined)).toContain('no deployed agent')
+	})
+})
 
 describe('summarizeAgentBrain', () => {
 	it('returns only set fields, in brain-key order, formatted', () => {

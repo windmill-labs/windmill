@@ -86,7 +86,10 @@
 	})
 
 	let draft = $derived(host?.draftHandle())
-	let inEvals = $derived(target?.view === 'evals')
+	// The load refused this path, so there is no agent to deploy, evaluate or show a history of:
+	// the dialog carries only the refusal the host renders.
+	let refused = $derived(draft?.refusal != null)
+	let inEvals = $derived(target?.view === 'evals' && !refused)
 	let readOnly = $derived(draft ? !draft.canWrite : false)
 	let draftOnly = $derived(draft?.noDeployed ?? false)
 
@@ -117,7 +120,7 @@
 	)
 	// The root's alone: below it the header's second line is the way back, and what a level is for
 	// belongs to that level rather than to the dialog's own name.
-	let description = $derived(inEvals ? undefined : AGENT_DESCRIPTION)
+	let description = $derived(inEvals || refused ? undefined : AGENT_DESCRIPTION)
 
 	/** The unsaved edits, in the shape the server builds from a deployed config
 	 *  (`ai_evals/run.rs` `config_to_draft`), so a draft run's hash can be recognised as equal to
@@ -225,7 +228,7 @@
 			{#snippet titleBadge()}
 				<!-- Against the agent's own name wherever it appears, as the linked-agent card in the
 				     step panel has it. -->
-				{#if version != undefined}
+				{#if version != undefined && !refused}
 					<Badge color="gray" class="shrink-0" title="The version runs are recorded against">
 						v{version}
 					</Badge>
@@ -243,7 +246,7 @@
 			     dialog states for itself whether a run is against the deployed version or the edits. -->
 			{#snippet settings()}
 				<div class="flex flex-row items-center gap-2 shrink-0">
-					{#if !inEvals}
+					{#if !inEvals && !refused}
 						{#if readOnly}
 							<Badge
 								color="gray"

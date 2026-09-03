@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getContext, setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
+	import { Alert } from '$lib/components/common'
 	import { deepEqual } from 'fast-equals'
 	import type { Flow, FlowModule, InputTransform, Job, OpenFlow } from '$lib/gen'
 	import { emptySchema, type StateStore } from '$lib/utils'
@@ -325,7 +326,13 @@
 	}
 </script>
 
-{#if draft.loading}
+{#if draft.refusal}
+	<div class="h-full flex items-center justify-center px-8">
+		<Alert type="error" size="sm" title={draft.refusal} class="max-w-lg">
+			Open it from the resources page to see what it holds.
+		</Alert>
+	</div>
+{:else if draft.loading}
 	<div class="h-full flex items-center justify-center text-xs text-tertiary">Loading agent...</div>
 {:else if agentModule && agentValue}
 	<!-- Named and positioned so the tool picker's popover can portal here: the `#flow-editor` it
