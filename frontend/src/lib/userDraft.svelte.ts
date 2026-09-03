@@ -237,6 +237,9 @@ const DRAFT_COMPARE_IGNORED_FIELDS = [
 	// Computed at read time from the parent folder; edited on the folder, not
 	// here. `labels` itself IS editable and stays compared.
 	'inherited_labels',
+	// Fixed at creation and absent from the resource editor's draft shape, so
+	// it only ever shows up on the deployed side of a comparison.
+	'resource_type',
 	// A resource's OAuth/linked-secret state: owned by the OAuth flow and the
 	// variable it points at, never by the resource form.
 	'is_oauth',

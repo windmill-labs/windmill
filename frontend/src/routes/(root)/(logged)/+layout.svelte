@@ -74,6 +74,7 @@
 	import { createUsageResources, registerUsageResources } from '$lib/usage.svelte'
 	import { purgeLegacyUserDrafts } from '$lib/userDraftLegacyMigration'
 	import { migrateUserDraftsToDb } from '$lib/userDraftDbMigration'
+	import { pruneMeaninglessDrafts } from '$lib/userDraftPrune'
 	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
 	import { onDestroy, setContext, untrack } from 'svelte'
 	import { base } from '$app/paths'
@@ -787,12 +788,16 @@
 	// drafts). `migrateUserDraftsToDb` then pushes the workspace-scoped
 	// `userdraft/w/{ws}/{kind}/{path}` keys — written by the editor with the
 	// correct workspace — onto the server-side draft table, clearing LS on
-	// success.
+	// success. `pruneMeaninglessDrafts` then clears the drafts an older, stricter
+	// comparison saved for changes nobody made; it runs after the upload so the
+	// entries that just landed are swept in the same pass.
 	$effect(() => {
-		if ($workspaceStore && $userStore) {
+		const ws = $workspaceStore
+		const email = $userStore?.email
+		if (ws && email) {
 			untrack(() => {
 				purgeLegacyUserDrafts()
-				void migrateUserDraftsToDb()
+				void migrateUserDraftsToDb().then(() => pruneMeaninglessDrafts(ws, email))
 			})
 		}
 	})
