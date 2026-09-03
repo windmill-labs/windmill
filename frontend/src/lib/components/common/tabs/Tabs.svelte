@@ -77,10 +77,15 @@
 	// label renders to. Zero width means nothing is selected yet, and the bar stays hidden.
 	let row: HTMLDivElement | undefined = $state()
 	let bar = $state({ x: 0, w: 0 })
+	// Where the bar rests while nothing is selected, so it fades out in place rather than
+	// sliding to the left edge. A plain local, not state: measureBar runs inside the effect
+	// below, and reading there the state it writes would make that effect its own dependency.
+	let lastX = 0
 
 	function measureBar() {
 		const el = row?.querySelector<HTMLElement>('[data-tab-selected="true"]')
-		bar = el ? { x: el.offsetLeft, w: el.offsetWidth } : { x: bar.x, w: 0 }
+		if (el) lastX = el.offsetLeft
+		bar = { x: lastX, w: el ? el.offsetWidth : 0 }
 	}
 
 	// Placing the bar for the first paint. Every later move comes from the observers below: a
