@@ -340,19 +340,19 @@
 				class="h-8 px-3 font-main"
 				wrapperClass="shrink-0"
 				slidingIndicator
-				indicatorClass="bg-border-accent"
 			>
 				{#if !rawView}
 					{#each tabs as tab (tab.value)}
 						<!-- The tab widens in first and the bar follows it, because a run adds its tabs as
 						     it produces them: landing the selection on a tab in the frame it appears reads
-						     as one unexplained jump. `border-b-0` because the bar is the selection now. -->
+						     as one unexplained jump. `border-b-0` because the bar is the selection now.
+						     Size only: Tab's own colour and weight mark the selection, and this class
+						     lands after them in its twMerge, so a colour here would silently win. -->
 						<span class="inline-flex overflow-hidden" in:growIn={{ live: liveStrip }}>
 							<Tab
 								value={tab.value}
 								label={tab.label}
-								class="border-b-0 py-0.5 text-2xs font-medium leading-4 text-secondary"
-								selectedClass="text-accent"
+								class="border-b-0 py-0.5 text-2xs leading-4"
 								exact
 							>
 								{#snippet extra()}
