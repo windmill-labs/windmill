@@ -1,17 +1,30 @@
 <script lang="ts">
-	import { ChevronDown, Check } from 'lucide-svelte'
+	import { ChevronDown, Check, User, Building2, Settings, ExternalLink } from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import DropdownSubmenuItem from '$lib/components/DropdownSubmenuItem.svelte'
 	import MenuItem from '$lib/components/meltComponents/MenuItem.svelte'
 	import MenuItemWrapper from '$lib/components/meltComponents/MenuItemWrapper.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import {
 		COPILOT_SESSION_MODEL_SETTING_NAME,
 		COPILOT_SESSION_PROVIDER_SETTING_NAME,
-		COPILOT_SESSION_REASONING_SETTING_NAME
+		COPILOT_SESSION_REASONING_SETTING_NAME,
+		userStore,
+		workspaceStore
 	} from '$lib/stores'
-	import { storeLocalSetting } from '$lib/utils'
-	import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
-	import { type AIProvider, type AIProviderModel } from '$lib/gen'
+	import { storeLocalSetting, type Item } from '$lib/utils'
+	import {
+		copilotInfo,
+		copilotSessionModel,
+		getUserCustomPrompts,
+		setCopilotInfo,
+		setUserCustomPrompts
+	} from '$lib/aiStore'
+	import { WorkspaceService, type AIProvider, type AIProviderModel } from '$lib/gen'
+	import { sendUserToast } from '$lib/toast'
+	import { base } from '$lib/base'
+	import AIPromptsModal from '$lib/components/settings/AIPromptsModal.svelte'
+	import { getAiChatManager } from './aiChatManagerContext'
 	import { thinkingPreferences } from './thinkingPreferences.svelte'
 	import {
 		getReasoningCapability,
@@ -19,6 +32,16 @@
 		REASONING_OFF,
 		type ReasoningProviderModel
 	} from '../reasoningRegistry'
+
+	let {
+		/** Whether this dropdown carries the custom-prompt entries. Off where the surface
+		 * has an assistant settings modal — its Instructions section owns them there, and
+		 * two ways in would drift. The home composer has no such modal, so it keeps them. */
+		promptSettings = true
+	}: { promptSettings?: boolean } = $props()
+
+	const aiChatManager = getAiChatManager()
+	const AI_SETTINGS_HREF = `${base}/workspace_settings?tab=ai`
 
 	let providerModel = $derived(
 		($copilotSessionModel ??
@@ -103,6 +126,150 @@
 		storeLocalSetting(COPILOT_SESSION_REASONING_SETTING_NAME, reasoning)
 	}
 
+	// ---- prompt parameters (User / Workspace custom prompts) ----
+	let mode = $derived(aiChatManager.mode)
+	let modalOpen = $state(false)
+	let modalScope = $state<'user' | 'workspace'>('user')
+	let customPrompts = $state<Record<string, string>>({})
+	let initialPrompt = $state('')
+	// Snapshot of the mode the modal was opened for. The live chat mode can change
+	// while the modal is open (mode selector sits behind it), so all edit/save/reset
+	// operations must key off this snapshot, not the reactive `mode`.
+	let activeMode = $state(aiChatManager.mode)
+
+	let isAdmin = $derived(Boolean($userStore?.is_admin || $userStore?.is_super_admin))
+	// True when the workspace has no AI providers of its own (it uses instance defaults).
+	// In that case the backend never makes workspace custom_prompts effective, so a saved
+	// workspace prompt would be dead config — mirror the settings page and surface it read-only.
+	let workspaceMissingProviders = $state(false)
+	let modalReadOnly = $derived(
+		modalScope === 'workspace' && (!isAdmin || workspaceMissingProviders)
+	)
+	let readOnlyReason = $derived(
+		modalScope === 'workspace' && isAdmin && workspaceMissingProviders
+			? 'This workspace uses instance AI defaults, so a workspace prompt would have no effect. Configure workspace AI providers in AI settings first.'
+			: undefined
+	)
+	let hasChanges = $derived((customPrompts[activeMode] ?? '') !== initialPrompt)
+
+	function openUserPrompt() {
+		activeMode = mode
+		initialPrompt = getUserCustomPrompts()[activeMode] ?? ''
+		customPrompts = { [activeMode]: initialPrompt }
+		modalScope = 'user'
+		modalOpen = true
+	}
+
+	// Seed from the same source save() writes to (the raw workspace ai_config) and detect
+	// whether the workspace has its own providers in the same fetch. Non-admins can't read
+	// raw settings, so they see the effective prompt from copilotInfo (read-only).
+	async function openWorkspacePrompt() {
+		activeMode = mode
+		modalScope = 'workspace'
+		workspaceMissingProviders = false
+		if (!isAdmin) {
+			initialPrompt = $copilotInfo.customPrompts?.[activeMode] ?? ''
+		} else {
+			const workspace = $workspaceStore
+			try {
+				const settings = workspace ? await WorkspaceService.getSettings({ workspace }) : undefined
+				const providers = settings?.ai_config?.providers ?? {}
+				workspaceMissingProviders = Object.keys(providers).length === 0
+				initialPrompt = settings?.ai_config?.custom_prompts?.[activeMode] ?? ''
+			} catch (err) {
+				sendUserToast(`Failed to load workspace AI prompt: ${err}`, true)
+				initialPrompt = $copilotInfo.customPrompts?.[activeMode] ?? ''
+			}
+		}
+		customPrompts = { [activeMode]: initialPrompt }
+		modalOpen = true
+	}
+
+	function reset() {
+		customPrompts = { [activeMode]: initialPrompt }
+	}
+
+	async function save() {
+		const value = (customPrompts[activeMode] ?? '').trim()
+		if (modalScope === 'user') {
+			const prompts = getUserCustomPrompts()
+			if (value) {
+				prompts[activeMode] = value
+			} else {
+				delete prompts[activeMode]
+			}
+			setUserCustomPrompts(prompts)
+			initialPrompt = value
+			customPrompts = { [activeMode]: value }
+			sendUserToast('User AI prompt saved')
+			return
+		}
+
+		const workspace = $workspaceStore
+		if (!workspace) return
+		try {
+			// Saving prompts requires a full ai_config round-trip; fetch the current
+			// config so we don't clobber providers/models/etc.
+			const settings = await WorkspaceService.getSettings({ workspace })
+			const config = settings.ai_config ?? {}
+			const custom_prompts = { ...(config.custom_prompts ?? {}) }
+			if (value) {
+				custom_prompts[activeMode] = value
+			} else {
+				delete custom_prompts[activeMode]
+			}
+			const response = await WorkspaceService.editCopilotConfig({
+				workspace,
+				requestBody: { ...config, custom_prompts }
+			})
+			setCopilotInfo(response.effective_ai_config)
+			initialPrompt = value
+			customPrompts = { [activeMode]: value }
+			sendUserToast('Workspace AI prompt saved')
+		} catch (err) {
+			sendUserToast(`Failed to save workspace AI prompt: ${err}`, true)
+			// Re-throw so AIPromptsModal keeps the modal open on a failed save.
+			throw err
+		}
+	}
+
+	// Prompt parameters, surfaced as a melt submenu (hover-opens and is floating-positioned,
+	// so it flips on screen edges instead of overflowing). The menu keeps itself open on
+	// item click (closeOnItemClick=false), so these actions close it explicitly via `close`.
+	function paramItems(close: () => void): Item {
+		return {
+			displayName: 'Parameters',
+			icon: Settings,
+			submenuItems: [
+				{
+					displayName: 'User prompt',
+					icon: User,
+					action: () => {
+						close()
+						openUserPrompt()
+					}
+				},
+				{
+					displayName: 'Workspace prompt',
+					icon: Building2,
+					action: () => {
+						close()
+						openWorkspacePrompt()
+					}
+				},
+				{
+					displayName: 'AI settings',
+					icon: Settings,
+					href: AI_SETTINGS_HREF,
+					hrefTarget: '_blank',
+					separatorTop: true,
+					hide: !isAdmin,
+					extra: externalLinkIcon
+				}
+			]
+		}
+	}
+
 	// Keep the slider's pointer events from bubbling to the enclosing melt item: melt's
 	// roving focus blurs the focused element on pointermove, which would abort the native
 	// thumb drag. Direct (non-delegated) listeners so they run before melt's item listener.
@@ -129,6 +296,10 @@
 		selectReasoning(stops[next])
 	}
 </script>
+
+{#snippet externalLinkIcon()}
+	<ExternalLink size={14} class="shrink-0 text-secondary" />
+{/snippet}
 
 <DropdownV2
 	customMenu
@@ -166,10 +337,16 @@
 			</Button>
 		</div>
 	{/snippet}
-	{#snippet menu({ item })}
+	{#snippet menu({ item, builders, close })}
 		<div
 			class="bg-surface-tertiary dark:border w-64 origin-top-right rounded-lg shadow-lg focus:outline-none py-1 text-xs"
 		>
+			<!-- Melt submenu: hover-opens and is floating-positioned (flips on screen edges). -->
+			{#if promptSettings}
+				<DropdownSubmenuItem item={paramItems(close)} {builders} meltItem={item} />
+			{/if}
+
+			<div class="my-1 border-t border-border-light"></div>
 			<div class="px-3 pt-1.5 pb-1 text-2xs uppercase tracking-wide text-secondary">Model</div>
 			<div class="max-h-48 overflow-y-auto">
 				{#each models as m (m.provider + m.model)}
@@ -189,8 +366,8 @@
 			<div class="my-1 border-t border-border-light"></div>
 			{#if capability.supported}
 				<!-- Registered as a melt item so it joins the roving focus/highlight (and arrow
-				     up/down navigation). Left/right adjust the effort; the slider's input handler
-				     also drives it. -->
+				     up/down navigation), and so hovering it takes the highlight off the Parameters
+				     trigger. Left/right adjust the effort; the slider's input handler also drives it. -->
 				<MenuItemWrapper {item} onKeydown={adjustEffort} class="block group">
 					<div class="px-3 pt-1 pb-0.5 flex items-center justify-between">
 						<span class="text-2xs uppercase tracking-wide text-secondary">Thinking</span>
@@ -240,6 +417,25 @@
 		</div>
 	{/snippet}
 </DropdownV2>
+
+<!-- Only where the entries that open it are rendered. -->
+{#if promptSettings}
+	<AIPromptsModal
+		bind:open={modalOpen}
+		bind:customPrompts
+		scope={modalScope}
+		modes={[activeMode]}
+		readOnly={modalReadOnly}
+		{readOnlyReason}
+		onSave={modalReadOnly ? undefined : save}
+		onReset={reset}
+		{hasChanges}
+		title={modalScope === 'user' ? 'User AI prompt' : 'Workspace AI prompt'}
+		target="body"
+		fixedHeight="sm"
+		settingsHref={isAdmin ? AI_SETTINGS_HREF : undefined}
+	/>
+{/if}
 
 <style>
 	/* Lean reasoning slider: a thin track and a small, borderless accent thumb. Native range

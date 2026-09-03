@@ -1147,7 +1147,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							<DatatableCreationPolicy />
 						{/if}
 						<ContextUsageIndicator />
-						<AIChatModelSettings />
+						<!-- The prompt entries live in the settings modal's Instructions section
+						     here, so the dropdown keeps only Model and Thinking. -->
+						<AIChatModelSettings promptSettings={false} />
 						{#if aiChatManager.mode === AIMode.GLOBAL}
 							<AssistantSettingsModal bind:this={assistantSettings} />
 						{/if}
