@@ -164,13 +164,20 @@
 		// overwrite the stored credential with an empty password.
 		const pathIsWritable = occupant === 'free' || occupant === 'same-repo'
 		if (!ws || !project || !token || !pathIsWritable) return
+		// Everything this writes is read once, here, before the first await. The
+		// selector and the path field stay live while the requests are in flight,
+		// so re-reading them later could store one project's URL under another's
+		// path, or set the wrong default branch.
+		const workspace = ws
+		const chosen = project
+		const path = variablePath
+		const value = repositoryUrl(chosen)
+		const target = repoIdentity(chosen.http_url_to_repo)
 		applying = true
 		try {
-			const value = repositoryUrl(project)
-			const target = repoIdentity(project.http_url_to_repo)
 			const exists = await VariableService.existsVariable({
-				workspace: ws,
-				path: variablePath
+				workspace,
+				path
 			})
 			// Re-read rather than trust the state the button was enabled from: the
 			// path can change between the check and the click, and another writer
@@ -179,43 +186,41 @@
 			// using it, silently, at this project.
 			if (exists) {
 				const current = await VariableService.getVariableValue({
-					workspace: ws,
-					path: variablePath
+					workspace,
+					path
 				}).catch(() => undefined)
 				if (!current || !target || repoIdentity(current) !== target) {
 					occupant = 'other'
-					sendUserToast(`${variablePath} holds something else. Choose another path.`, true)
+					sendUserToast(`${path} holds something else. Choose another path.`, true)
 					return
 				}
-			}
-			if (exists) {
 				await VariableService.updateVariable({
-					workspace: ws,
-					path: variablePath,
+					workspace,
+					path,
 					requestBody: { value, is_secret: true }
 				})
 			} else {
 				await VariableService.createVariable({
-					workspace: ws,
+					workspace,
 					requestBody: {
-						path: variablePath,
+						path,
 						value,
 						is_secret: true,
-						description: `Git remote for ${project.path_with_namespace}, including its GitLab token`
+						description: `Git remote for ${chosen.path_with_namespace}, including its GitLab token`
 					}
 				})
 			}
 			onArgsUpdate?.({
 				...args,
-				url: `$var:${variablePath}`,
+				url: `$var:${path}`,
 				is_github_app: false,
-				branch: args.branch || project.default_branch || undefined
+				branch: args.branch || chosen.default_branch || undefined
 			})
 			token = ''
 			projects = []
 			selectedProject = undefined
 			variablePathTouched = false
-			sendUserToast(`Repository URL stored in the secret variable ${variablePath}`)
+			sendUserToast(`Repository URL stored in the secret variable ${path}`)
 			close(null)
 		} catch (err) {
 			sendUserToast(`Could not store the repository URL: ${err?.body ?? err?.message}`, true)
@@ -284,6 +289,7 @@
 								}))}
 								bind:value={selectedProject}
 								clearable={false}
+								disabled={applying}
 							/>
 						</div>
 						<div class="flex flex-col gap-y-1">
@@ -295,7 +301,10 @@
 							<TextInput
 								bind:value={variablePath}
 								size="sm"
-								inputProps={{ oninput: () => (variablePathTouched = true) }}
+								inputProps={{
+									oninput: () => (variablePathTouched = true),
+									disabled: applying
+								}}
 							/>
 							{#if occupant === 'checking'}
 								<div class="text-2xs font-normal text-hint">Checking this path...</div>
