@@ -4747,6 +4747,31 @@ async fn maintain_git_credentials_inner(db: &Pool<Postgres>) -> error::Result<()
                     row.workspace_id
                 );
             }
+
+            // A repository that wants webhook delivery but holds no hook never
+            // gets one otherwise: the reconcile runs on a settings save, so a
+            // credential that was unusable when the hook should have been created
+            // would leave it missing until an admin saved again. Checking stored
+            // state costs nothing, and only the repositories actually missing a
+            // hook reach the host.
+            use windmill_common::workspaces::AutoPullMode;
+            let needs_hook = repo.auto_pull.as_ref().is_some_and(|a| {
+                a.enabled
+                    && matches!(a.mode, AutoPullMode::Auto | AutoPullMode::Webhook)
+                    && a.webhook_id.is_none()
+            });
+            if needs_hook {
+                let mut repo = repo.clone();
+                if let Err(e) =
+                    windmill_common::git_sync_ee::sync_repo_webhook(db, &row.workspace_id, &mut repo)
+                        .await
+                {
+                    tracing::warn!(
+                        "git credentials: could not reconcile the webhook for {path} in workspace {}: {e:#}",
+                        row.workspace_id
+                    );
+                }
+            }
         }
     }
     if skipped > 0 {
