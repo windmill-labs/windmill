@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -21,11 +22,19 @@ def unique_name(prefix: str = "git-sync-test") -> str:
     return f"{prefix}-{uuid.uuid4().hex[:8]}"
 
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
 def ui_pull_script_path() -> str:
     """The hub script the git-sync UI runs for a pull (git → workspace)."""
-    hub_paths = Path(__file__).resolve().parents[2] / "frontend/src/lib/hubPaths.json"
-    with open(hub_paths) as f:
+    with open(REPO_ROOT / "frontend/src/lib/hubPaths.json") as f:
         return json.load(f)["gitInitRepo"]
+
+
+def backend_pull_script_path() -> str:
+    """The hub script the backend runs for an auto-pull: `GIT_SYNC_PULL_SCRIPT_PATH`."""
+    source = (REPO_ROOT / "backend/windmill-common/src/workspaces.rs").read_text()
+    return re.search(r'GIT_SYNC_PULL_SCRIPT_PATH: &str = "([^"]+)"', source).group(1)
 
 
 class GitSyncTestBase(unittest.TestCase):
@@ -1250,6 +1259,11 @@ class TestGitSyncAutoPull(GitSyncTestBase):
 class TestGitSyncUiPull(GitSyncTestBase):
     """The pull the git-sync UI runs (hub init script, git → workspace)."""
 
+    def test_ui_pull_script_is_the_backend_pull_script(self):
+        """The UI's pull and the backend's auto-pull are the same hub script,
+        so the two pins must move together."""
+        self.assertEqual(ui_pull_script_path(), backend_pull_script_path())
+
     def test_fork_pull_does_not_report_parent_owned_schedule_enabled(self):
         """In a fork, a schedule the parent also has takes its `enabled` from
         the parent, so a fork-branch file that disagrees on that flag can never
@@ -1302,7 +1316,9 @@ class TestGitSyncUiPull(GitSyncTestBase):
         preview = self._run_ui_pull(
             fork_client, resource_path, include_type, clone_ref=fork_branch, dry_run=True
         )
-        changes = preview.get("changes") or []
+        self.assertIn("changes", preview, f"preview result has no changes list: {preview}")
+        changes = preview["changes"]
+        self.assertIsInstance(changes, list, f"preview changes is not a list: {preview}")
         self.assertEqual(
             [c for c in changes if c.get("path", "").endswith(schedule_file)],
             [],
