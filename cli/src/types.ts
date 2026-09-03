@@ -189,6 +189,8 @@ export interface PushObjOptions {
   keyPushOpts?: PushWorkspaceKeyOptions;
   /** TypeScript runtime a bare `.ts` denotes, for raw-app runnables */
   defaultTs?: "bun" | "deno";
+  /** schedule push into a fork: the file's `enabled` is the parent's */
+  enabledOwnedByParent?: boolean;
 }
 
 /**
@@ -217,6 +219,7 @@ export async function pushObj(
     wsSpecific,
     keyPushOpts,
     defaultTs,
+    enabledOwnedByParent,
   } = opts;
   const typeEnding = getTypeStrFromPath(p);
 
@@ -250,7 +253,7 @@ export async function pushObj(
   } else if (typeEnding === "resource-type") {
     await pushResourceType(workspace, p, befObj, newObj);
   } else if (typeEnding === "schedule") {
-    await pushSchedule(workspace, p, befObj, newObj, permissionedAsContext);
+    await pushSchedule(workspace, p, befObj, newObj, permissionedAsContext, enabledOwnedByParent);
   } else if (typeEnding === "http_trigger") {
     await pushTrigger("http", workspace, p, befObj, newObj, permissionedAsContext);
   } else if (typeEnding === "websocket_trigger") {

@@ -7,6 +7,12 @@ import type { UserDraftItemKind } from '$lib/gen'
 // The gate's two refusals, from a module that holds prose and one size limit: under the
 // shallow-import rule below, the rest of plan mode is not reachable from here.
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
+// Import-free leaf, so it satisfies the shallow-import rule below.
+import {
+	openItemPreviewAction,
+	type OpenItemPreviewAction,
+	type PreviewCardKind
+} from './itemPreview'
 
 // The tool modules that import this one (workspaceTools, flow/core, global/core, ...)
 // call createToolDef and read SPECIAL_MODULE_IDS at *module scope*, so if a chunk cycle
@@ -526,34 +532,10 @@ export type NavigateAction = {
 	page: string
 }
 
-/** Kinds of previewable item a write tool can land — the subset of draft item
- * kinds a session preview can host. */
-export type PreviewCardKind = 'script' | 'flow' | 'raw_app'
-
-// A discrete card shown on a tool call that created or updated a workspace item.
-// Clicking it opens the item's live preview in the session side panel — or focuses
-// the tab if it is already open. The handler is registered by the sessions page
-// (the only surface with a preview panel).
-export type OpenItemPreviewAction = {
-	id: string
-	type: 'open_item_preview'
-	label: string
-	previewKind: PreviewCardKind
-	path: string
-}
+// Re-exported: most consumers reach these through this module.
+export { openItemPreviewAction, type PreviewCardKind, type OpenItemPreviewAction }
 
 export type ToolDisplayAction = CreatedResourceAction | NavigateAction | OpenItemPreviewAction
-
-/** Build the action a preview card dispatches from its (kind, path). */
-export function openItemPreviewAction(kind: PreviewCardKind, path: string): OpenItemPreviewAction {
-	return {
-		id: `open-item-preview:${kind}:${path}`,
-		type: 'open_item_preview',
-		label: `Open ${kind === 'raw_app' ? 'app' : kind} preview`,
-		previewKind: kind,
-		path
-	}
-}
 
 export type UserQuestionDisplay = {
 	question: string
