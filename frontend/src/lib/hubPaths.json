@@ -8,6 +8,8 @@
 	"teamsErrorHandler": "hub/19742/workspace-or-schedule-error-handler-teams",
 	"teamsRecoveryHandler": "hub/11593/schedule-recovery-handler-teams",
 	"teamsSuccessHandler": "hub/11596/schedule-success-handler-teams",
+	"slackVariableExpirationHandler": "hub/99999901/variable-expiration-handler-slack",
+	"teamsVariableExpirationHandler": "hub/99999902/variable-expiration-handler-teams",
 	"slackReport": "hub/28792/slack",
 	"discordReport": "hub/9085/discord",
 	"smtpReport": "hub/28242/smtp",

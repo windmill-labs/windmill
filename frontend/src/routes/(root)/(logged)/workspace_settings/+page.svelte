@@ -10,6 +10,10 @@
 	import DeployToSetting from '$lib/components/DeployToSetting.svelte'
 	import DevWorkspaceSetting from '$lib/components/DevWorkspaceSetting.svelte'
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
+	import VariableExpirationHandler, {
+		getVariableExpirationHandlerType,
+		type VariableExpirationHandlerType
+	} from '$lib/components/VariableExpirationHandler.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 
@@ -188,10 +192,12 @@
 	let variableExpirationPath: string | undefined = $state(undefined)
 	let variableExpirationItemKind: 'flow' | 'script' = $state('script')
 	let variableExpirationMutedOnUserPath: boolean = $state(false)
-	// Carried through saves rather than edited: `extra_args` is an API/CLI-only escape hatch
-	// for passing fixed arguments to the handler, and omitting it on a save that keeps the
-	// handler would erase it. Only a save that clears the handler drops it.
-	let variableExpirationExtraArgs: Record<string, any> | undefined = $state(undefined)
+	let variableExpirationSelected: VariableExpirationHandlerType = $state('custom')
+	// The built-in destinations write `channel` here, and the API and CLI can set arbitrary
+	// fixed arguments the tab never renders. Both have to survive a save that keeps the
+	// handler, since the endpoint rebuilds the setting from the request and an omitted
+	// `extra_args` erases it. Only a save that clears the handler drops it.
+	let variableExpirationExtraArgs: Record<string, any> = $state({})
 	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let publicAppRateLimitPerMinute: number | undefined = $state(undefined)
@@ -249,6 +255,7 @@
 	let initialVariableExpirationPath: string | undefined = $state(undefined)
 	let initialVariableExpirationItemKind: 'flow' | 'script' = $state('script')
 	let initialVariableExpirationMutedOnUserPath: boolean = $state(false)
+	let initialVariableExpirationExtraArgs: Record<string, any> = $state({})
 
 	let s3ResourceSettings: S3ResourceSettings = $state({
 		resourceType: 's3',
@@ -324,11 +331,13 @@
 					initialVariableExpirationItemKind,
 					initialVariableExpirationPath
 				),
-				mutedOnUserPath: initialVariableExpirationMutedOnUserPath
+				mutedOnUserPath: initialVariableExpirationMutedOnUserPath,
+				extraArgs: normalizeHandlerExtraArgs(initialVariableExpirationExtraArgs)
 			},
 			{
 				handlerPath: variableExpirationFullPath(variableExpirationItemKind, variableExpirationPath),
-				mutedOnUserPath: variableExpirationMutedOnUserPath
+				mutedOnUserPath: variableExpirationMutedOnUserPath,
+				extraArgs: normalizeHandlerExtraArgs(variableExpirationExtraArgs)
 			}
 		)
 	})
@@ -693,7 +702,8 @@
 			: 'script'
 		variableExpirationPath = variableExpirationHandlerPath.split('/').slice(1).join('/')
 		variableExpirationMutedOnUserPath = variableExpirationHandler?.muted_on_user_path ?? false
-		variableExpirationExtraArgs = variableExpirationHandler?.extra_args
+		variableExpirationExtraArgs = variableExpirationHandler?.extra_args ?? {}
+		variableExpirationSelected = getVariableExpirationHandlerType(variableExpirationPath)
 		workspaceDefaultAppPath = settings.default_app
 		initialWorkspaceDefaultAppPath = settings.default_app
 
@@ -750,6 +760,7 @@
 		initialVariableExpirationPath = variableExpirationPath
 		initialVariableExpirationItemKind = variableExpirationItemKind
 		initialVariableExpirationMutedOnUserPath = variableExpirationMutedOnUserPath
+		initialVariableExpirationExtraArgs = clone(variableExpirationExtraArgs)
 
 		loadedSettings = true
 	}
@@ -925,11 +936,11 @@
 	async function editVariableExpirationHandler() {
 		const path = variableExpirationFullPath(variableExpirationItemKind, variableExpirationPath)
 		// Saving with no path clears the whole setting server-side, `extra_args` included, so
-		// the loaded copy has to go too: a handler picked afterwards without reloading the page
-		// would otherwise be persisted with the cleared one's arguments, which this tab does
-		// not display.
+		// the in-memory copy has to go too: a handler picked afterwards without reloading the
+		// page would otherwise be persisted with the cleared one's arguments, including any the
+		// API or CLI set that this tab never renders.
 		if (!path) {
-			variableExpirationExtraArgs = undefined
+			variableExpirationExtraArgs = {}
 		}
 		await WorkspaceService.editVariableExpirationHandler({
 			workspace: $workspaceStore!,
@@ -950,12 +961,15 @@
 		initialVariableExpirationPath = variableExpirationPath
 		initialVariableExpirationItemKind = variableExpirationItemKind
 		initialVariableExpirationMutedOnUserPath = variableExpirationMutedOnUserPath
+		initialVariableExpirationExtraArgs = clone(variableExpirationExtraArgs)
 	}
 
 	function discardVariableExpirationChanges() {
 		variableExpirationPath = initialVariableExpirationPath
 		variableExpirationItemKind = initialVariableExpirationItemKind
 		variableExpirationMutedOnUserPath = initialVariableExpirationMutedOnUserPath
+		variableExpirationExtraArgs = clone(initialVariableExpirationExtraArgs)
+		variableExpirationSelected = getVariableExpirationHandlerType(variableExpirationPath)
 	}
 
 	async function editSuccessHandler() {
@@ -1219,14 +1233,16 @@
 							initialVariableExpirationItemKind,
 							initialVariableExpirationPath
 						),
-						mutedOnUserPath: initialVariableExpirationMutedOnUserPath
+						mutedOnUserPath: initialVariableExpirationMutedOnUserPath,
+						extraArgs: normalizeHandlerExtraArgs(initialVariableExpirationExtraArgs)
 					},
 					modifiedValue: {
 						handlerPath: variableExpirationFullPath(
 							variableExpirationItemKind,
 							variableExpirationPath
 						),
-						mutedOnUserPath: variableExpirationMutedOnUserPath
+						mutedOnUserPath: variableExpirationMutedOnUserPath,
+						extraArgs: normalizeHandlerExtraArgs(variableExpirationExtraArgs)
 					}
 				}
 			case 'critical_alerts':
@@ -2120,26 +2136,22 @@ export async function main(
 
 							<Section label="Handler">
 								<div class="flex flex-col gap-6">
-									<div class="flex flex-row gap-2 items-center">
-										<!-- Bound rather than seeded through `initialPath`: the picker keeps its own
-										copy of the selection, so a Discard that only reset the page state would leave
-										the reverted path invisible. -->
-										<ScriptPicker
-											bind:scriptPath={variableExpirationPath}
-											bind:itemKind={variableExpirationItemKind}
-											allowRefresh
-											allowFlow
-											clearable
-										/>
-										<Button
-											variant="default"
-											href={`${base}/scripts/add?lang=bun#` +
-												encodeState({
-													path: 'f/variable_expiration_handler',
-													summary: 'Workspace Variable Expiration Handler',
-													description:
-														'Called an hour before the value of a variable in this workspace expires',
-													content: `//native
+									<!-- Bound rather than seeded through `initialPath`: the picker keeps its own
+									copy of the selection, so a Discard that only reset the page state would leave
+									the reverted path invisible. -->
+									<VariableExpirationHandler
+										isEditable={true}
+										bind:handlerSelected={variableExpirationSelected}
+										bind:handlerPath={variableExpirationPath}
+										bind:handlerKind={variableExpirationItemKind}
+										bind:handlerExtraArgs={variableExpirationExtraArgs}
+										customScriptTemplate={`${base}/scripts/add?lang=bun#` +
+											encodeState({
+												path: 'f/variable_expiration_handler',
+												summary: 'Workspace Variable Expiration Handler',
+												description:
+													'Called an hour before the value of a variable in this workspace expires',
+												content: `//native
 
 // Workspace Variable Expiration Handler
 // Called an hour before the value of a variable in this workspace expires, and
@@ -2161,12 +2173,8 @@ export async function main(
   // variable — that is what re-arms this handler for the following rotation.
 }
 `
-												})}
-											target="_blank"
-										>
-											Create a handler
-										</Button>
-									</div>
+											})}
+									/>
 
 									<SettingCard class="gap-2">
 										<!-- `w-fit`: the trigger is a flex item of the card, so it would otherwise

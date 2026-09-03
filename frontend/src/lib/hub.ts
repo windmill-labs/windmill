@@ -59,6 +59,13 @@ type HubPaths = {
 	teamsErrorHandler: string
 	teamsRecoveryHandler: string
 	teamsSuccessHandler: string
+	// TODO(WIN-2332): the ids of these two are placeholders until the scripts are pushed to
+	// the hub, which assigns them. Nothing resolves them meanwhile, and the image build runs
+	// `windmill cache hubPaths.json` over every entry (Dockerfile), so it fails on an id the
+	// hub does not have. Replace both before merging; only the number matters, the slug is
+	// ours and is what the settings tab matches on.
+	slackVariableExpirationHandler: string
+	teamsVariableExpirationHandler: string
 	emailErrorHandler: string
 	cloneRepoToS3forGitRepoViewer: string
 	appReport: string
