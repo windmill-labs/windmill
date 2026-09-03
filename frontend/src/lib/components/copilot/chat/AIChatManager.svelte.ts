@@ -1909,6 +1909,23 @@ export class AIChatManager {
 	// A form restored from history has no callback: the loop that opened it is gone.
 	isRunFormPending = (toolId: string): boolean => this.runFormCallbacks.has(toolId)
 
+	/** Held here rather than on the form, which unmounts and remounts as it moves between the
+	 * card and the preview panel: an instance flag comes back false mid-submit while the
+	 * callback is still pending, re-arming both buttons on a run already on its way. */
+	#runFormSubmitting = new SvelteSet<string>()
+
+	isRunFormSubmitting = (toolId: string): boolean => this.#runFormSubmitting.has(toolId)
+
+	/** False when a submit is already in flight for this call, so the caller can drop a
+	 * second one rather than mint a second set of ephemeral secret variables for it. */
+	beginRunFormSubmit = (toolId: string): boolean => {
+		if (this.#runFormSubmitting.has(toolId)) return false
+		this.#runFormSubmitting.add(toolId)
+		return true
+	}
+
+	endRunFormSubmit = (toolId: string) => this.#runFormSubmitting.delete(toolId)
+
 	/** Whether any form of this chat is still waiting on the user. Asked instead of looking
 	 * the form up in the panel's DOM: when the preview holds it, the card is collapsed and
 	 * the only mounted copy is outside the panel — where a DOM query would miss it and let
@@ -1930,12 +1947,14 @@ export class AIChatManager {
 		this.#patchRunForm(toolId, { submitted: true })
 		callback(args)
 		this.runFormCallbacks.delete(toolId)
+		this.#runFormSubmitting.delete(toolId)
 		return true
 	}
 
 	handleRunFormCancel = (toolId: string) => {
 		const callback = this.runFormCallbacks.get(toolId)
 		this.runFormDrafts.delete(toolId)
+		this.#runFormSubmitting.delete(toolId)
 		this.closeRunForm?.(toolId)
 		// Settled here rather than only in the tool's fn, which a form restored from
 		// history no longer has: Cancel is that card's one way out, and while it stays
@@ -4152,6 +4171,7 @@ export class AIChatManager {
 		}
 		this.runFormCallbacks.clear()
 		this.runFormDrafts.clear()
+		this.#runFormSubmitting.clear()
 		const cancelReason = reason ?? USER_CANCEL_REASON
 		console.log('cancelling request:', {
 			reason: cancelReason,
