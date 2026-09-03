@@ -10,7 +10,6 @@ living in a bordered card, which reads as heavy once a list runs to dozens of ro
 	import type { Snippet } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 
 	let {
 		title,
@@ -92,14 +91,19 @@ living in a bordered card, which reads as heavy once a list runs to dozens of ro
 		onmouseenter={onMouseEnter}
 	>
 		{#if onClick}
-			<button
-				type="button"
-				class="flex grow min-w-0 text-left"
-				onclick={onClick}
-				use:triggerableByAI={{ id: aiId, description: aiDescription, callback: onClick }}
+			<!-- Its own padding and hover are off: both belong to the row around it, which
+			     is what lights up and what the trailing controls sit inside. -->
+			<Button
+				{aiId}
+				{aiDescription}
+				variant="subtle"
+				unifiedSize="md"
+				wrapperClasses="grow shrink min-w-0"
+				btnClasses="w-full min-w-0 justify-start p-0 h-auto bg-transparent hover:bg-transparent"
+				{onClick}
 			>
 				{@render body()}
-			</button>
+			</Button>
 		{:else}
 			<!-- No `onClick`: a button here would be a tab stop that does nothing. -->
 			<div class="flex grow min-w-0 text-left">{@render body()}</div>

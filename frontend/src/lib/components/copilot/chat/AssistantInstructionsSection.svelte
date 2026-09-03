@@ -55,10 +55,9 @@ writes whichever of the two changed, including the tab that is not on screen.
 			? `Applies to everyone in ${ws}.`
 			: 'Stored in this browser and sent in every workspace, so they follow you rather than the workspace.'
 	)
-	// `$userStore.is_admin` is the role in `$userStore.workspace_id`, which is the nav
-	// workspace — not necessarily `ws`. Keyed to the workspace it was resolved for, so a
-	// role fetched for A is never read as B's, and an unresolved role reads as no
-	// admin: offering the field first and taking it away on resolve would discard
+	// `$userStore.is_admin` is the role in the nav workspace, not necessarily in `ws`, so
+	// the resolved role is keyed to the workspace it was read for, and an unresolved one
+	// reads as no admin: offering the field and taking it away on resolve would discard
 	// whatever was typed in between. Superadmin holds everywhere.
 	let targetRole = $state<{ workspace: string; user: UserExt | undefined } | undefined>(undefined)
 	let roleForTarget = $derived(targetRole?.workspace === ws ? targetRole.user : undefined)
@@ -114,14 +113,25 @@ writes whichever of the two changed, including the tab that is not on screen.
 	})
 
 	// Loaded when the panel is first looked at, and again on a workspace switch: the
-	// workspace half belongs to one workspace, and B's instructions must not be saved
-	// over A's. A reload also drops a draft, so it is skipped while one is unsaved.
+	// workspace half belongs to one workspace, and B's instructions must not be saved over
+	// A's. A reload drops a draft, so it waits until one is saved or reverted — `dirty` is
+	// tracked for that, and `loadedWorkspace` is where the wait picks up (a staged fork
+	// commits into its own workspace, so the target can move while the wait is on).
 	let loadSeq = 0
+	let loadedWorkspace: string | undefined = undefined
 	$effect(() => {
 		const target = ws
 		const shown = active
+		const clean = !dirty
 		untrack(() => {
-			if (!shown || !target || dirty) return
+			// Parked: read again on the next visit, since the workspace half is editable
+			// from the settings page too.
+			if (!shown) {
+				loadedWorkspace = undefined
+				return
+			}
+			if (!target || !clean || target === loadedWorkspace) return
+			loadedWorkspace = target
 			void load(target)
 		})
 	})
