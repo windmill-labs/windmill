@@ -200,9 +200,9 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 			)
 			return false
 		}
-		// The resource endpoint takes any JSON, so nothing downstream stops an agent that cannot
-		// run: the worker needs a provider to call and rejects a tool whose name it cannot pass to
-		// the model. Refuse here, as the save-as-agent path this editor replaced always did.
+		// The resource endpoint takes any JSON, so nothing downstream stops an agent that cannot run:
+		// the worker needs a provider to call and rejects a tool whose name it cannot pass to the
+		// model. Deploying one would break every flow linking it, so it is refused here.
 		const blocked = agentConfigRunError(s.args)
 		if (blocked) {
 			sendUserToast(blocked, true)

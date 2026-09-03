@@ -40,8 +40,11 @@
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	let moduleTest: ModuleTest | undefined = $state()
 
+	/** Re-evaluates the step's inputs before running, so a run tests the step as it is now rather
+	 *  than as it was when this form mounted. Manually entered values are kept: only what the form
+	 *  filled in for itself is refreshed. */
 	export function runTestWithStepArgs() {
-		moduleTest?.runTestWithStepArgs()
+		moduleTest?.loadArgsAndRunTest()
 	}
 </script>
 

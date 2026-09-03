@@ -23,7 +23,6 @@
 	import { getStepPropPicker } from '../previousResults'
 	import {
 		AGENT_BRAIN_KEYS,
-		agentConfigToInputTransforms,
 		flowLocalAgentSchema,
 		inputTransformsToAgentConfig,
 		type AIAgentConfig
@@ -192,13 +191,26 @@
 				value: {
 					type: 'aiagent',
 					tools: (args.tools ?? []) as any,
-					input_transforms: agentConfigToInputTransforms(args) as any
+					input_transforms: agentArgsToTransforms(args) as any
 				} as any
 			}
 			flowStore.val.value.modules = [built]
 			void initFlowState(flowStore.val as Flow, flowStateStore, workspace, syntheticPath)
 		})
 	})
+
+	/** Every argument the resource carries, as a static transform. `tools` is the roster rather than
+	 *  a field, so it rides on the module's own key instead. Not only the keys the form renders: a
+	 *  run reads them all, and an agent holding its own `user_message` answers with it when nothing
+	 *  overrides it, so a test here has to run the configuration a linked step would. */
+	function agentArgsToTransforms(args: AIAgentConfig): Record<string, InputTransform> {
+		const it: Record<string, InputTransform> = {}
+		for (const [key, value] of Object.entries(args ?? {})) {
+			if (key === 'tools' || value === undefined) continue
+			it[key] = { type: 'static', value } as InputTransform
+		}
+		return it
+	}
 
 	/** Everything the form does not model. `inputTransformsToAgentConfig` rebuilds the value from
 	 *  `AGENT_BRAIN_KEYS` alone, so a key this editor never renders — one a newer backend added, or
