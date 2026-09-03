@@ -230,6 +230,33 @@
 		})
 	})
 
+	/** A draft-only item's list row is keyed by the path INSIDE the draft, while
+	 * the autosave handle stays keyed on the path the editor opened. Renaming
+	 * one would leave the row pointing at a key that holds no draft — it would
+	 * 404 on reopen and its delete would miss — so move the draft to the path
+	 * the form now carries. Reads its state synchronously: the caller runs this
+	 * as the drawer closes, and awaiting first would race the form's teardown. */
+	function moveRenamedDraftOnly(): Promise<unknown> {
+		const ws = selected
+		if (!ws || !editPath || existedInitially[ws] !== false) return Promise.resolve()
+		const s = states[ws]?.draft
+		if (!s || !s.path || s.path === editPath) return Promise.resolve()
+		const from = editPath
+		UserDraft.save('variable', s.path, $state.snapshot(s) as VariableState, { workspace: ws })
+		UserDraft.remove('variable', from, { workspace: ws })
+		return Promise.all([
+			UserDraftDbSyncer.flush({ workspace: ws, itemKind: 'variable', path: s.path }),
+			UserDraftDbSyncer.flush({ workspace: ws, itemKind: 'variable', path: from })
+		])
+	}
+
+	/** Settle every pending draft write before the drawer's close event, whose
+	 * list refetch would otherwise outrun the debounced POST. */
+	async function flushDraft(): Promise<void> {
+		// Both started before the first await so they read live form state.
+		await Promise.all([newDraftSync.flush(), moveRenamedDraftOnly()])
+	}
+
 	function reset() {
 		// Clearing workspaceSpecs triggers useMany's reconcile to release
 		// every acquired entry. The $derived `states` then collapses to {}.
@@ -328,7 +355,9 @@
 				if (editPath) {
 					UserDraft.discard('variable', editPath, s, { workspace: ws })
 				} else {
-					newDraftSync.finish()
+					// Awaited: the caller refetches the list right after, and a debounced
+					// delete would leave the just-created item still flagged as a draft.
+					await newDraftSync.finish()
 				}
 				// Path now exists server-side — drop the autocomplete cache so
 				// it shows up immediately instead of after the 60s TTL.
@@ -346,10 +375,11 @@
 <Drawer
 	bind:this={drawer}
 	size="50rem"
-	on:close={() => {
+	on:close={async () => {
 		clearPageDrawerAnchor(VARIABLES_PATH)
-		// A new variable left unsaved persists as a draft-only row, which a
-		// list only sees on refetch.
+		// A new variable left unsaved persists as a draft-only row, which a list
+		// only sees on refetch — settle the write before asking for that refetch.
+		await flushDraft()
 		dispatch('close')
 	}}
 >

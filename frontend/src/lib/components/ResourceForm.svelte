@@ -30,9 +30,9 @@
 		initialPath: string
 		hidePath?: boolean
 		/** `Path`'s validation error (`''` when valid). */
-		pathError?: string
+		pathError: string
 		/** Whether the user edited the path (as opposed to `Path`'s auto-filled name). */
-		pathDirty?: boolean
+		pathDirty: boolean
 		labels: string[] | undefined
 		description: string
 		args: Record<string, any>
@@ -57,8 +57,8 @@
 		path = $bindable(),
 		initialPath,
 		hidePath = false,
-		pathError = $bindable(''),
-		pathDirty = $bindable(false),
+		pathError = $bindable(),
+		pathDirty = $bindable(),
 		labels = $bindable(),
 		description = $bindable(),
 		args = $bindable(),

@@ -49,6 +49,7 @@
 				localDraftDeployed: () => unknown
 				localDraftCurrent: () => unknown
 				discardLocalDraft: () => Promise<boolean>
+				flushDraft: () => Promise<void>
 		  }
 		| undefined = $state(undefined)
 	let hasLocalDraft = $state(false)
@@ -101,8 +102,11 @@
 	bind:this={drawer}
 	size="50rem"
 	{disableChatOffset}
-	on:close={() => {
+	on:close={async () => {
 		clearPageDrawerAnchor(RESOURCES_PATH)
+		// Before `onClose`: its list refetch would otherwise outrun the draft's
+		// own commit delay and the syncer's debounce, and miss the new row.
+		await resourceEditor?.flushDraft()
 		onClose?.()
 	}}
 >

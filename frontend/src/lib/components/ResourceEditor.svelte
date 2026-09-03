@@ -331,6 +331,32 @@
 	export function localDraftCurrent(): ResourceState | undefined {
 		return current
 	}
+	/** A draft-only item's list row is keyed by the path INSIDE the draft, while
+	 * the autosave handle stays keyed on the path the editor opened. Renaming
+	 * one would leave the row pointing at a key that holds no draft — it would
+	 * 404 on reopen and its delete would miss — so move the draft to the path
+	 * the form now carries. Reads its state synchronously: the caller runs this
+	 * as the drawer closes, and awaiting first would race the editor's teardown. */
+	function moveRenamedDraftOnly(): Promise<unknown> {
+		const ws = selected
+		if (!ws || !initialPath || existedInitially[ws] !== false) return Promise.resolve()
+		const s = states[ws]?.draft
+		if (!s || !s.path || s.path === initialPath) return Promise.resolve()
+		UserDraft.save('resource', s.path, $state.snapshot(s) as ResourceState, { workspace: ws })
+		UserDraft.remove('resource', initialPath, { workspace: ws })
+		return Promise.all([
+			UserDraftDbSyncer.flush({ workspace: ws, itemKind: 'resource', path: s.path }),
+			UserDraftDbSyncer.flush({ workspace: ws, itemKind: 'resource', path: initialPath })
+		])
+	}
+
+	/** Settle every pending draft write. The drawer awaits this before its
+	 * `onClose`, whose list refetch would otherwise outrun the debounced POST. */
+	export async function flushDraft(): Promise<void> {
+		// Both started before the first await so they read live editor state.
+		await Promise.all([newDraftSync.flush(), moveRenamedDraftOnly()])
+	}
+
 	/** Returns true when the item was draft-only: discarding deleted it
 	 * outright, so there is nothing left for the editor to show. */
 	export async function discardLocalDraft(): Promise<boolean> {
@@ -422,7 +448,9 @@
 					// `remove`. See VariableEditor for the full rationale.
 					UserDraft.discard('resource', initialPath, s, { workspace: ws })
 				} else {
-					newDraftSync.finish()
+					// Awaited: the caller refetches the list right after, and a debounced
+					// delete would leave the just-created item still flagged as a draft.
+					await newDraftSync.finish()
 				}
 				// Path now exists server-side — drop the autocomplete cache so
 				// it shows up immediately instead of after the 60s TTL.

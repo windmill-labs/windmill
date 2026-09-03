@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import {
@@ -224,14 +225,15 @@
 		draftOnly?: boolean
 	): Promise<void> {
 		if (draftOnly) {
-			// The row is the user's own draft and nothing else: the variable
-			// delete would 404 on the missing deployed row.
-			await UserDraftDbSyncer.save({
+			// The row is the user's own draft and nothing else: the variable delete
+			// would 404 on the missing deployed row. `UserDraft.remove` rather than a
+			// bare POST so the in-memory cache is evicted too — the global AI chat
+			// lists drafts from it and would keep offering this one.
+			UserDraft.remove('variable', path, { workspace: $workspaceStore! })
+			await UserDraftDbSyncer.flush({
 				workspace: $workspaceStore!,
 				itemKind: 'variable',
-				path,
-				value: null,
-				immediate: true
+				path
 			})
 			loadVariables()
 			sendUserToast(`Draft ${path} was deleted`)

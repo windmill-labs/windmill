@@ -73,9 +73,14 @@
 
 <Drawer
 	bind:this={drawer}
-	on:close={() => {
+	on:close={async () => {
+		// Flushed before the step reset (which retires the form the draft mirrors)
+		// and before `close`, whose list refetch would otherwise outrun the draft's
+		// own commit delay and the syncer's debounce, and miss the new row.
+		const flushed = appConnectInner?.flushDraft()
 		step = 1
 		handedOff = false
+		await flushed
 		dispatch('close')
 	}}
 	size="700px"

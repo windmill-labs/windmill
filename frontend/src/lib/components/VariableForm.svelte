@@ -26,7 +26,7 @@
 		initialPath: string
 		pathError: string
 		/** Whether the user edited the path (as opposed to `Path`'s auto-filled name). */
-		pathDirty?: boolean
+		pathDirty: boolean
 		variable: Variable
 		labels: string[] | undefined
 		wsSpecific: boolean
@@ -42,7 +42,7 @@
 		path = $bindable(),
 		initialPath,
 		pathError = $bindable(),
-		pathDirty = $bindable(false),
+		pathDirty = $bindable(),
 		variable = $bindable(),
 		labels = $bindable(),
 		wsSpecific = $bindable(),

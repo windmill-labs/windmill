@@ -993,7 +993,9 @@
 					}
 				})
 			}
-			newDraftSync.finish()
+			// Awaited: `refresh` refetches the list, and a debounced delete would
+			// leave the just-created resource still flagged as a draft.
+			await newDraftSync.finish()
 			dispatch('refresh', path)
 			dispatch('close')
 			sendUserToast(
@@ -1005,10 +1007,16 @@
 		}
 	}
 
+	/** Settle the pending draft write before the drawer's close event, whose
+	 * list refetch would otherwise outrun the debounced POST. */
+	export async function flushDraft(): Promise<void> {
+		await newDraftSync.flush()
+	}
+
 	export async function back() {
 		if (step == 2 && manual) {
 			// Back abandons this form; the draft it mirrored goes with it.
-			newDraftSync.finish()
+			await newDraftSync.finish()
 			newDraftSync.reset()
 			pathDirty = false
 		}
