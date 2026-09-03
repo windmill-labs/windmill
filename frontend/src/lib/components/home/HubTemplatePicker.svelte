@@ -64,7 +64,9 @@
 	</p>
 
 	<div class="min-h-0 flex-1 border-t border-border-light">
-		<InfiniteList bind:this={list} noBorder rounded={false} containerClass="h-full">
+		<!-- The height comes from the flex chain above: DataTable's own container is `h-full`, so
+		     the scroll box inside it is bounded, which is what lets the list page. -->
+		<InfiniteList bind:this={list} noBorder rounded={false}>
 			{#snippet customRow({ item }: { item: HubProjectPick })}
 				{@const Icon = hubAppIcon(item.iconApps[0] ?? '')}
 				<tr>
