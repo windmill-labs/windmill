@@ -85,6 +85,14 @@ enables *Allow requests to the local network from webhooks and integrations*
 same private network as GitLab needs this; without it, hook creation fails with a
 "blocked" error and the repository keeps polling.
 
+**A relative-URL install is not supported.** GitLab can be served under a path
+prefix (`https://example.com/gitlab`), and that prefix cannot be told apart from
+a group of the same name: `example.com/a/b/c.git` is either group `a/b` project
+`c`, or prefix `a` with group `b` project `c`. Windmill reads it as the nested
+group, so on a relative-URL install it derives the wrong API base and the managed
+features stay unavailable. Such a repository still syncs through its token URL,
+which needs no API base.
+
 Everything else is identical: Windmill talks to `<your-gitlab>/api/v4` and needs
 no inbound access of its own beyond the hook deliveries.
 
