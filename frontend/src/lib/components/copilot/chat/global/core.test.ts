@@ -4501,7 +4501,11 @@ describe('global AI tools', () => {
 		} as any)
 		const secret: any[] = []
 		await withCompletedTestJob(() =>
-			callGlobalTool('run_script', { path: 'f/scripts/secret', args: { token: 'hunter2' } }, yolo(secret))
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/secret', args: { token: 'hunter2' } },
+				yolo(secret)
+			)
 		)
 		expect(secret.find((x) => x.runForm)?.runForm.submitted).toBeUndefined()
 
@@ -4517,6 +4521,75 @@ describe('global AI tools', () => {
 		expect(ready.find((x) => x.runForm)?.runForm.submitted).toBe(true)
 	})
 
+	// What the mounted form would have refused to submit, the bypass must not start: ArgInput
+	// marks a required empty scalar invalid and disables Run, and a nested required field is a
+	// question the form would have shown. Neither is a value the posture can answer for.
+	it('opens a run form under yolo for an empty or nested-missing required field', async () => {
+		const yolo = (statuses: any[]) => ({
+			...toolCallbacks,
+			setToolStatus: (_toolId: string, status: any) => statuses.push(status),
+			shouldAutoAcceptToolConfirmations: () => true,
+			requestRunArgs: async (_toolId: string, form: any) => form.args
+		})
+
+		// Required, and the model sent the empty string the form refuses to submit.
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/blank',
+			schema: { properties: { name: { type: 'string' } }, required: ['name'] }
+		} as any)
+		const blank: any[] = []
+		await withCompletedTestJob(() =>
+			callGlobalTool('run_script', { path: 'f/scripts/blank', args: { name: '' } }, yolo(blank))
+		)
+		expect(blank.find((x) => x.runForm)?.runForm.submitted).toBeUndefined()
+
+		// Required below the top level, where the declaration says exactly which fields the
+		// form would have rendered.
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/nested',
+			schema: {
+				properties: {
+					config: {
+						type: 'object',
+						properties: { api_key: { type: 'string' } },
+						required: ['api_key']
+					}
+				},
+				required: ['config']
+			}
+		} as any)
+		const nested: any[] = []
+		await withCompletedTestJob(() =>
+			callGlobalTool('run_script', { path: 'f/scripts/nested', args: { config: {} } }, yolo(nested))
+		)
+		expect(nested.find((x) => x.runForm)?.runForm.submitted).toBeUndefined()
+
+		// Answered at both levels: nothing is outstanding, so the posture still answers and no
+		// field is mounted. Without this the guard above could pass by never bypassing at all.
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/filled',
+			schema: {
+				properties: {
+					config: {
+						type: 'object',
+						properties: { api_key: { type: 'string' } },
+						required: ['api_key']
+					}
+				},
+				required: ['config']
+			}
+		} as any)
+		const filled: any[] = []
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/filled', args: { config: { api_key: 'k' } } },
+				yolo(filled)
+			)
+		)
+		expect(filled.find((x) => x.runForm)?.runForm.submitted).toBe(true)
+	})
+
 	// The bypass is the user's standing answer, not a licence for the host to skip asking:
 	// a chat with nowhere to put a form still refuses the run under any other posture.
 	it('run_script refuses a host with no form unless the posture answers for it', async () => {
@@ -4529,6 +4602,32 @@ describe('global AI tools', () => {
 			'run_script',
 			{ path: 'f/scripts/noform', args: { name: 'Ada' } },
 			{ ...toolCallbacks, requestRunArgs: undefined }
+		)
+
+		expect(JobService.runScriptByPath).not.toHaveBeenCalled()
+		expect(refused).toContain('cannot show a run form')
+	})
+
+	// The posture answers for a host that has a form; it cannot answer for one that has none.
+	// A secret is stripped from the proposal whatever the posture, so bypassing here would run
+	// the script missing the very argument the model tried to supply.
+	it('run_script refuses a formless host under yolo when a field is left unanswered', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
+			path: 'f/scripts/noform-secret',
+			schema: {
+				properties: { token: { type: 'string', password: true } },
+				required: ['token']
+			}
+		} as any)
+
+		const refused = await callGlobalTool(
+			'run_script',
+			{ path: 'f/scripts/noform-secret', args: { token: 'hunter2' } },
+			{
+				...toolCallbacks,
+				requestRunArgs: undefined,
+				shouldAutoAcceptToolConfirmations: () => true
+			}
 		)
 
 		expect(JobService.runScriptByPath).not.toHaveBeenCalled()

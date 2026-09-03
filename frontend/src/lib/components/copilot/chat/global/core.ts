@@ -5537,6 +5537,44 @@ type FormRunSpec = {
 	startJob: (submitted: Record<string, any>) => Promise<string>
 }
 
+/** Whether a required field carries no answer. `''` counts as unanswered because the mounted
+ * form says so — ArgInput marks a required empty scalar invalid and disables Run — so treating
+ * it as filled would let the bypass start a run the form itself would have refused. Objects are
+ * exempt for the same reason, inverted: ArgInput skips them in that check, so an empty one is
+ * the form's business and not a missing answer. */
+function requiredValueMissing(value: unknown): boolean {
+	if (value === undefined || value === null) return true
+	return value === ''
+}
+
+/** Whether a required key is unanswered anywhere the mounted form would have shown a field for
+ * it. Descends only into a declaration that names its own `properties` and `required`: there the
+ * shape is unambiguous and the form would render those fields. `oneOf` and free-form objects are
+ * left alone — resolving which branch is open is guesswork, and guessing "needs the user" parks
+ * the test-and-iterate loop the bypass posture exists to serve. */
+function requiredUnanswered(schema: Record<string, any>, proposed: Record<string, any>): boolean {
+	const required = schema?.required
+	if (!Array.isArray(required)) return false
+	const properties = schema?.properties ?? {}
+	return required.some((key) => {
+		if (typeof key !== 'string') return false
+		const declared = Object.hasOwn(properties, key) ? properties[key] : undefined
+		const value = proposed?.[key]
+		if (requiredValueMissing(value)) return declared?.default === undefined
+		if (
+			declared &&
+			!Array.isArray(declared.oneOf) &&
+			declared.properties &&
+			Array.isArray(declared.required) &&
+			typeof value === 'object' &&
+			!Array.isArray(value)
+		) {
+			return requiredUnanswered(declared, value as Record<string, any>)
+		}
+		return false
+	})
+}
+
 /** Whether the form holds something the model could not have supplied, so the bypass posture
  * has nothing to answer with. Either it was stripped for being the user's to give — a secret,
  * a file — or the schema requires it and neither the proposal nor a default carries a value. */
@@ -5546,15 +5584,7 @@ function formNeedsUser(
 	strippedKeys: string[]
 ): boolean {
 	if (strippedKeys.length > 0) return true
-	const required = schema?.required
-	if (!Array.isArray(required)) return false
-	const properties = schema?.properties ?? {}
-	return required.some((key) => {
-		if (typeof key !== 'string') return false
-		if (proposed[key] !== undefined && proposed[key] !== null) return false
-		const declared = Object.hasOwn(properties, key) ? properties[key] : undefined
-		return declared?.default === undefined
-	})
+	return requiredUnanswered(schema, proposed)
 }
 
 async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<string> {
@@ -5587,7 +5617,13 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	// a form answered a tick after it mounts flashes its fields at a user who was never going
 	// to fill them in.
 	const needsUser = formNeedsUser(schema, proposed, strippedKeys)
-	const autoAccepted = postureAnswers && (!toolCallbacks.requestRunArgs || !needsUser)
+	// The posture cannot answer a question it was never asked. A host with no form has nowhere
+	// to put one, so a run still carrying an unanswered field would start missing an argument —
+	// including the secret just stripped out of the model's own proposal.
+	if (!toolCallbacks.requestRunArgs && needsUser) {
+		return 'This chat cannot show a run form, so a script cannot be run from here.'
+	}
+	const autoAccepted = postureAnswers && !needsUser
 	const form: RunFormDisplay = {
 		path: spec.path,
 		summary: spec.summary || undefined,
