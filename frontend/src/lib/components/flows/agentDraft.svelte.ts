@@ -148,6 +148,17 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 				.then(async ([r, user]) => {
 					// A slower response for a path we have left must not overwrite the current one.
 					if (loadedFor !== key) return
+					// A step's `agent` is caller-authored, so it can name a resource of any type. Deploy
+					// replaces the whole value and never sends a type, so opening one here and saving
+					// would leave a postgres resource typed postgres with an agent config inside it.
+					if (r.resource_type && r.resource_type !== 'ai_agent') {
+						loading = false
+						sendUserToast(
+							`${path} is a ${r.resource_type} resource, not an agent. Refusing to open it here.`,
+							true
+						)
+						return
+					}
 					const deployedState: AgentResourceState = {
 						path: r.path,
 						description: r.description ?? '',
@@ -225,6 +236,13 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 				`This draft renames the agent to ${s.path}. Deploy it from the resource editor instead.`,
 				true
 			)
+			return false
+		}
+		// The load refuses anything else, so this only catches a draft row carrying another type.
+		// An update sends no type, so it would leave that resource typed as it was with an agent
+		// config inside it.
+		if (s.resource_type !== 'ai_agent') {
+			sendUserToast(`This draft is a ${s.resource_type} resource, not an agent.`, true)
 			return false
 		}
 		// The form stays editable while the request is in flight, so everything below works from a

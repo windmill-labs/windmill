@@ -78,22 +78,10 @@
 	const selectionManager = new SelectionManager()
 	selectionManager.selectId(AGENT_ID)
 	const history = initHistory(flowStore.val)
-	// The agent's own path, though what it names here is a flow that exists only in this editor. The
-	// flow-editor machinery keys everything off it — linked-agent tool scopes, Monaco models, and
-	// the path a test run and its history name — and the agent is what all of those belong to. It
-	// has to be a real workspace path, not an invented identifier:
-	// `require_path_read_access_for_preview` reads the first segment as a namespace and rejects
-	// anything that is not `u`/`f`/`hub` for everyone who is not an admin.
-	//
-	// That check authorizes by namespace and never reads the item's `extra_perms`, so someone granted
-	// write on an agent in another user's `u/` folder can edit and deploy it but cannot run it here.
-	// `ScriptEditor` previews under the script's own path and behaves the same way, which is the
-	// point: an empty path would run for everyone, but only by making this the one editor in the
-	// product that can run code under a path its user has no claim to.
-	//
-	// So it is not unique to this editor: a flow may carry the same path string, and its editor then
-	// keys the same things the same way. Anything added here that has to know an agent's editor from
-	// a flow's must say so outright — `agentEditorHost` below — rather than reading it off the path.
+	// The agent's own path, naming a flow that exists only here. It must be a real workspace path:
+	// `require_path_read_access_for_preview` rejects a first segment other than `u`/`f`/`hub` for
+	// anyone who is not an admin. It is therefore not unique to this editor — a flow may carry the
+	// same string — so telling the two apart reads `agentEditorHost` below, never the path.
 	const pathStore = writable('')
 	$effect(() => {
 		pathStore.set(path)
