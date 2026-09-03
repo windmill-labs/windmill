@@ -89,7 +89,10 @@
 	// suggested path can collide with another project's, and the field is free
 	// text, so the name alone proves nothing: only the repository the stored
 	// value points at does.
-	type Occupant = 'free' | 'same-repo' | 'other'
+	// `checking` exists so a path that has just changed is never treated as the
+	// previous path's verdict: the answer is asynchronous, and applying against a
+	// stale one is how an occupied variable gets overwritten anyway.
+	type Occupant = 'checking' | 'free' | 'same-repo' | 'other'
 	let occupant: Occupant = $state('free')
 	$effect(() => {
 		const path = variablePath
@@ -99,6 +102,7 @@
 			occupant = 'free'
 			return
 		}
+		occupant = 'checking'
 		let cancelled = false
 		VariableService.existsVariable({ workspace, path })
 			.then(async (exists) => {
@@ -157,17 +161,33 @@
 
 	async function apply(close: (_: any) => void) {
 		// The token is cleared once stored, and re-applying without one would
-		// overwrite the stored credential with an empty password. A path holding
-		// another repository's remote is never written: that would repoint every
-		// resource using it, silently, at this project.
-		if (!ws || !project || !token || occupant === 'other') return
+		// overwrite the stored credential with an empty password.
+		const pathIsWritable = occupant === 'free' || occupant === 'same-repo'
+		if (!ws || !project || !token || !pathIsWritable) return
 		applying = true
 		try {
 			const value = repositoryUrl(project)
+			const target = repoIdentity(project.http_url_to_repo)
 			const exists = await VariableService.existsVariable({
 				workspace: ws,
 				path: variablePath
 			})
+			// Re-read rather than trust the state the button was enabled from: the
+			// path can change between the check and the click, and another writer
+			// can take the path in between. A path holding anything but this same
+			// repository is never written over — that would repoint every resource
+			// using it, silently, at this project.
+			if (exists) {
+				const current = await VariableService.getVariableValue({
+					workspace: ws,
+					path: variablePath
+				}).catch(() => undefined)
+				if (!current || !target || repoIdentity(current) !== target) {
+					occupant = 'other'
+					sendUserToast(`${variablePath} holds something else. Choose another path.`, true)
+					return
+				}
+			}
 			if (exists) {
 				await VariableService.updateVariable({
 					workspace: ws,
@@ -277,7 +297,9 @@
 								size="sm"
 								inputProps={{ oninput: () => (variablePathTouched = true) }}
 							/>
-							{#if occupant === 'other'}
+							{#if occupant === 'checking'}
+								<div class="text-2xs font-normal text-hint">Checking this path...</div>
+							{:else if occupant === 'other'}
 								<div class="text-2xs font-normal text-red-600 dark:text-red-400">
 									This variable already holds something else. Choose another path, or anything using
 									it would start pointing at this project.
@@ -292,7 +314,11 @@
 							<Button
 								variant="accent"
 								unifiedSize="sm"
-								disabled={!project || !variablePath || !token || occupant === 'other' || applying}
+								disabled={!project ||
+									!variablePath ||
+									!token ||
+									!(occupant === 'free' || occupant === 'same-repo') ||
+									applying}
 								startIcon={{
 									icon: applying ? Loader2 : GitBranch,
 									classes: applying ? 'animate-spin' : ''

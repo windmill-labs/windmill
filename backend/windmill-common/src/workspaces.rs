@@ -337,13 +337,14 @@ pub struct GitRepositorySettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_pull: Option<AutoPullSettings>,
     /// Open a PR when a deploy pushes a `wm_deploy/**` branch of this promotion
-    /// repo (app-backed only; runs from the deploy callback so it works without
+    /// repo (needs a credential the server holds — a GitHub App installation or
+    /// a checked GitLab token; runs from the deploy callback so it works without
     /// inbound webhooks). Off by default so upgrades don't change behavior.
     #[serde(default, skip_serializing_if = "is_false")]
     pub promotion_open_prs: bool,
     /// Parent-level: open a PR when a fork of this workspace deploys to its
-    /// `wm-fork/**` branch (app-backed only; the fork's deploy callback reads
-    /// this from the parent). Off by default.
+    /// `wm-fork/**` branch (needs a credential the server holds; the fork's
+    /// deploy callback reads this from the parent). Off by default.
     #[serde(default, skip_serializing_if = "is_false")]
     pub fork_open_prs: bool,
     /// Server-owned: the last failure opening a PR for a deploy branch of this
