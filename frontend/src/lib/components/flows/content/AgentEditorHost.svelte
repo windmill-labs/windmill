@@ -71,7 +71,9 @@
 	//
 	// It must never reach the server. `require_path_read_access_for_preview` reads the first segment
 	// as a workspace namespace and rejects anything that is not `u`/`f`/`hub` for everyone who is not
-	// an admin, which is why the preview below passes `previewPath=""` instead of this.
+	// an admin, so every surface below that names what it runs takes an override instead of this:
+	// `previewPath=""` on the agent's own test and on the tool editor's, `scriptSaveBasePath` on
+	// "Save to workspace".
 	let syntheticPath = $derived(agentEditorHostPath(path))
 
 	const flowStore = $state({
@@ -205,8 +207,8 @@
 			// would otherwise reject into the global unhandled-rejection handler, which reports the
 			// bare message and no stack — saying nothing about which agent or tool caused it. The
 			// form still renders; only the inferred tool schemas are missing.
-			initFlowState(flowStore.val as Flow, flowStateStore, workspace, syntheticPath).catch(
-				(err) => console.error('agent editor: could not infer tool schemas for', path, err)
+			initFlowState(flowStore.val as Flow, flowStateStore, workspace, syntheticPath).catch((err) =>
+				console.error('agent editor: could not infer tool schemas for', path, err)
 			)
 		})
 	})
@@ -427,6 +429,7 @@
 						staticOnly
 						noToolNavigation
 						scriptSaveBasePath={path}
+						previewPath=""
 						forceTestTab={readOnly ? undefined : { [tool.id]: true }}
 						siblingToolNames={tools.filter((t) => t.id !== tool?.id).map((t) => t.summary ?? '')}
 					/>

@@ -127,6 +127,11 @@
 		 *  the flow's path. The agent editor overrides it: its flow is synthetic and its path is not
 		 *  one a script could be created under. */
 		scriptSaveBasePath?: string
+		/** What a test run names the previewed script, as `<base>/<module id>`. Defaults to the
+		 *  flow's path. The agent editor passes an empty base for the same reason it overrides
+		 *  `scriptSaveBasePath`: its flow's path is synthetic, and the preview endpoint reads the
+		 *  first segment as a workspace namespace. */
+		previewPath?: string
 		/** Lets the agent's Tools section add a tool through the graph's own insert path. */
 		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
 		/** Drop the tool roster's drill-in. Selecting a tool means selecting its graph node, so a
@@ -153,6 +158,7 @@
 		isAgentTool = false,
 		staticOnly = false,
 		scriptSaveBasePath = undefined,
+		previewPath = undefined,
 		flowModuleSchemaMap = undefined,
 		noToolNavigation = false,
 		toolDescription = $bindable(undefined),
@@ -1329,6 +1335,7 @@
 											pickableProperties={stepPropPicker.pickableProperties}
 											bind:this={modulePreview}
 											mod={flowModule}
+											{previewPath}
 											{noEditor}
 											schema={agentLinked
 												? flowLocalAgentSchema(flowStateStore.val[flowModule.id]?.schema ?? {})
