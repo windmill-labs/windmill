@@ -12,10 +12,16 @@
 	interface Props {
 		resourceType: string
 		args?: Record<string, any>
+		/** The workspace the resource is being edited in, which is not always the
+		 * one being navigated: the variable has to land where the resource will
+		 * look for it. */
+		workspace?: string
 		onArgsUpdate?: (args: Record<string, any>) => void
 	}
 
-	let { resourceType, args = {}, onArgsUpdate }: Props = $props()
+	let { resourceType, args = {}, workspace = undefined, onArgsUpdate }: Props = $props()
+
+	let ws = $derived(workspace ?? $workspaceStore)
 
 	let baseUrl = $state('https://gitlab.com')
 	let token = $state('')
@@ -31,7 +37,7 @@
 	// without it the button would open a form whose first request 404s.
 	let show = $derived(
 		resourceType === 'git_repository' &&
-			!!$workspaceStore &&
+			!!ws &&
 			!!$enterpriseLicense &&
 			($userStore?.is_admin || $userStore?.is_super_admin)
 	)
@@ -55,12 +61,12 @@
 	})
 
 	async function listProjects() {
-		if (!$workspaceStore) return
+		if (!ws) return
 		loading = true
 		listError = undefined
 		try {
 			projects = await GitSyncService.listGitlabProjects({
-				workspace: $workspaceStore,
+				workspace: ws,
 				requestBody: { base_url: baseUrl, token, search: search || undefined }
 			})
 			selectedProject = projects[0]?.path_with_namespace
@@ -87,23 +93,25 @@
 	}
 
 	async function apply(close: (_: any) => void) {
-		if (!$workspaceStore || !project) return
+		// The token is cleared once stored, and re-applying without one would
+		// overwrite the stored credential with an empty password.
+		if (!ws || !project || !token) return
 		applying = true
 		try {
 			const value = repositoryUrl(project)
 			const exists = await VariableService.existsVariable({
-				workspace: $workspaceStore,
+				workspace: ws,
 				path: variablePath
 			})
 			if (exists) {
 				await VariableService.updateVariable({
-					workspace: $workspaceStore,
+					workspace: ws,
 					path: variablePath,
 					requestBody: { value, is_secret: true }
 				})
 			} else {
 				await VariableService.createVariable({
-					workspace: $workspaceStore,
+					workspace: ws,
 					requestBody: {
 						path: variablePath,
 						value,
@@ -119,6 +127,9 @@
 				branch: args.branch || project.default_branch || undefined
 			})
 			token = ''
+			projects = []
+			selectedProject = undefined
+			variablePathTouched = false
 			sendUserToast(`Repository URL stored in the secret variable ${variablePath}`)
 			close(null)
 		} catch (err) {
@@ -206,7 +217,7 @@
 							<Button
 								variant="accent"
 								unifiedSize="sm"
-								disabled={!project || !variablePath || applying}
+								disabled={!project || !variablePath || !token || applying}
 								startIcon={{
 									icon: applying ? Loader2 : GitBranch,
 									classes: applying ? 'animate-spin' : ''
