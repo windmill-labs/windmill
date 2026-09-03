@@ -310,8 +310,8 @@
 <!-- scroll-mb clears the chat's sticky "Waiting for your input" chip so the mount
      scrollIntoView of the form below leaves the Run button uncovered. -->
 <!-- The runnable's name is the subject of the row and the verb is grammar, so the name takes
-     the weight the selected tab has and the verb steps back. font-main because a name is UI
-     text: the tool row around it is font-mono, which is right for a path and wrong for this. -->
+     the weight the selected tab has while the verb keeps the row's ordinary one. font-main
+     because a name is UI text: the row around it is font-mono, right for a path, wrong here. -->
 <ChatCollapsibleCard
 	label={runnableName}
 	labelPrefix={verb}
