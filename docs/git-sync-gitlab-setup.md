@@ -8,34 +8,56 @@ requests opened on deploy, and a diff preview posted onto the merge request.
 
 ## The credential
 
-Create a **group access token** on the group that owns the project (Settings →
-Access tokens), or a **group service account** and a personal access token for
-it. Either one is a bot identity that outlives the person who created it, which
-is what you want for a credential the instance uses unattended.
+Create a **project access token** on the project you are syncing (Settings →
+Access tokens). It is a bot identity that outlives the person who created it,
+which is what you want for a credential the instance uses unattended, and it
+reaches exactly the one project.
 
 | | |
 | --- | --- |
 | Scope | `api` |
 | Role | Developer to push deploy branches; **Maintainer** to also manage the webhook and open merge requests |
-| Expiry | Required for a group access token; a group service account PAT can be non-expiring on self-managed (see below) |
+| Expiry | Required. A group service account PAT can be non-expiring on self-managed (see below); an access token cannot |
+
+**Use a separate token per repository.** A group access token works too and
+reaches every project in the group, which is convenient for a lot of
+repositories — but Windmill stores the credential per repository, and renewal
+rewrites the repository it renewed for. Any other repository holding that same
+token keeps the revoked one and stops syncing until you paste a new token there.
+Each stranded repository says so on its card, so it is visible rather than
+silent, but a token per repository avoids it entirely.
 
 `api` is a superset: it authorizes Git over HTTPS as well, so no separate
 `write_repository` is needed to clone and push, and it is also what makes the
-token rotatable so Windmill can renew it before it expires. A
-`write_repository`-only token can still push, but Windmill cannot inspect or
-renew it and reports that in the workspace's git sync settings.
+token renewable. A `write_repository`-only token can still push, but Windmill
+cannot inspect or renew it and reports that in the workspace's git sync settings.
 
-A group access token is renewed through GitLab's own self-rotation endpoint.
-GitLab issues one to a per-group bot user and keeps it as that user's personal
-access token, so the token rotates itself with no credential over the group
-involved, and Windmill never holds one.
+### The identity Windmill acts as
+
+GitLab issues an access token to a bot user it creates for it — `project_<id>_bot_…`
+for a project token, `group_<id>_bot_…` for a group one — and the bot's display
+name is **the name you gave the token**. That name is the byline on everything
+Windmill does: the author of deploy commits, of the merge requests it opens, and
+of the preview notes it writes. Name it for what it is, `windmill-sync` or
+similar, rather than something only you will recognise.
+
+Each token you create adds another bot member to the project or group. Renewal
+does not — it keeps the same bot — so a repository accumulates one bot, not one
+per year.
+
+Renewal goes through GitLab's own self-rotation endpoint. Both kinds of access
+token are held as their bot user's personal access token, so the token rotates
+itself and Windmill never needs a credential with rights over the project or
+group.
 
 ## Connecting a repository
 
 In the resource form for a `git_repository` resource, use the **GitLab** button:
 paste the instance URL and the token, pick a project from the list, and Windmill
 stores the whole remote URL, credential included, in a **secret variable** and
-points the resource at it (`"url": "$var:u/you/gitlab_group_project_url"`).
+points the resource at it (`"url": "$var:u/you/gitlab_host_group_project_url"`).
+It refuses to write over a variable already holding a different repository, so a
+path collision cannot silently repoint an existing resource.
 
 Renewal rewrites whichever of the two holds the URL, so a URL pasted straight
 into the resource is renewed as well. The variable is still the better place for

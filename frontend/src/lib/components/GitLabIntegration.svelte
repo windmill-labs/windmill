@@ -248,10 +248,16 @@
 						<TextInput bind:value={baseUrl} size="sm" />
 					</div>
 					<div class="flex flex-col gap-y-1">
-						<div class="text-xs font-semibold text-emphasis">Group access token</div>
+						<div class="text-xs font-semibold text-emphasis">Project access token</div>
 						<div class="text-xs font-normal text-secondary">
-							Create it in the group that owns the project, with the api scope and at least the
+							Create it on the project you are syncing, with the api scope and at least the
 							Developer role. Maintainer also lets Windmill manage the webhook and merge requests.
+							Its name becomes the author of the commits and merge requests Windmill creates.
+						</div>
+						<div class="text-xs font-normal text-secondary">
+							Use a separate token per repository. A group token works and covers every project in
+							the group, but renewal updates one repository at a time, so the others keep the
+							replaced token.
 						</div>
 						<TextInput bind:value={token} size="sm" inputProps={{ type: 'password' }} />
 						<div class="text-2xs font-normal text-hint">

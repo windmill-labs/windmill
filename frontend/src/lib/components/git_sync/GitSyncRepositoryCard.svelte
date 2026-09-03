@@ -797,7 +797,7 @@
 									<a
 										href="https://www.windmill.dev/docs/integrations/git_repository"
 										target="_blank"
-										class="text-blue-500 hover:underline">group access token</a
+										class="text-blue-500 hover:underline">project access token</a
 									>, and Windmill opens them automatically.
 								</div>
 							{/if}
@@ -843,7 +843,7 @@
 										<a
 											href="https://www.windmill.dev/docs/integrations/git_repository"
 											target="_blank"
-											class="text-blue-500 hover:underline">group access token</a
+											class="text-blue-500 hover:underline">project access token</a
 										> and Windmill opens them automatically.
 									</div>
 								{/if}
@@ -941,7 +941,7 @@
 											<a
 												href="https://www.windmill.dev/docs/integrations/git_repository"
 												target="_blank"
-												class="text-blue-500 hover:underline">group access token</a
+												class="text-blue-500 hover:underline">project access token</a
 											>
 											(either also lets Windmill manage pull requests), or push changes into Windmill
 											with the
