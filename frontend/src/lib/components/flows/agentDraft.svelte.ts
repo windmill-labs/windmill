@@ -289,9 +289,19 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 					requestBody: { ...body, resource_type: submitted.resource_type ?? 'ai_agent' }
 				})
 			} else {
+				// The type this editor proved is as old as the load, and an update carries no type of
+				// its own: were the path deleted and recreated as something else meanwhile, this write
+				// would put an agent config inside that resource. Reading it again narrows the window
+				// to the request rather than to however long the editor stayed open.
+				const current = await ResourceService.getResource({ workspace: ws, path: submitted.path })
+				const refused = agentEditorRefusal(submitted.path, current.resource_type)
+				if (refused) {
+					refuse(refused)
+					return false
+				}
 				await ResourceService.updateResource({
 					workspace: ws,
-					path: opts.path()!,
+					path: submitted.path,
 					requestBody: body
 				})
 			}

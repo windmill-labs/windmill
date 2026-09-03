@@ -329,7 +329,8 @@
 {#if draft.refusal}
 	<div class="h-full flex items-center justify-center px-8">
 		<Alert type="error" size="sm" title={draft.refusal} class="max-w-lg">
-			Open it from the resources page to see what it holds.
+			Open it from the resources page to see what it holds. Any unsaved edits are kept as a draft
+			there.
 		</Alert>
 	</div>
 {:else if draft.loading}

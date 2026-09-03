@@ -88,7 +88,9 @@
 		noConnect?: boolean
 		/** Drop the expression option, for a surface whose values have to stand on their own. The
 		 *  rest of the switch stays, so a field can still be AI-filled or static. A field already
-		 *  holding an expression keeps the option, or it could not be switched off it. */
+		 *  holding an expression keeps the option, or it could not be switched off it.
+		 *  Every affordance that would write one is off with it: an expression reaching such a
+		 *  field is stored and deployed like any other, whichever control put it there. */
 		noJavascript?: boolean
 		/** Replaces the default StepInputGen, for a field with its own AI helper. That
 		 *  helper drives `suggestion` (its ghost text) and `aiOnKeyUp` (Tab to accept),
@@ -335,6 +337,7 @@
 			isStaticTemplate(inputCat) &&
 			propertyType == 'static' &&
 			!noDynamicToggle &&
+			!noJavascript &&
 			codeInjectionDetected
 		) {
 			setJavaScriptExpr(arg.value)
@@ -595,8 +598,10 @@
 	// Fading the controls away is only safe while the row itself says what it holds. An expression
 	// or an AI-filled value is only legible from the toggle, so those keep it on screen.
 	let controlsPinned = $derived(connecting || propertyType !== 'static' || Boolean(suggestion))
+	// Its picker builds an expression, so it goes with the expression option.
 	let shouldShowS3ArrayHelper = $derived(
 		inputCat === 'list' &&
+			!noJavascript &&
 			['s3object', 's3_object'].includes(schema?.properties?.[argName]?.items?.resourceType)
 	)
 
@@ -662,7 +667,7 @@
 			>
 				{#if aiGen}
 					{@render aiGen()}
-				{:else if enableAi}
+				{:else if enableAi && !noJavascript}
 					<StepInputGen
 						bind:this={stepInputGen}
 						{focused}
