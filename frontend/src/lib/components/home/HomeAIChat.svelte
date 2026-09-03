@@ -133,7 +133,7 @@
 	const prompts = homeAIExamples.map((e) => e.prompt)
 
 	const CYCLE_MS = 7_000
-	// Must match the `placeholder:duration-*` class on the textarea: the swap happens once the
+	// Must match the `duration-*` class on the placeholder overlay: the swap happens once the
 	// fade-out has finished, and Tailwind only emits classes it finds written out in full.
 	const FADE_MS = 600
 
@@ -189,12 +189,27 @@
 				<div class="relative {blurClass}" inert={disabled}>
 					<TextInput
 						bind:value
-						class="resize-none px-4 py-3 pb-9 shadow-sm border-accent placeholder:transition-opacity placeholder:duration-[600ms] placeholder:ease-in-out {placeholderVisible
-							? 'placeholder:opacity-100'
-							: 'placeholder:opacity-0'}"
+						class="resize-none px-4 py-3 pb-9 shadow-sm border-accent"
 						underlyingInputEl="textarea"
-						inputProps={{ rows: 4, placeholder, onkeydown: onKeydown }}
+						inputProps={{
+							rows: 4,
+							'aria-label': 'Describe what you want to build',
+							onkeydown: onKeydown
+						}}
 					/>
+					{#if !value}
+						<!-- Drawn over the textarea instead of set as its `placeholder`: WebKit and Gecko do
+						     not run transitions on `::placeholder`, so the fade would be a hard cut there.
+						     The 1px margin is the textarea's border, so the text sits where typing starts. -->
+						<span
+							aria-hidden="true"
+							class="pointer-events-none absolute inset-x-4 top-3 m-px text-xs text-hint transition-opacity duration-[600ms] ease-in-out {placeholderVisible
+								? 'opacity-100'
+								: 'opacity-0'}"
+						>
+							{placeholder}
+						</span>
+					{/if}
 					<Button
 						endIcon={starting ? {} : { icon: ArrowUp }}
 						wrapperClasses="absolute right-2 bottom-3.5"
