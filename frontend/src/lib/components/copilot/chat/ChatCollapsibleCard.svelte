@@ -6,10 +6,10 @@
 
 	interface Props {
 		label: string
-		/** Set before the label, holding this component's own label weight while `labelClass`
-		 * emphasises the label alone: the part of the heading that is grammar rather than subject
-		 * stays put, and only what the row is about is lifted. Joined into one accessible name,
-		 * since the two halves are one sentence. */
+		/** Set before the label and left unemphasised, so `labelClass` lifts the subject alone:
+		 * the part of the heading that is grammar stays quiet. A step lighter than the row's own
+		 * label weight, because a caller emphasising the label is also setting a proportional
+		 * typeface, whose medium reads heavier than the mono one at this size. */
 		labelPrefix?: string
 		expanded: boolean
 		onToggle: () => void
@@ -59,7 +59,7 @@
 				highlight && 'text-emphasis'
 			)}
 		>
-			{#if labelPrefix}<span class="font-medium text-secondary">{labelPrefix}</span
+			{#if labelPrefix}<span class="font-normal text-secondary">{labelPrefix}</span
 				>&nbsp;{/if}{label}
 		</span>
 	{/snippet}
