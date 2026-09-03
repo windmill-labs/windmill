@@ -14,9 +14,10 @@ export interface AgentEditorTarget {
 	/** A level of the editor that is not the form. Mutually exclusive with `toolId`. */
 	view?: 'evals'
 	/** Where to re-resolve a graph's tool nodes after a deploy, when opened from a flow step. An
-	 *  agent editor hosts its own flow under the agent's path, so a tool opened from inside one
-	 *  names that agent here. */
-	host?: { flowPath: string; moduleId: string }
+	 *  agent editor hosts its own flow under the agent's path, so `fromAgentEditor` is what tells
+	 *  the two apart: a flow and a resource may share a path string, and `flowPath` alone would let
+	 *  a step of one be read as a tool of the other. */
+	host?: { flowPath: string; moduleId: string; fromAgentEditor?: boolean }
 }
 
 let target = $state<AgentEditorTarget | undefined>(undefined)

@@ -49,10 +49,12 @@
 
 	function claims(t: AgentEditorTarget): boolean {
 		if (owns(t)) return true
-		if (!t.host?.flowPath) return false
-		// Already taken, or opened from inside the agent this mount is showing — an agent editor
-		// hosts its flow under the agent's own path, so a tool opened from within one names that
-		// agent as its host.
+		// Only ever a target opened from inside an agent editor, never one belonging to a flow. The
+		// paths below are both workspace paths and a flow may share one with a resource, so this is
+		// what keeps a flow's step from matching an agent a mount happens to be showing.
+		if (!t.host?.fromAgentEditor || !t.host.flowPath) return false
+		// Already taken, or opened from inside the agent this mount is showing — that editor hosts
+		// its flow under the agent's own path, so a tool opened from within one names it here.
 		return t.path === adoptedPath || (shownPath != undefined && t.host.flowPath === shownPath)
 	}
 

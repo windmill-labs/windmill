@@ -84,6 +84,7 @@
 		customUi,
 		executionCount,
 		opWorkspace,
+		agentEditorHost,
 		workspaceScriptSettingsDrawer
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -1149,6 +1150,7 @@
 														moduleId={linkedToolsModuleId}
 														opWorkspace={opWs}
 														flowPath={$pathStore}
+										fromAgentEditor={agentEditorHost?.() != undefined}
 														bind:agent={
 															() =>
 																flowModule.value.type === 'aiagent'

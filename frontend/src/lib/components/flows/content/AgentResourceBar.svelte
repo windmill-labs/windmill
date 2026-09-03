@@ -37,7 +37,8 @@
 		toolInputs = $bindable(),
 		moduleId,
 		opWorkspace = undefined,
-		flowPath = ''
+		flowPath = '',
+		fromAgentEditor = false
 	}: {
 		agent: string | undefined
 		inputTransforms: Record<string, InputTransform>
@@ -49,6 +50,10 @@
 		opWorkspace?: string
 		// Scope for the linked-agent tools store (the flow path); must match what the graph reads.
 		flowPath?: string
+		// Whether `flowPath` names an agent editor's host flow rather than a real flow. The two are
+		// both workspace paths and can be equal, so a target opened from here has to say which it is
+		// or the mount showing that agent cannot be told apart from a flow editor's.
+		fromAgentEditor?: boolean
 	} = $props()
 
 	let ws = $derived(opWorkspace ?? $workspaceStore)
@@ -387,7 +392,7 @@
 			path: agent,
 			workspace: ws,
 			// Where to re-resolve this graph's tool nodes once the agent is deployed.
-			host: { flowPath, moduleId }
+			host: { flowPath, moduleId, fromAgentEditor }
 		})
 	}
 </script>

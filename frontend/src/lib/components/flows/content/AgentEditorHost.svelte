@@ -79,11 +79,16 @@
 	selectionManager.selectId(AGENT_ID)
 	const history = initHistory(flowStore.val)
 	// The agent's own path, though what it names here is a flow that exists only in this editor. The
-	// flow-editor machinery keys everything off it — linked-agent tool scopes, Monaco models,
-	// remembered open fields, and the path a test run and its history name — and the agent is what
-	// all of those belong to. It has to be a real workspace path, not an invented identifier:
+	// flow-editor machinery keys everything off it — linked-agent tool scopes, Monaco models, and
+	// the path a test run and its history name — and the agent is what all of those belong to. It
+	// has to be a real workspace path, not an invented identifier:
 	// `require_path_read_access_for_preview` reads the first segment as a namespace and rejects
 	// anything that is not `u`/`f`/`hub` for everyone who is not an admin.
+	//
+	// So it is not unique to this editor: a flow may carry the same path string, and its editor then
+	// keys the same things the same way. Anything added here that has to know an agent's editor from
+	// a flow's must say so outright — `agentEditorHost` below, and `host.fromAgentEditor` on what
+	// this editor opens — rather than reading it off the path.
 	const pathStore = writable('')
 	$effect(() => {
 		pathStore.set(path)
@@ -148,6 +153,7 @@
 		history,
 		pathStore,
 		opWorkspace: () => workspace,
+		agentEditorHost: () => path,
 		saveDraft: () => {}
 	} as FlowEditorContext)
 
