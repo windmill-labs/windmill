@@ -28859,8 +28859,11 @@ components:
         Guests are free up to `free_allowance` distinct emails over the trailing
         `window_days`. Past that an Enterprise plan meters them (`metered`, four guests
         to one seat: `billable_guests`, `guest_seats`); every other plan and build
-        admits no new email until the count drops.
+        admits no new email until the count drops. `instance_enabled` is the superadmin
+        switch (`guest_access_disabled` global setting) every workspace switch sits under.
       properties:
+        instance_enabled:
+          type: boolean
         guest_count:
           type: integer
           format: int64
@@ -28878,6 +28881,7 @@ components:
           type: integer
           format: int64
       required:
+        - instance_enabled
         - guest_count
         - window_days
         - free_allowance

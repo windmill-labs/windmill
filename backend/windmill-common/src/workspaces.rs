@@ -820,6 +820,9 @@ pub async fn guest_count_in_window<'c, E: sqlx::Executor<'c, Database = sqlx::Po
 /// The instance's standing against the guest allowance, as every surface reports it.
 #[derive(Clone, Debug, Serialize)]
 pub struct GuestUsage {
+    /// The superadmin switch (`GUEST_ACCESS_DISABLED_SETTING`), which every workspace
+    /// switch sits under.
+    pub instance_enabled: bool,
     /// Distinct guest emails over the trailing `window_days`.
     pub guest_count: i64,
     pub window_days: i32,
@@ -831,7 +834,19 @@ pub struct GuestUsage {
     pub guest_seats: i64,
 }
 
+/// SQL for "the instance admits guests": the superadmin switch, absent meaning on.
+const INSTANCE_ADMITS_GUESTS_SQL: &str =
+    "NOT COALESCE((SELECT value::boolean FROM global_settings \
+     WHERE name = 'guest_access_disabled'), false)";
+
 pub async fn guest_usage(db: &crate::DB) -> Result<GuestUsage> {
+    let instance_enabled: bool =
+        sqlx::query_scalar(&format!("SELECT {INSTANCE_ADMITS_GUESTS_SQL}"))
+            .fetch_one(db)
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!("reading the instance guest switch: {e:#}"))
+            })?;
     let guest_count = guest_count_in_window(db).await?;
     let metered = guests_are_metered().await;
     let billable_guests = if metered {
@@ -840,6 +855,7 @@ pub async fn guest_usage(db: &crate::DB) -> Result<GuestUsage> {
         0
     };
     Ok(GuestUsage {
+        instance_enabled,
         guest_count,
         window_days: GUEST_WINDOW_DAYS,
         free_allowance: FREE_GUESTS_PER_WINDOW,
@@ -901,17 +917,18 @@ pub async fn is_guest_access_enabled(db: &crate::DB, w_id: &str) -> Result<bool>
     .unwrap_or(false))
 }
 
-/// Whether a guest session for `email` in `w_id` still stands: the workspace admits
-/// guests, and the email still has no account. Read at the auth door on every guest
-/// request, so an account provisioned after the mint (or racing it) ends the session on
-/// its next request rather than outliving the rule that an account holder is no guest.
+/// Whether a guest session for `email` in `w_id` still stands: the instance and the
+/// workspace admit guests, and the email still has no account. Read at the auth door on
+/// every guest request, so turning either switch off, or an account provisioned after
+/// the mint (or racing it), ends the session on its next request.
 pub async fn guest_session_stands(db: &crate::DB, w_id: &str, email: &str) -> Result<bool> {
-    let stands: Option<bool> = sqlx::query_scalar(
+    let stands: Option<bool> = sqlx::query_scalar(&format!(
         "SELECT guest_access_enabled
+            AND {INSTANCE_ADMITS_GUESTS_SQL}
             AND NOT EXISTS(SELECT 1 FROM password WHERE email = $2)
             AND NOT EXISTS(SELECT 1 FROM usr WHERE email = $2)
-         FROM workspace_settings WHERE workspace_id = $1",
-    )
+         FROM workspace_settings WHERE workspace_id = $1"
+    ))
     .bind(w_id)
     .bind(email)
     .fetch_optional(db)
@@ -920,25 +937,29 @@ pub async fn guest_session_stands(db: &crate::DB, w_id: &str, email: &str) -> Re
     Ok(stands.unwrap_or(false))
 }
 
-/// Both gates at once: the workspace switch, and `app_path` being in `guest` execution
-/// mode. The single answer to "may a guest session be minted for this app", used by the
-/// mint itself and by the sign-in branch that decides whether to call it. A missing app
-/// or a policy with no stated mode reads as "no". The allowance is `guest_admission`.
+/// Every switch at once: the instance's, the workspace's, and `app_path` being in
+/// `guest` execution mode. The single answer to "may a guest session be minted for this
+/// app", used by the mint itself and by the sign-in branch that decides whether to call
+/// it. A missing app or a policy with no stated mode reads as "no". The allowance is
+/// `guest_admission`.
 pub async fn guest_app_admits<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(
     executor: E,
     w_id: &str,
     app_path: &str,
 ) -> Result<bool> {
-    let admits: Option<bool> = sqlx::query_scalar(
+    let admits: Option<bool> = sqlx::query_scalar(&format!(
         "SELECT COALESCE(ws.guest_access_enabled AND app.policy->>'execution_mode' = 'guest', false)
+            AND {INSTANCE_ADMITS_GUESTS_SQL}
          FROM app JOIN workspace_settings ws ON ws.workspace_id = app.workspace_id
-         WHERE app.workspace_id = $1 AND app.path = $2",
-    )
+         WHERE app.workspace_id = $1 AND app.path = $2"
+    ))
     .bind(w_id)
     .bind(app_path)
     .fetch_optional(executor)
     .await
-    .map_err(|e| Error::internal_err(format!("checking guest access to {w_id}/{app_path}: {e:#}")))?;
+    .map_err(|e| {
+        Error::internal_err(format!("checking guest access to {w_id}/{app_path}: {e:#}"))
+    })?;
     Ok(admits.unwrap_or(false))
 }
 

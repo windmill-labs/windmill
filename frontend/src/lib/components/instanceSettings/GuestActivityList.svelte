@@ -3,8 +3,10 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import { Alert } from '$lib/components/common'
-	import type { GuestActivity, GuestUsage } from '$lib/gen'
+	import { SettingService, type GuestActivity, type GuestUsage } from '$lib/gen'
+	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		usage: GuestUsage
@@ -12,10 +14,29 @@
 		hasMore: boolean
 		loading: boolean
 		onLoadMore: () => void
+		/** The instance switch was written; the caller re-reads usage. */
+		onInstanceSwitch: () => void
 	}
 
-	let { usage, guests, hasMore, loading, onLoadMore }: Props = $props()
+	let { usage, guests, hasMore, loading, onLoadMore, onInstanceSwitch }: Props = $props()
 	const loadMoreSize = 50
+
+	async function setInstanceSwitch(enabled: boolean) {
+		try {
+			await SettingService.setGlobal({
+				key: 'guest_access_disabled',
+				requestBody: { value: !enabled }
+			})
+			sendUserToast(
+				enabled
+					? 'Guests can sign in again where a workspace allows them'
+					: 'Guests can no longer sign in anywhere on this instance'
+			)
+		} catch (e) {
+			sendUserToast(`Could not change the instance guest switch: ${e}`, true)
+		}
+		onInstanceSwitch()
+	}
 	// A capped instance refuses the next stranger as soon as the allowance is used up.
 	let pastAllowance = $derived(
 		usage.metered
@@ -28,6 +49,18 @@
 	title="Guests"
 	description="People your identity provider authenticated who opened an app set to Guests without a Windmill account. One email is one guest, however many workspaces it opened."
 />
+
+<div class="flex flex-row gap-2 items-center mb-4">
+	<Toggle
+		checked={usage.instance_enabled}
+		on:change={(e) => setInstanceSwitch(e.detail)}
+		options={{
+			right: 'Allow guests on this instance',
+			rightTooltip:
+				'Off, no guest can sign in anywhere, whatever a workspace or an app says, and sessions already issued stop on their next request.'
+		}}
+	/>
+</div>
 
 <div class="mb-4">
 	<Alert type={pastAllowance ? 'warning' : 'info'} size="xs" title="{usage.guest_count} of {usage.free_allowance} free guests used in the last {usage.window_days} days">

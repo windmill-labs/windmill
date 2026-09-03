@@ -488,7 +488,10 @@
 			{#if policy.execution_mode == 'anonymous'}
 				Anyone holding the secret URL below can open this app without signing in.
 			{:else if policy.execution_mode == 'guest'}
-				{#if guestAccessEnabled === undefined}
+				{#if guestUsage && !guestUsage.instance_enabled}
+					A superadmin has turned guests off for this instance, so this app still admits members
+					only.
+				{:else if guestAccessEnabled === undefined}
 					Checking whether this workspace allows guests…
 				{:else if guestAccessEnabled === false}
 					Guests are turned off for this workspace, so this app still admits members only. A

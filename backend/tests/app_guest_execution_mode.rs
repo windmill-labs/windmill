@@ -454,6 +454,62 @@ async fn guest_cannot_run_another_guest_app(db: Pool<Postgres>) -> anyhow::Resul
     Ok(())
 }
 
+/// The superadmin switch sits above every workspace's: off, no guest session stands and
+/// no app discovers as open, whatever the workspace and the app say.
+#[sqlx::test(fixtures("base"))]
+async fn the_instance_switch_closes_every_workspace(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    enable_guests(port, "test-workspace").await?;
+    let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
+        .json(&guest_app_with_runnable(APP_PATH, false))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    insert_guest_token(&db, "test-workspace").await?;
+    let set_instance_switch = |disabled: bool| {
+        authed(
+            client().post(format!(
+                "http://localhost:{port}/api/settings/global/guest_access_disabled"
+            )),
+            ADMIN_TOKEN,
+        )
+        .json(&json!({ "value": disabled }))
+        .send()
+    };
+
+    let secret: String = authed(
+        client().get(format!("{ws}/apps/secret_of/{APP_PATH}")),
+        ADMIN_TOKEN,
+    )
+    .send()
+    .await?
+    .text()
+    .await?;
+
+    set_instance_switch(true).await?.error_for_status()?;
+    let resp = authed(client().get(format!("{ws}/users/whoami")), GUEST_TOKEN)
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 401, "the instance switch closes an issued session");
+    let resp = client()
+        .get(format!("{ws}/apps_u/guest_entry/{secret}"))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 404, "and nothing discovers as open to guests");
+
+    set_instance_switch(false).await?.error_for_status()?;
+    let resp = authed(client().get(format!("{ws}/users/whoami")), GUEST_TOKEN)
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "back on, the session stands again");
+
+    Ok(())
+}
+
 /// An account holder is never a guest, and that holds after the mint too: a session
 /// minted before the account existed ends at the door the moment one does, so an
 /// account provisioned in a race with the mint cannot outlive the rule.

@@ -362,17 +362,13 @@
 								</div>
 							{/if}
 
-							{#if extJwtTokens.length > 0 || (guestList?.guests.length ?? 0) > 0}
-								<Tabs bind:selected={usersSubTab} class="mb-4">
-									<Tab value="users" label="Users" />
-									{#if extJwtTokens.length > 0}
-										<Tab value="ext_jwt" label="External JWTs" />
-									{/if}
-									{#if (guestList?.guests.length ?? 0) > 0}
-										<Tab value="guests" label="Guests" />
-									{/if}
-								</Tabs>
-							{/if}
+							<Tabs bind:selected={usersSubTab} class="mb-4">
+								<Tab value="users" label="Users" />
+								{#if extJwtTokens.length > 0}
+									<Tab value="ext_jwt" label="External JWTs" />
+								{/if}
+								<Tab value="guests" label="Guests" />
+							</Tabs>
 
 							{#if usersSubTab === 'users' || (usersSubTab === 'ext_jwt' && extJwtTokens.length === 0) || (usersSubTab === 'guests' && !guestList)}
 								<SettingsPageHeader
@@ -748,6 +744,7 @@
 									loading={guestLoading}
 									onLoadMore={() =>
 										loadGuestPage(Math.floor((guestList?.guests.length ?? 0) / guestPerPage) + 1)}
+									onInstanceSwitch={() => loadGuestPage(1)}
 								/>
 							{/if}
 						</div>

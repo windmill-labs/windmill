@@ -2189,7 +2189,12 @@ export async function main(
 									bind:checked={guestAccessEnabled}
 									options={{ right: 'Allow guests to open apps set to Guests' }}
 								/>
-								{#if guestUsage}
+								{#if guestUsage && !guestUsage.instance_enabled}
+									<span class="text-hint text-2xs">
+										A superadmin has turned guests off for this instance, so this switch has no
+										effect until they are allowed again.
+									</span>
+								{:else if guestUsage}
 									<span class="text-hint text-2xs">
 										{guestUsage.guest_count} of {guestUsage.free_allowance} free guests used across
 										this instance in the last {guestUsage.window_days} days.
