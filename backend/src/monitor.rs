@@ -4683,8 +4683,11 @@ async fn maintain_git_credentials_inner(db: &Pool<Postgres>) -> error::Result<()
     // settings row survives, and rotating a token for one would be pure damage.
     // Least-recently-checked first, so a pass that runs out of budget resumes
     // where it stopped instead of re-checking the same head of the list forever.
-    // A repository with no recorded credential sorts first and costs only a
-    // database round trip: it has no token to introspect.
+    // A repository with no recorded credential sorts first and stays there,
+    // which is deliberate: it has no token to introspect, so it costs a few
+    // database queries and nothing else. Tens of thousands of them would have to
+    // exist in one instance before they consumed the pass budget ahead of a
+    // repository that does have a token.
     let rows = sqlx::query!(
         r#"SELECT ws.workspace_id, ws.git_sync
            FROM workspace_settings ws

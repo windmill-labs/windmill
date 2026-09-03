@@ -824,6 +824,11 @@ struct GitSyncCheck {
     /// carry one; the resource path on the job is what is used now.
     #[serde(default)]
     repo_url: Option<String>,
+    /// Host and path of the repository the check was created on, with no
+    /// credential in it. The resource path is mutable, so this is what proves
+    /// the resource still points where the check lives.
+    #[serde(default)]
+    repo: Option<String>,
     #[serde(default)]
     pr_number: Option<i64>,
     #[serde(default)]
@@ -1406,6 +1411,16 @@ async fn maybe_post_git_sync_check(
             return;
         }
     };
+    // A resource repointed while the diff was running would otherwise close a
+    // check, or post a preview, on a repository that has nothing to do with it.
+    if check.repo.is_some()
+        && windmill_common::git_sync_ee::repo_identity(&repo_url) != check.repo
+    {
+        tracing::warn!(
+            "git sync-check: the repository moved since the check was created; leaving it alone"
+        );
+        return;
+    }
     // "In sync" on a PR that visibly changes files reads as a bug when those
     // files are outside the repo's sync filters — say what the scope is.
     let scope_note = if !is_deploy && success {
