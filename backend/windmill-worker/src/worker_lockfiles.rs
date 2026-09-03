@@ -481,7 +481,9 @@ pub async fn handle_dependency_job(
                             occupancy_metrics,
                             &raw_workspace_dependencies_o,
                             module.lock.as_deref(),
-                            triggered_by_relative_import,
+                            // A module that was never locked has nothing a skip could hand
+                            // back; the path's lock is the parent script's, not its own.
+                            triggered_by_relative_import && module.lock.is_some(),
                             script_path,
                             None,
                             "script",
@@ -768,7 +770,14 @@ async fn commit_relock(
     deployment_message: Option<String>,
 ) -> error::Result<RelockOutcome> {
     let mut tx = db.begin().await?;
-    let Some(head) = fetch_script_for_update(script_path, w_id, &mut *tx).await? else {
+    let mut head = fetch_script_for_update(script_path, w_id, &mut *tx).await?;
+    if head.is_none() {
+        // Having waited on the live version's row lock, this statement re-checked that row
+        // once the holder committed, found it archived, and returned nothing: the successor
+        // the holder inserted is not in the statement's snapshot. A fresh statement sees it.
+        head = fetch_script_for_update(script_path, w_id, &mut *tx).await?;
+    }
+    let Some(head) = head else {
         return Err(Error::NotFound(format!(
             "Non-archived script with path '{script_path}' not found"
         )));
@@ -3134,8 +3143,12 @@ async fn try_skip_relock(
     }
 
     // Fetch existing lock based on runnable type
-    let lock = match runnable_type {
-        "script" => sqlx::query_scalar!(
+    let lock = match (runnable_type, existing_lock) {
+        // A script's module asks with the script's own type and hands over the lock it last
+        // deployed with. The path's lock below is the parent script's, and a module given
+        // that loses whatever it resolves on its own.
+        ("script", Some(module_lock)) => Some(module_lock.to_string()),
+        ("script", None) => sqlx::query_scalar!(
             "SELECT lock FROM script WHERE path = $1 AND workspace_id = $2 AND lock IS NOT NULL
              AND deleted = false ORDER BY created_at DESC LIMIT 1",
             base_path,
@@ -3145,7 +3158,7 @@ async fn try_skip_relock(
         .await?
         .flatten(),
 
-        "flow" | "app" => existing_lock.map(|s| s.to_string()),
+        ("flow" | "app", existing_lock) => existing_lock.map(|s| s.to_string()),
         _ => None,
     };
 

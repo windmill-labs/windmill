@@ -387,7 +387,9 @@ pub async fn deploy_relocked_version(
     let (debouncing_settings, concurrency_settings) =
         runnable_settings::prefetch_cached_tx(&rs, &mut *tx).await?;
 
-    let modules_json = modules.map(serde_json::to_value).transpose()?;
+    // What the row stores is what the hash covers: the new module locks when there are any.
+    let modules = modules.cloned().or(s.modules);
+    let modules_json = modules.as_ref().map(serde_json::to_value).transpose()?;
 
     let ns = NewScript {
         path: s.path.clone(),
@@ -429,7 +431,7 @@ pub async fn deploy_relocked_version(
         on_behalf_of: s.on_behalf_of,
         preserve_on_behalf_of: None,
         assets: s.assets,
-        modules: s.modules,
+        modules,
         auto_parent: None,
         labels: s.labels,
         skip_draft_deletion: None,
