@@ -16,6 +16,7 @@
 	import type { ImportPlan } from '$lib/importWizard/plan'
 	import { workspaceStore } from '$lib/stores'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
+	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		/** The project the picker chose. Setting it opens the dialog. */
@@ -28,6 +29,38 @@
 	let { pick, onClose, onImported }: Props = $props()
 
 	let slug = $derived(pick?.slug)
+
+	// Bound, not one-way: the dialog closes itself on the X, Escape and the backdrop, and
+	// `Modal` reports none of those — it dispatches `confirmed`/`canceled` only. Left unbound,
+	// a dismissal hid the dialog while `pick` still held the project, so re-picking the same
+	// one did nothing, and a run in flight kept writing with no UI in front of it.
+	let modalOpen = $state(false)
+	let wasOpen = false
+	$effect(() => {
+		const shouldBeOpen = pick !== undefined
+		if (shouldBeOpen !== untrack(() => modalOpen)) modalOpen = shouldBeOpen
+	})
+	$effect(() => {
+		const isOpen = modalOpen
+		untrack(() => {
+			if (!isOpen && wasOpen) dismiss()
+			wasOpen = isOpen
+		})
+	})
+
+	/**
+	 * Dismissed rather than finished. A run in flight is stopped at the next phase boundary —
+	 * nothing can abort a request already sent — and what it has already written stays: a
+	 * second run asks the workspace what it holds, so reopening the project carries on from
+	 * there rather than importing twice.
+	 */
+	function dismiss() {
+		if (execution?.running) {
+			execution.abandon()
+			sendUserToast('Import stopped. What it already added stays; reopen the project to finish.')
+		}
+		onClose()
+	}
 
 	// The wizard route asks step 1 which workspace to import into and step 2 which one it
 	// is. Opened from inside a workspace both answers are already given, so the dialog
@@ -173,8 +206,7 @@
 <Modal
 	title=""
 	paginated
-	open={slug !== undefined}
-	on:close={onClose}
+	bind:open={modalOpen}
 	enterConfirms={false}
 	class="sm:!max-w-[640px]"
 	kind="X"
