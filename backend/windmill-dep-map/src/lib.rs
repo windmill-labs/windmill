@@ -131,6 +131,9 @@ pub fn extract_referenced_paths(
 /// Re-records which paths `script_path` imports and what each one's lock hashes to right now.
 /// That snapshot is what a later relock-skip check of this importer compares against, so it
 /// has to move whenever the imports may have, whether or not the importer's own lock did.
+///
+/// Writes for any path in `w_id` and checks nothing: callers are responsible for having
+/// established access to that workspace and script, as a dependency job's push already has.
 pub async fn refresh_dependency_map(
     db: &sqlx::Pool<sqlx::Postgres>,
     w_id: &str,

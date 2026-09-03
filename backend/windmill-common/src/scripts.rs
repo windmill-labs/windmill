@@ -363,6 +363,9 @@ pub async fn fetch_script_for_update<'a>(
 /// a failed generation: the version carries `lock_error_logs` instead and runs keep resolving
 /// to the last version that has a lock. A `modules` of `None` keeps the head's module locks.
 ///
+/// Writes whatever `head` names and checks nothing: callers are responsible for having
+/// established access to its workspace and path, as a dependency job's push already has.
+///
 /// `created_at` is stamped when the insert runs, not at transaction start. The row lock on
 /// `head` is what orders one relock after another, and with `now()` a transaction that began
 /// first but locked second commits a live child older than its archived parent, which every

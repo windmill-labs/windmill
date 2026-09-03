@@ -310,6 +310,14 @@ pub async fn handle_dependency_job(
         *deployment_tallied = true;
     }
 
+    // A relative-import relock deploys nothing until `commit_relock` says so, while the
+    // caller's fallback tally assumes a failed dependency job left a deployed version behind.
+    // Claim the tally here; the failure path hands it back once it has minted the version
+    // that carries the error.
+    if triggered_by_relative_import {
+        *deployment_tallied = true;
+    }
+
     // A relative-import relock locks the path's live version as of now, not the hash captured
     // when the job was pushed: a deploy can land during the debounce delay, after which that
     // hash names an archived version. What it generates is committed against the live version
@@ -652,8 +660,9 @@ pub async fn handle_dependency_job(
             if let (true, Some(hash)) = (triggered_by_relative_import, target_hash) {
                 // The same shape a failed deploy leaves: a version without a lock that carries
                 // the error, so it shows on the script while runs keep resolving to the last
-                // version that has one. A version that landed meanwhile owns its own lock, and
-                // then nothing here is deployed for the caller's fallback to tally.
+                // version that has one. Only that version is the caller's fallback to tally;
+                // one that landed meanwhile owns its own lock, and a commit that failed left
+                // nothing.
                 match commit_relock(
                     db,
                     w_id,
@@ -666,7 +675,7 @@ pub async fn handle_dependency_job(
                 )
                 .await
                 {
-                    Ok(RelockOutcome::Superseded(_)) => *deployment_tallied = true,
+                    Ok(RelockOutcome::Deployed(_)) => *deployment_tallied = false,
                     Ok(_) => {}
                     Err(e) => {
                         tracing::error!(%e, "error recording the failed relock of {script_path}")
@@ -749,11 +758,10 @@ async fn commit_relock(
     if let Some(lock) = lock {
         let modules_unchanged = modules.map_or(true, |m| head.modules.as_ref() == Some(m));
         if head.lock.as_deref() == Some(lock) && modules_unchanged {
-            // Dropping `tx` releases the row lock. The hash row is still written: a version
-            // deployed before lock hashes were recorded has none, and its importers cannot
-            // skip until it does.
-            drop(tx);
-            let mut tx = db.begin().await?;
+            // The hash row is still written, and under the same row lock: a version deployed
+            // before lock hashes were recorded has none, so its importers cannot skip until
+            // it does, and a deploy that takes the lock next must not have the hash it records
+            // overwritten by this one.
             record_lock_hashes(&mut tx, w_id, lock_hash_entry.as_slice()).await?;
             tx.commit().await?;
             return Ok(RelockOutcome::Unchanged);
