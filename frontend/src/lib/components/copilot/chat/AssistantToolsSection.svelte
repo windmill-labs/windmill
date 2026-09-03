@@ -208,8 +208,8 @@ individually switchable, they follow the mode and the connected servers.
 			class="flex flex-col gap-4"
 		>
 			{#if selected?.description}
-				<!-- In full, unlike the row: two thirds of the descriptions are longer than the
-				     two lines a row shows, and this page is where the rest of one lives. -->
+				<!-- In full, unlike the row, which truncates to one line: most of these run to
+				     several sentences, and this page is where the rest of one lives. -->
 				<div class="text-xs text-secondary whitespace-pre-line">{selected.description}</div>
 			{/if}
 			<SchemaViewer schema={selected?.parameters} />
