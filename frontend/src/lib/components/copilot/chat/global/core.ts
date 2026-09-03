@@ -5453,37 +5453,9 @@ async function testRunScriptByPath(
 	args: z.infer<typeof testRunScriptSchema>,
 	ctx: WriteDraftCtx
 ): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
+	const { workspace } = ctx
 	const script = await loadScriptForEdit(args.path, workspace)
 	const schema = await schemaForTestRun(script)
-	const testArgs = normalizeTestRunArgs(args.args)
-
-	// A schema declaring no field at all is indistinguishable from one this could not read,
-	// and a form built from it would drop every argument the model proposed without either
-	// of them being able to tell why. Run what was asked for instead — it is what this tool
-	// did before it grew a form, and a form with no fields was never going to add consent.
-	if (Object.keys(schema.properties ?? {}).length === 0 && Object.keys(testArgs ?? {}).length > 0) {
-		return executeTestRun({
-			jobStarter: () =>
-				JobService.runScriptPreview({
-					workspace,
-					requestBody: {
-						path: args.path,
-						content: script.content,
-						args: testArgs,
-						language: script.language
-					}
-				}),
-			workspace,
-			toolCallbacks,
-			toolId,
-			startMessage: `Running test for script "${args.path}"...`,
-			contextName: 'script',
-			background: args.background,
-			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
-			label: args.path
-		})
-	}
 
 	return runThroughForm(
 		{
