@@ -562,7 +562,7 @@
 
 	const yoloBypassedTools = $derived.by(() => {
 		return aiChatManager.tools
-			.filter((tool) => tool.requiresConfirmation === true)
+			.filter((tool) => tool.requiresConfirmation === true || tool.bypassedByAutoAccept === true)
 			.map((tool) => ({
 				name: tool.def.function.name,
 				// confirmationMessage may be a function of the call args, which we don't

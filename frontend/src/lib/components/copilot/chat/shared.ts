@@ -1147,6 +1147,10 @@ export interface Tool<T> {
 	 * is true. */
 	refuseInPlanMode?: (p: { args: any; helpers: T }) => ToolRejection | undefined
 	requiresConfirmation?: boolean
+	/** The tool's own argument form is its confirmation, and the bypass posture answers that
+	 * form — so no card is waited on, yet a decision is still being made for the user. The
+	 * list of what the posture bypasses is built from both this and `requiresConfirmation`. */
+	bypassedByAutoAccept?: boolean
 	/** Header shown on the confirmation card before the tool runs. Pass a function
 	 * to derive it from the parsed arguments (e.g. name the script being tested). */
 	confirmationMessage?: string | ((args: any) => string)
