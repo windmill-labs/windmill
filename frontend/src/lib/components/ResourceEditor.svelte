@@ -205,7 +205,19 @@
 	)
 
 	let pathError = $state('')
-	let pathDirty = $state(false)
+	// Set before `save` awaits anything: the drawer closes without awaiting the
+	// write, and the close-time draft move would otherwise leave a draft on the
+	// resource being created.
+	let saving = $state(false)
+
+	async function resourcePathIsFree(ws: string, p: string): Promise<boolean> {
+		try {
+			return !(await ResourceService.existsResource({ workspace: ws, path: p }))
+		} catch {
+			// Fail closed: an unanswered check is not evidence the path is free.
+			return false
+		}
+	}
 
 	// A new resource's handle is keyed on the empty `initialPath`, so it is
 	// detached and never POSTs; the form is mirrored under the typed path
@@ -216,12 +228,12 @@
 		workspace: () => selected,
 		path: () => current?.path ?? '',
 		pathError: () => pathError,
-		touched: () =>
-			pathDirty ||
-			(!!current &&
-				!!selected &&
-				!draftValuesEqual({ ...current, path: '' }, { ...initialStates[selected], path: '' })),
-		value: () => (current ? ($state.snapshot(current) as ResourceState) : undefined)
+		contentTouched: () =>
+			!!current &&
+			!!selected &&
+			!draftValuesEqual({ ...current, path: '' }, { ...initialStates[selected], path: '' }),
+		value: () => (current ? ($state.snapshot(current) as ResourceState) : undefined),
+		pathIsFree: (p) => (selected ? resourcePathIsFree(selected, p) : Promise.resolve(false))
 	})
 
 	// New-resource bootstrap: seed empty state per workspace (edit mode
@@ -337,15 +349,21 @@
 	 * 404 on reopen and its delete would miss — so move the draft to the path
 	 * the form now carries. Reads its state synchronously: the caller runs this
 	 * as the drawer closes, and awaiting first would race the editor's teardown. */
-	function moveRenamedDraftOnly(): Promise<unknown> {
+	async function moveRenamedDraftOnly(): Promise<void> {
 		const ws = selected
-		if (!ws || !initialPath || existedInitially[ws] !== false) return Promise.resolve()
+		if (!ws || !initialPath || existedInitially[ws] !== false || saving) return
 		const s = states[ws]?.draft
-		if (!s || !s.path || s.path === initialPath) return Promise.resolve()
-		UserDraft.save('resource', s.path, $state.snapshot(s) as ResourceState, { workspace: ws })
+		if (!s || !s.path || s.path === initialPath || pathError !== '') return
+		const value = $state.snapshot(s) as ResourceState
+		const target = s.path
+		// The path may have been typed too recently for `Path`'s debounced check
+		// to have run: moving onto an occupied path would hand this draft to the
+		// item living there.
+		if (!(await resourcePathIsFree(ws, target))) return
+		UserDraft.save('resource', target, value, { workspace: ws })
 		UserDraft.remove('resource', initialPath, { workspace: ws })
-		return Promise.all([
-			UserDraftDbSyncer.flush({ workspace: ws, itemKind: 'resource', path: s.path }),
+		await Promise.all([
+			UserDraftDbSyncer.flush({ workspace: ws, itemKind: 'resource', path: target }),
 			UserDraftDbSyncer.flush({ workspace: ws, itemKind: 'resource', path: initialPath })
 		])
 	}
@@ -408,6 +426,9 @@
 
 	export async function save(): Promise<void> {
 		const dirty = dirtyWorkspaces
+		// Synchronous, before the first await: the drawer closes right after
+		// calling this, and the close-time draft move must see it.
+		saving = true
 		try {
 			for (const ws of dirty) {
 				const s = states[ws].draft!
@@ -447,6 +468,10 @@
 					// Reset the handle to the new deployed baseline via `discard`, not
 					// `remove`. See VariableEditor for the full rationale.
 					UserDraft.discard('resource', initialPath, s, { workspace: ws })
+					// Flushed: the caller refetches the list right after, and the
+					// discard's delete rides the same debounce — the just-deployed item
+					// would still come back rendered as a draft.
+					await UserDraftDbSyncer.flush({ workspace: ws, itemKind: 'resource', path: initialPath })
 				} else {
 					// Awaited: the caller refetches the list right after, and a debounced
 					// delete would leave the just-created item still flagged as a draft.
@@ -479,7 +504,6 @@
 				<ResourceForm
 					bind:path={() => current!.path, setPath}
 					bind:pathError
-					bind:pathDirty
 					bind:labels={current.labels}
 					bind:description={current.description}
 					bind:args={current.args}

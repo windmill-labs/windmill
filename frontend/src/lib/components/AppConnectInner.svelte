@@ -329,7 +329,15 @@
 	}
 
 	let pathError = $state('')
-	let pathDirty = $state(false)
+
+	async function resourcePathIsFree(p: string): Promise<boolean> {
+		try {
+			return !(await ResourceService.existsResource({ workspace: effectiveWorkspace, path: p }))
+		} catch {
+			// Fail closed: an unanswered check is not evidence the path is free.
+			return false
+		}
+	}
 
 	// Fields saved as linked secret variables never enter the draft: a resource
 	// draft is stored as-is, without the encryption those variables get.
@@ -349,8 +357,7 @@
 		workspace: () => effectiveWorkspace,
 		path: () => path,
 		pathError: () => pathError,
-		touched: () =>
-			pathDirty ||
+		contentTouched: () =>
 			description !== '' ||
 			(labels?.length ?? 0) > 0 ||
 			wsSpecific ||
@@ -367,7 +374,8 @@
 			labels,
 			wsSpecific,
 			resource_type: resourceType
-		})
+		}),
+		pathIsFree: resourcePathIsFree
 	})
 
 	export async function open(rt?: string) {
@@ -1015,10 +1023,11 @@
 
 	export async function back() {
 		if (step == 2 && manual) {
-			// Back abandons this form; the draft it mirrored goes with it.
-			await newDraftSync.finish()
+			// Back abandons this form; the draft it mirrored goes with it. Not
+			// awaited: the step change is the user's feedback and must not wait on
+			// a POST (`finish` captures what it deletes before returning).
+			void newDraftSync.finish()
 			newDraftSync.reset()
-			pathDirty = false
 		}
 		if (step == 4) {
 			step -= 2
@@ -1351,7 +1360,6 @@
 				<ResourcePathHint />
 				<Path
 					bind:error={pathError}
-					bind:dirty={pathDirty}
 					bind:path
 					initialPath=""
 					namePlaceholder={resourceType}

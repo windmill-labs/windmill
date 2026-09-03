@@ -31,8 +31,6 @@
 		hidePath?: boolean
 		/** `Path`'s validation error (`''` when valid). */
 		pathError: string
-		/** Whether the user edited the path (as opposed to `Path`'s auto-filled name). */
-		pathDirty: boolean
 		labels: string[] | undefined
 		description: string
 		args: Record<string, any>
@@ -58,7 +56,6 @@
 		initialPath,
 		hidePath = false,
 		pathError = $bindable(),
-		pathDirty = $bindable(),
 		labels = $bindable(),
 		description = $bindable(),
 		args = $bindable(),
@@ -167,7 +164,6 @@
 				disabled={initialPath != '' && !isOwner(initialPath, $userStore, ws)}
 				bind:path
 				bind:error={pathError}
-				bind:dirty={pathDirty}
 				{initialPath}
 				namePlaceholder="resource"
 				kind="resource"

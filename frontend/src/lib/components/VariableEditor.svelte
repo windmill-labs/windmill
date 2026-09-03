@@ -58,7 +58,18 @@
 	let perWsUser: Record<string, UserExt | undefined> = $state({})
 	let selected: string | undefined = $state(undefined)
 	let pathError = $state('')
-	let pathDirty = $state(false)
+	// Set before `save` awaits anything, so a close-time draft move can't leave
+	// a draft on the variable being created.
+	let saving = $state(false)
+
+	async function variablePathIsFree(ws: string, p: string): Promise<boolean> {
+		try {
+			return !(await VariableService.existsVariable({ workspace: ws, path: p }))
+		} catch {
+			// Fail closed: an unanswered check is not evidence the path is free.
+			return false
+		}
+	}
 
 	const handlesArray = UserDraft.useMany<VariableState>(() =>
 		workspaceSpecs.map((s) => ({
@@ -128,12 +139,12 @@
 		workspace: () => selected,
 		path: () => current?.path ?? '',
 		pathError: () => pathError,
-		touched: () =>
-			pathDirty ||
-			(!!current &&
-				!!selected &&
-				!draftValuesEqual({ ...current, path: '' }, { ...initialStates[selected], path: '' })),
-		value: () => (current ? ($state.snapshot(current) as VariableState) : undefined)
+		contentTouched: () =>
+			!!current &&
+			!!selected &&
+			!draftValuesEqual({ ...current, path: '' }, { ...initialStates[selected], path: '' }),
+		value: () => (current ? ($state.snapshot(current) as VariableState) : undefined),
+		pathIsFree: (p) => (selected ? variablePathIsFree(selected, p) : Promise.resolve(false))
 	})
 
 	// The list-page `*` hint is owned by UserDraftDbSyncer (set on save, cleared
@@ -236,16 +247,22 @@
 	 * 404 on reopen and its delete would miss — so move the draft to the path
 	 * the form now carries. Reads its state synchronously: the caller runs this
 	 * as the drawer closes, and awaiting first would race the form's teardown. */
-	function moveRenamedDraftOnly(): Promise<unknown> {
+	async function moveRenamedDraftOnly(): Promise<void> {
 		const ws = selected
-		if (!ws || !editPath || existedInitially[ws] !== false) return Promise.resolve()
+		if (!ws || !editPath || existedInitially[ws] !== false || saving) return
 		const s = states[ws]?.draft
-		if (!s || !s.path || s.path === editPath) return Promise.resolve()
+		if (!s || !s.path || s.path === editPath || pathError !== '') return
+		const value = $state.snapshot(s) as VariableState
+		const target = s.path
 		const from = editPath
-		UserDraft.save('variable', s.path, $state.snapshot(s) as VariableState, { workspace: ws })
+		// The path may have been typed too recently for `Path`'s debounced check
+		// to have run: moving onto an occupied path would hand this draft to the
+		// item living there.
+		if (!(await variablePathIsFree(ws, target))) return
+		UserDraft.save('variable', target, value, { workspace: ws })
 		UserDraft.remove('variable', from, { workspace: ws })
-		return Promise.all([
-			UserDraftDbSyncer.flush({ workspace: ws, itemKind: 'variable', path: s.path }),
+		await Promise.all([
+			UserDraftDbSyncer.flush({ workspace: ws, itemKind: 'variable', path: target }),
 			UserDraftDbSyncer.flush({ workspace: ws, itemKind: 'variable', path: from })
 		])
 	}
@@ -266,7 +283,7 @@
 		extraPerms = {}
 		perWsUser = {}
 		pathError = ''
-		pathDirty = false
+		saving = false
 		newDraftSync.reset()
 	}
 
@@ -312,6 +329,8 @@
 
 	async function save(): Promise<void> {
 		const dirty = dirtyWorkspaces
+		// Synchronous, before the first await, so the close-time draft move sees it.
+		saving = true
 		try {
 			for (const ws of dirty) {
 				const s = states[ws].draft!
@@ -354,6 +373,10 @@
 				existedInitially[ws] = true
 				if (editPath) {
 					UserDraft.discard('variable', editPath, s, { workspace: ws })
+					// Flushed: the caller refetches the list right after, and the
+					// discard's delete rides the same debounce — the just-deployed item
+					// would still come back rendered as a draft.
+					await UserDraftDbSyncer.flush({ workspace: ws, itemKind: 'variable', path: editPath })
 				} else {
 					// Awaited: the caller refetches the list right after, and a debounced
 					// delete would leave the just-created item still flagged as a draft.
@@ -436,7 +459,6 @@
 						bind:this={form}
 						bind:path={current.path}
 						bind:pathError
-						bind:pathDirty
 						bind:variable={current.variable}
 						bind:labels={current.labels}
 						bind:wsSpecific={current.wsSpecific}

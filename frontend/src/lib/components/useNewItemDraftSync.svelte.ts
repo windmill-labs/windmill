@@ -16,13 +16,16 @@ export interface NewItemDraftSyncOptions<V> {
 	path: () => string
 	/** Reactive `Path` validation error (`''` when valid). */
 	pathError: () => string
-	/** Reactive: the user edited the name or the content. `Path` auto-fills a
-	 * name on mount, so opening and closing an untouched drawer must not leave
-	 * a draft behind. */
-	touched: () => boolean
+	/** Reactive: the user edited the form's content. The path is not part of
+	 * this — `Path` auto-fills a name on mount, and this helper tracks a
+	 * departure from that name itself. */
+	contentTouched: () => boolean
 	/** Reactive deep read of the value to persist (`$state.snapshot` of the
 	 * form state); `undefined` while there is nothing to persist. */
 	value: () => V | undefined
+	/** Whether nothing is deployed at `path` yet. Consulted only when a close
+	 * forces a commit early, where `Path`'s own check may not have run. */
+	pathIsFree?: (path: string) => Promise<boolean>
 }
 
 export interface NewItemDraftSync {
@@ -55,6 +58,10 @@ export function useNewItemDraftSync<V>(opts: NewItemDraftSyncOptions<V>): NewIte
 	// the row actually left behind, not wherever the form points now.
 	let written: { workspace: string; path: string } | undefined
 	let writtenValue: string | undefined
+	// Every key this session has touched and not yet settled — the deletes a
+	// move leaves behind included, since those POST on the same debounce as the
+	// write and would otherwise still be pending when the list refetches.
+	let unsettled: { workspace: string; path: string }[] = []
 	// The commit the timer will make, snapshotted at schedule time so it still
 	// lands once the editor is gone: closing a drawer a keystroke after the
 	// first edit must keep the draft, so a pending commit is never cancelled by
@@ -63,10 +70,27 @@ export function useNewItemDraftSync<V>(opts: NewItemDraftSyncOptions<V>): NewIte
 		| { timer: ReturnType<typeof setTimeout>; key: string; value: V | undefined }
 		| undefined
 	let pendingWorkspace: string | undefined
+	// `Path` auto-fills a unique name on mount, so a non-empty path is no
+	// evidence the user did anything. Only a departure from the name it settled
+	// on counts (`Path.dirty` can't: it flips on any keyup, tabbing included).
+	let autoPath: string | undefined
+
+	function markUnsettled(workspace: string, path: string): void {
+		if (!unsettled.some((k) => k.workspace === workspace && k.path === path)) {
+			unsettled.push({ workspace, path })
+		}
+	}
+
+	function touched(): boolean {
+		const p = opts.path()
+		if (autoPath === undefined && p !== '') autoPath = p
+		return opts.contentTouched() || (p !== '' && p !== autoPath)
+	}
 
 	function write(workspace: string | undefined, path: string, value: V | undefined): void {
 		if (written && (written.path !== path || written.workspace !== workspace)) {
 			UserDraft.remove(opts.itemKind, written.path, { workspace: written.workspace })
+			markUnsettled(written.workspace, written.path)
 			written = undefined
 			writtenValue = undefined
 		}
@@ -74,6 +98,7 @@ export function useNewItemDraftSync<V>(opts: NewItemDraftSyncOptions<V>): NewIte
 		const serialized = JSON.stringify(value)
 		if (written && serialized === writtenValue) return
 		UserDraft.save(opts.itemKind, path, value, { workspace })
+		markUnsettled(workspace, path)
 		written = { workspace, path }
 		writtenValue = serialized
 	}
@@ -95,7 +120,7 @@ export function useNewItemDraftSync<V>(opts: NewItemDraftSyncOptions<V>): NewIte
 	$effect(() => {
 		if (!opts.enabled() || finished) return
 		const p = opts.path()
-		const key = p !== '' && opts.pathError() === '' && opts.touched() ? p : ''
+		const key = p !== '' && opts.pathError() === '' && touched() ? p : ''
 		const workspace = opts.workspace()
 		const value = opts.value()
 		if (key === untrack(() => draftPath)) {
@@ -121,12 +146,13 @@ export function useNewItemDraftSync<V>(opts: NewItemDraftSyncOptions<V>): NewIte
 	})
 
 	async function settle(): Promise<void> {
-		if (!written) return
-		await UserDraftDbSyncer.flush({
-			workspace: written.workspace,
-			itemKind: opts.itemKind,
-			path: written.path
-		})
+		const keys = unsettled
+		unsettled = []
+		await Promise.all(
+			keys.map((k) =>
+				UserDraftDbSyncer.flush({ workspace: k.workspace, itemKind: opts.itemKind, path: k.path })
+			)
+		)
 	}
 
 	return {
@@ -134,6 +160,16 @@ export function useNewItemDraftSync<V>(opts: NewItemDraftSyncOptions<V>): NewIte
 			return draftPath
 		},
 		async flush() {
+			const p = pending
+			if (p && p.key) {
+				// Forced by a close, so the commit delay that lets `Path`'s debounced
+				// existence check land was cut short. Re-check before keying on it:
+				// a path that already holds an item would take this draft as an edit
+				// of that item, and saving from there would overwrite its value.
+				const free =
+					opts.pathError() === '' && (opts.pathIsFree ? await opts.pathIsFree(p.key) : true)
+				if (!free && pending === p) dropPending()
+			}
 			commit()
 			await settle()
 		},
@@ -144,19 +180,19 @@ export function useNewItemDraftSync<V>(opts: NewItemDraftSyncOptions<V>): NewIte
 			written = undefined
 			writtenValue = undefined
 			draftPath = ''
-			if (!w) return
-			UserDraft.remove(opts.itemKind, w.path, { workspace: w.workspace })
-			await UserDraftDbSyncer.flush({
-				workspace: w.workspace,
-				itemKind: opts.itemKind,
-				path: w.path
-			})
+			if (w) {
+				UserDraft.remove(opts.itemKind, w.path, { workspace: w.workspace })
+				markUnsettled(w.workspace, w.path)
+			}
+			await settle()
 		},
 		reset() {
 			finished = false
 			dropPending()
 			written = undefined
 			writtenValue = undefined
+			unsettled = []
+			autoPath = undefined
 			draftPath = ''
 		}
 	}

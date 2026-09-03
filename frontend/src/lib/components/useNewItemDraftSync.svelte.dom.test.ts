@@ -38,7 +38,7 @@ describe('useNewItemDraftSync', () => {
 				workspace: () => 'w',
 				path: () => form.path,
 				pathError: () => form.pathError,
-				touched: () => form.touched,
+				contentTouched: () => form.touched,
 				value: () => ({ n: form.n })
 			})
 			$effect(() => {
@@ -103,7 +103,7 @@ describe('useNewItemDraftSync', () => {
 				workspace: () => 'w',
 				path: () => form.path,
 				pathError: () => '',
-				touched: () => form.touched,
+				contentTouched: () => form.touched,
 				value: () => ({ n: form.n })
 			})
 		})
@@ -127,6 +127,104 @@ describe('useNewItemDraftSync', () => {
 		})
 	})
 
+	/** A close cuts the commit delay short, so `Path`'s debounced existence
+	 * check may not have run. Keying a draft on an occupied path would hand it
+	 * to the item already there, and saving from that item would overwrite it. */
+	it('refuses to commit a forced flush onto an occupied path', async () => {
+		const form = $state({ path: 'u/me/taken', touched: false, n: 1 })
+		let sync: ReturnType<typeof useNewItemDraftSync> | undefined
+		const cleanup = $effect.root(() => {
+			sync = useNewItemDraftSync({
+				itemKind: 'resource',
+				enabled: () => true,
+				workspace: () => 'w',
+				path: () => form.path,
+				// Still clear: the check that would set it has not run yet.
+				pathError: () => '',
+				contentTouched: () => form.touched,
+				value: () => ({ n: form.n }),
+				pathIsFree: async () => false
+			})
+		})
+		flushSync()
+		form.touched = true
+		flushSync()
+
+		await sync!.flush()
+		expect(save).not.toHaveBeenCalled()
+		cleanup()
+	})
+
+	/** A move deletes the key it left on the same debounce as the write, so the
+	 * close-time flush has to settle both or the list refetch renders a ghost
+	 * row at the old path. */
+	it('settles the key a move deleted, not just the one it wrote', async () => {
+		const form = $state({ path: 'u/me/first', touched: true, n: 1 })
+		let sync: ReturnType<typeof useNewItemDraftSync> | undefined
+		const cleanup = $effect.root(() => {
+			sync = useNewItemDraftSync({
+				itemKind: 'resource',
+				enabled: () => true,
+				workspace: () => 'w',
+				path: () => form.path,
+				pathError: () => '',
+				contentTouched: () => form.touched,
+				value: () => ({ n: form.n })
+			})
+		})
+		flushSync()
+		vi.advanceTimersByTime(1000)
+		flushSync()
+
+		form.path = 'u/me/second'
+		flushSync()
+		vi.advanceTimersByTime(1000)
+		flushSync()
+
+		await sync!.flush()
+		const flushed = flush.mock.calls.map((c: any[]) => c[0].path)
+		expect(flushed).toContain('u/me/first')
+		expect(flushed).toContain('u/me/second')
+		cleanup()
+	})
+
+	/** `Path` auto-fills a unique name on mount and flips its own `dirty` on any
+	 * keyup, tabbing included. Only a departure from that name counts, or an
+	 * untouched drawer would leave a phantom row behind. */
+	it('treats the auto-filled path as untouched but a typed one as an edit', () => {
+		const form = $state({ path: '', n: 1 })
+		const cleanup = $effect.root(() => {
+			useNewItemDraftSync({
+				itemKind: 'resource',
+				enabled: () => true,
+				workspace: () => 'w',
+				path: () => form.path,
+				pathError: () => '',
+				contentTouched: () => false,
+				value: () => ({ n: form.n })
+			})
+		})
+		flushSync()
+		// `Path` fills its generated name in after mount.
+		form.path = 'u/me/lucky_resource'
+		flushSync()
+		vi.advanceTimersByTime(2000)
+		flushSync()
+		expect(save).not.toHaveBeenCalled()
+
+		form.path = 'u/me/typed_by_hand'
+		flushSync()
+		vi.advanceTimersByTime(1000)
+		flushSync()
+		expect(save).toHaveBeenCalledWith(
+			'resource',
+			'u/me/typed_by_hand',
+			{ n: 1 },
+			{ workspace: 'w' }
+		)
+		cleanup()
+	})
+
 	it('finish deletes the persisted key and stops mirroring until reset', async () => {
 		const form = $state({ path: 'u/me/item', touched: true, n: 1 })
 		let sync: ReturnType<typeof useNewItemDraftSync> | undefined
@@ -137,7 +235,7 @@ describe('useNewItemDraftSync', () => {
 				workspace: () => 'w',
 				path: () => form.path,
 				pathError: () => '',
-				touched: () => form.touched,
+				contentTouched: () => form.touched,
 				value: () => ({ n: form.n })
 			})
 		})
