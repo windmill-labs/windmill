@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { summarizeTools } from './agentContext'
+import { countReadyAttachments, summarizeTools } from './agentContext'
 import type { Tool } from './shared'
 
 const tool = (name: string, description?: string, parameters?: Record<string, any>) =>
@@ -26,5 +26,28 @@ describe('summarizeTools', () => {
 			type: 'object',
 			properties: { page: { type: 'string' } }
 		})
+	})
+})
+
+describe('countReadyAttachments', () => {
+	// A folder's own status is an aggregate, and `readyFiles()` filters out the
+	// placeholder row an empty or all-binary folder keeps — so counting on the folder
+	// would claim files the assistant cannot open, under a heading about what it can.
+	it('counts a folder by its readable children, not its own status', () => {
+		const folders = [
+			{ files: [{ status: 'indexing' as const }, { status: 'ready' as const }] },
+			{ files: [] },
+			{ files: [{ status: 'locked' as const }] }
+		]
+		expect(countReadyAttachments(folders, [])).toBe(1)
+	})
+
+	it('counts loose files on their own status', () => {
+		const files = [
+			{ status: 'ready' as const },
+			{ status: 'error' as const },
+			{ status: 'ready' as const }
+		]
+		expect(countReadyAttachments([], files)).toBe(2)
 	})
 })

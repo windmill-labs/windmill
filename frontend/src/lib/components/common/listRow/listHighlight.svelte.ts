@@ -40,8 +40,13 @@ export function useListHighlight(opts: {
 		if (count === 0) return
 		pointerOwns = false
 		// Rows are tabbable, so focus can sit on one. Enter then activates whatever is
-		// focused, which has to stay the highlighted row.
-		const rowWasFocused = document.activeElement?.id === opts.rowId(index)
+		// focused, which has to stay the highlighted row — so any row counts, not just
+		// the lit one. Tab from the search field lands on the first row while the
+		// highlight rests on the best match, and testing only the lit row would leave
+		// focus behind and activate the wrong one.
+		const focusedId = document.activeElement?.id
+		const rowWasFocused =
+			!!focusedId && Array.from({ length: count }, (_, i) => opts.rowId(i)).includes(focusedId)
 		index = index < 0 ? (delta > 0 ? 0 : count - 1) : (index + delta + count) % count
 		const row = document.getElementById(opts.rowId(index))
 		row?.scrollIntoView({ block: 'nearest' })

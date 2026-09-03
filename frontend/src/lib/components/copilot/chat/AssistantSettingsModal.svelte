@@ -46,21 +46,22 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	let mcpBusy = $state(false)
 	let filesBusy = $state(false)
 	let blocksClose = $derived(toolsBusy || skillsBusy || instructionsBusy || mcpBusy || filesBusy)
-	// Which section is holding the modal open. The page-based ones park themselves when
-	// navigated away from, so in practice this is Instructions holding unsaved text —
-	// but a blocker behind another section is the case worth naming either way.
+	// Which section is holding the modal open. The section on screen wins whenever it is
+	// itself blocking: it is the one that will answer the key, and preferring any other
+	// would take Escape away from the surface the user is looking at. Otherwise it is
+	// whichever section blocks from behind — in practice Instructions holding unsaved
+	// text, since the page-based sections park themselves when navigated away from.
+	let busyBySection = $derived<Record<AssistantSettingsSection, boolean>>({
+		tools: toolsBusy,
+		skills: skillsBusy,
+		instructions: instructionsBusy,
+		mcp: mcpBusy,
+		files: filesBusy
+	})
 	let blockingSection = $derived<AssistantSettingsSection | undefined>(
-		toolsBusy
-			? 'tools'
-			: skillsBusy
-				? 'skills'
-				: instructionsBusy
-					? 'instructions'
-					: mcpBusy
-						? 'mcp'
-						: filesBusy
-							? 'files'
-							: undefined
+		busyBySection[section]
+			? section
+			: (Object.keys(busyBySection) as AssistantSettingsSection[]).find((k) => busyBySection[k])
 	)
 
 	/** Escape with something blocking behind another section would look like a dead key:

@@ -73,6 +73,29 @@ and the actions that create, edit, import and delete them.
 
 	const aiChatManager = getAiChatManager()
 
+	// A session whose fork is still staged has no workspace of its own yet, so `ws`
+	// resolves to the PARENT. Authoring here would then edit the live parent, and a
+	// toggle would be stored under it and quietly stop applying the moment the first
+	// send commits the fork. Read at use, not once: the fork commits mid-session.
+	function pendingForkParent(): string | undefined {
+		return aiChatManager.sessionContextResolver?.()?.pendingForkOf
+	}
+	let forkPending = $state(false)
+	function refreshForkPending() {
+		forkPending = pendingForkParent() !== undefined
+	}
+	/** Guards every mutating action. Returns true when the caller must not proceed. */
+	function blockedByPendingFork(): boolean {
+		const parent = pendingForkParent()
+		if (parent === undefined) return false
+		refreshForkPending()
+		sendUserToast(
+			`This session has not created its workspace yet, so a skill would be written to "${parent}" instead. Send a message first.`,
+			true
+		)
+		return true
+	}
+
 	// `<root>/<skill>/SKILL.md` is 3 path segments; SKILL.md files nested deeper
 	// are likely vendored/incidental and are skipped so importing a parent dir
 	// doesn't sweep in unrelated skills.
@@ -185,12 +208,13 @@ What the assistant should do when this skill applies.
 			Object.values(rowMenuOpen).some(Boolean)
 	})
 
-	// Parked with the section: an editor left open behind another section would go on
-	// reporting `blocksClose`, and the modal would refuse to close with nothing on
-	// screen explaining why. The body and the skill it belongs to are kept, so coming
-	// back to the section returns to them.
+	// Parked with the section, but only once there is nothing to lose: an editor left
+	// open behind another section would go on reporting `blocksClose` and the modal
+	// would refuse to close with nothing on screen explaining why. An editor holding
+	// unsaved text is the opposite case — it stays open so it keeps blocking, and the
+	// modal's Escape brings the user back to it rather than discarding the body.
 	$effect(() => {
-		if (!active) editorOpen = false
+		if (!active && !contentChanged && !pathChanged) editorOpen = false
 	})
 
 	/** Escape leaves the editor rather than the whole modal: `blocksClose` stops the
@@ -235,6 +259,7 @@ What the assistant should do when this skill applies.
 	})
 
 	async function loadSkills(target = ws) {
+		refreshForkPending()
 		if (!target) return
 		const seq = ++loadSeq
 		loading = true
@@ -266,6 +291,7 @@ What the assistant should do when this skill applies.
 	}
 
 	async function toggle(p: string, enabled: boolean) {
+		if (blockedByPendingFork()) return
 		if (!setSkillEnabled(ws, p, enabled)) {
 			sendUserToast('Could not save the selection for this account.', true)
 			return
@@ -304,6 +330,7 @@ What the assistant should do when this skill applies.
 	}
 
 	function openCreate() {
+		if (blockedByPendingFork()) return
 		editorSeq++
 		editing = undefined
 		setContent(SKILL_TEMPLATE)
@@ -366,6 +393,7 @@ What the assistant should do when this skill applies.
 	})
 
 	async function submitEditor() {
+		if (blockedByPendingFork()) return
 		if (!('skill' in validated) || !path || pathError) return
 		const target = ws
 		saving = true
@@ -405,6 +433,7 @@ What the assistant should do when this skill applies.
 	}
 
 	async function remove(skill: Row) {
+		if (blockedByPendingFork()) return
 		const target = ws
 		try {
 			await deleteSkillResource(target, skill.path)
@@ -433,6 +462,7 @@ What the assistant should do when this skill applies.
 	 * result for confirmation.
 	 */
 	async function processFolderFiles(files: File[]) {
+		if (blockedByPendingFork()) return
 		// Pick SKILL.md files within the depth limit BEFORE reading any content,
 		// so a huge tree never gets read in full.
 		const skipped: string[] = []
@@ -584,7 +614,7 @@ What the assistant should do when this skill applies.
 						variant="default"
 						unifiedSize="sm"
 						startIcon={{ icon: FolderUp }}
-						disabled={saving}
+						disabled={saving || forkPending}
 						onClick={() => folderInput?.click()}
 					>
 						Import a folder
@@ -593,7 +623,7 @@ What the assistant should do when this skill applies.
 						variant="accent"
 						unifiedSize="sm"
 						startIcon={{ icon: Plus }}
-						disabled={saving}
+						disabled={saving || forkPending}
 						onClick={openCreate}
 					>
 						New skill
@@ -614,6 +644,13 @@ What the assistant should do when this skill applies.
 				/>
 			</div>
 
+			{#if forkPending}
+				<Alert type="info" title="This session has no workspace yet" size="xs" class="mb-4">
+					Skills are read-only until the first message creates this session's fork. Editing or
+					selecting one now would apply to the parent workspace and stop applying once the fork is
+					created.
+				</Alert>
+			{/if}
 			{#if listNotice}
 				<Alert type="warning" title="Not all skills are shown" size="xs" class="mb-4">
 					{listNotice}
@@ -630,7 +667,12 @@ What the assistant should do when this skill applies.
 					icon={BookOpen}
 					title="No skills yet"
 					description="A skill is a SKILL.md the assistant reads when it applies. Write one here, or import a folder of them."
-					action={{ label: 'New skill', icon: Plus, onClick: openCreate, disabled: saving }}
+					action={{
+						label: 'New skill',
+						icon: Plus,
+						onClick: openCreate,
+						disabled: saving || forkPending
+					}}
 				/>
 			{:else}
 				<div class="flex flex-col gap-0.5">
@@ -647,6 +689,7 @@ What the assistant should do when this skill applies.
 						{#snippet trailing()}
 							<Toggle
 								size="sm"
+								disabled={forkPending}
 								checked={skill.enabled}
 								on:change={async (e) => await toggle(skill.path, e.detail)}
 							/>
@@ -665,7 +708,7 @@ What the assistant should do when this skill applies.
 										displayName: 'Delete',
 										icon: Trash2,
 										type: 'delete',
-										disabled: !skill.canWrite,
+										disabled: !skill.canWrite || forkPending,
 										action: () => (toDelete = skill)
 									}
 								]}

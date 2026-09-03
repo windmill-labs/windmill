@@ -64,6 +64,17 @@ export class SkillsMenu {
 	}
 
 	async #toggle(ws: string, path: string, enabled: boolean) {
+		// A session whose fork is still staged has no workspace of its own yet, so `ws`
+		// is the PARENT: the selection would be stored under it and quietly stop
+		// applying the moment the first send commits the fork.
+		const pendingForkOf = this.#manager.sessionContextResolver?.()?.pendingForkOf
+		if (pendingForkOf !== undefined) {
+			sendUserToast(
+				`This session has not created its workspace yet, so the selection would be stored under "${pendingForkOf}". Send a message first.`,
+				true
+			)
+			return
+		}
 		if (!setSkillEnabled(ws, path, enabled)) {
 			sendUserToast('Could not save the selection for this account.', true)
 			return
