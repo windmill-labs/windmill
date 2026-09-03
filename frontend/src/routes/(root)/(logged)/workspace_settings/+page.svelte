@@ -2199,11 +2199,21 @@ export async function main(
 									</SettingCard>
 
 									<Alert type="info" title="Runs as g/variable_expiration_handler">
-										The handler is executed by the automatically created group
-										g/variable_expiration_handler. Rotating a variable means writing to it, so grant
-										that group write access to the variables it is meant to rotate. It starts with
-										none. A script that carries an on-behalf-of identity is the exception: it runs
-										as that user, with their permissions rather than the group's.
+										{#if variableExpirationSelected === 'custom'}
+											The handler is executed by the automatically created group
+											g/variable_expiration_handler. Rotating a variable means writing to it, so
+											grant that group write access to the variables it is meant to rotate. It
+											starts with none. A script that carries an on-behalf-of identity is the
+											exception: it runs as that user, with their permissions rather than the
+											group's.
+										{:else}
+											The handler is executed by the automatically created group
+											g/variable_expiration_handler. It only posts a message, so it needs no access
+											to your variables: it is given the path and the expiry date, never the value.
+											{#if variableExpirationSelected === 'slack'}
+												Access to the Slack bot token is granted for you.
+											{/if}
+										{/if}
 									</Alert>
 								</div>
 
