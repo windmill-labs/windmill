@@ -834,19 +834,22 @@ pub struct GuestUsage {
     pub guest_seats: i64,
 }
 
-/// SQL for "the instance admits guests": the superadmin switch, absent meaning on.
-const INSTANCE_ADMITS_GUESTS_SQL: &str =
-    "NOT COALESCE((SELECT value::boolean FROM global_settings \
-     WHERE name = 'guest_access_disabled'), false)";
+/// SQL for "the instance admits guests": the superadmin switch, absent meaning on. The
+/// setting is read as text before the cast so `true` and `"true"` both count.
+fn instance_admits_guests_sql() -> String {
+    format!(
+        "NOT COALESCE((SELECT (value #>> '{{}}')::boolean FROM global_settings \
+         WHERE name = '{}'), false)",
+        crate::global_settings::GUEST_ACCESS_DISABLED_SETTING
+    )
+}
 
 pub async fn guest_usage(db: &crate::DB) -> Result<GuestUsage> {
-    let instance_enabled: bool =
-        sqlx::query_scalar(&format!("SELECT {INSTANCE_ADMITS_GUESTS_SQL}"))
-            .fetch_one(db)
-            .await
-            .map_err(|e| {
-                Error::internal_err(format!("reading the instance guest switch: {e:#}"))
-            })?;
+    let instance_admits = instance_admits_guests_sql();
+    let instance_enabled: bool = sqlx::query_scalar(&format!("SELECT {instance_admits}"))
+        .fetch_one(db)
+        .await
+        .map_err(|e| Error::internal_err(format!("reading the instance guest switch: {e:#}")))?;
     let guest_count = guest_count_in_window(db).await?;
     let metered = guests_are_metered().await;
     let billable_guests = if metered {
@@ -899,32 +902,15 @@ pub async fn guest_admission(conn: &mut sqlx::PgConnection, email: &str) -> Resu
     )))
 }
 
-/// Whether `w_id` admits guest sessions (the `guest` app execution mode).
-///
-/// Read uncached where a session is minted ([`guest_app_admits`]) and then once per
-/// request at the auth door (`AuthCache::get_opt_job_authed`) for every guest. An app
-/// carries its own `execution_mode` in its definition, so git-sync and the CLI can
-/// push `guest` past every deploy-time gate; the per-request read is what makes
-/// turning the switch off take effect on sessions already issued.
-pub async fn is_guest_access_enabled(db: &crate::DB, w_id: &str) -> Result<bool> {
-    Ok(sqlx::query_scalar!(
-        "SELECT guest_access_enabled FROM workspace_settings WHERE workspace_id = $1",
-        w_id
-    )
-    .fetch_optional(db)
-    .await
-    .map_err(|e| Error::internal_err(format!("reading guest access of {w_id}: {e:#}")))?
-    .unwrap_or(false))
-}
-
 /// Whether a guest session for `email` in `w_id` still stands: the instance and the
 /// workspace admit guests, and the email still has no account. Read at the auth door on
 /// every guest request, so turning either switch off, or an account provisioned after
 /// the mint (or racing it), ends the session on its next request.
 pub async fn guest_session_stands(db: &crate::DB, w_id: &str, email: &str) -> Result<bool> {
+    let instance_admits = instance_admits_guests_sql();
     let stands: Option<bool> = sqlx::query_scalar(&format!(
         "SELECT guest_access_enabled
-            AND {INSTANCE_ADMITS_GUESTS_SQL}
+            AND {instance_admits}
             AND NOT EXISTS(SELECT 1 FROM password WHERE email = $2)
             AND NOT EXISTS(SELECT 1 FROM usr WHERE email = $2)
          FROM workspace_settings WHERE workspace_id = $1"
@@ -947,9 +933,10 @@ pub async fn guest_app_admits<'c, E: sqlx::Executor<'c, Database = sqlx::Postgre
     w_id: &str,
     app_path: &str,
 ) -> Result<bool> {
+    let instance_admits = instance_admits_guests_sql();
     let admits: Option<bool> = sqlx::query_scalar(&format!(
         "SELECT COALESCE(ws.guest_access_enabled AND app.policy->>'execution_mode' = 'guest', false)
-            AND {INSTANCE_ADMITS_GUESTS_SQL}
+            AND {instance_admits}
          FROM app JOIN workspace_settings ws ON ws.workspace_id = app.workspace_id
          WHERE app.workspace_id = $1 AND app.path = $2"
     ))

@@ -526,14 +526,16 @@
 	}
 
 	async function saveDefaultAppSettings(): Promise<void> {
+		// Guests first: the only write of this card available on every plan, so a refused
+		// Enterprise-only write after it cannot swallow it.
+		if (guestAccessEnabled !== initialGuestAccessEnabled) {
+			await editGuestAccess()
+		}
 		if (workspaceDefaultAppPath !== initialWorkspaceDefaultAppPath) {
 			await editWorkspaceDefaultApp()
 		}
 		if (publicAppRateLimitPerMinute !== initialPublicAppRateLimitPerMinute) {
 			await editPublicAppRateLimit()
-		}
-		if (guestAccessEnabled !== initialGuestAccessEnabled) {
-			await editGuestAccess()
 		}
 	}
 

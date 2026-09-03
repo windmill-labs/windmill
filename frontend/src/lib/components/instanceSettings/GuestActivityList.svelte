@@ -20,8 +20,12 @@
 
 	let { usage, guests, hasMore, loading, onLoadMore, onInstanceSwitch }: Props = $props()
 	const loadMoreSize = 50
+	// One write at a time, and the toggle shows the stored value again after either
+	// outcome: a refused write must not leave it showing the click.
+	let switchPending = $state(false)
 
 	async function setInstanceSwitch(enabled: boolean) {
+		switchPending = true
 		try {
 			await SettingService.setGlobal({
 				key: 'guest_access_disabled',
@@ -35,6 +39,7 @@
 		} catch (e) {
 			sendUserToast(`Could not change the instance guest switch: ${e}`, true)
 		}
+		switchPending = false
 		onInstanceSwitch()
 	}
 	// A capped instance refuses the next stranger as soon as the allowance is used up.
@@ -51,15 +56,18 @@
 />
 
 <div class="flex flex-row gap-2 items-center mb-4">
-	<Toggle
-		checked={usage.instance_enabled}
-		on:change={(e) => setInstanceSwitch(e.detail)}
-		options={{
-			right: 'Allow guests on this instance',
-			rightTooltip:
-				'Off, no guest can sign in anywhere, whatever a workspace or an app says, and sessions already issued stop on their next request.'
-		}}
-	/>
+	{#key usage}
+		<Toggle
+			checked={usage.instance_enabled}
+			disabled={switchPending}
+			on:change={(e) => setInstanceSwitch(e.detail)}
+			options={{
+				right: 'Allow guests on this instance',
+				rightTooltip:
+					'Off, no guest can sign in anywhere, whatever a workspace or an app says, and sessions already issued stop on their next request.'
+			}}
+		/>
+	{/key}
 </div>
 
 <div class="mb-4">

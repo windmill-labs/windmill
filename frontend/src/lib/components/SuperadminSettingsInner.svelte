@@ -56,6 +56,7 @@
 	import InstanceAISettings from './instanceSettings/InstanceAISettings.svelte'
 	import ExternalJwtTokens from './instanceSettings/ExternalJwtTokens.svelte'
 	import GuestActivityList from './instanceSettings/GuestActivityList.svelte'
+	import { Alert, Skeleton } from '$lib/components/common'
 
 	let filter = $state('')
 
@@ -370,7 +371,7 @@
 								<Tab value="guests" label="Guests" />
 							</Tabs>
 
-							{#if usersSubTab === 'users' || (usersSubTab === 'ext_jwt' && extJwtTokens.length === 0) || (usersSubTab === 'guests' && !guestList)}
+							{#if usersSubTab === 'users' || (usersSubTab === 'ext_jwt' && extJwtTokens.length === 0)}
 								<SettingsPageHeader
 									title="Instance users ({users.length})"
 									description="Manage all users across your Windmill instance."
@@ -736,6 +737,16 @@
 										loadExtJwtPage(1)
 									}}
 								/>
+							{:else if usersSubTab === 'guests' && !guestList}
+								{#if guestLoading}
+									<Skeleton layout={[[2], 1, [8]]} />
+								{:else}
+									<Alert type="error" title="Could not load guests">
+										<Button unifiedSize="sm" variant="default" onclick={() => loadGuestPage(1)}
+											>Retry</Button
+										>
+									</Alert>
+								{/if}
 							{:else if usersSubTab === 'guests' && guestList}
 								<GuestActivityList
 									usage={guestList.usage}
