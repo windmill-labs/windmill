@@ -28,9 +28,13 @@ export interface NewItemDraftSyncOptions<V> {
 	pathIsFree?: (path: string) => Promise<boolean>
 }
 
-export interface NewItemDraftSync {
+export interface NewItemDraftSync<V> {
 	/** Storage path of the persisted draft, `''` when none. */
 	readonly draftPath: string
+	/** Take ownership of a draft that already exists at `path` — a draft-only
+	 * item the editor loaded. Without this the helper believes it has written
+	 * nothing, and a rename would add a second row instead of moving this one. */
+	adopt(workspace: string, path: string, value: V): void
 	/** Commit anything still pending and settle it server-side. Callers MUST
 	 * await this before a list refetch (both the commit delay and the syncer's
 	 * own debounce outlive a closing drawer, so a refetch would miss the row). */
@@ -51,7 +55,7 @@ export interface NewItemDraftSync {
  * the list pages' draft-only rows and the get-by-path draft overlay resolve —
  * and moves it (delete the old key, write the new) as the path changes.
  */
-export function useNewItemDraftSync<V>(opts: NewItemDraftSyncOptions<V>): NewItemDraftSync {
+export function useNewItemDraftSync<V>(opts: NewItemDraftSyncOptions<V>): NewItemDraftSync<V> {
 	let draftPath = $state('')
 	let finished = $state(false)
 	// The key last written, workspace included: a move or a delete has to target
@@ -67,13 +71,21 @@ export function useNewItemDraftSync<V>(opts: NewItemDraftSyncOptions<V>): NewIte
 	// first edit must keep the draft, so a pending commit is never cancelled by
 	// teardown — only superseded by a newer one, or consumed by `flush`.
 	let pending:
-		| { timer: ReturnType<typeof setTimeout>; key: string; value: V | undefined }
+		| {
+				timer: ReturnType<typeof setTimeout>
+				workspace: string | undefined
+				key: string
+				value: V | undefined
+		  }
 		| undefined
-	let pendingWorkspace: string | undefined
 	// `Path` auto-fills a unique name on mount, so a non-empty path is no
 	// evidence the user did anything. Only a departure from the name it settled
 	// on counts (`Path.dirty` can't: it flips on any keyup, tabbing included).
 	let autoPath: string | undefined
+	// An adopted draft already exists: it is kept regardless of whether the user
+	// edits anything, and an invalid path leaves it where it is rather than
+	// deleting it. Only a brand-new item's draft is gated on being touched.
+	let adopted = false
 
 	function markUnsettled(workspace: string, path: string): void {
 		if (!unsettled.some((k) => k.workspace === workspace && k.path === path)) {
@@ -89,7 +101,10 @@ export function useNewItemDraftSync<V>(opts: NewItemDraftSyncOptions<V>): NewIte
 
 	function write(workspace: string | undefined, path: string, value: V | undefined): void {
 		if (written && (written.path !== path || written.workspace !== workspace)) {
-			UserDraft.remove(opts.itemKind, written.path, { workspace: written.workspace })
+			// `discard`, not `remove`: an adopted key is the editor's own handle key,
+			// and `remove` blanks that live cell — the form would lose its state
+			// mid-rename. The fallback leaves the cell holding what the form holds.
+			UserDraft.discard(opts.itemKind, written.path, value, { workspace: written.workspace })
 			markUnsettled(written.workspace, written.path)
 			written = undefined
 			writtenValue = undefined
@@ -109,18 +124,36 @@ export function useNewItemDraftSync<V>(opts: NewItemDraftSyncOptions<V>): NewIte
 		pending = undefined
 	}
 
-	function commit(): void {
+	/** Validate the pending key, then take it. The timer is cleared first and
+	 * the payload kept, so the validation below can't race a second commit of
+	 * the same transition; a newer transition scheduled meanwhile wins. */
+	async function commitPending(): Promise<void> {
 		const p = pending
 		if (!p) return
-		dropPending()
+		clearTimeout(p.timer)
+		if (p.key) {
+			// `Path` debounces its own existence check and may not have answered
+			// yet, so the key is verified here rather than trusted: keying a draft
+			// on a path that already holds an item would take it as an edit of
+			// that item, and saving from there would overwrite its value.
+			const free =
+				opts.pathError() === '' && (opts.pathIsFree ? await opts.pathIsFree(p.key) : true)
+			if (pending !== p) return
+			if (!free) {
+				pending = undefined
+				return
+			}
+		}
+		pending = undefined
 		draftPath = p.key
-		write(pendingWorkspace, p.key, p.value)
+		write(p.workspace, p.key, p.value)
 	}
 
 	$effect(() => {
 		if (!opts.enabled() || finished) return
 		const p = opts.path()
-		const key = p !== '' && opts.pathError() === '' && touched() ? p : ''
+		const usable = p !== '' && opts.pathError() === ''
+		const key = usable && (adopted || touched()) ? p : adopted ? untrack(() => draftPath) : ''
 		const workspace = opts.workspace()
 		const value = opts.value()
 		if (key === untrack(() => draftPath)) {
@@ -130,8 +163,12 @@ export function useNewItemDraftSync<V>(opts: NewItemDraftSyncOptions<V>): NewIte
 		}
 		untrack(() => {
 			dropPending()
-			pendingWorkspace = workspace
-			pending = { timer: setTimeout(commit, COMMIT_DELAY_MS), key, value }
+			pending = {
+				timer: setTimeout(() => void commitPending(), COMMIT_DELAY_MS),
+				workspace,
+				key,
+				value
+			}
 		})
 	})
 
@@ -159,18 +196,15 @@ export function useNewItemDraftSync<V>(opts: NewItemDraftSyncOptions<V>): NewIte
 		get draftPath() {
 			return draftPath
 		},
+		adopt(workspace: string, path: string, value: V) {
+			written = { workspace, path }
+			writtenValue = JSON.stringify(value)
+			autoPath = path
+			draftPath = path
+			adopted = true
+		},
 		async flush() {
-			const p = pending
-			if (p && p.key) {
-				// Forced by a close, so the commit delay that lets `Path`'s debounced
-				// existence check land was cut short. Re-check before keying on it:
-				// a path that already holds an item would take this draft as an edit
-				// of that item, and saving from there would overwrite its value.
-				const free =
-					opts.pathError() === '' && (opts.pathIsFree ? await opts.pathIsFree(p.key) : true)
-				if (!free && pending === p) dropPending()
-			}
-			commit()
+			await commitPending()
 			await settle()
 		},
 		async finish() {
@@ -181,13 +215,15 @@ export function useNewItemDraftSync<V>(opts: NewItemDraftSyncOptions<V>): NewIte
 			writtenValue = undefined
 			draftPath = ''
 			if (w) {
-				UserDraft.remove(opts.itemKind, w.path, { workspace: w.workspace })
+				// See `write`: an adopted key is a live handle key, so keep its cell.
+				UserDraft.discard(opts.itemKind, w.path, opts.value(), { workspace: w.workspace })
 				markUnsettled(w.workspace, w.path)
 			}
 			await settle()
 		},
 		reset() {
 			finished = false
+			adopted = false
 			dropPending()
 			written = undefined
 			writtenValue = undefined

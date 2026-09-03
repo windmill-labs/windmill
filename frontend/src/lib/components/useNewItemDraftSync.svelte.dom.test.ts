@@ -3,11 +3,13 @@ import { flushSync } from 'svelte'
 
 const save = vi.fn()
 const remove = vi.fn()
+const discard = vi.fn()
 const flush = vi.fn(async () => {})
 vi.mock('$lib/userDraft.svelte', () => ({
 	UserDraft: {
 		save: (...a: unknown[]) => save(...a),
-		remove: (...a: unknown[]) => remove(...a)
+		remove: (...a: unknown[]) => remove(...a),
+		discard: (...a: unknown[]) => discard(...a)
 	}
 }))
 vi.mock('$lib/userDraftDbSyncer.svelte', () => ({
@@ -70,14 +72,14 @@ describe('useNewItemDraftSync', () => {
 		flushSync()
 		vi.advanceTimersByTime(1000)
 		flushSync()
-		expect(remove).toHaveBeenCalledWith('resource', 'u/me/auto_name', { workspace: 'w' })
+		expect(discard.mock.calls[0].slice(0, 2)).toEqual(['resource', 'u/me/auto_name'])
 		expect(save).toHaveBeenLastCalledWith('resource', 'u/me/renamed', { n: 2 }, { workspace: 'w' })
 
 		form.pathError = 'path already used'
 		flushSync()
 		vi.advanceTimersByTime(1000)
 		flushSync()
-		expect(remove).toHaveBeenLastCalledWith('resource', 'u/me/renamed', { workspace: 'w' })
+		expect(discard.mock.calls.at(-1)?.slice(0, 2)).toEqual(['resource', 'u/me/renamed'])
 		expect(draftPath).toBe('')
 
 		form.pathError = ''
@@ -87,7 +89,7 @@ describe('useNewItemDraftSync', () => {
 		expect(save).toHaveBeenLastCalledWith('resource', 'u/me/renamed', { n: 2 }, { workspace: 'w' })
 
 		cleanup()
-		expect(remove).toHaveBeenCalledTimes(2)
+		expect(discard).toHaveBeenCalledTimes(2)
 	})
 
 	/** The commit is delayed so the key can't land on a half-typed path, and the
@@ -188,6 +190,70 @@ describe('useNewItemDraftSync', () => {
 		cleanup()
 	})
 
+	/** A draft-only item arrives with a draft already stored under the path the
+	 * editor opened. Renaming it has to MOVE that row, so the helper must be
+	 * told which key it inherited or it would leave a second one behind. */
+	it('moves an adopted key on rename instead of leaving it behind', async () => {
+		const form = $state({ path: 'u/me/adopted', n: 1 })
+		let sync: ReturnType<typeof useNewItemDraftSync> | undefined
+		const cleanup = $effect.root(() => {
+			sync = useNewItemDraftSync({
+				itemKind: 'resource',
+				enabled: () => true,
+				workspace: () => 'w',
+				path: () => form.path,
+				pathError: () => '',
+				contentTouched: () => false,
+				value: () => ({ n: form.n })
+			})
+			sync.adopt('w', 'u/me/adopted', { n: 1 })
+		})
+		flushSync()
+
+		form.path = 'u/me/moved'
+		flushSync()
+		vi.advanceTimersByTime(1000)
+		flushSync()
+		await sync!.flush()
+		expect(discard.mock.calls.at(-1)?.slice(0, 2)).toEqual(['resource', 'u/me/adopted'])
+		expect(save).toHaveBeenLastCalledWith('resource', 'u/me/moved', { n: 1 }, { workspace: 'w' })
+		cleanup()
+	})
+
+	/** An adopted draft exists whether or not the user edits it, so the
+	 * touched gate that keeps an untouched NEW item from leaving a row must not
+	 * apply — deleting here would wipe the item the editor is showing. An
+	 * invalid path likewise leaves it where it is rather than dropping it. */
+	it('keeps an adopted draft through an untouched open and an invalid path', async () => {
+		const form = $state({ path: 'u/me/kept', pathError: '', n: 1 })
+		let sync: ReturnType<typeof useNewItemDraftSync> | undefined
+		const cleanup = $effect.root(() => {
+			sync = useNewItemDraftSync({
+				itemKind: 'resource',
+				enabled: () => true,
+				workspace: () => 'w',
+				path: () => form.path,
+				pathError: () => form.pathError,
+				contentTouched: () => false,
+				value: () => ({ n: form.n })
+			})
+			sync.adopt('w', 'u/me/kept', { n: 1 })
+		})
+		flushSync()
+		vi.advanceTimersByTime(2000)
+		flushSync()
+		expect(discard).not.toHaveBeenCalled()
+
+		form.pathError = 'path already used'
+		flushSync()
+		vi.advanceTimersByTime(2000)
+		flushSync()
+		await sync!.flush()
+		expect(discard).not.toHaveBeenCalled()
+		expect(sync!.draftPath).toBe('u/me/kept')
+		cleanup()
+	})
+
 	/** `Path` auto-fills a unique name on mount and flips its own `dirty` on any
 	 * keyup, tabbing included. Only a departure from that name counts, or an
 	 * untouched drawer would leave a phantom row behind. */
@@ -245,7 +311,7 @@ describe('useNewItemDraftSync', () => {
 		expect(save).toHaveBeenCalledTimes(1)
 
 		await sync!.finish()
-		expect(remove).toHaveBeenCalledWith('variable', 'u/me/item', { workspace: 'w' })
+		expect(discard.mock.calls.at(-1)?.slice(0, 2)).toEqual(['variable', 'u/me/item'])
 
 		form.n = 2
 		flushSync()
@@ -259,7 +325,7 @@ describe('useNewItemDraftSync', () => {
 		vi.advanceTimersByTime(1000)
 		flushSync()
 		expect(save).toHaveBeenLastCalledWith('variable', 'u/me/item', { n: 3 }, { workspace: 'w' })
-		expect(remove).toHaveBeenCalledTimes(1)
+		expect(discard).toHaveBeenCalledTimes(1)
 
 		cleanup()
 	})

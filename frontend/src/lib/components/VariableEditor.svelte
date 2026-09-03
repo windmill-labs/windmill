@@ -58,9 +58,9 @@
 	let perWsUser: Record<string, UserExt | undefined> = $state({})
 	let selected: string | undefined = $state(undefined)
 	let pathError = $state('')
-	// Set before `save` awaits anything, so a close-time draft move can't leave
-	// a draft on the variable being created.
-	let saving = $state(false)
+	// What the form was opened with: the empty seed for a new variable, the
+	// draft itself for a draft-only one. Divergence from it is the user's edit.
+	let openedWith: Record<string, VariableState> = $state({})
 
 	async function variablePathIsFree(ws: string, p: string): Promise<boolean> {
 		try {
@@ -130,19 +130,23 @@
 		Object.keys(states).filter((ws) => !draftValuesEqual(states[ws].draft, initialStates[ws]))
 	)
 
-	// A new variable's handle is keyed on the empty `editPath`, so it is
-	// detached and never POSTs; the form is mirrored under the typed path
-	// instead. Inert in edit mode.
+	// Nothing deployed at this path: the item IS its draft. Its list row is keyed
+	// by the path inside that draft, so the key has to follow the form's path —
+	// which is what `useNewItemDraftSync` does and the `useMany` handle can't
+	// (it is pinned to the path this editor opened).
+	const draftOnly = $derived(!!selected && existedInitially[selected] === false)
+
 	const newDraftSync = useNewItemDraftSync<VariableState>({
 		itemKind: 'variable',
-		enabled: () => !edit,
+		enabled: () => draftOnly,
 		workspace: () => selected,
 		path: () => current?.path ?? '',
 		pathError: () => pathError,
 		contentTouched: () =>
 			!!current &&
 			!!selected &&
-			!draftValuesEqual({ ...current, path: '' }, { ...initialStates[selected], path: '' }),
+			!!openedWith[selected] &&
+			!draftValuesEqual({ ...current, path: '' }, { ...openedWith[selected], path: '' }),
 		value: () => (current ? ($state.snapshot(current) as VariableState) : undefined),
 		pathIsFree: (p) => (selected ? variablePathIsFree(selected, p) : Promise.resolve(false))
 	})
@@ -234,44 +238,25 @@
 				const s: VariableState = savedDraftState ?? deployedState
 				ensureHandle(ws, s)
 				initialStates[ws] = structuredClone(deployedState)
+				openedWith[ws] = structuredClone(s)
 				existedInitially[ws] = !noDeployed
+				if (noDeployed) {
+					// The helper owns this draft's key from here (see `draftOnly`);
+					// leaving the handle syncing too would write the same content back
+					// under the path this editor opened, stranding the row on a rename.
+					UserDraft.stopSync('variable', p, { workspace: ws })
+					newDraftSync.adopt(ws, p, structuredClone(s))
+				}
 				extraPerms[ws] = v.extra_perms ?? {}
 				perWsUser[ws] = user
 			})
 		})
 	})
 
-	/** A draft-only item's list row is keyed by the path INSIDE the draft, while
-	 * the autosave handle stays keyed on the path the editor opened. Renaming
-	 * one would leave the row pointing at a key that holds no draft — it would
-	 * 404 on reopen and its delete would miss — so move the draft to the path
-	 * the form now carries. Reads its state synchronously: the caller runs this
-	 * as the drawer closes, and awaiting first would race the form's teardown. */
-	async function moveRenamedDraftOnly(): Promise<void> {
-		const ws = selected
-		if (!ws || !editPath || existedInitially[ws] !== false || saving) return
-		const s = states[ws]?.draft
-		if (!s || !s.path || s.path === editPath || pathError !== '') return
-		const value = $state.snapshot(s) as VariableState
-		const target = s.path
-		const from = editPath
-		// The path may have been typed too recently for `Path`'s debounced check
-		// to have run: moving onto an occupied path would hand this draft to the
-		// item living there.
-		if (!(await variablePathIsFree(ws, target))) return
-		UserDraft.save('variable', target, value, { workspace: ws })
-		UserDraft.remove('variable', from, { workspace: ws })
-		await Promise.all([
-			UserDraftDbSyncer.flush({ workspace: ws, itemKind: 'variable', path: target }),
-			UserDraftDbSyncer.flush({ workspace: ws, itemKind: 'variable', path: from })
-		])
-	}
-
 	/** Settle every pending draft write before the drawer's close event, whose
 	 * list refetch would otherwise outrun the debounced POST. */
 	async function flushDraft(): Promise<void> {
-		// Both started before the first await so they read live form state.
-		await Promise.all([newDraftSync.flush(), moveRenamedDraftOnly()])
+		await newDraftSync.flush()
 	}
 
 	function reset() {
@@ -283,7 +268,7 @@
 		extraPerms = {}
 		perWsUser = {}
 		pathError = ''
-		saving = false
+		openedWith = {}
 		newDraftSync.reset()
 	}
 
@@ -299,6 +284,7 @@
 		}
 		ensureHandle(ws, s)
 		initialStates[ws] = structuredClone(s)
+		openedWith[ws] = structuredClone(s)
 		existedInitially[ws] = false
 		selected = ws
 		drawer?.openDrawer()
@@ -329,12 +315,11 @@
 
 	async function save(): Promise<void> {
 		const dirty = dirtyWorkspaces
-		// Synchronous, before the first await, so the close-time draft move sees it.
-		saving = true
 		try {
 			for (const ws of dirty) {
 				const s = states[ws].draft!
 				const ini = initialStates[ws]
+				const wasDeployed = existedInitially[ws]
 				if (existedInitially[ws]) {
 					await VariableService.updateVariable({
 						workspace: ws,
@@ -370,17 +355,17 @@
 				// `undefined` reads as dirty). The `value: null` POST also deletes
 				// the server draft row so `is_draft` clears on refetch.
 				initialStates[ws] = $state.snapshot(s) as VariableState
+				openedWith[ws] = $state.snapshot(s) as VariableState
 				existedInitially[ws] = true
-				if (editPath) {
-					UserDraft.discard('variable', editPath, s, { workspace: ws })
-					// Flushed: the caller refetches the list right after, and the
-					// discard's delete rides the same debounce — the just-deployed item
-					// would still come back rendered as a draft.
-					await UserDraftDbSyncer.flush({ workspace: ws, itemKind: 'variable', path: editPath })
+				// Both awaited: the caller refetches the list right after, and a
+				// debounced delete would bring the just-deployed item back as a draft.
+				if (wasDeployed) {
+					UserDraft.discard('variable', editPath!, s, { workspace: ws })
+					await UserDraftDbSyncer.flush({ workspace: ws, itemKind: 'variable', path: editPath! })
 				} else {
-					// Awaited: the caller refetches the list right after, and a debounced
-					// delete would leave the just-created item still flagged as a draft.
+					// The helper held this draft (new or draft-only), wherever it keyed it.
 					await newDraftSync.finish()
+					if (editPath) UserDraft.restartSync('variable', editPath, { workspace: ws })
 				}
 				// Path now exists server-side — drop the autocomplete cache so
 				// it shows up immediately instead of after the 60s TTL.
@@ -425,10 +410,11 @@
 						})
 						return
 					}
-					// Draft-only: no baseline to fall back to. Blank the cell so the form
-					// unmounts — mounted on the empty state it re-fills the path from
-					// `initialPath`, and that autosave would displace the delete. Flushed
-					// so the list refetch on drawer close no longer finds the row.
+					// Draft-only: the item is the draft, so discarding deletes it. `finish`
+					// drops it wherever the helper keyed it and settles that before the
+					// caller's list refetch; `remove` then blanks the cell so the form
+					// unmounts, and clears the key this editor opened if the two differ.
+					await newDraftSync.finish()
 					UserDraft.remove('variable', editPath ?? '', { workspace: selected })
 					await UserDraftDbSyncer.flush({
 						workspace: selected,
