@@ -6,6 +6,10 @@
 
 	interface Props {
 		label: string
+		/** Set before the label, in the receding weight: the part of the heading that is grammar
+		 * rather than subject, so what the row is actually about is what reads first. Joined into
+		 * one accessible name, since the two halves are one sentence. */
+		labelPrefix?: string
 		expanded: boolean
 		onToggle: () => void
 		// A card with nothing to reveal keeps the header inert (no chevron, no
@@ -29,6 +33,7 @@
 
 	let {
 		label,
+		labelPrefix,
 		expanded,
 		onToggle,
 		toggleable = true,
@@ -53,7 +58,8 @@
 				highlight && 'text-emphasis'
 			)}
 		>
-			{label}
+			{#if labelPrefix}<span class="font-normal text-tertiary">{labelPrefix}</span
+				>&nbsp;{/if}{label}
 		</span>
 	{/snippet}
 
