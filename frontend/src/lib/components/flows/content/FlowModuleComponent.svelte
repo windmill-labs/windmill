@@ -1150,7 +1150,7 @@
 														moduleId={linkedToolsModuleId}
 														opWorkspace={opWs}
 														flowPath={$pathStore}
-										fromAgentEditor={agentEditorHost?.() != undefined}
+														fromAgentEditor={agentEditorHost?.() != undefined}
 														bind:agent={
 															() =>
 																flowModule.value.type === 'aiagent'

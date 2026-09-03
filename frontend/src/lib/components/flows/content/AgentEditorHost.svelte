@@ -87,8 +87,7 @@
 	//
 	// So it is not unique to this editor: a flow may carry the same path string, and its editor then
 	// keys the same things the same way. Anything added here that has to know an agent's editor from
-	// a flow's must say so outright — `agentEditorHost` below, and `host.fromAgentEditor` on what
-	// this editor opens — rather than reading it off the path.
+	// a flow's must say so outright — `agentEditorHost` below — rather than reading it off the path.
 	const pathStore = writable('')
 	$effect(() => {
 		pathStore.set(path)

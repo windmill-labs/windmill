@@ -38,36 +38,13 @@
 
 	let { enableAi = false, owns }: Props = $props()
 
-	// A tool that is itself a linked agent opens from inside the editor, so it names the editor's own
-	// host flow — the agent being edited — which no `owns` can recognise: the mount showing that
-	// editor is the one that has to take it, or the dialog vanishes onto a target nothing renders.
-	// Deliberately plain rather than `$state`: what claims the next target is what this mount
-	// rendered for the last one, and a reactive read would re-run the claim against its own answer
-	// and undo it.
-	let shownPath: string | undefined = undefined
-	let adoptedPath: string | undefined = undefined
-
-	function claims(t: AgentEditorTarget): boolean {
-		if (owns(t)) return true
-		// Only ever a target opened from inside an agent editor, never one belonging to a flow. The
-		// paths below are both workspace paths and a flow may share one with a resource, so this is
-		// what keeps a flow's step from matching an agent a mount happens to be showing.
-		if (!t.host?.fromAgentEditor || !t.host.flowPath) return false
-		// Already taken, or opened from inside the agent this mount is showing — that editor hosts
-		// its flow under the agent's own path, so a tool opened from within one names it here.
-		return t.path === adoptedPath || (shownPath != undefined && t.host.flowPath === shownPath)
-	}
-
+	// Every target names the surface that opened it, and only a flow step or a resource row can:
+	// an agent used as a tool of the agent being edited stays part of it, with no way in this editor
+	// to link it to a saved agent of its own. So `owns` decides alone — nothing here has to adopt a
+	// target opened from inside another editor.
 	let target = $derived.by(() => {
 		const t = agentEditorTarget()
-		return t && claims(t) ? t : undefined
-	})
-	$effect(() => {
-		const t = target
-		untrack(() => {
-			shownPath = t?.path
-			adoptedPath = t && !owns(t) ? t.path : undefined
-		})
+		return t && owns(t) ? t : undefined
 	})
 	// The last agent this dialog showed. The version pane keeps working after `onRestore` returns —
 	// it reloads its list keyed on the path it was given — while the restore handler has already
@@ -167,7 +144,7 @@
 	// down never drops a target another one is showing.
 	onDestroy(() => {
 		const t = agentEditorTarget()
-		if (t && claims(t)) closeAgentEditor()
+		if (t && owns(t)) closeAgentEditor()
 	})
 
 	/** What the flow behind a write has to be told about it, captured before the request rather than

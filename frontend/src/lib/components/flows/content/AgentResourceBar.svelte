@@ -50,9 +50,11 @@
 		opWorkspace?: string
 		// Scope for the linked-agent tools store (the flow path); must match what the graph reads.
 		flowPath?: string
-		// Whether `flowPath` names an agent editor's host flow rather than a real flow. The two are
-		// both workspace paths and can be equal, so a target opened from here has to say which it is
-		// or the mount showing that agent cannot be told apart from a flow editor's.
+		// Inside the agent editor, where an agent used as a tool stays part of the agent being
+		// edited: it cannot be saved as a reusable agent of its own, and one already linked cannot be
+		// opened here. Linking a saved agent to another agent is out of scope for this editor — the
+		// backend supports it, but only a flow can author it, and a second editor over a second draft
+		// is the wrong way in.
 		fromAgentEditor?: boolean
 	} = $props()
 
@@ -404,7 +406,7 @@
 			path: agent,
 			workspace: ws,
 			// Where to re-resolve this graph's tool nodes once the agent is deployed.
-			host: { flowPath, moduleId, fromAgentEditor }
+			host: { flowPath, moduleId }
 		})
 	}
 </script>
@@ -452,17 +454,19 @@
 							{/if}
 						</span>
 					{/if}
-					<Button
-						unifiedSize="sm"
-						variant="default"
-						startIcon={{ icon: Pencil }}
-						iconOnly
-						title="Edit the saved agent (updates it everywhere it's used)"
-						onclick={(e) => {
-							e.stopPropagation()
-							editAgent()
-						}}
-					/>
+					{#if !fromAgentEditor}
+						<Button
+							unifiedSize="sm"
+							variant="default"
+							startIcon={{ icon: Pencil }}
+							iconOnly
+							title="Edit the saved agent (updates it everywhere it's used)"
+							onclick={(e) => {
+								e.stopPropagation()
+								editAgent()
+							}}
+						/>
+					{/if}
 					<Button
 						unifiedSize="sm"
 						variant="default"
@@ -506,7 +510,7 @@
 				</Alert>
 			</div>
 		{/if}
-	{:else}
+	{:else if !fromAgentEditor}
 		<Button
 			unifiedSize="sm"
 			variant="default"

@@ -2,7 +2,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Disposable from '$lib/components/common/drawer/Disposable.svelte'
 	import FlowEditorPanel from './content/FlowEditorPanel.svelte'
-	import { agentEditorTarget, isStepOfFlow, type AgentEditorTarget } from './agentEditorStore.svelte'
+	import { agentEditorTarget, type AgentEditorTarget } from './agentEditorStore.svelte'
 	import AgentEditorModal from './content/AgentEditorModal.svelte'
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import type { OpenInSessionSource } from '$lib/components/sessions/OpenInSessionButton.svelte'
@@ -553,5 +553,5 @@
      over the same draft. -->
 <AgentEditorModal
 	enableAi={!disableAi}
-	owns={(t) => isStepOfFlow(t, $pathStore) && targetWorkspace(t) === editorWorkspace}
+	owns={(t) => t.host?.flowPath === $pathStore && targetWorkspace(t) === editorWorkspace}
 />
