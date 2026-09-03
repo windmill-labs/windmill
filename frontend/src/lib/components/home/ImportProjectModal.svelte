@@ -57,8 +57,14 @@
 	function dismiss() {
 		if (execution?.running) {
 			execution.abandon()
-			sendUserToast('Import stopped. What it already added stays; reopen the project to finish.')
+			// Not on the way out through Finish: `done` survives a retry, so Finish is clickable
+			// while the run is going again. Stopping it is still right — nothing is watching it
+			// any more — but a toast saying the import was stopped contradicts the click.
+			if (!finishing) {
+				sendUserToast('Import stopped. What it already added stays; reopen the project to finish.')
+			}
 		}
+		finishing = false
 		onClose()
 	}
 
@@ -119,10 +125,15 @@
 		}
 	})
 
+	// Set for the closing that Finish itself asks for, since that closing reaches `dismiss()`
+	// by the same falling edge as the X.
+	let finishing = false
+
 	function finish() {
 		// On the way out rather than on the pick: what is worth counting is an import that
 		// landed, not a dialog that was opened and abandoned.
 		if (slug) logFeatureUsage('home', 'template_import', { key: slug })
+		finishing = true
 		onImported?.()
 		onClose()
 	}
