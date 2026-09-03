@@ -41,24 +41,33 @@
 	let otherPopoverOpen = $state(false)
 	let otherInputRef: HTMLInputElement | undefined = $state()
 
-	// Whether this user already belongs somewhere, in which case there is nothing to create:
-	// signup makes no workspace, so only an invited user arrives with one. Loaded up front so
-	// the last step is settled by the time the survey is answered.
-	let hasWorkspace = $state(false)
+	// Whether this user has somewhere to go already, in which case there is nothing to create.
+	// A pending invite counts: it is a `workspace_invite` row until `accept_invite` runs, so an
+	// invited teammate reaches onboarding owning nothing, and creating them a personal
+	// workspace is not what they came for — the picker is where the invite is. Loaded up front
+	// so the last step is settled by the time the survey is answered, and true when the load
+	// fails, since the picker can work the decision out and the create step has no way back.
+	let alreadyPlaced = $state(false)
 	// The survey was skipped, so the last step has nothing to go back to.
 	let skippedSurvey = $state(false)
+	// Set by the create form while it hands over to the new workspace.
+	let creatingWorkspace = $state(false)
 
 	async function loadWorkspaceStep() {
 		try {
-			const workspaces = await WorkspaceService.listUserWorkspaces()
+			const [workspaces, invites] = await Promise.all([
+				WorkspaceService.listUserWorkspaces(),
+				UserService.listWorkspaceInvites()
+			])
 			usersWorkspaceStore.set(workspaces)
-			hasWorkspace = workspaces.workspaces.some((w) => w.id !== 'admins')
+			alreadyPlaced = workspaces.workspaces.some((w) => w.id !== 'admins') || invites.length > 0
 		} catch (error) {
 			console.error('Could not prepare the workspace step:', error)
+			alreadyPlaced = true
 		}
 	}
-	// Held, not dropped: Skip awaits one POST that can finish before this GET does, and
-	// branching on `hasWorkspace` before it lands would skip the step this flow exists for.
+	// Held, not dropped: Skip awaits one POST that can finish before these GETs do, and
+	// branching on `alreadyPlaced` before they land would skip the step this flow exists for.
 	// Both exits await it; `isSubmitting` already covers the wait.
 	const workspaceStepReady = loadWorkspaceStep()
 
@@ -157,7 +166,7 @@
 			await workspaceStepReady
 			isSubmitting = false
 			// do not block users from accessing windmill even if there is an error
-			if (hasWorkspace) {
+			if (alreadyPlaced) {
 				leaveOnboarding()
 			} else {
 				currentStep = STEP_WORKSPACE
@@ -179,7 +188,7 @@
 			// Skipping the survey is not skipping naming the workspace: the questions are ours,
 			// the workspace is theirs.
 			skippedSurvey = true
-			if (hasWorkspace) {
+			if (alreadyPlaced) {
 				leaveOnboarding()
 			} else {
 				currentStep = STEP_WORKSPACE
@@ -289,7 +298,7 @@
 				<div class="flex items-center gap-2">
 					<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
 					<div class="w-2 h-2 rounded-full bg-blue-500"></div>
-					{#if !hasWorkspace}
+					{#if !alreadyPlaced}
 						<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
 					{/if}
 				</div>
@@ -306,9 +315,9 @@
 			<!-- The same one-field form the workspace picker falls back to, so a user who leaves
 			     onboarding early meets it again rather than something new. It owns the name, the
 			     id, the advanced form and the hand-over into the workspace. -->
-			<SimpleCreateWorkspace onCreated={leaveOnboarding} />
+			<SimpleCreateWorkspace onCreated={leaveOnboarding} bind:creating={creatingWorkspace} />
 
-			{#if !skippedSurvey}
+			{#if !skippedSurvey && !creatingWorkspace}
 				<div class="flex flex-row justify-start items-center pt-6">
 					<Button
 						variant="default"

@@ -21,12 +21,17 @@
 	interface Props {
 		/** Where to go once the workspace exists. It is already the active one by then. */
 		onCreated: (workspaceId: string) => void
+		/**
+		 * True from the click until the navigation, so a surface with chrome of its own around
+		 * this form — onboarding's Previous button — can stand down for the hand-over instead
+		 * of offering a way back out of a workspace that now exists.
+		 */
+		creating?: boolean
 	}
 
-	let { onCreated }: Props = $props()
+	let { onCreated, creating = $bindable(false) }: Props = $props()
 
 	let name = $state('')
-	let creating = $state(false)
 
 	// The full form — id, colour, username, invites — for the person who wants it. Forced on
 	// when the instance does not derive usernames: one is required and a name field has
