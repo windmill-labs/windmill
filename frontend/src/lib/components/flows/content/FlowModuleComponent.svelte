@@ -129,6 +129,10 @@
 		scriptSaveBasePath?: string
 		/** Lets the agent's Tools section add a tool through the graph's own insert path. */
 		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
+		/** Drop the tool roster's drill-in. Selecting a tool means selecting its graph node, so a
+		 *  surface without a graph — the agent editor, which addresses one tool at a time — would
+		 *  offer a row whose click lands nowhere. */
+		noToolNavigation?: boolean
 		toolDescription?: string | undefined
 		siblingToolNames?: string[]
 	}
@@ -150,6 +154,7 @@
 		staticOnly = false,
 		scriptSaveBasePath = undefined,
 		flowModuleSchemaMap = undefined,
+		noToolNavigation = false,
 		toolDescription = $bindable(undefined),
 		siblingToolNames = undefined
 	}: Props = $props()
@@ -1231,8 +1236,9 @@
 														workspace={opWs}
 														visibilityKey={`${$pathStore}:${linkedToolsModuleId}`}
 														tools={flowModule.value.tools ?? []}
-														onSelectTool={(toolId) =>
-															selectionManager.selectId(toolId, { openPanel: true })}
+														onSelectTool={noToolNavigation
+															? undefined
+															: (toolId) => selectionManager.selectId(toolId, { openPanel: true })}
 														onAddTool={flowModuleSchemaMap
 															? (detail) =>
 																	flowModuleSchemaMap?.addToolToAgent(flowModule.id, detail)

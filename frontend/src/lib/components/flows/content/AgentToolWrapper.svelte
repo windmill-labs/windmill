@@ -19,6 +19,8 @@
 		 *  step of this flow. */
 		staticOnly?: boolean
 		scriptSaveBasePath?: string
+		/** See `FlowModuleComponent`: set where there is no graph to select a nested tool on. */
+		noToolNavigation?: boolean
 	}
 
 	let {
@@ -31,7 +33,8 @@
 		highlightArg,
 		siblingToolNames = undefined,
 		staticOnly = false,
-		scriptSaveBasePath = undefined
+		scriptSaveBasePath = undefined,
+		noToolNavigation = false
 	}: Props = $props()
 </script>
 
@@ -56,6 +59,7 @@
 		isAgentTool={true}
 		{staticOnly}
 		{scriptSaveBasePath}
+		{noToolNavigation}
 		bind:toolDescription={tool.description}
 		{siblingToolNames}
 	/>
