@@ -124,8 +124,13 @@ export class McpMenu {
 			return
 		}
 		// Local preference only: nothing to re-read from the API, and the cached
-		// tool lists stay valid because the servers are unchanged.
-		setMcpEnabled(ws, path, enabled)
+		// tool lists stay valid because the servers are unchanged. Checked, like the
+		// skills submenu: a refused write leaves the chat carrying a different set than
+		// the check mark shows.
+		if (!setMcpEnabled(ws, path, enabled)) {
+			sendUserToast('Could not save the selection for this account.', true)
+			return
+		}
 		const row = this.#row(path)
 		if (row) row.enabled = enabled
 		await this.#manager.refreshMcpServers(ws)

@@ -306,8 +306,13 @@ switch that decides whether this chat carries its tools.
 		// refresh below must not hand these servers to a chat that has since moved on.
 		const target = ws
 		// Local preference only: nothing to re-read from the API, and the cached
-		// tool lists stay valid because the servers are unchanged.
-		setMcpEnabled(target, path, enabled)
+		// tool lists stay valid because the servers are unchanged. Checked, like the
+		// skills switch: a refused write leaves the chat carrying a different set than
+		// the switch shows, and nothing else would ever say so.
+		if (!setMcpEnabled(target, path, enabled)) {
+			sendUserToast('Could not save the selection for this account.', true)
+			return
+		}
 		const server = servers.find((s) => s.path === path)
 		if (server) server.enabled = enabled
 		if (target !== ws) return
@@ -438,9 +443,9 @@ switch that decides whether this chat carries its tools.
 
 			{#if forkPending}
 				<Alert type="info" title="This session has no workspace yet" size="xs" class="mb-4">
-					Connections are read-only until the first message creates this session's fork.
-					Connecting or selecting one now would apply to the parent workspace and stop applying
-					once the fork is created.
+					Connections are read-only until the first message creates this session's fork. Connecting
+					or selecting one now would apply to the parent workspace and stop applying once the fork
+					is created.
 				</Alert>
 			{/if}
 			{#if loading}
@@ -454,7 +459,12 @@ switch that decides whether this chat carries its tools.
 					icon={Plug}
 					title="No MCP server connected"
 					description="Connect an external MCP server and the chat can call its tools with your own credentials."
-					action={{ label: 'Connect a server', icon: Plus, onClick: openConnect, disabled: forkPending }}
+					action={{
+						label: 'Connect a server',
+						icon: Plus,
+						onClick: openConnect,
+						disabled: forkPending
+					}}
 				/>
 			{:else}
 				<div class="flex flex-col gap-0.5">

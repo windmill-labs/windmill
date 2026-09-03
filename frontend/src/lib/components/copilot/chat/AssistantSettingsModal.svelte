@@ -117,6 +117,11 @@ callers that already know which section they mean, such as the "+" menu's Manage
 		record(target)
 	}
 
+	// `context_panel` names the popover this modal replaced. The pair is registered
+	// EE-side under that name and events already exist against it, so renaming it would
+	// be a coordinated change across `feature_usage_ee.rs`, `ee-repo-ref.txt` and the
+	// recorded history — not worth splitting the series for a label.
+	//
 	// The key vocabulary is the closed set in this signature and nothing else — a
 	// skill path or server path here would be workspace-authored text.
 	function record(key: 'open' | AssistantSettingsSection) {
@@ -196,11 +201,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 			     own their own scrolling — each is a list and a detail page laid over each
 			     other — so only Instructions scrolls here. -->
 			<div class="{section === 'tools' ? 'flex' : 'hidden'} grow min-h-0 flex-col overflow-hidden">
-				<AssistantToolsSection
-					{tools}
-					active={section === 'tools'}
-					bind:blocksClose={toolsBusy}
-				/>
+				<AssistantToolsSection {tools} active={section === 'tools'} bind:blocksClose={toolsBusy} />
 			</div>
 			<!-- Skills owns its own scrolling: its list and its editor are PagedContent pages
 			     laid over each other, and each keeps a scroll position of its own. -->

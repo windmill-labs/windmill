@@ -659,7 +659,12 @@ What the assistant should do when this skill applies.
 			     still `FileInput`: it owns reading and filtering the folder, and a raw input
 			     here would be a second implementation of that to keep in step. -->
 			<div class="hidden">
-				<FileInput bind:this={folderInput} folderOnly bind:files={importFiles} on:change={onDirSelected} />
+				<FileInput
+					bind:this={folderInput}
+					folderOnly
+					bind:files={importFiles}
+					on:change={onDirSelected}
+				/>
 			</div>
 
 			{#if forkPending}

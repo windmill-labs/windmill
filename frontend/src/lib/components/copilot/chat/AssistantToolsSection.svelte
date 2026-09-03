@@ -112,12 +112,7 @@ individually switchable, they follow the mode and the connected servers.
 <svelte:window onkeydown={onKeydown} />
 
 <SearchItems {filter} items={tools} bind:filteredItems={nameHits} f={(t) => t.name} />
-<SearchItems
-	{filter}
-	items={tools}
-	bind:filteredItems={descriptionHits}
-	f={(t) => t.description}
-/>
+<SearchItems {filter} items={tools} bind:filteredItems={descriptionHits} f={(t) => t.description} />
 
 <!-- The list and one tool are levels of one panel, the same shape the Skills and MCP
      panels use. Warmed once this panel is on screen so the schema table and its

@@ -34,7 +34,9 @@ for, which is the one place the difference between "attached" and "readable" is 
 		...aiChatManager.attachedFiles.standalone,
 		...aiChatManager.attachedFiles.messageAttached
 	])
-	let messageScoped = $derived(new Set(aiChatManager.attachedFiles.messageAttached.map((f) => f.id)))
+	let messageScoped = $derived(
+		new Set(aiChatManager.attachedFiles.messageAttached.map((f) => f.id))
+	)
 	let total = $derived(folders.length + files.length)
 	let ready = $derived(countReadyAttachments(folders, files))
 
