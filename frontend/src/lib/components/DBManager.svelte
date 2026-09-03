@@ -120,7 +120,7 @@
 		onSelectDatatable,
 		currentRole,
 		onSelectRole,
-		pendingAction = $bindable(undefined),
+		pendingAction = $bindable(),
 		onDatatableAction,
 		workspace,
 		canManageDatatable = false,

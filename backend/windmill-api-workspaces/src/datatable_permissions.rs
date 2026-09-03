@@ -27,12 +27,13 @@ use std::collections::{BTreeMap, HashSet};
 use windmill_api_auth::ApiAuthed;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
-use windmill_common::ensure_instance_db_grant_options;
+use windmill_common::ensure_instance_db_grant_options_unchecked;
 use windmill_common::error::{pg_error_message, Error, JsonResult, Result};
 use windmill_common::query_builders::{render_db_quoted_identifier, DbType};
 use windmill_common::utils::require_admin;
 use windmill_common::workspaces::{
-    can_use_datatable_role, get_datatable_resource_from_db_unchecked, DataTable,
+    can_use_datatable_role, datatable_database_identity, get_datatable_resource_from_db_unchecked,
+    DataTable,
     DataTableCatalogResourceType, DataTablePermissions, ADMIN_DATATABLE_ROLE,
 };
 use windmill_common::{PgDatabase, DB};
@@ -196,7 +197,9 @@ pub(crate) async fn ensure_instance_db_can_delegate(db: &DB, w_id: &str, datatab
     if datatable.database.resource_type != DataTableCatalogResourceType::Instance {
         return;
     }
-    if let Err(e) = ensure_instance_db_grant_options(db, &datatable.database.resource_path).await {
+    if let Err(e) =
+        ensure_instance_db_grant_options_unchecked(db, &datatable.database.resource_path).await
+    {
         tracing::warn!(
             "Could not refresh the grant options of instance database '{}': {}. Continuing.",
             datatable.database.resource_path,
@@ -209,13 +212,33 @@ pub(crate) async fn ensure_instance_db_can_delegate(db: &DB, w_id: &str, datatab
 /// database rather than assumed from its config.
 pub(crate) struct AdminConnection {
     pub(crate) dbname: String,
+    /// The database this resolved to, as the config records it so a later
+    /// resolution can tell it has not moved. `None` for an instance database,
+    /// which no workspace edit can repoint.
+    pub(crate) database_identity: Option<String>,
     pub(crate) admin_pg_role: String,
-    pub(crate) existing_pg_roles: HashSet<String>,
+    pub(crate) pg_roles: PgRoleInventory,
     /// Whether `PUBLIC` holds CREATE on schema `public`, i.e. every role in this
     /// database — including the ones created here — can make objects in it.
     pub(crate) public_schema_is_open: bool,
     /// The default-privilege rules already in force for this data table's roles.
     pub(crate) default_acl_rules: Vec<DefaultAclRule>,
+}
+
+/// The `wm_` logins the cluster holds, split by whether this data table may take
+/// one over.
+#[derive(Default)]
+pub(crate) struct PgRoleInventory {
+    /// Every one of them. `pg_roles` is a cluster catalog, so this spans every
+    /// database and every workspace on the instance — a name in here cannot be
+    /// created again, wherever it came from.
+    pub(crate) existing: HashSet<String>,
+    /// Those the data table's own administrative login is a member of, which is
+    /// what creating a role here does. A save may finish itself by adopting one
+    /// of these — a role it created before dying — and nothing else: any other
+    /// occupant of a generated name belongs to someone else, and resetting its
+    /// password would hand this data table their login.
+    pub(crate) adoptable: HashSet<String>,
 }
 
 /// One `ALTER DEFAULT PRIVILEGES` rule as the catalog has it.
@@ -294,6 +317,9 @@ pub(crate) async fn connect_as_admin(
     datatable_name: &str,
 ) -> Result<(tokio_postgres::Client, AdminConnection)> {
     let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+    let database_identity = (read_datatable(db, w_id, datatable_name).await?.database.resource_type
+        == DataTableCatalogResourceType::Postgresql)
+        .then(|| datatable_database_identity(&db_resource));
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {e}")))?;
     let dbname = pg_db.dbname.clone();
@@ -315,7 +341,7 @@ pub(crate) async fn connect_as_admin(
         })?
         .get(0);
 
-    let existing_pg_roles = client
+    let existing = client
         .query(
             "SELECT rolname FROM pg_roles WHERE rolname LIKE 'wm\\_%'",
             &[],
@@ -324,6 +350,28 @@ pub(crate) async fn connect_as_admin(
         .map_err(|e| {
             Error::internal_err(format!(
                 "Failed to list existing roles: {}",
+                pg_error_message(&e)
+            ))
+        })?
+        .into_iter()
+        .map(|row| row.get::<_, String>(0))
+        .collect();
+
+    // Membership is the mark a role of this data table carries: every one of
+    // them is granted to this connection when it is created.
+    let adoptable = client
+        .query(
+            "SELECT r.rolname
+             FROM pg_auth_members m
+             JOIN pg_roles r ON r.oid = m.roleid
+             JOIN pg_roles a ON a.oid = m.member
+             WHERE a.rolname = $1 AND r.rolname LIKE 'wm\\_%'",
+            &[&admin_pg_role],
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to list the roles this data table owns: {}",
                 pg_error_message(&e)
             ))
         })?
@@ -370,8 +418,9 @@ pub(crate) async fn connect_as_admin(
         client,
         AdminConnection {
             dbname,
+            database_identity,
             admin_pg_role,
-            existing_pg_roles,
+            pg_roles: PgRoleInventory { existing, adoptable },
             public_schema_is_open,
             default_acl_rules,
         },
@@ -394,10 +443,14 @@ async fn build_plan(
         &conn.admin_pg_role,
         datatable.permissions.as_ref(),
         req,
-        &conn.existing_pg_roles,
+        &conn.pg_roles,
         conn.public_schema_is_open,
         &conn.default_acl_rules,
     )?;
+    let mut plan = plan;
+    // Stamped from the connection the roles are about to be created through, so
+    // a resolution that lands anywhere else later can refuse.
+    plan.permissions.database_identity = conn.database_identity;
     Ok((client, plan))
 }
 
@@ -407,7 +460,20 @@ async fn build_plan(
 /// Best-effort: a data table whose database is already unreachable must still be
 /// removable from the config, so a failure is logged rather than propagated. Any
 /// role that survives is reconciled by the next plan, which reads `pg_roles`.
-pub(crate) async fn drop_roles_of_deleted_datatable(db: &DB, w_id: &str, datatable_name: &str) {
+/// The connection and statements that drop a deleted data table's roles.
+///
+/// Resolved separately from being run: resolving needs the data table's config,
+/// which the save is about to remove, while running is irreversible and must not
+/// happen until that save has committed.
+pub(crate) type PlannedRoleDrop = (tokio_postgres::Client, RolePlan);
+
+/// Plan the removal of every Postgres role of a data table that is being
+/// deleted, against the config as it still stands.
+pub(crate) async fn plan_drop_of_deleted_datatable(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+) -> Option<PlannedRoleDrop> {
     let req = SetDatatablePermissions {
         enabled: false,
         roles: vec![],
@@ -421,13 +487,31 @@ pub(crate) async fn drop_roles_of_deleted_datatable(db: &DB, w_id: &str, datatab
             .as_ref()
             .is_some_and(|p| p.enabled && p.roles.len() > 1)
         {
-            return Ok(());
+            return Ok(None);
         }
-        let (mut client, plan) = build_plan(db, w_id, datatable_name, &req).await?;
-        run_statements(&mut client, &plan).await
+        build_plan(db, w_id, datatable_name, &req).await.map(Some)
     }
     .await;
-    if let Err(e) = res {
+    match res {
+        Ok(planned) => planned,
+        Err(e) => {
+            tracing::error!(
+                "Could not plan dropping the Postgres roles of deleted data table {datatable_name} in {w_id}: {e:#}"
+            );
+            None
+        }
+    }
+}
+
+/// Run a planned drop. Best-effort: the roles outliving their data table is
+/// recoverable — the next save of a data table on that database reconciles them
+/// — whereas dropping them before the deletion commits is not.
+pub(crate) async fn run_planned_drop(
+    w_id: &str,
+    datatable_name: &str,
+    (mut client, plan): PlannedRoleDrop,
+) {
+    if let Err(e) = run_statements(&mut client, &plan).await {
         tracing::error!(
             "Could not drop the Postgres roles of deleted data table {datatable_name} in {w_id}: {e:#}"
         );

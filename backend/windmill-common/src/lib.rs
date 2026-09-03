@@ -1475,7 +1475,16 @@ fn instance_db_grants(dbname: &str) -> String {
 /// without them, and only the instance's own Postgres user — the connection
 /// this runs on — can add them: a role cannot give itself a grant option it
 /// does not hold.
-pub async fn ensure_instance_db_grant_options(db: &DB, dbname: &str) -> error::Result<()> {
+///
+/// Authorization: performs none, and this connects as the instance database's
+/// owner to change privileges. Callers MUST have authorized the operation the
+/// grants are for, and MUST pass a `dbname` they resolved from a data table's
+/// own config rather than one a request named — every caller today is a data
+/// table path that read it from `workspace_settings`.
+pub async fn ensure_instance_db_grant_options_unchecked(
+    db: &DB,
+    dbname: &str,
+) -> error::Result<()> {
     let dbname = dbname.trim();
     validate_dbname(dbname)?;
 

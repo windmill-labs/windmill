@@ -1664,8 +1664,10 @@ async fn delete_user(
 
     // Read before deleting, so each membership's tenant can go first. A username
     // is scoped to one workspace, and so are the tenants naming it.
+    // Ordered, so two deletions that share workspaces lock their settings rows
+    // in the same sequence rather than head-on.
     let memberships = sqlx::query!(
-        "SELECT workspace_id, username FROM usr WHERE email = $1",
+        "SELECT workspace_id, username FROM usr WHERE email = $1 ORDER BY workspace_id",
         &email_to_delete
     )
     .fetch_all(&mut *tx)

@@ -794,6 +794,16 @@ async fn delete_group(
     }
     not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
 
+    // A data table role names its tenants by principal, so the name is free
+    // after the deletes below — and recreating a group with it would inherit
+    // every role the old one could run as.
+    windmill_common::workspaces::remove_datatable_tenant_in_workspace_unchecked(
+        &w_id,
+        &format!("g/{name}"),
+        &mut tx,
+    )
+    .await?;
+
     sqlx::query!(
         "DELETE FROM usr_to_group WHERE group_ = $1 AND workspace_id = $2",
         name,
@@ -807,16 +817,6 @@ async fn delete_group(
         w_id
     )
     .execute(&mut *tx)
-    .await?;
-
-    // A data table role names its tenants by principal, so the name is free
-    // after this — and recreating a group with it would inherit every role the
-    // old one could run as.
-    windmill_common::workspaces::remove_datatable_tenant_in_workspace_unchecked(
-        &w_id,
-        &format!("g/{name}"),
-        &mut tx,
-    )
     .await?;
 
     audit_log(

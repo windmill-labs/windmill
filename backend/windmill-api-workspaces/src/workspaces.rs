@@ -3808,15 +3808,22 @@ async fn edit_datatable_config(
         }
     }
 
-    // Before the config is overwritten, while the deleted data tables can still be
-    // resolved to a connection. `deleted_datatables` is client-supplied and drives an
-    // irreversible drop, so only act on names the save is actually removing — a stale
-    // client must not be able to drop the roles of a data table that survives it.
+    // Planned before the config is overwritten, while the deleted data tables can
+    // still be resolved to a connection, and run once it has committed: `DROP
+    // OWNED` discards the roles' grants for good, so a save that rolls back after
+    // this point must not have destroyed anything. `deleted_datatables` is
+    // client-supplied, so only names the save is actually removing are planned —
+    // a stale client must not reach a data table that survives it.
+    let mut planned_role_drops = Vec::new();
     for deleted in &new_config.deleted_datatables {
         if new_config.settings.datatables.contains_key(deleted) {
             continue;
         }
-        crate::datatable_permissions::drop_roles_of_deleted_datatable(&db, &w_id, deleted).await;
+        if let Some(planned) =
+            crate::datatable_permissions::plan_drop_of_deleted_datatable(&db, &w_id, deleted).await
+        {
+            planned_role_drops.push((deleted.clone(), planned));
+        }
     }
 
     let config: serde_json::Value = serde_json::to_value(new_config.settings)
@@ -3841,6 +3848,10 @@ async fn edit_datatable_config(
         .await?;
 
     tx.commit().await?;
+
+    for (deleted, planned) in planned_role_drops {
+        crate::datatable_permissions::run_planned_drop(&w_id, &deleted, planned).await;
+    }
 
     crate::datatable_migrations::record_datatable_cascade_deployments(
         &authed,
@@ -8928,13 +8939,25 @@ async fn leave_workspace(
     windmill_api_auth::forbid_job_token_account_destruction(&authed)?;
     let mut tx = db.begin().await?;
     // Leaving frees the username here, and a role that still names it would be
-    // inherited by the next member to take it.
-    windmill_common::workspaces::remove_datatable_tenant_in_workspace_unchecked(
+    // inherited by the next member to take it. Read from the row rather than
+    // from `authed`, whose username is cached and survives a rename: the name
+    // that is about to be free is the one the row holds.
+    let left = sqlx::query_scalar!(
+        "SELECT username FROM usr WHERE workspace_id = $1 AND email = $2",
         &w_id,
-        &format!("u/{}", authed.username),
-        &mut tx,
+        &authed.email
     )
+    .fetch_all(&mut *tx)
     .await?;
+
+    for username in &left {
+        windmill_common::workspaces::remove_datatable_tenant_in_workspace_unchecked(
+            &w_id,
+            &format!("u/{username}"),
+            &mut tx,
+        )
+        .await?;
+    }
 
     sqlx::query!(
         "DELETE FROM usr WHERE workspace_id = $1 AND email = $2",

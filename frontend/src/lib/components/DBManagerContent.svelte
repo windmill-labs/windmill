@@ -73,7 +73,7 @@
 		datatableTreeLoading,
 		onSelectDatatable,
 		onSelectRole,
-		pendingAction = $bindable(undefined),
+		pendingAction = $bindable(),
 		onDatatableAction,
 		canManageDatatable,
 		multiSelectMode = false,

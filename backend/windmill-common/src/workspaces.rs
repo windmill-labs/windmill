@@ -1054,6 +1054,12 @@ pub struct DataTablePermissions {
     /// The role a script gets when it names none. Absent means `admin`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_role: Option<String>,
+    /// The database the roles below were created in, as
+    /// [`datatable_database_identity`] fingerprints it. Absent for a data table
+    /// on an instance database, whose connection is Windmill's own and cannot be
+    /// repointed by editing a resource.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub database_identity: Option<String>,
 }
 
 impl DataTablePermissions {
@@ -1323,6 +1329,16 @@ fn resource_backs_permissioned_datatable(names: &[String]) -> Error {
 /// edited — so the identity the connection resolves to is what has to hold
 /// still. A password rotation is not an identity change and stays allowed.
 ///
+/// This is where the edit is refused, not where the invariant is kept: it reads
+/// the config through the pool, so an edit and a save that enables permissions
+/// can each read the other's before-state, and a resource can be repointed
+/// through a `$res:` or `$var:` this never expands. What holds either way is
+/// [`ensure_datatable_database_unchanged`], which asks the same question of the
+/// resolved connection at the moment a role is used.
+///
+/// Authorization: performs none, and needs none — it only ever refuses. Callers
+/// authorize the edit itself.
+///
 /// `new_value` absent means the value is being cleared, which is a change like
 /// any other: the next write would land on a resource with no identity to
 /// compare against.
@@ -1356,10 +1372,64 @@ pub async fn ensure_resource_identity_change_allowed(
     Err(resource_backs_permissioned_datatable(&names))
 }
 
+/// Fingerprint the database a connection resolves to, over the fields that make
+/// it a different database rather than the same one reached differently — a
+/// password rotation is not an identity change.
+pub fn datatable_database_identity(resolved: &serde_json::Value) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    // NUL-joined so a value cannot be replayed by moving characters across the
+    // field boundaries, and hashed so the config does not carry the host around.
+    for field in ["host", "port", "dbname", "user"] {
+        let value = resolved
+            .get(field)
+            .map(|v| v.to_string())
+            .unwrap_or_default();
+        hasher.update(value.as_bytes());
+        hasher.update([0u8]);
+    }
+    hex::encode(hasher.finalize())
+}
+
+/// Refuse a role whose data table no longer resolves to the database that role
+/// was created in.
+///
+/// The guards below refuse the edits that would move it, but they read the
+/// config and the resource separately from the save that enables permissions and
+/// from each other, and a resource can be repointed through a `$res:` or `$var:`
+/// they never look at. This is the same question asked where it is answerable:
+/// against the fully expanded connection, at the moment it is used.
+fn ensure_datatable_database_unchanged(
+    name: &str,
+    datatable: &DataTable,
+    resolved: &serde_json::Value,
+) -> Result<()> {
+    // An instance database is named by the config rather than by a resource, so
+    // there is nothing a workspace can edit to move it.
+    if datatable.database.resource_type != DataTableCatalogResourceType::Postgresql {
+        return Ok(());
+    }
+    let recorded = datatable
+        .permissions
+        .as_ref()
+        .and_then(|p| p.database_identity.as_deref());
+    if recorded.is_some_and(|recorded| recorded == datatable_database_identity(resolved)) {
+        return Ok(());
+    }
+    Err(Error::NotAuthorized(format!(
+        "Data table '{name}' no longer resolves to the database its roles were created in, so \
+         they cannot be used: their logins and grants are in the previous one. Save the data \
+         table's permissions again to recreate them where it points now."
+    )))
+}
+
 /// Refuse to take a resource out from under a permissioned data table: deleting
 /// it, or moving it to another path, leaves the config naming something that is
 /// not there — and the next resource created at that path answers for roles it
 /// never had.
+///
+/// Same standing as [`ensure_resource_identity_change_allowed`]: an early,
+/// unauthorized refusal, backed by the check at resolution.
 pub async fn ensure_resource_removal_allowed(db: &DB, w_id: &str, path: &str) -> Result<()> {
     let names = datatables_permissioned_on_resource(db, w_id, path).await?;
     if names.is_empty() {
@@ -1400,7 +1470,12 @@ pub fn datatable_pg_role_name(w_id: &str, datatable: &str, role: &str) -> String
         hasher.update([0u8]);
     }
     let digest = hasher.finalize();
-    let discriminator = u32::from_be_bytes([digest[0], digest[1], digest[2], digest[3]]);
+    // The whole separation between two data tables' logins is these bytes: a
+    // name is generated, and a generated name that lands on an existing role is
+    // a role two data tables share. Sixteen of them put that out of reach of a
+    // search as well as of chance — four did not, and `pg_roles` is a cluster
+    // catalog, so the search space is every workspace on the instance.
+    let discriminator = hex::encode(&digest[..16]);
 
     let readable: String = format!("wm_{role}")
         .chars()
@@ -1412,9 +1487,9 @@ pub fn datatable_pg_role_name(w_id: &str, datatable: &str, role: &str) -> String
             }
         })
         .collect();
-    let max_readable = PG_IDENTIFIER_MAX_LEN - 9; // "_" + 8 hex digits
+    let max_readable = PG_IDENTIFIER_MAX_LEN - 1 - discriminator.len();
     format!(
-        "{}_{:08x}",
+        "{}_{}",
         &readable[..readable.len().min(max_readable)],
         discriminator
     )
@@ -1760,6 +1835,7 @@ async fn get_datatable_resource_inner(
     // The role logs in as itself rather than through `SET ROLE`, which a script
     // could `RESET ROLE` its way back out of and regain admin's privileges.
     if let Some((pg_rolename, pg_password)) = role_override {
+        ensure_datatable_database_unchanged(name, &datatable, &db_resource)?;
         let creds = db_resource.as_object_mut().ok_or_else(|| {
             Error::internal_err(format!(
                 "Data table '{name}' does not resolve to a postgres resource"
@@ -3022,6 +3098,19 @@ mod tests {
             );
         }
 
+        // The readable half is a prefix anyone can reproduce, so the discriminator
+        // is the whole of it — and a short one is searchable, not merely unlucky:
+        // these two triples shared a name when it was four bytes wide.
+        assert_ne!(
+            datatable_pg_role_name("acme", "dt34415", "analyst"),
+            datatable_pg_role_name("acme", "dt50535", "analyst")
+        );
+        let (_, discriminator) = datatable_pg_role_name("acme", "main", "analyst")
+            .rsplit_once('_')
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+            .unwrap();
+        assert_eq!(discriminator.len(), 32, "16 bytes of hash, hex-encoded");
+
         // Postgres silently truncates past 63 bytes, which would undo the above.
         for name in [
             datatable_pg_role_name(&"w".repeat(60), "main", "analyst"),
@@ -3058,6 +3147,7 @@ mod tests {
                 enabled: true,
                 roles: map,
                 default_role: None,
+                database_identity: None,
             }),
         }
     }
@@ -3112,6 +3202,47 @@ mod tests {
         assert_eq!(name, ADMIN_DATATABLE_ROLE);
         // admin reuses the data table's own connection rather than a created login.
         assert!(entry.pg_rolename.is_none());
+    }
+
+    /// The roles of a data table live in one database, so a config that points
+    /// somewhere else must not be able to use them there.
+    #[test]
+    fn a_role_is_refused_once_its_data_table_points_at_another_database() {
+        let resolved = |host: &str, password: &str| {
+            serde_json::json!({
+                "host": host, "port": 5432, "dbname": "app", "user": "owner",
+                "password": password
+            })
+        };
+        // A password rotation is not a move; the host changing is.
+        assert_eq!(
+            datatable_database_identity(&resolved("db.internal", "one")),
+            datatable_database_identity(&resolved("db.internal", "two"))
+        );
+        assert_ne!(
+            datatable_database_identity(&resolved("db.internal", "one")),
+            datatable_database_identity(&resolved("elsewhere.internal", "one"))
+        );
+
+        let mut dt = permissioned(&[(ADMIN_DATATABLE_ROLE, &[]), ("analyst", &["u/alice"])]);
+        dt.database.resource_type = DataTableCatalogResourceType::Postgresql;
+        dt.permissions.as_mut().unwrap().database_identity =
+            Some(datatable_database_identity(&resolved("db.internal", "one")));
+
+        // Reached where the roles were created, through a rotated password.
+        ensure_datatable_database_unchanged("main", &dt, &resolved("db.internal", "two")).unwrap();
+        // Repointed — however the resource got there, including through a `$var:`
+        // no guard on the resource itself would see.
+        assert!(
+            ensure_datatable_database_unchanged("main", &dt, &resolved("elsewhere", "one")).is_err()
+        );
+        // A config that never recorded one cannot claim to match: the roles it
+        // names were created against a database nobody wrote down.
+        dt.permissions.as_mut().unwrap().database_identity = None;
+        assert!(
+            ensure_datatable_database_unchanged("main", &dt, &resolved("db.internal", "one"))
+                .is_err()
+        );
     }
 
     #[test]

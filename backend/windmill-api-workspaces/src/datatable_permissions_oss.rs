@@ -19,8 +19,9 @@ pub(crate) use crate::datatable_permissions_ee::*;
 
 #[cfg(not(all(feature = "private", feature = "enterprise")))]
 use {
-    crate::datatable_permissions::{DefaultAclRule, RolePlan, SetDatatablePermissions},
-    std::collections::HashSet,
+    crate::datatable_permissions::{
+        DefaultAclRule, PgRoleInventory, RolePlan, SetDatatablePermissions,
+    },
     windmill_common::error::{Error, Result},
     windmill_common::workspaces::DataTablePermissions,
 };
@@ -33,7 +34,7 @@ pub(crate) fn plan_role_changes(
     _admin_pg_role: &str,
     _old: Option<&DataTablePermissions>,
     _req: &SetDatatablePermissions,
-    _existing_pg_roles: &HashSet<String>,
+    _pg_roles: &PgRoleInventory,
     _public_schema_is_open: bool,
     _default_acl_rules: &[DefaultAclRule],
 ) -> Result<RolePlan> {
