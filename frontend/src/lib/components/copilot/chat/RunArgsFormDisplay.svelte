@@ -143,10 +143,16 @@
 					<!-- The one thing here that runs before Run: a `dynselect-`/`dynmultiselect-`
 			argument makes DynamicInput execute that entrypoint on mount to fill its options —
 			a real job on the deployed script, carrying the other args as proposed, and Cancel
-			does not undo it. Everything else waits for the user; keep it that way. -->
+			does not undo it. Everything else waits for the user; keep it that way.
+
+			Withheld for a test run, where the code is the draft the model is still writing.
+			`deployed` would resolve the wrong version — stale options, or nothing at all for a
+			draft never deployed — and `inline` would hand that unreviewed draft to the backend
+			to execute on mount, which is the one thing this form exists to ask about first.
+			DynamicInput falls back to a plain value editor, as it does under plan mode. -->
 					<SchemaForm
 						bind:schema={draft.schema}
-						helperScript={planMode
+						helperScript={planMode || runForm.kind === 'test'
 							? undefined
 							: { source: 'deployed', path: runForm.path, runnable_kind: 'script' }}
 						disabled={planMode}
