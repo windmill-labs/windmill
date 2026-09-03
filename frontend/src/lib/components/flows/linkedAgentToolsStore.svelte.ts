@@ -126,9 +126,6 @@ export function setLinkedAgentTools(
 	version++
 }
 
-/** Move one scope's resolutions into another: used when a rename moves readers to a new scope,
- * and to sweep republished data (keyed by the flow doc's path) into the live-edited scope. The
- * source bucket carries the newer resolution in both cases, so it wins the merge. */
 /** Every module in this scope resolved from `agentRef`. A saved agent can be linked by more than
  *  one step, and all of them show tools that a write to it has just changed. */
 export function linkedModulesForAgent(scope: string, agentRef: string): string[] {
@@ -141,6 +138,9 @@ export function linkedModulesForAgent(scope: string, agentRef: string): string[]
 	return out
 }
 
+/** Move one scope's resolutions into another: used when a rename moves readers to a new scope,
+ * and to sweep republished data (keyed by the flow doc's path) into the live-edited scope. The
+ * source bucket carries the newer resolution in both cases, so it wins the merge. */
 export function migrateLinkedAgentToolsScope(oldScope: string, newScope: string) {
 	if (oldScope === newScope || byScope[oldScope] === undefined) return
 	byScope[newScope] = { ...(byScope[newScope] ?? {}), ...(byScope[oldScope] ?? {}) }
