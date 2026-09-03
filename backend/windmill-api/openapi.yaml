@@ -28994,6 +28994,8 @@ components:
             - "igroup.delete"
             - "igroup.adduser"
             - "igroup.removeuser"
+            - "instance_groups.jit_adduser"
+            - "instance_groups.jit_removeuser"
             - "variables.decrypt_secret"
             - "workspaces.read_encryption_key"
             - "workspaces.edit_command_script"
