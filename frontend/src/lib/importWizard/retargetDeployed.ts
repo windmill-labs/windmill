@@ -42,7 +42,7 @@ import { updateRawAppPolicy } from '$lib/sharedUtils'
 import type { App } from '$lib/components/apps/types'
 import { apiErrorMessage as errorMessage } from '$lib/utils'
 
-export type ReferrerKind = 'script' | 'flow' | 'app' | 'raw app' | 'trigger'
+export type ReferrerKind = 'script' | 'flow' | 'app' | 'trigger'
 
 export interface Referrer {
 	kind: ReferrerKind
@@ -152,6 +152,10 @@ const SEARCH_LIMITS = { script: 10000, flow: 1000, app: 1000 }
  */
 const TRIGGER_LIST_LIMIT = 1000
 
+/** Trigger fields naming a runnable, and the two spellings `rewriteTriggerConfig` remaps. */
+const RUNNABLE_REF_FIELDS = ['on_failure', 'on_recovery', 'on_success', 'url']
+const RUNNABLE_REF_RE = /^(?:\$(?:script|flow):|(?:script|flow)\/)/
+
 /** A reference this run will not move, recorded so the stub outlives it. */
 const OUTSIDE_PROJECT = 'reads this resource from outside the project'
 const UNSEEN_BY_CALLER = 'holds items this account is not shown'
@@ -246,10 +250,7 @@ export async function planRetarget(
 			if (!reads) continue
 		}
 		const gapped = bare ? ({ gapped: true } as const) : undefined
-		// `files` + `runnables` and no `grid` is the deployed shape of a raw app; the
-		// low-code one keeps its components under `grid`.
-		const isRaw = !!value.files && !!value.runnables
-		referrers.push({ kind: isRaw ? 'raw app' : 'app', path: a.path!, ...gapped })
+		referrers.push({ kind: 'app', path: a.path!, ...gapped })
 	}
 
 	for (const kind of WORKSPACE_TRIGGER_KINDS) {
@@ -328,7 +329,6 @@ export async function applyRetarget(args: {
 			if (r.kind === 'script') moved = await rewriteScript(workspace, r, map)
 			else if (r.kind === 'flow') moved = await rewriteFlow(workspace, r, map)
 			else if (r.kind === 'app') moved = await rewriteApp(workspace, r, map)
-			else if (r.kind === 'raw app') moved = await rewriteRawApp(workspace, r, map)
 			else moved = await rewriteTrigger(workspace, r, map)
 		} catch (e: any) {
 			return { rewritten, gaps, stubDeleted: false, error: errorMessage(e) }
@@ -459,6 +459,10 @@ async function rewriteApp(
 ): Promise<true | string> {
 	const path = r.path
 	const a: any = await AppService.getAppByPath({ workspace, path })
+	// The deployed record says which kind this is. `list_search_apps` returns only the path and
+	// the value, so the scan could only have guessed from the value's shape — and a guess wrong
+	// in either direction is a deploy the backend refuses for changing an app's kind.
+	if (a.raw_app) return rewriteRawApp(workspace, r, map, a)
 	if (!r.gapped && readsPathUnreachably(a.value ?? {}, map)) return UNREACHABLE_REFERENCE
 	const next = rewriteTokens(a.value ?? {}, map)
 	// The tokens the plan saw are gone from the deployed item, so there is nothing to write.
@@ -509,10 +513,10 @@ async function fetchBundlePart(
 async function rewriteRawApp(
 	workspace: string,
 	r: Referrer,
-	map: Map<string, string>
+	map: Map<string, string>,
+	a: any
 ): Promise<true | string> {
 	const path = r.path
-	const a: any = await AppService.getAppByPath({ workspace, path })
 	const value: any = a.value ?? {}
 	// One walk over the whole value: `$res:` tokens live in the runnables and can appear in
 	// the sources too, and both are plain text inside this JSON.
@@ -587,6 +591,16 @@ async function rewriteTrigger(
 		...(rewriteTriggerConfig(row, map) as any),
 		path: r.path,
 		...(typeof row.script_path === 'string' ? { script_path: row.script_path } : {}),
+		// The handler and url fields name a runnable, and `rewriteTriggerConfig` remaps one on
+		// an exact match — right for the folder-wide map the import hands it, wrong for a map
+		// holding one resource path. A schedule whose `on_failure` runs a script sharing that
+		// path would have its error handler pointed at the credential. Only the two prefixed
+		// shapes it remaps are restored, so a field holding a `$res:` token still moves.
+		...Object.fromEntries(
+			RUNNABLE_REF_FIELDS.filter(
+				(k) => typeof row[k] === 'string' && RUNNABLE_REF_RE.test(row[k])
+			).map((k) => [k, row[k]])
+		),
 		...(typeof row.permissioned_as === 'string'
 			? { permissioned_as: row.permissioned_as, preserve_permissioned_as: true }
 			: {})

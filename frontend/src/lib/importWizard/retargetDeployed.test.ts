@@ -90,6 +90,7 @@ const TO = 'f/shared/company_smtp'
 /** A deployed raw app: sources plus runnables, with the bundle stored out of the value. */
 const rawApp = {
 	path: 'f/proj/dash',
+	raw_app: true,
 	value: { files: { '/App.tsx': 'v1' }, runnables: { send: { fields: { smtp: `$res:${FROM}` } } } }
 }
 
@@ -160,11 +161,12 @@ describe('applyRetarget', () => {
 	})
 
 	// The path written inside a source file is a reference too, and no rewriter reaches it.
-	// Seeing only whole-string matches left this app un-gapped and the stub was deleted.
+	//
 	it('keeps the stub when a source file names the resource in code', async () => {
 		state.apps = [
 			{
 				path: 'f/proj/dash',
+				raw_app: true,
 				value: {
 					files: { '/App.tsx': `const c = await getResource("${FROM}")` },
 					runnables: {}
@@ -179,7 +181,6 @@ describe('applyRetarget', () => {
 	})
 
 	// A trigger holds its resource as a bare path in its own column, not as a `$res:` token.
-	// Matching only the token spelling left the trigger on a stub that was then deleted.
 	it('finds a trigger that holds the resource as a bare path', async () => {
 		state.apps = []
 		state.triggers = [
@@ -257,6 +258,7 @@ describe('applyRetarget', () => {
 		state.apps = [
 			{
 				path: 'f/proj/dash',
+				raw_app: true,
 				value: {
 					files: { '/App.tsx': `// the credential lives at ${FROM}` },
 					runnables: { send: { fields: { smtp: `$res:${FROM}` } } }
@@ -291,8 +293,7 @@ describe('applyRetarget', () => {
 		expect(sent.requestBody.value.grid[0].data.path).toBe(FROM)
 	})
 
-	// `rewriteFlowValue` reached module content, static inputs and flow_env only. Rewriting the
-	// serialized value moves a token wherever it sits, and still leaves a step's own path.
+	// A token moves wherever it sits in the value, and a step's own path is left alone.
 	it('moves a flow token outside the fields the import rewriter reached', async () => {
 		state.flows = [
 			{
@@ -326,6 +327,25 @@ describe('applyRetarget', () => {
 		expect(outcome.stubDeleted).toBe(false)
 		expect(state.deletedResources).toEqual([])
 		expect(outcome.gaps.map((g) => g.path)).toContain('This workspace')
+	})
+
+	// A handler field names a runnable, and the map holds a resource path. A script sharing
+	// that path is not the reference being moved.
+	it("moves a trigger's resource field without repointing its error handler", async () => {
+		state.apps = []
+		state.triggers = [
+			{
+				path: 'f/proj/ingest',
+				script_path: 'f/proj/run',
+				postgres_resource_path: FROM,
+				on_failure: `script/${FROM}`,
+				permissioned_as: 'u/service_account'
+			}
+		]
+		const outcome = await run()
+		expect(outcome.error).toBeUndefined()
+		expect(state.updatedTriggers[0].body.postgres_resource_path).toBe(TO)
+		expect(state.updatedTriggers[0].body.on_failure).toBe(`script/${FROM}`)
 	})
 
 	// `listSearchApp` caps at 1000 rows server-side, unordered and unpaginated, so a full page
