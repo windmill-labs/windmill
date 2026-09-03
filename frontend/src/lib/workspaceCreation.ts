@@ -14,6 +14,7 @@ import { usersWorkspaceStore } from '$lib/stores'
 import { switchWorkspace } from '$lib/storeUtils'
 import { isCloudHosted } from '$lib/cloud'
 import { base } from '$lib/base'
+import { WORKSPACE_NAME_MAX_LENGTH } from '$lib/utils/workspaceId'
 
 /**
  * Whether this user may create a workspace at all. Self-hosted instances default
@@ -77,4 +78,29 @@ export async function refreshWorkspaceList(): Promise<void> {
 export async function enterNewWorkspace(id: string): Promise<void> {
 	await refreshWorkspaceList()
 	switchWorkspace(id)
+}
+
+/**
+ * How long a screen that hands over to a workspace stays up, whatever the server does.
+ * Creating or naming one takes a few hundred milliseconds, and a button that swaps the page in
+ * that time reads as nothing having happened — the floor is what makes it read as an action
+ * that ran, and it covers the workspace layout's first load on the other side.
+ */
+export const WORKSPACE_HANDOVER_MS = 900
+
+/**
+ * What to call a workspace before its owner has said. The login provider's name when it gave
+ * one, else the email local part read as a name: `bob@…` is Bob, `ada.lovelace@…` is Ada
+ * Lovelace. Capped at what `create_workspace` accepts, since it is prefilled rather than
+ * typed and a name the server would reject must never appear in the field.
+ */
+export function defaultWorkspaceName(name: string | undefined, email: string | undefined): string {
+	const display = (name?.trim() || (email ?? '').split('@')[0])
+		.split(/[._\-+\s]+/)
+		.filter(Boolean)
+		.map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+		.join(' ')
+		.trim()
+	const proposed = display ? `${display}'s workspace` : 'My workspace'
+	return proposed.length > WORKSPACE_NAME_MAX_LENGTH ? 'My workspace' : proposed
 }

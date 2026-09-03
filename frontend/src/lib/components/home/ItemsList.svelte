@@ -39,8 +39,7 @@
 		type FilterSchemaRec
 	} from '$lib/components/FilterSearchbar.svelte'
 	import NoItemFound from './NoItemFound.svelte'
-	import HubProjectSuggestions from './HubProjectSuggestions.svelte'
-	import { isCloudHosted } from '$lib/cloud'
+	import WorkspaceEmptyState from './WorkspaceEmptyState.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
@@ -877,13 +876,6 @@
 		if (!includeWithoutMain) f.push('library scripts hidden')
 		return f
 	})
-	// Hub project suggestions replace the plain welcome message only on a workspace that is
-	// genuinely empty — no filter is narrowing the list — and, for now, only on cloud.
-	// `import.meta.env.DEV` keeps the screen reachable locally, where `isCloudHosted()` is
-	// false because it tests for the app.windmill.dev hostname.
-	let showHubSuggestions = $derived(
-		activeFilters.length === 0 && (isCloudHosted() || import.meta.env.DEV)
-	)
 	// Pipeline folders qualify for a chip whenever a pipeline can render: the kind must admit
 	// one and no label filter may be active, since pipelines carry no labels. Unlike
 	// `visiblePipelineFolders` this ignores the selected owner — the chips are how you switch
@@ -980,15 +972,27 @@
 	// until the first response instead — it is fetched in parallel with the listing,
 	// so it costs no extra wait in practice. Only the first load gates: `current`
 	// survives a refetch, so an in-place scope change refreshes without flashing.
+	// An import just landed, so the rows about to replace the empty state are all new: they
+	// fade in one after another rather than appearing as a finished list. Cleared on a timer
+	// because nothing else marks the end — the reload resolves before the rows animate.
+	let justImported = $state(false)
+	let justImportedTimer: ReturnType<typeof setTimeout> | undefined
+	function onImported() {
+		reloadItemsAndCounts()
+		justImported = true
+		clearTimeout(justImportedTimer)
+		justImportedTimer = setTimeout(() => (justImported = false), 2500)
+	}
+
 	let treeCountsPending = $derived(
 		treeLazyMode && ownerCountsRes.current == undefined && ownerCountsRes.loading
 	)
 
-	// A workspace holding nothing, with no filter narrowing the view: the searchbar and the
-	// list controls would act on an empty list, so only the empty state and the create menu
-	// are drawn. It stays false until the first load resolves, so the controls are never
-	// painted and then taken away.
-	let emptyWorkspace = $derived(
+	// The workspace itself holds nothing — no filter is narrowing the list away. It stays
+	// false until the first load resolves: a skeleton already means "loading", and the
+	// empty state must not be mistaken for one. The controls it dims stay mounted, so
+	// nothing moves when the first item lands.
+	let workspaceEmpty = $derived(
 		!loading &&
 			!treeCountsPending &&
 			!contentActive &&
@@ -1648,8 +1652,10 @@
 			description: 'Lists of scripts, flows, and apps'
 		}}
 	>
-		{#if !contentActive && !loading && !emptyWorkspace}
-			<div class="flex justify-start">
+		{#if !contentActive}
+			<!-- Kept mounted, not hidden, so the toolbar doesn't reflow the moment the first
+			     item lands: `inert` takes it out of the tab order and off the pointer too. -->
+			<div class="flex justify-start" class:opacity-40={workspaceEmpty} inert={workspaceEmpty}>
 				<ToggleButtonGroup
 					selected={itemKind}
 					onSelected={(v) => {
@@ -1690,9 +1696,10 @@
 			</div>
 		{/if}
 
-		{#if !loading && !contentActive && !emptyWorkspace}
+		{#if !loading && !contentActive && !workspaceEmpty}
 			<!-- List controls, between the kind toggle and the searchbar: select mode, tree
-			     view, expand/collapse (tree only), sort. -->
+			     view, expand/collapse (tree only), sort. Nothing to select, group or order on
+			     an empty workspace, so the whole row goes. -->
 			<div class="flex items-center gap-2">
 				{#if homeSelection.available && !homeSelection.active}
 					<Button
@@ -1747,20 +1754,22 @@
 		{/if}
 
 		<div class="flex grow items-center justify-end gap-2 min-w-0">
-			{#if !loading && !emptyWorkspace}
-				<div class="relative text-primary w-full min-w-[200px] max-w-[26rem]">
-					<FilterSearchbar
-						schema={searchbarSchema}
-						bind:value={filterValues.val}
-						placeholder={HOME_SEARCH_PLACEHOLDER}
-						presets={contentActive ? [] : searchPresets}
-						autofocus
-						hideDropdownOnFreeText
-						inputId="home-search-input"
-						onDropdownVisibleChange={(v) => (searchbarDropdownOpen = v)}
-					/>
-				</div>
-			{/if}
+			<div
+				class="relative text-primary w-full min-w-[200px] max-w-[26rem]"
+				class:opacity-40={workspaceEmpty}
+				inert={workspaceEmpty}
+			>
+				<FilterSearchbar
+					schema={searchbarSchema}
+					bind:value={filterValues.val}
+					placeholder={HOME_SEARCH_PLACEHOLDER}
+					presets={contentActive ? [] : searchPresets}
+					autofocus
+					hideDropdownOnFreeText
+					inputId="home-search-input"
+					onDropdownVisibleChange={(v) => (searchbarDropdownOpen = v)}
+				/>
+			</div>
 			<!-- Same gate the old create actions used: hidden from operators and in workspaces
 			     whose direct-deploy protection cleared showEditButtons (NoDirectDeployAlert), since
 			     the menu itself does no permission check. -->
@@ -1769,7 +1778,7 @@
 			{/if}
 		</div>
 	</div>
-	{#if filteredItems?.length == 0 && !emptyWorkspace}
+	{#if filteredItems?.length == 0 && !workspaceEmpty}
 		<div class="mt-10"></div>
 	{/if}
 	<div class="mt-3">
@@ -1796,8 +1805,8 @@
 			<!-- Pipelines aren't part of the text filter, so only fall through to show
 			     them (list rows / injected tree folders) when not actively searching;
 			     a no-match search still reads as empty. -->
-			{#if showHubSuggestions}
-				<HubProjectSuggestions />
+			{#if workspaceEmpty}
+				<WorkspaceEmptyState {onImported} />
 			{:else}
 				<NoItemFound {activeFilters} />
 			{/if}
@@ -1843,7 +1852,7 @@
 				/>
 			{/key}
 		{:else}
-			<div class="border rounded-md bg-surface-tertiary">
+			<div class="border rounded-md bg-surface-tertiary" class:wm-imported={justImported}>
 				{#if filter === ''}
 					{#each [...visiblePipelineFolders].sort() as folder (folder)}
 						<a
@@ -1916,3 +1925,56 @@
 		onDone={reloadItemsAndCounts}
 	/>
 {/if}
+
+<style>
+	/* Rows arriving after an import, one after another. The animation is declared on the
+	   container's children rather than on each row: a wrapper element around a row would make
+	   every row `first-of-type` and `last-of-type`, which is how Row draws its corners and
+	   separators. The delay steps for the first rows only — past those the stagger is longer
+	   than anyone waits, so they share the last one. */
+	@keyframes wm-row-in {
+		from {
+			opacity: 0;
+			transform: translateY(4px);
+		}
+		to {
+			opacity: 1;
+			transform: none;
+		}
+	}
+
+	.wm-imported > :global(*) {
+		animation: wm-row-in 260ms ease-out both;
+		animation-delay: 320ms;
+	}
+	.wm-imported > :global(*:nth-child(1)) {
+		animation-delay: 0ms;
+	}
+	.wm-imported > :global(*:nth-child(2)) {
+		animation-delay: 40ms;
+	}
+	.wm-imported > :global(*:nth-child(3)) {
+		animation-delay: 80ms;
+	}
+	.wm-imported > :global(*:nth-child(4)) {
+		animation-delay: 120ms;
+	}
+	.wm-imported > :global(*:nth-child(5)) {
+		animation-delay: 160ms;
+	}
+	.wm-imported > :global(*:nth-child(6)) {
+		animation-delay: 200ms;
+	}
+	.wm-imported > :global(*:nth-child(7)) {
+		animation-delay: 240ms;
+	}
+	.wm-imported > :global(*:nth-child(8)) {
+		animation-delay: 280ms;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.wm-imported > :global(*) {
+			animation: none;
+		}
+	}
+</style>

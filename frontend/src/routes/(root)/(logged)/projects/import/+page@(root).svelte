@@ -14,6 +14,7 @@
 	import ImportSetupStep from '$lib/components/ImportSetupStep.svelte'
 	import ImportWizardSteps from '$lib/components/ImportWizardSteps.svelte'
 	import type { ImportExecution } from '$lib/importWizard/execution.svelte'
+	import { useSetupStep } from '$lib/importWizard/setupStep.svelte'
 	import WorkspaceTreeView from '$lib/components/workspace/WorkspaceTreeView.svelte'
 	import { superadmin, usersWorkspaceStore } from '$lib/stores'
 	import { get } from 'svelte/store'
@@ -244,53 +245,13 @@
 		goto('/')
 	}
 
-	// Whether a fourth step exists. Known only once the run has fetched the export and
-	// the destination's data tables can be compared against it, so it is false for the
-	// whole wizard until the import finishes — which is exactly when it is first read.
 	let execution = $state<ImportExecution | undefined>(undefined)
-	let setupNeeded = $state(false)
-	// True while the answer is still being fetched. Without it the run reads as finished
-	// with no fourth step, and Finish leaves for the workspace before the check comes back
-	// and discovers a data table that is missing.
-	let setupUndecided = $state(false)
-	$effect(() => {
-		const names = execution?.datatableNames ?? []
-		const workspace = planWorkspaceId(plan)
-		if (!execution?.done || !workspace) {
-			setupNeeded = false
-			setupUndecided = false
-			return
-		}
-		// Every resource the project ships arrives as an empty stub, so any project with
-		// resources has something to fill in. The step itself re-checks and shows only
-		// what is genuinely outstanding, which is what makes a re-import quiet.
-		if (execution.resourceCount > 0) {
-			setupNeeded = true
-			setupUndecided = false
-			return
-		}
-		if (names.length === 0) {
-			setupNeeded = false
-			setupUndecided = false
-			return
-		}
-		let cancelled = false
-		setupUndecided = true
-		void WorkspaceService.listDataTables({ workspace })
-			.then((tables) => {
-				if (cancelled) return
-				const present = new Set(tables.map((t) => t.name))
-				setupNeeded = names.some((n) => !present.has(n))
-			})
-			.catch(() => {
-				// Can't tell — don't invent a step the user then cannot complete.
-				if (!cancelled) setupNeeded = false
-			})
-			.finally(() => {
-				if (!cancelled) setupUndecided = false
-			})
-		return () => (cancelled = true)
-	})
+	const setup = useSetupStep(
+		() => execution,
+		() => planWorkspaceId(plan)
+	)
+	const setupNeeded = $derived(setup.needed)
+	const setupUndecided = $derived(setup.undecided)
 </script>
 
 {#if leaving}
@@ -518,6 +479,7 @@
 			<ImportProjectStep
 				{plan}
 				{project}
+				showNotes={plan.destination?.kind === 'existing'}
 				setupPending={setupNeeded}
 				{setupUndecided}
 				onFolderChange={(folder) => go({ folder }, 3, { replace: true })}

@@ -220,7 +220,7 @@
 </Drawer>
 
 <div
-	class="flex flex-col w-full h-full overflow-y-auto items-center"
+	class="wm-page-in flex flex-col w-full h-full overflow-y-auto items-center"
 	style="scrollbar-gutter: stable both-edges;"
 >
 	<ForkWorkspaceBanner />
@@ -323,3 +323,27 @@
 		<ItemsList bind:subtab showEditButtons={showCreateButtons} />
 	{/if}
 </div>
+
+<style>
+	/* The page's content arriving, rather than being there. The sidebar and the surface behind
+	   it are already painted by the layout, so only what is new to this route fades — which is
+	   what makes landing here off a workspace hand-over read as an arrival instead of a cut. */
+	@keyframes wm-page-in {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
+	}
+
+	.wm-page-in {
+		animation: wm-page-in 500ms ease-out both;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.wm-page-in {
+			animation: none;
+		}
+	}
+</style>

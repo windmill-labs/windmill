@@ -17,6 +17,10 @@
 		extraRowClasses?: { bgSelected: string; bgHover: string; class: string }
 		neverShowLoader?: boolean
 		preventXOverflow?: boolean
+		/** Applied to the table's outer box. A definite height here (rather than a max) is what
+		 * makes the inner scroll container page: it only scrolls, and so only asks for more,
+		 * when its own height is bounded. */
+		containerClass?: string
 		customRow?: import('svelte').Snippet<[any]>
 		columns?: import('svelte').Snippet
 		extra_row?: import('svelte').Snippet<[any]>
@@ -39,6 +43,7 @@
 		},
 		neverShowLoader = false,
 		preventXOverflow = false,
+		containerClass = '',
 		customRow,
 		columns,
 		extra_row,
@@ -172,6 +177,7 @@
 	{noBorder}
 	{neverShowLoader}
 	{preventXOverflow}
+	{containerClass}
 >
 	{@render columns?.()}
 

@@ -48,6 +48,7 @@ pub fn workspaced_service() -> Router {
             post(discard_project_update),
         )
         .route("/project", get(get_project_by_source))
+        .route("/projects", get(list_projects))
 }
 
 #[derive(Deserialize)]
@@ -546,6 +547,34 @@ async fn get_project_export(
 
 async fn get_project_by_source(ctx: HubPublishCtx) -> Result<impl IntoResponse, Error> {
     ctx.get("/projects/by_source").await
+}
+
+// The hub's project catalogue. Read by any workspace member rather than through
+// `HubPublishCtx`, which requires an admin: nothing here is workspace-scoped or
+// publishing-related. It exists at all because the hub's listing endpoint sends no
+// CORS header, so the browser cannot read it directly the way it reads a single
+// project. The caller's token rides along only so a private hub can authenticate the
+// reader; `accept: application/json` is what makes the hub answer with JSON.
+async fn list_projects(
+    _authed: ApiAuthed,
+    Tokened { token }: Tokened,
+) -> Result<impl IntoResponse, Error> {
+    let url = format!("{}/projects", **HUB_BASE_URL.load());
+    let res = HTTP_CLIENT
+        .get(&url)
+        .header("accept", "application/json")
+        .bearer_auth(&token)
+        .send()
+        .await
+        .map_err(|e| Error::InternalErr(format!("hub request failed: {e}")))?;
+
+    let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    let text = res
+        .text()
+        .await
+        .map_err(|e| Error::InternalErr(format!("hub response read failed: {e}")))?;
+
+    Ok((status, text))
 }
 
 async fn submit_project(

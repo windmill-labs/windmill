@@ -1071,8 +1071,9 @@
 							>feature usage (counts of which product features are used, including AI provider and
 							model identifiers, the names of public hub scripts used, the languages debug sessions
 							are started for, whether AI chat skills are turned on or off and how often one is
-							loaded, and the plan tier and quota shown when the execution meter is opened, last 30
-							days)</li
+							loaded, the plan tier and quota shown when the execution meter is opened, and which
+							home-page entry point a new item is created from and the name of any public hub
+							project imported from it, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger and worker features your
@@ -1125,8 +1126,9 @@
 							>feature usage (counts of which product features are used, including AI provider and
 							model identifiers, the names of public hub scripts used, the languages debug sessions
 							are started for, whether AI chat skills are turned on or off and how often one is
-							loaded, and the plan tier and quota shown when the execution meter is opened, last 30
-							days)</li
+							loaded, the plan tier and quota shown when the execution meter is opened, and which
+							home-page entry point a new item is created from and the name of any public hub
+							project imported from it, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger and worker features your

@@ -26,6 +26,19 @@
 	import { conditionalMelt, getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import { createDropdownMenu, melt } from '@melt-ui/svelte'
 	import YAML from 'yaml'
+	import type { Snippet } from 'svelte'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
+
+	interface Props {
+		/** Replaces the default `New` button, e.g. with an inline text link. */
+		trigger?: Snippet
+		/** The node `trigger` renders: what the menu anchors to and what opens it. */
+		triggerElement?: HTMLElement
+		/** Which entry point this menu hangs off, for telemetry. */
+		source?: 'toolbar' | 'empty_state'
+	}
+
+	let { trigger, triggerElement, source = 'toolbar' }: Props = $props()
 
 	type Variant = {
 		label: string
@@ -306,12 +319,24 @@
 	// styling — melt element stores are callable on a node, exactly like `use:melt`.
 	let triggerEl: HTMLButtonElement | HTMLAnchorElement | undefined = $state(undefined)
 	$effect(() => {
-		const el = triggerEl
+		const el = triggerElement ?? triggerEl
 		if (!el) return
 		const applied = conditionalMelt(el, menuTrigger as any) as {
 			destroy?: () => void
 		}
 		return applied?.destroy
+	})
+
+	// Which entry point people actually create from: the toolbar button, or the inline
+	// link in the empty state. Only the open edge counts — melt writes the store on
+	// close and on every re-render of the menu.
+	let wasOpen = false
+	$effect(() => {
+		const isOpen = $open
+		if (isOpen && !wasOpen) {
+			logFeatureUsage('home', 'new_menu_open', { key: source })
+		}
+		wasOpen = isOpen
 	})
 
 	const SHOW_DOC_SETTING = 'home_create_show_doc'
@@ -366,191 +391,197 @@
 	}
 </script>
 
-<div>
-	<Button
-		{...$menuTrigger}
-		id="create-new-button"
-		aiId="home-create-new"
-		aiDescription="Create a new script, flow or app"
-		unifiedSize="md"
-		variant="accent"
-		startIcon={{ icon: Plus }}
-		endIcon={{ icon: ChevronDown }}
-		bind:element={triggerEl}
-	>
-		New
-	</Button>
-
-	{#if $open && active}
-		<div
-			use:melt={$menu}
-			data-arrow-loop
-			class="z-[6000] flex flex-row rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
-			style={showDoc ? 'width: 780px;' : ''}
+<!-- `contents` so a custom inline trigger (the empty state's text link) keeps flowing
+     with the sentence around it instead of becoming a block of its own. -->
+<div class={trigger ? 'contents' : ''}>
+	{#if trigger}
+		{@render trigger()}
+	{:else}
+		<Button
+			{...$menuTrigger}
+			id="create-new-button"
+			aiId="home-create-new"
+			aiDescription="Create a new script, flow or app"
+			unifiedSize="md"
+			variant="accent"
+			startIcon={{ icon: Plus }}
+			endIcon={{ icon: ChevronDown }}
+			bind:element={triggerEl}
 		>
-			{#if showDoc}
-				<!-- explanation of the highlighted editor -->
-				<div class="flex flex-col gap-3 p-5 flex-1 min-w-0">
-					<div class="flex flex-row items-center gap-3">
-						<div
-							class="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 {activeAc.tile}"
-						>
-							<active.icon size={26} class={activeAc.iconText} />
-						</div>
-						<div class="min-w-0">
-							<div class="flex flex-row items-center gap-2">
-								<h3 class="font-semibold text-primary leading-tight">{active.label}</h3>
-								{#if active.badge}
-									<span
-										class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {active
-											.badge.class}"
-									>
-										{active.badge.label}
-									</span>
-								{/if}
-							</div>
-							<p class="text-xs text-tertiary">{active.tagline}</p>
-						</div>
-					</div>
+			New
+		</Button>
+	{/if}
+</div>
 
-					<p class="text-xs text-secondary leading-relaxed">{active.description}</p>
-
-					<ul class="flex flex-col gap-1.5 mt-1">
-						{#each active.bullets as bullet (bullet)}
-							<li class="flex flex-row items-center gap-2 text-xs text-secondary">
-								<ChevronRight size={14} class={activeAc.iconText} />
-								{bullet}
-							</li>
-						{/each}
-					</ul>
-
-					<button
-						class="mt-auto self-start inline-flex items-center gap-1 pt-2 text-[10px] text-tertiary hover:text-secondary transition-colors"
-						title="Hide descriptions"
-						tabindex={-1}
-						onclick={() => setShowDoc(false)}
+{#if $open && active}
+	<div
+		use:melt={$menu}
+		data-arrow-loop
+		class="z-[6000] flex flex-row rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
+		style={showDoc ? 'width: 780px;' : ''}
+	>
+		{#if showDoc}
+			<!-- explanation of the highlighted editor -->
+			<div class="flex flex-col gap-3 p-5 flex-1 min-w-0">
+				<div class="flex flex-row items-center gap-3">
+					<div
+						class="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 {activeAc.tile}"
 					>
-						<PanelLeftClose size={12} />
-						Hide descriptions
+						<active.icon size={26} class={activeAc.iconText} />
+					</div>
+					<div class="min-w-0">
+						<div class="flex flex-row items-center gap-2">
+							<h3 class="font-semibold text-primary leading-tight">{active.label}</h3>
+							{#if active.badge}
+								<span
+									class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {active
+										.badge.class}"
+								>
+									{active.badge.label}
+								</span>
+							{/if}
+						</div>
+						<p class="text-xs text-tertiary">{active.tagline}</p>
+					</div>
+				</div>
+
+				<p class="text-xs text-secondary leading-relaxed">{active.description}</p>
+
+				<ul class="flex flex-col gap-1.5 mt-1">
+					{#each active.bullets as bullet (bullet)}
+						<li class="flex flex-row items-center gap-2 text-xs text-secondary">
+							<ChevronRight size={14} class={activeAc.iconText} />
+							{bullet}
+						</li>
+					{/each}
+				</ul>
+
+				<button
+					class="mt-auto self-start inline-flex items-center gap-1 pt-2 text-[10px] text-tertiary hover:text-secondary transition-colors"
+					title="Hide descriptions"
+					tabindex={-1}
+					onclick={() => setShowDoc(false)}
+				>
+					<PanelLeftClose size={12} />
+					Hide descriptions
+				</button>
+			</div>
+		{/if}
+
+		<!-- option list -->
+		<div class="flex flex-col gap-0.5 p-2 w-[18rem] shrink-0">
+			{#snippet rowBody(option: Option, ac: (typeof accentClasses)[string])}
+				<div class="w-6 h-6 rounded-md flex items-center justify-center shrink-0 {ac.tile}">
+					<option.icon size={14} class={ac.iconText} />
+				</div>
+				<span class="text-xs font-medium text-primary flex-1 min-w-0 whitespace-nowrap">
+					{option.label}
+				</span>
+				{#if option.badge}
+					<span
+						class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {option
+							.badge.class}"
+					>
+						{option.badge.label}
+					</span>
+				{/if}
+			{/snippet}
+			{#each allOptions as option (option.key)}
+				{@const ac = accentClasses[option.accent]}
+				{@const rowClass =
+					'w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover'}
+				{#if option.variants}
+					<button
+						use:melt={$wacSubTrigger}
+						class={rowClass}
+						onfocusin={() => (activeKey = option.key)}
+						onpointerenter={() => (activeKey = option.key)}
+					>
+						{@render rowBody(option, ac)}
+						<ChevronRight size={14} class="shrink-0 text-tertiary" />
 					</button>
+					{#if $wacSubOpen}
+						<div
+							use:melt={$wacSubMenu}
+							use:hugViewportRight
+							class="z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
+						>
+							{#each option.variants ?? [] as variant (variant.label)}
+								{@const VariantIcon = variant.icon}
+								<button
+									use:melt={$item}
+									class="flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
+									onclick={() => variant.onSelect()}
+								>
+									<VariantIcon width={14} height={14} />
+									<span class="text-xs font-medium text-primary">{variant.label}</span>
+								</button>
+							{/each}
+						</div>
+					{/if}
+				{:else}
+					<button
+						use:melt={$item}
+						class={rowClass}
+						onfocusin={() => (activeKey = option.key)}
+						onpointerenter={() => (activeKey = option.key)}
+						onclick={() => option.onSelect()}
+					>
+						{@render rowBody(option, ac)}
+					</button>
+				{/if}
+			{/each}
+
+			<!-- bottom import section: one entry whose submenu imports any artifact -->
+			<div class="mx-1 my-1 border-t border-gray-200 dark:border-gray-700"></div>
+			<button
+				use:melt={$importSubTrigger}
+				class="w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
+			>
+				<div
+					class="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-gray-100 dark:bg-gray-700"
+				>
+					<Import size={14} class="text-gray-600 dark:text-gray-300" />
+				</div>
+				<span class="text-xs font-medium text-primary flex-1 min-w-0 whitespace-nowrap">
+					Import
+				</span>
+				<ChevronRight size={14} class="shrink-0 text-tertiary" />
+			</button>
+			{#if $importSubOpen}
+				<div
+					use:melt={$importSubMenu}
+					use:hugViewportRight
+					class="z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
+				>
+					{#each importActions as action (action.label)}
+						<button
+							use:melt={$item}
+							class="flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
+							onclick={() => action.onSelect()}
+						>
+							<Import size={14} class="shrink-0 text-tertiary" />
+							<span class="text-xs font-medium text-primary whitespace-nowrap">
+								{action.label}
+							</span>
+						</button>
+					{/each}
 				</div>
 			{/if}
 
-			<!-- option list -->
-			<div class="flex flex-col gap-0.5 p-2 w-[18rem] shrink-0">
-				{#snippet rowBody(option: Option, ac: (typeof accentClasses)[string])}
-					<div class="w-6 h-6 rounded-md flex items-center justify-center shrink-0 {ac.tile}">
-						<option.icon size={14} class={ac.iconText} />
-					</div>
-					<span class="text-xs font-medium text-primary flex-1 min-w-0 whitespace-nowrap">
-						{option.label}
-					</span>
-					{#if option.badge}
-						<span
-							class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {option
-								.badge.class}"
-						>
-							{option.badge.label}
-						</span>
-					{/if}
-				{/snippet}
-				{#each allOptions as option (option.key)}
-					{@const ac = accentClasses[option.accent]}
-					{@const rowClass =
-						'w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover'}
-					{#if option.variants}
-						<button
-							use:melt={$wacSubTrigger}
-							class={rowClass}
-							onfocusin={() => (activeKey = option.key)}
-							onpointerenter={() => (activeKey = option.key)}
-						>
-							{@render rowBody(option, ac)}
-							<ChevronRight size={14} class="shrink-0 text-tertiary" />
-						</button>
-						{#if $wacSubOpen}
-							<div
-								use:melt={$wacSubMenu}
-								use:hugViewportRight
-								class="z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
-							>
-								{#each option.variants ?? [] as variant (variant.label)}
-									{@const VariantIcon = variant.icon}
-									<button
-										use:melt={$item}
-										class="flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
-										onclick={() => variant.onSelect()}
-									>
-										<VariantIcon width={14} height={14} />
-										<span class="text-xs font-medium text-primary">{variant.label}</span>
-									</button>
-								{/each}
-							</div>
-						{/if}
-					{:else}
-						<button
-							use:melt={$item}
-							class={rowClass}
-							onfocusin={() => (activeKey = option.key)}
-							onpointerenter={() => (activeKey = option.key)}
-							onclick={() => option.onSelect()}
-						>
-							{@render rowBody(option, ac)}
-						</button>
-					{/if}
-				{/each}
-
-				<!-- bottom import section: one entry whose submenu imports any artifact -->
-				<div class="mx-1 my-1 border-t border-gray-200 dark:border-gray-700"></div>
+			{#if !showDoc}
 				<button
-					use:melt={$importSubTrigger}
-					class="w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
+					class="mt-1 px-2 py-1 text-left text-[10px] text-tertiary/70 hover:text-tertiary hover:underline transition-colors"
+					title="Show descriptions"
+					tabindex={-1}
+					onclick={() => setShowDoc(true)}
 				>
-					<div
-						class="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-gray-100 dark:bg-gray-700"
-					>
-						<Import size={14} class="text-gray-600 dark:text-gray-300" />
-					</div>
-					<span class="text-xs font-medium text-primary flex-1 min-w-0 whitespace-nowrap">
-						Import
-					</span>
-					<ChevronRight size={14} class="shrink-0 text-tertiary" />
+					Show descriptions
 				</button>
-				{#if $importSubOpen}
-					<div
-						use:melt={$importSubMenu}
-						use:hugViewportRight
-						class="z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
-					>
-						{#each importActions as action (action.label)}
-							<button
-								use:melt={$item}
-								class="flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
-								onclick={() => action.onSelect()}
-							>
-								<Import size={14} class="shrink-0 text-tertiary" />
-								<span class="text-xs font-medium text-primary whitespace-nowrap">
-									{action.label}
-								</span>
-							</button>
-						{/each}
-					</div>
-				{/if}
-
-				{#if !showDoc}
-					<button
-						class="mt-1 px-2 py-1 text-left text-[10px] text-tertiary/70 hover:text-tertiary hover:underline transition-colors"
-						title="Show descriptions"
-						tabindex={-1}
-						onclick={() => setShowDoc(true)}
-					>
-						Show descriptions
-					</button>
-				{/if}
-			</div>
+			{/if}
 		</div>
-	{/if}
-</div>
+	</div>
+{/if}
 
 <!-- shared import drawer (YAML / JSON) for the bottom "Import" submenu actions -->
 <Drawer bind:this={importDrawer} size="800px">
