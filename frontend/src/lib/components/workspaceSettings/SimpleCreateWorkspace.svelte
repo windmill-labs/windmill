@@ -22,16 +22,23 @@
 		/** Where to go once the workspace exists. It is already the active one by then. */
 		onCreated: (workspaceId: string) => void
 		/**
-		 * True from the click until the navigation, so a surface with chrome of its own around
-		 * this form — onboarding's Previous button — can stand down for the hand-over instead
-		 * of offering a way back out of a workspace that now exists.
+		 * Told when the form starts handing over to the new workspace and if it comes back, so
+		 * a surface with chrome of its own around this one — onboarding's Previous button — can
+		 * stand down for the hand-over instead of offering a way back out of a workspace that
+		 * now exists. A callback rather than a bound prop: this is something the form reports,
+		 * not state it shares, and `$bindable(default)` on an optional prop is banned.
 		 */
-		creating?: boolean
+		onCreatingChange?: (creating: boolean) => void
 	}
 
-	let { onCreated, creating = $bindable(false) }: Props = $props()
+	let { onCreated, onCreatingChange }: Props = $props()
 
 	let name = $state('')
+	let creating = $state(false)
+	function setCreating(next: boolean) {
+		creating = next
+		onCreatingChange?.(next)
+	}
 
 	// The full form — id, colour, username, invites — for the person who wants it. Forced on
 	// when the instance does not derive usernames: one is required and a name field has
@@ -91,7 +98,7 @@
 
 	async function create() {
 		if (problem || creating) return
-		creating = true
+		setCreating(true)
 		const workspaceName = name.trim()
 		const started = Date.now()
 		try {
@@ -102,7 +109,7 @@
 					true
 				)
 				advanced = true
-				creating = false
+				setCreating(false)
 				return
 			}
 			await WorkspaceService.createWorkspace({
@@ -123,7 +130,7 @@
 		} catch (error) {
 			console.error('Could not create the workspace:', error)
 			sendUserToast('Could not create the workspace: ' + (error?.body || error?.message), true)
-			creating = false
+			setCreating(false)
 		}
 	}
 </script>

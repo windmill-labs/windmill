@@ -315,7 +315,10 @@
 			<!-- The same one-field form the workspace picker falls back to, so a user who leaves
 			     onboarding early meets it again rather than something new. It owns the name, the
 			     id, the advanced form and the hand-over into the workspace. -->
-			<SimpleCreateWorkspace onCreated={leaveOnboarding} bind:creating={creatingWorkspace} />
+			<SimpleCreateWorkspace
+				onCreated={leaveOnboarding}
+				onCreatingChange={(v) => (creatingWorkspace = v)}
+			/>
 
 			{#if !skippedSurvey && !creatingWorkspace}
 				<div class="flex flex-row justify-start items-center pt-6">

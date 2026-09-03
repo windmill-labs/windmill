@@ -68,9 +68,22 @@
 		class="border-t border-dashed border-border-light px-4 pb-[22px] pt-[18px] text-center text-[13.5px] leading-relaxed text-hint"
 	>
 		Your scripts, flows and apps will show up here.
+		<!-- Opens downward into the page rather than upward into the hero: the caption sits high
+		     when the AI composer is hidden, so the room is below it. `fitViewport` caps the box on
+		     a short viewport, which is why the height below is definite and the list inside fills
+		     it — a squeezed box with a fixed-height list inside overflows its own frame. -->
 		<Popover
-			placement="top"
-			contentClasses="p-0"
+			floatingConfig={{
+				placement: 'bottom',
+				strategy: 'absolute',
+				gutter: 8,
+				overflowPadding: 16,
+				flip: { fallbackPlacements: ['top', 'bottom-start', 'top-start'] },
+				fitViewport: true,
+				overlap: false
+			}}
+			contentClasses="p-0 flex"
+			contentStyle="height: min(72vh, 520px);"
 			class="border-b border-transparent text-accent hover:border-accent"
 			triggerAttrs={{ 'aria-label': 'Start from a template' }}
 			on:openChange={(e) => e.detail && logFeatureUsage('home', 'template_picker_open')}

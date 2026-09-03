@@ -16,7 +16,6 @@
 	let { onPick }: Props = $props()
 
 	let list: InfiniteList | undefined = $state(undefined)
-	let loaded = $state(0)
 
 	// The hub serves its whole catalogue in one response, so paging happens here: the list
 	// asks for a window and gets a slice of what `hubProjectCatalogue` already holds. Should
@@ -46,7 +45,9 @@
 	})
 </script>
 
-<div class="flex w-[380px] flex-col">
+<!-- The popover gives this box a definite height; the list takes what the header leaves and
+     scrolls inside it, which is also what lets it page. -->
+<div class="flex min-h-0 w-[380px] flex-col">
 	<!-- The hub is named once, as the link to it: a footer row saying the same thing again is
 	     a second line spent on somewhere the reader is not going. -->
 	<p class="px-3 pb-2 pt-3 text-[11.5px] leading-snug text-hint">
@@ -62,17 +63,8 @@
 		— imported as a folder in this workspace.
 	</p>
 
-	<!-- A definite height is what makes the list page: its scroll container only asks for
-	     the next window once it actually scrolls. Given only to a list long enough to need
-	     it, so a hub with a handful of projects gets a popover that hugs them. -->
-	<div class="border-t border-border-light">
-		<InfiniteList
-			bind:this={list}
-			bind:length={loaded}
-			noBorder
-			rounded={false}
-			containerClass={loaded > 4 ? 'h-[420px]' : ''}
-		>
+	<div class="min-h-0 flex-1 border-t border-border-light">
+		<InfiniteList bind:this={list} noBorder rounded={false} containerClass="h-full">
 			{#snippet customRow({ item }: { item: HubProjectPick })}
 				{@const Icon = hubAppIcon(item.iconApps[0] ?? '')}
 				<tr>
