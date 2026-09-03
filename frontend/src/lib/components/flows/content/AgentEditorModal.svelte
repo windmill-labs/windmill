@@ -13,8 +13,6 @@
 	import { ResourceService, type AgentDraft } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import {
-		AGENT_EDITOR_HOST_PREFIX,
-		agentEditorHostPath,
 		agentEditorTarget,
 		agentWriteCount,
 		type AgentEditorTarget,
@@ -41,22 +39,21 @@
 	let { enableAi = false, owns }: Props = $props()
 
 	// A tool that is itself a linked agent opens from inside the editor, so it names the editor's own
-	// synthetic flow as its host, which no `owns` can recognise: the mount showing that editor is the
-	// one that has to take it, or the dialog vanishes onto a target nothing renders. Deliberately
-	// plain rather than `$state`: what claims the next target is what this mount rendered for the
-	// last one, and a reactive read would re-run the claim against its own answer and undo it.
+	// host flow — the agent being edited — which no `owns` can recognise: the mount showing that
+	// editor is the one that has to take it, or the dialog vanishes onto a target nothing renders.
+	// Deliberately plain rather than `$state`: what claims the next target is what this mount
+	// rendered for the last one, and a reactive read would re-run the claim against its own answer
+	// and undo it.
 	let shownPath: string | undefined = undefined
 	let adoptedPath: string | undefined = undefined
 
 	function claims(t: AgentEditorTarget): boolean {
 		if (owns(t)) return true
-		// Only ever a target opened from inside an agent editor, never one belonging to a flow.
-		if (!t.host?.flowPath?.startsWith(AGENT_EDITOR_HOST_PREFIX)) return false
-		// Already taken, or opened from the agent this mount is showing.
-		return (
-			t.path === adoptedPath ||
-			(shownPath != undefined && t.host.flowPath === agentEditorHostPath(shownPath))
-		)
+		if (!t.host?.flowPath) return false
+		// Already taken, or opened from inside the agent this mount is showing — an agent editor
+		// hosts its flow under the agent's own path, so a tool opened from within one names that
+		// agent as its host.
+		return t.path === adoptedPath || (shownPath != undefined && t.host.flowPath === shownPath)
 	}
 
 	let target = $derived.by(() => {

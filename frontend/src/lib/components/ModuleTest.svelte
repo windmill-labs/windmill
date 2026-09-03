@@ -22,11 +22,6 @@
 		noEditor?: boolean
 		scriptProgress?: any
 		onJobDone?: () => void
-		/** What a preview names itself after, when it is not the flow being edited. The agent editor
-		 *  passes `''`: its flow is synthetic, and the identifier it uses for client-side scoping is
-		 *  not a workspace path, which `require_path_read_access_for_preview` rejects for anyone who
-		 *  is not an admin. An empty path is explicitly allowed there. */
-		previewPath?: string
 	}
 
 	let {
@@ -35,8 +30,7 @@
 		testIsLoading = $bindable(false),
 		noEditor = false,
 		scriptProgress = $bindable(undefined),
-		onJobDone,
-		previewPath = undefined
+		onJobDone
 	}: Props = $props()
 
 	const {
@@ -50,8 +44,7 @@
 		opWorkspace
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
-	// Falls back to the flow being edited, which is what every other surface previews as.
-	let previewBase = $derived(previewPath ?? $pathStore ?? '')
+	let previewBase = $derived($pathStore ?? '')
 
 	// Acting workspace when the flow editor runs in an AI session; else the nav workspace.
 	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
@@ -101,8 +94,9 @@
 		}
 		if (val.type == 'rawscript') {
 			await jobLoader?.runPreview(
-				// An empty base stays empty: `'' + '/' + id` would be an absolute path, which the same
-				// check rejects outright.
+				// An empty base stays empty: `'' + '/' + id` is an absolute path, which
+				// `require_path_read_access_for_preview` rejects outright. A flow with no path yet
+				// previews unnamed instead.
 				val.path ?? (previewBase ? previewBase + '/' + mod.id : ''),
 				val.content,
 				val.language,
@@ -147,7 +141,9 @@
 			// in the form after the test panel mounted is what runs. A linked agent needs none of this:
 			// the server reads its brain from the resource.
 			const inputTransforms: { [key: string]: JavascriptTransform | InputTransform } = {
-				...(agentVal.agent ? {} : ((agentVal.input_transforms ?? {}) as Record<string, InputTransform>)),
+				...(agentVal.agent
+					? {}
+					: ((agentVal.input_transforms ?? {}) as Record<string, InputTransform>)),
 				...Object.fromEntries(
 					Object.keys(args).map((key) => [
 						key,

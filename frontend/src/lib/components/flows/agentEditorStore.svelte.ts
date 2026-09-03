@@ -13,7 +13,9 @@ export interface AgentEditorTarget {
 	toolId?: string
 	/** A level of the editor that is not the form. Mutually exclusive with `toolId`. */
 	view?: 'evals'
-	/** Where to re-resolve a graph's tool nodes after a deploy, when opened from a flow step. */
+	/** Where to re-resolve a graph's tool nodes after a deploy, when opened from a flow step. An
+	 *  agent editor hosts its own flow under the agent's path, so a tool opened from inside one
+	 *  names that agent here. */
 	host?: { flowPath: string; moduleId: string }
 }
 
@@ -41,15 +43,6 @@ export function showAgentEditorView(view: AgentEditorTarget['view']) {
 
 export function agentEditorTarget(): AgentEditorTarget | undefined {
 	return target
-}
-
-/** The flow path an agent editor gives its synthetic host flow. It scopes the linked-tools store,
- *  the preview job label and the form's remembered fields, and it is what an agent opened from
- *  inside the editor names as its host, so the mount showing that editor can claim it. */
-export const AGENT_EDITOR_HOST_PREFIX = 'agent-editor:'
-
-export function agentEditorHostPath(path: string): string {
-	return `${AGENT_EDITOR_HOST_PREFIX}${path}`
 }
 
 /** How many times each agent has been written, so a surface that reads the resource can refetch it.

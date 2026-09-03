@@ -30,7 +30,6 @@
 	import { AGENT_TOOLS_ROW } from '../agentFormFields'
 	import { toolDisplayName, type AgentTool } from '../agentToolUtils'
 	import { useAgentDraft } from '../agentDraft.svelte'
-	import { agentEditorHostPath } from '../agentEditorStore.svelte'
 
 	interface Props {
 		/** The `ai_agent` resource being edited. */
@@ -64,18 +63,6 @@
 	 *  its history and its evals stay open, none of them being a write to the resource. */
 	let readOnly = $derived(!draft.canWrite)
 
-	// A namespace, not a path, though it travels as one: the flow-editor machinery keys its
-	// client-side state by flow path, and this editor's flow is invented, so it needs a key of its
-	// own or its linked-agent tools, remembered open fields and editor instances would collide with
-	// a real flow's — or with another agent's.
-	//
-	// It must never reach the server. `require_path_read_access_for_preview` reads the first segment
-	// as a workspace namespace and rejects anything that is not `u`/`f`/`hub` for everyone who is not
-	// an admin, so every surface below that names what it runs takes an override instead of this:
-	// `previewPath=""` on the agent's own test and on the tool editor's, `scriptSaveBasePath` on
-	// "Save to workspace".
-	let syntheticPath = $derived(agentEditorHostPath(path))
-
 	const flowStore = $state({
 		val: {
 			summary: '',
@@ -91,9 +78,15 @@
 	const selectionManager = new SelectionManager()
 	selectionManager.selectId(AGENT_ID)
 	const history = initHistory(flowStore.val)
+	// The agent's own path, though what it names here is a flow that exists only in this editor. The
+	// flow-editor machinery keys everything off it — linked-agent tool scopes, Monaco models,
+	// remembered open fields, and the path a test run and its history name — and the agent is what
+	// all of those belong to. It has to be a real workspace path, not an invented identifier:
+	// `require_path_read_access_for_preview` reads the first segment as a namespace and rejects
+	// anything that is not `u`/`f`/`hub` for everyone who is not an admin.
 	const pathStore = writable('')
 	$effect(() => {
-		pathStore.set(syntheticPath)
+		pathStore.set(path)
 	})
 
 	// Drilling into a tool is navigation in this editor, not a graph selection.
@@ -207,7 +200,7 @@
 			// would otherwise reject into the global unhandled-rejection handler, which reports the
 			// bare message and no stack — saying nothing about which agent or tool caused it. The
 			// form still renders; only the inferred tool schemas are missing.
-			initFlowState(flowStore.val as Flow, flowStateStore, workspace, syntheticPath).catch((err) =>
+			initFlowState(flowStore.val as Flow, flowStateStore, workspace, path).catch((err) =>
 				console.error('agent editor: could not infer tool schemas for', path, err)
 			)
 		})
@@ -382,7 +375,6 @@
 						<div class="h-full overflow-auto">
 							<ModulePreview
 								mod={agentModule as FlowModule}
-								previewPath=""
 								schema={flowLocalAgentSchema(schema)}
 								pickableProperties={stepPropPicker?.pickableProperties}
 								bind:testJob
@@ -428,8 +420,6 @@
 						{enableAi}
 						staticOnly
 						noToolNavigation
-						scriptSaveBasePath={path}
-						previewPath=""
 						forceTestTab={readOnly ? undefined : { [tool.id]: true }}
 						siblingToolNames={tools.filter((t) => t.id !== tool?.id).map((t) => t.summary ?? '')}
 					/>

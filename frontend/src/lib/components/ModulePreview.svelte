@@ -21,9 +21,6 @@
 		class?: string
 		onJobDone?: () => void
 		hideRunButton?: boolean
-		/** See `ModuleTest`: what a preview names itself after, for a surface whose flow is not a
-		 *  workspace path. */
-		previewPath?: string
 	}
 
 	let {
@@ -37,8 +34,7 @@
 		focusArg = undefined,
 		class: className = '',
 		onJobDone,
-		hideRunButton = false,
-		previewPath = undefined
+		hideRunButton = false
 	}: Props = $props()
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -55,7 +51,6 @@
 <ModuleTest
 	{mod}
 	{noEditor}
-	{previewPath}
 	bind:testJob
 	bind:testIsLoading
 	bind:scriptProgress
