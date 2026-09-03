@@ -20,6 +20,17 @@ export interface AgentEditorTarget {
 	host?: { flowPath: string; moduleId: string; fromAgentEditor?: boolean }
 }
 
+/**
+ * Whether this target was opened from a step of the flow at `flowPath` — never from an agent
+ * editor hosted there. That editor's host flow is named by the agent's own path, and a flow may
+ * carry the same path string, so the flag is the only thing separating the two: without it a flow
+ * mount claims a nested agent belonging to the editor, and both then build a whole editor over the
+ * one draft.
+ */
+export function isStepOfFlow(t: AgentEditorTarget, flowPath: string | undefined): boolean {
+	return !t.host?.fromAgentEditor && t.host?.flowPath === flowPath
+}
+
 let target = $state<AgentEditorTarget | undefined>(undefined)
 
 export function openAgentEditor(open: Omit<AgentEditorTarget, 'toolId' | 'view'>) {
