@@ -1162,18 +1162,18 @@ async fn maybe_open_git_sync_deploy_pr(
     };
 
     // Base = the tracked branch (resource branch, else the repo default). Also
-    // acts as the app-backed gate: PR creation needs the installation token.
-    let base = match windmill_common::git_sync_ee::get_app_repo_head_for_autopull(
+    // acts as the gate: PR creation needs a credential the server itself holds.
+    let base = match windmill_common::git_sync_ee::managed_pr_base_branch(
         db,
         workspace_id,
         &repo_path,
     )
     .await
     {
-        Ok(Some((branch, _))) => branch,
+        Ok(Some(branch)) => branch,
         Ok(None) => {
             tracing::warn!(
-                "git sync PR: repo {repo_path} in {workspace_id} has a PR-on-deploy toggle set but is not GitHub-App-backed; skipping (connect the repo through the GitHub App, or use the open-pr-on-commit workflow)"
+                "git sync PR: repo {repo_path} in {workspace_id} has a PR-on-deploy toggle set but the server holds no credential for it; skipping (connect the repo through the GitHub App or a GitLab token, or use the open-pr-on-commit workflow)"
             );
             return;
         }
@@ -1461,7 +1461,7 @@ async fn maybe_post_git_sync_check(
             (
                 "neutral",
                 "Could not compute the deploy diff".to_string(),
-                "Windmill could not fetch this PR's head or enough history from GitHub to compute its merge with the base. Push again to re-run this check."
+                "Windmill could not fetch this PR's head, or enough history, to compute its merge with the base. Push again to re-run this check."
                     .to_string(),
             )
         } else if pr_check_error.is_some() {
@@ -1520,11 +1520,23 @@ async fn maybe_post_git_sync_check(
         Some(url) => format!("{summary}\n\n[See the job in Windmill]({url})"),
         None => summary.clone(),
     };
+    // GitLab has no way to address a commit status by id: the name it was
+    // posted under, together with the commit, is what identifies it.
+    let check_run = windmill_common::git_sync_ee::CheckRun {
+        id: check.check_run_id,
+        head_sha: check.head_sha.clone().unwrap_or_default(),
+        name: if is_deploy {
+            windmill_common::git_sync_ee::CHECK_NAME_DEPLOY
+        } else {
+            windmill_common::git_sync_ee::CHECK_NAME_DIFF
+        }
+        .to_string(),
+    };
     if let Err(e) = windmill_common::git_sync_ee::update_check_run(
         db,
         workspace_id,
         &check.repo_url,
-        check.check_run_id,
+        &check_run,
         conclusion,
         &title,
         &check_summary,

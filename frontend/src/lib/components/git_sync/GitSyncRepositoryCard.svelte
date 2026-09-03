@@ -151,6 +151,13 @@
 	let loadingResourceInfo = $state(false)
 	// Only GitHub App-backed repos can register webhooks; PAT repos poll only.
 	let isGithubApp = $state(false)
+	// Whether Windmill itself holds a credential for the repository, which is
+	// what the managed features (webhooks, pull requests, commit checks) need.
+	// A GitHub App installation qualifies, and so does a pasted GitLab token the
+	// server has introspected and found healthy.
+	let hasManagedCredential = $derived(
+		isGithubApp || (repo?.credential != null && !repo.credential.error)
+	)
 
 	const MS_PER_DAY = 86_400_000
 
@@ -270,7 +277,7 @@
 						if (
 							repoMode === 'sync' &&
 							repo.isUnsavedConnection &&
-							isGithubApp &&
+							hasManagedCredential &&
 							!isFork &&
 							$enterpriseLicense &&
 							repo.auto_pull === undefined
@@ -284,7 +291,7 @@
 						if (
 							repoMode === 'promotion' &&
 							repo.isUnsavedConnection &&
-							isGithubApp &&
+							hasManagedCredential &&
 							$enterpriseLicense &&
 							repo.promotion_open_prs === undefined
 						) {
@@ -754,7 +761,7 @@
 									{/if}
 								</div>
 							{/if}
-							{#if repoMode === 'promotion' && isGithubApp}
+							{#if repoMode === 'promotion' && hasManagedCredential}
 								<div class="mt-2">
 									<!-- Locked while the dev promotion toggle's save is in flight: this
 										toggle is revealed by that save, and an edit made mid-save would be
@@ -783,7 +790,12 @@
 										href="https://www.windmill.dev/docs/integrations/git_repository#github-app"
 										target="_blank"
 										class="text-blue-500 hover:underline">GitHub App</a
-									> and Windmill opens them automatically.
+									>, or give a GitLab repository a
+									<a
+										href="https://www.windmill.dev/docs/integrations/git_repository"
+										target="_blank"
+										class="text-blue-500 hover:underline">group access token</a
+									>, and Windmill opens them automatically.
 								</div>
 							{/if}
 							{#if repoMode === 'sync' && isFork}
@@ -798,7 +810,7 @@
 									fork is pushed to the fork's own
 									<span class="font-mono">wm-fork/…</span> branch instead of the tracked branch.
 								</div>
-								{#if isGithubApp}
+								{#if hasManagedCredential}
 									<div class="mt-2">
 										<Toggle
 											checked={repo.fork_open_prs ?? false}
@@ -823,11 +835,12 @@
 											target="_blank"
 											class="text-blue-500 hover:underline font-mono">open-pr-on-fork-commit</a
 										>
-										workflow in the repository. Recommended: connect the repository through the
+										workflow in the repository. Recommended: connect the repository through the GitHub
+										App, or give a GitLab repository a
 										<a
-											href="https://www.windmill.dev/docs/integrations/git_repository#github-app"
+											href="https://www.windmill.dev/docs/integrations/git_repository"
 											target="_blank"
-											class="text-blue-500 hover:underline">GitHub App</a
+											class="text-blue-500 hover:underline">group access token</a
 										> and Windmill opens them automatically.
 									</div>
 								{/if}
@@ -889,7 +902,7 @@
 										options={{
 											right: 'Automatically deploy changes from Git',
 											rightTooltip:
-												'Windmill deploys new commits from the tracked branch into this workspace. Repositories connected through the GitHub App sync instantly via webhooks with a polling fallback; token-based repositories are checked about every minute.'
+												'Windmill deploys new commits from the tracked branch into this workspace. Repositories Windmill holds a credential for sync instantly via webhooks with a polling fallback; other token-based repositories are checked about every minute.'
 										}}
 										on:change={(e) => setAutoPullEnabled(e.detail)}
 									>
@@ -911,7 +924,7 @@
 										/>
 									</div>
 								{/if}
-								{#if !isGithubApp && !loadingResourceInfo}
+								{#if !hasManagedCredential && !loadingResourceInfo}
 									<div class="mt-2">
 										<Alert type="info" title="Instant pull recommended" size="xs">
 											Pull for this repository checks the tracked branch about every minute; longer
@@ -921,25 +934,30 @@
 												href="https://www.windmill.dev/docs/integrations/git_repository#github-app"
 												target="_blank"
 												class="text-blue-500 hover:underline">GitHub App</a
+											>, or give a GitLab repository a
+											<a
+												href="https://www.windmill.dev/docs/integrations/git_repository"
+												target="_blank"
+												class="text-blue-500 hover:underline">group access token</a
 											>
-											(which also lets Windmill manage pull requests), or push changes into Windmill
+											(either also lets Windmill manage pull requests), or push changes into Windmill
 											with the
 											<a
 												href="https://www.windmill.dev/docs/advanced/git_sync#github-actions"
 												target="_blank"
 												class="text-blue-500 hover:underline">sync GitHub workflow</a
-											>. If you already push changes with a GitHub Action, keep either the Action or
-											automatic pull, not both, so they don't fight over deploys.
+											>. If you already push changes from CI, keep either that or automatic pull,
+											not both, so they don't fight over deploys.
 										</Alert>
 									</div>
 								{/if}
 								{#if repo.auto_pull?.enabled}
 									{@const viaWebhook = repo.auto_pull?.webhook_id != null}
-									{#if isGithubApp}
+									{#if hasManagedCredential}
 										<div class="mt-2">
-											<Alert type="info" title="Already pulling with a GitHub Action?" size="xs">
-												If you previously set up a GitHub Action to push changes into Windmill,
-												remove it now so the two don't fight over deploys.
+											<Alert type="info" title="Already pulling with a CI job?" size="xs">
+												If you previously set up a CI job to push changes into Windmill, remove it
+												now so the two don't fight over deploys.
 											</Alert>
 										</div>
 									{/if}
@@ -965,7 +983,7 @@
 												: 'Checking the tracked branch about every minute. New commits deploy automatically.'}
 										{/if}
 									</div>
-									{#if isGithubApp && repo.auto_pull?.webhook_error}
+									{#if hasManagedCredential && repo.auto_pull?.webhook_error}
 										<div class="mt-2">
 											<Alert type="warning" title="Falling back to polling" size="xs">
 												{repo.auto_pull.webhook_error}

@@ -19,6 +19,7 @@
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import TestTriggerConnection from './triggers/TestTriggerConnection.svelte'
 	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
+	import GitLabIntegration from './GitLabIntegration.svelte'
 	import Button from './common/button/Button.svelte'
 	import ResourceGen from './copilot/ResourceGen.svelte'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
@@ -248,11 +249,27 @@
 				{description}
 				onArgsUpdate={(newArgs) => {
 					args = newArgs
-					if (viewJsonSchema) {
+					// The raw editor is also what a workspace missing the resource type
+					// gets, and it holds its own copy of the value: without this the
+					// picker fills in a URL nothing on screen ever shows.
+					if (viewJsonSchema || !resourceSchema) {
 						rawCode = JSON.stringify(args, null, 2)
 					}
 				}}
 				onDescriptionUpdate={(newDescription) => (description = newDescription)}
+			/>
+			<GitLabIntegration
+				resourceType={resource_type}
+				{args}
+				onArgsUpdate={(newArgs) => {
+					args = newArgs
+					// The raw editor is also what a workspace missing the resource type
+					// gets, and it holds its own copy of the value: without this the
+					// picker fills in a URL nothing on screen ever shows.
+					if (viewJsonSchema || !resourceSchema) {
+						rawCode = JSON.stringify(args, null, 2)
+					}
+				}}
 			/>
 		{/if}
 	</div>

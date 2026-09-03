@@ -2877,6 +2877,48 @@ paths:
         "200":
           description: Successfully imported the installation
 
+  /w/{workspace}/git_sync/gitlab/projects:
+    post:
+      tags:
+        - Git Sync
+      summary: List the GitLab projects a token can sync
+      description: >-
+        Lists the projects the supplied GitLab token can push to, so a git
+        repository resource can be filled in without hand-writing a project
+        path. The token is used for this call only and is never stored.
+        Requires workspace admin.
+      operationId: listGitlabProjects
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                base_url:
+                  type: string
+                  description: The GitLab instance, e.g. https://gitlab.com
+                token:
+                  type: string
+                  description: A group access token or group service account personal access token
+                search:
+                  type: string
+                  description: Narrow the list to projects matching this text
+              required:
+                - base_url
+                - token
+      responses:
+        "200":
+          description: the projects the token can sync
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GitlabProject"
+
   /w/{workspace}/github_app/ghes_installation_callback:
     post:
       summary: GHES installation callback
@@ -34019,6 +34061,21 @@ components:
         - provider
         - rotatable
         - checked_at
+
+    GitlabProject:
+      type: object
+      description: a GitLab project a token can sync, as the resource form needs it
+      properties:
+        path_with_namespace:
+          type: string
+          description: nested group path plus project name, which is also GitLab's project id
+        http_url_to_repo:
+          type: string
+        default_branch:
+          type: string
+      required:
+        - path_with_namespace
+        - http_url_to_repo
 
     AutoPullMode:
       type: string
