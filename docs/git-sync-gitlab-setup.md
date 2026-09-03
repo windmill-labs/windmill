@@ -19,9 +19,16 @@ is what you want for a credential the instance uses unattended.
 | Role | Developer to push deploy branches; **Maintainer** to also manage the webhook and open merge requests |
 | Expiry | Required for a group access token; a group service account PAT can be non-expiring on self-managed (see below) |
 
-The `api` scope is what makes the token rotatable, so Windmill can renew it
-before it expires. A `write_repository`-only token can still push, but Windmill
-cannot inspect or renew it and reports that in the workspace's git sync settings.
+`api` is a superset: it authorizes Git over HTTPS as well, so no separate
+`write_repository` is needed to clone and push, and it is also what makes the
+token rotatable so Windmill can renew it before it expires. A
+`write_repository`-only token can still push, but Windmill cannot inspect or
+renew it and reports that in the workspace's git sync settings.
+
+A group access token is renewed through GitLab's own self-rotation endpoint.
+GitLab issues one to a per-group bot user and keeps it as that user's personal
+access token, so the token rotates itself with no credential over the group
+involved, and Windmill never holds one.
 
 ## Connecting a repository
 
