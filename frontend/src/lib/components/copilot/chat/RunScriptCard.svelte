@@ -213,7 +213,8 @@
 	// The hue of the status badge the jobs bar shows for the same job — blue running, violet
 	// approval, orange queued, green ok, red fail — at a weight sitting between the row's label
 	// and its title. Not the badge's ink: drawn for a tinted ground, it lands at twice the
-	// label's contrast here. The step differs per hue because this ramp is not uniform.
+	// label's contrast here. The step differs per hue because this ramp is not uniform, and ok
+	// borrows emerald because the green one skips straight past that weight.
 	const statusClass = $derived.by(() => {
 		// The card outlives its job and sometimes precedes it, so the states only it knows about
 		// read off its own flags rather than off a status no job is there to report.
@@ -231,9 +232,9 @@
 			case 'failure':
 				return 'text-red-800 dark:text-red-300'
 			case 'success':
-				return 'text-green-700 dark:text-green-400'
+				return 'text-green-700 dark:text-emerald-400'
 			default:
-				return settled ? 'text-green-700 dark:text-green-400' : 'text-blue-800 dark:text-blue-200'
+				return settled ? 'text-green-700 dark:text-emerald-400' : 'text-blue-800 dark:text-blue-200'
 		}
 	})
 	// How long it took, which is the one thing the colour cannot say. A run that never started
