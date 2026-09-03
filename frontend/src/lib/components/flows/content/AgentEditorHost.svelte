@@ -85,6 +85,12 @@
 	// `require_path_read_access_for_preview` reads the first segment as a namespace and rejects
 	// anything that is not `u`/`f`/`hub` for everyone who is not an admin.
 	//
+	// That check authorizes by namespace and never reads the item's `extra_perms`, so someone granted
+	// write on an agent in another user's `u/` folder can edit and deploy it but cannot run it here.
+	// `ScriptEditor` previews under the script's own path and behaves the same way, which is the
+	// point: an empty path would run for everyone, but only by making this the one editor in the
+	// product that can run code under a path its user has no claim to.
+	//
 	// So it is not unique to this editor: a flow may carry the same path string, and its editor then
 	// keys the same things the same way. Anything added here that has to know an agent's editor from
 	// a flow's must say so outright — `agentEditorHost` below — rather than reading it off the path.
