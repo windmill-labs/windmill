@@ -90,12 +90,16 @@
 			? { present: 'Testing', past: 'Tested', future: 'Test' }
 			: { present: 'Running', past: 'Ran', future: 'Run' }
 	)
+	// What the script is called on its own page and in the picker, so the row names the thing
+	// that ran rather than where it is filed. Not every script has one, so the path stays the
+	// fallback — and stays on the preview chip either way, since two folders can hold one name.
+	const runnableName = $derived(runForm.summary || runForm.path)
 	const label = $derived(
 		running
-			? `${verbs.present} ${runForm.path}`
+			? `${verbs.present} ${runnableName}`
 			: settled && ran
-				? `${verbs.past} ${runForm.path}`
-				: `${verbs.future} ${runForm.path}`
+				? `${verbs.past} ${runnableName}`
+				: `${verbs.future} ${runnableName}`
 	)
 
 	// Being cancelled is an outcome like any other, and it is the one the card has to say out
@@ -239,7 +243,7 @@
 	})
 	// How long it took, which is the one thing the colour cannot say. A run that never started
 	// has no time to give, so its outcome takes the slot — as a word, never "Not run", which
-	// stutters against the "Run <path>" label beside it.
+	// stutters against the "Run <name>" label beside it.
 	const outcome = $derived(failed ? 'Failed' : canceled ? 'Cancelled' : 'Done')
 	const statusTime = $derived(running ? elapsed : duration || outcome)
 
@@ -258,14 +262,14 @@
 	)
 	const previewTitle = $derived(
 		previewTarget === 'form'
-			? 'Open this form in the preview panel'
+			? `Open this form in the preview panel: ${runForm.path}`
 			: aiChatManager.openRunInPreview
-				? 'Open this run in the preview panel'
-				: 'Open this run in a new tab'
+				? `Open this run in the preview panel: ${runForm.path}`
+				: `Open this run in a new tab: ${runForm.path}`
 	)
 
 	function openPreview() {
-		const label = runForm.summary || runForm.path
+		const label = runnableName
 		if (previewTarget === 'form') {
 			aiChatManager.openRunForm?.({ toolCallId: message.tool_call_id, label })
 			return
