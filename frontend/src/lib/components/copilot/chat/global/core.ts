@@ -3681,9 +3681,11 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = runScriptSchema.parse(ctx.args)
 			return runDeployedScript(parsed, ctx)
 		},
-		// No requiresConfirmation: the argument form is the confirmation, and unlike a
-		// yes/no card it must not be auto-accepted away by YOLO. One thing does run
-		// before Run — see the note on the form's SchemaForm.
+		// No requiresConfirmation: the argument form is the confirmation, and the bypass posture
+		// answers it as it answers any other. One thing does run before Run — see the note on
+		// the form's SchemaForm.
+		bypassedByAutoAccept: true,
+		confirmationMessage: 'Run a deployed script',
 		streamingLabel: 'Preparing the run form...',
 		queuedLabel: (args) => `Run ${args?.path ?? 'a script'}`,
 		showDetails: true,
@@ -5535,10 +5537,15 @@ type FormRunSpec = {
 
 async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
-	// A host with no form can still run what YOLO would have answered for; a deployed run
-	// has no such fallback, since the form is the only place its consent comes from.
-	if (!toolCallbacks.requestRunArgs && !spec.autoAcceptable) {
-		return 'This chat cannot show a run form, so a deployed script cannot be run from here.'
+	// Asked of the posture, not of the tool: every run tool is auto-acceptable now, so a
+	// host with no form would otherwise run one on the model's arguments alone, in any
+	// posture. What a bypass answers is a decision the user already made; without it there
+	// is no consent to be had here and nothing to fall back on.
+	const autoAccepted = Boolean(
+		spec.autoAcceptable && toolCallbacks.shouldAutoAcceptToolConfirmations?.(spec.toolName)
+	)
+	if (!toolCallbacks.requestRunArgs && !autoAccepted) {
+		return 'This chat cannot show a run form, so a script cannot be run from here.'
 	}
 
 	const schema = spec.schema
@@ -5552,14 +5559,10 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		schema as any,
 		strippedKeys
 	)
-	// Decided before the form is attached, not once it is waiting: a form answered a tick
-	// after it mounts flashes its fields at a user who was never going to fill them in.
-	// Settled from the start, the same card renders without ever showing a field — so the
-	// run still reads as a run, and the schema it would have built them from is never
-	// attached to a message the transcript persists.
-	const autoAccepted = Boolean(
-		spec.autoAcceptable && toolCallbacks.shouldAutoAcceptToolConfirmations?.(spec.toolName)
-	)
+	// `autoAccepted` is decided above, before the form is attached rather than once it is
+	// waiting: a form answered a tick after it mounts flashes its fields at a user who was
+	// never going to fill them in. Settled from the start, the same card renders without ever
+	// showing a field, and the schema it would have built them from never reaches the transcript.
 	const form: RunFormDisplay = {
 		path: spec.path,
 		summary: spec.summary || undefined,
@@ -5700,7 +5703,11 @@ async function runDeployedScript(
 			proposed: args.args,
 			startMessage: `Running "${args.path}"...`,
 			contextName: 'script',
-			// The form is this call's only consent, so nothing may answer it but the user.
+			// Bypassable like a test run: the posture is the user's standing answer, and a form
+			// it parks on is a card nobody is watching. What the form would have asked for is
+			// still withheld — a secret or a file opens empty, so an auto-answered run carries
+			// neither, and the model is told which it left behind.
+			autoAcceptable: true,
 			startJob: (submitted) =>
 				JobService.runScriptByPath({ workspace, path: args.path, requestBody: submitted })
 		},

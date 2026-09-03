@@ -377,7 +377,10 @@ function getBackendDraft<V = any>(kind: string, path: string, _opts?: unknown): 
 
 const toolCallbacks: ToolCallbacks = {
 	setToolStatus: vi.fn(),
-	removeToolStatus: vi.fn()
+	removeToolStatus: vi.fn(),
+	// Every host that can run a script mounts the form, so the default answers it with what it
+	// opened with. A test meaning to exercise a host without one overrides this with undefined.
+	requestRunArgs: async (_toolId, form) => form.args
 }
 
 function getGlobalTool(name: string): Tool<{}> {
@@ -4416,11 +4419,11 @@ describe('global AI tools', () => {
 		})
 	})
 
-	// YOLO answers a test form so the model can keep iterating on the code it is writing,
-	// and the card must never render one first: a form nobody will fill in is attached
-	// already settled, so no field is ever mounted. A deployed run's form is the only
-	// consent that run has, so the same posture still opens it.
-	it('mounts no field on a test run form under yolo, and still opens a deployed one', async () => {
+	// The bypass posture answers a run form as it answers any other confirmation, for a
+	// deployed run as much as a test. The card must never render one first: a form nobody
+	// will fill in is attached already settled, so no field is ever mounted, and the schema
+	// it would have built them from never reaches the transcript.
+	it('mounts no field on either run form under yolo', async () => {
 		const script = {
 			path: 'f/scripts/yolo',
 			content: 'export async function main(name: string) {}',
@@ -4459,8 +4462,29 @@ describe('global AI tools', () => {
 		)
 
 		const deployedForm = statuses.find((s) => s.runForm)?.runForm
-		expect(deployedForm.submitted).toBeUndefined()
-		expect(deployedForm.schema).toBeDefined()
+		expect(deployedForm.submitted).toBe(true)
+		expect(deployedForm.schema).toBeUndefined()
+		expect(JobService.runScriptByPath).toHaveBeenCalledWith(
+			expect.objectContaining({ requestBody: { name: 'Ada' } })
+		)
+	})
+
+	// The bypass is the user's standing answer, not a licence for the host to skip asking:
+	// a chat with nowhere to put a form still refuses the run under any other posture.
+	it('run_script refuses a host with no form unless the posture answers for it', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
+			path: 'f/scripts/noform',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any)
+
+		const refused = await callGlobalTool(
+			'run_script',
+			{ path: 'f/scripts/noform', args: { name: 'Ada' } },
+			{ ...toolCallbacks, requestRunArgs: undefined }
+		)
+
+		expect(JobService.runScriptByPath).not.toHaveBeenCalled()
+		expect(refused).toContain('cannot show a run form')
 	})
 
 	// The transcript is re-cloned into IndexedDB on every save, and a form takes as much text
