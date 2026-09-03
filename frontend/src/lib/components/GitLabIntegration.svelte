@@ -45,18 +45,50 @@
 	let project = $derived(projects.find((p) => p.path_with_namespace === selectedProject))
 
 	// A path the user has not overridden tracks the selected project, so picking a
-	// different one does not silently overwrite the first project's variable.
+	// different one does not silently overwrite the first project's variable. The
+	// host is part of it because the same project path exists on more than one
+	// GitLab, and separators collapse, so `grp/a-b` and `grp/a_b` would otherwise
+	// land on one name.
+	function slug(value: string): string {
+		return value
+			.replace(/[^a-zA-Z0-9]+/g, '_')
+			.replace(/^_+|_+$/g, '')
+			.toLowerCase()
+	}
 	let suggestedVariablePath = $derived(
 		project
-			? `u/${$userStore?.username ?? 'admin'}/gitlab_${project.path_with_namespace
-					.replace(/[^a-zA-Z0-9]+/g, '_')
-					.toLowerCase()}_url`
+			? `u/${$userStore?.username ?? 'admin'}/gitlab_${slug(
+					new URL(project.http_url_to_repo).host
+				)}_${slug(project.path_with_namespace)}_url`
 			: ''
 	)
 	let variablePathTouched = $state(false)
 	$effect(() => {
 		if (!variablePathTouched) {
 			variablePath = suggestedVariablePath
+		}
+	})
+
+	// Applying replaces whatever is at this path, and anything else pointing at it
+	// would silently start using a different repository.
+	let variableExists = $state(false)
+	$effect(() => {
+		const path = variablePath
+		const workspace = ws
+		if (!workspace || !path) {
+			variableExists = false
+			return
+		}
+		let cancelled = false
+		VariableService.existsVariable({ workspace, path })
+			.then((e) => {
+				if (!cancelled) variableExists = e
+			})
+			.catch(() => {
+				if (!cancelled) variableExists = false
+			})
+		return () => {
+			cancelled = true
 		}
 	})
 
@@ -212,6 +244,12 @@
 								size="sm"
 								inputProps={{ oninput: () => (variablePathTouched = true) }}
 							/>
+							{#if variableExists}
+								<div class="text-2xs font-normal text-hint">
+									This variable already exists and will be replaced. Anything else using it will
+									point at this repository.
+								</div>
+							{/if}
 						</div>
 						<div class="flex justify-end">
 							<Button

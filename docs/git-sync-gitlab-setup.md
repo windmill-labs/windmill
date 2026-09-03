@@ -30,10 +30,12 @@ paste the instance URL and the token, pick a project from the list, and Windmill
 stores the whole remote URL, credential included, in a **secret variable** and
 points the resource at it (`"url": "$var:u/you/gitlab_group_project_url"`).
 
-The variable indirection is what makes renewal possible: when Windmill rotates
-the token it rewrites that one variable, and everything referencing it keeps
-working. A URL pasted directly into the resource also syncs, but nothing can
-renew it.
+Renewal rewrites whichever of the two holds the URL, so a URL pasted straight
+into the resource is renewed as well. The variable is still the better place for
+it: the credential stays out of the resource, and everything else that references
+the variable keeps working when the token changes. What cannot be renewed is a
+variable held in an external secret backend, which Windmill can read but does not
+own the write to; that is reported on the repository.
 
 ## Expiry and renewal
 
