@@ -186,6 +186,13 @@ function mapLeaves(
 
 const isSecretProp = (prop: any) => !!prop?.password
 
+/** A reference to a workspace variable, which is how a secret is meant to reach a job: the
+ * value stays in the variable and the argument carries only its path, so it is safe to show
+ * and safe to store. `$jsonvar:` is deliberately not one of these — those are minted from
+ * what the user typed, so a caller naming one is naming a secret it was never shown. */
+const isVariableRef = (value: unknown) =>
+	typeof value === 'string' && /^\$var:\S/.test(value)
+
 const isFileProp = (prop: any) =>
 	prop?.contentEncoding === 'base64' || prop?.items?.contentEncoding === 'base64'
 
@@ -209,11 +216,15 @@ function mapArgLeaves(
 }
 
 /**
- * Drop every password-typed argument, so a caller cannot propose a secret on the user's
- * behalf: the field falls back to whatever the script itself declares, as on any other
- * run form, and the user fills in the rest. Appends the path of
- * each one removed, so the caller can be told the field was emptied rather than left to
- * read the absence as the user having deleted it.
+ * Drop every password-typed argument holding a secret of its own, so a caller cannot propose
+ * one on the user's behalf: the field falls back to whatever the script itself declares, as on
+ * any other run form, and the user fills in the rest. Appends the path of each one removed, so
+ * the caller can be told the field was emptied rather than left to read the absence as the user
+ * having deleted it.
+ *
+ * A `$var:` reference is kept: naming a workspace variable is how a secret is meant to reach a
+ * job, the caller can list those already, and the field's own widget treats an incoming
+ * reference as filled rather than minting over it.
  */
 export function stripSecretArgs(
 	args: Record<string, any>,
@@ -221,6 +232,7 @@ export function stripSecretArgs(
 	strippedKeys?: string[]
 ): Record<string, any> {
 	return mapArgLeaves(args, schema, isSecretProp, (value, _prop, path) => {
+		if (isVariableRef(value)) return value
 		if (value !== undefined) strippedKeys?.push(path)
 		return undefined
 	})
