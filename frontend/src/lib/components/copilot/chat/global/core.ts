@@ -3682,8 +3682,9 @@ export const globalTools: Tool<{}>[] = [
 			return runDeployedScript(parsed, ctx)
 		},
 		// No requiresConfirmation: the argument form is the confirmation, and the bypass posture
-		// answers it as it answers any other. One thing does run before Run — see the note on
-		// the form's SchemaForm.
+		// answers it — unless it holds a field only the user can fill, which is a question and
+		// not a confirmation. One thing does run before Run — see the note on the form's
+		// SchemaForm.
 		bypassedByAutoAccept: true,
 		confirmationMessage: 'Run a deployed script',
 		streamingLabel: 'Preparing the run form...',
@@ -5476,8 +5477,9 @@ async function testRunScriptByPath(
 			proposed: args.args,
 			startMessage: `Running test for script "${args.path}"...`,
 			contextName: 'script',
-			// Its own loop: the model is told to test and iterate, so YOLO answers the form
-			// with what it opened with rather than parking the loop on a card.
+			// Its own loop: the model is told to test and iterate, so the posture answers the
+			// form with what it opened with rather than parking the loop on a card. Same
+			// exception as a deployed run — a field only the user can fill still stops it.
 			autoAcceptable: true,
 			background: args.background,
 			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
@@ -5526,13 +5528,33 @@ type FormRunSpec = {
 	proposed: Record<string, any> | null | undefined
 	startMessage: string
 	contextName: 'script' | 'flow'
-	/** Whether YOLO may answer this form with what it opened with. Only a run the user can
-	 * undo by editing the code may set it: a deployed run is not one, which is why its form
-	 * is the confirmation YOLO cannot skip. */
+	/** Whether the bypass posture may answer this form with what it opened with. Answering it
+	 * is still refused when the form holds something only the user can give — see
+	 * `formNeedsUser`. */
 	autoAcceptable?: boolean
 	background?: boolean
 	detachAfterMs?: number
 	startJob: (submitted: Record<string, any>) => Promise<string>
+}
+
+/** Whether the form holds something the model could not have supplied, so the bypass posture
+ * has nothing to answer with. Either it was stripped for being the user's to give — a secret,
+ * a file — or the schema requires it and neither the proposal nor a default carries a value. */
+function formNeedsUser(
+	schema: Record<string, any>,
+	proposed: Record<string, any>,
+	strippedKeys: string[]
+): boolean {
+	if (strippedKeys.length > 0) return true
+	const required = schema?.required
+	if (!Array.isArray(required)) return false
+	const properties = schema?.properties ?? {}
+	return required.some((key) => {
+		if (typeof key !== 'string') return false
+		if (proposed[key] !== undefined && proposed[key] !== null) return false
+		const declared = Object.hasOwn(properties, key) ? properties[key] : undefined
+		return declared?.default === undefined
+	})
 }
 
 async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<string> {
@@ -5541,10 +5563,10 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	// host with no form would otherwise run one on the model's arguments alone, in any
 	// posture. What a bypass answers is a decision the user already made; without it there
 	// is no consent to be had here and nothing to fall back on.
-	const autoAccepted = Boolean(
+	const postureAnswers = Boolean(
 		spec.autoAcceptable && toolCallbacks.shouldAutoAcceptToolConfirmations?.(spec.toolName)
 	)
-	if (!toolCallbacks.requestRunArgs && !autoAccepted) {
+	if (!toolCallbacks.requestRunArgs && !postureAnswers) {
 		return 'This chat cannot show a run form, so a script cannot be run from here.'
 	}
 
@@ -5559,10 +5581,13 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		schema as any,
 		strippedKeys
 	)
-	// `autoAccepted` is decided above, before the form is attached rather than once it is
-	// waiting: a form answered a tick after it mounts flashes its fields at a user who was
-	// never going to fill them in. Settled from the start, the same card renders without ever
-	// showing a field, and the schema it would have built them from never reaches the transcript.
+	// The posture answers for consent, not for information: a field the model is barred from
+	// filling and a required one it left empty are questions, and the form is the only place
+	// they get answered. Decided before the form is attached rather than once it is waiting —
+	// a form answered a tick after it mounts flashes its fields at a user who was never going
+	// to fill them in.
+	const needsUser = formNeedsUser(schema, proposed, strippedKeys)
+	const autoAccepted = postureAnswers && (!toolCallbacks.requestRunArgs || !needsUser)
 	const form: RunFormDisplay = {
 		path: spec.path,
 		summary: spec.summary || undefined,
@@ -5704,9 +5729,9 @@ async function runDeployedScript(
 			startMessage: `Running "${args.path}"...`,
 			contextName: 'script',
 			// Bypassable like a test run: the posture is the user's standing answer, and a form
-			// it parks on is a card nobody is watching. What the form would have asked for is
-			// still withheld — a secret or a file opens empty, so an auto-answered run carries
-			// neither, and the model is told which it left behind.
+			// it parks on is a card nobody is watching. It still opens when the form is the only
+			// source for a value the run needs — a secret, a file, a required field the model
+			// left empty — since the posture answers for consent and not for information.
 			autoAcceptable: true,
 			startJob: (submitted) =>
 				JobService.runScriptByPath({ workspace, path: args.path, requestBody: submitted })

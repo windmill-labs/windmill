@@ -4469,6 +4469,54 @@ describe('global AI tools', () => {
 		)
 	})
 
+	// The posture answers for consent, not for information. A secret is never the model's to
+	// send and a required field it left empty was never answered, so the form still opens under
+	// the bypass — otherwise the run starts on a value nobody supplied.
+	it('opens a run form under yolo when only the user can fill it', async () => {
+		const yolo = (statuses: any[]) => ({
+			...toolCallbacks,
+			setToolStatus: (_toolId: string, status: any) => statuses.push(status),
+			shouldAutoAcceptToolConfirmations: () => true,
+			requestRunArgs: async (_toolId: string, form: any) => form.args
+		})
+
+		// A required field the model did not send.
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/needs',
+			schema: { properties: { name: { type: 'string' } }, required: ['name'] }
+		} as any)
+		const missing: any[] = []
+		await withCompletedTestJob(() =>
+			callGlobalTool('run_script', { path: 'f/scripts/needs', args: {} }, yolo(missing))
+		)
+		expect(missing.find((x) => x.runForm)?.runForm.submitted).toBeUndefined()
+
+		// A secret, which is stripped from the proposal whatever the posture.
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/secret',
+			schema: {
+				properties: { token: { type: 'string', password: true } },
+				required: ['token']
+			}
+		} as any)
+		const secret: any[] = []
+		await withCompletedTestJob(() =>
+			callGlobalTool('run_script', { path: 'f/scripts/secret', args: { token: 'hunter2' } }, yolo(secret))
+		)
+		expect(secret.find((x) => x.runForm)?.runForm.submitted).toBeUndefined()
+
+		// Nothing outstanding: the posture answers and no field is ever mounted.
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/ready',
+			schema: { properties: { name: { type: 'string' } }, required: ['name'] }
+		} as any)
+		const ready: any[] = []
+		await withCompletedTestJob(() =>
+			callGlobalTool('run_script', { path: 'f/scripts/ready', args: { name: 'Ada' } }, yolo(ready))
+		)
+		expect(ready.find((x) => x.runForm)?.runForm.submitted).toBe(true)
+	})
+
 	// The bypass is the user's standing answer, not a licence for the host to skip asking:
 	// a chat with nowhere to put a form still refuses the run under any other posture.
 	it('run_script refuses a host with no form unless the posture answers for it', async () => {
