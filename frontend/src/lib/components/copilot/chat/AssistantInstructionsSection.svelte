@@ -17,7 +17,8 @@ writes whichever of the two changed, including the tab that is not on screen.
 		setUserCustomPrompts
 	} from '$lib/aiStore'
 	import { WorkspaceService } from '$lib/gen'
-	import { userStore } from '$lib/stores'
+	import { userStore, type UserExt } from '$lib/stores'
+	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
 	import { base } from '$lib/base'
 	import { Building2, ExternalLink, User } from 'lucide-svelte'
@@ -52,7 +53,22 @@ writes whichever of the two changed, including the tab that is not on screen.
 			? `Applies to everyone in ${ws}.`
 			: 'Stored in this browser and sent in every workspace, so they follow you rather than the workspace.'
 	)
-	let isAdmin = $derived(Boolean($userStore?.is_admin || $userStore?.is_super_admin))
+	// `$userStore.is_admin` is the role in `$userStore.workspace_id`, which is the nav
+	// workspace — not necessarily `ws`. Resolved against the target instead, or an admin
+	// of one and not the other is shown a read-only field they could edit, or an editor
+	// whose save is refused. Superadmin holds everywhere.
+	let targetUser = $state<UserExt | undefined>(undefined)
+	let isAdmin = $derived(
+		Boolean($userStore?.is_super_admin || (targetUser ?? $userStore)?.is_admin)
+	)
+
+	// A session whose fork is still staged has no workspace of its own yet, so `ws`
+	// resolves to the PARENT. Saving here would edit the live parent's shared AI config,
+	// which every chat still in it would then be given.
+	function pendingForkParent(): string | undefined {
+		return aiChatManager.sessionContextResolver?.()?.pendingForkOf
+	}
+	let forkPending = $derived(pendingForkParent() !== undefined)
 
 	// What is on screen, against what was loaded. Two pairs rather than one: the halves
 	// are stored in different places and save through different calls, and only the one
@@ -68,11 +84,13 @@ writes whichever of the two changed, including the tab that is not on screen.
 	// In that case the backend never makes workspace custom_prompts effective, so a saved
 	// workspace prompt would be dead config — mirror the settings page and show it read-only.
 	let workspaceMissingProviders = $state(false)
-	let workspaceReadOnly = $derived(!isAdmin || workspaceMissingProviders)
+	let workspaceReadOnly = $derived(!isAdmin || workspaceMissingProviders || forkPending)
 	let readOnlyReason = $derived(
-		!isAdmin
-			? 'Only workspace admins can edit the workspace instructions.'
-			: 'This workspace uses instance AI defaults, so a workspace prompt would have no effect. Configure workspace AI providers in AI settings first.'
+		forkPending
+			? `This session has not created its workspace yet, so these would be saved to "${pendingForkParent()}" and given to every chat already in it. Send a message first.`
+			: !isAdmin
+				? 'Only workspace admins can edit the workspace instructions.'
+				: 'This workspace uses instance AI defaults, so a workspace prompt would have no effect. Configure workspace AI providers in AI settings first.'
 	)
 
 	let workspaceChanged = $derived(!workspaceReadOnly && workspaceDraft !== workspaceSaved)
@@ -100,6 +118,9 @@ writes whichever of the two changed, including the tab that is not on screen.
 		const seq = ++loadSeq
 		loading = true
 		try {
+			const resolved = await getUserExt(target).catch(() => undefined)
+			if (seq !== loadSeq) return
+			targetUser = resolved
 			const user = getUserCustomPrompts()[mode] ?? ''
 			// Seeded from the same source `saveWorkspace` writes to (the raw workspace
 			// ai_config), which also says whether the workspace has providers of its own.
@@ -175,10 +196,20 @@ writes whichever of the two changed, including the tab that is not on screen.
 	}
 
 	async function saveWorkspace(value: string) {
+		const parent = pendingForkParent()
+		if (parent !== undefined) {
+			sendUserToast(
+				`This session has not created its workspace yet, so the instructions would be saved to "${parent}". Send a message first.`,
+				true
+			)
+			return
+		}
+		// Pinned across both awaits: the read and the write have to land on one workspace.
+		const target = ws
 		try {
 			// Saving prompts requires a full ai_config round-trip; fetch the current config
 			// so we don't clobber providers/models/etc.
-			const settings = await WorkspaceService.getSettings({ workspace: ws })
+			const settings = await WorkspaceService.getSettings({ workspace: target })
 			const config = settings.ai_config ?? {}
 			const custom_prompts = { ...(config.custom_prompts ?? {}) }
 			if (value) {
@@ -187,7 +218,7 @@ writes whichever of the two changed, including the tab that is not on screen.
 				delete custom_prompts[mode]
 			}
 			const response = await WorkspaceService.editCopilotConfig({
-				workspace: ws,
+				workspace: target,
 				requestBody: { ...config, custom_prompts }
 			})
 			setCopilotInfo(response.effective_ai_config)

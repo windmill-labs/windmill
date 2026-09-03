@@ -117,10 +117,8 @@ callers that already know which section they mean, such as the "+" menu's Manage
 		record(target)
 	}
 
-	// `context_panel` names the popover this modal replaced. The pair is registered
-	// EE-side under that name and events already exist against it, so renaming it would
-	// be a coordinated change across `feature_usage_ee.rs`, `ee-repo-ref.txt` and the
-	// recorded history — not worth splitting the series for a label.
+	// `context_panel` is the kind registered in `feature_usage_ee.rs`; an unregistered
+	// pair is dropped silently, so the name is fixed there rather than here.
 	//
 	// The key vocabulary is the closed set in this signature and nothing else — a
 	// skill path or server path here would be workspace-authored text.

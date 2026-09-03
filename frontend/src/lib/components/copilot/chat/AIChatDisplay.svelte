@@ -1147,13 +1147,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							<DatatableCreationPolicy />
 						{/if}
 						<ContextUsageIndicator />
-						<!-- The prompt entries live in the settings modal's Instructions section
-						     here, so the dropdown keeps only Model and Thinking. Unconditional
-						     because this composer only ever renders in a session: the sole mount
-						     is `AIChat` ← `SessionWrapper` ← the sessions route, and
-						     `sessionRuntime` locks every session to GLOBAL. The SCRIPT/APP
-						     branches elsewhere in this file are left from when the chat was
-						     embedded in the editors, and no longer mount. -->
+						<!-- Unconditional: this composer mounts only via `AIChat` ← `SessionWrapper`,
+						     and `sessionRuntime` locks a session to GLOBAL, where the settings
+						     modal's Instructions section owns the prompt entries. -->
 						<AIChatModelSettings promptSettings={false} />
 						{#if aiChatManager.mode === AIMode.GLOBAL}
 							<AssistantSettingsModal bind:this={assistantSettings} />
