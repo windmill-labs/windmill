@@ -292,9 +292,11 @@ pub enum ExecutionMode {
     /// Login required, workspace membership not: anyone the instance's identity
     /// provider authenticates may open the app, and the runnables execute as the
     /// publisher exactly as in [`ExecutionMode::Publisher`]. Such a viewer holds a
-    /// guest session — no `usr` row, no `password` row, no seat — honored only where
-    /// `workspace_settings.guest_access_enabled` is on, which `AuthCache` re-reads on
-    /// every guest request.
+    /// guest session: an identity with no account at all (no `password` row, no `usr`
+    /// row anywhere), which is what keeps it off every row-based seat counter; what a
+    /// guest costs instead is the allowance in `windmill_common::workspaces`. Honored
+    /// only where `workspace_settings.guest_access_enabled` is on, re-read at the auth
+    /// door on every guest request.
     Guest,
     /// Default for a policy that omits `execution_mode`. It MUST stay a mode
     /// that requires an authenticated viewer: an omitted field must never be
@@ -1493,9 +1495,9 @@ async fn mint_raw_app_sdk_token(
 }
 
 /// Label and expiry a token minted *by* a guest session must carry, or `None` for a
-/// non-guest minter. The label is what lets it resolve (no `usr` row behind the email);
-/// the caller pushes the `guest` sentinel so every guest control still applies; the
-/// expiry is capped at the parent's, since that expiry is a guest's only revocation.
+/// non-guest minter. The label is what lets it resolve; the caller pushes the `guest`
+/// sentinel so every guest control still applies; the expiry is capped at the parent's,
+/// since that expiry is a guest's only revocation short of logging out.
 async fn guest_derived_token_constraints(
     db: &DB,
     authed: &ApiAuthed,

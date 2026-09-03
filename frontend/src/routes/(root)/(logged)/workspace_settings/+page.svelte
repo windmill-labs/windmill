@@ -2211,7 +2211,7 @@ export async function main(
 								onSave={saveDefaultAppSettings}
 								onDiscard={discardDefaultAppSettingsChanges}
 								saveLabel="Save app settings"
-								disabled={!$enterpriseLicense}
+								disabled={!$enterpriseLicense && guestAccessEnabled === initialGuestAccessEnabled}
 							/>
 						{:else if tab == 'native_triggers'}
 							{#if $workspaceStore}

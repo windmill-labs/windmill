@@ -16,7 +16,12 @@
 
 	let { usage, guests, hasMore, loading, onLoadMore }: Props = $props()
 	const loadMoreSize = 50
-	let pastAllowance = $derived(usage.guest_count > usage.free_allowance)
+	// A capped instance refuses the next stranger as soon as the allowance is used up.
+	let pastAllowance = $derived(
+		usage.metered
+			? usage.guest_count > usage.free_allowance
+			: usage.guest_count >= usage.free_allowance
+	)
 </script>
 
 <SettingsPageHeader

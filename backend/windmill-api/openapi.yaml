@@ -5778,11 +5778,11 @@ paths:
     post:
       summary: enable or disable guest sessions for this workspace
       description: >-
-        Guests are people the identity provider authenticates who are members of no
-        workspace, so they take no seat. Off by default. Re-read where a guest session
-        is minted and at the auth door on every guest request, so turning it off takes
-        effect immediately, for sessions already issued and for apps whose policy
-        already says `guest`.
+        Guests are people the identity provider authenticates who have no Windmill
+        account; the `guest` app execution mode admits them. Off by default. Re-read
+        where a guest session is minted and at the auth door on every guest request, so
+        turning it off takes effect immediately, for sessions already issued and for
+        apps whose policy already says `guest`.
       operationId: editGuestAccess
       tags:
         - workspace

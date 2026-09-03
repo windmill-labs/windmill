@@ -122,7 +122,7 @@
 			WorkspaceService.getPublicSettings({ workspace: ws })
 				.then((s) => (guestAccessEnabled = s.guest_access_enabled))
 				.catch(() => (guestAccessEnabled = undefined))
-			WorkspaceService.getGuestUsage({ workspace: $workspaceStore! })
+			WorkspaceService.getGuestUsage({ workspace: ws })
 				.then((u) => (guestUsage = u))
 				.catch(() => (guestUsage = undefined))
 		})

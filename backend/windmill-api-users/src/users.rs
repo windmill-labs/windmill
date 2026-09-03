@@ -657,15 +657,17 @@ async fn logout(
     let t_prefix = token.get(..TOKEN_PREFIX_LEN).unwrap_or(&token);
 
     let email = if *INVALIDATE_ALL_SESSIONS_ON_LOGOUT {
-        sqlx::query_scalar!(
+        // A guest's browser session is a session too: this is its one user-driven revocation.
+        sqlx::query_scalar::<_, Option<String>>(
             "WITH email_lookup AS (
                 SELECT email FROM token WHERE token_hash = $1
             )
             DELETE FROM token
-            WHERE email = (SELECT email FROM email_lookup) AND label = 'session'
+            WHERE email = (SELECT email FROM email_lookup)
+                AND label IN ('session', 'guest_session')
             RETURNING email",
-            t_hash
         )
+        .bind(&t_hash)
         .fetch_optional(&mut *tx)
         .await?
     } else {
@@ -747,9 +749,8 @@ async fn whoami(
 ) -> JsonResult<UserInfo> {
     let is_guest = windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref());
     let ApiAuthed { username, email, is_admin, groups, folders, .. } = authed;
-    // A guest has no `usr` row by construction, so it would otherwise fall through to
-    // the non-member branch below and be handed a `superadmin` role. Answer it here,
-    // as the operator-shaped identity it actually is.
+    // A guest would otherwise fall through to the non-member branch below and be
+    // handed a `superadmin` role. Answer it here, as the operator-shaped identity it is.
     if is_guest {
         return Ok(Json(UserInfo {
             workspace_id: w_id,
@@ -2939,8 +2940,8 @@ lazy_static::lazy_static! {
 
 /// Scopes a guest session carries. Mirrors `APP_EMBED_SCOPES` — the same broad-looking
 /// reads narrowed to a route allowlist by the sentinel (`guest_route_denied`) — plus the
-/// two path-scoped app grants minted per app. A guest has no `usr` row, so this list is
-/// the whole of what it can do.
+/// two path-scoped app grants minted per app. With no ACL of its own, this list is the
+/// whole of what a guest can do.
 ///
 /// The `guest` sentinel here only narrows. What makes the session a guest at all is the
 /// server-minted label ([`windmill_common::auth::GUEST_SESSION_LABEL`]).
@@ -2989,10 +2990,10 @@ pub async fn create_guest_session_token<'c>(
     };
     let scopes = guest_session_scopes(app_path);
 
-    // A guest is someone with no account at all — no `password` row (deactivated ones
-    // included: the sign-in path's own lookup filters on `disabled = false`, so a
-    // SCIM-offboarded account reads as absent there) and no `usr` row anywhere, which
-    // is what a service account has instead of a password.
+    // No account at all (see `ExecutionMode::Guest`): a deactivated `password` row
+    // counts, since the sign-in path's own lookup filters on `disabled = false` and a
+    // SCIM-offboarded account would otherwise read as absent; so does a `usr` row in
+    // any workspace, which is what a service account has instead of a password.
     let has_account: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM password WHERE email = $1)
              OR EXISTS(SELECT 1 FROM usr WHERE email = $1)",
@@ -3028,9 +3029,9 @@ pub async fn create_guest_session_token<'c>(
     .execute(&mut **tx)
     .await?;
 
-    // The only durable record that a guest was here: no `usr` row means no membership
-    // to read them off, and the seat scan reads this rather than the audit log (see the
-    // migration). Idempotent per email, workspace and day.
+    // The only durable record that a guest was here, and the set the allowance is
+    // counted on; not the audit log, see the migration. Idempotent per email,
+    // workspace and day.
     sqlx::query!(
         "INSERT INTO guest_activity (email, workspace_id, day)
          VALUES ($1, $2, CURRENT_DATE)

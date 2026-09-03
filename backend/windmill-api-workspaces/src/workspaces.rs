@@ -318,9 +318,8 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_app_execution_limit_per_minute: Option<i32>,
     pub error_handler_fallback_to_instance_alerts: bool,
-    /// Whether this workspace admits guest sessions -- someone the identity provider
-    /// authenticated who is a member of nothing, and who therefore takes no seat. An
-    /// app's own `execution_mode: guest` is inert while this is off.
+    /// Whether this workspace admits guest sessions (`ExecutionMode::Guest`). An app's
+    /// own `execution_mode: guest` is inert while this is off.
     pub guest_access_enabled: bool,
 }
 
@@ -1142,9 +1141,10 @@ async fn get_public_settings(
     Ok(Json(settings))
 }
 
-/// The instance's standing against the guest allowance. Instance-wide (a licence is per
-/// instance, and one email is one guest however many workspaces it opens), read by
-/// workspace admins and app publishers to see how close the cap or the meter is.
+/// The instance's standing against the guest allowance: counts only, no emails, so any
+/// member may read it. Instance-wide, since a licence is per instance and one email is
+/// one guest however many workspaces it opens; the settings card and the editor's
+/// Guests rung show it so nobody discovers the cap from a visitor's complaint.
 async fn get_guest_usage(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,

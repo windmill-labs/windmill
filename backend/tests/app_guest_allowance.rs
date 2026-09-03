@@ -23,8 +23,9 @@ fn authed(builder: reqwest::RequestBuilder, token: &str) -> reqwest::RequestBuil
     builder.header("Authorization", format!("Bearer {}", token))
 }
 
-/// Community and Pro are capped, Enterprise is metered. Only an EE build reads a plan;
-/// a CE build is capped whatever this says.
+/// Community and Pro are capped, Enterprise is metered. Only a build with both
+/// `private` (the key id) and `enterprise` (the plan read) can meter; every other build
+/// is capped whatever this says.
 fn set_plan(pro: bool) {
     #[cfg(feature = "private")]
     windmill_common::ee::LICENSE_KEY_ID.store(std::sync::Arc::new(
@@ -119,7 +120,7 @@ async fn the_allowance_caps_strangers_and_meters_an_enterprise_plan(
     .await?;
     assert_eq!(usage["guest_count"], FREE_GUESTS_PER_WINDOW);
 
-    #[cfg(feature = "private")]
+    #[cfg(all(feature = "private", feature = "enterprise"))]
     {
         set_plan(false);
         mint(&db, "stranger@example.com")

@@ -150,11 +150,12 @@ impl AuthCache {
         // guest session and every token derived from one.
         if crate::scopes::has_guest_sentinel(opt_job_authed.authed.scopes.as_deref()) {
             let Some(w_id) = w_id else { return None };
-            match windmill_common::workspaces::is_guest_access_enabled(&self.db, &w_id).await {
+            let email = &opt_job_authed.authed.email;
+            match windmill_common::workspaces::guest_session_stands(&self.db, &w_id, email).await {
                 Ok(true) => {}
                 Ok(false) => return None,
                 Err(e) => {
-                    tracing::error!("guest access check failed for {w_id}: {e:#}");
+                    tracing::error!("guest session check failed for {w_id}: {e:#}");
                     return None;
                 }
             }
@@ -981,10 +982,17 @@ pub(crate) fn username_override_from_label(label: Option<String>) -> (Option<Str
         {
             (Some(label), true)
         }
-        Some(label) if label != "ephemeral-script" && label != "session" && !label.is_empty() => (
-            Some(format!("{}{label}", crate::GENERIC_TOKEN_LABEL_PREFIX)),
-            true,
-        ),
+        Some(label)
+            if label != "ephemeral-script"
+                && label != "session"
+                && label != windmill_common::auth::GUEST_SESSION_LABEL
+                && !label.is_empty() =>
+        {
+            (
+                Some(format!("{}{label}", crate::GENERIC_TOKEN_LABEL_PREFIX)),
+                true,
+            )
+        }
         _ => (None, false),
     }
 }

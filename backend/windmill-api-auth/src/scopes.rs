@@ -779,8 +779,8 @@ pub fn has_app_embed_sentinel(scopes: Option<&[String]>) -> bool {
 /// narrow its own token.
 pub const GUEST_SENTINEL: &str = "guest";
 
-/// True if a token is a guest session. Such a session has no `usr` row, so its
-/// scopes are its entire grant — every ACL check denies it on its own.
+/// True if a token is a guest session, whose scopes are its entire grant: it has no ACL
+/// of its own, so every ACL check denies it unaided.
 pub fn has_guest_sentinel(scopes: Option<&[String]>) -> bool {
     scopes.is_some_and(|s| s.iter().any(|x| x == GUEST_SENTINEL))
 }

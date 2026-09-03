@@ -155,7 +155,7 @@
 		} else {
 			localStorage.setItem('oauth-success', JSON.stringify(message))
 		}
-		goto('/user/close')
+		window.close()
 	}
 </script>
 

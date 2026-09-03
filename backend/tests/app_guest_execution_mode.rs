@@ -1,10 +1,8 @@
 //! Tests for the `guest` app execution mode.
 //!
-//! A guest is someone the identity provider authenticated who is a member of no
-//! workspace: no `usr` row, no `password` row, and so no seat on any counter. That
-//! absence is the whole point, and it means a guest session has no ACL of its own —
-//! its token's scopes are its entire grant. These tests pin the three things that
-//! would silently undo it:
+//! A guest (`ExecutionMode::Guest`) has no account and so no ACL of its own: its
+//! token's scopes are its entire grant. These tests pin the three things that would
+//! silently undo it:
 //!
 //!   * what makes a token a guest — the server-minted label, never a scope anyone
 //!     could type into `users/tokens/create`;
@@ -451,6 +449,41 @@ async fn guest_cannot_run_another_guest_app(db: Pool<Postgres>) -> anyhow::Resul
         resp.status(),
         403,
         "a guest session scoped to one app must not run another, even one open to guests"
+    );
+
+    Ok(())
+}
+
+/// An account holder is never a guest, and that holds after the mint too: a session
+/// minted before the account existed ends at the door the moment one does, so an
+/// account provisioned in a race with the mint cannot outlive the rule.
+#[sqlx::test(fixtures("base"))]
+async fn an_account_ends_the_guest_session(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    enable_guests(port, "test-workspace").await?;
+    insert_guest_token(&db, "test-workspace").await?;
+    let resp = authed(client().get(format!("{ws}/users/whoami")), GUEST_TOKEN)
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "guest whoami must resolve");
+
+    sqlx::query(
+        "INSERT INTO password (email, password_hash, login_type, super_admin, verified, name)
+         VALUES ('guest@example.com', 'not-a-real-hash', 'password', false, true, 'Guest')",
+    )
+    .execute(&db)
+    .await?;
+    let resp = authed(client().get(format!("{ws}/users/whoami")), GUEST_TOKEN)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "an account created after the mint ends the guest session at the door"
     );
 
     Ok(())

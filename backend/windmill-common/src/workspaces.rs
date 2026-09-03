@@ -852,13 +852,18 @@ pub async fn guest_usage(db: &crate::DB) -> Result<GuestUsage> {
 /// Whether `email` may be admitted as a guest right now. Checked once, where a session
 /// is minted: a returning guest (already in the window) is always let back in, so the
 /// cap only ever refuses a stranger, and a metered instance refuses nobody.
-pub async fn guest_admission<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(
-    executor: E,
-    email: &str,
-) -> Result<()> {
+///
+/// Must run inside the transaction that then records the guest in `guest_activity`:
+/// it takes a transaction-scoped lock so concurrent strangers count each other, and the
+/// lock is what keeps the cap exact rather than approximate.
+pub async fn guest_admission(conn: &mut sqlx::PgConnection, email: &str) -> Result<()> {
     if guests_are_metered().await {
         return Ok(());
     }
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('guest_allowance'))")
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| Error::internal_err(format!("locking the guest allowance: {e:#}")))?;
     let (in_window, count): (bool, i64) = sqlx::query_as(
         "SELECT
             EXISTS(SELECT 1 FROM guest_activity WHERE email = $1 AND day > CURRENT_DATE - $2),
@@ -866,7 +871,7 @@ pub async fn guest_admission<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres
     )
     .bind(email)
     .bind(GUEST_WINDOW_DAYS)
-    .fetch_one(executor)
+    .fetch_one(&mut *conn)
     .await
     .map_err(|e| Error::internal_err(format!("checking the guest allowance: {e:#}")))?;
     if in_window || count < FREE_GUESTS_PER_WINDOW {
@@ -878,8 +883,7 @@ pub async fn guest_admission<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres
     )))
 }
 
-/// Whether `w_id` admits guest sessions — someone the identity provider authenticated
-/// who is a member of no workspace, and who therefore takes no seat.
+/// Whether `w_id` admits guest sessions (the `guest` app execution mode).
 ///
 /// Read uncached where a session is minted ([`guest_app_admits`]) and then once per
 /// request at the auth door (`AuthCache::get_opt_job_authed`) for every guest. An app
@@ -895,6 +899,25 @@ pub async fn is_guest_access_enabled(db: &crate::DB, w_id: &str) -> Result<bool>
     .await
     .map_err(|e| Error::internal_err(format!("reading guest access of {w_id}: {e:#}")))?
     .unwrap_or(false))
+}
+
+/// Whether a guest session for `email` in `w_id` still stands: the workspace admits
+/// guests, and the email still has no account. Read at the auth door on every guest
+/// request, so an account provisioned after the mint (or racing it) ends the session on
+/// its next request rather than outliving the rule that an account holder is no guest.
+pub async fn guest_session_stands(db: &crate::DB, w_id: &str, email: &str) -> Result<bool> {
+    let stands: Option<bool> = sqlx::query_scalar(
+        "SELECT guest_access_enabled
+            AND NOT EXISTS(SELECT 1 FROM password WHERE email = $2)
+            AND NOT EXISTS(SELECT 1 FROM usr WHERE email = $2)
+         FROM workspace_settings WHERE workspace_id = $1",
+    )
+    .bind(w_id)
+    .bind(email)
+    .fetch_optional(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("checking the guest session of {email}: {e:#}")))?;
+    Ok(stands.unwrap_or(false))
 }
 
 /// Both gates at once: the workspace switch, and `app_path` being in `guest` execution

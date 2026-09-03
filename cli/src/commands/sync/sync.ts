@@ -142,7 +142,7 @@ import {
   extractCurrentMapping,
 } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
-import { isExecutionModeAnonymous } from "../app/app.ts";
+import { markAccessFromPolicy } from "../app/app.ts";
 import {
   APP_BACKEND_FOLDER,
   generateAppLocksInternal,
@@ -1373,9 +1373,7 @@ function ZipFSElement(
               };
             }
 
-            if (isExecutionModeAnonymous(app)) {
-              app.public = true;
-            }
+            markAccessFromPolicy(app);
             app.policy = undefined;
             yield {
               isDirectory: false,
@@ -1393,9 +1391,7 @@ function ZipFSElement(
               log.error(`Failed to parse app.yaml at path: ${p}`);
               throw error;
             }
-            if (rawApp?.["policy"]?.["execution_mode"] == "anonymous") {
-              rawApp.public = true;
-            }
+            markAccessFromPolicy(rawApp);
             // console.log("rawApp", rawApp);
             rawApp.policy = undefined;
             // custom_path is derived from the file path, don't store it
