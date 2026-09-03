@@ -383,19 +383,17 @@
 						<span></span>
 					{:else}
 						<Button
-							color="light"
-							variant="border"
+							variant="default"
+							unifiedSize="xs"
 							startIcon={{ icon: ArrowLeft }}
-							size="xs"
 							on:click={goToPreviousStep}
 						>
 							Previous
 						</Button>
 					{/if}
 					<Button
-						color="blue"
-						variant="contained"
-						size="lg"
+						variant="accent"
+						unifiedSize="md"
 						disabled={!!workspaceNameProblem}
 						on:click={confirmWorkspaceName}
 					>
