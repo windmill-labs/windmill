@@ -1391,15 +1391,23 @@ async fn maybe_post_git_sync_check(
     // re-resolved here from the resource path the pull job carries. A marker
     // written before that change still has the URL, and is honoured until the
     // last such job has drained.
-    let repo_url = match (row.repo_path.as_deref(), check.repo_url.clone()) {
-        (Some(path), _) => {
+    // The resource path is mutable, so it is only trusted when the marker also
+    // carries the identity to check it against. A marker written before that
+    // identity existed keeps using the URL it captured at enqueue, which cannot
+    // have been repointed since.
+    let repo_url = match (check.repo.is_some(), row.repo_path.as_deref(), check.repo_url.clone()) {
+        (true, Some(path), _) => {
             windmill_common::git_sync_ee::resolve_repo_url_interpolated(db, workspace_id, path)
                 .await
         }
-        (None, Some(url)) => {
+        (_, _, Some(url)) => {
             windmill_common::variables::get_variable_or_self(url, db, workspace_id).await
         }
-        (None, None) => {
+        (false, Some(path), None) => {
+            windmill_common::git_sync_ee::resolve_repo_url_interpolated(db, workspace_id, path)
+                .await
+        }
+        (_, None, None) => {
             tracing::error!("git sync-check: marker names no repository");
             return;
         }
