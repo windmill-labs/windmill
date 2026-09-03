@@ -195,7 +195,13 @@
 				} as any
 			}
 			flowStore.val.value.modules = [built]
-			void initFlowState(flowStore.val as Flow, flowStateStore, workspace, syntheticPath)
+			// Caught rather than left to float: a tool whose shape the schema loader cannot read
+			// would otherwise reject into the global unhandled-rejection handler, which reports the
+			// bare message and no stack — saying nothing about which agent or tool caused it. The
+			// form still renders; only the inferred tool schemas are missing.
+			initFlowState(flowStore.val as Flow, flowStateStore, workspace, syntheticPath).catch(
+				(err) => console.error('agent editor: could not infer tool schemas for', path, err)
+			)
 		})
 	})
 

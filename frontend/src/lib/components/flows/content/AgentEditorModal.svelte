@@ -163,6 +163,19 @@
 		const t = target
 		return t ? { ws, path: t.path, host: t.host } : undefined
 	}
+	/** Reconciling is best-effort: it refreshes what a write changed, and the write itself has
+	 *  already landed. A rejection here must not surface as an unhandled one — the global handler
+	 *  turns those into a bare toast with no stack, which says nothing about where it came from. */
+	function reconcileQuietly(at: WriteTarget | undefined, path: string) {
+		try {
+			void Promise.resolve(reconcile(at, path)).catch((err) => {
+				console.error('agent editor: could not refresh what links to', path, err)
+			})
+		} catch (err) {
+			console.error('agent editor: could not refresh what links to', path, err)
+		}
+	}
+
 	function reconcile(at: WriteTarget | undefined, path: string) {
 		if (!at?.ws) return
 		markAgentWritten(at.ws, path)
@@ -335,7 +348,7 @@
 					// deploying from it afterwards would write the pre-restore value straight back over
 					// the version just restored.
 					close()
-					if (at) void reconcile(at, at.path)
+					if (at) reconcileQuietly(at, at.path)
 				}}
 			/>
 		</DrawerContent>
