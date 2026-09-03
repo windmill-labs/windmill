@@ -227,6 +227,10 @@ switch that decides whether this chat carries its tools.
 		if (blockedByPendingFork()) return
 		const server = editing
 		if (!server) return
+		// Pinned alongside the row, like `toggle` and `deleteConnection`: the enablement
+		// writes below run after the save returns, and must land under the workspace the
+		// connection was edited in rather than whichever one is current by then.
+		const target = ws
 		// A failed save leaves the connection exactly as it was, so none of the
 		// bookkeeping below may run: moving the enablement then would turn a server
 		// that still exists off, and turn on a path that was never created.
@@ -234,12 +238,12 @@ switch that decides whether this chat carries its tools.
 		// Enablement is keyed by path, so a rename would leave the switch on the path
 		// that no longer exists and the server itself off.
 		if (editingPath && editingPath !== server.path) {
-			setMcpEnabled(ws, server.path, false)
-			forgetProviderKey(ws, server.path)
-			setMcpEnabled(ws, editingPath, server.enabled)
+			setMcpEnabled(target, server.path, false)
+			forgetProviderKey(target, server.path)
+			setMcpEnabled(target, editingPath, server.enabled)
 		}
 		closeDetail()
-		await refresh()
+		await refresh(target)
 	}
 
 	// Rows describe one workspace. A switch while the section is open must not leave

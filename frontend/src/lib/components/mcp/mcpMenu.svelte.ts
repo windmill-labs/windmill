@@ -3,6 +3,7 @@ import type { Component } from 'svelte'
 import { get } from 'svelte/store'
 import { ResourceService } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
+import { sendUserToast } from '$lib/toast'
 import type { Item } from '$lib/utils'
 import type { AIChatManager } from '../copilot/chat/AIChatManager.svelte'
 import { isMcpEnabled, setMcpEnabled } from './enabledServers'
@@ -111,12 +112,23 @@ export class McpMenu {
 	}
 
 	async #toggle(ws: string, path: string, enabled: boolean) {
+		// A session whose fork is still staged has no workspace of its own yet, so `ws`
+		// is the PARENT: the selection would be stored under it and quietly stop
+		// applying the moment the first send commits the fork.
+		const pendingForkOf = this.#manager.sessionContextResolver?.()?.pendingForkOf
+		if (pendingForkOf !== undefined) {
+			sendUserToast(
+				`This session has not created its workspace yet, so the selection would be stored under "${pendingForkOf}". Send a message first.`,
+				true
+			)
+			return
+		}
 		// Local preference only: nothing to re-read from the API, and the cached
 		// tool lists stay valid because the servers are unchanged.
 		setMcpEnabled(ws, path, enabled)
 		const row = this.#row(path)
 		if (row) row.enabled = enabled
-		await this.#manager.refreshMcpServers()
+		await this.#manager.refreshMcpServers(ws)
 	}
 
 	/** Loaded on open so the checks are current. */

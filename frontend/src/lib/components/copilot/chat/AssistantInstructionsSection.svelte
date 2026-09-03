@@ -117,10 +117,17 @@ writes whichever of the two changed, including the tab that is not on screen.
 			}
 			if (seq !== loadSeq) return
 			workspaceMissingProviders = missingProviders
+			// Read before the assignments below move the baseline they compare against.
+			// Each half is then seeded only while it still holds what it was loaded with:
+			// the effect that starts this checks `dirty` before the request, not after it,
+			// so an admin who opens the tab and types straight away would otherwise have
+			// the settings response land on top of the text they are in the middle of.
+			const keepWorkspaceDraft = workspaceChanged
+			const keepUserDraft = userChanged
 			workspaceSaved = workspace
-			workspaceDraft = workspace
+			if (!keepWorkspaceDraft) workspaceDraft = workspace
 			userSaved = user
-			userDraft = user
+			if (!keepUserDraft) userDraft = user
 		} finally {
 			if (seq === loadSeq) loading = false
 		}

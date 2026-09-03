@@ -106,6 +106,13 @@ living in a bordered card, which reads as heavy once a list runs to dozens of ro
 		{/if}
 		{@render trailing()}
 	</div>
+{:else if !onClick}
+	<!-- Nothing to click and nothing trailing: a row that only reports. A `Button` here
+	     would be a tab stop that lights up on hover and does nothing. -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div {id} class={twMerge('px-3 py-3 text-xs font-medium', clazz)} onmouseenter={onMouseEnter}>
+		{@render body()}
+	</div>
 {:else}
 	<Button
 		{id}
