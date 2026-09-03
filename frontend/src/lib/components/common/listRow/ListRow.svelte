@@ -10,6 +10,7 @@ living in a bordered card, which reads as heavy once a list runs to dozens of ro
 	import type { Snippet } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 
 	let {
 		title,
@@ -83,14 +84,26 @@ living in a bordered card, which reads as heavy once a list runs to dozens of ro
 		{id}
 		class={twMerge(
 			'flex items-center gap-4 rounded-md px-3 py-3 scroll-my-2 transition-colors text-xs font-medium',
-			ownHover ? 'hover:bg-surface-hover' : highlighted ? 'bg-surface-hover' : '',
+			// Only a row that opens something lights up: a hover on a row whose label does
+			// nothing reads as an affordance that isn't there.
+			onClick ? (ownHover ? 'hover:bg-surface-hover' : highlighted ? 'bg-surface-hover' : '') : '',
 			clazz
 		)}
 		onmouseenter={onMouseEnter}
 	>
-		<button type="button" class="flex grow min-w-0 text-left" onclick={onClick}>
-			{@render body()}
-		</button>
+		{#if onClick}
+			<button
+				type="button"
+				class="flex grow min-w-0 text-left"
+				onclick={onClick}
+				use:triggerableByAI={{ id: aiId, description: aiDescription, callback: onClick }}
+			>
+				{@render body()}
+			</button>
+		{:else}
+			<!-- No `onClick`: a button here would be a tab stop that does nothing. -->
+			<div class="flex grow min-w-0 text-left">{@render body()}</div>
+		{/if}
 		{@render trailing()}
 	</div>
 {:else}

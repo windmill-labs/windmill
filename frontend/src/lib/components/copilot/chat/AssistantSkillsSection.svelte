@@ -7,6 +7,7 @@ and the actions that create, edit, import and delete them.
 <script lang="ts">
 	import { Button, ListRow, Section } from '$lib/components/common'
 	import EmptyState from '$lib/components/common/emptyState/EmptyState.svelte'
+	import FileInput from '$lib/components/common/fileInput/FileInput.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import PagedContent from '$lib/components/common/modal/PagedContent.svelte'
@@ -130,7 +131,8 @@ What the assistant should do when this skill applies.
 	let listNotice = $state<string | undefined>(undefined)
 	let saving = $state(false)
 	let toDelete: Row | undefined = $state(undefined)
-	let folderInput: HTMLInputElement | undefined = $state(undefined)
+	let folderInput: FileInput | undefined = $state(undefined)
+	let importFiles = $state<File[] | undefined>(undefined)
 	let bodyEditor: SimpleEditor | undefined = $state(undefined)
 
 	// Paste/edit modal. `editing` is the row being edited (undefined while
@@ -251,16 +253,29 @@ What the assistant should do when this skill applies.
 	$effect(() => {
 		const target = ws
 		untrack(() => {
+			loadSeq++
 			skills = []
+			listNotice = undefined
 			toDelete = undefined
 			pendingImport = undefined
+			// The editor holds one workspace's skill but saves to whatever `ws` is by
+			// then, so a switch mid-edit would write A's body into B at the same path.
+			// Closing it is the honest outcome: there is no version of that save the
+			// user asked for. This one closes even on unsaved text, unlike parking the
+			// section, because the text can no longer be saved where it came from.
+			editorOpen = false
+			editing = undefined
 			void loadSkills(target)
 		})
 	})
 
 	async function loadSkills(target = ws) {
 		refreshForkPending()
-		if (!target) return
+		// Checked before the sequence is taken, not only after the await: a stale
+		// action calling refresh(A) would otherwise claim the newest sequence and make
+		// the legitimate load for B discard its own result, leaving the section on an
+		// empty state for a workspace that has skills.
+		if (!target || target !== ws) return
 		const seq = ++loadSeq
 		loading = true
 		loadError = undefined
@@ -350,8 +365,13 @@ What the assistant should do when this skill applies.
 	/** Always lands on the rendered skill: reading one is the common reason to open it,
 	 * and the header's View/Edit switch is one click from the other half. */
 	async function openSkill(skill: Row) {
+		// Pinned across the await, and re-checked after it: closing the editor on a
+		// workspace switch would not stop this from reopening it with the old
+		// workspace's content, which `submitEditor` would then save into the new one.
+		const source = ws
 		try {
-			const instructions = await readSkillBody(ws, skill.path)
+			const instructions = await readSkillBody(source, skill.path)
+			if (source !== ws) return
 			setContent(
 				buildSkillMd({
 					name: skill.name,
@@ -449,6 +469,10 @@ What the assistant should do when this skill applies.
 
 	async function refresh(target = ws) {
 		await loadSkills(target)
+		// `refreshGlobalSkills` blanks `globalSkills` when the workspace it is handed is
+		// not the one the chat is on, so a refresh landing after a switch would take B's
+		// skills out of the system prompt entirely.
+		if (target !== ws) return
 		await aiChatManager.refreshGlobalSkills(target)
 	}
 
@@ -537,11 +561,11 @@ What the assistant should do when this skill applies.
 		pendingImport = collected
 	}
 
-	async function onFolderPicked(event: Event & { currentTarget: HTMLInputElement }) {
-		const files = Array.from(event.currentTarget.files ?? [])
-		// Clearing lets the same folder be chosen again — the input keeps the last
-		// selection otherwise, and re-picking would look inert.
-		event.currentTarget.value = ''
+	async function onDirSelected(event: CustomEvent<File[] | undefined>) {
+		const files = event.detail ?? []
+		// Clearing lets the same folder be chosen again — the component keeps the
+		// last selection on screen otherwise, and re-picking would look inert.
+		importFiles = undefined
 		if (files.length) await processFolderFiles(files)
 	}
 
@@ -615,7 +639,7 @@ What the assistant should do when this skill applies.
 						unifiedSize="sm"
 						startIcon={{ icon: FolderUp }}
 						disabled={saving || forkPending}
-						onClick={() => folderInput?.click()}
+						onClick={() => folderInput?.openPicker()}
 					>
 						Import a folder
 					</Button>
@@ -631,17 +655,11 @@ What the assistant should do when this skill applies.
 				</div>
 			{/snippet}
 
-			<!-- The folder picker itself: a button opens it, so the input is only plumbing.
-     Hidden through a wrapper, since a global rule forces `display: block` on every
-     input and beats the class on the input itself. -->
+			<!-- The picker itself. Hidden because the affordance is the button above, but
+			     still `FileInput`: it owns reading and filtering the folder, and a raw input
+			     here would be a second implementation of that to keep in step. -->
 			<div class="hidden">
-				<input
-					bind:this={folderInput}
-					type="file"
-					multiple
-					{...{ webkitdirectory: true }}
-					onchange={onFolderPicked}
-				/>
+				<FileInput bind:this={folderInput} folderOnly bind:files={importFiles} on:change={onDirSelected} />
 			</div>
 
 			{#if forkPending}

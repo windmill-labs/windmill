@@ -7,6 +7,7 @@ switch that decides whether this chat carries its tools.
 <script lang="ts">
 	import { Button, ListRow, Section } from '$lib/components/common'
 	import EmptyState from '$lib/components/common/emptyState/EmptyState.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import PagedContent from '$lib/components/common/modal/PagedContent.svelte'
 	import McpConnect from '$lib/components/mcp/McpConnect.svelte'
 	import ResourceEditor from '$lib/components/ResourceEditor.svelte'
@@ -50,6 +51,30 @@ switch that decides whether this chat carries its tools.
 	} = $props()
 
 	const aiChatManager = getAiChatManager()
+
+	// A session whose fork is still staged has no workspace of its own yet, so `ws`
+	// resolves to the PARENT. Connecting or editing here would write the resource and
+	// its token into the live parent, and a switch would be stored under it and quietly
+	// stop applying the moment the first send commits the fork. Read at use, not once:
+	// the fork commits mid-session.
+	function pendingForkParent(): string | undefined {
+		return aiChatManager.sessionContextResolver?.()?.pendingForkOf
+	}
+	let forkPending = $state(false)
+	function refreshForkPending() {
+		forkPending = pendingForkParent() !== undefined
+	}
+	/** Guards every mutating action. Returns true when the caller must not proceed. */
+	function blockedByPendingFork(): boolean {
+		const parent = pendingForkParent()
+		if (parent === undefined) return false
+		refreshForkPending()
+		sendUserToast(
+			`This session has not created its workspace yet, so the connection would be written to "${parent}" instead. Send a message first.`,
+			true
+		)
+		return true
+	}
 
 	let servers = $state<
 		{
@@ -154,6 +179,7 @@ switch that decides whether this chat carries its tools.
 	}
 
 	function openConnect() {
+		if (blockedByPendingFork()) return
 		connectOpen = true
 	}
 
@@ -198,6 +224,7 @@ switch that decides whether this chat carries its tools.
 	}
 
 	async function saveEditing() {
+		if (blockedByPendingFork()) return
 		const server = editing
 		if (!server) return
 		// A failed save leaves the connection exactly as it was, so none of the
@@ -234,7 +261,11 @@ switch that decides whether this chat carries its tools.
 	})
 
 	async function loadServers(target = ws) {
-		if (!target) return
+		refreshForkPending()
+		// Checked before the sequence is taken, not only after the await: a stale
+		// action calling refresh(A) would otherwise claim the newest sequence and make
+		// the legitimate load for B discard its own result.
+		if (!target || target !== ws) return
 		const seq = ++loadSeq
 		loading = true
 		loadError = undefined
@@ -266,12 +297,17 @@ switch that decides whether this chat carries its tools.
 	}
 
 	async function toggle(path: string, enabled: boolean) {
+		if (blockedByPendingFork()) return
+		// Pinned for the whole call: the selection is stored per workspace, and the
+		// refresh below must not hand these servers to a chat that has since moved on.
+		const target = ws
 		// Local preference only: nothing to re-read from the API, and the cached
 		// tool lists stay valid because the servers are unchanged.
-		setMcpEnabled(ws, path, enabled)
+		setMcpEnabled(target, path, enabled)
 		const server = servers.find((s) => s.path === path)
 		if (server) server.enabled = enabled
-		await aiChatManager.refreshMcpServers()
+		if (target !== ws) return
+		await aiChatManager.refreshMcpServers(target)
 	}
 
 	// Deleting a resource also deletes every variable its value references, and an
@@ -280,6 +316,7 @@ switch that decides whether this chat carries its tools.
 	// never destroy a credential something else still uses; the variable is left for
 	// the user to remove from the Variables page.
 	async function deleteConnection(path: string) {
+		if (blockedByPendingFork()) return
 		// Pinned for the whole sequence: a switch midway would strip and delete the
 		// resource that happens to share this path in the workspace switched to.
 		const target = ws
@@ -300,7 +337,7 @@ switch that decides whether this chat carries its tools.
 			setMcpEnabled(target, path, false)
 			forgetProviderKey(target, path)
 			sendUserToast(`Deleted ${path}. Its token variable was kept.`)
-			await refresh()
+			await refresh(target)
 		} catch (e) {
 			sendUserToast(`Failed to delete ${path}: ${e.body ?? e.message}`, true)
 		} finally {
@@ -342,14 +379,18 @@ switch that decides whether this chat carries its tools.
 		)
 	}
 
-	async function refresh() {
+	async function refresh(target = ws) {
 		// A path can be reconnected to a different server, so the cached tool list
 		// (and the readOnlyHint the confirmation gate reads) must not survive.
 		clearMcpToolsCache()
-		await loadServers()
+		await loadServers(target)
+		// `refreshMcpServers` blanks the list when the workspace it is handed is not
+		// the one the chat is on, so a refresh landing after a switch would take B's
+		// servers out of the prompt entirely.
+		if (target !== ws) return
 		// Re-register the chat's MCP tools so a connection made here is usable in
 		// the next message without a reload.
-		await aiChatManager.refreshMcpServers()
+		await aiChatManager.refreshMcpServers(target)
 	}
 </script>
 
@@ -380,11 +421,24 @@ switch that decides whether this chat carries its tools.
 			class="flex flex-col gap-4"
 		>
 			{#snippet action()}
-				<Button unifiedSize="sm" variant="accent" startIcon={{ icon: Plus }} onClick={openConnect}>
+				<Button
+					unifiedSize="sm"
+					variant="accent"
+					startIcon={{ icon: Plus }}
+					disabled={forkPending}
+					onClick={openConnect}
+				>
 					Connect a server
 				</Button>
 			{/snippet}
 
+			{#if forkPending}
+				<Alert type="info" title="This session has no workspace yet" size="xs" class="mb-4">
+					Connections are read-only until the first message creates this session's fork.
+					Connecting or selecting one now would apply to the parent workspace and stop applying
+					once the fork is created.
+				</Alert>
+			{/if}
 			{#if loading}
 				<div class="flex justify-center p-4"><Loader2 class="animate-spin" /></div>
 			{:else if loadError}
@@ -396,7 +450,7 @@ switch that decides whether this chat carries its tools.
 					icon={Plug}
 					title="No MCP server connected"
 					description="Connect an external MCP server and the chat can call its tools with your own credentials."
-					action={{ label: 'Connect a server', icon: Plus, onClick: openConnect }}
+					action={{ label: 'Connect a server', icon: Plus, onClick: openConnect, disabled: forkPending }}
 				/>
 			{:else}
 				<div class="flex flex-col gap-0.5">
@@ -416,6 +470,7 @@ switch that decides whether this chat carries its tools.
 						{#snippet trailing()}
 							<Toggle
 								size="sm"
+								disabled={forkPending}
 								checked={server.enabled}
 								on:change={async (e) => await toggle(server.path, e.detail)}
 							/>
@@ -432,6 +487,7 @@ switch that decides whether this chat carries its tools.
 										displayName: 'Delete',
 										icon: Trash2,
 										type: 'delete',
+										disabled: forkPending,
 										action: () => (pendingDelete = server.path)
 									}
 								]}
