@@ -325,9 +325,10 @@
 </div>
 
 <style>
-	/* The page's content arriving, rather than being there. The sidebar and the surface behind
-	   it are already painted by the layout, so only what is new to this route fades — which is
-	   what makes landing here off a workspace hand-over read as an arrival instead of a cut. */
+	/* The page's content arriving, rather than being there. The layout has already painted the
+	   sidebar and the surface behind it, so only what is new to this route fades. It plays on
+	   every arrival at Home, not just the one off a workspace hand-over — that is the arrival it
+	   is for, and a soft one costs nothing on the others. */
 	@keyframes wm-page-in {
 		from {
 			opacity: 0;

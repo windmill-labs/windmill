@@ -67,15 +67,21 @@
 		return toWorkspaceId(owner || workspaceName) || 'workspace'
 	}
 
-	/** The id nearest that seed which nobody holds: `-2`, `-3`, … so two people named Bob both
-	 *  get something readable. */
-	async function freeWorkspaceId(candidate: string): Promise<string> {
+	/**
+	 * The id nearest that seed which is both valid and free: `-2`, `-3`, … so two people named
+	 * Bob both get something readable. `validateWorkspaceId` answers with the *reason* an id is
+	 * unusable, so a falsy answer is the valid one — and an invalid candidate is skipped rather
+	 * than returned: `global` is reserved while `global-2` is not. Undefined when no candidate
+	 * works, which is the caller's cue to ask for one rather than post a name the server
+	 * refuses.
+	 */
+	async function freeWorkspaceId(seed: string): Promise<string | undefined> {
 		for (let n = 1; n <= 20; n++) {
-			const next = n === 1 ? candidate : `${candidate}-${n}`
-			if (validateWorkspaceId(next)) break
+			const next = n === 1 ? seed : `${seed}-${n}`
+			if (validateWorkspaceId(next)) continue
 			if (!(await WorkspaceService.existsWorkspace({ requestBody: { id: next } }))) return next
 		}
-		return candidate
+		return undefined
 	}
 
 	async function create() {
@@ -85,6 +91,15 @@
 		const started = Date.now()
 		try {
 			const id = await freeWorkspaceId(idSeed(workspaceName))
+			if (!id) {
+				sendUserToast(
+					'No workspace ID could be derived from that name. Pick one in advanced settings.',
+					true
+				)
+				advanced = true
+				creating = false
+				return
+			}
 			await WorkspaceService.createWorkspace({
 				requestBody: {
 					id,

@@ -146,6 +146,19 @@
 			invites.length === 0
 	)
 
+	/**
+	 * Where to go once a workspace exists. `rd` can be absolute — the CLI login flow sends one —
+	 * and `goto` refuses those, which would strand the caller on its "Creating …" screen with
+	 * the workspace already made. Same hand-off every other `rd` path on this page makes.
+	 */
+	function leaveForWorkspace() {
+		if (rd?.startsWith('http')) {
+			window.location.href = rd
+			return
+		}
+		void goto(rd ?? '/')
+	}
+
 	// Once this page has become the create form it stays it, until it navigates away. Creating
 	// a workspace refreshes the workspace list, which answers `nothingToChoose` with a no
 	// mid-creation — and the form, along with whatever it was showing, would be replaced by the
@@ -234,7 +247,7 @@
 		<!-- The picker stands down when it has nothing to offer: no workspace to enter and no
 		     invite to accept leaves one action on the page, so the page is that action. -->
 		{#if showCreate}
-			<SimpleCreateWorkspace onCreated={() => goto(rd ?? '/')} />
+			<SimpleCreateWorkspace onCreated={leaveForWorkspace} />
 		{:else}
 			<div class="flex flex-row items-center gap-2 justify-between mb-4">
 				<h2 class="inline-flex gap-2 text-sm font-semibold text-emphasis flex-shrink-0">

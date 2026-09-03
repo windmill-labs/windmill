@@ -1429,11 +1429,11 @@
 </Modal2>
 
 <style>
-	/* The rail sliding in from the edge it lives on. This layout mounts when the app is
-	   entered — signup, the workspace picker and onboarding all sit outside it — so the
-	   animation plays on arrival and never on a navigation within the app. Paired with the
-	   home page's own fade, it reads as the workspace coming forward from behind whatever
-	   was on top of it. */
+	/* The rail sliding in from the edge it lives on. This layout mounts when the app is entered —
+	   signup, the workspace picker and onboarding all sit outside it — so the animation plays on
+	   arrival, and on a hard reload of any page under it, but never on a navigation within the
+	   app. Paired with the home page's own fade, it reads as the workspace coming forward from
+	   behind whatever was on top of it. */
 	@keyframes wm-sidebar-in {
 		from {
 			opacity: 0;

@@ -1805,7 +1805,11 @@
 			<!-- Pipelines aren't part of the text filter, so only fall through to show
 			     them (list rows / injected tree folders) when not actively searching;
 			     a no-match search still reads as empty. -->
-			{#if workspaceEmpty}
+			<!-- Same gate as the create menu above: the empty state offers a template import and
+			     that very menu, and neither does a permission check of its own. An operator, or a
+			     workspace whose direct-deploy protection cleared `showEditButtons`, gets the plain
+			     message instead of two actions it may not take. -->
+			{#if workspaceEmpty && !$userStore?.operator && showEditButtons}
 				<WorkspaceEmptyState {onImported} />
 			{:else}
 				<NoItemFound {activeFilters} />

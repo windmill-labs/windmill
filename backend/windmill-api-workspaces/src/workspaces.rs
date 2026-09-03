@@ -5580,6 +5580,10 @@ async fn _check_nb_of_archived_workspaces(db: &DB) -> Result<()> {
 ///
 /// The caller owns the transaction and the audit log: the signup path creates a
 /// workspace before the user has an `ApiAuthed` to audit under.
+///
+/// It owns the authorization too. `CREATE_WORKSPACE_REQUIRE_SUPERADMIN`, the OSS workspace
+/// count and the cloud cap of ten per owner all stay in the `create_workspace` handler —
+/// this writes the rows for a workspace someone has already decided may exist.
 pub async fn insert_workspace<'c>(
     tx: &mut Transaction<'c, Postgres>,
     id: &str,

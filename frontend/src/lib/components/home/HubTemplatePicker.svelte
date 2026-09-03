@@ -35,6 +35,15 @@
 	void hubBrowserUrl()
 		.then((u) => (hubUrl = u))
 		.catch(() => {})
+	// `hubBrowserUrl` hands back the instance setting as the admin wrote it, so a scheme-less
+	// one would make `new URL` throw — in render, which takes the popover down with it.
+	let hubHost = $derived.by(() => {
+		try {
+			return new URL(hubUrl).host
+		} catch {
+			return hubUrl
+		}
+	})
 </script>
 
 <div class="flex w-[380px] flex-col">
@@ -48,7 +57,7 @@
 			rel="noreferrer"
 			class="inline-flex items-baseline gap-0.5 text-secondary hover:text-emphasis hover:underline"
 		>
-			{new URL(hubUrl).host}<ArrowUpRight size={11} class="self-center" />
+			{hubHost}<ArrowUpRight size={11} class="self-center" />
 		</a>
 		— imported as a folder in this workspace.
 	</p>
