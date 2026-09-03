@@ -73,6 +73,10 @@
 	 *  dedicated editor elsewhere: the generic form would render its configuration field by field,
 	 *  and materialize a default into every one the value leaves out. */
 	export async function initEdit(p: string, opts?: { json?: boolean }): Promise<void> {
+		// A `close({ keepAnchor })` on an already-closed drawer emits no close event, so the flag
+		// would still be standing when the next drawer session ends and would swallow that one's
+		// anchor clear. Every session starts having to clear its own.
+		keepAnchorOnClose = false
 		resource_type = undefined
 		path = p
 		selected = effectiveWorkspace
@@ -85,6 +89,7 @@
 		resourceType: string,
 		nDefaultValues?: Record<string, any>
 	): Promise<void> {
+		keepAnchorOnClose = false
 		path = undefined
 		resource_type = resourceType
 		defaultValues = nDefaultValues
