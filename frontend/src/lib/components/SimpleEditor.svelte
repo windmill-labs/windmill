@@ -407,8 +407,11 @@
 				...(yPadding !== undefined ? { padding: { bottom: yPadding, top: yPadding } } : {}),
 				readOnly,
 				renderLineHighlight,
-				lineDecorationsWidth: LINE_DECORATIONS_WIDTH,
-				lineNumbersMinChars,
+				// Same conditional as `updateModelAndOptions`: created correct rather than
+				// created wide and narrowed a tick later, which a caller hiding the gutter
+				// would see as a flash of indent.
+				lineDecorationsWidth: hideLineNumbers ? 0 : LINE_DECORATIONS_WIDTH,
+				lineNumbersMinChars: hideLineNumbers ? 0 : lineNumbersMinChars,
 				fontSize: fontSize,
 				quickSuggestions: disableSuggestions
 					? { other: false, comments: false, strings: false }
