@@ -28,7 +28,8 @@ use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file, Conn
 use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, WorkspaceDependenciesPrefetched,
 };
-use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
+use windmill_dep_map::scoped_dependency_map::{DependencyDependent, ScopedDependencyMap};
+use windmill_dep_map::trigger_dependents::trigger_dependents_to_recompute_dependencies;
 #[cfg(feature = "python")]
 use windmill_parser_yaml::AnsibleRequirements;
 
@@ -332,6 +333,19 @@ pub async fn handle_dependency_job(
     // - A saved script `hash` in the `script_hash` column.
     // - Preview raw lock and code in the `queue` or `job` table.
     let script_data = &match target_hash {
+        // Read straight from the database: the cache pins a version's data under its hash for
+        // as long as this worker lives, and the live version may still be waiting on its own
+        // dependency job's lock, which lands in place. A run resolving to it on this worker
+        // would then get no lock from the cache at all.
+        Some(hash) if triggered_by_relative_import => {
+            let raw = cache::script::fetch_script_from_db(db, hash, std::panic::Location::caller())
+                .await?;
+            Cow::Owned(std::sync::Arc::new(cache::ScriptData {
+                lock: raw.lock,
+                code: raw.content,
+                modules: raw.modules,
+            }))
+        }
         Some(hash) => match cache::script::fetch(&Connection::from(db.clone()), hash).await {
             Ok(d) => Cow::Owned(d.0),
             Err(e) => {
@@ -525,10 +539,12 @@ pub async fn handle_dependency_job(
                     }
                     RelockOutcome::Superseded(head) => {
                         let log_msg = format!(
-                            "\nVersion {head} was deployed while this lock was generated; it carries its own lock, so this one is discarded"
+                            "\nVersion {head} was deployed while this lock was generated; discarding it and queueing a relock of that version"
                         );
                         tracing::info!(workspace_id = %w_id, job_id = %job.id, "{log_msg}");
                         append_logs(&job.id, w_id, log_msg, &db.into()).await;
+                        requeue_relock(db, job, script_path, deployment_message, parent_path)
+                            .await?;
                         return Ok(to_raw_value_owned(
                             json!({ "status": "Lock generation superseded by a newer version", "lock": content }),
                         ));
@@ -671,12 +687,20 @@ pub async fn handle_dependency_job(
                     None,
                     None,
                     Some(&error_logs),
-                    deployment_message,
+                    deployment_message.clone(),
                 )
                 .await
                 {
                     Ok(RelockOutcome::Deployed(_)) => *deployment_tallied = false,
-                    Ok(_) => {}
+                    Ok(RelockOutcome::Superseded(_)) => {
+                        if let Err(e) =
+                            requeue_relock(db, job, script_path, deployment_message, parent_path)
+                                .await
+                        {
+                            tracing::error!(%e, "error queueing a relock of {script_path}")
+                        }
+                    }
+                    Ok(RelockOutcome::Unchanged) => {}
                     Err(e) => {
                         tracing::error!(%e, "error recording the failed relock of {script_path}")
                     }
@@ -779,6 +803,41 @@ async fn commit_relock(
     record_lock_hashes(&mut tx, w_id, lock_hash_entry.as_slice()).await?;
     tx.commit().await?;
     Ok(RelockOutcome::Deployed(ScriptHash(new_hash)))
+}
+
+/// Queues another relative-import relock of `script_path`, through the same push the fan-out
+/// uses. The version live now was deployed while a lock was generated for its predecessor;
+/// when that deploy was a sibling relock it queued nothing for this path, and the result just
+/// discarded may have been the one generated against the current imports.
+async fn requeue_relock(
+    db: &DB,
+    job: &MiniPulledJob,
+    script_path: &str,
+    deployment_message: Option<String>,
+    parent_path: Option<String>,
+) -> error::Result<()> {
+    let already_visited = job
+        .args
+        .as_ref()
+        .and_then(|x| x.get("already_visited"))
+        .and_then(|v| serde_json::from_str::<Vec<String>>(v.get()).ok())
+        .unwrap_or_default();
+    trigger_dependents_to_recompute_dependencies(
+        &job.workspace_id,
+        vec![DependencyDependent {
+            importer_path: script_path.to_string(),
+            importer_kind: "script".to_string(),
+            importer_node_ids: None,
+        }],
+        deployment_message,
+        parent_path,
+        &job.permissioned_as_email,
+        &job.created_by,
+        &job.permissioned_as,
+        db,
+        already_visited,
+    )
+    .await
 }
 
 fn remove_ansi_codes(s: &str) -> String {
