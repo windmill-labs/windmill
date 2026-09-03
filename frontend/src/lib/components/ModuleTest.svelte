@@ -22,6 +22,11 @@
 		noEditor?: boolean
 		scriptProgress?: any
 		onJobDone?: () => void
+		/** What a preview names itself after, when it is not the flow being edited. The agent editor
+		 *  passes `''`: its flow is synthetic, and the identifier it uses for client-side scoping is
+		 *  not a workspace path, which `require_path_read_access_for_preview` rejects for anyone who
+		 *  is not an admin. An empty path is explicitly allowed there. */
+		previewPath?: string
 	}
 
 	let {
@@ -30,7 +35,8 @@
 		testIsLoading = $bindable(false),
 		noEditor = false,
 		scriptProgress = $bindable(undefined),
-		onJobDone
+		onJobDone,
+		previewPath = undefined
 	}: Props = $props()
 
 	const {
@@ -43,6 +49,9 @@
 		devTempScriptRefs,
 		opWorkspace
 	} = getContext<FlowEditorContext>('FlowEditorContext')
+
+	// Falls back to the flow being edited, which is what every other surface previews as.
+	let previewBase = $derived(previewPath ?? $pathStore ?? '')
 
 	// Acting workspace when the flow editor runs in an AI session; else the nav workspace.
 	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
@@ -92,7 +101,9 @@
 		}
 		if (val.type == 'rawscript') {
 			await jobLoader?.runPreview(
-				val.path ?? ($pathStore ?? '') + '/' + mod.id,
+				// An empty base stays empty: `'' + '/' + id` would be an absolute path, which the same
+				// check rejects outright.
+				val.path ?? (previewBase ? previewBase + '/' + mod.id : ''),
 				val.content,
 				val.language,
 				mod.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...args } : args,
@@ -100,7 +111,7 @@
 				undefined,
 				undefined,
 				callbacks,
-				$pathStore,
+				previewBase,
 				undefined,
 				devTempScriptRefs?.(),
 				timeout
@@ -118,7 +129,7 @@
 				script.lock,
 				val.hash ?? script.hash,
 				callbacks,
-				$pathStore,
+				previewBase,
 				undefined,
 				undefined,
 				timeout
@@ -172,7 +183,7 @@
 					schema
 				},
 				callbacks,
-				$pathStore
+				previewBase
 			)
 		} else {
 			throw Error('Not supported module type')

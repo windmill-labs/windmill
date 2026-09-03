@@ -374,6 +374,7 @@
 						<div class="h-full overflow-auto">
 							<ModulePreview
 								mod={agentModule as FlowModule}
+								previewPath=""
 								schema={flowLocalAgentSchema(schema)}
 								pickableProperties={stepPropPicker?.pickableProperties}
 								bind:testJob
