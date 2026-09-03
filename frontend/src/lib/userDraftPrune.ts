@@ -1,12 +1,12 @@
 /**
  * One-off sweep that drops drafts carrying no changes.
  *
- * Before the draft comparison learned to ignore empty schema-added fields and
- * server-managed metadata (see `normalizeDraftForCompare`), merely opening an
- * item whose schema had moved on saved a draft — workspaces accumulated dozens
- * that nobody wrote. New ones no longer appear; the ones already stored need
- * this pass to clear. Runs once per (workspace, user) per browser, after the
- * localStorage→DB migration so anything it just uploaded is swept too.
+ * Before the editors gated their autosave on real user input (`onUserInput`),
+ * merely opening an item whose schema had moved on saved a draft — workspaces
+ * accumulated dozens that nobody wrote. The gate stops new ones; the ones
+ * already stored need this pass to clear. Runs once per (workspace, user) per
+ * browser, after the localStorage→DB migration so anything it just uploaded is
+ * swept too.
  *
  * A draft is dropped only when the diff the user would be shown is empty: both
  * sides come from `getDraftDiffValues`, the same canonicalization the diff
