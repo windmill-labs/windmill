@@ -820,7 +820,10 @@ struct GitSyncCheck {
     /// result then reaches the pull request through the managed comment alone.
     #[serde(default)]
     check_run_id: Option<i64>,
-    repo_url: String,
+    /// Only markers written before the repository URL moved out of job args
+    /// carry one; the resource path on the job is what is used now.
+    #[serde(default)]
+    repo_url: Option<String>,
     #[serde(default)]
     pr_number: Option<i64>,
     #[serde(default)]
@@ -1379,19 +1382,30 @@ async fn maybe_post_git_sync_check(
     let Ok(mut check) = serde_json::from_value::<GitSyncCheck>(marker) else {
         return;
     };
-    // Markers carry the literal resource URL (job args are persisted, so a
-    // `$var:`-resolved URL must not land there); interpolate before calling
-    // GitHub.
-    check.repo_url =
-        match windmill_common::variables::get_variable_or_self(check.repo_url, db, workspace_id)
-            .await
-        {
-            Ok(u) => u,
-            Err(e) => {
-                tracing::error!("git sync-check: cannot interpolate repo url: {e:#}");
-                return;
-            }
-        };
+    // Job args are persisted, so the repository URL is not among them: it is
+    // re-resolved here from the resource path the pull job carries. A marker
+    // written before that change still has the URL, and is honoured until the
+    // last such job has drained.
+    let repo_url = match (row.repo_path.as_deref(), check.repo_url.clone()) {
+        (Some(path), _) => {
+            windmill_common::git_sync_ee::resolve_repo_url_interpolated(db, workspace_id, path)
+                .await
+        }
+        (None, Some(url)) => {
+            windmill_common::variables::get_variable_or_self(url, db, workspace_id).await
+        }
+        (None, None) => {
+            tracing::error!("git sync-check: marker names no repository");
+            return;
+        }
+    };
+    let repo_url = match repo_url {
+        Ok(u) => u,
+        Err(e) => {
+            tracing::error!("git sync-check: cannot resolve repo url: {e:#}");
+            return;
+        }
+    };
     // "In sync" on a PR that visibly changes files reads as a bug when those
     // files are outside the repo's sync filters — say what the scope is.
     let scope_note = if !is_deploy && success {
@@ -1527,7 +1541,7 @@ async fn maybe_post_git_sync_check(
         if let Err(e) = windmill_common::git_sync_ee::update_check_run(
             db,
             workspace_id,
-            &check.repo_url,
+            &repo_url,
             check_run_id,
             conclusion,
             &title,
@@ -1561,7 +1575,7 @@ async fn maybe_post_git_sync_check(
             if let Err(e) = windmill_common::git_sync_ee::upsert_pr_comment(
                 db,
                 workspace_id,
-                &check.repo_url,
+                &repo_url,
                 pr_number,
                 marker,
                 &body,

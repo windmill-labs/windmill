@@ -4717,7 +4717,13 @@ async fn maintain_git_credentials_inner(db: &Pool<Postgres>) -> error::Result<()
             }
         };
 
-        for repo in &settings.repositories {
+        // The workspace ordering above only decides which workspace comes first;
+        // within one, the repositories need the same least-recently-checked
+        // order or the tail of a large workspace never gets its turn.
+        let mut repositories: Vec<_> = settings.repositories.iter().collect();
+        repositories.sort_by_key(|r| r.credential.as_ref().map(|c| c.checked_at));
+
+        for repo in repositories {
             if started.elapsed() >= GIT_CREDENTIAL_PASS_BUDGET {
                 skipped += 1;
                 continue;
