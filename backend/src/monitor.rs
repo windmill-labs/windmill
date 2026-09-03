@@ -4755,10 +4755,13 @@ async fn maintain_git_credentials_inner(db: &Pool<Postgres>) -> error::Result<()
             // state costs nothing, and only the repositories actually missing a
             // hook reach the host.
             use windmill_common::workspaces::AutoPullMode;
+            // Also when a hook exists but carries a warning: a save during a GitLab
+            // outage keeps the hook and records why it could not be confirmed, and
+            // that warning is only cleared by a reconcile that confirms it again.
             let needs_hook = repo.auto_pull.as_ref().is_some_and(|a| {
                 a.enabled
                     && matches!(a.mode, AutoPullMode::Auto | AutoPullMode::Webhook)
-                    && a.webhook_id.is_none()
+                    && (a.webhook_id.is_none() || a.webhook_error.is_some())
             });
             if needs_hook {
                 let mut repo = repo.clone();
