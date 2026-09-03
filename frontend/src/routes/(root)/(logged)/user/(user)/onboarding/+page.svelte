@@ -1,15 +1,12 @@
 <script lang="ts">
-	import { ArrowLeft, Loader2 } from 'lucide-svelte'
+	import { ArrowLeft } from 'lucide-svelte'
 	import { UserService, WorkspaceService } from '$lib/gen/services.gen'
 	import { goto } from '$lib/navigation'
 	import { usersWorkspaceStore } from '$lib/stores'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { page } from '$app/state'
 	import { toSameOriginRelativePath } from '$lib/logoutRedirect'
-	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import CreateWorkspaceInner from '$lib/components/workspaceSettings/CreateWorkspaceInner.svelte'
-	import { WORKSPACE_NAME_MAX_LENGTH } from '$lib/utils/workspaceId'
-	import { defaultWorkspaceName, WORKSPACE_HANDOVER_MS } from '$lib/workspaceCreation'
+	import SimpleCreateWorkspace from '$lib/components/workspaceSettings/SimpleCreateWorkspace.svelte'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -44,37 +41,25 @@
 	let otherPopoverOpen = $state(false)
 	let otherInputRef: HTMLInputElement | undefined = $state()
 
-	// The workspace signup made for this user, and the name they give it. Loaded up front so
-	// the step is ready by the time the survey is answered — and dropped altogether for someone
-	// who arrived by invite, who has a workspace already and was never given one of their own.
-	let ownWorkspace = $state<{ id: string; name: string } | undefined>(undefined)
-	let workspaceName = $state('')
-	let renaming = $state(false)
-	// The survey was skipped, so the naming step has nothing to go back to.
+	// Whether this user already belongs somewhere, in which case there is nothing to create:
+	// signup makes no workspace, so only an invited user arrives with one. Loaded up front so
+	// the last step is settled by the time the survey is answered.
+	let hasWorkspace = $state(false)
+	// The survey was skipped, so the last step has nothing to go back to.
 	let skippedSurvey = $state(false)
-	// Everything a name does not cover — id, colour, username, invites — behind the real
-	// creation form rather than a second copy of it here. It makes a workspace of its own,
-	// which is the point: this is the escape hatch for someone setting up for a team.
-	let advanced = $state(false)
 
 	async function loadWorkspaceStep() {
 		try {
-			const [me, workspaces] = await Promise.all([
-				UserService.globalWhoami(),
-				WorkspaceService.listUserWorkspaces()
-			])
+			const workspaces = await WorkspaceService.listUserWorkspaces()
 			usersWorkspaceStore.set(workspaces)
-			const owned = workspaces.workspaces.filter((w) => w.id !== 'admins')
-			if (owned.length !== 1) return
-			ownWorkspace = { id: owned[0].id, name: owned[0].name }
-			workspaceName = defaultWorkspaceName(me.name, me.email)
+			hasWorkspace = workspaces.workspaces.some((w) => w.id !== 'admins')
 		} catch (error) {
 			console.error('Could not prepare the workspace step:', error)
 		}
 	}
-	// Held, not dropped: Skip awaits one POST that can finish before these two GETs do, and
-	// branching on `ownWorkspace` before they land would skip the naming step this flow exists
-	// for. Both exits await it; `isSubmitting` already covers the wait.
+	// Held, not dropped: Skip awaits one POST that can finish before this GET does, and
+	// branching on `hasWorkspace` before it lands would skip the step this flow exists for.
+	// Both exits await it; `isSubmitting` already covers the wait.
 	const workspaceStepReady = loadWorkspaceStep()
 
 	const sources = [
@@ -120,48 +105,12 @@
 		currentStep = currentStep === STEP_WORKSPACE ? STEP_USE_CASE : STEP_SOURCE
 	}
 
-	const workspaceNameProblem = $derived(
-		!workspaceName.trim()
-			? 'A name is required'
-			: workspaceName.trim().length > WORKSPACE_NAME_MAX_LENGTH
-				? `The name is too long (max ${WORKSPACE_NAME_MAX_LENGTH} characters).`
-				: undefined
-	)
-
-	/** Renames the workspace signup created, then leaves. A failure is not worth blocking on:
-	 *  the workspace already carries the name the backend derived, which is the same one
-	 *  prefilled here, so the user loses an edit rather than a workspace. */
-	async function confirmWorkspaceName() {
-		if (!ownWorkspace || workspaceNameProblem || renaming) return
-		renaming = true
-		const next = workspaceName.trim()
-		const started = Date.now()
-		try {
-			if (next !== ownWorkspace.name) {
-				await WorkspaceService.changeWorkspaceName({
-					workspace: ownWorkspace.id,
-					requestBody: { new_name: next }
-				})
-			}
-		} catch (error) {
-			console.error('Could not rename the workspace:', error)
-			sendUserToast('Could not rename the workspace: ' + (error?.body || error?.message), true)
-		} finally {
-			const left = WORKSPACE_HANDOVER_MS - (Date.now() - started)
-			if (left > 0) await new Promise((resolve) => setTimeout(resolve, left))
-			// `renaming` is left up: it is what draws the hand-over, and the navigation below
-			// loads the workspace for the first time — clearing it would show the form again
-			// underneath for as long as that takes.
-			leaveOnboarding()
-		}
-	}
-
 	/**
-	 * Where to go once onboarding is done. A destination carried by the sign-in — a hub
-	 * project import, say — is what the user came for, so it wins. Otherwise cloud signup
-	 * has made one workspace for them and the picker would be a page with a single choice on
-	 * it: land in that workspace, and fall back to the picker only when there is an actual
-	 * choice to make (an invite to accept, several workspaces, none).
+	 * Where to go once onboarding is done. A destination carried by the sign-in — a hub project
+	 * import, say — is what the user came for, so it wins. Otherwise the one workspace this
+	 * flow just made, or the one an invite already gave them, is where they belong and the
+	 * picker would be a page with a single choice on it. It is reached only when there is an
+	 * actual choice to make: several workspaces, or an invite still to accept.
 	 */
 	async function leaveOnboarding() {
 		// `toSameOriginRelativePath` rather than a local check: it already rejects `//host`,
@@ -208,10 +157,10 @@
 			await workspaceStepReady
 			isSubmitting = false
 			// do not block users from accessing windmill even if there is an error
-			if (ownWorkspace) {
-				currentStep = STEP_WORKSPACE
-			} else {
+			if (hasWorkspace) {
 				leaveOnboarding()
+			} else {
+				currentStep = STEP_WORKSPACE
 			}
 		}
 	}
@@ -230,10 +179,10 @@
 			// Skipping the survey is not skipping naming the workspace: the questions are ours,
 			// the workspace is theirs.
 			skippedSurvey = true
-			if (ownWorkspace) {
-				currentStep = STEP_WORKSPACE
-			} else {
+			if (hasWorkspace) {
 				leaveOnboarding()
+			} else {
+				currentStep = STEP_WORKSPACE
 			}
 		}
 	}
@@ -340,7 +289,7 @@
 				<div class="flex items-center gap-2">
 					<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
 					<div class="w-2 h-2 rounded-full bg-blue-500"></div>
-					{#if ownWorkspace}
+					{#if !hasWorkspace}
 						<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
 					{/if}
 				</div>
@@ -348,61 +297,26 @@
 		</div>
 	</CenteredModal>
 {:else if currentStep === STEP_WORKSPACE}
-	<CenteredModal title="Name your workspace" centerVertically={false}>
+	<CenteredModal title="Create your workspace" centerVertically={false}>
 		<div class="w-full max-w-lg mx-auto">
-			{#if renaming}
-				<div class="flex flex-col items-center gap-3 py-12 text-sm text-secondary">
-					<Loader2 size={20} class="animate-spin" />
-					Setting up {workspaceName.trim()}…
-				</div>
-			{:else if advanced}
-				<!-- The real creation form: id, colour, username, invites. It makes a workspace of
-				     its own and enters it, so this page only has to say where to go afterwards —
-				     `goto` rather than `leaveOnboarding`, which would see two workspaces and offer
-				     the picker for a choice the user has just made. -->
-				<CreateWorkspaceInner inModal onFinish={() => goto('/')} />
-			{:else}
-				<p class="text-sm text-secondary">
-					Your scripts, flows and apps live here. You can rename it later in the workspace settings.
-				</p>
+			<p class="mb-6 text-sm text-secondary">
+				Your scripts, flows and apps live here. You can rename it later in the workspace settings.
+			</p>
 
-				<div class="mt-6 mb-2">
-					<TextInput
-						bind:value={workspaceName}
-						inputProps={{ autofocus: true, maxlength: WORKSPACE_NAME_MAX_LENGTH }}
-					/>
-					{#if workspaceNameProblem && workspaceName.trim()}
-						<span class="text-2xs font-normal text-red-500">{workspaceNameProblem}</span>
-					{/if}
-				</div>
+			<!-- The same one-field form the workspace picker falls back to, so a user who leaves
+			     onboarding early meets it again rather than something new. It owns the name, the
+			     id, the advanced form and the hand-over into the workspace. -->
+			<SimpleCreateWorkspace onCreated={leaveOnboarding} />
 
-				<button
-					class="text-xs text-secondary hover:text-emphasis"
-					onclick={() => (advanced = true)}
-				>
-					Advanced settings
-				</button>
-
-				<div class="flex flex-row justify-between items-center pt-6 gap-4">
-					{#if skippedSurvey}
-						<span></span>
-					{:else}
-						<Button
-							variant="default"
-							unifiedSize="xs"
-							startIcon={{ icon: ArrowLeft }}
-							on:click={goToPreviousStep}
-						>
-							Previous
-						</Button>
-					{/if}
+			{#if !skippedSurvey}
+				<div class="flex flex-row justify-start items-center pt-6">
 					<Button
-						variant="accent"
-						unifiedSize="md"
-						disabled={!!workspaceNameProblem}
-						on:click={confirmWorkspaceName}
+						variant="default"
+						unifiedSize="xs"
+						startIcon={{ icon: ArrowLeft }}
+						on:click={goToPreviousStep}
 					>
-						Continue
+						Previous
 					</Button>
 				</div>
 			{/if}
