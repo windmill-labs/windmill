@@ -61,7 +61,7 @@ an `expires_at`.
 | --- | --- |
 | Instant pull | A project hook Windmill creates, so Maintainer; and a Windmill base URL GitLab can reach |
 | Merge requests on deploy | Developer, plus the `api` scope |
-| Diff preview on a merge request | The project hook, plus permission to post commit statuses and merge request notes |
+| Diff preview on a merge request | The project hook, plus permission to post merge request notes |
 
 Instant pull falls back to checking the tracked branch about every minute when
 the hook cannot be created or delivered, so nothing silently stops syncing.
@@ -79,21 +79,26 @@ same private network as GitLab needs this; without it, hook creation fails with 
 Everything else is identical: Windmill talks to `<your-gitlab>/api/v4` and needs
 no inbound access of its own beyond the hook deliveries.
 
-## Commit statuses create a pipeline
+## The deploy preview is a note, not a pipeline status
 
-GitLab has no separate check-run concept. Windmill's `Windmill diff` and
-`Windmill` statuses are **commit statuses**, and posting one creates an `external`
-pipeline on the project. Two consequences:
+On GitHub the preview is a check run: its own object, advisory unless the
+repository makes it required. GitLab has no equivalent. Its only comparable
+primitive is a commit status, and posting one has side effects Windmill will not
+impose on a project:
 
-- A project with *Pipelines must succeed* set will not let a merge request merge
-  while a Windmill status is still running, and will block it if the status
-  failed. Windmill therefore always drives a status it created to a terminal
-  state, and reports an informational result (for example "3 changes to deploy")
-  as success rather than leaving it pending.
-- `allow_failure` is ignored on the commit-status endpoint, so a Windmill status
-  cannot be made advisory. If you do not want it gating merges, turn the diff
-  preview off rather than expecting it to be non-blocking.
+- GitLab files the status **as a job inside whatever pipeline already covers that
+  commit**, so a failed Windmill status fails the project's own pipeline, and its
+  reviewers see their test suite as failed.
+- `allow_failure` is ignored on the commit-status endpoint, so the status cannot
+  be made advisory.
+- On a commit with no pipeline it creates an `external` pipeline instead, which
+  then gates merging under *Pipelines must succeed*, including while it is still
+  running.
 
-A commit status carries only a name, a 255-character description and a link, so
-the diff itself goes in a merge request note that Windmill keeps up to date, and
-the status links to the job.
+So on GitLab the preview lives entirely in a **merge request note** that Windmill
+keeps up to date: it carries the workspace, the status line, the commit, a link
+to the job, and the full list of changes merging would deploy. A note cannot
+block a merge or change what the project's own CI reports.
+
+The note is upserted rather than appended, so a merge request accumulates one
+Windmill comment however many times it is pushed to.

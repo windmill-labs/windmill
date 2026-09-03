@@ -816,7 +816,10 @@ pub async fn handle_receive_completed_job(
 #[cfg(all(feature = "enterprise", feature = "private"))]
 #[derive(serde::Deserialize)]
 struct GitSyncCheck {
-    check_run_id: i64,
+    /// Absent when the repository's host has no check surface (GitLab): the
+    /// result then reaches the pull request through the managed comment alone.
+    #[serde(default)]
+    check_run_id: Option<i64>,
     repo_url: String,
     #[serde(default)]
     pr_number: Option<i64>,
@@ -1520,31 +1523,21 @@ async fn maybe_post_git_sync_check(
         Some(url) => format!("{summary}\n\n[See the job in Windmill]({url})"),
         None => summary.clone(),
     };
-    // GitLab has no way to address a commit status by id: the name it was
-    // posted under, together with the commit, is what identifies it.
-    let check_run = windmill_common::git_sync_ee::CheckRun {
-        id: check.check_run_id,
-        head_sha: check.head_sha.clone().unwrap_or_default(),
-        name: if is_deploy {
-            windmill_common::git_sync_ee::CHECK_NAME_DEPLOY
-        } else {
-            windmill_common::git_sync_ee::CHECK_NAME_DIFF
+    if let Some(check_run_id) = check.check_run_id {
+        if let Err(e) = windmill_common::git_sync_ee::update_check_run(
+            db,
+            workspace_id,
+            &check.repo_url,
+            check_run_id,
+            conclusion,
+            &title,
+            &check_summary,
+            job_url.as_deref(),
+        )
+        .await
+        {
+            tracing::error!("git sync-check: failed to update check run: {e:#}");
         }
-        .to_string(),
-    };
-    if let Err(e) = windmill_common::git_sync_ee::update_check_run(
-        db,
-        workspace_id,
-        &check.repo_url,
-        &check_run,
-        conclusion,
-        &title,
-        &check_summary,
-        job_url.as_deref(),
-    )
-    .await
-    {
-        tracing::error!("git sync-check: failed to update check run: {e:#}");
     }
 
     // Phase 4 also maintains ONE managed comment on the PR (Cloudflare
