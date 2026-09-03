@@ -183,9 +183,9 @@ async fn add_granular_acl(
 
     if kind == "folder" {
         let change_type = if write.unwrap_or(false) {
-            "grant_read"
-        } else {
             "grant_write"
+        } else {
+            "grant_read"
         };
         crate::folders::log_folder_permission_change(
             &mut *tx,

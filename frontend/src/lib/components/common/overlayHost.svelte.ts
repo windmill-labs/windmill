@@ -73,3 +73,23 @@ export function overlayHostActive(): () => boolean {
 	const host = getOverlayHost()
 	return () => host?.active() ?? true
 }
+
+const TOPMOST_SURFACE_KEY = 'topmostSurface'
+
+/**
+ * Declare whether the surface enclosing this subtree is the one on top. Set by whatever owns the
+ * stacking — a dialog, a drawer — so content inside it can tell a key meant for itself from one
+ * meant for something opened over it.
+ */
+export function setTopmostSurface(isTopmost: () => boolean) {
+	setContext(TOPMOST_SURFACE_KEY, isTopmost)
+}
+
+/**
+ * Whether the enclosing surface is on top. True when nothing declared otherwise, so content that
+ * is not inside such a surface is not silently made deaf.
+ */
+export function topmostSurface(): () => boolean {
+	const isTopmost = getContext<(() => boolean) | undefined>(TOPMOST_SURFACE_KEY)
+	return () => isTopmost?.() ?? true
+}

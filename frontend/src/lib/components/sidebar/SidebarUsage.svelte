@@ -2,21 +2,18 @@
 	import { resource } from 'runed'
 	import { goto } from '$lib/navigation'
 	import { isCloudHosted } from '$lib/cloud'
-	import { UserService } from '$lib/gen'
+	import { WorkspaceService } from '$lib/gen'
 	import {
 		isPremiumStore,
 		usageStore,
 		userStore,
-		userWorkspaces,
 		workspaceMembershipVersion,
 		workspaceStore,
-		workspaceUsageStore,
-		type UserWorkspace
+		workspaceUsageStore
 	} from '$lib/stores'
 	import { refreshExecutions } from '$lib/usage.svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { scopedValue, tagged } from '$lib/utils/scopedValue'
-	import { findWorkspaceAncestors } from '$lib/utils/workspaceHierarchy'
 	import { Button } from '$lib/components/common'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
@@ -30,51 +27,30 @@
 
 	let open = $state(false)
 
-	// A fork's usage and tier resolve to its billing root while its member list is a
-	// subset of the root's, so seats must come from the root or the cap is fork-sized
-	// against root usage. `undefined` when the root isn't visible from here: the cap
-	// is then unknowable, and the caller hides the meter rather than guessing.
-	function billingRoot(workspace: string, all: UserWorkspace[]): string | undefined {
-		const self = all.find((w) => w.id === workspace)
-		if (!self) return undefined
-		if (!self.parent_workspace_id) return workspace
-		const top = findWorkspaceAncestors(workspace, all).at(-1)
-		return top && !top.parent_workspace_id ? top.id : undefined
-	}
+	// Seat count for a paid workspace, the basis of its included executions. The server
+	// resolves a fork to the workspace its plan is billed on and counts the seats there,
+	// because neither is answerable from here: a fork's member list is a subset of that
+	// root's, and a fork member need not be a member of the root at all.
+	const fetchSeats = tagged(
+		async (workspace: string) => (await WorkspaceService.getBillableSeats({ workspace })).seats
+	)
 
-	// Seat count for a paid workspace, the basis of its included executions. Only the
-	// user list is needed: `premium_info` carries the same usage number as
-	// `workspaceUsageStore` but requires admin and only exists when Stripe is
-	// configured, so it would leave regular members with no block at all.
-	const fetchSeats = tagged(async (root: string) => {
-		// Throws for a fork member with no seat in the root, which is the same answer as
-		// an unresolvable root: leave the paid meter hidden.
-		const users = await UserService.listUsers({ workspace: root })
-		// Same basis as the backend's `count_paid_seats`: disabled members and service
-		// accounts are not billed, so counting them inflates the cap and hides a real
-		// overage. 1 developer = 1 seat, 2 operators = 1 seat.
-		const billable = users.filter((u) => !u.disabled && !u.is_service_account)
-		const developers = billable.filter((u) => !u.operator).length
-		const operators = billable.length - developers
-		return Math.ceil(developers + operators / 2)
-	})
-
-	const billingRootId = $derived.by(() => {
-		const workspace = $workspaceStore
-		if (!isCloudHosted() || !$isPremiumStore || !workspace) return undefined
-		return billingRoot(workspace, $userWorkspaces ?? [])
-	})
+	const meteredWorkspace = $derived(
+		isCloudHosted() && $isPremiumStore ? $workspaceStore : undefined
+	)
 
 	// The membership version is in the key so a change re-resolves the cap, but not in
 	// the tag: tagging by it would blank the bar on every change.
 	const seatsResource = resource(
 		() =>
-			billingRootId ? { root: billingRootId, version: $workspaceMembershipVersion } : undefined,
-		async (key) => (key ? await fetchSeats(key.root) : undefined)
+			meteredWorkspace
+				? { workspace: meteredWorkspace, version: $workspaceMembershipVersion }
+				: undefined,
+		async (key) => (key ? await fetchSeats(key.workspace) : undefined)
 	)
 
 	const scopedSeats = scopedValue<number>()
-	const seats = $derived(scopedSeats(billingRootId, seatsResource.current))
+	const seats = $derived(scopedSeats(meteredWorkspace, seatsResource.current))
 
 	type QuotaKey = 'user' | 'workspace'
 

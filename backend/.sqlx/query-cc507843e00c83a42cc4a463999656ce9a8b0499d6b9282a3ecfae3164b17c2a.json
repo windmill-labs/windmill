@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO lock_hash (workspace_id, path, lockfile_hash)\n         SELECT $1, * FROM UNNEST($2::text[], $3::bigint[])\n         ON CONFLICT (workspace_id, path) DO UPDATE SET lockfile_hash = EXCLUDED.lockfile_hash\n         WHERE lock_hash.lockfile_hash IS DISTINCT FROM EXCLUDED.lockfile_hash",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "TextArray",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cc507843e00c83a42cc4a463999656ce9a8b0499d6b9282a3ecfae3164b17c2a"
+}

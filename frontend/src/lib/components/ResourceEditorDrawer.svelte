@@ -22,8 +22,16 @@
 	let {
 		workspace = undefined,
 		disableChatOffset = false,
-		onRestored = undefined
-	}: { workspace?: string; disableChatOffset?: boolean; onRestored?: () => void } = $props()
+		onRestored = undefined,
+		onSaved = undefined
+	}: {
+		workspace?: string
+		disableChatOffset?: boolean
+		onRestored?: () => void
+		/** Fires after Save has written, for a caller showing state derived from the
+		 * resource — `onRestored` only covers restoring an old version. */
+		onSaved?: () => void
+	} = $props()
 
 	let drawer: Drawer | undefined = $state()
 	let historyDrawer: Drawer | undefined = $state()
@@ -181,9 +189,14 @@
 				variant="accent"
 				unifiedSize="md"
 				startIcon={{ icon: Save }}
-				on:click={() => {
-					resourceEditor?.save()
+				on:click={async () => {
+					// Closed before the write is awaited, the way it always was: `save()` toasts its
+					// own failures and never rejects, so waiting would only add visible lag to every
+					// caller of this drawer. `onSaved` still fires after the write lands.
+					const saved = resourceEditor?.save()
 					drawer?.closeDrawer()
+					await saved
+					onSaved?.()
 				}}
 				disabled={!canSave}
 			>

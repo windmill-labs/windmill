@@ -730,9 +730,6 @@
 													rightTooltip: 'Fill args from JSON'
 												}}
 												lightMode
-												on:change={(e) => {
-													runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
-												}}
 											/>
 										{/if}
 									</div>
@@ -815,7 +812,7 @@
 				const nargs = JSON.parse(JSON.stringify(e.detail))
 				args = nargs
 				if (jsonView) {
-					runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+					runForm?.syncJsonEditor()
 				}
 			}}
 		/>

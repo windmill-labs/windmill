@@ -7,6 +7,7 @@ import { canWrite } from '$lib/utils'
 import { userStore } from '$lib/stores'
 import { getUserExt } from '$lib/user'
 import { useTriggerDraftSync, type TriggerDraftSync } from '../triggers/useTriggerDraftSync.svelte'
+import { logReusableAgentUsage } from './agentTelemetry'
 import { AGENT_BRAIN_KEYS, type AIAgentConfig } from './agentResourceUtils'
 // Lives here rather than beside the other config helpers: `agentResourceUtils` is a leaf, and
 // importing tool-name validation into it would cycle back through `flowInfers` and pull the whole
@@ -255,6 +256,9 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 			sendUserToast(`Could not save agent: ${err}`, true)
 			return false
 		}
+		// The counter the step card's write-back used to report, from the surface that now owns the
+		// write: a deploy here reaches every flow linking this agent.
+		logReusableAgentUsage(noDeployed ? 'saved' : 'updated')
 		deployed = submitted
 		noDeployed = false
 		// Only when the form still holds exactly what was sent. `discard` resets the handle's cell to

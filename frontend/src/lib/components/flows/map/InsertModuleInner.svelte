@@ -3,7 +3,7 @@
 </script>
 
 <script lang="ts">
-	import { createEventDispatcher, getContext, untrack } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, onMount, untrack } from 'svelte'
 	import StepGenQuick from '$lib/components/copilot/StepGenQuick.svelte'
 	import FlowInputsQuick from '../content/FlowInputsQuick.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
@@ -14,6 +14,7 @@
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import type { FlowEditorContext } from '../types'
+	import { logReusableAgentUsage } from '../agentTelemetry'
 	import { BotIcon, Loader2, Plus } from 'lucide-svelte'
 
 	const dispatch = createEventDispatcher()
@@ -57,6 +58,15 @@
 	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
 	let ws = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
 
+	// Flagged for the whole menu, whichever pane is showing: the flow builder walks node
+	// selection on ArrowUp/ArrowDown while it is unset, which tears the popover down.
+	onMount(() => {
+		flowEditorContext?.insertButtonOpen.set(true)
+	})
+	onDestroy(() => {
+		flowEditorContext?.insertButtonOpen.set(false)
+	})
+
 	let savedAgents = $state<{ path: string; description?: string }[]>([])
 	let savedAgentsLoading = $state(false)
 	let savedAgentsWs: string | undefined = undefined
@@ -85,6 +95,72 @@
 			: savedAgents
 	)
 
+	function newBlankAgent() {
+		dispatch('close')
+		dispatch('new', { kind: 'aiagent' })
+	}
+	function newLinkedAgent(agentPath: string) {
+		dispatch('close')
+		logReusableAgentUsage('linked')
+		dispatch('new', { kind: 'aiagent', agentPath })
+	}
+	function newClaudeSandbox() {
+		dispatch('close')
+		dispatch('new', {
+			kind: 'script',
+			inlineScript: {
+				language: 'bun',
+				kind: 'script',
+				subkind: 'claudesandbox'
+			}
+		})
+	}
+
+	// Rows of the AI panes in render order. FlowInputsQuick owns the keyboard index for the other
+	// panes and is unmounted while these render, so the two never fight over Enter or the arrows.
+	let aiRows = $derived.by((): (() => void)[] => {
+		if (selectedKind === 'aiagent') {
+			const saved = savedAgentsLoading ? [] : filteredAgents
+			return [newBlankAgent, ...saved.map((a) => () => newLinkedAgent(a.path))]
+		}
+		if (selectedKind === 'aisandbox') {
+			return [newClaudeSandbox]
+		}
+		return []
+	})
+	let selectedByKeyboard = $state(0)
+	// Clamped rather than reset when the search filter shrinks the list, so the index never
+	// points past the last rendered row.
+	let aiSelected = $derived(Math.min(selectedByKeyboard, Math.max(aiRows.length - 1, 0)))
+	let aiScrollable: HTMLElement | undefined = $state()
+	let stepGen: StepGenQuick | undefined = $state()
+	function onAiKeyDown(e: KeyboardEvent) {
+		if (aiRows.length === 0) {
+			return
+		}
+		// Enter activates the highlighted row only from the search box (or nothing focused); a
+		// focused button, link or field keeps its own native activation.
+		if (
+			e.key === 'Enter' &&
+			e.target instanceof HTMLElement &&
+			e.target.closest('button, a, select, textarea')
+		) {
+			return
+		}
+		if (e.key === 'ArrowDown') {
+			selectedByKeyboard = (aiSelected + 1) % aiRows.length
+			aiScrollable?.scrollTo({ top: selectedByKeyboard * 32, behavior: 'smooth' })
+			e.preventDefault()
+		} else if (e.key === 'ArrowUp') {
+			selectedByKeyboard = (aiSelected - 1 + aiRows.length) % aiRows.length
+			aiScrollable?.scrollTo({ top: selectedByKeyboard * 32, behavior: 'smooth' })
+			e.preventDefault()
+		} else if (e.key === 'Enter') {
+			e.preventDefault()
+			aiRows[aiSelected]()
+		}
+	}
+
 	let height = $state(0)
 	let owners = $state([])
 	// Only the content-sized host (TriggersWrapper) grows past this. The fixed-height hosts top out
@@ -93,6 +169,7 @@
 	let displayPath = $derived(height > 480)
 </script>
 
+<svelte:window onkeydown={onAiKeyDown} />
 <div
 	id="flow-editor-insert-module"
 	class="flex flex-col h-full gap-2 max-w-full {small ? 'w-[450px]' : 'w-[650px]'}"
@@ -104,6 +181,7 @@
 >
 	<div class="flex flex-row items-center gap-2">
 		<StepGenQuick
+			bind:this={stepGen}
 			on:escape={() => dispatch('close')}
 			{disableAi}
 			on:insert
@@ -229,7 +307,10 @@
 							selected={selectedKind === 'aiagent'}
 							onSelect={() => {
 								selectedKind = 'aiagent'
+								selectedByKeyboard = 0
 								loadSavedAgents()
+								// Clicking leaves focus on this button, where Enter would only re-select it.
+								stepGen?.focus()
 							}}
 						/>
 					{/if}
@@ -239,6 +320,8 @@
 							selected={selectedKind === 'aisandbox'}
 							onSelect={() => {
 								selectedKind = 'aisandbox'
+								selectedByKeyboard = 0
+								stepGen?.focus()
 							}}
 						/>
 					{/if}
@@ -247,19 +330,25 @@
 		{/if}
 
 		{#if selectedKind === 'aiagent'}
-			<div class="h-full overflow-auto grow min-w-0 p-2 gap-1 flex flex-col">
+			<div
+				bind:this={aiScrollable}
+				class="h-full overflow-auto grow min-w-0 p-2 gap-1 flex flex-col"
+			>
 				<Button
-					onClick={() => {
-						dispatch('close')
-						dispatch('new', { kind: 'aiagent' })
-					}}
+					onClick={newBlankAgent}
+					onmousemove={() => (selectedByKeyboard = 0)}
 					role="menuitem"
 					variant="subtle"
 					unifiedSize="sm"
-					btnClasses="justify-start"
+					btnClasses="justify-start {aiSelected === 0
+						? 'bg-surface-hover'
+						: 'hover:bg-transparent'}"
 				>
 					<Plus size={13} class="shrink-0" />
 					<span class="grow truncate text-left">Blank AI agent</span>
+					{#if aiSelected === 0}
+						<kbd class="!text-xs">&crarr;</kbd>
+					{/if}
 				</Button>
 				{#if savedAgentsLoading}
 					<div class="flex items-center gap-2 p-2 text-xs text-tertiary">
@@ -267,20 +356,23 @@
 					</div>
 				{:else if filteredAgents.length > 0}
 					<div class="pt-2 pb-0 text-2xs font-normal text-secondary ml-2">Saved agents</div>
-					{#each filteredAgents as agent (agent.path)}
+					{#each filteredAgents as agent, i (agent.path)}
 						<Button
-							onClick={() => {
-								dispatch('close')
-								dispatch('new', { kind: 'aiagent', agentPath: agent.path })
-							}}
+							onClick={() => newLinkedAgent(agent.path)}
+							onmousemove={() => (selectedByKeyboard = i + 1)}
 							role="menuitem"
 							variant="subtle"
 							unifiedSize="sm"
-							btnClasses="justify-start"
+							btnClasses="justify-start {aiSelected === i + 1
+								? 'bg-surface-hover'
+								: 'hover:bg-transparent'}"
 							title={agent.description || agent.path}
 						>
 							<BotIcon size={13} class="shrink-0 text-ai" />
 							<span class="grow truncate text-left">{agent.path}</span>
+							{#if aiSelected === i + 1}
+								<kbd class="!text-xs">&crarr;</kbd>
+							{/if}
 						</Button>
 					{/each}
 				{:else}
@@ -295,17 +387,11 @@
 			<div class="h-full overflow-auto grow min-w-0 p-2 gap-1 flex flex-col">
 				<TopLevelNode
 					label="Claude Code"
-					onSelect={() => {
-						dispatch('close')
-						dispatch('new', {
-							kind: 'script',
-							inlineScript: {
-								language: 'bun',
-								kind: 'script',
-								subkind: 'claudesandbox'
-							}
-						})
-					}}
+					neutral
+					returnIcon
+					selected={aiSelected === 0}
+					onSelect={newClaudeSandbox}
+					onHover={() => (selectedByKeyboard = 0)}
 				/>
 			</div>
 		{:else}

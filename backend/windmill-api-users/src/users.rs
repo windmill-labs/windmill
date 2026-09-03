@@ -19,7 +19,7 @@ use windmill_api_auth::ApiAuthed;
 
 pub use windmill_api_auth::Tokened;
 
-use argon2::{Argon2, PasswordHash, PasswordVerifier};
+use argon2::{Argon2, PasswordVerifier};
 use axum::{
     extract::{Extension, Path, Query},
     response::{IntoResponse, Response},
@@ -1239,6 +1239,7 @@ async fn leave_instance(Extension(db): Extension<DB>, authed: ApiAuthed) -> Resu
     sqlx::query!("DELETE FROM password WHERE email = $1", &authed.email)
         .execute(&mut *tx)
         .await?;
+    windmill_common::user_drafts::delete_drafts_of_email(&mut *tx, &authed.email).await?;
 
     audit_log(
         &mut *tx,
@@ -1661,6 +1662,7 @@ async fn delete_user(
     sqlx::query!("DELETE FROM password WHERE email = $1", &email_to_delete)
         .execute(&mut *tx)
         .await?;
+    windmill_common::user_drafts::delete_drafts_of_email(&mut *tx, &email_to_delete).await?;
 
     let usernames = sqlx::query_scalar!(
         "DELETE FROM usr WHERE email = $1 RETURNING username",
@@ -1869,7 +1871,7 @@ async fn change_user_email(
         .execute(&mut *tx)
         .await?;
 
-    // ---- account ---- (draft.email follows through its ON UPDATE CASCADE fkey)
+    // ---- account ----
     sqlx::query!(
         "UPDATE password SET email = $1 WHERE email = $2",
         &new_email,
@@ -1883,6 +1885,7 @@ async fn change_user_email(
         }
         _ => e.into(),
     })?;
+    windmill_common::user_drafts::rename_drafts_of_email(&mut *tx, &old_email, &new_email).await?;
 
     sqlx::query!(
         "UPDATE usr SET email = $1 WHERE email = $2",
@@ -2680,10 +2683,8 @@ async fn login(
     .await?;
 
     if let Some((email, hash, super_admin)) = email_w_h {
-        let parsed_hash =
-            PasswordHash::new(&hash).map_err(|e| Error::internal_err(e.to_string()))?;
         if argon2
-            .verify_password(password.as_bytes(), &parsed_hash)
+            .verify_password(password.as_bytes(), hash.as_str())
             .is_err()
         {
             audit_log(
@@ -3541,6 +3542,9 @@ async fn overwrite_global_users(
     require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
+    // Replaces the account table, so — unlike the paths that remove one account — it deliberately
+    // does not call `delete_drafts_of_email`: the addresses are about to be reinstated, and
+    // dropping every draft on the instance to restore accounts would be pure collateral.
     sqlx::query!("DELETE FROM password")
         .execute(&mut *tx)
         .await?;
@@ -3710,3 +3714,23 @@ async fn request_password_reset(
 }
 
 // NOTE: reset_password is in windmill-api (depends on users_oss::hash_password EE dispatch)
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Stored hashes outlive the hashing crate: every instance still holds hashes minted by
+    /// older argon2 releases, and an upgrade that stopped reading them locks their users out.
+    #[test]
+    fn verifies_a_hash_minted_by_an_older_argon2() {
+        // The seeded admin hash from migration 20220508150023, m=4096,t=3,p=1.
+        let seeded = "$argon2id$v=19$m=4096,t=3,p=1$oLJo/lPn/gezXCuFOEyaNw$i0T2tCkw3xUFsrBIKZwr8jVNHlIfoxQe+HfDnLtd12I";
+
+        assert!(Argon2::default()
+            .verify_password(b"changeme", seeded)
+            .is_ok());
+        assert!(Argon2::default()
+            .verify_password(b"not-the-password", seeded)
+            .is_err());
+    }
+}

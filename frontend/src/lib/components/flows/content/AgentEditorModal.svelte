@@ -207,12 +207,16 @@
 	{#key `${ws}:${target.path}`}
 		<!-- Bound rather than held open: the store is what decides whether this is mounted, so every
 		     way out has to reach it. The close button and the backdrop only set `open`, and a
-		     dialog left closed over a target still set could never be opened again. -->
+		     dialog left closed over a target still set could never be opened again.
+
+		     `paginated` only under evals: that pane lays its levels over each other with
+		     `PagedContent`, while the agent form is one page and wants the ordinary spacing. -->
 		<Modal
 			bind:open={() => true, (open) => !open && close()}
 			kind="X"
 			fillHeight
 			enterConfirms={false}
+			paginated={inEvals}
 			title={target.path}
 			{trail}
 			{description}

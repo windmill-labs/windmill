@@ -53,14 +53,19 @@
 	let jobProgressReset: () => void = () => {}
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
+	// Every explicit run re-evaluates the args with errors surfaced. The reactive evaluations
+	// that follow each flow edit stay quiet, so without this a failing expression is silently
+	// `undefined` in what the run is built from. Manually edited args are preserved across the
+	// refresh by `initializeFromSchema`.
 	export function runTestWithStepArgs() {
-		const args = stepsInputArgs.getStepArgs(mod.id)
-		runTest(args)
-	}
-
-	export function loadArgsAndRunTest() {
-		stepsInputArgs?.updateStepArgs(mod.id, flowStateStore.val, flowStore?.val, previewArgs?.val)
-		runTestWithStepArgs()
+		stepsInputArgs?.updateStepArgs(
+			mod.id,
+			flowStateStore.val,
+			flowStore?.val,
+			previewArgs?.val,
+			true
+		)
+		runTest(stepsInputArgs.getStepArgs(mod.id))
 	}
 
 	// A step's timeout is an InputTransform. Only a static numeric value can be applied

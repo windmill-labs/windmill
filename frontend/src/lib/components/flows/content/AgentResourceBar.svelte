@@ -25,6 +25,7 @@
 		clearLinkedAgentTools,
 		linkedToolsScope
 	} from '../linkedAgentToolsStore.svelte'
+	import { logReusableAgentUsage } from '../agentTelemetry'
 	import { claimLinkedToolsFetch } from '../flowState'
 	import type { AgentTool as AgentToolStrict } from '../agentToolUtils'
 	import { resource } from 'runed'
@@ -333,6 +334,7 @@
 			const linked = await persist(newPath, description)
 			saveDrawer?.closeDrawer()
 			if (linked) {
+				logReusableAgentUsage('saved')
 				sendUserToast(`Saved reusable agent ${newPath}`)
 			}
 		} catch (e) {
@@ -388,6 +390,7 @@
 		try {
 			const forked = await forkFromResource()
 			if (forked) {
+				logReusableAgentUsage('unlinked')
 				sendUserToast('Forked agent. Its configuration was copied into this step')
 			} else {
 				sendUserToast('The step changed while loading the agent, so nothing was unlinked', true)

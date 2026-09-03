@@ -1132,8 +1132,8 @@
 									<Cell head>Path</Cell>
 									<Cell head>Resource type</Cell>
 									<Cell head>Description</Cell>
-									<Cell head />
-									<Cell head last stickyEnd />
+									<Cell head>Status</Cell>
+									<Cell head last actions>Actions</Cell>
 								</Row>
 							</Head>
 							<tbody class="divide-y bg-surface">
@@ -1300,8 +1300,8 @@
 													{/if}
 												</div>
 											</Cell>
-											<Cell last stickyEnd>
-												<div class="flex justify-end">
+											<Cell last actions>
+												<div class="flex justify-end items-center gap-2">
 													{#if path && assetCanBeExplored({ kind: 'resource', path }, { resource_type }) && !$userStore?.operator}
 														<ExploreAssetButton
 															asset={{ kind: 'resource', path }}
@@ -1430,7 +1430,7 @@
 								<Row>
 									<Cell head first>Name</Cell>
 									<Cell head>Description</Cell>
-									<Cell head last stickyEnd />
+									<Cell head last actions>Actions</Cell>
 								</Row>
 							</Head>
 							<tbody class="divide-y bg-surface">
@@ -1474,7 +1474,7 @@
 													</span>
 												</div>
 											</Cell>
-											<Cell last stickyEnd class="border-l-0 text-right">
+											<Cell last actions>
 												{#if !canWrite}
 													<!-- Badge is inline-flex, so it needs a right-aligning wrapper to sit
 														flush with the action buttons on the rows that have them. -->

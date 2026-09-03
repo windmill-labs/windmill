@@ -14,7 +14,6 @@ use tokio::{
 };
 use windmill_common::{
     error::{self, Error},
-    utils::calculate_hash,
     worker::{write_file, Connection},
 };
 use windmill_queue::MiniPulledJob;
@@ -602,8 +601,13 @@ pub async fn build_rust_crate(
 
 /// Cache key of a Rust build. The run path and the deploy-time prebuild must derive it
 /// the same way or the prebuilt binary is never found and gets rebuilt on first run.
-async fn rust_cache_key(code: &str, requirements_o: Option<&String>, w_id: &str) -> String {
-    let mut hash = compute_rust_hash(code, requirements_o);
+async fn rust_cache_key(
+    code: &str,
+    requirements_o: Option<&String>,
+    w_id: &str,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
+) -> String {
+    let mut hash = compute_rust_hash(code, requirements_o, modules);
     hash.push_str(&crate::workspace_registry_cache_suffix(w_id).await);
     hash
 }
@@ -621,11 +625,12 @@ pub async fn prebuild_rust_binary(
     worker_name: &str,
     base_internal_url: &str,
     occupancy_metrics: &mut OccupancyMetrics,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> error::Result<Option<String>> {
     ensure_rust_runtime_dirs();
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
-    let hash = rust_cache_key(code, Some(&lock.to_string()), &job.workspace_id).await;
+    let hash = rust_cache_key(code, Some(&lock.to_string()), &job.workspace_id, modules).await;
     let remote_path = format!("{RUST_OBJECT_STORE_PREFIX}{hash}");
     if crate::global_cache::exists_in_object_store(&remote_path).await {
         return Ok(None);
@@ -652,15 +657,22 @@ pub async fn prebuild_rust_binary(
     Ok(Some(logs))
 }
 
-pub fn compute_rust_hash(code: &str, requirements_o: Option<&String>) -> String {
-    calculate_hash(&format!(
+pub fn compute_rust_hash(
+    code: &str,
+    requirements_o: Option<&String>,
+    // Companion modules are written into the crate dir and compiled into the binary this
+    // key names, so leaving them out shares one script's binary with another.
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
+) -> String {
+    let base = format!(
         "{}{}",
         code,
         requirements_o
             .as_ref()
             .map(|x| x.to_string())
             .unwrap_or_default()
-    ))
+    );
+    crate::worker::artifact_cache_name(base, modules)
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -679,11 +691,12 @@ pub async fn handle_rust_job(
     worker_name: &str,
     envs: HashMap<String, String>,
     occupancy_metrics: &mut OccupancyMetrics,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> Result<Box<RawValue>, Error> {
     ensure_rust_runtime_dirs();
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
-    let hash = rust_cache_key(inner_content, requirements_o, &job.workspace_id).await;
+    let hash = rust_cache_key(inner_content, requirements_o, &job.workspace_id, modules).await;
     let bin_path = format!("{}/{hash}", *RUST_CACHE_DIR);
     let remote_path = format!("{RUST_OBJECT_STORE_PREFIX}{hash}");
 

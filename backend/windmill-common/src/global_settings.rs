@@ -15,6 +15,7 @@ pub const OAUTH_SETTING: &str = "oauths";
 pub const AI_CONFIG_SETTING: &str = "ai_config";
 pub const RETENTION_PERIOD_SECS_SETTING: &str = "retention_period_secs";
 pub const RETENTION_PERIOD_SECS_OVERRIDES_SETTING: &str = "retention_period_secs_overrides";
+pub const SERVICE_LOG_RETENTION_SECS_SETTING: &str = "service_log_retention_secs";
 /// Upper bound on how many per-workspace retention overrides may be configured. The periodic monitor
 /// sweeps each override workspace in its own transaction every pass, so this keeps a pass bounded
 /// (and the feature is a targeted escape hatch for a handful of special workspaces, not a bulk knob).
@@ -107,6 +108,7 @@ pub const JWT_SECRET_SETTING: &str = "jwt_secret";
 pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
 pub const OTEL_SETTING: &str = "otel";
 pub const OTEL_TRACING_PROXY_SETTING: &str = "otel_tracing_proxy";
+pub const OTEL_TRACES_RETENTION_SECS_SETTING: &str = "otel_traces_retention_secs";
 pub const APP_WORKSPACED_ROUTE_SETTING: &str = "app_workspaced_route";
 pub const HTTP_ROUTE_WORKSPACED_ROUTE_SETTING: &str = "http_route_workspaced_route";
 pub const SECRET_BACKEND_SETTING: &str = "secret_backend";

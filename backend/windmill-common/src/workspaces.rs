@@ -175,7 +175,7 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28911/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28931/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -183,7 +183,7 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28911/sync-script-to-git-repo
 /// ignores the slug, so the slug is kept free of characters that would be
 /// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
 /// reverse proxies reject as double-encoding when the client re-encodes it).
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28910/git-sync-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28930/git-sync-init-repository-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -759,15 +759,24 @@ pub async fn count_workspace_forks(db: &crate::DB, root: &str) -> Result<i64> {
     Ok(count)
 }
 
-/// Approximate paid seats of a workspace as `ceil(developers + operators/2)`, excluding disabled and
-/// service-account members. Reuses billing's author/operator weighting, but counts provisioned
-/// members rather than the active-user population billing meters, so it only ever loosens the fork
-/// cap (never blocks a paid seat) — good enough for a soft guardrail.
+/// The billable members of a workspace and the seats they add up to.
+#[derive(Clone, Debug, Serialize)]
+pub struct BillableSeats {
+    pub developers: i64,
+    pub operators: i64,
+    pub seats: i64,
+}
+
+/// Billable members of `w_id` and the seats they cost, as `ceil(developers + operators/2)`. Service
+/// accounts cannot log in and do not take a seat; a disabled member is not billed either.
+///
+/// The workspace is invoiced by a job outside this codebase that counts the same rows with its own
+/// SQL. The two must be changed together: this rule disagreeing with that one is what bills a
+/// workspace for seats the product never credits it for.
 ///
 /// Unauthenticated metering helper: reads member counts for any `w_id`, so callers must already be
 /// authorized for that workspace (or run in trusted server-side code).
-#[cfg(feature = "cloud")]
-pub async fn count_paid_seats(db: &crate::DB, w_id: &str) -> Result<i64> {
+pub async fn billable_seats(db: &crate::DB, w_id: &str) -> Result<BillableSeats> {
     let row = sqlx::query!(
         r#"SELECT
             COUNT(*) FILTER (WHERE NOT operator AND NOT disabled AND NOT is_service_account) AS "developers!",
@@ -777,8 +786,18 @@ pub async fn count_paid_seats(db: &crate::DB, w_id: &str) -> Result<i64> {
     )
     .fetch_one(db)
     .await
-    .map_err(|e| Error::internal_err(format!("counting paid seats of {w_id}: {e:#}")))?;
-    Ok(((row.developers as f64) + 0.5 * (row.operators as f64)).ceil() as i64)
+    .map_err(|e| Error::internal_err(format!("counting billable seats of {w_id}: {e:#}")))?;
+    Ok(BillableSeats {
+        developers: row.developers,
+        operators: row.operators,
+        seats: ((row.developers as f64) + 0.5 * (row.operators as f64)).ceil() as i64,
+    })
+}
+
+/// Seats only, for the fork cap. See [`billable_seats`].
+#[cfg(feature = "cloud")]
+pub async fn count_paid_seats(db: &crate::DB, w_id: &str) -> Result<i64> {
+    Ok(billable_seats(db, w_id).await?.seats)
 }
 
 #[cfg(feature = "cloud")]
@@ -2191,6 +2210,32 @@ pub fn lfs_entry_storage_ref(entry: &serde_json::Value) -> Option<String> {
     let path = entry.get(path_field)?.as_str()?;
     let path = path.strip_prefix("$res:").unwrap_or(path);
     Some(format!("{typ}:{path}"))
+}
+
+pub const FILESYSTEM_STORAGE_DEV_ONLY_MSG: &str =
+    "Filesystem storage is only available in development builds of Windmill: it points the \
+     workspace at a directory on the server's own disk rather than at a resource. Use an S3, \
+     Azure Blob or Google Cloud Storage backend instead.";
+
+/// A filesystem workspace storage names a directory on the server's own disk, so it hands whoever
+/// configures it — a workspace admin, or any member who can write a `filesystem` resource —
+/// whatever the server process can reach, and it only resolves when server and workers share that
+/// disk. It is there so local development can skip MinIO, hence debug builds only. Instance object
+/// storage on local disk is a separate, superadmin-only setting and stays allowed everywhere.
+pub fn filesystem_storage_allowed() -> bool {
+    cfg!(debug_assertions)
+}
+
+/// Guards every site that builds an `ObjectStoreResource::Filesystem`, so nothing downstream can
+/// reach a local-disk store: a stored config outlives the build that accepted it, and the resource
+/// route never passes through the workspace-storage settings at all.
+pub fn ensure_filesystem_storage_allowed() -> Result<()> {
+    if !filesystem_storage_allowed() {
+        return Err(Error::BadRequest(
+            FILESYSTEM_STORAGE_DEV_ONLY_MSG.to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// Resolve a `$res:`/`$var:` reference tree to its concrete value (recursively, secrets

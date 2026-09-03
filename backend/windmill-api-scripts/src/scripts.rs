@@ -39,7 +39,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 use std::{collections::HashMap, sync::Arc};
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
-use windmill_dep_map::process_relative_imports;
+use windmill_dep_map::{lock_hash::record_lock_hashes, process_relative_imports};
 use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
 
 use windmill_common::{
@@ -216,12 +216,15 @@ async fn list_scripts(
             // a member of has no `usr` row, so fall back to their instance-derived username
             // (`password.username`), or their email when derivation is disabled — this keeps the
             // raw email out of the payload whenever a derived username exists. The genuine
-            // NULL-email legacy row stays None (no `usr`/`password` match, `d.email` is NULL).
+            // NULL-email legacy row stays None (no `usr`/`password` match, `d.email` is NULL),
+            // which is why an owner that resolves to no name at all — an external JWT's subject
+            // has neither row — is dropped: None is read as "legacy" downstream.
             "(SELECT json_agg(json_build_object('username', COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END)) ORDER BY COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END) NULLS LAST) \
               FROM draft d \
               LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
               LEFT JOIN password p ON p.email = d.email AND p.super_admin = true \
-              WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND d.typ = 'script') as draft_users",
+              WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND d.typ = 'script' \
+                AND (d.email IS NULL OR u.username IS NOT NULL OR p.email IS NOT NULL)) as draft_users",
             "folder_labels(o.workspace_id, o.path) as inherited_labels"
         ])
         .left()
@@ -1070,6 +1073,14 @@ fn modules_eq(
     }
 }
 
+/// Recorded for the empty lock a codebase or a language with no lock generation carries as well as
+/// for a real one: the worker writes `hash_script("")` in the same situation, and a path going from
+/// a real lock to an empty one has to stop matching what its importers recorded, or they wrongly
+/// skip rather than merely relock too often.
+fn lock_hash_entry(path: &str, lock: &str) -> [(String, i64); 1] {
+    [(path.to_string(), hash_script(lock))]
+}
+
 async fn create_script_internal<'c>(
     mut ns: NewScript,
     w_id: String,
@@ -1337,6 +1348,12 @@ async fn create_script_internal<'c>(
                     parent_hash = %p_hash.0,
                     "Skipping no-op script deploy (identical to parent)"
                 );
+                // The version is unchanged, but the row recording its lock's hash may never have
+                // been written — nothing else writes it for a supplied lock, and a path only ever
+                // pushed unchanged would otherwise keep its importers relocking forever.
+                if let Some(lock) = ps.lock.as_deref() {
+                    record_lock_hashes(&mut tx, &w_id, &lock_hash_entry(&ns.path, lock)).await?;
+                }
                 return Ok((p_hash.clone(), tx, None, Vec::new()));
             }
 
@@ -1883,6 +1900,13 @@ async fn create_script_internal<'c>(
     )
     .execute(&mut *tx)
     .await?;
+
+    // A lock that is not left to a dependency job queues none, so this is the only place its hash
+    // can be recorded. `try_skip_relock` treats a missing hash for an imported script as changed,
+    // so leaving the row out makes every importer of this path relock on every deploy of it.
+    if let Some(lock) = lock.as_deref() {
+        record_lock_hashes(&mut tx, &w_id, &lock_hash_entry(&ns.path, lock)).await?;
+    }
 
     // Update ci_test_reference table for test scripts
     // Delete by both new and old path to handle renames

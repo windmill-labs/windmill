@@ -8,6 +8,7 @@
 	import { onMount, createEventDispatcher, setContext, untrack } from 'svelte'
 	import { BROWSER } from 'esm-env'
 	import Disposable from './Disposable.svelte'
+	import { setTopmostSurface } from '$lib/components/common/overlayHost.svelte'
 	import ConditionalPortal from './ConditionalPortal.svelte'
 	import { chatState } from '$lib/components/copilot/chat/sharedChatState.svelte'
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
@@ -50,6 +51,11 @@
 	}
 
 	let disposable: Disposable | undefined = $state(undefined)
+
+	// A drawer stacks like a dialog does, so content inside it gets the same answer about whether
+	// its keys are meant for it. Without this, a drawer opened over a dialog would inherit the
+	// dialog's answer — false, because the drawer itself is now on top — and go deaf.
+	setTopmostSurface(() => disposable?.isTopmost() ?? true)
 
 	let reducedMotion = useReducedMotion()
 	let duration = $derived(reducedMotion.val ? 0 : _duration)
