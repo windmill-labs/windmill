@@ -102,7 +102,7 @@
 
 <SettingsPageHeader
 	title="Members {members != undefined ? `(${members.length})` : ''}"
-	description="Add collaborators to the fork you created."
+	description="Add members to the fork you created."
 	link="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
 />
 
@@ -124,12 +124,12 @@
 					nonCaptureEvent={true}
 					startIcon={{ icon: UserPlus }}
 				>
-					Add collaborator
+					Add member
 				</Button>
 			{/snippet}
 			{#snippet content()}
 				<div class="flex flex-col w-[28rem] p-4 gap-2">
-					<span class="text-sm leading-6 font-semibold">Add a collaborator</span>
+					<span class="text-sm leading-6 font-semibold">Add a member</span>
 					<span class="text-xs text-secondary">
 						They join as a developer of this fork. Only members of
 						<b>{parentWorkspaceId}</b> who are developers or admins there can be added.

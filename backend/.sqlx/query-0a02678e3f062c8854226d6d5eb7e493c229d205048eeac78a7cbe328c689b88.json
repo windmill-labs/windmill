@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO draft(workspace_id, path, typ, value, email) VALUES\n            ('test-workspace', 'u/ext/s', 'script', '{}'::json, 'ext-jwt@windmill.dev'),\n            ('test-workspace', 'u/two/s', 'script', '{\"summary\": \"moving\"}'::json, 'test2@windmill.dev'),\n            ('test-workspace', 'u/two/s', 'script', '{\"summary\": \"displaced\"}'::json, 'renamed@windmill.dev'),\n            ('test-workspace', 'u/three/s', 'script', '{}'::json, 'test3@windmill.dev')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "0a02678e3f062c8854226d6d5eb7e493c229d205048eeac78a7cbe328c689b88"
+}

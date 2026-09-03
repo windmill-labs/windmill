@@ -146,6 +146,7 @@ async fn edit_copilot_config(
     .await?;
 
     let workspace_has_config = ai_config.has_providers();
+    let copilot_disabled = ai_config.copilot_disabled;
     let instance_ai_config =
         sqlx::query_scalar!("SELECT value FROM global_settings WHERE name = 'ai_config'")
             .fetch_optional(&db)
@@ -158,7 +159,7 @@ async fn edit_copilot_config(
         .as_ref()
         .and_then(|v| serde_json::from_value::<AIConfig>(v.clone()).ok())
         .filter(|c| c.has_providers());
-    let effective_ai_config = if workspace_has_config {
+    let mut effective_ai_config = if workspace_has_config {
         ai_config
     } else if let Some(instance_config) = instance_config_with_providers {
         instance_config
@@ -172,6 +173,7 @@ async fn edit_copilot_config(
     } else {
         AIConfig::default()
     };
+    effective_ai_config.copilot_disabled = copilot_disabled;
 
     Ok(Json(EditCopilotConfigResponse {
         effective_ai_config,
@@ -207,6 +209,9 @@ async fn get_copilot_info(
         ))
     })?;
 
+    let copilot_disabled = workspace_ai_config
+        .as_ref()
+        .is_some_and(|c| c.0.copilot_disabled);
     let instance_config =
         sqlx::query_scalar!("SELECT value FROM global_settings WHERE name = 'ai_config'")
             .fetch_optional(&db)
@@ -215,20 +220,23 @@ async fn get_copilot_info(
             // A provider-less instance config (e.g. `{}`) is unconfigured; don't let it shadow the
             // free-tier fallback, matching the proxy and edit_copilot_config paths.
             .filter(|c| c.has_providers());
-    if let Some(workspace_ai_config) = workspace_ai_config.filter(|c| c.0.has_providers()) {
-        Ok(Json(workspace_ai_config.0))
-    } else if let Some(instance_config) = instance_config {
-        Ok(Json(instance_config))
-    } else if let Some(free_config) =
-        crate::ai_free_tier_oss::free_tier_copilot_config(&db, &authed.email).await?
-    {
-        // Nothing configured: fall back to Windmill's free tier (EE-only). The config
-        // carries a `free_tier` marker even once the user's grant is spent — with no
-        // providers, but telling the client *why* AI is off.
-        Ok(Json(free_config))
-    } else {
-        Ok(Json(AIConfig::default()))
-    }
+    let mut effective =
+        if let Some(workspace_ai_config) = workspace_ai_config.filter(|c| c.0.has_providers()) {
+            workspace_ai_config.0
+        } else if let Some(instance_config) = instance_config {
+            instance_config
+        } else if let Some(free_config) =
+            crate::ai_free_tier_oss::free_tier_copilot_config(&db, &authed.email).await?
+        {
+            // Nothing configured: fall back to Windmill's free tier (EE-only). The config
+            // carries a `free_tier` marker even once the user's grant is spent — with no
+            // providers, but telling the client *why* AI is off.
+            free_config
+        } else {
+            AIConfig::default()
+        };
+    effective.copilot_disabled = copilot_disabled;
+    Ok(Json(effective))
 }
 
 #[cfg(feature = "enterprise")]
