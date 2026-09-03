@@ -770,12 +770,17 @@ async fn commit_relock(
     deployment_message: Option<String>,
 ) -> error::Result<RelockOutcome> {
     let mut tx = db.begin().await?;
-    let mut head = fetch_script_for_update(script_path, w_id, &mut *tx).await?;
-    if head.is_none() {
-        // Having waited on the live version's row lock, this statement re-checked that row
-        // once the holder committed, found it archived, and returned nothing: the successor
-        // the holder inserted is not in the statement's snapshot. A fresh statement sees it.
+    let mut head = None;
+    for _ in 0..4 {
         head = fetch_script_for_update(script_path, w_id, &mut *tx).await?;
+        if head.is_some() {
+            break;
+        }
+        // Having waited on the live version's row lock, the statement re-checked that row
+        // once the holder committed, found it archived, and returned nothing: the successor
+        // the holder inserted is not in the statement's snapshot. A fresh statement sees it,
+        // unless yet another writer got there first, so this goes around a few times before
+        // concluding the path holds no live version.
     }
     let Some(head) = head else {
         return Err(Error::NotFound(format!(
