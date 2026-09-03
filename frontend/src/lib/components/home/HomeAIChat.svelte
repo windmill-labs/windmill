@@ -270,7 +270,7 @@
 			</div>
 		{/if}
 
-		<div class="flex items-center justify-between gap-2">
+		<div class="flex items-center justify-between gap-2 pt-2">
 			{#if showComposer && !collapsed}
 				<div class="flex flex-row flex-wrap items-center gap-1.5">
 					{#each homeAIExamples as example (example.label)}
