@@ -2,7 +2,7 @@
 	import type { Schema } from '$lib/common'
 	import { ResourceService, WorkspaceService, type Resource, type ResourceType } from '$lib/gen'
 	import { canWrite } from '$lib/utils'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
@@ -14,6 +14,7 @@
 	import type { UserExt } from '$lib/stores'
 	import { UserDraft, draftValuesEqual, type UserDraftHandle } from '$lib/userDraft.svelte'
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import { onUserInput } from '$lib/userDraftEditGate'
 
 	interface Props {
 		canSave?: boolean
@@ -103,6 +104,46 @@
 		if (workspaceSpecs.some((s) => s.ws === ws)) return
 		workspaceSpecs.push({ ws, defaultValue })
 	}
+
+	// A workspace stays gated until the user puts something into its form: the
+	// resource type's schema is what fills in properties the stored value never
+	// had, and that is not an edit. While gated the autosave is suspended and
+	// the deployed baseline absorbs whatever the form settles on, so opening a
+	// resource whose type gained a property leaves no draft behind. See
+	// `onUserInput`. A workspace opened ON a saved draft keeps its baseline —
+	// the divergence there is the user's own, from an earlier session.
+	let userEdited: Record<string, boolean> = $state({})
+	let openedOnDraft: Record<string, boolean> = $state({})
+	const suspendedWorkspaces = new Set<string>()
+
+	function setGated(ws: string, gated: boolean): void {
+		if (!initialPath) return
+		if (gated === suspendedWorkspaces.has(ws)) return
+		if (gated) {
+			UserDraft.stopSync('resource', initialPath, { workspace: ws })
+			suspendedWorkspaces.add(ws)
+		} else {
+			UserDraft.restartSync('resource', initialPath, { workspace: ws })
+			suspendedWorkspaces.delete(ws)
+		}
+	}
+
+	onUserInput(() => {
+		if (selected) userEdited[selected] = true
+	})
+
+	$effect(() => {
+		const wss = Object.keys(states)
+		const edited = { ...userEdited }
+		untrack(() => {
+			for (const ws of wss) setGated(ws, !edited[ws])
+		})
+	})
+
+	// `stopSync` must be paired or the key stays unsynced for the session.
+	onDestroy(() => {
+		for (const ws of [...suspendedWorkspaces]) setGated(ws, false)
+	})
 
 	let isValid = $state(true)
 	let jsonError = $state('')
@@ -242,6 +283,11 @@
 				}
 				// Open with the saved draft if present, else the deployed.
 				const s: ResourceState = savedDraftState ?? deployedState
+				openedOnDraft[ws] = !!savedDraftState
+				// Gate BEFORE the handle is acquired: `stopSync` queues on a
+				// not-yet-live entry, and the form can settle before the effect
+				// above gets a chance to run.
+				setGated(ws, true)
 				ensureHandle(ws, s)
 				initialStates[ws] = structuredClone(deployedState)
 				// Draft-only paths (`no_deployed`) have no row — saving must
@@ -253,6 +299,23 @@
 					resource_type = r.resource_type
 				}
 			})
+		})
+	})
+
+	// Absorb the form's settling writes into the deployed baseline while the
+	// selected workspace is gated, so they show up neither as the "unsaved
+	// changes" banner nor, once `discardIf` reads the baseline, as a draft.
+	// Only the selected workspace has a form rendered against it.
+	$effect(() => {
+		const ws = selected
+		if (!ws || !initialPath) return
+		if (userEdited[ws] || openedOnDraft[ws]) return
+		// `$state.snapshot` deep-reads, so nested `args` mutations re-run this.
+		const settled = states[ws]?.draft
+			? ($state.snapshot(states[ws].draft) as ResourceState)
+			: undefined
+		untrack(() => {
+			if (settled && !draftValuesEqual(settled, initialStates[ws])) initialStates[ws] = settled
 		})
 	})
 
@@ -289,6 +352,13 @@
 	}
 	export function discardLocalDraft(): void {
 		if (!selected) return
+		// Back to the deployed value with nothing of the user's left in it, so
+		// the gate closes again — otherwise the form settles on the schema's
+		// values a second time and the discarded draft comes straight back.
+		// `discard` POSTs the delete itself, so suspending first is safe.
+		openedOnDraft[selected] = false
+		userEdited[selected] = false
+		setGated(selected, true)
 		UserDraft.discard('resource', initialPath ?? '', initialStates[selected], {
 			workspace: selected
 		})
