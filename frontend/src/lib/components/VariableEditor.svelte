@@ -148,7 +148,12 @@
 			!!openedWith[selected] &&
 			!draftValuesEqual({ ...current, path: '' }, { ...openedWith[selected], path: '' }),
 		value: () => (current ? ($state.snapshot(current) as VariableState) : undefined),
-		pathIsFree: (p) => (selected ? variablePathIsFree(selected, p) : Promise.resolve(false))
+		pathIsFree: (p) => (selected ? variablePathIsFree(selected, p) : Promise.resolve(false)),
+		onAbandonKey: (ws, p) => {
+			// The handle is pinned to the path this editor opened; once the draft
+			// has moved off it, its next write would recreate the row it left.
+			if (p === editPath) UserDraft.stopSync('variable', p, { workspace: ws })
+		}
 	})
 
 	// The list-page `*` hint is owned by UserDraftDbSyncer (set on save, cleared
@@ -240,13 +245,10 @@
 				initialStates[ws] = structuredClone(deployedState)
 				openedWith[ws] = structuredClone(s)
 				existedInitially[ws] = !noDeployed
-				if (noDeployed) {
-					// The helper owns this draft's key from here (see `draftOnly`);
-					// leaving the handle syncing too would write the same content back
-					// under the path this editor opened, stranding the row on a rename.
-					UserDraft.stopSync('variable', p, { workspace: ws })
-					newDraftSync.adopt(ws, p, structuredClone(s))
-				}
+				// The helper owns this draft's key from here (see `draftOnly`): the
+				// handle keeps autosaving it while the path is unchanged, and hands
+				// the key over the moment a rename moves it.
+				if (noDeployed) newDraftSync.adopt(ws, p, structuredClone(s))
 				extraPerms[ws] = v.extra_perms ?? {}
 				perWsUser[ws] = user
 			})

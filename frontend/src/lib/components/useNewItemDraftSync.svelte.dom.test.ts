@@ -220,6 +220,41 @@ describe('useNewItemDraftSync', () => {
 		cleanup()
 	})
 
+	/** An editor's own autosave handle stays pinned to the path it opened, so
+	 * once the draft moves the helper has to hand that key back for suspension —
+	 * otherwise the handle's next write recreates the row just deleted. */
+	it('reports the key it abandons so a pinned handle can be suspended', async () => {
+		const form = $state({ path: 'u/me/pinned', n: 1 })
+		const abandoned: string[] = []
+		let sync: ReturnType<typeof useNewItemDraftSync> | undefined
+		const cleanup = $effect.root(() => {
+			sync = useNewItemDraftSync({
+				itemKind: 'resource',
+				enabled: () => true,
+				workspace: () => 'w',
+				path: () => form.path,
+				pathError: () => '',
+				contentTouched: () => false,
+				value: () => ({ n: form.n }),
+				onAbandonKey: (_ws, p) => abandoned.push(p)
+			})
+			sync.adopt('w', 'u/me/pinned', { n: 1 })
+		})
+		flushSync()
+		// Untouched: the key is still in use, nothing handed back.
+		vi.advanceTimersByTime(2000)
+		flushSync()
+		expect(abandoned).toEqual([])
+
+		form.path = 'u/me/elsewhere'
+		flushSync()
+		vi.advanceTimersByTime(1000)
+		flushSync()
+		await sync!.flush()
+		expect(abandoned).toEqual(['u/me/pinned'])
+		cleanup()
+	})
+
 	/** An adopted draft exists whether or not the user edits it, so the
 	 * touched gate that keeps an untouched NEW item from leaving a row must not
 	 * apply — deleting here would wipe the item the editor is showing. An

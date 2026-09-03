@@ -236,7 +236,12 @@
 			!!openedWith[selected] &&
 			!draftValuesEqual({ ...current, path: '' }, { ...openedWith[selected], path: '' }),
 		value: () => (current ? ($state.snapshot(current) as ResourceState) : undefined),
-		pathIsFree: (p) => (selected ? resourcePathIsFree(selected, p) : Promise.resolve(false))
+		pathIsFree: (p) => (selected ? resourcePathIsFree(selected, p) : Promise.resolve(false)),
+		onAbandonKey: (ws, p) => {
+			// The handle is pinned to the path this editor opened; once the draft
+			// has moved off it, its next write would recreate the row it left.
+			if (p === initialPath) UserDraft.stopSync('resource', p, { workspace: ws })
+		}
 	})
 
 	// New-resource bootstrap: seed empty state per workspace (edit mode
@@ -308,13 +313,10 @@
 				initialStates[ws] = structuredClone(deployedState)
 				openedWith[ws] = structuredClone(s)
 				existedInitially[ws] = !noDeployed
-				if (noDeployed) {
-					// The helper owns this draft's key from here (see `draftOnly`);
-					// leaving the handle syncing too would write the same content back
-					// under the path this editor opened, stranding the row on a rename.
-					UserDraft.stopSync('resource', initialPath, { workspace: ws })
-					newDraftSync.adopt(ws, initialPath, structuredClone(s))
-				}
+				// The helper owns this draft's key from here (see `draftOnly`): the
+				// handle keeps autosaving it while the path is unchanged, and hands
+				// the key over the moment a rename moves it.
+				if (noDeployed) newDraftSync.adopt(ws, initialPath, structuredClone(s))
 				perWsUser[ws] = user
 				// Keep resource_type in sync for the base workspace (controls the schema)
 				if (ws === effectiveWorkspace) {

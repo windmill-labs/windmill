@@ -23,9 +23,13 @@ export interface NewItemDraftSyncOptions<V> {
 	/** Reactive deep read of the value to persist (`$state.snapshot` of the
 	 * form state); `undefined` while there is nothing to persist. */
 	value: () => V | undefined
-	/** Whether nothing is deployed at `path` yet. Consulted only when a close
-	 * forces a commit early, where `Path`'s own check may not have run. */
+	/** Whether nothing is deployed at `path` yet. Consulted before every commit:
+	 * `Path`'s own check is debounced and may not have answered. */
 	pathIsFree?: (path: string) => Promise<boolean>
+	/** Called for a key this helper has stopped writing to, after its row is
+	 * deleted. An editor whose own autosave handle is pinned to that key MUST
+	 * suspend it here, or the handle's next write would recreate the row. */
+	onAbandonKey?: (workspace: string, path: string) => void
 }
 
 export interface NewItemDraftSync<V> {
@@ -105,6 +109,7 @@ export function useNewItemDraftSync<V>(opts: NewItemDraftSyncOptions<V>): NewIte
 			// and `remove` blanks that live cell — the form would lose its state
 			// mid-rename. The fallback leaves the cell holding what the form holds.
 			UserDraft.discard(opts.itemKind, written.path, value, { workspace: written.workspace })
+			opts.onAbandonKey?.(written.workspace, written.path)
 			markUnsettled(written.workspace, written.path)
 			written = undefined
 			writtenValue = undefined
@@ -217,6 +222,7 @@ export function useNewItemDraftSync<V>(opts: NewItemDraftSyncOptions<V>): NewIte
 			if (w) {
 				// See `write`: an adopted key is a live handle key, so keep its cell.
 				UserDraft.discard(opts.itemKind, w.path, opts.value(), { workspace: w.workspace })
+				opts.onAbandonKey?.(w.workspace, w.path)
 				markUnsettled(w.workspace, w.path)
 			}
 			await settle()
