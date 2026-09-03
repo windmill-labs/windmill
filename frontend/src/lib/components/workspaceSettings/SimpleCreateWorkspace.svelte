@@ -158,6 +158,8 @@
 		{/if}
 
 		<div class="mt-6 flex items-center justify-between gap-4">
+			<!-- A bare <button> as a quiet text link, signed off by design: a second <Button> here
+			     would compete with Create workspace for the eye. -->
 			<button class="text-xs text-secondary hover:text-emphasis" onclick={() => (advanced = true)}>
 				Advanced settings
 			</button>

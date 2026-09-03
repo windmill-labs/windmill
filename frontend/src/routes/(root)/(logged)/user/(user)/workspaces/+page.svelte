@@ -238,7 +238,10 @@
 			<span class="text-xs text-tertiary">
 				Logged in as <span class="text-secondary">{$usersWorkspaceStore?.email}</span>
 				·
-				<button class="text-blue-500 hover:underline" onclick={() => logout()}>Log out</button>
+				<!-- A bare <button> for a link inside the sentence, signed off by design: <Button>
+				     cannot sit inline in running text. `text-accent`, not the `text-blue-500` of
+				     older links. -->
+				<button class="text-accent hover:underline" onclick={() => logout()}>Log out</button>
 			</span>
 		{/if}
 	{/snippet}

@@ -101,7 +101,11 @@
 		or
 		<CreateActionsMenu source="empty_state" triggerElement={newLinkEl}>
 			{#snippet trigger()}
-				<!-- The full stop rides inside the snippet: across a component boundary Svelte
+				<!-- A bare <button> for a link inside a sentence, signed off by design: <Button>
+				     carries its own padding and background and cannot sit inline in running text.
+				     The colour is `text-accent` — the `text-blue-500` older links use is the
+				     mistake to avoid, not the pattern to copy.
+				     The full stop rides inside the snippet: across a component boundary Svelte
 				     keeps the markup whitespace, which would leave a gap before it. -->
 				<button
 					bind:this={newLinkEl}
