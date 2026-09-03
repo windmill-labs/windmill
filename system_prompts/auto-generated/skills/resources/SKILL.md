@@ -95,9 +95,11 @@ through to the script unchanged:
 ```
 
 The string may sit anywhere a string can — a top-level argument, a nested object field
-(`{ "gh_auth": { "token": "$var:g/all/gh_token" } }`), or an array element (array elements are
-walked only while nested at most two levels deep, and only for arrays of at most 1000 items).
-The prefix must be on the string itself.
+(`{ "gh_auth": { "token": "$var:g/all/gh_token" } }`), or an array element. Object fields are
+always walked, however deep. An array is walked only when at most two containers (objects or
+arrays, counted together) enclose it inside the argument value, and only when it holds at most
+1000 items; past either limit its elements are passed through unresolved. The prefix must be on
+the string itself.
 
 ## Common Resource Types
 
