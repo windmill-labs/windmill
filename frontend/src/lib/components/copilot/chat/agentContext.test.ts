@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { countReadyAttachments, summarizeTools } from './agentContext'
+import { attachmentStatusLabel, countReadyAttachments, summarizeTools } from './agentContext'
 import type { Tool } from './shared'
 
 const tool = (name: string, description?: string, parameters?: Record<string, any>) =>
@@ -49,5 +49,17 @@ describe('countReadyAttachments', () => {
 			{ status: 'ready' as const }
 		]
 		expect(countReadyAttachments([], files)).toBe(2)
+	})
+})
+
+describe('attachmentStatusLabel', () => {
+	// Every unreadable status has to say why: the file tools operate on `readyFiles()`,
+	// so a row that reads like the usable ones is the one place the panel could claim
+	// something the assistant cannot open.
+	it('labels every status the file tools cannot read, and only those', () => {
+		expect(attachmentStatusLabel('ready')).toBeUndefined()
+		for (const status of ['locked', 'unavailable', 'indexing', 'error'] as const) {
+			expect(attachmentStatusLabel(status)).toBeTruthy()
+		}
 	})
 })
