@@ -1662,14 +1662,29 @@ async fn delete_user(
         .execute(&mut *tx)
         .await?;
 
-    // The workspace comes back with the name: a username is scoped to one, and
-    // the data table tenants that name it are stored per workspace.
+    // Read before deleting, so each membership's tenant can go first. A username
+    // is scoped to one workspace, and so are the tenants naming it.
     let memberships = sqlx::query!(
-        "DELETE FROM usr WHERE email = $1 RETURNING workspace_id, username",
+        "SELECT workspace_id, username FROM usr WHERE email = $1",
         &email_to_delete
     )
     .fetch_all(&mut *tx)
     .await?;
+
+    for row in &memberships {
+        // The username is free in that workspace once the row below is gone, so
+        // a role still naming it would hand itself to whoever takes it next.
+        windmill_common::workspaces::remove_datatable_tenant_in_workspace_unchecked(
+            &row.workspace_id,
+            &format!("u/{}", row.username),
+            &mut tx,
+        )
+        .await?;
+    }
+
+    sqlx::query!("DELETE FROM usr WHERE email = $1", &email_to_delete)
+        .execute(&mut *tx)
+        .await?;
 
     for row in memberships {
         let username = row.username;
@@ -1680,15 +1695,6 @@ async fn delete_user(
         sqlx::query!("DELETE FROM usr_to_group WHERE usr = $1", &username)
             .execute(&mut *tx)
             .await?;
-
-        // The username is free in that workspace now, so a role still naming it
-        // would hand itself to whoever takes it next.
-        windmill_common::workspaces::remove_datatable_tenant_in_workspace_unchecked(
-            &row.workspace_id,
-            &format!("u/{username}"),
-            &mut tx,
-        )
-        .await?;
 
         sqlx::query!(
             "DELETE FROM workspace_invite WHERE email = $1",
@@ -3305,13 +3311,6 @@ async fn leave_workspace(
 ) -> Result<String> {
     forbid_job_token_account_destruction(&authed)?;
     let mut tx = db.begin().await?;
-    sqlx::query!(
-        "DELETE FROM usr WHERE workspace_id = $1 AND username = $2",
-        &w_id,
-        authed.username
-    )
-    .execute(&mut *tx)
-    .await?;
 
     // Leaving frees the username here too, and a role that still names it would
     // be inherited by the next member to take it.
@@ -3320,6 +3319,14 @@ async fn leave_workspace(
         &format!("u/{}", authed.username),
         &mut tx,
     )
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM usr WHERE workspace_id = $1 AND username = $2",
+        &w_id,
+        authed.username
+    )
+    .execute(&mut *tx)
     .await?;
 
     audit_log(

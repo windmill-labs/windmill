@@ -8927,24 +8927,22 @@ async fn leave_workspace(
 ) -> Result<String> {
     windmill_api_auth::forbid_job_token_account_destruction(&authed)?;
     let mut tx = db.begin().await?;
-    let left = sqlx::query_scalar!(
-        "DELETE FROM usr WHERE workspace_id = $1 AND email = $2 RETURNING username",
+    // Leaving frees the username here, and a role that still names it would be
+    // inherited by the next member to take it.
+    windmill_common::workspaces::remove_datatable_tenant_in_workspace_unchecked(
+        &w_id,
+        &format!("u/{}", authed.username),
+        &mut tx,
+    )
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM usr WHERE workspace_id = $1 AND email = $2",
         &w_id,
         &authed.email
     )
-    .fetch_all(&mut *tx)
+    .execute(&mut *tx)
     .await?;
-
-    // Leaving frees the username here, and a role that still names it would be
-    // inherited by the next member to take it.
-    for username in left {
-        windmill_common::workspaces::remove_datatable_tenant_in_workspace_unchecked(
-            &w_id,
-            &format!("u/{username}"),
-            &mut tx,
-        )
-        .await?;
-    }
 
     audit_log(
         &mut *tx,

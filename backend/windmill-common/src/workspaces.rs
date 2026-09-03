@@ -1175,7 +1175,10 @@ pub async fn lock_workspace_settings_unchecked(
 ///
 /// The tenant and the principal have to go in the same transaction: between the
 /// two the name is free while a role still names it, and taking it is enough to
-/// inherit the role.
+/// inherit the role. Call this *before* deleting the principal's own row: this
+/// takes the workspace settings row, so a caller that deleted first would hold
+/// two rows in the opposite order to every other caller, and two of them at once
+/// would deadlock.
 ///
 /// Authorization: performs none. Callers MUST have already authorized the
 /// removal of the principal itself — the rules differ per caller (a workspace

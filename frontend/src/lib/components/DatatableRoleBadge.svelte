@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { ChevronDown } from 'lucide-svelte'
 	import SelectDropdown from './select/SelectDropdown.svelte'
+	import Badge from './common/badge/Badge.svelte'
 	import { clickOutside } from '$lib/utils'
 
 	let {
@@ -16,7 +17,7 @@
 	} = $props()
 
 	let open = $state(false)
-	let btnEl: HTMLButtonElement | undefined = $state()
+	let anchorEl: HTMLSpanElement | undefined = $state()
 	const items = $derived(roles.map((r) => ({ label: r, value: r })))
 
 	// The table picker's drawer opens at `disposables + 10000`, which the
@@ -24,14 +25,17 @@
 	const dropdownClass = 'z-[20000]'
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<span class="relative flex min-w-0" use:clickOutside={{ onClickOutside: () => (open = false) }}>
-	<button
-		bind:this={btnEl}
-		type="button"
-		class="flex items-center gap-0.5 rounded-md pl-2 pr-1 py-0.5 text-2xs min-w-0
-			bg-surface-sunken text-primary transition-[filter,transform]
-			hover:brightness-95 active:brightness-90 active:scale-[0.97]
+<span
+	bind:this={anchorEl}
+	class="relative flex min-w-0"
+	use:clickOutside={{ onClickOutside: () => (open = false) }}
+>
+	<Badge
+		clickable
+		color="gray"
+		wrapperClass="min-w-0"
+		class="min-w-0 gap-0.5 pl-2 pr-1 bg-surface-sunken hover:bg-surface-sunken text-primary
+			transition-[filter,transform] hover:brightness-95 active:brightness-90 active:scale-[0.97]
 			{open ? 'brightness-95' : ''}"
 		onclick={(e) => {
 			// The row underneath folds on click, and picking a role is not that.
@@ -46,14 +50,14 @@
 			size={11}
 			class="shrink-0 text-secondary transition-transform {open ? 'rotate-180' : ''}"
 		/>
-	</button>
+	</Badge>
 	<SelectDropdown
 		processedItems={items}
 		value={role}
 		{open}
 		listAutoWidth={false}
 		class={dropdownClass}
-		getInputRect={btnEl && (() => btnEl!.getBoundingClientRect())}
+		getInputRect={anchorEl && (() => anchorEl!.getBoundingClientRect())}
 		onSelectValue={(item) => {
 			open = false
 			if (item.value !== role) onSelect(item.value)
