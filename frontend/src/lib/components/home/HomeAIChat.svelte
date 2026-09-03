@@ -40,6 +40,7 @@
 	import { base } from '$lib/base'
 	import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import { BROWSER } from 'esm-env'
 	import AIChatModelSettings from '../copilot/chat/AIChatModelSettings.svelte'
 	import HomeConnectDrawer from './HomeConnectDrawer.svelte'
@@ -138,11 +139,13 @@
 
 	// Rotate the example prompt every CYCLE_MS: fade the placeholder out, swap it, fade it back in.
 	// Only while the composer is shown — otherwise (operators) it would loop forever driving an
-	// unrendered input. The index lives outside the effect so re-showing the composer resumes the
-	// rotation from the prompt currently displayed rather than restarting it.
+	// unrendered input — and not under reduced motion, where the first prompt simply stays put.
+	// The index lives outside the effect so re-showing the composer resumes the rotation from the
+	// prompt currently displayed rather than restarting it.
+	const reducedMotion = useReducedMotion()
 	let promptIndex = 0
 	$effect(() => {
-		if (!showComposer || collapsed) return
+		if (!showComposer || collapsed || reducedMotion.val) return
 		let timer: ReturnType<typeof setTimeout>
 
 		function next() {
