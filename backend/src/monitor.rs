@@ -4618,6 +4618,17 @@ const AUTO_PULL_POLL_SLACK_S: i64 = 30;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 const GIT_CREDENTIAL_LOCK_ID: i64 = 737_483_923;
 
+/// Wall-clock budget for one credential maintenance pass, spent between
+/// repositories rather than inside one.
+///
+/// `monitor_db` cancels every future in its `join!` at 600s, and an unreachable
+/// GitLab costs a repository up to the client's 20s timeout, so enough of them
+/// would take the whole pass — and the other maintenance futures with it. A
+/// rotation must never be cancelled between GitLab issuing a token and Windmill
+/// storing it, so the pass stops at a repository boundary instead and the
+/// least-recently-checked ordering brings the rest along on the next tick.
+const GIT_CREDENTIAL_PASS_BUDGET: Duration = Duration::from_secs(180);
+
 /// Refresh every git-sync repository's credential status and rotate the ones near
 /// expiry, so a token dies visibly (and usually not at all) rather than taking
 /// sync down on its expiry date.
@@ -4670,17 +4681,27 @@ async fn maintain_git_credentials_inner(db: &Pool<Postgres>) -> error::Result<()
 
     // Same deleted/archived exclusion as the auto-pull poller: a dead workspace's
     // settings row survives, and rotating a token for one would be pure damage.
+    // Least-recently-checked first, so a pass that runs out of budget resumes
+    // where it stopped instead of re-checking the same head of the list forever.
+    // A repository with no recorded credential sorts first and costs only a
+    // database round trip: it has no token to introspect.
     let rows = sqlx::query!(
         r#"SELECT ws.workspace_id, ws.git_sync
            FROM workspace_settings ws
            JOIN workspace w ON w.id = ws.workspace_id
            WHERE NOT w.deleted
              AND ws.git_sync IS NOT NULL
-             AND jsonb_typeof(ws.git_sync->'repositories') = 'array'"#
+             AND jsonb_typeof(ws.git_sync->'repositories') = 'array'
+           ORDER BY (
+             SELECT min((elem->'credential'->>'checked_at')::bigint)
+             FROM jsonb_array_elements(ws.git_sync->'repositories') AS elem
+           ) ASC NULLS FIRST"#
     )
     .fetch_all(db)
     .await?;
 
+    let started = Instant::now();
+    let mut skipped = 0usize;
     for row in rows {
         let Some(git_sync) = row.git_sync else {
             continue;
@@ -4697,6 +4718,10 @@ async fn maintain_git_credentials_inner(db: &Pool<Postgres>) -> error::Result<()
         };
 
         for repo in &settings.repositories {
+            if started.elapsed() >= GIT_CREDENTIAL_PASS_BUDGET {
+                skipped += 1;
+                continue;
+            }
             let path = &repo.git_repo_resource_path;
             // This refreshes and records the status on every repository it looks at,
             // rotating only the ones near expiry, so it is the whole maintenance pass
@@ -4714,6 +4739,11 @@ async fn maintain_git_credentials_inner(db: &Pool<Postgres>) -> error::Result<()
                 );
             }
         }
+    }
+    if skipped > 0 {
+        tracing::info!(
+            "git credentials: pass budget reached, {skipped} repositories deferred to the next pass"
+        );
     }
     Ok(())
 }

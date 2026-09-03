@@ -617,9 +617,12 @@
 			<div class="text-xs text-secondary">
 				{#if credentialDaysLeft === undefined}
 					Repository token does not expire.
-				{:else if repo.credential.rotatable}
+				{:else if repo.credential.rotatable && $enterpriseLicense}
 					Repository token expires on {repo.credential.expires_at}, and Windmill renews it
 					automatically.
+				{:else if repo.credential.rotatable}
+					Repository token expires on {repo.credential.expires_at}. Renewing it automatically
+					requires an enterprise license.
 				{:else}
 					Repository token expires on {repo.credential.expires_at}. Give it the api or self_rotate
 					scope to let Windmill renew it automatically.

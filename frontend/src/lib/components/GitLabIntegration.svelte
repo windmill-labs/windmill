@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { workspaceStore, userStore } from '$lib/stores'
+	import { workspaceStore, userStore, enterpriseLicense } from '$lib/stores'
 	import { GitSyncService, VariableService, type GitlabProject } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Popover from './meltComponents/Popover.svelte'
@@ -27,9 +27,12 @@
 	let applying = $state(false)
 	let listError: string | undefined = $state(undefined)
 
+	// The project listing is served by an enterprise-only route, so on a build
+	// without it the button would open a form whose first request 404s.
 	let show = $derived(
 		resourceType === 'git_repository' &&
 			!!$workspaceStore &&
+			!!$enterpriseLicense &&
 			($userStore?.is_admin || $userStore?.is_super_admin)
 	)
 
