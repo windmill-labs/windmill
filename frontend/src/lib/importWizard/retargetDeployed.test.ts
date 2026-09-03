@@ -339,6 +339,7 @@ describe('applyRetarget', () => {
 				script_path: 'f/proj/run',
 				postgres_resource_path: FROM,
 				on_failure: `script/${FROM}`,
+				error_handler_path: FROM,
 				permissioned_as: 'u/service_account'
 			}
 		]
@@ -346,6 +347,8 @@ describe('applyRetarget', () => {
 		expect(outcome.error).toBeUndefined()
 		expect(state.updatedTriggers[0].body.postgres_resource_path).toBe(TO)
 		expect(state.updatedTriggers[0].body.on_failure).toBe(`script/${FROM}`)
+		// The bare spelling too: a handler path is a path and never a `$res:` token.
+		expect(state.updatedTriggers[0].body.error_handler_path).toBe(FROM)
 	})
 
 	// `listSearchApp` caps at 1000 rows server-side, unordered and unpaginated, so a full page

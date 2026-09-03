@@ -152,9 +152,43 @@ const SEARCH_LIMITS = { script: 10000, flow: 1000, app: 1000 }
  */
 const TRIGGER_LIST_LIMIT = 1000
 
-/** Trigger fields naming a runnable, and the two spellings `rewriteTriggerConfig` remaps. */
-const RUNNABLE_REF_FIELDS = ['on_failure', 'on_recovery', 'on_success', 'url']
-const RUNNABLE_REF_RE = /^(?:\$(?:script|flow):|(?:script|flow)\/)/
+/**
+ * Where a trigger names a runnable, taken from what `triggerHandlerRefs` reads.
+ *
+ * `rewriteTriggerConfig` remaps a runnable reference on an exact path match, which is right
+ * for the folder-wide map the import hands it and wrong for a map holding one resource path:
+ * a script sharing that path is not the reference being moved, and remapping it makes the
+ * trigger run a resource. So these are put back from the row after the rewrite.
+ *
+ * Split by spelling, because only one of the two can also hold a `$res:` token. A prefixed
+ * field is restored only when it holds the runnable spelling, so a token in it still moves;
+ * a bare field is a path and nothing else, so it is always restored.
+ */
+const PREFIXED_RUNNABLE_FIELDS = ['on_failure', 'on_recovery', 'on_success', 'url']
+const PREFIXED_RUNNABLE_RE = /^(?:\$(?:script|flow):|(?:script|flow)\/)/
+const BARE_RUNNABLE_FIELDS = ['dynamic_skip', 'error_handler_path', 'script_path']
+
+/** The rewritten config with every runnable reference put back as the row holds it. */
+function restoreRunnableRefs(rewritten: any, row: any): any {
+	const out = { ...rewritten }
+	for (const k of PREFIXED_RUNNABLE_FIELDS) {
+		if (typeof row?.[k] === 'string' && PREFIXED_RUNNABLE_RE.test(row[k])) out[k] = row[k]
+	}
+	for (const k of BARE_RUNNABLE_FIELDS) {
+		if (typeof row?.[k] === 'string') out[k] = row[k]
+	}
+	// A websocket's initial messages can each carry a runnable result, whose `path` is bare.
+	// Only that field is put back; the rest of the message is rewritten like any other value.
+	if (Array.isArray(out.initial_messages)) {
+		out.initial_messages = out.initial_messages.map((m: any, i: number) => {
+			const was = row?.initial_messages?.[i]?.runnable_result?.path
+			return m?.runnable_result && typeof was === 'string'
+				? { ...m, runnable_result: { ...m.runnable_result, path: was } }
+				: m
+		})
+	}
+	return out
+}
 
 /** A reference this run will not move, recorded so the stub outlives it. */
 const OUTSIDE_PROJECT = 'reads this resource from outside the project'
@@ -570,10 +604,10 @@ async function rewriteRawApp(
  * imported triggers are created disabled and re-enabling one is the user's decision, not a
  * side effect of pointing it at a credential.
  *
- * `path` and `script_path` are put back from the row afterwards. The rewrite remaps any
- * string equal to the stub's path, so a trigger sitting at the path the resource used to
- * hold — or running a script that does — would otherwise be renamed, or repointed at the
- * reused resource, along with the reference.
+ * `path` is put back from the row afterwards, and so is every runnable reference — see
+ * `restoreRunnableRefs`. The rewrite remaps any string equal to the stub's path, so a trigger
+ * sitting at the path the resource used to hold would otherwise be renamed along with the
+ * reference.
  *
  * A trigger states its run identity as `permissioned_as`, not the `on_behalf_of` the other
  * kinds use, and `resolve_permissioned_as` keeps the row's value only when
@@ -588,19 +622,8 @@ async function rewriteTrigger(
 	const def = TRIGGER_KINDS[r.triggerKind!]
 	const row: any = r.row ?? {}
 	const { enabled: _enabled, ...rest } = {
-		...(rewriteTriggerConfig(row, map) as any),
+		...restoreRunnableRefs(rewriteTriggerConfig(row, map), row),
 		path: r.path,
-		...(typeof row.script_path === 'string' ? { script_path: row.script_path } : {}),
-		// The handler and url fields name a runnable, and `rewriteTriggerConfig` remaps one on
-		// an exact match — right for the folder-wide map the import hands it, wrong for a map
-		// holding one resource path. A schedule whose `on_failure` runs a script sharing that
-		// path would have its error handler pointed at the credential. Only the two prefixed
-		// shapes it remaps are restored, so a field holding a `$res:` token still moves.
-		...Object.fromEntries(
-			RUNNABLE_REF_FIELDS.filter(
-				(k) => typeof row[k] === 'string' && RUNNABLE_REF_RE.test(row[k])
-			).map((k) => [k, row[k]])
-		),
 		...(typeof row.permissioned_as === 'string'
 			? { permissioned_as: row.permissioned_as, preserve_permissioned_as: true }
 			: {})
