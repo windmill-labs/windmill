@@ -1,6 +1,6 @@
 <script lang="ts" module>
 	/** Example prompts: the short `label` is shown as a clickable tag under the chat,
-	 * the `prompt` is what gets typed out as the placeholder / dropped into the input. */
+	 * the `prompt` is what rotates through the placeholder / gets dropped into the input. */
 	export const homeAIExamples: { label: string; prompt: string }[] = [
 		{
 			label: 'Sync Salesforce',
@@ -49,7 +49,8 @@
 	const COLLAPSED_SETTING = 'home-ai-composer-collapsed'
 
 	let value = $state('')
-	let placeholder = $state('')
+	let placeholder = $state(homeAIExamples[0].prompt)
+	let placeholderVisible = $state(true)
 	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)
 
 	// How much of the home page this reader wants the composer to take, so it lives per browser
@@ -130,45 +131,29 @@
 
 	const prompts = homeAIExamples.map((e) => e.prompt)
 
-	const TYPE_MS = 45
-	const DELETE_MS = 25
-	const HOLD_MS = 1800
-	const PAUSE_MS = 400
+	const CYCLE_MS = 10_000
+	const FADE_MS = 200
 
-	// Typewriter effect: type a prompt out, hold, delete, then advance to the next. Only while the
-	// composer is shown — otherwise (operators) it would loop forever driving an unrendered input.
+	// Rotate the example prompt every CYCLE_MS: fade the placeholder out, swap it, fade it back in.
+	// Only while the composer is shown — otherwise (operators) it would loop forever driving an
+	// unrendered input. The index lives outside the effect so re-showing the composer resumes the
+	// rotation from the prompt currently displayed rather than restarting it.
+	let promptIndex = 0
 	$effect(() => {
 		if (!showComposer || collapsed) return
-		let promptIndex = 0
-		let charIndex = 0
-		let deleting = false
 		let timer: ReturnType<typeof setTimeout>
 
-		function tick() {
-			const current = prompts[promptIndex]
-			if (!deleting) {
-				charIndex++
-				placeholder = current.slice(0, charIndex)
-				if (charIndex >= current.length) {
-					deleting = true
-					timer = setTimeout(tick, HOLD_MS)
-					return
-				}
-				timer = setTimeout(tick, TYPE_MS)
-			} else {
-				charIndex--
-				placeholder = current.slice(0, charIndex)
-				if (charIndex <= 0) {
-					deleting = false
-					promptIndex = (promptIndex + 1) % prompts.length
-					timer = setTimeout(tick, PAUSE_MS)
-					return
-				}
-				timer = setTimeout(tick, DELETE_MS)
-			}
+		function next() {
+			placeholderVisible = false
+			timer = setTimeout(() => {
+				promptIndex = (promptIndex + 1) % prompts.length
+				placeholder = prompts[promptIndex]
+				placeholderVisible = true
+				timer = setTimeout(next, CYCLE_MS)
+			}, FADE_MS)
 		}
 
-		timer = setTimeout(tick, TYPE_MS)
+		timer = setTimeout(next, CYCLE_MS)
 		return () => clearTimeout(timer)
 	})
 </script>
@@ -195,7 +180,9 @@
 				<div class="relative {blurClass}" inert={disabled}>
 					<TextInput
 						bind:value
-						class="resize-none px-4 py-3 pb-9 shadow-sm border-accent"
+						class="resize-none px-4 py-3 pb-9 shadow-sm border-accent placeholder:transition-opacity placeholder:duration-200 {placeholderVisible
+							? 'placeholder:opacity-100'
+							: 'placeholder:opacity-0'}"
 						underlyingInputEl="textarea"
 						inputProps={{ rows: 4, placeholder, onkeydown: onKeydown }}
 					/>
