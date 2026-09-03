@@ -41,7 +41,9 @@
 	const hasArgs = $derived(Object.keys(properties).length > 0)
 
 	let isValid = $state(true)
-	let submitting = $state(false)
+	// Off the manager, not this instance: moving the form between the card and the preview
+	// panel unmounts it, and a flag that died with it would re-arm both buttons mid-submit.
+	const submitting = $derived(aiChatManager.isRunFormSubmitting(toolCallId))
 	let cardNode = $state<HTMLDivElement | undefined>()
 
 	// The picker moves while a form sits open, so this is live state, not mount-time. Both
@@ -65,7 +67,7 @@
 	)
 
 	async function run() {
-		if (submitting || !isValid) return
+		if (!isValid) return
 		// Before processSecretArgs, not after: a card restored from history outlives the
 		// manager that opened it, so submitting would mint an ephemeral secret variable
 		// per click and still run nothing.
@@ -80,7 +82,7 @@
 			sendUserToast(PLAN_MODE_MESSAGES.runFormRefused, true)
 			return
 		}
-		submitting = true
+		if (!aiChatManager.beginRunFormSubmit(toolCallId)) return
 		// Only the disabled fields, and only because `RunForm` does the same before its own
 		// run: what the card showed is otherwise what runs. Re-filtering it here would delete
 		// the user's own typing between Run and the job — a free-form field the form gave a
@@ -93,14 +95,14 @@
 		try {
 			processed = await processSecretArgs(enforced, draft.schema as any, workspace)
 		} catch (e) {
-			submitting = false
+			aiChatManager.endRunFormSubmit(toolCallId)
 			sendUserToast('Failed to process sensitive args: ' + e, true)
 			return
 		}
 		// The callback can still go away across the processSecretArgs round trip, and by
 		// then the ephemeral variables exist — say so rather than leaving a dead button.
 		if (!aiChatManager.handleRunFormSubmit(toolCallId, processed)) {
-			submitting = false
+			aiChatManager.endRunFormSubmit(toolCallId)
 			sendUserToast('This run form is no longer active — ask again to run the script.', true)
 		}
 	}
