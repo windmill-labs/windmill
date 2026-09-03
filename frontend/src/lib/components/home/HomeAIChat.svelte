@@ -131,8 +131,10 @@
 
 	const prompts = homeAIExamples.map((e) => e.prompt)
 
-	const CYCLE_MS = 10_000
-	const FADE_MS = 200
+	const CYCLE_MS = 7_000
+	// Must match the `placeholder:duration-*` class on the textarea: the swap happens once the
+	// fade-out has finished, and Tailwind only emits classes it finds written out in full.
+	const FADE_MS = 600
 
 	// Rotate the example prompt every CYCLE_MS: fade the placeholder out, swap it, fade it back in.
 	// Only while the composer is shown — otherwise (operators) it would loop forever driving an
@@ -184,7 +186,7 @@
 				<div class="relative {blurClass}" inert={disabled}>
 					<TextInput
 						bind:value
-						class="resize-none px-4 py-3 pb-9 shadow-sm border-accent placeholder:transition-opacity placeholder:duration-200 {placeholderVisible
+						class="resize-none px-4 py-3 pb-9 shadow-sm border-accent placeholder:transition-opacity placeholder:duration-[600ms] placeholder:ease-in-out {placeholderVisible
 							? 'placeholder:opacity-100'
 							: 'placeholder:opacity-0'}"
 						underlyingInputEl="textarea"
