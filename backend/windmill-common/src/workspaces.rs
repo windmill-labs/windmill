@@ -1143,25 +1143,46 @@ pub fn remove_datatable_tenant(datatable: &mut serde_json::Value, tenant: &str) 
     update_datatable_tenant(datatable, tenant, None)
 }
 
+/// Take the workspace's settings row, and read the data table config under it,
+/// for the length of the caller's transaction.
+///
+/// Everything that reads that config, decides something from it and writes it
+/// back holds this first: a role save, an ACL change, the settings form, and the
+/// principal cleanups below. Without it each of them can persist a block it
+/// computed before another one committed — a save that planned with `g/devs`
+/// puts the tenant back after the group's deletion took it away.
+pub async fn lock_workspace_settings(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+) -> Result<Option<serde_json::Value>> {
+    Ok(sqlx::query_scalar!(
+        "SELECT datatable FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
+        w_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?
+    .flatten())
+}
+
 /// Take a principal off every data table role of one workspace, in the caller's
 /// own transaction.
 ///
 /// The tenant and the principal have to go in the same transaction: between the
 /// two the name is free while a role still names it, and taking it is enough to
 /// inherit the role.
-pub async fn remove_datatable_tenant_in_workspace(
+///
+/// Authorization: performs none. Callers MUST have already authorized the
+/// removal of the principal itself — the rules differ per caller (a workspace
+/// admin for a user, the group's or folder's owner for those, no identity at all
+/// for the system paths), which is why the check stays with them. It can only
+/// ever narrow access: a tenant leaves, none is added, so misuse costs a
+/// revocation rather than an escalation.
+pub async fn remove_datatable_tenant_in_workspace_unchecked(
     w_id: &str,
     tenant: &str,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<()> {
-    let settings = sqlx::query_scalar!(
-        "SELECT datatable FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
-        w_id
-    )
-    .fetch_optional(&mut **tx)
-    .await?
-    .flatten();
-    let Some(mut settings) = settings else {
+    let Some(mut settings) = lock_workspace_settings(tx, w_id).await? else {
         return Ok(());
     };
     if remove_datatable_tenant(&mut settings, tenant) {

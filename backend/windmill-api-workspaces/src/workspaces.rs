@@ -3705,15 +3705,15 @@ async fn edit_datatable_config(
     let is_superadmin = require_super_admin(&db, &authed).await.is_ok();
 
     let mut tx = db.begin().await?;
-
+    // This form carries the whole config forward — permissions restored from the
+    // old value included — so it reads and writes the settings under the same
+    // lock as the role save and the principal cleanups, or it puts back what one
+    // of them just took away.
     let old_datatables: HashMap<String, DataTable> = serde_json::from_value(
-        sqlx::query_scalar!(
-            "SELECT ws.datatable->'datatables' FROM workspace_settings ws WHERE ws.workspace_id = $1",
-            &w_id
-        )
-        .fetch_one(&db)
-        .await?
-        .unwrap_or(serde_json::Value::Null),
+        windmill_common::workspaces::lock_workspace_settings(&mut tx, &w_id)
+            .await?
+            .and_then(|d| d.get("datatables").cloned())
+            .unwrap_or(serde_json::Value::Null),
     )
     .unwrap_or_default();
 

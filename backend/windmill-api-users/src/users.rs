@@ -2439,7 +2439,7 @@ pub async fn delete_workspace_user_internal(
 
     // The username is free once the row below is gone, so a tenant left behind
     // would hand every role it names to whoever is invited into it next.
-    windmill_common::workspaces::remove_datatable_tenant_in_workspace(
+    windmill_common::workspaces::remove_datatable_tenant_in_workspace_unchecked(
         w_id,
         &format!("u/{username_to_delete}"),
         tx,

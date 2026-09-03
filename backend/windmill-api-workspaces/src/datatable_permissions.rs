@@ -137,27 +137,6 @@ pub(crate) struct RolePlan {
     pub(crate) warnings: Vec<String>,
 }
 
-/// Serialize everything that changes one data table's roles or their access.
-///
-/// Both the role save and an ACL apply read the config, plan against it and run
-/// the result on the data table's own database; two of them at once plan against
-/// a state the other is leaving. Keyed per data table, and released when the
-/// caller's transaction ends.
-pub(crate) async fn lock_datatable_permissions(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    w_id: &str,
-    datatable_name: &str,
-) -> Result<()> {
-    sqlx::query!(
-        "SELECT pg_advisory_xact_lock(hashtext('datatable_permissions:' || $1), hashtext($2))",
-        w_id,
-        datatable_name,
-    )
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
-}
-
 /// Refuse to plan a change on an enterprise binary whose plan does not cover it.
 /// A build that is not enterprise has no planner at all — see
 /// [`crate::datatable_permissions_oss`] — so this only has the licensed
@@ -593,12 +572,12 @@ async fn set_datatable_permissions(
     require_admin(authed.is_admin, &authed.username)?;
 
     // Reading the config, planning against it, running the plan and persisting
-    // it are one operation: two saves of the same data table interleaved would
-    // each plan against the state the other is leaving, and the one that
-    // persists last would store roles the other already dropped. Held to commit,
-    // so the whole sequence below is inside it.
+    // it are one operation: interleaved with another save, or with the removal
+    // of a principal some role names as a tenant, this would store a block it
+    // computed before the other committed. The settings row is what everything
+    // touching that config takes, so taking it here is what serializes them.
     let mut tx = db.begin().await?;
-    lock_datatable_permissions(&mut tx, &w_id, &datatable_name).await?;
+    windmill_common::workspaces::lock_workspace_settings(&mut tx, &w_id).await?;
 
     // The roles about to be created are handed privileges by this connection,
     // which cannot pass on what it holds without the grant option.

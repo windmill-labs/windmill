@@ -1045,8 +1045,7 @@ async fn apply_datatable_acl(
     // off the catalog and the config, and a role save running at the same time
     // is what changes both under it. Held to the end of this handler.
     let mut lock_tx = db.begin().await?;
-    crate::datatable_permissions::lock_datatable_permissions(&mut lock_tx, &w_id, &datatable_name)
-        .await?;
+    windmill_common::workspaces::lock_workspace_settings(&mut lock_tx, &w_id).await?;
 
     // Authorization first: the repair below opens a connection as the instance's
     // own Postgres user, which is not something a request that is about to be
