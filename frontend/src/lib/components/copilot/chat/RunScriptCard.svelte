@@ -321,7 +321,7 @@
 	headerLeft={status}
 	headerRight={previewTarget ? previewChip : undefined}
 	class="scroll-mb-8"
-	labelClass="font-main font-semibold text-primary"
+	labelClass="font-main font-medium text-primary"
 	contentClass="p-0 overflow-hidden"
 >
 	{#if formInPreview}
