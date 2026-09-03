@@ -5504,6 +5504,10 @@ const runFormCancelled = (toolName: string) =>
  * array argument the form let them paste into. */
 const MAX_SUBMITTED_ARGS_LENGTH = 4000
 
+/** The card's own copy is bounded separately, and far higher: it is what the details pane
+ * renders, and JobArgs stops rendering the JSON in full at this size regardless. */
+const MAX_PERSISTED_ARGS_LENGTH = 100_000
+
 /** One run through an argument form: conform what the model proposed to the schema of the
  * version about to run, open the form on it, then run whatever came back. Both tools that
  * run a script are this, differing only in where the schema comes from and how the job
@@ -5611,9 +5615,15 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 
 	// The card's details pane must show what ran, not what was proposed — and it is
 	// persisted, so it carries no more of a secret or a file than the model's copy does.
-	toolCallbacks.setToolStatus(toolId, {
-		parameters: redactFileArgs(redactSecretArgs(submitted, schema as any), schema as any)
-	})
+	const forCard = redactFileArgs(redactSecretArgs(submitted, schema as any), schema as any)
+	// The transcript is re-cloned into IndexedDB on every save and a form carries whatever was
+	// pasted into it, so past what the pane would render the card reads the arguments off the
+	// job instead. Only once there is a job to read them from: substituting the marker any
+	// earlier would leave a run that never started showing nothing but the marker.
+	const oversized = JSON.stringify(forCard).length > MAX_PERSISTED_ARGS_LENGTH
+	if (!oversized) {
+		toolCallbacks.setToolStatus(toolId, { parameters: forCard })
+	}
 
 	const outcome = await executeTestRun({
 		jobStarter: async () => {
@@ -5621,6 +5631,9 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 			// The form's own submitted flag flips a round trip earlier, when the user presses
 			// Run; only from here is there a job for a stopped turn to say it left running.
 			toolCallbacks.markRunFormStarted?.(toolId)
+			if (oversized) {
+				toolCallbacks.setToolStatus(toolId, { parameters: { reason: 'WINDMILL_TOO_BIG' } })
+			}
 			return jobId
 		},
 		workspace,

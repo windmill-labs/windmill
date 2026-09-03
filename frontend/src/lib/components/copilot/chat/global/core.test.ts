@@ -4463,6 +4463,40 @@ describe('global AI tools', () => {
 		expect(deployedForm.schema).toBeDefined()
 	})
 
+	// The transcript is re-cloned into IndexedDB on every save, and a form takes as much text
+	// as the user pastes. What the card stores is bounded; what the job runs is not.
+	it('run_script stores a marker for oversized arguments but runs them in full', async () => {
+		const huge = 'x'.repeat(120_000)
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
+			path: 'f/scripts/big',
+			content: 'export async function main(blob: string) {}',
+			language: 'bun',
+			schema: { properties: { blob: { type: 'string' } } }
+		} as any)
+
+		const statuses: any[] = []
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/big', args: { blob: 'small' } },
+				{
+					...toolCallbacks,
+					setToolStatus: (_toolId: string, status: any) => statuses.push(status),
+					// The user pastes into the field the model left small: the model's own
+					// proposal is bounded by what it can emit, this is not.
+					requestRunArgs: async () => ({ blob: huge })
+				}
+			)
+		)
+
+		expect(JobService.runScriptByPath).toHaveBeenCalledWith(
+			expect.objectContaining({ requestBody: { blob: huge } })
+		)
+		const persisted = statuses.filter((s) => s.parameters !== undefined).at(-1)?.parameters
+		expect(persisted).toEqual({ reason: 'WINDMILL_TOO_BIG' })
+		expect(JSON.stringify(statuses)).not.toContain(huge)
+	})
+
 	// A schema with no fields is the one shape that used to run without asking: the form it
 	// would have built was empty, so the tool skipped it and started the job. An empty form
 	// is still the Run button, and that button is the whole confirmation this tool has.
