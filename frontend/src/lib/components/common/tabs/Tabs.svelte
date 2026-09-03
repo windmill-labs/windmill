@@ -101,12 +101,15 @@
 		if (!slidingIndicator || !row) return
 		const ro = new ResizeObserver(measureBar)
 		ro.observe(row)
-		// The mark moving is the selection changing; a tab added or removed, or one that grows a
-		// count as its content arrives, changes what the bar has to sit on.
+		// The mark moving is the selection changing, and a tab added or removed changes what the
+		// bar has to sit on. Text counts too: a label rewritten in place — a count arriving,
+		// Result becoming Error — resizes the tab under the bar without touching the tree, and
+		// Svelte writes it straight to the node, so childList never sees it.
 		const mo = new MutationObserver(measureBar)
 		mo.observe(row, {
 			childList: true,
 			subtree: true,
+			characterData: true,
 			attributes: true,
 			attributeFilter: ['data-tab-selected']
 		})
