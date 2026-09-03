@@ -44,7 +44,9 @@ writes whichever of the two changed, including the tab that is not on screen.
 	const MAX_PROMPT_LENGTH = 5000
 
 	const aiChatManager = getAiChatManager()
-	const AI_SETTINGS_HREF = `${base}/workspace_settings?tab=ai`
+	// The section acts on `ws`, which in a session is not the nav workspace, so the link
+	// has to name it or it opens settings the user may not administer.
+	let aiSettingsHref = $derived(`${base}/workspace_settings?workspace=${ws}&tab=ai`)
 
 	let mode = $derived(aiChatManager.mode)
 	let tab = $state<'workspace' | 'user'>('workspace')
@@ -54,12 +56,20 @@ writes whichever of the two changed, including the tab that is not on screen.
 			: 'Stored in this browser and sent in every workspace, so they follow you rather than the workspace.'
 	)
 	// `$userStore.is_admin` is the role in `$userStore.workspace_id`, which is the nav
-	// workspace — not necessarily `ws`. Resolved against the target instead, or an admin
-	// of one and not the other is shown a read-only field they could edit, or an editor
-	// whose save is refused. Superadmin holds everywhere.
-	let targetUser = $state<UserExt | undefined>(undefined)
+	// workspace — not necessarily `ws`. Keyed to the workspace it was resolved for, so a
+	// role fetched for A is never read as B's, and an unresolved role reads as no
+	// admin: offering the field first and taking it away on resolve would discard
+	// whatever was typed in between. Superadmin holds everywhere.
+	let targetRole = $state<{ workspace: string; user: UserExt | undefined } | undefined>(undefined)
+	let roleForTarget = $derived(targetRole?.workspace === ws ? targetRole.user : undefined)
+	let roleResolved = $derived(roleForTarget !== undefined || $userStore?.workspace_id === ws)
 	let isAdmin = $derived(
-		Boolean($userStore?.is_super_admin || (targetUser ?? $userStore)?.is_admin)
+		Boolean(
+			$userStore?.is_super_admin ||
+				(roleForTarget
+					? roleForTarget.is_admin
+					: $userStore?.workspace_id === ws && $userStore?.is_admin)
+		)
 	)
 
 	// A session whose fork is still staged has no workspace of its own yet, so `ws`
@@ -88,9 +98,11 @@ writes whichever of the two changed, including the tab that is not on screen.
 	let readOnlyReason = $derived(
 		forkPending
 			? `This session has not created its workspace yet, so these would be saved to "${pendingForkParent()}" and given to every chat already in it. Send a message first.`
-			: !isAdmin
-				? 'Only workspace admins can edit the workspace instructions.'
-				: 'This workspace uses instance AI defaults, so a workspace prompt would have no effect. Configure workspace AI providers in AI settings first.'
+			: !roleResolved
+				? `Checking your access to ${ws}.`
+				: !isAdmin
+					? 'Only workspace admins can edit the workspace instructions.'
+					: 'This workspace uses instance AI defaults, so a workspace prompt would have no effect. Configure workspace AI providers in AI settings first.'
 	)
 
 	let workspaceChanged = $derived(!workspaceReadOnly && workspaceDraft !== workspaceSaved)
@@ -120,7 +132,7 @@ writes whichever of the two changed, including the tab that is not on screen.
 		try {
 			const resolved = await getUserExt(target).catch(() => undefined)
 			if (seq !== loadSeq) return
-			targetUser = resolved
+			targetRole = { workspace: target, user: resolved }
 			const user = getUserCustomPrompts()[mode] ?? ''
 			// Seeded from the same source `saveWorkspace` writes to (the raw workspace
 			// ai_config), which also says whether the workspace has providers of its own.
@@ -245,7 +257,11 @@ writes whichever of the two changed, including the tab that is not on screen.
 				placeholder: p.readOnly ? '' : 'Anything the assistant should always keep in mind',
 				rows: 4,
 				maxlength: MAX_PROMPT_LENGTH,
-				readonly: p.readOnly,
+				// Also while saving: the write spans two requests and its success path puts the
+				// submitted value back, so text typed in between would be swallowed. `load`
+				// keeps a newer draft instead, because it starts on its own and must not block
+				// someone who opened the tab to type.
+				readonly: p.readOnly || saving,
 				oninput: (e) => p.onInput(e.currentTarget.value)
 			}}
 		/>
@@ -266,7 +282,7 @@ writes whichever of the two changed, including the tab that is not on screen.
 		<div class="flex items-center gap-2 shrink-0">
 			{#if isAdmin}
 				<Button
-					href={AI_SETTINGS_HREF}
+					href={aiSettingsHref}
 					target="_blank"
 					variant="subtle"
 					unifiedSize="sm"
