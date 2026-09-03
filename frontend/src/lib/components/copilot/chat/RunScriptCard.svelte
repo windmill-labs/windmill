@@ -94,13 +94,7 @@
 	// that ran rather than where it is filed. Not every script has one, so the path stays the
 	// fallback — and stays on the preview chip either way, since two folders can hold one name.
 	const runnableName = $derived(runForm.summary || runForm.path)
-	const label = $derived(
-		running
-			? `${verbs.present} ${runnableName}`
-			: settled && ran
-				? `${verbs.past} ${runnableName}`
-				: `${verbs.future} ${runnableName}`
-	)
+	const verb = $derived(running ? verbs.present : settled && ran ? verbs.past : verbs.future)
 
 	// Being cancelled is an outcome like any other, and it is the one the card has to say out
 	// loud: nothing came back, so no other tab can carry it.
@@ -215,10 +209,11 @@
 	)
 
 	// The hue of the status badge the jobs bar shows for the same job — blue running, violet
-	// approval, orange queued, green ok, red fail — at a weight sitting between the row's label
-	// and its title. Not the badge's ink: drawn for a tinted ground, it lands at twice the
-	// label's contrast here. The step differs per hue because this ramp is not uniform, and ok
-	// borrows emerald because the green one skips straight past that weight.
+	// approval, orange queued, green ok, red fail — kept under the name it annotates, since the
+	// runnable is the subject of the row and this is metadata about it. Not the badge's ink:
+	// drawn for a tinted ground, it lands brighter than the name on this transparent one. The
+	// step differs per hue because the ramp is not uniform, and ok borrows emerald because the
+	// green one skips straight past that weight.
 	const statusClass = $derived.by(() => {
 		// The card outlives its job and sometimes precedes it, so the states only it knows about
 		// read off its own flags rather than off a status no job is there to report.
@@ -314,13 +309,18 @@
 
 <!-- scroll-mb clears the chat's sticky "Waiting for your input" chip so the mount
      scrollIntoView of the form below leaves the Run button uncovered. -->
+<!-- The runnable's name is the subject of the row and the verb is grammar, so the name takes
+     the weight the selected tab has and the verb steps back. font-main because a name is UI
+     text: the tool row around it is font-mono, which is right for a path and wrong for this. -->
 <ChatCollapsibleCard
-	{label}
+	label={runnableName}
+	labelPrefix={verb}
 	{expanded}
 	onToggle={() => (toggled = { id: message.tool_call_id, open: !expanded })}
 	headerLeft={status}
 	headerRight={previewTarget ? previewChip : undefined}
 	class="scroll-mb-8"
+	labelClass="font-main font-semibold text-emphasis"
 	contentClass="p-0 overflow-hidden"
 >
 	{#if formInPreview}
