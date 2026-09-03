@@ -107,32 +107,6 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 	/** Guards the load against a path that changed under a slow response. */
 	let loadedFor = $state<string | undefined>(undefined)
 
-	/** Re-read what is deployed at the open path. Guarded on `loadedFor` so a slow response for an
-	 *  agent the editor has left cannot become this one's baseline. A draft-only agent has nothing
-	 *  deployed to read, and keeps none. */
-	async function refreshDeployed(): Promise<void> {
-		const path = opts.path()
-		const ws = opts.workspace()
-		if (!path || !ws || loading) return
-		const key = `${ws}:${path}`
-		try {
-			const r = await ResourceService.getResource({ workspace: ws, path })
-			if (loadedFor !== key) return
-			if ((r as any).no_deployed) return
-			noDeployed = false
-			deployed = {
-				path: r.path,
-				description: r.description ?? '',
-				args: (r.value ?? {}) as AIAgentConfig,
-				resource_type: r.resource_type ?? 'ai_agent',
-				labels: r.labels ?? undefined,
-				wsSpecific: r.ws_specific ?? false
-			}
-		} catch {
-			// Best effort: the banner keeps comparing against the baseline it already has.
-		}
-	}
-
 	const sync = useTriggerDraftSync({
 		itemKind: 'resource',
 		path: () => opts.path() ?? '',
@@ -144,10 +118,6 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		getCfg: () => (state ? ($state.snapshot(state) as Record<string, any>) : undefined),
 		applyCfg: (cfg) => {
 			state = cfg as AgentResourceState
-			// A write from elsewhere reaches us as a change to the shared draft cell, and a deploy
-			// made there moved the deployed value too. Keeping the old baseline would show what is
-			// now deployed as unsaved, and Discard would put the superseded config back.
-			void refreshDeployed()
 		},
 		deployed: () => deployed as Record<string, any> | undefined
 	})

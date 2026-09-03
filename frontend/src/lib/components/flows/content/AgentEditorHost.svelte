@@ -64,8 +64,14 @@
 	 *  its history and its evals stay open, none of them being a write to the resource. */
 	let readOnly = $derived(!draft.canWrite)
 
-	// A path of its own, so the linked-agent tools scope, the preview job label and the form's
-	// remembered open fields can never collide with a host flow's.
+	// A namespace, not a path, though it travels as one: the flow-editor machinery keys its
+	// client-side state by flow path, and this editor's flow is invented, so it needs a key of its
+	// own or its linked-agent tools, remembered open fields and editor instances would collide with
+	// a real flow's — or with another agent's.
+	//
+	// It must never reach the server. `require_path_read_access_for_preview` reads the first segment
+	// as a workspace namespace and rejects anything that is not `u`/`f`/`hub` for everyone who is not
+	// an admin, which is why the preview below passes `previewPath=""` instead of this.
 	let syntheticPath = $derived(agentEditorHostPath(path))
 
 	const flowStore = $state({
