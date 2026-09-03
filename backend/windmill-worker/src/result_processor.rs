@@ -1396,19 +1396,24 @@ async fn maybe_post_git_sync_check(
     // identity existed keeps using the URL it captured at enqueue, which cannot
     // have been repointed since.
     let repo_url = match (check.repo.is_some(), row.repo_path.as_deref(), check.repo_url.clone()) {
+        // The resource path is mutable, so following it is only safe when the
+        // marker also carries the identity to check the result against.
         (true, Some(path), _) => {
             windmill_common::git_sync_ee::resolve_repo_url_interpolated(db, workspace_id, path)
                 .await
         }
+        // A marker written before that identity existed captured the URL itself,
+        // which cannot have been repointed since.
         (_, _, Some(url)) => {
             windmill_common::variables::get_variable_or_self(url, db, workspace_id).await
         }
-        (false, Some(path), None) => {
-            windmill_common::git_sync_ee::resolve_repo_url_interpolated(db, workspace_id, path)
-                .await
-        }
-        (_, None, None) => {
-            tracing::error!("git sync-check: marker names no repository");
+        // Neither: nothing here can prove which repository this check belongs to,
+        // and resolving the path anyway is how a preview reaches the wrong one.
+        // Leaving the check unfinished is the safe failure.
+        _ => {
+            tracing::error!(
+                "git sync-check: the marker carries neither a repository identity nor a url; not acting on it"
+            );
             return;
         }
     };

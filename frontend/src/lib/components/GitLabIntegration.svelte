@@ -69,23 +69,54 @@
 		}
 	})
 
-	// Applying replaces whatever is at this path, and anything else pointing at it
-	// would silently start using a different repository.
-	let variableExists = $state(false)
+	// Host and path of a git remote, lowercased with `.git` dropped: the same
+	// identity the backend compares, so "is this the same repository?" gets one
+	// answer on both sides.
+	function repoIdentity(url: string): string | undefined {
+		try {
+			const u = new URL(url.trim())
+			const path = u.pathname
+				.toLowerCase()
+				.replace(/^\/+|\/+$/g, '')
+				.replace(/\.git$/, '')
+			return path ? `${u.host.toLowerCase()}/${path}` : undefined
+		} catch {
+			return undefined
+		}
+	}
+
+	// What already lives at this path decides whether applying is safe. A
+	// suggested path can collide with another project's, and the field is free
+	// text, so the name alone proves nothing: only the repository the stored
+	// value points at does.
+	type Occupant = 'free' | 'same-repo' | 'other'
+	let occupant: Occupant = $state('free')
 	$effect(() => {
 		const path = variablePath
 		const workspace = ws
-		if (!workspace || !path) {
-			variableExists = false
+		const target = project ? repoIdentity(project.http_url_to_repo) : undefined
+		if (!workspace || !path || !target) {
+			occupant = 'free'
 			return
 		}
 		let cancelled = false
 		VariableService.existsVariable({ workspace, path })
-			.then((e) => {
-				if (!cancelled) variableExists = e
+			.then(async (exists) => {
+				if (cancelled) return
+				if (!exists) {
+					occupant = 'free'
+					return
+				}
+				// Reading it decrypts a secret, which is why this is admin-only.
+				const current = await VariableService.getVariableValue({ workspace, path }).catch(
+					() => undefined
+				)
+				if (cancelled) return
+				// Unreadable counts as occupied: it is someone else's until proven otherwise.
+				occupant = current && repoIdentity(current) === target ? 'same-repo' : 'other'
 			})
 			.catch(() => {
-				if (!cancelled) variableExists = false
+				if (!cancelled) occupant = 'other'
 			})
 		return () => {
 			cancelled = true
@@ -126,8 +157,10 @@
 
 	async function apply(close: (_: any) => void) {
 		// The token is cleared once stored, and re-applying without one would
-		// overwrite the stored credential with an empty password.
-		if (!ws || !project || !token) return
+		// overwrite the stored credential with an empty password. A path holding
+		// another repository's remote is never written: that would repoint every
+		// resource using it, silently, at this project.
+		if (!ws || !project || !token || occupant === 'other') return
 		applying = true
 		try {
 			const value = repositoryUrl(project)
@@ -244,10 +277,14 @@
 								size="sm"
 								inputProps={{ oninput: () => (variablePathTouched = true) }}
 							/>
-							{#if variableExists}
+							{#if occupant === 'other'}
+								<div class="text-2xs font-normal text-red-600 dark:text-red-400">
+									This variable already holds something else. Choose another path, or anything using
+									it would start pointing at this project.
+								</div>
+							{:else if occupant === 'same-repo'}
 								<div class="text-2xs font-normal text-hint">
-									This variable already exists and will be replaced. Anything else using it will
-									point at this repository.
+									This variable already points at this project, and its token will be replaced.
 								</div>
 							{/if}
 						</div>
@@ -255,7 +292,7 @@
 							<Button
 								variant="accent"
 								unifiedSize="sm"
-								disabled={!project || !variablePath || !token || applying}
+								disabled={!project || !variablePath || !token || occupant === 'other' || applying}
 								startIcon={{
 									icon: applying ? Loader2 : GitBranch,
 									classes: applying ? 'animate-spin' : ''
