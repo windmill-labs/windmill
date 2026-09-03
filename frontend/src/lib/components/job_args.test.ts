@@ -164,12 +164,25 @@ describe('secret args at every level the form nests', () => {
 		either: { kind: 'a', key: 'k', other: 'o' }
 	}
 
-	it('strips every one of them', () => {
+	it('strips every one of them, keeping a variable reference', () => {
 		expect(stripSecretArgs(args, schema)).toEqual({
-			obj: { keep: 1 },
+			// Naming a workspace variable is how a secret is meant to reach a job, and the
+			// value never leaves it — so the reference is the caller's to send.
+			obj: { inner: '$var:u/ada/prod', keep: 1 },
 			list: [{ name: 'a' }, {}],
 			either: { kind: 'a' }
 		})
+	})
+
+	// `$jsonvar:` paths are minted from what the user typed into the form, so a caller naming
+	// one is naming a secret it was never shown. A bare `$var:` names nothing.
+	it('keeps only a reference that names a workspace variable', () => {
+		const one = { properties: { token: { type: 'string', password: true } } }
+		const kept = (v: unknown) => stripSecretArgs({ token: v }, one).token
+		expect(kept('$var:f/team/api_token')).toBe('$var:f/team/api_token')
+		expect(kept('$jsonvar:u/ada/secret_arg/abc123')).toBeUndefined()
+		expect(kept('$var:')).toBeUndefined()
+		expect(kept('hunter2')).toBeUndefined()
 	})
 
 	it('redacts every one of them', () => {

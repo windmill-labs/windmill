@@ -4930,7 +4930,7 @@ describe('global AI tools', () => {
 
 	// A secret the model picked is not consent, and a result that echoed one back would let
 	// it propose the same value again on the next call.
-	it('run_script opens password fields empty and hides secrets from the model', async () => {
+	it('run_script empties a proposed secret but keeps a variable reference', async () => {
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
 			path: 'f/scripts/rotate',
 			schema: {
@@ -4969,10 +4969,13 @@ describe('global AI tools', () => {
 			)
 		)
 
-		expect(shown).toEqual({ nested: {}, name: 'ada' })
+		// The literal is emptied; the variable reference is the model's to send and survives,
+		// since the secret stays in the variable and only its path travels.
+		expect(shown).toEqual({ nested: { inner: '$var:u/ada/prod_api_key' }, name: 'ada' })
 		// Named, or an emptied field reads as the user having deleted the value and the
 		// next call proposes the same secret again.
-		expect(result).toContain('token, nested.inner')
+		expect(result).toContain('token')
+		expect(result).not.toContain('nested.inner')
 		expect(result).not.toContain('hunter2')
 		expect(result).not.toContain('secret_arg')
 		expect(result).not.toContain('prod_api_key')
