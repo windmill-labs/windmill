@@ -356,6 +356,38 @@ async fn test_edit_handler_endpoint(db: Pool<Postgres>) -> anyhow::Result<()> {
         Some("script/u/test-user/expiry_handler".to_string())
     );
 
+    // `extra_args` carries the built-in destinations' channel, so it has to survive a save
+    // that keeps the handler. The endpoint rebuilds the setting from the request rather than
+    // merging into the stored one, so an omitted `extra_args` erases it — the settings tab
+    // compensates by sending back what it loaded.
+    assert_eq!(
+        edit(
+            "SECRET_TOKEN",
+            serde_json::json!({
+                "path": "script/u/test-user/expiry_handler",
+                "extra_args": { "channel": "windmill-alerts" }
+            })
+        )
+        .await?,
+        200
+    );
+    assert_eq!(
+        stored().await?.map(|h| h["extra_args"].clone()),
+        Some(serde_json::json!({ "channel": "windmill-alerts" }))
+    );
+
+    assert_eq!(
+        edit(
+            "SECRET_TOKEN",
+            serde_json::json!({
+                "path": "script/u/test-user/expiry_handler",
+                "extra_args": "not-an-object"
+            })
+        )
+        .await?,
+        400
+    );
+
     assert_eq!(edit("SECRET_TOKEN", serde_json::json!({})).await?, 200);
     assert!(
         stored().await?.is_none(),

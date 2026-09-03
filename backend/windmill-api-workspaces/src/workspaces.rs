@@ -124,6 +124,10 @@ pub fn workspaced_service() -> Router {
             post(edit_variable_expiration_handler),
         )
         .route(
+            "/run_variable_expiration_test_job",
+            post(run_variable_expiration_test_job),
+        )
+        .route(
             "/edit_large_file_storage_config",
             post(edit_large_file_storage_config),
         )
@@ -403,6 +407,13 @@ struct RunSlackMessageTestJobRequest {
 #[derive(Serialize)]
 struct RunSlackMessageTestJobResponse {
     job_uuid: String,
+}
+
+#[derive(Deserialize)]
+struct RunVariableExpirationTestJobRequest {
+    /// Prefixed with `script/` or `flow/`, like the stored setting.
+    handler_path: String,
+    extra_args: Option<serde_json::Value>,
 }
 
 #[allow(dead_code)]
@@ -1562,6 +1573,49 @@ async fn run_slack_message_test_job(
         false,
         false,
         None, // Note: we could mark it as high priority to return result quickly to the user
+    )
+    .await?;
+
+    Ok(Json(RunSlackMessageTestJobResponse {
+        job_uuid: uuid.to_string(),
+    }))
+}
+
+/// Run the workspace's variable expiration handler now, against a placeholder variable.
+///
+/// Admin-only, like the setting it tests. The placeholder path is deliberately not a real
+/// variable: the handler is handed a path and never a value, so nothing has to exist for the
+/// dispatch to be representative, and naming a real one would invite a handler to rotate it.
+async fn run_variable_expiration_test_job(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<RunVariableExpirationTestJobRequest>,
+) -> JsonResult<RunSlackMessageTestJobResponse> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    if let Some(extra_args) = req.extra_args.as_ref() {
+        if !extra_args.is_object() {
+            return Err(Error::BadRequest(
+                "Field `extra_args` expected to be JSON object".to_string(),
+            ));
+        }
+    }
+
+    let expiring = windmill_queue::ExpiringVariable {
+        workspace_id: w_id.clone(),
+        variable_path: "f/test/variable_expiration_test".to_string(),
+        description: "Test run from the variable expiration settings tab".to_string(),
+        value_expires_at: Utc::now() + chrono::Duration::hours(1),
+        is_secret: true,
+    };
+
+    let uuid = windmill_queue::push_variable_expiration_test_handler(
+        &db,
+        w_id.as_str(),
+        req.handler_path.as_str(),
+        &expiring,
+        req.extra_args.map(|v| sqlx::types::Json(to_raw_value(&v))),
     )
     .await?;
 

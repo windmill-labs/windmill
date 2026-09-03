@@ -3023,6 +3023,27 @@ pub(crate) async fn push_variable_expiration_handler<'c>(
     .await
 }
 
+/// Dispatch the variable expiration handler once, on demand, for a variable the caller
+/// names rather than one the sweep found due.
+///
+/// Goes through `push_variable_expiration_handler` rather than reimplementing the push so a
+/// test run proves the thing that actually matters: that the handler resolves and that
+/// `g/variable_expiration_handler` can read what it needs, under the same identity and the
+/// same argument shape a real expiry would use.
+pub async fn push_variable_expiration_test_handler(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    handler_path: &str,
+    expiring: &ExpiringVariable,
+    extra_args: Option<Json<Box<RawValue>>>,
+) -> windmill_common::error::Result<Uuid> {
+    let tx = db.begin().await?;
+    let (uuid, tx) =
+        push_variable_expiration_handler(db, tx, w_id, handler_path, expiring, extra_args).await?;
+    tx.commit().await?;
+    Ok(uuid)
+}
+
 pub async fn push_success_handler<'a, 'c, T: Serialize + Send + Sync>(
     db: &Pool<Postgres>,
     job_id: Uuid,
