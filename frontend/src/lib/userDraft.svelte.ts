@@ -200,15 +200,13 @@ function snapshotDraftValue<V>(value: V | undefined): V | undefined {
  *
  * The rest are server-managed read-time metadata that ride along on the
  * loaded deployed payload but never appear in the editor's draft content, so
- * comparing them would mask a true baseline match: `draft_saved_at` (the
- * draft's own save time), `edited_at` (deploy time), `edited_by` (deploy
- * author), `workspace_id`, `version_id` (deployed version), `is_draft`
- * (backend presence flag), `assets` (server-derived on deploy from the
- * content — the editor's draft value never carries it, so a deployed
- * baseline's `assets: []` would otherwise never equal the assets-less draft
- * and every untouched load would autosave a phantom draft), and the groups
- * below. A field belongs here only if no editor lets anyone change it —
- * listing an editable one makes a real edit invisible.
+ * comparing them would mask a true baseline match:
+ * `draft_saved_at` (the draft's own save time), `edited_at` (deploy time),
+ * `edited_by` (deploy author), `workspace_id`, `version_id` (deployed version),
+ * `is_draft` (backend presence flag), and `assets` (server-derived on deploy
+ * from the content — the editor's draft value never carries it, so a deployed
+ * baseline's `assets: []` would otherwise never equal the assets-less draft and
+ * every untouched load would autosave a phantom draft).
  */
 const DRAFT_COMPARE_IGNORED_FIELDS = [
 	'permissioned_as',
@@ -222,76 +220,16 @@ const DRAFT_COMPARE_IGNORED_FIELDS = [
 	'parent_version',
 	'is_draft',
 	'assets',
-	// Authorship and deploy identity, assigned by the server.
-	'created_by',
-	'created_at',
-	'hash',
-	'parent_hashes',
-	'lock_error_logs',
-	// Presence and lifecycle flags the backend computes per read.
-	'draft_only',
-	'no_deployed',
-	'starred',
-	'archived',
-	'deleted',
-	// Computed at read time from the parent folder; edited on the folder, not
-	// here. `labels` itself IS editable and stays compared.
-	'inherited_labels',
 	// Fixed at creation and absent from the resource editor's draft shape, so
 	// it only ever shows up on the deployed side of a comparison.
-	'resource_type',
-	// A resource's OAuth/linked-secret state: owned by the OAuth flow and the
-	// variable it points at, never by the resource form.
-	'is_oauth',
-	'is_linked',
-	'is_refreshed',
-	'is_expired',
-	'refresh_error',
-	'account',
-	// A schedule's last-trigger error and its owner's email, both written by
-	// the scheduler rather than the editor.
-	'error',
-	'email'
+	'resource_type'
 ] as const
-
-/**
- * Whether a value means "nothing is set here". A key holding one is dropped
- * below, so a key that only exists because a schema gained a property — the
- * form materializes `''`, `[]`, `{}` or `false` into every item that never
- * carried it — compares equal to no key at all.
- *
- * `0` is deliberately NOT empty: nothing materializes it, and it is a value
- * someone picks (a timeout, a retry count). `false` is, because the only way
- * an unchecked box differs from an absent key is that a form drew it.
- */
-function isEmptyDraftValue(v: unknown): boolean {
-	if (v === undefined || v === null || v === '' || v === false) return true
-	if (Array.isArray(v)) return v.length === 0
-	return typeof v === 'object' && Object.keys(v as object).length === 0
-}
-
-/** Drop empty-valued keys at every depth, innermost first so a branch that
- * empties out goes with them. Mutates — only ever called on a fresh parse. */
-function dropEmptyKeys(v: unknown): void {
-	if (Array.isArray(v)) {
-		// Never drop elements: that would shift every index after them.
-		for (const e of v) dropEmptyKeys(e)
-		return
-	}
-	if (v === null || typeof v !== 'object') return
-	for (const [k, child] of Object.entries(v as Record<string, unknown>)) {
-		dropEmptyKeys(child)
-		if (isEmptyDraftValue(child)) delete (v as Record<string, unknown>)[k]
-	}
-}
 
 /**
  * Normalize one side of a draft-vs-baseline comparison: JSON round-trip
  * (drafts are stored as json server-side, which strips `undefined` keys,
- * so `{ labels: undefined }` and `{}` must compare equal), drop the ignored
- * fields above — top level only, so an item's own content may still use those
- * names — and drop empty-valued keys at every depth. Returns the input
- * unchanged if unserializable.
+ * so `{ labels: undefined }` and `{}` must compare equal) and drop the
+ * ignored fields above. Returns the input unchanged if unserializable.
  */
 export function normalizeDraftForCompare<V>(value: V): V {
 	try {
@@ -299,7 +237,6 @@ export function normalizeDraftForCompare<V>(value: V): V {
 		if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
 			for (const f of DRAFT_COMPARE_IGNORED_FIELDS) delete v[f]
 		}
-		dropEmptyKeys(v)
 		return v as V
 	} catch {
 		return value

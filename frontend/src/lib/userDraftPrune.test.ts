@@ -60,15 +60,6 @@ describe('pruneMeaninglessDrafts', () => {
 		expect(discardDraft).not.toHaveBeenCalled()
 	})
 
-	it('ignores the empty fields a moved-on schema added', async () => {
-		listDrafts.mockResolvedValue([row()])
-		getDraftDiffValues.mockResolvedValue(
-			diff({ draft: { value: { host: 'h', port: '', ssl: false, tags: [] } } })
-		)
-		await pruneMeaninglessDrafts('main', 'me@x.dev')
-		expect(discardedPaths()).toEqual(['u/me/r'])
-	})
-
 	it('never touches a draft-only item — the draft is the whole item', async () => {
 		listDrafts.mockResolvedValue([row({ draft_only: true })])
 		getDraftDiffValues.mockResolvedValue(diff())
