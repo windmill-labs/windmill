@@ -115,6 +115,8 @@ Local previews exist for every entity type and don't deploy:
 - \`wmill flow preview <flow_path> -d '<args>'\` — run a local flow.yaml.
 - \`wmill app dev\` — live-reload dev server for raw apps.
 
+An argument typed as a resource takes the bare string \`"$res:<path>"\` as its whole value (a variable takes \`"$var:<path>"\`) — never an object wrapper like \`{"$res": "<path>"}\`, and never a plain path. See the \`resources\` skill.
+
 Argument shapes and per-language details live in the \`write-script-<lang>\`, \`write-flow\`, and \`raw-app\` skills.
 
 ## Keeping metadata in sync

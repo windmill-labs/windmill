@@ -50,6 +50,7 @@ import {
 	getSessionDraftPrompt,
 	setSessionDraftPrompt,
 	setSessionTabs,
+	setSessionChatId,
 	reconcileSessionsLifecycle,
 	__resetDeletedSessionIdsForTesting,
 	setSessionArchived,
@@ -115,6 +116,30 @@ describe('sessionState IndexedDB persistence', () => {
 
 		await rehydrate(user)
 		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['s2', 's1']))
+	})
+
+	// A watcher adopting the driver's chat rotation holds a stale in-memory
+	// record; persisting the pointer must not roll back fields another tab
+	// wrote to the store since.
+	it('setSessionChatId patches the stored row instead of writing back a stale copy', async () => {
+		const user = freshUser()
+		await login(user)
+
+		const stale = session({ id: 's1', createdAt: 100, summary: 'old summary' })
+		await putSession(stale)
+		// A newer write from another tab, landing directly in the store.
+		await putSession(session({ id: 's1', createdAt: 100, summary: 'newer summary' }))
+
+		sessionState.sessions = [stale]
+		setSessionChatId('s1', 'chat-2')
+		await flush()
+
+		await rehydrate(user)
+		await vi.waitFor(() => {
+			const s = sessionState.sessions.find((x) => x.id === 's1')
+			expect(s?.chatId).toBe('chat-2')
+			expect(s?.summary).toBe('newer summary')
+		})
 	})
 
 	it('does not persist a transient (untouched) session — it is in-memory only', async () => {

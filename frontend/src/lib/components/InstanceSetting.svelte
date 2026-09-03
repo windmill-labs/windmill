@@ -846,9 +846,7 @@
 				{:else if setting.fieldType == 'seconds'}
 					<div>
 						<SecondsInput
-							max={setting.ee_only != undefined && !$enterpriseLicense
-								? 60 * 60 * 24 * 30
-								: undefined}
+							max={!$enterpriseLicense ? setting.ceMaxSeconds : undefined}
 							bind:seconds={$values[setting.key]}
 							clearable
 						/>

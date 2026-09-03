@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH retired AS (\n                     UPDATE log_file SET indexed_at = now()\n                     WHERE indexed_at IS NULL\n                       AND log_ts <= NOW() - make_interval(secs => $1) RETURNING 1)\n                 SELECT count(*) AS \"n!\" FROM retired",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Float8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a7d450e34084d561f69e588bd76fd56e616ee79d895b7dcc37ad9442789e1574"
+}

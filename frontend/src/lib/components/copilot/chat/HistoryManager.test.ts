@@ -757,3 +757,62 @@ describe('HistoryManager modified-items mask persistence', () => {
 		expect(hm.getModifiedItems(id)).toBeUndefined()
 	})
 })
+
+describe('HistoryManager.reloadChat', () => {
+	it('picks up another tab’s write, and tells an empty chat from an unreadable store', async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		const chatId = hm.getCurrentChatId()
+		await hm.saveChat(
+			[{ role: 'user', content: 'before the other tab ran' }] as DisplayMessage[],
+			[] as ChatCompletionMessageParam[]
+		)
+
+		// The other tab's turn, written straight to the store this one shares.
+		const db = await openDB('copilot-chat-history::admin@test')
+		const row = (await db.get('chats' as never, chatId)) as any
+		row.displayMessages = [{ role: 'user', content: 'written by the driving tab' }]
+		await db.put('chats' as never, row)
+		db.close()
+
+		expect(await hm.reloadChat(chatId)).toBe('loaded')
+		const chat = await hm.loadPastChat(chatId)
+		expect((chat?.displayMessages[0] as any).content).toBe('written by the driving tab')
+
+		// A chat the store does not hold — distinct from 'unavailable' below:
+		// 'missing' evicts the in-memory mirror, so conflating the two would let
+		// a store that merely failed to open erase transcripts this tab holds.
+		expect(await hm.reloadChat('no-such-chat')).toBe('missing')
+	})
+
+	it('evicts the mirrored copy of a chat the driver deleted', async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		const chatId = hm.getCurrentChatId()
+		await hm.saveChat(
+			[{ role: 'user', content: 'deleted by the driving tab' }] as DisplayMessage[],
+			[] as ChatCompletionMessageParam[]
+		)
+
+		const db = await openDB('copilot-chat-history::admin@test')
+		await db.delete('chats' as never, chatId)
+		db.close()
+
+		expect(await hm.reloadChat(chatId)).toBe('missing')
+		// loadPastChat serves the mirror, so a copy left behind would resurrect the
+		// deleted transcript the next time this id came round again.
+		expect(await hm.loadPastChat(chatId)).toBeUndefined()
+	})
+
+	it('reports a store it cannot open as unavailable, never as missing', async () => {
+		;(globalThis as any).indexedDB = {
+			open: () => {
+				throw new Error('blocked')
+			}
+		}
+		const hm = new HistoryManager()
+		await hm.init()
+
+		expect(await hm.reloadChat(hm.getCurrentChatId())).toBe('unavailable')
+	})
+})

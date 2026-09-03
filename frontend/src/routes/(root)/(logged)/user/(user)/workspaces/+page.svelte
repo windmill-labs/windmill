@@ -26,6 +26,7 @@
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { GitFork, Settings, User, Search, ChevronsDownUp, ChevronsUpDown } from 'lucide-svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import { canCreateWorkspace } from '$lib/workspaceCreation'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import { emptyString } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
@@ -104,9 +105,7 @@
 	let onlyAdminsWorkspace = $derived(allWorkspaces.length === 1 && allWorkspaces[0].id === 'admins')
 
 	async function getCreateWorkspaceRequireSuperadmin() {
-		const r = await fetch(base + '/api/workspaces/create_workspace_require_superadmin')
-		const t = await r.text()
-		createWorkspace = t != 'true'
+		createWorkspace = await canCreateWorkspace(false)
 	}
 
 	let createWorkspace = $state($superadmin || isCloudHosted())

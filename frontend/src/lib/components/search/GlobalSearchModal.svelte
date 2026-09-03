@@ -49,6 +49,7 @@
 	import NatsIcon from '../icons/NatsIcon.svelte'
 	import RunsSearch from './RunsSearch.svelte'
 	import AskAiButton from '../copilot/AskAiButton.svelte'
+	import { copilotInfo } from '$lib/aiStore'
 
 	let open: boolean = $state(false)
 
@@ -648,7 +649,7 @@
 							{placeholderFromPrefix(searchTerm)}
 						</label>
 					</div>
-					{#if (itemMap[tab] ?? []).length === 0 && searchTerm.length > 0}
+					{#if (itemMap[tab] ?? []).length === 0 && searchTerm.length > 0 && !$copilotInfo.workspaceDisabled}
 						<AskAiButton
 							bind:this={askAiButton}
 							label="Ask AI"
@@ -724,16 +725,18 @@
 
 						{#if (itemMap[tab] ?? []).length === 0}
 							<div class="p-2">
-								<QuickMenuItem
-									onselect={() => {
-										askAiButton?.onClick()
-									}}
-									id={'ai:no-results-ask-ai'}
-									hovered={true}
-									label={`Try asking \`${searchTerm}\` to AI`}
-									icon={WandSparkles}
-									bind:mouseMoved
-								/>
+								{#if !$copilotInfo.workspaceDisabled}
+									<QuickMenuItem
+										onselect={() => {
+											askAiButton?.onClick()
+										}}
+										id={'ai:no-results-ask-ai'}
+										hovered={true}
+										label={`Try asking \`${searchTerm}\` to AI`}
+										icon={WandSparkles}
+										bind:mouseMoved
+									/>
+								{/if}
 								<div class="flex w-full justify-center items-center">
 									<div class="text-primary text-center">
 										<div class="pt-1 text-sm">Tip: press `esc` to quickly clear the search bar</div>

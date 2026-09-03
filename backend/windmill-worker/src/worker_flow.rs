@@ -70,9 +70,9 @@ use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
     insert_concurrency_key_capped, interpolate_args,
-    report_error_to_workspace_handler_or_critical_side_channel, try_schedule_next_job, CanceledBy,
-    FlowRunners, MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload,
-    WrappedError,
+    report_error_to_workspace_handler_or_critical_side_channel, tag_reads_args,
+    try_schedule_next_job, CanceledBy, FlowRunners, MiniCompletedJob, MiniPulledJob, PushArgs,
+    PushIsolationLevel, SameWorkerPayload, WrappedError,
 };
 
 use windmill_audit::audit_oss::audit_log;
@@ -4403,6 +4403,23 @@ async fn push_next_flow_job(
             payload_tag.tag.as_deref(),
         );
 
+        // `push_args` is empty once the input transforms failed, so a tag reading `$args[...]`
+        // interpolates to a queue nobody serves and the step sits there instead of reporting
+        // the error. Send it to the flow's tag, which a worker is provably serving right now.
+        //
+        // A step handed over by id, or one whose tag `push` replaces, never reaches a worker
+        // through its tag, so rewriting theirs would be noise.
+        let step_is_pulled_by_tag = !continue_on_same_worker
+            && !continue_with_runners
+            && !payload_tag.payload.is_dedicated_worker();
+        let reroute_to_flow_tag =
+            err.is_some() && step_is_pulled_by_tag && tag.as_deref().is_some_and(tag_reads_args);
+        let tag = if reroute_to_flow_tag {
+            Some(flow_job.tag.clone())
+        } else {
+            tag
+        };
+
         let (email, permissioned_as) = if let Some(on_behalf_of) = payload_tag.on_behalf_of.as_ref()
         {
             (&on_behalf_of.email, on_behalf_of.permissioned_as.clone())
@@ -4421,8 +4438,7 @@ async fn push_next_flow_job(
             .as_deref()
             .filter(|t| !t.is_empty() && *t != flow_job.tag.as_str())
         {
-            let is_super_admin =
-                windmill_common::auth::is_super_admin_email(db, email).await?;
+            let is_super_admin = windmill_common::auth::is_super_admin_email(db, email).await?;
             check_tag_available_for_workspace_internal(
                 db,
                 &flow_job.workspace_id,
@@ -6155,9 +6171,7 @@ pub async fn script_to_payload(
                 .await?
                 .prefetch_cached(&db)
                 .await?;
-            let on_behalf_of = script_info
-                .on_behalf_of(&flow_job.workspace_id, db)
-                .await?;
+            let on_behalf_of = script_info.on_behalf_of(&flow_job.workspace_id, db).await?;
             let ScriptHashInfo {
                 tag,
                 cache_ttl,

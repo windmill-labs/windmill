@@ -44,6 +44,14 @@
 		onDiscard?: () => void
 	} = $props()
 
+	const creatableStorageTypes = [
+		{ value: 's3', label: 'S3' },
+		{ value: 'azure_blob', label: 'Azure Blob' },
+		{ value: 's3_aws_oidc', label: 'AWS OIDC' },
+		{ value: 'azure_workload_identity', label: 'Azure Workload Identity' },
+		{ value: 'gcloud_storage', label: 'Google Cloud Storage' }
+	]
+
 	let advancedPermissionModalState:
 		| { open: false }
 		| { open: true; storage: S3ResourceSettingsItem } = $state({ open: false })
@@ -294,31 +302,38 @@
 					<Cell>
 						<div class="flex gap-2">
 							<div class="relative">
-								{#if tableRow[1].resourceType === 'filesystem'}
-									<!-- Filesystem storage is deliberately absent from the creatable
-									     types below: it is dev-only (set via the API), so the UI only
-									     renders it read-only when already configured. -->
+								<div class="flex items-center gap-1">
+									<!-- `filesystem` is offered only to a row that already is one, so it can be
+									     converted away but never chosen: the backend accepts it in development
+									     builds alone. -->
 									<Select
-										items={[{ value: 'filesystem', label: 'Filesystem' }]}
-										value={'filesystem'}
-										disabled
+										items={tableRow[1].resourceType === 'filesystem'
+											? [{ value: 'filesystem', label: 'Filesystem' }, ...creatableStorageTypes]
+											: creatableStorageTypes}
+										bind:value={
+											() => tableRow[1].resourceType,
+											(resourceType) => {
+												if (
+													tableRow[1].resourceType === 'filesystem' &&
+													resourceType !== 'filesystem'
+												) {
+													// A filesystem row holds a server path, not a resource path.
+													tableRow[1].resourcePath = undefined
+												}
+												tableRow[1].resourceType = resourceType
+											}
+										}
 										id="storage-resource-type-select"
 										class="w-40"
 									/>
-								{:else}
-									<Select
-										items={[
-											{ value: 's3', label: 'S3' },
-											{ value: 'azure_blob', label: 'Azure Blob' },
-											{ value: 's3_aws_oidc', label: 'AWS OIDC' },
-											{ value: 'azure_workload_identity', label: 'Azure Workload Identity' },
-											{ value: 'gcloud_storage', label: 'Google Cloud Storage' }
-										]}
-										bind:value={tableRow[1].resourceType}
-										id="storage-resource-type-select"
-										class="w-40"
-									/>
-								{/if}
+									{#if tableRow[1].resourceType === 'filesystem'}
+										<Tooltip>
+											Filesystem storage points the workspace at a directory on the server's own
+											disk. Only development builds of Windmill accept it — switch this storage to
+											S3, Azure Blob or Google Cloud Storage to configure it here.
+										</Tooltip>
+									{/if}
+								</div>
 							</div>
 							<div class="flex flex-1">
 								{#if tableRow[1].resourceType === 'filesystem'}

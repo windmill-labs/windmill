@@ -196,26 +196,31 @@
 		</DropdownV2>
 	</div>
 
-	<div class="border rounded-md">
+	<div>
 		{#if scorers.length === 0}
-			<div class="p-3 text-2xs text-tertiary">
+			<div class="border rounded-md p-3 text-2xs text-tertiary">
 				A scorer reads one run and returns a number. Every run of this dataset is measured by all of
 				them, which is what makes two runs comparable.
 			</div>
 		{:else}
-			<div class="divide-y">
+			<!-- Laid out as `RadioCard` is — same padding, icon size, and label-over-description type
+			     scale — so a scorer reads as a card of the same family. Not that component: nothing
+			     here is being selected. -->
+			<div class="flex flex-col gap-2">
 				{#each scorers as scorer (scorer.id)}
-					<div class="flex items-center gap-2 px-2 py-1.5">
+					<div
+						class="flex items-center gap-2 rounded-md border border-border-light bg-surface-tertiary p-3"
+					>
 						{#if scorer.kind === 'agent'}
-							<Bot size={13} class="text-tertiary shrink-0" />
+							<Bot size={16} class="text-secondary shrink-0" />
 						{:else}
-							<Code2 size={13} class="text-tertiary shrink-0" />
+							<Code2 size={16} class="text-secondary shrink-0" />
 						{/if}
 						<div class="flex flex-col min-w-0 grow">
-							<span class="text-xs text-emphasis truncate leading-tight">
+							<span class="text-xs font-semibold text-emphasis truncate">
 								{scorerLabel(scorer)}
 							</span>
-							<span class="text-2xs text-tertiary truncate leading-tight">{scorer.path}</span>
+							<span class="text-xs font-normal text-secondary truncate mt-0.5">{scorer.path}</span>
 						</div>
 						{#if scorer.pass_if != undefined}
 							<span class="text-2xs text-tertiary shrink-0" title="Pass threshold">

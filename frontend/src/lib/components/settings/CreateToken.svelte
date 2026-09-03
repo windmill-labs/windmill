@@ -287,7 +287,9 @@
 							{ label: '1 day', value: 1 * 24 * 60 * 60 },
 							{ label: '7 days', value: 7 * 24 * 60 * 60 },
 							{ label: '30 days', value: 30 * 24 * 60 * 60 },
-							{ label: '90 days', value: 90 * 24 * 60 * 60 }
+							{ label: '90 days', value: 90 * 24 * 60 * 60 },
+							{ label: '180 days', value: 180 * 24 * 60 * 60 },
+							{ label: '365 days', value: 365 * 24 * 60 * 60 }
 						]}
 					/>
 				</div>

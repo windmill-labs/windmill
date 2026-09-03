@@ -6,7 +6,6 @@
 	import { thinkingPreferences } from './thinkingPreferences.svelte'
 	import CodeDisplay from './script/CodeDisplay.svelte'
 	import LinkRenderer from './LinkRenderer.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import {
 		extractCandidatePaths,
 		remarkWindmillPaths,
@@ -16,9 +15,12 @@
 
 	interface Props {
 		message: DisplayMessage
+		// Workspace the message's paths are resolved against: the one the chat
+		// operates on, which is not always the one being navigated.
+		workspace: string | undefined
 	}
 
-	let { message }: Props = $props()
+	let { message, workspace }: Props = $props()
 
 	const reasoning = $derived(
 		message.role === 'assistant' ? message.reasoning?.trim() || undefined : undefined
@@ -69,12 +71,11 @@
 	// Only populate the registry for messages that contain path-shaped tokens. The
 	// registry still dedups concurrent calls across messages and workspaces.
 	$effect(() => {
-		const ws = $workspaceStore
-		if (ws && candidatePaths.length > 0) workspaceItemRegistry.ensureLoaded(ws)
+		if (workspace && candidatePaths.length > 0) workspaceItemRegistry.ensureLoaded(workspace)
 	})
 
 	const plugins = $derived.by(() => {
-		const ws = $workspaceStore ?? ''
+		const ws = workspace ?? ''
 		if (!ws || candidatePaths.length === 0) {
 			return [gfmPlugin(), rendererPlugin]
 		}

@@ -210,7 +210,8 @@ vi.mock('$lib/gen', async () => {
 			}),
 			createResource: vi.fn(async () => 'created'),
 			updateResource: vi.fn(async () => 'updated'),
-			deleteResource: vi.fn(async () => 'deleted')
+			deleteResource: vi.fn(async () => 'deleted'),
+			getResourceValue: vi.fn(async () => ({ content: 'skill body' }))
 		}),
 		VariableService: wrapService(actual.VariableService, {
 			existsVariable: vi.fn(async () => false),
@@ -5432,6 +5433,18 @@ describe('session-only preview tools gating', () => {
 		const content = prepareGlobalSystemMessage().content as string
 		expect(content).not.toContain(WS_HEADER)
 		expect(content).not.toContain(USER_HEADER)
+	})
+})
+
+describe('read_skill', () => {
+	it('refuses a path the user has not selected, without reading it', async () => {
+		localStorage.clear()
+		userStore.set({ username: 'bob', email: 'bob@windmill.dev', workspace_id: WORKSPACE } as any)
+
+		const res = await callGlobalTool('read_skill', { path: 'u/someone/private-notes' })
+
+		expect(res).toContain('not one of the skills selected')
+		expect(vi.mocked(ResourceService.getResourceValue)).not.toHaveBeenCalled()
 	})
 })
 

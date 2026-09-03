@@ -228,6 +228,43 @@ describe("validateToolExpectations", () => {
     });
   });
 
+  // A resource reference shares its prefix with a wrong sibling path, and the mock
+  // never resolves it, so only exact matching separates the two.
+  it("rejects a resource reference whose path merely shares the prefix", () => {
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 1,
+        toolsUsed: ["test_run_script"],
+        toolCallDetails: [
+          {
+            name: "test_run_script",
+            arguments: { args: { gh_auth: "$res:f/evals/global/github_main_backup" } },
+          },
+        ],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        toolCallArgs: [
+          {
+            tool: "test_run_script",
+            field: "args.gh_auth",
+            stringEqualsAnyOf: ["$res:f/evals/global/github_main"],
+          },
+        ],
+      },
+    });
+
+    expect(checks).toContainEqual({
+      name: "test_run_script.args.gh_auth matches an accepted value",
+      passed: false,
+      details:
+        'accepted values: $res:f/evals/global/github_main; values: "$res:f/evals/global/github_main_backup"',
+    });
+  });
+
   // The whole point of the same-call rule: the per-field rules are existential over
   // calls, so two single-filter pages would satisfy them while never opening the
   // combined view the case asks for.

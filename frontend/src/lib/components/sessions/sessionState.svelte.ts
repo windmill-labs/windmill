@@ -21,6 +21,7 @@ import {
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { workspaceRootId } from './sessionScope.svelte'
+import { clearSessionRecovered } from './sessionRecoveryNotice.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
@@ -343,8 +344,8 @@ export function setSessionDraftPrompt(sessionId: string, text: string): void {
 	if ((s.draftPrompt ?? '') === text) return
 	// Keep `transient` (means "in-memory only") set until the flush persists the
 	// draft, so hydrateSessions preserves it across a reconcile inside this window;
-	// isReusableBlank, not `transient`, is what stops createSession reusing a typed
-	// draft. Only the IndexedDB write is debounced.
+	// isDiscardableDraft, not `transient`, is what stops createSession reusing a
+	// typed draft. Only the IndexedDB write is debounced.
 	s.draftPrompt = text
 	clearTimeout(draftPromptFlushHandles.get(sessionId))
 	draftPromptFlushHandles.set(
@@ -404,8 +405,9 @@ export function takeSessionAutoSend(sessionId: string): boolean {
 
 // Persist a session on a genuine user edit, promoting an in-memory-only
 // (transient) pending session to a durable IndexedDB record on first touch.
-// Non-touch writers (runtime chatId seeding, unread watermark) call putSession
-// directly, so an untouched draft stays in memory and vanishes on reload.
+// Non-touch writers (runtime chatId seeding via patchStoredSessionChatId, the
+// unread watermark via putSession) persist directly, so an untouched draft
+// stays in memory and vanishes on reload.
 function persistTouched(s: Session): void {
 	if (s.transient) delete s.transient
 	s.lastActivityAt = Date.now()
@@ -436,10 +438,10 @@ async function deleteSessionRow(db: IDBPDatabase<SessionSchema>, id: string): Pr
 	await db.delete('sessions', id)
 }
 
-// The one way to write a session's record, and the other half of the invariant above:
-// every caller reaches its write across an await — putSession on the DB handle, the
-// reconcile and hydrate passes on a getAll() snapshot that an interleaved delete
-// invalidates — so the tombstone has to be consulted here, not only at the entry points.
+// The way a session record is written (patchStoredSessionChatId is the one
+// exception: it re-checks the tombstone inline to stay inside its own
+// transaction). Every caller reaches its write across an await, so the
+// tombstone has to be consulted here, not only at the entry points.
 async function putSessionRow(db: IDBPDatabase<SessionSchema>, s: Session): Promise<void> {
 	if (deletedSessionIds.has(s.id)) return
 	await db.put('sessions', s)
@@ -748,12 +750,30 @@ export function requestComposerFocus(): void {
 	composerFocusRequest.nonce++
 }
 
-// An untouched in-memory blank that `+` may reuse/discard. `draftPrompt ===
-// undefined` (never edited), not falsiness: a draft typed then erased to '' still
-// has a pending flush and is a real session, so it must survive both. Every other
+// An untouched in-memory blank that `+` may reuse and createSession may silently
+// drop. `draftPrompt === undefined` (never edited), not falsiness: a draft typed
+// then erased to '' still has a pending flush and is a real session. Every other
 // touch clears `transient` synchronously, so only the draft prompt needs checking.
-function isReusableBlank(s: Session): boolean {
+function isDiscardableDraft(s: Session): boolean {
 	return !!s.transient && s.draftPrompt === undefined
+}
+
+// Somewhere empty to put the user, for a URL naming a session this browser
+// doesn't hold. Only `transient` makes "empty" trustworthy: chat seeding and
+// attached-file persistence both key off `!transient` and leave every field
+// below untouched, so a persisted session can hold a conversation regardless.
+export function findEmptyLandingSession(): Session | undefined {
+	return sessionState.sessions.find(
+		(s) =>
+			!!s.transient &&
+			!s.archived &&
+			!s.workspace_id &&
+			// Falsiness, not `=== undefined`: we only navigate into the session, so a
+			// draft erased back to '' is still an empty composer to land on.
+			!s.draftPrompt?.trim() &&
+			!s.pending_fork &&
+			sessionInCurrentFamily(s)
+	)
 }
 
 export function createSession(): Session {
@@ -762,16 +782,20 @@ export function createSession(): Session {
 	// in parallel, one touch at a time. A cross-family leftover blank is dropped
 	// instead of reused (reusing it would act on that family).
 	const reusable = sessionState.sessions.find(
-		(s) => isReusableBlank(s) && sessionInCurrentFamily(s)
+		(s) => isDiscardableDraft(s) && sessionInCurrentFamily(s)
 	)
 	if (reusable) {
 		sessionState.currentSessionId = reusable.id
+		// The blank recovery just landed on is exactly what this reuses, so `+`
+		// would otherwise hand back a session still carrying the recovery notice:
+		// asking for a new session must not be answered with "we couldn't find it".
+		clearSessionRecovered(reusable.id)
 		// Reusing an already-active draft doesn't change currentSessionId, so ask
 		// the composer to focus explicitly — the caller still navigates/redirects.
 		requestComposerFocus()
 		return reusable
 	}
-	sessionState.sessions = sessionState.sessions.filter((s) => !isReusableBlank(s))
+	sessionState.sessions = sessionState.sessions.filter((s) => !isDiscardableDraft(s))
 	const existingNumbers = sessionState.sessions
 		.map((s) => /^session-(\d+)$/.exec(s.name)?.[1])
 		.map((n) => (n ? parseInt(n, 10) : 0))
@@ -1087,6 +1111,24 @@ export function setSessionArchived(id: string, archived: boolean) {
 	persistTouched(s)
 }
 
+// A counter rather than a flag: an inner teardown finishing must not reopen the
+// gate while an outer one is still running. Released in a finally, so a delete
+// that throws can't wedge it shut.
+let openSessionTeardowns = $state(0)
+
+export function isTearingDownOpenSession(): boolean {
+	return openSessionTeardowns > 0
+}
+
+export async function withOpenSessionTeardown<T>(run: () => Promise<T>): Promise<T> {
+	openSessionTeardowns++
+	try {
+		return await run()
+	} finally {
+		openSessionTeardowns--
+	}
+}
+
 export function deleteSession(id: string) {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
@@ -1110,7 +1152,36 @@ export function setSessionChatId(sessionId: string, chatId: string) {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
 	if (s && s.chatId !== chatId) {
 		s.chatId = chatId
-		void putSession(s)
+		void patchStoredSessionChatId(s, chatId)
+	}
+}
+
+// Persists the pointer through the STORED row, not this tab's copy: another
+// tab may have written newer fields (summary, tabs, archive state) since this
+// tab last read the record, and a whole-object put would roll them back — a
+// watcher adopting the driver's rotation reaches here with exactly that copy.
+async function patchStoredSessionChatId(s: Session, chatId: string): Promise<void> {
+	if (!BROWSER || s.transient || deletedSessionIds.has(s.id)) return
+	const db = await sessionsDb.whenReady()
+	if (!db) return
+	try {
+		const tx = db.transaction('sessions', 'readwrite')
+		const stored = await tx.store.get(s.id)
+		// Inline tombstone re-check in place of putSessionRow's: routing through
+		// it would put outside this transaction and lose the read's atomicity.
+		if (stored && !deletedSessionIds.has(s.id)) {
+			stored.chatId = chatId
+			await tx.store.put(stored)
+			await tx.done
+			return
+		}
+		await tx.done
+		// No stored row: either the record is not yet persisted — its own
+		// materialization writes it later with the chatId already set in memory —
+		// or another tab deleted it, and an upsert here would resurrect it. No
+		// write either way.
+	} catch (e) {
+		console.error('Failed to persist session chat id', e)
 	}
 }
 

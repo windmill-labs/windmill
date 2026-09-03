@@ -1171,6 +1171,7 @@ pub fn lfs_to_object_store_resource(
             Ok(ObjectStoreResource::Gcs(gcs_resource))
         }
         LargeFileStorage::FilesystemStorage(fs) => {
+            windmill_common::workspaces::ensure_filesystem_storage_allowed()?;
             Ok(ObjectStoreResource::Filesystem(FilesystemSettings {
                 root_path: fs.root_path.clone(),
             }))

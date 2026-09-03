@@ -878,7 +878,7 @@ is, a different one moves it there and archives the old path"),
     EndpointTool {
         name: Cow::Borrowed("runScriptByPath"),
         description: Cow::Borrowed("run script by path"),
-        instructions: Cow::Borrowed("You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected."),
+        instructions: Cow::Borrowed("You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected. A resource argument (schema format `resource-<type>`) is the bare string `$res:<path>` as that whole argument value -- not a wrapper object, not a plain path. A variable is `$var:<path>`."),
         path: Cow::Borrowed("/w/{workspace}/jobs/run/p/{path}"),
         method: Cow::Borrowed("POST"),
         path_params_schema: Some(serde_json::json!({
@@ -1419,7 +1419,7 @@ is, a different one moves it there and archives the old path"),
     EndpointTool {
         name: Cow::Borrowed("runFlowByPath"),
         description: Cow::Borrowed("run flow by path"),
-        instructions: Cow::Borrowed("You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected."),
+        instructions: Cow::Borrowed("You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected. A resource argument (schema format `resource-<type>`) is the bare string `$res:<path>` as that whole argument value -- not a wrapper object, not a plain path. A variable is `$var:<path>`."),
         path: Cow::Borrowed("/w/{workspace}/jobs/run/f/{path}"),
         method: Cow::Borrowed("POST"),
         path_params_schema: Some(serde_json::json!({

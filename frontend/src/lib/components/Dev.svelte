@@ -1,6 +1,7 @@
 <script lang="ts">
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
+	import { argsToJsonPayload } from '$lib/schema'
 	import JobLoader from '$lib/components/JobLoader.svelte'
 	import { Button } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
@@ -161,7 +162,6 @@
 	let args: Record<string, any> = $state({})
 	let isValid: boolean = $state(true)
 	let jsonView: boolean = $state(false)
-	let jsonEditor: JsonInputs | undefined = $state(undefined)
 	let schemaHeight = $state(0)
 
 	// Test
@@ -1171,20 +1171,17 @@
 									rightTooltip: 'Fill args from JSON'
 								}}
 								lightMode
-								on:change={() => {
-									jsonEditor?.setCode(JSON.stringify(args ?? {}, null, '\t'))
-								}}
 							/>
 						</div>
 						{#if jsonView}
 							<div class="py-2" style="height: {Math.max(schemaHeight, 300)}px">
 								<JsonInputs
-									bind:this={jsonEditor}
 									on:select={(e) => {
 										if (e.detail) {
 											args = e.detail
 										}
 									}}
+									initialCode={argsToJsonPayload(schema, args)}
 									updateOnBlur={false}
 									placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
 								/>

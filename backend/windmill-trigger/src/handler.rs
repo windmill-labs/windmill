@@ -554,6 +554,8 @@ async fn create_trigger<T: TriggerCrud>(
         )));
     }
 
+    new_trigger.error_handling.validate()?;
+
     handler
         .validate_new(&db, &workspace_id, &new_trigger.config)
         .await?;
@@ -814,6 +816,8 @@ async fn update_trigger<T: TriggerCrud>(
             &edit_trigger.base.path
         )
     })?;
+
+    edit_trigger.error_handling.validate()?;
 
     handler
         .validate_edit(&db, &workspace_id, &edit_trigger.config, path)

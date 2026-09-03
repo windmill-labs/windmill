@@ -17,8 +17,7 @@ import {
 	ScriptService,
 	SqsTriggerService,
 	VariableService,
-	WebsocketTriggerService,
-	WorkspaceService
+	WebsocketTriggerService
 } from '$lib/gen'
 import { createTwoFilesPatch } from 'diff'
 import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
@@ -83,6 +82,16 @@ import {
 } from '../flow/inlineScriptsUtils'
 import { searchNpmPackagesTool } from '../script/core'
 import type { McpServer } from './mcpTools'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
+import { enabledSkillPaths } from '../skills/enabledSkills'
+import {
+	listSkillResources,
+	readSkillBody,
+	skillNameFromPath,
+	truncateChars,
+	truncateForPrompt
+} from '../skills/skillResources'
+import { MAX_SKILL_DESCRIPTION_LENGTH, MAX_SKILL_INSTRUCTIONS_LENGTH } from '../skills/skillMd'
 import {
 	getDatatableSdkReference,
 	getFlowPrompt,
@@ -636,7 +645,7 @@ const writeVariableSchema = variableRequestSchema.extend({
 		.string()
 		.optional()
 		.describe(
-			'The value of the variable. Omit it to leave the value alone — required only when creating a new variable, or when changing a secret variable into a non-secret one. Never invent or guess the value of an existing variable: you cannot read it, and a "$var:..." reference is NOT a valid value (that syntax only references a variable from inside a resource). Omitting it keeps whatever the draft already holds, so a value you set earlier in this conversation stays set; discard_local_draft abandons it.'
+			'The value of the variable. Omit it to leave the value alone — required only when creating a new variable, or when changing a secret variable into a non-secret one. Never invent or guess the value of an existing variable: you cannot read it, and a "$var:..." reference is NOT a valid value (a variable cannot reference itself). Omitting it keeps whatever the draft already holds, so a value you set earlier in this conversation stays set; discard_local_draft abandons it.'
 		),
 	is_secret: z
 		.boolean()
@@ -845,7 +854,9 @@ const testRunArgsSchema = z
 	.record(z.string(), z.any())
 	.nullable()
 	.optional()
-	.describe('Arguments to pass to the runnable. Omit or pass null when no arguments are needed.')
+	.describe(
+		'Arguments to pass to the runnable. Omit or pass null when no arguments are needed. An argument typed as a resource (format "resource-<type>" in the input schema) takes the bare string "$res:<path>" as its whole value — never an object wrapper like {"$res": "<path>"}, and never a plain path, both of which reach the runnable unresolved. Same for a variable, with "$var:<path>". The prefixed string can also sit in a nested field, e.g. {"gh_auth": {"token": "$var:g/all/gh_token"}}.'
+	)
 
 const backgroundArgSchema = z
 	.boolean()
@@ -1362,9 +1373,9 @@ Data Tables:
 			? `
 
 Skills:
-- Skills are reusable instruction sets curated for this workspace, each covering a specific kind of task. The available skills are listed below by name and description.
-- When a user's request matches a skill's description, call read_skill with its exact name to load the full instructions BEFORE acting, then follow them.
-${skills.map((s) => `- ${s.name}: ${s.description}`).join('\n')}`
+- Skills are reusable instruction sets the user selected for this chat, each covering a specific kind of task. The available skills are listed below by resource path and description.
+- When a user's request matches a skill's description, call read_skill with its exact path to load the full instructions BEFORE acting, then follow them.
+${skills.map((s) => `- ${s.path}: ${s.description}`).join('\n')}`
 			: ''
 	}${
 		mcpServers.length > 0
@@ -2205,7 +2216,7 @@ function getResourceInstructions(): string {
 - Reading a variable returns \`{ type: 'variable', path, summary?, isSecret, isDraft }\` — never its value, secret or not. \`isSecret\` tells you whether the value is encrypted.
 - \`write_variable\` takes \`{ path, value?, is_secret?, description?, account?, is_oauth?, expires_at?, labels? }\`. Creating a variable needs \`value\` and \`is_secret\`; editing one needs only the fields you are changing. Omitting \`value\` keeps the stored value, which is the only way to edit a secret variable — you cannot read its value, so passing any \`value\` you did not get from the user destroys it.
 - For secret fields in a resource value, do NOT inline the raw secret. Create a Variable first with \`is_secret: true\`, then in the resource value reference it as \`"$var:path/to/variable"\`.
-- Reference formats inside resource values: \`$var:g/all/name\` (global), \`$var:u/user/name\` (user), \`$var:f/folder/name\` (folder). Reference another resource with \`$res:path/to/resource\`. These are references FROM a resource value; never store a \`$var:\` string as a variable's own value.
+- Reference formats inside resource values: \`$var:g/all/name\` (global), \`$var:u/user/name\` (user), \`$var:f/folder/name\` (folder). Reference another resource with \`$res:path/to/resource\`. The same strings are also how a resource or variable is passed as a run argument (see the run-argument rule in the resource reference below); what they are never valid as is a variable's own value.
 - When deploying drafts that depend on each other (e.g., a resource and the variables it references), deploy the variables first.
 - Use \`search_resource_types\` to discover valid \`resource_type\` names and their JSON Schemas. Match the resource value to that schema.
 - For OAuth resources, the \`is_oauth: true\` flag is managed by Windmill's OAuth flow; global mode generally creates manual resources, not OAuth ones.
@@ -2253,7 +2264,9 @@ function getInstructions(
 	}
 }
 
-export type AiSkillListItem = { name: string; description: string }
+/** A skill the user turned on, as the prompt and the `/` picker see it. `path`
+ * is the `ai_skill` resource and the model-facing id; `name` is its basename. */
+export type AiSkillListItem = { path: string; name: string; description: string }
 
 /** Live session facts appended to the GLOBAL system prompt for session chats.
  * Provided by the session runtime as a resolver (copilot must not import the
@@ -2316,15 +2329,43 @@ export function getSessionContextPromptSection(ctx: SessionPromptContext): strin
 	return lines.join('\n')
 }
 
-/** `/` picker entry: a workspace skill or a built-in session action. The kind
- * drives the picker's category grouping; entries without one are ungrouped. */
-export type ChatCommandItem = AiSkillListItem & { kind?: 'action' | 'skill' }
+/** `/` picker entry: a selected skill or a built-in session action. The kind
+ * drives the picker's category grouping; entries without one are ungrouped.
+ * Only skills carry a `path` — built-in actions run locally and have no resource. */
+export type ChatCommandItem = {
+	name: string
+	description: string
+	path?: string
+	kind?: 'action' | 'skill'
+}
 
-/** Fetch the workspace's AI skills (name + description) for the global system prompt. */
+/**
+ * The skills this user turned on in this workspace, for the global system prompt.
+ * A readable `ai_skill` resource is only a candidate — enabling one is a personal
+ * choice, since each enabled skill spends context on every turn.
+ */
 export async function loadWorkspaceSkills(workspace: string): Promise<AiSkillListItem[]> {
 	if (!workspace) return []
 	try {
-		return await WorkspaceService.listAiSkills({ workspace })
+		const enabled = new Set(enabledSkillPaths(workspace))
+		if (enabled.size === 0) return []
+		// Filtered against what is actually readable now, so a skill that was
+		// deleted or whose folder access was revoked drops out instead of being
+		// advertised to the model as something read_skill can load.
+		// A truncated listing still carries most of the workspace, and the drawer is
+		// where that is surfaced; dropping everything here would silently empty the
+		// Skills section instead.
+		return (await listSkillResources(workspace)).skills
+			.filter((s) => enabled.has(s.path))
+			.map(({ path, name, description }) => ({
+				path,
+				name,
+				// Every description goes into the system prompt on every turn, and any
+				// resource of this type can be selected — including ones written through
+				// git sync or the resource editor, which never saw the authoring form's
+				// bounds. One unbounded description would crowd out the conversation.
+				description: truncateChars(description, MAX_SKILL_DESCRIPTION_LENGTH)
+			}))
 	} catch (e) {
 		console.error('Failed to load AI skills', e)
 		return []
@@ -2332,32 +2373,52 @@ export async function loadWorkspaceSkills(workspace: string): Promise<AiSkillLis
 }
 
 const readSkillSchema = z.object({
-	name: z
+	path: z
 		.string()
-		.describe('The exact skill name as listed in the Skills section of the system prompt.')
+		.describe('The exact skill resource path as listed in the Skills section of the system prompt.')
 })
 
 export const readSkillTool: Tool<{}> = {
 	def: createToolDef(
 		readSkillSchema,
 		'read_skill',
-		'Load the full instructions for a workspace AI skill by name. Skills are listed in the system prompt under "Skills"; call this before acting on a task a skill covers, then follow its instructions.'
+		'Load the full instructions for a selected AI skill by resource path. Skills are listed in the system prompt under "Skills"; call this before acting on a task a skill covers, then follow its instructions.'
 	),
 	planModeSafe: true,
 	fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 		const parsed = readSkillSchema.parse(args)
-		toolCallbacks.setToolStatus(toolId, { content: `Reading skill "${parsed.name}"...` })
+		const name = skillNameFromPath(parsed.path)
+		// The prompt lists only selected skills, but the tool takes a path the model
+		// composed, so the selection is enforced here too rather than assumed. Without
+		// it the tool reads any resource holding a string `content` — the user's own
+		// access, but not what "load a selected skill" says it does.
+		if (!enabledSkillPaths(workspace).includes(parsed.path)) {
+			toolCallbacks.setToolStatus(toolId, { content: `Skill "${name}" is not selected` })
+			return `"${parsed.path}" is not one of the skills selected for this chat. Only the paths listed under "Skills" in the system prompt can be read.`
+		}
+		toolCallbacks.setToolStatus(toolId, { content: `Reading skill "${name}"...` })
 		try {
-			const skill = await WorkspaceService.getAiSkill({ workspace, name: parsed.name })
-			toolCallbacks.setToolStatus(toolId, { content: `Read skill "${parsed.name}"` })
-			return `Skill: ${skill.name}\nDescription: ${skill.description}\n\nInstructions:\n${skill.instructions}`
+			// Bounded here rather than in the reader: any `ai_skill` resource can be
+			// selected, including ones written through git sync or the resource editor
+			// that never passed the authoring form's limits, and an unbounded body
+			// would exhaust the context on one tool call. The editor reads the same
+			// resource untruncated, so opening a long skill cannot rewrite it short.
+			const instructions = truncateForPrompt(
+				await readSkillBody(workspace, parsed.path),
+				MAX_SKILL_INSTRUCTIONS_LENGTH
+			)
+			toolCallbacks.setToolStatus(toolId, { content: `Read skill "${name}"` })
+			// Whether a selected skill is actually reached for. No key: the path is
+			// workspace-authored text.
+			logFeatureUsage('ai_session', 'skill_read', { workspace })
+			return `Skill: ${parsed.path}\n\nInstructions:\n${instructions}`
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e)
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Error reading skill "${parsed.name}"`,
+				content: `Error reading skill "${name}"`,
 				error: msg
 			})
-			return `Failed to read skill "${parsed.name}": ${msg}. Check the name against the Skills list in the system prompt.`
+			return `Failed to read skill "${parsed.path}": ${msg}. Check the path against the Skills list in the system prompt.`
 		}
 	}
 }
@@ -5046,7 +5107,7 @@ function writeVariableDraft(args: WriteVariableArgs, ctx: WriteDraftCtx): Promis
 	// is always the model echoing the reference syntax back instead of a real value.
 	if (args.value === `$var:${args.path}`) {
 		throw new Error(
-			`"${args.value}" is not a valid value for variable "${args.path}" — it is a self-reference. The "$var:" syntax only references a variable from inside a resource value. Omit value to keep the current one.`
+			`"${args.value}" is not a valid value for variable "${args.path}" — it is a self-reference. Omit value to keep the current one.`
 		)
 	}
 	return writeDraft(VARIABLE_SPEC, 'variable', args.path, args, ctx, { override: args.override })

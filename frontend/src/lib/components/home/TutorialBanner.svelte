@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { GraduationCap, X } from 'lucide-svelte'
+	import CloseButton from '$lib/components/common/CloseButton.svelte'
+	import { GraduationCap } from 'lucide-svelte'
 	import { base } from '$lib/base'
 	import { goto } from '$app/navigation'
 	import { sendUserToast, type ToastAction } from '$lib/toast'
@@ -153,44 +154,25 @@
 </script>
 
 {#if !isDismissed}
-	<div
-		class="flex items-center justify-between gap-4 px-4 py-3 rounded-lg border border-light bg-surface-tertiary mb-4"
-	>
-		<div class="flex items-center gap-3 flex-1 min-w-0">
-			<GraduationCap size={20} class="text-accent-primary flex-shrink-0" />
-			<div class="flex-1 min-w-0">
-				<div class="text-emphasis flex-wrap text-left text-xs font-semibold">
-					{#if hasCompletedAny}
-						New tutorial available!
-					{:else}
-						Learn with interactive tutorials
-					{/if}
-				</div>
-				<div class="text-hint text-3xs truncate text-left font-normal">
-					{#if hasCompletedAny}
-						Continue your learning journey and master new Windmill skills.
-					{:else}
-						Get started quickly with step-by-step guides on building flows, scripts, and more.
-					{/if}
-				</div>
-			</div>
-		</div>
-		<div class="flex items-center gap-2 flex-shrink-0">
-			<Button
-				size="xs"
-				variant="accent"
-				onclick={goToTutorials}
-				startIcon={{ icon: GraduationCap }}
-			>
-				View tutorials
-			</Button>
-			<button
-				onclick={dismissBanner}
-				class="p-1.5 rounded hover:bg-surface-hover text-secondary hover:text-primary transition-colors"
-				aria-label="Dismiss tutorial banner"
-			>
-				<X size={16} />
-			</button>
-		</div>
+	<!-- A standing invitation, not an announcement: it sits inline at the start of the row rather
+	     than filling the page, so it reads as one more control and not as a card the user has to
+	     dispatch before getting to their work. -->
+	<div class="flex items-center gap-2 mt-4 mb-4">
+		<span class="text-hint text-xs truncate min-w-0">
+			{#if hasCompletedAny}
+				New tutorial available!
+			{:else}
+				First time?
+			{/if}
+		</span>
+		<Button
+			unifiedSize="sm"
+			variant="default"
+			onclick={goToTutorials}
+			startIcon={{ icon: GraduationCap }}
+		>
+			Tutorials
+		</Button>
+		<CloseButton small noBg title="Dismiss tutorial banner" onClick={dismissBanner} />
 	</div>
 {/if}

@@ -191,7 +191,14 @@ function createSveltePlugin(appDir: string): any {
 
         // Convert Svelte syntax to JavaScript
         try {
-          const { js, warnings } = svelte.compile(source, { filename });
+          // The raw-app editor's in-browser bundler compiles with
+          // `css: "injected"`, so this must too, or the same app renders
+          // styled there and unstyled once the CLI builds it: Svelte's default
+          // ("external") hands the <style> back on a `css` field nothing emits.
+          const { js, warnings } = svelte.compile(source, {
+            filename,
+            css: "injected",
+          });
           const contents = js.code + `//# sourceMappingURL=` + js.map.toUrl();
           return { contents, warnings: warnings.map(convertMessage) };
         } catch (e: any) {

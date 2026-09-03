@@ -491,7 +491,8 @@ async fn list_apps(
               FROM draft d \
               LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
               LEFT JOIN password p ON p.email = d.email AND p.super_admin = true \
-              WHERE d.workspace_id = app.workspace_id AND d.path = app.path AND d.typ IN ('app', 'raw_app')) as draft_users",
+              WHERE d.workspace_id = app.workspace_id AND d.path = app.path AND d.typ IN ('app', 'raw_app') \
+                AND (d.email IS NULL OR u.username IS NOT NULL OR p.email IS NOT NULL)) as draft_users",
             "folder_labels(app.workspace_id, app.path) as inherited_labels",
         ])
         .left()

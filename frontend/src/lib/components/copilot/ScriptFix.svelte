@@ -13,6 +13,7 @@
 	import { getOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
 	import { AIBtnClasses } from './chat/AIButtonStyle'
 	import { getContext } from 'svelte'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
 
 	let {
 		lang,
@@ -45,9 +46,28 @@
 			? `Fix this error in ${what}:\n\n\`\`\`\n${error}\n\`\`\``
 			: `Fix the error from the last run of ${what}.`
 	})
+	// Anonymous counter for a failing run being handed to AI, keyed by where the run was. All
+	// three branches below report the same action: which one is on screen follows the session
+	// gate and whether a chat is already beside this panel, not a choice made here.
+	function logAiFix() {
+		logFeatureUsage('ai_fix', 'requested', { key: moduleId ? 'flow_step' : 'script' })
+	}
+
 	const sessionSource = $derived.by(() => {
 		const source = handoff?.source({ moduleId })
-		return source ? { ...source, seedPrompt, autoSend: true } : undefined
+		if (!source) return undefined
+		// The counter wraps the editor's own hook rather than replacing it: that hook persists
+		// the draft the session opens on, so dropping it would fix an older copy of the code.
+		const editorBeforeOpen = source.beforeOpen
+		return {
+			...source,
+			seedPrompt,
+			autoSend: true,
+			beforeOpen: async () => {
+				logAiFix()
+				await editorBeforeOpen?.()
+			}
+		}
 	})
 
 	// Inside a session pane the chat is already beside this panel, so there is
@@ -57,7 +77,7 @@
 	const sessionScopedManager = getContext<AIChatManager | undefined>('aiChatManager')
 </script>
 
-{#if SUPPORTED_LANGUAGES.has(lang)}
+{#if SUPPORTED_LANGUAGES.has(lang) && !$copilotInfo.workspaceDisabled}
 	{#if sessionScopedManager}
 		<Button
 			title="Fix the failing run in this chat"
@@ -65,7 +85,10 @@
 			color="light"
 			spacingSize="xs2"
 			startIcon={{ icon: WandSparkles }}
-			on:click={() => sessionScopedManager.sendOrQueue(seedPrompt)}
+			on:click={() => {
+				logAiFix()
+				sessionScopedManager.sendOrQueue(seedPrompt)
+			}}
 			btnClasses={AIBtnClasses('default')}
 		>
 			AI Fix
@@ -99,6 +122,7 @@
 								startIcon={{ icon: WandSparkles }}
 								on:click={() => {
 									if ($copilotInfo.enabled) {
+										logAiFix()
 										aiChatManager.fix()
 									}
 								}}

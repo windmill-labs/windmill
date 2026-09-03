@@ -345,70 +345,73 @@
 				{/if}
 			</div>
 
-			<div class="pt-6">
-				<h2 class="text-xs font-semibold text-emphasis mb-1 flex items-center gap-2">
-					<Sparkles size={16} class="text-ai" />
-					Start with AI
-					<span class="text-xs font-normal text-tertiary">(optional)</span>
-				</h2>
+			{#if !$copilotInfo.workspaceDisabled}
+				<div class="pt-6">
+					<h2 class="text-xs font-semibold text-emphasis mb-1 flex items-center gap-2">
+						<Sparkles size={16} class="text-ai" />
+						Start with AI
+						<span class="text-xs font-normal text-tertiary">(optional)</span>
+					</h2>
 
-				{#if !aiConfigLoaded}
-					<div class="flex items-center gap-2 text-xs text-tertiary">
-						<Loader2 size={14} class="animate-spin" />
-						Loading AI settings...
-					</div>
-				{:else if !isAiEnabled}
-					<Alert type="info" title="AI is not configured.">
-						You can still create an app manually but using AI is highly recommended.
-						<br />
-						{#if $userStore?.is_admin}
-							Configure AI in
-							<a
-								href="{base}/workspace_settings?tab=ai"
-								target="_blank"
-								class="inline-flex items-center gap-1 font-semibold"
-								>workspace settings <ExternalLinkIcon size={16} />
-							</a>
-							{#if $superadmin}
-								or
+					{#if !aiConfigLoaded}
+						<div class="flex items-center gap-2 text-xs text-tertiary">
+							<Loader2 size={14} class="animate-spin" />
+							Loading AI settings...
+						</div>
+					{:else if !isAiEnabled}
+						<Alert type="info" title="AI is not configured.">
+							You can still create an app manually but using AI is highly recommended.
+							<br />
+							{#if $userStore?.is_admin}
+								Configure AI in
+								<a
+									href="{base}/workspace_settings?tab=ai"
+									target="_blank"
+									class="inline-flex items-center gap-1 font-semibold"
+									>workspace settings <ExternalLinkIcon size={16} />
+								</a>
+								{#if $superadmin}
+									or
+									<a
+										href="{base}/?workspace=admins#superadmin-settings"
+										target="_blank"
+										class="inline-flex items-center gap-1 font-semibold"
+										>instance settings <ExternalLinkIcon size={16} />
+									</a>
+								{/if} to enable this feature.
+							{:else if $superadmin}
+								Configure AI in
 								<a
 									href="{base}/?workspace=admins#superadmin-settings"
 									target="_blank"
 									class="inline-flex items-center gap-1 font-semibold"
 									>instance settings <ExternalLinkIcon size={16} />
-								</a>
-							{/if} to enable this feature.
-						{:else if $superadmin}
-							Configure AI in
-							<a
-								href="{base}/?workspace=admins#superadmin-settings"
-								target="_blank"
-								class="inline-flex items-center gap-1 font-semibold"
-								>instance settings <ExternalLinkIcon size={16} />
-							</a> to enable this feature.
-						{:else}
-							Ask your workspace admin to configure AI in workspace settings to enable this feature.
-						{/if}
-					</Alert>
-				{:else}
-					<div class="flex flex-col gap-2">
-						<TextInput
-							underlyingInputEl="textarea"
-							bind:value={initialPrompt}
-							inputProps={{
-								rows: 3,
-								placeholder:
-									"Describe what you want to build... (e.g., 'Create a todo list app with user authentication')"
-							}}
-						/>
-						<p class="text-xs text-tertiary">
-							{handsOffToSession
-								? 'Leave empty to start with a blank template, or describe your app to open an AI session that builds it.'
-								: 'Leave empty to start with a blank template, or describe your app to get AI assistance right away.'}
-						</p>
-					</div>
-				{/if}
-			</div>
+								</a> to enable this feature.
+							{:else}
+								Ask your workspace admin to configure AI in workspace settings to enable this
+								feature.
+							{/if}
+						</Alert>
+					{:else}
+						<div class="flex flex-col gap-2">
+							<TextInput
+								underlyingInputEl="textarea"
+								bind:value={initialPrompt}
+								inputProps={{
+									rows: 3,
+									placeholder:
+										"Describe what you want to build... (e.g., 'Create a todo list app with user authentication')"
+								}}
+							/>
+							<p class="text-xs text-tertiary">
+								{handsOffToSession
+									? 'Leave empty to start with a blank template, or describe your app to open an AI session that builds it.'
+									: 'Leave empty to start with a blank template, or describe your app to get AI assistance right away.'}
+							</p>
+						</div>
+					{/if}
+				</div>
+			{/if}
 
 			<div class="pt-6 flex justify-end gap-3">
 				<Button
@@ -417,7 +420,7 @@
 					on:click={() => start(false)}
 					disabled={!templates[selectedTemplateIndex] || newSchemaAlreadyExists}
 				>
-					Start without AI
+					{$copilotInfo.workspaceDisabled ? 'Start' : 'Start without AI'}
 				</Button>
 				{#if isAiEnabled}
 					<Button

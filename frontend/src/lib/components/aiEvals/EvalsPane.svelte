@@ -9,9 +9,11 @@
 	import Label from '$lib/components/Label.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
+	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
 	import {
 		type AgentDraft,
 		AiEvalsService,
+		JobService,
 		type EvalCase,
 		type EvalDataset,
 		type EvalExperiment,
@@ -35,9 +37,11 @@
 		Code2,
 		ExternalLink
 	} from 'lucide-svelte'
+	import PagedContent from '$lib/components/common/modal/PagedContent.svelte'
 	import EvalDatasetDrawer from './EvalDatasetDrawer.svelte'
 	import EvalRunsList from './EvalRunsList.svelte'
 	import EvalRunDialog from './EvalRunDialog.svelte'
+	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import {
 		caseLabel,
@@ -51,6 +55,10 @@
 
 	/** A dataset is capped at this many cases, so one page holds the whole set. */
 	const CASE_PAGE_SIZE = 1000
+
+	/** The id the run's flow gives the loop over its cases (`CASES_NODE_ID` in `ai_evals/run.rs`).
+	 *  Looked up by id rather than by position: the flow has a step after the loop too. */
+	const CASES_MODULE_ID = 'cases'
 
 	let {
 		agentPath,
@@ -91,12 +99,56 @@
 	/** What the agent hashes to as deployed: a run of edits carrying it ran what was then saved. */
 	let deployedHash = $state<string | undefined>(undefined)
 	let running = $state(false)
-	let scorers = $derived(dataset?.scorers ?? [])
+	/** The run on screen belongs to a dataset still being read. Until it arrives the rows and the
+	 *  scorer columns would both be built from the *previous* dataset, so both are held back. */
+	let datasetLoading = $state(false)
+	let scorers = $derived(datasetLoading ? [] : (dataset?.scorers ?? []))
 	let selectedCaseId = $state<string | undefined>(undefined)
 
 	let datasetDrawer: EvalDatasetDrawer | undefined = $state()
 	let runDialogOpen = $state(false)
-	let resumeRunDialog = $state(false)
+	/** The run the list has highlighted, so arrowing into the run page opens that one. Without it
+	 *  the arrow could only fall back to whichever run was opened last, which on a dialog just
+	 *  opened is none at all. */
+	let highlightedRunId = $state<string | undefined>(undefined)
+
+	/** How many cases each still-running run has finished, keyed by run id. Read from the flow
+	 *  executing the run: the list carries the case total, and counting the finished ones there
+	 *  would be a per-case query for every run listed. The flow already records it — one slot per
+	 *  case in `flow_jobs_success`, null until that case's iteration is over. */
+	let caseProgress = $state<Record<string, number>>({})
+
+	async function readCaseProgress() {
+		const workspace = ws
+		const live = experiments.filter((e) => e.running)
+		if (!workspace || live.length === 0) {
+			if (Object.keys(caseProgress).length > 0) caseProgress = {}
+			return
+		}
+		const read = await Promise.all(
+			live.map(async (e) => {
+				try {
+					const update = await JobService.getJobUpdates({
+						workspace,
+						id: e.run_job_id,
+						running: true,
+						noLogs: true
+					})
+					const cases = update.flow_status?.modules?.find((m) => m.id === CASES_MODULE_ID)
+					if (!cases) return undefined
+					return [
+						e.id,
+						(cases.flow_jobs_success ?? []).filter((s) => s != undefined).length
+					] as const
+				} catch {
+					// Left out of the map, so the row reads `0/total` until a later poll answers. A
+					// flow that cannot be read is already the list's problem to report, not this one's.
+					return undefined
+				}
+			})
+		)
+		caseProgress = Object.fromEntries(read.filter((e) => e !== undefined))
+	}
 
 	let experiment = $derived(experiments.find((e) => e.id === experimentId))
 
@@ -120,6 +172,7 @@
 		runsLoadError = false
 		try {
 			experiments = await listSubjectExperiments()
+			await readCaseProgress()
 		} catch (e) {
 			runsLoadError = true
 			sendUserToast(`Failed to load the runs: ${e}`, true)
@@ -183,6 +236,8 @@
 	// Switching datasets leaves the previous request in flight; only the newest may write, or a
 	// slow response for the dataset you just left replaces the one you are looking at.
 	let loadGeneration = 0
+	/** Which run the pane is opening; only the newest may clear `datasetLoading`. */
+	let openGeneration = 0
 
 	async function loadDataset(path: string | undefined): Promise<boolean> {
 		const generation = ++loadGeneration
@@ -345,6 +400,7 @@
 				await loadResults()
 			} else {
 				experiments = await listSubjectExperiments()
+				await readCaseProgress()
 			}
 		} finally {
 			refreshing = false
@@ -354,27 +410,46 @@
 	/** Opens a run, bringing its dataset with it and offering the run before it as the baseline.
 	 *  Reading the cells is left to the effect on the selection, so every way in opens one alike. */
 	async function openRun(id: string) {
-		// Against the dataset that is loaded, not the one that is selected: skipping on the selection
-		// alone would leave a run open over a dataset whose cases and scorers were never read.
 		const target = experiments.find((e) => e.id === id)
-		if (target && target.dataset !== dataset?.path) {
-			await useDataset(target.dataset)
+		// Only when the run itself changes: re-showing the one already open — arrowing back into it
+		// from the list — must keep whatever comparison the user picked.
+		if (id !== experimentId) {
+			const index = experiments.findIndex((e) => e.id === id)
+			// The run before it *of the same dataset*: the list spans datasets, and a run of another
+			// set of cases is not a baseline for this one.
+			baselineId = experiments.slice(index + 1).find((e) => e.dataset === target?.dataset)?.id
 		}
-		const index = experiments.findIndex((e) => e.id === id)
-		// The run before it *of the same dataset*: the list spans datasets, and a run of another set
-		// of cases is not a baseline for this one.
-		baselineId = experiments.slice(index + 1).find((e) => e.dataset === target?.dataset)?.id
 		experimentId = id
-		viewingRun = true
 		selectedCaseId = undefined
+		// Opened first, read second: the dataset is a request, and waiting on it here is a click
+		// that does nothing at all until the network answers. The page carries the wait instead.
+		//
+		// Against what is *selected* as well as what is loaded. `selectedDataset` moves the moment a
+		// read starts, so a load still in flight for another dataset shows up here: without that
+		// test, opening a run of the dataset already committed would skip `useDataset` entirely and
+		// leave the in-flight one free to commit its cases under this run.
+		const needsDataset =
+			!!target && (target.dataset !== dataset?.path || target.dataset !== selectedDataset)
+		datasetLoading = needsDataset
+		viewingRun = true
+		if (needsDataset) {
+			// Numbered like `loadDataset`'s own read, and for the same reason: opening a second run
+			// while the first is still loading leaves two `finally`s racing, and the loser clearing
+			// the flag would uncover the table with neither dataset in hand.
+			const generation = ++openGeneration
+			try {
+				await useDataset(target!.dataset)
+			} finally {
+				if (generation === openGeneration) datasetLoading = false
+			}
+		}
 	}
 
 	async function runAll(runSubject: EvalSubject, path: string): Promise<boolean> {
 		if (!ws || !path) return false
 		running = true
-		let id: string
 		try {
-			id = await AiEvalsService.runExperiment({
+			await AiEvalsService.runExperiment({
 				workspace: ws,
 				requestBody: { dataset: path, subject: runSubject }
 			})
@@ -386,9 +461,10 @@
 		// From here the run exists and is billing: what can still fail is reading it back, and
 		// saying "failed to run" to that invites a second, duplicate run.
 		try {
+			// Onto the list rather than into the run: a run that has just started has no answers and
+			// no scores, and the list already fills its row in as they land. Reading it is a click.
 			if (path !== dataset?.path) await useDataset(path)
 			await loadRuns()
-			await openRun(id)
 		} catch (e) {
 			sendUserToast(
 				`The run started but could not be read back: ${e}. Reload the runs list to see it.`,
@@ -407,8 +483,6 @@
 
 	/** The dataset is gone and every run of it with it: back to the list, on no dataset. */
 	async function datasetDeleted(path: string) {
-		// A run dialog waiting behind the drawer has nothing to come back to.
-		resumeRunDialog = false
 		if (selectedDataset === path) {
 			viewingRun = false
 			selectedCaseId = undefined
@@ -442,6 +516,13 @@
 	}
 
 	let selectedRow = $derived(displayRows.find((row) => row.case_id === selectedCaseId))
+	/** The case the side panel is showing. Held rather than read straight off the selection: the
+	 *  pane animates shut over a few hundred milliseconds, and the selection is gone on the first
+	 *  of them, which would empty the panel before it had finished closing. */
+	let openRow = $state<ExperimentRow | undefined>(undefined)
+	$effect(() => {
+		if (selectedRow) openRow = selectedRow
+	})
 
 	$effect(() => {
 		if (!ws) return
@@ -570,34 +651,52 @@
 </script>
 
 <div class="flex flex-col h-full min-h-0">
+	{#if loaded && loadError}
+		<div class="h-full flex flex-col items-center justify-center gap-2 p-6 text-center">
+			<span class="text-sm text-emphasis">Could not load evals</span>
+			<span class="text-xs text-secondary max-w-md">
+				The datasets or runs could not be read. Check your access to this agent and reload.
+			</span>
+		</div>
+	{:else}
+		<!-- Warmed: the run page is a table, a splitter and two selects, and building it on the first
+		     click lands that work inside the transition — only the first navigation stutters, which
+		     reads as the animation being unreliable rather than as a cost. -->
+		<PagedContent
+			warm
+			class="grow min-h-0"
+			current={!viewingRun || !loaded ? 'list' : 'run'}
+			onNavigate={(key) => {
+				// Right opens the run under the highlight, falling back to whichever was open before;
+				// left is the way back, the same as the breadcrumb.
+				if (key === 'run') {
+					// Both branches go through `openRun`: it is what brings the run's own dataset back,
+					// and the fallback run may be of a dataset the list has since moved off.
+					const id = highlightedRunId ?? experimentId
+					if (id) openRun(id)
+				} else if (key === 'list') {
+					viewingRun = false
+					selectedCaseId = undefined
+				}
+			}}
+			pages={[
+				{ key: 'list', content: listPage },
+				{ key: 'run', content: runPage }
+			]}
+		/>
+	{/if}
+</div>
+
+{#snippet listPage()}
+	<!-- Carried by the level rather than by the dialog: as the dialog's own `description` it
+	     vanished the moment a run opened, shrinking the header and jolting the page under it. -->
+	<p class="text-xs text-secondary">
+		Each run answers a dataset of cases with this agent and scores the answers, so runs can be
+		compared.
+	</p>
 	<div class="flex flex-wrap items-end gap-2 py-2">
-		{#if viewingRun}
-			<Label label="Run" class="w-52 shrink">
-				<Select items={experimentItems} bind:value={experimentId} class="text-xs" />
-			</Label>
-			<Label label="Compare to" class="w-48 shrink">
-				<Select
-					items={experimentItems.filter((i) => i.value !== experimentId)}
-					bind:value={baselineId}
-					placeholder="No comparison"
-					clearable
-					disabled={experiments.length < 2}
-					class="text-xs"
-				/>
-			</Label>
-		{/if}
 		<div class="grow"></div>
-		{#if viewingRun && experiment?.run_job_id}
-			<a
-				class="text-xs text-accent hover:underline inline-flex items-center gap-1 shrink-0 pb-2"
-				href={`${base}/run/${experiment.run_job_id}?workspace=${ws}`}
-				target="_blank"
-			>
-				Open the job
-				<ExternalLink size={12} />
-			</a>
-		{/if}
-		{#if !viewingRun && loaded && datasets.length > 0}
+		{#if loaded && datasets.length > 0}
 			<Button
 				unifiedSize="md"
 				variant="default"
@@ -622,98 +721,115 @@
 			{/if}
 		{/if}
 	</div>
+	<div class="grow min-h-0 overflow-auto">
+		<EvalRunsList
+			{experiments}
+			{datasets}
+			{caseProgress}
+			{loaded}
+			active={!viewingRun}
+			{deployedHash}
+			{currentVersion}
+			onOpen={(e) => openRun(e.id)}
+			onHighlight={(id) => (highlightedRunId = id)}
+			onEditDataset={async (path) => {
+				if (await useDataset(path)) datasetDrawer?.openDrawer('edit')
+			}}
+			onNew={() => (runDialogOpen = true)}
+		/>
+	</div>
+{/snippet}
 
+{#snippet runPage()}
+	<div class="flex flex-wrap items-end gap-2 py-2">
+		<Label label="Run" class="w-52 shrink">
+			<Select items={experimentItems} bind:value={experimentId} class="text-xs" />
+		</Label>
+		<Label label="Compare to" class="w-48 shrink">
+			<Select
+				items={experimentItems.filter((i) => i.value !== experimentId)}
+				bind:value={baselineId}
+				placeholder="No comparison"
+				clearable
+				disabled={experiments.length < 2}
+				class="text-xs"
+			/>
+		</Label>
+		<div class="grow"></div>
+		{#if experiment?.run_job_id}
+			<a
+				class="text-xs text-accent hover:underline inline-flex items-center gap-1 shrink-0 pb-2"
+				href={`${base}/run/${experiment.run_job_id}?workspace=${ws}`}
+				target="_blank"
+			>
+				Open the job
+				<ExternalLink size={12} />
+			</a>
+		{/if}
+	</div>
 	<div class="grow min-h-0">
-		<Splitpanes class="h-full">
-			<Pane size={selectedRow ? 60 : 100} minSize={35}>
+		<Splitpanes class="h-full splitter-hidden">
+			<Pane minSize={35}>
 				<div class="h-full overflow-auto">
-					{#if loaded && loadError}
-						<div class="h-full flex flex-col items-center justify-center gap-2 p-6 text-center">
-							<span class="text-sm text-emphasis">Could not load evals</span>
-							<span class="text-xs text-secondary max-w-md">
-								The datasets or runs could not be read. Check your access to this agent and reload.
-							</span>
-						</div>
-					{:else if loaded && datasets.length === 0}
-						<div class="h-full flex flex-col items-center justify-center gap-3 p-6 text-center">
-							<span class="text-sm text-emphasis">No dataset yet</span>
-							<span class="text-xs text-secondary max-w-md">
-								A dataset is the set of cases this agent is measured on. Runs are of a dataset, so
-								it is the first thing to make.
-							</span>
-							<Button
-								unifiedSize="md"
-								variant="accent"
-								startIcon={{ icon: Plus }}
-								onclick={() => datasetDrawer?.openDrawer('new')}
-							>
-								New dataset
-							</Button>
-						</div>
-					{:else if !viewingRun || !loaded}
-						<EvalRunsList
-							{experiments}
-							{datasets}
-							{loaded}
-							{deployedHash}
-							{currentVersion}
-							onOpen={(e) => openRun(e.id)}
-							onEditDataset={async (path) => {
-								if (await useDataset(path)) datasetDrawer?.openDrawer('edit')
-							}}
-							onNew={() => (runDialogOpen = true)}
-						/>
-					{:else}
-						<DataTable size="sm" tableFixed rounded={!selectedRow}>
-							<colgroup>
-								<col style="width: 24%" />
-								<col style="width: 32%" />
-								{#each scorers as scorer (scorer.id)}
-									<col style="width: 9rem" />
-								{/each}
-							</colgroup>
-							<Head>
-								<tr>
-									<Cell head first>Case</Cell>
-									<Cell head last={scorers.length === 0}>Answer</Cell>
-									{#each scorers as scorer, index (scorer.id)}
-										{@const mean = means.find((m) => m.scorer_id === scorer.id)}
-										{@const headline = columnHeadline(scorer, mean)}
-										<Cell head numeric last={index === scorers.length - 1}>
-											<!-- The second row keeps its height while there is nothing in it, so the table
-											     does not move when the first score lands. -->
-											<div class="flex flex-col items-end min-w-0 w-full overflow-hidden">
-												<span
-													class="flex items-center gap-1 min-w-0 max-w-full"
-													title={columnTitle(scorer, mean)}
-												>
-													{#if scorer.kind === 'agent'}
-														<Bot size={13} class="text-tertiary shrink-0" />
-													{:else}
-														<Code2 size={13} class="text-tertiary shrink-0" />
-													{/if}
-													<span class="truncate min-w-0">{scorerLabel(scorer)}</span>
-												</span>
-												<span class="h-4 flex items-baseline gap-1.5 font-normal">
-													{#if headline}
-														<span class="tabular-nums text-emphasis font-semibold">
-															{headline.value}
+					<DataTable size="sm" tableFixed>
+						<colgroup>
+							<col style="width: 24%" />
+							<col style="width: 32%" />
+							{#each scorers as scorer (scorer.id)}
+								<col style="width: 9rem" />
+							{/each}
+						</colgroup>
+						<Head>
+							<tr>
+								<Cell head first>Case</Cell>
+								<Cell head last={scorers.length === 0}>Answer</Cell>
+								{#each scorers as scorer, index (scorer.id)}
+									{@const mean = means.find((m) => m.scorer_id === scorer.id)}
+									{@const headline = columnHeadline(scorer, mean)}
+									<Cell head numeric last={index === scorers.length - 1}>
+										<!-- The second row keeps its height while there is nothing in it, so the table
+								     does not move when the first score lands. -->
+										<div class="flex flex-col items-end min-w-0 w-full overflow-hidden">
+											<span
+												class="flex items-center gap-1 min-w-0 max-w-full"
+												title={columnTitle(scorer, mean)}
+											>
+												{#if scorer.kind === 'agent'}
+													<Bot size={13} class="text-tertiary shrink-0" />
+												{:else}
+													<Code2 size={13} class="text-tertiary shrink-0" />
+												{/if}
+												<span class="truncate min-w-0">{scorerLabel(scorer)}</span>
+											</span>
+											<span class="h-4 flex items-baseline gap-1.5 font-normal">
+												{#if headline}
+													<span class="tabular-nums text-emphasis font-semibold">
+														{headline.value}
+													</span>
+													{#if headline.delta && headline.direction !== 0}
+														<span
+															class={`text-2xs tabular-nums ${headline.direction > 0 ? 'text-green-500' : headline.direction < 0 ? 'text-red-500' : 'text-tertiary'}`}
+														>
+															{headline.delta}
 														</span>
-														{#if headline.delta && headline.direction !== 0}
-															<span
-																class={`text-2xs tabular-nums ${headline.direction > 0 ? 'text-green-500' : headline.direction < 0 ? 'text-red-500' : 'text-tertiary'}`}
-															>
-																{headline.delta}
-															</span>
-														{/if}
 													{/if}
-												</span>
-											</div>
-										</Cell>
-									{/each}
+												{/if}
+											</span>
+										</div>
+									</Cell>
+								{/each}
+							</tr>
+						</Head>
+						<tbody class="divide-y">
+							{#if datasetLoading}
+								<!-- A run whose *results* are loading keeps its rows instead: `displayRows` already
+								     names every case from the dataset in hand, which beats a skeleton. -->
+								<tr>
+									<td colspan={2 + scorers.length} class="p-3">
+										<Skeleton layout={[[2], 0.5, [2], 0.5, [2]]} />
+									</td>
 								</tr>
-							</Head>
-							<tbody class="divide-y">
+							{:else}
 								{#each displayRows as row (row.case_id)}
 									{@const status = statusOf(row.status)}
 									<Row
@@ -813,52 +929,74 @@
 										{/each}
 									</Row>
 								{/each}
-							</tbody>
-						</DataTable>
-					{/if}
+							{/if}
+						</tbody>
+					</DataTable>
 				</div>
 			</Pane>
-			{#if selectedRow}
-				{@const openRow = selectedRow}
-				<Pane size={40} minSize={25}>
+			<!-- Animated rather than mounted and unmounted: the pane's own width is what moves, so the
+			     cells table reflows alongside it instead of being shoved aside. -->
+			<AnimatedPane size={40} minSize={25} duration={180} opened={!!selectedRow}>
+				{#if openRow}
 					<div class="h-full overflow-auto flex flex-col">
-						<div class="flex items-start gap-2 px-3 py-2 border-b">
-							<span class="text-xs font-semibold text-emphasis break-words">
+						<!-- The title and the actions are different type sizes, so nothing lines them up on
+						     its own. `leading-7` gives the title's first line the same box height as the
+						     close button, and the actions centre in a row of that height beside it — so a
+						     title that wraps grows downwards and leaves the row where it is. -->
+						<div class="flex items-start gap-2 px-3 py-2">
+							<span
+								class="text-xs font-semibold text-emphasis break-words leading-7 flex-1 min-w-0"
+							>
 								{openRow.input?.user_message ?? caseLabel(openRow)}
 							</span>
-							<div class="grow"></div>
-							{#if openRow.job_id}
-								<a
-									class="text-2xs text-accent hover:underline inline-flex items-center gap-1 shrink-0 mt-0.5"
-									href={`${base}/run/${openRow.job_id}?workspace=${ws}`}
-									target="_blank"
-								>
-									Open the case job
-									<ExternalLink size={12} />
-								</a>
-							{/if}
-							<Button
-								unifiedSize="sm"
-								variant="subtle"
-								startIcon={{ icon: X }}
-								iconOnly
-								title="Close"
-								onclick={() => (selectedCaseId = undefined)}
-							/>
+							<div class="flex items-center gap-2 shrink-0 h-7">
+								{#if openRow.job_id}
+									<a
+										class="text-2xs text-accent hover:underline inline-flex items-center gap-1"
+										href={`${base}/run/${openRow.job_id}?workspace=${ws}`}
+										target="_blank"
+									>
+										Open the case job
+										<ExternalLink size={12} />
+									</a>
+								{/if}
+								<Button
+									unifiedSize="sm"
+									variant="subtle"
+									startIcon={{ icon: X }}
+									iconOnly
+									title="Close"
+									onclick={() => (selectedCaseId = undefined)}
+								/>
+							</div>
 						</div>
-						<div class="p-3 flex flex-col gap-4">
+						<!-- One card per thing the case has, rather than sections divided by rules: each
+						     stands on its own and the panel reads as a stack. -->
+						<div class="px-3 pb-3 flex flex-col gap-2">
 							{#if openRow.expected != undefined && openRow.expected !== ''}
-								<Label label="Expected">
-									<span class="text-xs text-secondary whitespace-pre-wrap break-words">
-										{typeof openRow.expected === 'string'
-											? openRow.expected
-											: JSON.stringify(openRow.expected, null, 2)}
-									</span>
-								</Label>
+								<div class="rounded-md border border-light overflow-hidden">
+									<div
+										class="flex items-center gap-2 px-2 py-1 border-b border-light bg-surface-secondary"
+									>
+										<span class="text-2xs font-semibold text-secondary truncate">Expected</span>
+									</div>
+									<div class="p-2">
+										<span class="text-xs text-secondary whitespace-pre-wrap break-words">
+											{typeof openRow.expected === 'string'
+												? openRow.expected
+												: JSON.stringify(openRow.expected, null, 2)}
+										</span>
+									</div>
+								</div>
 							{/if}
 							{#if scorers.length > 0 && openRow.scores.length > 0}
-								<Label label="Scores">
-									<div class="flex flex-col divide-y border rounded-md">
+								<div class="rounded-md border border-light overflow-hidden">
+									<div
+										class="flex items-center gap-2 px-2 py-1 border-b border-light bg-surface-secondary"
+									>
+										<span class="text-2xs font-semibold text-secondary truncate">Scores</span>
+									</div>
+									<div class="flex flex-col divide-y divide-light">
 										{#each scorers as scorer (scorer.id)}
 											{@const cell = openRow.scores.find((s) => s.scorer_id === scorer.id)}
 											<div class="flex flex-col gap-1 px-2 py-1.5">
@@ -899,7 +1037,7 @@
 											</div>
 										{/each}
 									</div>
-								</Label>
+								</div>
 							{/if}
 							{#if experiment && (openRow.job_id || openRow.output != undefined)}
 								<div class="rounded-md border border-light overflow-hidden">
@@ -912,9 +1050,7 @@
 									</div>
 									<div class="p-2">
 										{#if openRow.output != undefined}
-											<div class="text-xs text-secondary break-words">
-												<GfmMarkdown md={openRow.output} noPadding />
-											</div>
+											<GfmMarkdown md={openRow.output} prose="sm" noPadding />
 										{:else if openRow.status === 'running'}
 											<span class="text-xs text-tertiary inline-flex items-center gap-1.5">
 												<Loader2 size={12} class="animate-spin text-blue-500" />
@@ -928,11 +1064,11 @@
 							{/if}
 						</div>
 					</div>
-				</Pane>
-			{/if}
+				{/if}
+			</AnimatedPane>
 		</Splitpanes>
 	</div>
-</div>
+{/snippet}
 
 <EvalRunDialog
 	bind:open={runDialogOpen}
@@ -944,15 +1080,9 @@
 	{running}
 	onRun={runAll}
 	onEditDataset={async (path) => {
-		if (await useDataset(path)) {
-			resumeRunDialog = true
-			datasetDrawer?.openDrawer('edit')
-		}
+		if (await useDataset(path)) datasetDrawer?.openDrawer('edit')
 	}}
-	onNewDataset={() => {
-		resumeRunDialog = true
-		datasetDrawer?.openDrawer('new')
-	}}
+	onNewDataset={() => datasetDrawer?.openDrawer('new')}
 />
 
 <EvalDatasetDrawer
@@ -968,11 +1098,14 @@
 	onDeleted={datasetDeleted}
 	onCasesChanged={casesChanged}
 	onScorersChanged={scorersChanged}
-	onClosed={() => {
-		if (!resumeRunDialog) return
-		resumeRunDialog = false
-		// On the dataset the drawer was just in: the dialog opens on the pane's own, which
-		// creating or editing one has already moved to it.
-		runDialogOpen = true
-	}}
 />
+
+<style>
+	/* Direct child only, so the rule cannot reach a Splitpanes nested inside a page. Transparent
+	   rather than `opacity: 0`: the gutter stays there to be dragged, it just stops drawing a line
+	   between the cells and the case beside them. */
+	:global(.splitter-hidden > .splitpanes__splitter) {
+		background-color: transparent !important;
+		border: none !important;
+	}
+</style>

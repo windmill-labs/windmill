@@ -165,6 +165,15 @@ $NAV --root backend callees "X"                           # what does X call?
 - Search for existing code to reuse before writing new code
 - Follow established patterns in the codebase
 - Keep changes focused — don't refactor beyond what's asked
+- **A simpler design found late is still the design.** Work already spent is not an argument
+  for a shape, and neither is a clean review round, a passing suite, or a long PR thread. The
+  signal to stop and re-derive rather than patch again is a change that keeps growing to defend
+  its own structure: each review finding fixing an assumption the previous fix broke, the same
+  class of bug reappearing somewhere new, or most of the diff being consequences of one early
+  choice rather than the thing you set out to do. When that happens, say plainly what the
+  simpler design is and what switching costs — a migration, a review cycle restarted from zero,
+  work discarded — and let the user decide. Do not keep paying down the harder one because it
+  is nearly finished, and do not present the accumulated cost as a reason to continue.
 - **Ship only the tests the PR needs.** A committed test must pin behavior a future change could plausibly break, and be the smallest setup that exercises the new logic. While developing, write as many exhaustive tests and do as much manual testing as you need to convince yourself the change works — then remove that scaffolding before marking the PR ready, keeping only the essential regression guard(s). A test that merely re-exercises pre-existing behavior, or needs elaborate fixtures to assert something trivial, is scaffolding: delete it. If nothing meaningful is left to guard, ship no test rather than a ceremonial one.
 - **Comments record constraints, not narration.** Write a comment only for what the code can't show: why a non-obvious approach is required, what breaks if it's "simplified" away. State each invariant once, at the place where someone would break it, in ≤4 lines. Don't describe what the next line does, don't repeat the same rationale at multiple sites, and don't address the PR reviewer (justifying a change belongs in the PR description, not the code). Reference nothing ephemeral — no numbered steps from your dev flow, no "the poller / the test does X" scaffolding, no transient state that won't exist for the next reader; keep only the essential, durable rationale. Describe the code as it is, never its drafting history: "we no longer do X", "unchanged behavior", "instead of the previous approach" are meaningless to a reader who never saw the earlier iteration — before finishing, reread your comments as if the current state is the only state that ever existed.
 - **Never attribute work to a specific customer, account, or "requested by a customer" in repo-tracked content** (PR descriptions, commit messages, code comments, docs). Describe changes by their technical motivation instead.

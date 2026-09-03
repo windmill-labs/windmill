@@ -122,6 +122,7 @@
 	import { updateDelegateToGitRepoConfig, insertAdditionalInventories } from '$lib/ansibleUtils'
 	import { copilotInfo } from '$lib/aiStore'
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
+	import { argsToJsonPayload } from '$lib/schema'
 	import Toggle from './Toggle.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { usePreparedAssetSqlQueries } from '$lib/infer.svelte'
@@ -310,6 +311,10 @@
 	let moduleTestState: Record<string, { args: Record<string, any>; schema: Schema }> = $state({})
 	let testPanelArgs: Record<string, any> = $state({})
 	let testPanelSchema: Schema = $state(emptySchema())
+	// Bumped whenever the args under test are replaced from outside the arg panel. Both arg
+	// views key off it: without a bump the JSON editor keeps showing, and on the next
+	// keystroke commits, the payload it was seeded with for the previous args.
+	let argsRender = $state(0)
 	// editorCode is what the editor shows; code always holds the main script content
 	let editorCode: string = $state(code)
 	// Sync editorCode when code changes externally (template reset, copilot,
@@ -329,7 +334,13 @@
 	})
 
 	function switchToModule(modulePath: string) {
-		if (activeModuleTab !== null && modules && activeModuleTab !== modulePath) {
+		// Re-clicking the tab you are already on is a no-op. Re-running the body would reset this
+		// module's test state whenever its inference is still pending or has failed (the catch
+		// leaves `moduleTestState` unwritten), losing both the filled-in args and the arg views.
+		if (activeModuleTab === modulePath) {
+			return
+		}
+		if (activeModuleTab !== null && modules) {
 			// Switching from another module: save its content and test state
 			modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
 			moduleTestState[activeModuleTab] = { args: testPanelArgs, schema: testPanelSchema }
@@ -345,13 +356,20 @@
 			} else {
 				testPanelArgs = {}
 				testPanelSchema = emptySchema()
+				// Inference lands after the bump below, so the editor opens on `{}` and the arg
+				// views follow the schema in once it arrives. Remounting them again on arrival
+				// instead would discard anything typed while it was in flight.
 				inferModuleSchema()
 			}
+			argsRender++
 		}
 	}
 
 	function switchToMain() {
-		if (activeModuleTab !== null && modules) {
+		if (activeModuleTab === null) {
+			return
+		}
+		if (modules) {
 			// Save current module content and test state
 			modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
 			moduleTestState[activeModuleTab] = { args: testPanelArgs, schema: testPanelSchema }
@@ -360,6 +378,7 @@
 		editorCode = code
 		lastSyncedCode = code
 		editor?.setCode(editorCode)
+		argsRender++
 	}
 
 	// Whether the open file is tested as a runnable of its own. A `__mod` helper
@@ -854,6 +873,7 @@
 
 	export function setArgs(nargs: Record<string, any>) {
 		args = nargs
+		argsRender++
 	}
 
 	export async function runTest(opts?: { cascade?: boolean; skipDdlGuard?: boolean }) {
@@ -1654,15 +1674,30 @@
 	$effect(() => {
 		!hasPreprocessor && (selectedTab = 'main')
 	})
+	// `main` and `preprocessor` describe the same args under different schemas; every other tab
+	// (`diagram`) runs against main's schema, so it collapses into `main` here.
+	let lastSchemaTab = untrack(() => (selectedTab === 'preprocessor' ? 'preprocessor' : 'main'))
 	$effect(() => {
 		// Only depend on selectedTab (preprocessor ↔ main toggle).
 		// Code changes are handled by the editor on:change handler and
 		// explicit inferSchema calls (initContent, onMount), so we read
 		// `code` inside untrack to avoid a redundant double-inference race.
-		selectedTab && untrack(() => code && inferSchema(code))
+		selectedTab &&
+			untrack(() => {
+				const schemaTab = selectedTab === 'preprocessor' ? 'preprocessor' : 'main'
+				const switched = schemaTab !== lastSchemaTab
+				lastSchemaTab = schemaTab
+				if (!code) return
+				// Bump on the switch itself, not on the inference it starts: the other tab's schema
+				// only lands once that resolves, and remounting the arg views then would discard
+				// anything typed while it was in flight. An untouched editor follows the schema in.
+				if (switched) {
+					argsRender++
+				}
+				inferSchema(code)
+			})
 	})
 
-	let argsRender = $state(0)
 	export async function updateArgs(newArgs: Record<string, any>) {
 		if (Object.keys(newArgs).length > 0) {
 			args = { ...newArgs }
@@ -2299,19 +2334,24 @@
 												style="height: {!schemaHeight || schemaHeight < 600 ? 600 : schemaHeight}px"
 												data-schema-picker
 											>
-												<JsonInputs
-													on:select={(e) => {
-														if (e.detail) {
-															if (onModuleArgs) {
-																testPanelArgs = e.detail
-															} else {
-																args = e.detail
+												{#key argsRender}
+													<JsonInputs
+														on:select={(e) => {
+															if (e.detail) {
+																if (onModuleArgs) {
+																	testPanelArgs = e.detail
+																} else {
+																	args = e.detail
+																}
 															}
-														}
-													}}
-													updateOnBlur={false}
-													placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
-												/>
+														}}
+														initialCode={onModuleArgs
+															? argsToJsonPayload(testPanelSchema, testPanelArgs)
+															: argsToJsonPayload(schema, args)}
+														updateOnBlur={false}
+														placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
+													/>
+												{/key}
 											</div>
 										{:else}
 											<div class="px-4">

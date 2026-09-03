@@ -18,6 +18,7 @@ use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -108,6 +109,7 @@ use windmill_common::{
     flows::{add_virtual_items_if_necessary, resolve_maybe_value, FlowValue},
     jobs::{script_path_to_payload, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode},
     oauth2::HmacSha256,
+    query_builders,
     scripts::{ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
     utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
@@ -8131,6 +8133,79 @@ pub async fn run_wait_result_flow_by_version(
     .await
 }
 
+/// Whether request-supplied SQL from an operator may run. Operators can only run deployed
+/// code, so a request their job token (`WM_TOKEN`) authenticates comes from code a
+/// non-operator authored. The job must still be running, and the request must have the
+/// shape `wmill.datatable()` sends (PostgreSQL against a `datatable://` database), so a
+/// WM_TOKEN that leaked into job logs cannot be replayed to reach another target while the
+/// job lives, in particular DuckDB, which runs in-process in the worker.
+///
+/// What it does permit is any statement against the workspace's data tables, writes and DDL
+/// included: the helper's body is an unrestricted SQL template and data tables carry no
+/// per-user ACL. Narrowing that is a separate decision from this exemption.
+///
+/// The database argument is only half the target: the executor honors a `-- database`
+/// directive in the SQL over it, and `-- s3` redirects the result set, so both are refused.
+/// Check them against the code the executor runs rather than the request's `content`, which
+/// is not the same string once a `WM_INTERNAL_DB` marker expands.
+async fn operator_may_run_datatable_query(
+    db: &DB,
+    w_id: &str,
+    job_id: Option<Uuid>,
+    language: Option<&ScriptLang>,
+    content: &str,
+    args: Option<&HashMap<String, Box<JsonRawValue>>>,
+) -> error::Result<bool> {
+    let Some(job_id) = job_id else {
+        return Ok(false);
+    };
+    if language != Some(&ScriptLang::Postgresql) {
+        return Ok(false);
+    }
+    // Parse the directives out of the code the executor actually runs: it expands a
+    // `WM_INTERNAL_DB` marker first, and a directive can be embedded in the expansion.
+    // An expansion that overrides the language would run something other than the SQL the
+    // language check above cleared, so it is refused along with a malformed marker.
+    let executed =
+        match query_builders::try_expand_internal_db_query(content, &ScriptLang::Postgresql) {
+            Some(Ok(expanded)) if expanded.language_override.is_none() => Cow::Owned(expanded.code),
+            Some(_) => return Ok(false),
+            None => Cow::Borrowed(content),
+        };
+    if windmill_parser_sql::parse_db_resource(&executed).is_some()
+        || !matches!(windmill_parser_sql::parse_s3_mode(&executed), Ok(None))
+    {
+        return Ok(false);
+    }
+    let targets_datatable = args
+        .and_then(|args| args.get("database"))
+        .and_then(|database| serde_json::from_str::<String>(database.get()).ok())
+        .is_some_and(|database| database.starts_with("datatable://"));
+    if !targets_datatable {
+        return Ok(false);
+    }
+    Ok(sqlx::query_scalar!(
+        "SELECT running AS \"running!\" FROM v2_job_queue WHERE id = $1 AND workspace_id = $2",
+        job_id,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(false))
+}
+
+/// The refusal an operator gets from a preview route. Inside a job the caller never ran a
+/// preview themselves, so name the one thing the job's token may do.
+fn operator_preview_refusal(job_id: Option<Uuid>) -> error::Error {
+    let reason = if job_id.is_some() {
+        "Operators cannot run preview jobs for security reasons: from inside a job, an \
+         operator may only run a wmill.datatable() query while that job is running"
+    } else {
+        "Operators cannot run preview jobs for security reasons"
+    };
+    error::Error::NotAuthorized(reason.to_string())
+}
+
 async fn run_preview_script(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -8142,9 +8217,20 @@ async fn run_preview_script(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
     if authed.is_operator {
-        return Err(error::Error::NotAuthorized(
-            "Operators cannot run preview jobs for security reasons".to_string(),
-        ));
+        // A deferred run would outlive the running job the exemption keys off.
+        if run_query.get_scheduled_for(&db).await?.is_some()
+            || !operator_may_run_datatable_query(
+                &db,
+                &w_id,
+                authed.job_id,
+                preview.language.as_ref(),
+                preview.content.as_deref().unwrap_or_default(),
+                preview.args.as_ref(),
+            )
+            .await?
+        {
+            return Err(operator_preview_refusal(authed.job_id));
+        }
     }
     // Preview runs arbitrary, request-supplied code. require_path_read_access_for_preview
     // only checks folder/namespace *read* access (and is a no-op when path is null), so a
@@ -8239,13 +8325,21 @@ async fn run_inline_preview_script(
     Path(w_id): Path<String>,
     Json(preview): Json<PreviewInline>,
 ) -> error::Result<Response> {
-    // Same arbitrary-code class as run_preview_script: operators are blocked from
-    // running request-supplied code, and a narrowly-scoped token must not escape
-    // its scope through inline preview.
-    if authed.is_operator {
-        return Err(error::Error::NotAuthorized(
-            "Operators cannot run preview jobs for security reasons".to_string(),
-        ));
+    // Same arbitrary-code class as run_preview_script, and every worker and standalone
+    // server exposes this route, so an operator is refused on the same terms. A
+    // narrowly-scoped token must not escape its scope through inline preview either.
+    if authed.is_operator
+        && !operator_may_run_datatable_query(
+            &db,
+            &w_id,
+            job_id,
+            Some(&preview.language),
+            &preview.content,
+            preview.args.as_ref(),
+        )
+        .await?
+    {
+        return Err(operator_preview_refusal(job_id));
     }
     check_scopes(&authed, || format!("jobs:run"))?;
     if let Some(job_id) = job_id {

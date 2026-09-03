@@ -15,6 +15,7 @@
 		class: className = '',
 		innerClass = '',
 		maxHeight = 256,
+		instantClose = false,
 		getInputRect,
 		children
 	}: {
@@ -26,6 +27,9 @@
 		class?: string
 		innerClass?: string
 		maxHeight?: number
+		// Close with no height-collapse animation (still animates open). Used where the
+		// dropdown is toggled off as the user types, so the panel vanishes at once.
+		instantClose?: boolean
 		getInputRect?: () => DOMRect
 		children?: Snippet
 	} = $props()
@@ -71,7 +75,11 @@
 	// We do not use Svelte transitions because they can not animate in the opposite direction
 	// when the dropdown is opens above the input
 	// Also CSS transitions are smoother because they do not rely on JS / animation frames
-	let uiState = $state({ domExists: untrack(() => open), visible: untrack(() => open), timeout: null as number | null })
+	let uiState = $state({
+		domExists: untrack(() => open),
+		visible: untrack(() => open),
+		timeout: null as number | null
+	})
 	let initial = true
 	watch(
 		() => open && !disabled,
@@ -81,7 +89,10 @@
 					initial = false
 					return
 				}
-				if (reducedMotion.val) {
+				// Reduced motion skips all animation; instantClose skips only the closing
+				// one (open still animates) so the panel disappears the instant it's toggled off.
+				if (reducedMotion.val || (instantClose && !isOpen)) {
+					if (uiState.timeout) clearTimeout(uiState.timeout)
 					uiState = {
 						domExists: open && !disabled,
 						visible: open && !disabled,

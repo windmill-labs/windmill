@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
+	import { copilotInfo } from '$lib/aiStore'
 	import { ScriptService, type Script } from '$lib/gen'
 
 	import { Wand2, Loader2 } from 'lucide-svelte'
@@ -27,6 +28,7 @@
 		filteredItems = $bindable([])
 	}: Props = $props()
 	let prefilteredItems = $derived(scripts ?? [])
+	let aiHidden = $derived(disableAi || $copilotInfo.workspaceDisabled)
 
 	const dispatch = createEventDispatcher()
 
@@ -45,6 +47,10 @@
 	})
 
 	let input: TextInput | undefined = $state()
+
+	export function focus() {
+		input?.focus()
+	}
 
 	$effect(() => {
 		preFilter &&
@@ -76,7 +82,7 @@
 				onkeydown: (e) => {
 					if (e.key === 'Escape') dispatch('escape')
 				},
-				placeholder: `Search ${trigger ? 'triggers' : 'scripts'} ${disableAi ? '' : 'or AI gen'}`
+				placeholder: `Search ${trigger ? 'triggers' : 'scripts'} ${aiHidden ? '' : 'or AI gen'}`
 			}}
 			size="sm"
 		/>
@@ -85,7 +91,7 @@
 		{#if loading}
 			<Loader2 size={12} class="animate-spin text-gray-400" />
 		{/if}
-		{#if funcDesc?.length === 0 && !loading && !disableAi}
+		{#if funcDesc?.length === 0 && !loading && !aiHidden}
 			<Wand2 size={12} class="fill-current opacity-70 text-ai" />
 		{/if}
 	</div>
