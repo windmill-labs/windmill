@@ -273,7 +273,11 @@
 			return
 		}
 
-		if (isCodeInjection(rawValue)) {
+		// `${...}` becomes a JavaScript transform, so it is only read as one where such a transform
+		// can be stored — the same condition `staticTemplateOffered` renders under. Elsewhere the
+		// text stays what was typed, rather than turning into code the store then drops or, worse,
+		// keeps pointing at a flow context this value will never be evaluated in.
+		if (isCodeInjection(rawValue) && !noJavascript) {
 			arg.expr = getDefaultExpr(
 				argName,
 				previousModuleId,

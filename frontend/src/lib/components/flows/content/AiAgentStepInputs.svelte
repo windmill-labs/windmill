@@ -373,7 +373,7 @@
 											{allowedAiTransforms}
 											noDynamicToggle={staticOnly}
 											noConnect={staticOnly || noConnect}
-											{noJavascript}
+											noJavascript={staticOnly || noJavascript}
 											s3StorageConfigured={s3Storage.current}
 											{chatInputEnabled}
 											{workspace}

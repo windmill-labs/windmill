@@ -235,9 +235,16 @@
 				(v.tools ?? []) as AgentTool[]
 			) as AIAgentConfig)
 		} as AIAgentConfig
-		// An agent with no tools may carry no `tools` key at all, which the worker reads the same as
-		// an empty list. `inputTransformsToAgentConfig` always writes one, and that difference alone
-		// would autosave a draft for an agent nobody has edited.
+		// A config written before this editor spells "unset" its own way: an explicit `null` on a
+		// field, or no `tools` key at all. `inputTransformsToAgentConfig` writes neither, and that
+		// difference alone would read as an edit and autosave a draft for an agent nobody touched.
+		// Only where the two spellings mean the same thing — a value the user actually cleared is
+		// absent from `next` with something else in the draft, and stays cleared.
+		for (const [key, value] of Object.entries(draft.state.args ?? {})) {
+			if (value === null && !(key in next)) {
+				;(next as Record<string, unknown>)[key] = null
+			}
+		}
 		if (next.tools?.length === 0 && draft.state.args?.tools === undefined) {
 			delete next.tools
 		}

@@ -145,7 +145,7 @@
 			// One row at a time: the hash can retarget from a resource to an agent, and the two
 			// editors are separate overlays that would otherwise stack, the older one surfacing again
 			// when the newer is closed.
-			resourceEditor?.close?.()
+			resourceEditor?.close?.({ keepAnchor: true })
 			openAgentEditor({ path })
 			setPageDrawerAnchor(RESOURCES_PATH, path)
 		} else {

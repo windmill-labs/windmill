@@ -58,9 +58,14 @@
 		historyWorkspace === $workspaceStore && isOwner(path ?? '', $userStore, $workspaceStore)
 	)
 
+	// A close reaches `on:close` on a later flush, by which point a caller that closed this drawer to
+	// open another editor has already anchored the new one. Clearing then would strip that anchor.
+	let keepAnchorOnClose = false
+
 	/** Shut this drawer without going through its own close button, for a caller opening the other
-	 *  editor over the same list. */
-	export function close(): void {
+	 *  editor over the same list. `keepAnchor` when that caller anchors what it opens instead. */
+	export function close(opts?: { keepAnchor?: boolean }): void {
+		keepAnchorOnClose = opts?.keepAnchor ?? false
 		drawer?.closeDrawer?.()
 	}
 
@@ -104,7 +109,13 @@
 	bind:this={drawer}
 	size="50rem"
 	{disableChatOffset}
-	on:close={() => clearPageDrawerAnchor(RESOURCES_PATH)}
+	on:close={() => {
+		if (keepAnchorOnClose) {
+			keepAnchorOnClose = false
+			return
+		}
+		clearPageDrawerAnchor(RESOURCES_PATH)
+	}}
 >
 	<DrawerContent
 		title={mode == 'edit' ? 'Edit ' + path : addResourceTitle(resource_type)}
