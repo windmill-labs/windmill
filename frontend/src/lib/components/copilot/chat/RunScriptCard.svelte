@@ -309,9 +309,10 @@
 
 <!-- scroll-mb clears the chat's sticky "Waiting for your input" chip so the mount
      scrollIntoView of the form below leaves the Run button uncovered. -->
-<!-- The runnable's name is the subject of the row and the verb is grammar, so the name takes
-     the weight the selected tab has while the verb keeps the row's ordinary one. font-main
-     because a name is UI text: the row around it is font-mono, right for a path, wrong here. -->
+<!-- The runnable's name is the subject of the row and the verb is grammar, so the name carries
+     the weight and the verb stays quiet. Held one step under the card's headings, since this is a
+     row in a transcript rather than a title. font-main because a name is UI text: the row around
+     it is font-mono, right for a path, wrong here. -->
 <ChatCollapsibleCard
 	label={runnableName}
 	labelPrefix={verb}
@@ -320,7 +321,7 @@
 	headerLeft={status}
 	headerRight={previewTarget ? previewChip : undefined}
 	class="scroll-mb-8"
-	labelClass="font-main font-semibold text-emphasis"
+	labelClass="font-main font-semibold text-primary"
 	contentClass="p-0 overflow-hidden"
 >
 	{#if formInPreview}
