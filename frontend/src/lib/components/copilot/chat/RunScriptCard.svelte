@@ -117,14 +117,19 @@
 		...(hasOutcome ? [{ value: 'outcome', label: outcomeTab }] : [])
 	])
 
+	// Keyed by call id, like `toggled` below: this instance is reused when the message at its
+	// index changes, and a bare flag would hand one card's raw view, or the tab its user
+	// picked, to whichever run lands in the slot next.
 	// Undefined until a tab is clicked, and never cleared after: the run follows itself
 	// only for as long as nobody has steered the card, and then it stops taking it back.
-	let userTab = $state<string | undefined>(undefined)
-	let jsonView = $state(false)
+	let userTab = $state<{ id: string; value: string } | undefined>(undefined)
+	let jsonView = $state<{ id: string; on: boolean } | undefined>(undefined)
+	const steered = $derived(userTab?.id === message.tool_call_id ? userTab.value : undefined)
+	const rawView = $derived(jsonView?.id === message.tool_call_id ? jsonView.on : false)
 
 	// However the run landed, that is what the card opens on.
 	const autoTab = $derived(hasOutcome ? 'outcome' : ran ? 'logs' : 'input')
-	const activeTab = $derived(userTab && tabs.some((t) => t.value === userTab) ? userTab : autoTab)
+	const activeTab = $derived(steered && tabs.some((t) => t.value === steered) ? steered : autoTab)
 
 	// Keyed by call id: a bare flag would carry one card's collapse onto the next message
 	// reusing this instance. Open by default, since the run is what was asked for.
@@ -172,22 +177,22 @@
 	const fades = scrollFades()
 	// The arguments table brings its own surface, so a fade ending in the card's would seam
 	// against it; logs and a result stand on the body's own ground and take it cleanly.
-	const fadeBody = $derived(!jsonView && (activeTab === 'logs' || activeTab === 'outcome'))
+	const fadeBody = $derived(!rawView && (activeTab === 'logs' || activeTab === 'outcome'))
 
 	// One scroll region serves every tab, so a switch has to place it: logs open on their
 	// end, which is where a run is read from, and everything else on its start — otherwise
 	// the tab opened after the logs would begin part-way down its own content.
 	$effect(() => {
-		void jsonView
+		void rawView
 		if (!bodyEl) return
-		bodyEl.scrollTop = activeTab === 'logs' && !jsonView ? bodyEl.scrollHeight : 0
+		bodyEl.scrollTop = activeTab === 'logs' && !rawView ? bodyEl.scrollHeight : 0
 	})
 
 	// And stay on the end while the job writes: a log stream the user has to scroll to
 	// read is not following the run.
 	$effect(() => {
 		void logs
-		if (!bodyEl || jsonView || activeTab !== 'logs' || !running) return
+		if (!bodyEl || rawView || activeTab !== 'logs' || !running) return
 		bodyEl.scrollTop = bodyEl.scrollHeight
 	})
 
@@ -324,20 +329,20 @@
 		     silently beats flex-grow. The raw view takes that height as a floor instead: its
 		     blocks scroll on their own, as an ordinary tool call's do, so a scroller around them
 		     would be one too many. -->
-		<div class={twMerge('relative flex flex-col', jsonView ? 'min-h-[20rem]' : 'h-[20rem]')}>
+		<div class={twMerge('relative flex flex-col', rawView ? 'min-h-[20rem]' : 'h-[20rem]')}>
 			<!-- The tabs go in raw view — they name the parts of the body, and the raw call is not
 			     one of them — while the strip stays, since the JSON toggle lives there. Hence its
 			     fixed height: a row sized by its contents would step every time the tabs leave, and
 			     the tighter Tab padding below is what fits a label inside that height. -->
 			<Tabs
 				selected={activeTab}
-				on:selected={(e) => (userTab = e.detail)}
+				on:selected={(e) => (userTab = { id: message.tool_call_id, value: e.detail })}
 				class="h-8 px-3 font-main"
 				wrapperClass="shrink-0"
 				slidingIndicator
 				indicatorClass="bg-border-accent"
 			>
-				{#if !jsonView}
+				{#if !rawView}
 					{#each tabs as tab (tab.value)}
 						<!-- The tab widens in first and the bar follows it, because a run adds its tabs as
 						     it produces them: landing the selection on a tab in the frame it appears reads
@@ -361,7 +366,8 @@
 				{/if}
 				<div class="ml-auto flex items-center pl-2">
 					<Toggle
-						bind:checked={jsonView}
+						checked={rawView}
+						on:change={(e) => (jsonView = { id: message.tool_call_id, on: e.detail })}
 						size="2xs"
 						options={{ right: 'JSON', rightTooltip: 'Show this call as raw JSON' }}
 						lightMode
@@ -377,14 +383,14 @@
 				onscroll={fades.measure}
 				class={twMerge(
 					'min-h-0 flex-1 px-3 py-2',
-					jsonView ? '' : 'overflow-auto',
-					!jsonView && activeTab === 'logs' ? 'bg-surface-secondary/50' : ''
+					rawView ? '' : 'overflow-auto',
+					!rawView && activeTab === 'logs' ? 'bg-surface-secondary/50' : ''
 				)}
 			>
 				<!-- min-h-full rather than h-full: the states that centre themselves need the height,
 				     and a box that always filled it would measure as never scrollable. -->
 				<div use:fades.content class="flex min-h-full flex-col">
-					{#if jsonView}
+					{#if rawView}
 						<div class="space-y-3">
 							<!-- Each block scrolls on its own, so each fades on its own. -->
 							<ToolContentDisplay title="Parameters" content={message.parameters} showFade />
