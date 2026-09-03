@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import {
 		Alert,
@@ -217,7 +218,25 @@
 		loading.contextual = false
 	}
 
-	async function deleteVariable(path: string, account?: number): Promise<void> {
+	async function deleteVariable(
+		path: string,
+		account?: number,
+		draftOnly?: boolean
+	): Promise<void> {
+		if (draftOnly) {
+			// The row is the user's own draft and nothing else: the variable
+			// delete would 404 on the missing deployed row.
+			await UserDraftDbSyncer.save({
+				workspace: $workspaceStore!,
+				itemKind: 'variable',
+				path,
+				value: null,
+				immediate: true
+			})
+			loadVariables()
+			sendUserToast(`Draft ${path} was deleted`)
+			return
+		}
 		if (account) {
 			OauthService.disconnectAccount({ workspace: $workspaceStore!, id: account })
 		}
@@ -316,7 +335,7 @@
 		</PageHeader>
 		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
 
-		<VariableEditor bind:this={variableEditor} on:create={loadVariables} />
+		<VariableEditor bind:this={variableEditor} on:create={loadVariables} on:close={loadVariables} />
 		<ContextualVariableEditor
 			bind:this={contextualVariableEditor}
 			on:update={loadContextualVariables}
@@ -563,11 +582,11 @@
 															type: 'delete',
 															action: (event) => {
 																if (event['shiftKey']) {
-																	deleteVariable(path, account)
+																	deleteVariable(path, account, draft_only)
 																} else {
 																	deleteIsLinked = is_linked ?? false
 																	deleteConfirmedCallback = () => {
-																		deleteVariable(path, account)
+																		deleteVariable(path, account, draft_only)
 																	}
 																}
 															},

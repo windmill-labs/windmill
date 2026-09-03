@@ -25,6 +25,8 @@
 		path: string
 		initialPath: string
 		pathError: string
+		/** Whether the user edited the path (as opposed to `Path`'s auto-filled name). */
+		pathDirty?: boolean
 		variable: Variable
 		labels: string[] | undefined
 		wsSpecific: boolean
@@ -40,6 +42,7 @@
 		path = $bindable(),
 		initialPath,
 		pathError = $bindable(),
+		pathDirty = $bindable(false),
 		variable = $bindable(),
 		labels = $bindable(),
 		wsSpecific = $bindable(),
@@ -73,6 +76,7 @@
 	<Path
 		disabled={initialPath != '' && !isOwner(initialPath, $userStore, ws)}
 		bind:error={pathError}
+		bind:dirty={pathDirty}
 		bind:path
 		{initialPath}
 		namePlaceholder="variable"

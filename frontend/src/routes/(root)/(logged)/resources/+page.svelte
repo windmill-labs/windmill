@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { page } from '$app/state'
 	import AppConnect from '$lib/components/AppConnectDrawer.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -314,7 +315,24 @@
 		loading.types = false
 	}
 
-	async function deleteResource(path: string, account?: number): Promise<void> {
+	async function deleteResource(
+		path: string,
+		account?: number,
+		draftOnly?: boolean
+	): Promise<void> {
+		if (draftOnly) {
+			// The row is the user's own draft and nothing else: the resource
+			// delete would 404 on the missing deployed row.
+			await UserDraftDbSyncer.save({
+				workspace: $workspaceStore!,
+				itemKind: 'resource',
+				path,
+				value: null,
+				immediate: true
+			})
+			reload()
+			return
+		}
 		if (account) {
 			OauthService.disconnectAccount({ workspace: $workspaceStore!, id: account })
 		}
@@ -1313,12 +1331,12 @@
 																	// TODO
 																	// @ts-ignore
 																	if (event?.shiftKey) {
-																		deleteResource(path, account)
+																		deleteResource(path, account, draft_only)
 																	} else {
 																		deleteIsLinked = is_linked ?? false
 																		deletePath = path
 																		deleteConfirmedCallback = () => {
-																			deleteResource(path, account)
+																			deleteResource(path, account, draft_only)
 																		}
 																	}
 																}
@@ -1477,13 +1495,14 @@
 {/if}
 
 <SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResources} />
-<AppConnect bind:this={appConnect} on:refresh={loadResources} />
+<AppConnect bind:this={appConnect} on:refresh={loadResources} on:close={loadResources} />
 <AgentEvalModal agentPath={evalsAgentPath} bind:open={evalsOpen} />
 
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
 	on:refresh={loadResources}
 	onRestored={loadResources}
+	onClose={loadResources}
 />
 
 <ShareModal

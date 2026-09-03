@@ -26,6 +26,8 @@
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
 	import { isEncryptedDraftValue } from '$lib/encryptedDraft'
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { useNewItemDraftSync } from './useNewItemDraftSync.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -56,6 +58,7 @@
 	let perWsUser: Record<string, UserExt | undefined> = $state({})
 	let selected: string | undefined = $state(undefined)
 	let pathError = $state('')
+	let pathDirty = $state(false)
 
 	const handlesArray = UserDraft.useMany<VariableState>(() =>
 		workspaceSpecs.map((s) => ({
@@ -115,6 +118,23 @@
 	const dirtyWorkspaces = $derived(
 		Object.keys(states).filter((ws) => !draftValuesEqual(states[ws].draft, initialStates[ws]))
 	)
+
+	// A new variable's handle is keyed on the empty `editPath`, so it is
+	// detached and never POSTs; the form is mirrored under the typed path
+	// instead. Inert in edit mode.
+	const newDraftSync = useNewItemDraftSync<VariableState>({
+		itemKind: 'variable',
+		enabled: () => !edit,
+		workspace: () => selected,
+		path: () => current?.path ?? '',
+		pathError: () => pathError,
+		touched: () =>
+			pathDirty ||
+			(!!current &&
+				!!selected &&
+				!draftValuesEqual({ ...current, path: '' }, { ...initialStates[selected], path: '' })),
+		value: () => (current ? ($state.snapshot(current) as VariableState) : undefined)
+	})
 
 	// The list-page `*` hint is owned by UserDraftDbSyncer (set on save, cleared
 	// on delete). The editor only CLEARS it — a workspace at the deployed
@@ -176,25 +196,34 @@
 			]).then(([v, user]) => {
 				// `.draft` already holds the editor's `VariableState` shape.
 				const savedDraftState = (v as any).draft as VariableState | undefined
+				// Draft-only paths (`no_deployed`) have no row — saving must
+				// CREATE, not update (update 404s).
+				const noDeployed = !!(v as any).no_deployed
 				// Deployed baseline as the dirty-check reference, so the banner
 				// compares draft-vs-deployed and fires immediately when a draft exists.
-				const deployedState: VariableState = {
-					path: v.path,
-					variable: {
-						value: v.value ?? '',
-						is_secret: v.is_secret,
-						description: v.description ?? ''
-					},
-					labels: v.labels ?? undefined,
-					wsSpecific: v.ws_specific ?? false
-				}
+				// A draft-only item has no deployed side: everything in it is unsaved.
+				const deployedState: VariableState = noDeployed
+					? {
+							path: '',
+							variable: { value: '', is_secret: true, description: '' },
+							labels: undefined,
+							wsSpecific: false
+						}
+					: {
+							path: v.path,
+							variable: {
+								value: v.value ?? '',
+								is_secret: v.is_secret,
+								description: v.description ?? ''
+							},
+							labels: v.labels ?? undefined,
+							wsSpecific: v.ws_specific ?? false
+						}
 				// Open with the saved draft if present, else the deployed.
 				const s: VariableState = savedDraftState ?? deployedState
 				ensureHandle(ws, s)
 				initialStates[ws] = structuredClone(deployedState)
-				// Draft-only paths (`no_deployed`) have no row — saving must
-				// CREATE, not update (update 404s).
-				existedInitially[ws] = !(v as any).no_deployed
+				existedInitially[ws] = !noDeployed
 				extraPerms[ws] = v.extra_perms ?? {}
 				perWsUser[ws] = user
 			})
@@ -210,6 +239,8 @@
 		extraPerms = {}
 		perWsUser = {}
 		pathError = ''
+		pathDirty = false
+		newDraftSync.reset()
 	}
 
 	export function initNew(): void {
@@ -238,7 +269,8 @@
 	}
 
 	async function loadSecret(): Promise<void> {
-		if (!editPath || !selected) return
+		// A draft-only variable has no deployed secret to load.
+		if (!editPath || !selected || !existedInitially[selected]) return
 		const getV = await VariableService.getVariable({
 			workspace: selected,
 			path: editPath,
@@ -293,7 +325,11 @@
 				// the server draft row so `is_draft` clears on refetch.
 				initialStates[ws] = $state.snapshot(s) as VariableState
 				existedInitially[ws] = true
-				UserDraft.discard('variable', editPath ?? '', s, { workspace: ws })
+				if (editPath) {
+					UserDraft.discard('variable', editPath, s, { workspace: ws })
+				} else {
+					newDraftSync.finish()
+				}
 				// Path now exists server-side — drop the autocomplete cache so
 				// it shows up immediately instead of after the 60s TTL.
 				invalidateWorkspacePaths(ws)
@@ -307,7 +343,16 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="50rem" on:close={() => clearPageDrawerAnchor(VARIABLES_PATH)}>
+<Drawer
+	bind:this={drawer}
+	size="50rem"
+	on:close={() => {
+		clearPageDrawerAnchor(VARIABLES_PATH)
+		// A new variable left unsaved persists as a draft-only row, which a
+		// list only sees on refetch.
+		dispatch('close')
+	}}
+>
 	<DrawerContent
 		title={edit ? `Update variable at ${initialPath}` : 'Add a variable'}
 		bannerReserved={edit}
@@ -319,11 +364,25 @@
 				reserveSpace={edit}
 				getDeployed={() => (selected ? initialStates[selected] : undefined)}
 				getCurrent={() => current}
-				onDiscard={() => {
+				onDiscard={async () => {
 					if (!selected) return
-					UserDraft.discard('variable', editPath ?? '', initialStates[selected], {
-						workspace: selected
+					if (existedInitially[selected]) {
+						UserDraft.discard('variable', editPath ?? '', initialStates[selected], {
+							workspace: selected
+						})
+						return
+					}
+					// Draft-only: no baseline to fall back to. Blank the cell so the form
+					// unmounts — mounted on the empty state it re-fills the path from
+					// `initialPath`, and that autosave would displace the delete. Flushed
+					// so the list refetch on drawer close no longer finds the row.
+					UserDraft.remove('variable', editPath ?? '', { workspace: selected })
+					await UserDraftDbSyncer.flush({
+						workspace: selected,
+						itemKind: 'variable',
+						path: editPath ?? ''
 					})
+					drawer?.closeDrawer()
 				}}
 				disabled={!can_write}
 			/>
@@ -347,6 +406,7 @@
 						bind:this={form}
 						bind:path={current.path}
 						bind:pathError
+						bind:pathDirty
 						bind:variable={current.variable}
 						bind:labels={current.labels}
 						bind:wsSpecific={current.wsSpecific}

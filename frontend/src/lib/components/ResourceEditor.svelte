@@ -14,6 +14,8 @@
 	import type { UserExt } from '$lib/stores'
 	import { UserDraft, draftValuesEqual, type UserDraftHandle } from '$lib/userDraft.svelte'
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { useNewItemDraftSync } from './useNewItemDraftSync.svelte'
 
 	interface Props {
 		canSave?: boolean
@@ -47,12 +49,16 @@
 		onCanWriteChange
 	}: Props = $props()
 
+	// Persisted as the draft value: the list pages' draft-only rows and the
+	// global AI chat read this exact shape, `resource_type` included, since a
+	// draft with no deployed row has nowhere else to carry its type.
 	type ResourceState = {
 		path: string
 		description: string
 		args: Record<string, any>
 		labels: string[] | undefined
 		wsSpecific: boolean
+		resource_type?: string
 	}
 
 	const dispatch = createEventDispatcher()
@@ -198,6 +204,26 @@
 		})
 	)
 
+	let pathError = $state('')
+	let pathDirty = $state(false)
+
+	// A new resource's handle is keyed on the empty `initialPath`, so it is
+	// detached and never POSTs; the form is mirrored under the typed path
+	// instead. Inert in edit mode.
+	const newDraftSync = useNewItemDraftSync<ResourceState>({
+		itemKind: 'resource',
+		enabled: () => !initialPath,
+		workspace: () => selected,
+		path: () => current?.path ?? '',
+		pathError: () => pathError,
+		touched: () =>
+			pathDirty ||
+			(!!current &&
+				!!selected &&
+				!draftValuesEqual({ ...current, path: '' }, { ...initialStates[selected], path: '' })),
+		value: () => (current ? ($state.snapshot(current) as ResourceState) : undefined)
+	})
+
 	// New-resource bootstrap: seed empty state per workspace (edit mode
 	// is seeded by the lazy-fetch effect below).
 	$effect(() => {
@@ -210,7 +236,8 @@
 				description: '',
 				args: (defaultValues && Object.keys(defaultValues).length > 0 ? defaultValues : {}) as any,
 				labels: undefined,
-				wsSpecific: false
+				wsSpecific: false,
+				resource_type
 			}
 			ensureHandle(selected, s)
 			initialStates[selected] = structuredClone(s)
@@ -231,22 +258,39 @@
 				// `.draft` already holds the editor's `ResourceState` shape.
 				const savedDraftState = (r as any).draft as ResourceState | undefined
 				fetchedResources[ws] = r
+				// Draft-only paths (`no_deployed`) have no row — saving must
+				// CREATE, not update (update 404s).
+				const noDeployed = !!(r as any).no_deployed
 				// Deployed baseline as the dirty-check reference, so the banner
 				// compares draft-vs-deployed and fires immediately when a draft exists.
-				const deployedState: ResourceState = {
-					path: r.path,
-					description: r.description ?? '',
-					args: (r.value ?? {}) as any,
-					labels: r.labels ?? undefined,
-					wsSpecific: r.ws_specific ?? false
+				// A draft-only item has no deployed side: everything in it is unsaved.
+				const deployedState: ResourceState = noDeployed
+					? {
+							path: '',
+							description: '',
+							args: {},
+							labels: undefined,
+							wsSpecific: false,
+							resource_type: r.resource_type
+						}
+					: {
+							path: r.path,
+							description: r.description ?? '',
+							args: (r.value ?? {}) as any,
+							labels: r.labels ?? undefined,
+							wsSpecific: r.ws_specific ?? false,
+							resource_type: r.resource_type
+						}
+				// A draft saved without `resource_type` compares against a baseline
+				// that has it; fill it in so the field alone can't read as a change.
+				if (savedDraftState && savedDraftState.resource_type === undefined) {
+					savedDraftState.resource_type = r.resource_type
 				}
 				// Open with the saved draft if present, else the deployed.
 				const s: ResourceState = savedDraftState ?? deployedState
 				ensureHandle(ws, s)
 				initialStates[ws] = structuredClone(deployedState)
-				// Draft-only paths (`no_deployed`) have no row — saving must
-				// CREATE, not update (update 404s).
-				existedInitially[ws] = !(r as any).no_deployed
+				existedInitially[ws] = !noDeployed
 				perWsUser[ws] = user
 				// Keep resource_type in sync for the base workspace (controls the schema)
 				if (ws === effectiveWorkspace) {
@@ -268,7 +312,7 @@
 	})
 
 	$effect(() => {
-		canSave = anyDirty && dirtyValid && dirtyCanWrite
+		canSave = anyDirty && dirtyValid && dirtyCanWrite && pathError === ''
 	})
 
 	// Drive the parent drawer's "unsaved changes" banner. The drawer chrome
@@ -287,11 +331,27 @@
 	export function localDraftCurrent(): ResourceState | undefined {
 		return current
 	}
-	export function discardLocalDraft(): void {
-		if (!selected) return
-		UserDraft.discard('resource', initialPath ?? '', initialStates[selected], {
-			workspace: selected
+	/** Returns true when the item was draft-only: discarding deleted it
+	 * outright, so there is nothing left for the editor to show. */
+	export async function discardLocalDraft(): Promise<boolean> {
+		if (!selected) return false
+		if (existedInitially[selected]) {
+			UserDraft.discard('resource', initialPath ?? '', initialStates[selected], {
+				workspace: selected
+			})
+			return false
+		}
+		// Draft-only: no baseline to fall back to. Blank the cell so the form
+		// unmounts — mounted on the empty state it re-fills the path from
+		// `initialPath`, and that autosave would displace the delete. Flushed so
+		// the list refetch on drawer close no longer finds the row.
+		UserDraft.remove('resource', initialPath ?? '', { workspace: selected })
+		await UserDraftDbSyncer.flush({
+			workspace: selected,
+			itemKind: 'resource',
+			path: initialPath ?? ''
 		})
+		return true
 	}
 
 	$effect(() => {
@@ -355,11 +415,15 @@
 						}
 					})
 				}
-				// Reset the handle to the new deployed baseline via `discard`, not
-				// `remove`. See VariableEditor for the full rationale.
 				initialStates[ws] = $state.snapshot(s) as ResourceState
 				existedInitially[ws] = true
-				UserDraft.discard('resource', initialPath ?? '', s, { workspace: ws })
+				if (initialPath) {
+					// Reset the handle to the new deployed baseline via `discard`, not
+					// `remove`. See VariableEditor for the full rationale.
+					UserDraft.discard('resource', initialPath, s, { workspace: ws })
+				} else {
+					newDraftSync.finish()
+				}
 				// Path now exists server-side — drop the autocomplete cache so
 				// it shows up immediately instead of after the 60s TTL.
 				invalidateWorkspacePaths(ws)
@@ -386,6 +450,8 @@
 			{#key current}
 				<ResourceForm
 					bind:path={() => current!.path, setPath}
+					bind:pathError
+					bind:pathDirty
 					bind:labels={current.labels}
 					bind:description={current.description}
 					bind:args={current.args}

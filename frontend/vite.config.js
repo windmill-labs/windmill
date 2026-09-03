@@ -240,10 +240,14 @@ const config = {
 				// replay sanitization) whose contracts can only be asserted against a
 				// real document.
 				extends: './vite.config.js',
+				// Node resolution picks svelte's server entry, where `$effect` is inert;
+				// `*.svelte.dom.test.ts` rune modules need the browser one to run effects.
+				resolve: { conditions: ['browser'] },
 				test: {
 					name: 'dom',
 					environment: 'jsdom',
-					include: ['src/**/*.dom.{test,spec}.{js,ts}']
+					include: ['src/**/*.dom.{test,spec}.{js,ts}'],
+					server: { deps: { inline: ['svelte'] } }
 				}
 			}
 		]

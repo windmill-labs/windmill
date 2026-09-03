@@ -23,6 +23,7 @@
 	import { registryEntryFor, registryCcCapableFor, stripSandboxSuffix } from './oauthRegistry'
 	import { createEventDispatcher, onDestroy, tick, untrack } from 'svelte'
 	import Path from './Path.svelte'
+	import { useNewItemDraftSync } from './useNewItemDraftSync.svelte'
 	import { Button, RadioCard, Skeleton } from './common'
 	import ApiConnectForm from './ApiConnectForm.svelte'
 	import SearchItems from './SearchItems.svelte'
@@ -328,6 +329,46 @@
 	}
 
 	let pathError = $state('')
+	let pathDirty = $state(false)
+
+	// Fields saved as linked secret variables never enter the draft: a resource
+	// draft is stored as-is, without the encryption those variables get.
+	function draftArgs(): Record<string, any> {
+		const out: Record<string, any> = {}
+		for (const [k, v] of Object.entries($state.snapshot(args) ?? {})) {
+			out[k] = linkedSecrets.includes(k) ? '' : v
+		}
+		return out
+	}
+	// The manual step is a brand-new resource: mirror the form to a draft keyed
+	// by the typed path, so a closed drawer can be picked up from the resources
+	// list (draft-only row → editor). Filling an existing path is not a draft.
+	const newDraftSync = useNewItemDraftSync({
+		itemKind: 'resource',
+		enabled: () => step == 2 && manual && !fillPath,
+		workspace: () => effectiveWorkspace,
+		path: () => path,
+		pathError: () => pathError,
+		touched: () =>
+			pathDirty ||
+			description !== '' ||
+			(labels?.length ?? 0) > 0 ||
+			wsSpecific ||
+			Object.entries(draftArgs()).some(
+				([k, v]) =>
+					v !== '' &&
+					v !== undefined &&
+					v !== (resourceTypeInfo?.schema as any)?.properties?.[k]?.default
+			),
+		value: () => ({
+			path,
+			description,
+			args: draftArgs(),
+			labels,
+			wsSpecific,
+			resource_type: resourceType
+		})
+	})
 
 	export async function open(rt?: string) {
 		if (!rt) {
@@ -952,6 +993,7 @@
 					}
 				})
 			}
+			newDraftSync.finish()
 			dispatch('refresh', path)
 			dispatch('close')
 			sendUserToast(
@@ -964,6 +1006,12 @@
 	}
 
 	export async function back() {
+		if (step == 2 && manual) {
+			// Back abandons this form; the draft it mirrored goes with it.
+			newDraftSync.finish()
+			newDraftSync.reset()
+			pathDirty = false
+		}
 		if (step == 4) {
 			step -= 2
 		} else if (step > 1) {
@@ -1295,6 +1343,7 @@
 				<ResourcePathHint />
 				<Path
 					bind:error={pathError}
+					bind:dirty={pathDirty}
 					bind:path
 					initialPath=""
 					namePlaceholder={resourceType}

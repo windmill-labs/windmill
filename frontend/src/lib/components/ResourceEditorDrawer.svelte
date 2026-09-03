@@ -23,7 +23,8 @@
 		workspace = undefined,
 		disableChatOffset = false,
 		onRestored = undefined,
-		onSaved = undefined
+		onSaved = undefined,
+		onClose = undefined
 	}: {
 		workspace?: string
 		disableChatOffset?: boolean
@@ -31,6 +32,9 @@
 		/** Fires after Save has written, for a caller showing state derived from the
 		 * resource — `onRestored` only covers restoring an old version. */
 		onSaved?: () => void
+		/** Fires whenever the drawer closes, saved or not: a new resource left
+		 * unsaved persists as a draft-only row, which a list only sees on refetch. */
+		onClose?: () => void
 	} = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -44,7 +48,7 @@
 				save: () => void
 				localDraftDeployed: () => unknown
 				localDraftCurrent: () => unknown
-				discardLocalDraft: () => void
+				discardLocalDraft: () => Promise<boolean>
 		  }
 		| undefined = $state(undefined)
 	let hasLocalDraft = $state(false)
@@ -97,7 +101,10 @@
 	bind:this={drawer}
 	size="50rem"
 	{disableChatOffset}
-	on:close={() => clearPageDrawerAnchor(RESOURCES_PATH)}
+	on:close={() => {
+		clearPageDrawerAnchor(RESOURCES_PATH)
+		onClose?.()
+	}}
 >
 	<DrawerContent
 		title={mode == 'edit' ? 'Edit ' + path : addResourceTitle(resource_type)}
@@ -131,7 +138,10 @@
 				reserveSpace={mode == 'edit'}
 				getDeployed={() => resourceEditor?.localDraftDeployed()}
 				getCurrent={() => resourceEditor?.localDraftCurrent()}
-				onDiscard={() => resourceEditor?.discardLocalDraft()}
+				onDiscard={async () => {
+					// A draft-only resource is gone once discarded; nothing is left to edit.
+					if (await resourceEditor?.discardLocalDraft()) drawer?.closeDrawer()
+				}}
 				disabled={!canWriteSelected}
 			/>
 		{/snippet}
