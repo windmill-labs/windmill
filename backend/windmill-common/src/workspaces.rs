@@ -1151,7 +1151,13 @@ pub fn remove_datatable_tenant(datatable: &mut serde_json::Value, tenant: &str) 
 /// principal cleanups below. Without it each of them can persist a block it
 /// computed before another one committed — a save that planned with `g/devs`
 /// puts the tenant back after the group's deletion took it away.
-pub async fn lock_workspace_settings(
+///
+/// Authorization: performs none, for any workspace it is handed. What it returns
+/// is the config as stored, generated role passwords included, so callers MUST
+/// have authorized the read — every one today is admin-gated or a system path —
+/// and MUST NOT pass the value outward without
+/// [`redact_datatable_settings_for_export`].
+pub async fn lock_workspace_settings_unchecked(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,
 ) -> Result<Option<serde_json::Value>> {
@@ -1182,7 +1188,7 @@ pub async fn remove_datatable_tenant_in_workspace_unchecked(
     tenant: &str,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<()> {
-    let Some(mut settings) = lock_workspace_settings(tx, w_id).await? else {
+    let Some(mut settings) = lock_workspace_settings_unchecked(tx, w_id).await? else {
         return Ok(());
     };
     if remove_datatable_tenant(&mut settings, tenant) {

@@ -1662,14 +1662,17 @@ async fn delete_user(
         .execute(&mut *tx)
         .await?;
 
-    let usernames = sqlx::query_scalar!(
-        "DELETE FROM usr WHERE email = $1 RETURNING username",
+    // The workspace comes back with the name: a username is scoped to one, and
+    // the data table tenants that name it are stored per workspace.
+    let memberships = sqlx::query!(
+        "DELETE FROM usr WHERE email = $1 RETURNING workspace_id, username",
         &email_to_delete
     )
     .fetch_all(&mut *tx)
     .await?;
 
-    for username in usernames {
+    for row in memberships {
+        let username = row.username;
         sqlx::query!("DELETE FROM password WHERE email = $1", &email_to_delete)
             .execute(&mut *tx)
             .await?;
@@ -1677,6 +1680,15 @@ async fn delete_user(
         sqlx::query!("DELETE FROM usr_to_group WHERE usr = $1", &username)
             .execute(&mut *tx)
             .await?;
+
+        // The username is free in that workspace now, so a role still naming it
+        // would hand itself to whoever takes it next.
+        windmill_common::workspaces::remove_datatable_tenant_in_workspace_unchecked(
+            &row.workspace_id,
+            &format!("u/{username}"),
+            &mut tx,
+        )
+        .await?;
 
         sqlx::query!(
             "DELETE FROM workspace_invite WHERE email = $1",
@@ -3299,6 +3311,15 @@ async fn leave_workspace(
         authed.username
     )
     .execute(&mut *tx)
+    .await?;
+
+    // Leaving frees the username here too, and a role that still names it would
+    // be inherited by the next member to take it.
+    windmill_common::workspaces::remove_datatable_tenant_in_workspace_unchecked(
+        &w_id,
+        &format!("u/{}", authed.username),
+        &mut tx,
+    )
     .await?;
 
     audit_log(

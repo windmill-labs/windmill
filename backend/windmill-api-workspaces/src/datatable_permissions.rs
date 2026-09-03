@@ -577,7 +577,7 @@ async fn set_datatable_permissions(
     // computed before the other committed. The settings row is what everything
     // touching that config takes, so taking it here is what serializes them.
     let mut tx = db.begin().await?;
-    windmill_common::workspaces::lock_workspace_settings(&mut tx, &w_id).await?;
+    windmill_common::workspaces::lock_workspace_settings_unchecked(&mut tx, &w_id).await?;
 
     // The roles about to be created are handed privileges by this connection,
     // which cannot pass on what it holds without the grant option.

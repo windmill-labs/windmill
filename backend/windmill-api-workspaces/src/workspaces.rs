@@ -3710,7 +3710,7 @@ async fn edit_datatable_config(
     // lock as the role save and the principal cleanups, or it puts back what one
     // of them just took away.
     let old_datatables: HashMap<String, DataTable> = serde_json::from_value(
-        windmill_common::workspaces::lock_workspace_settings(&mut tx, &w_id)
+        windmill_common::workspaces::lock_workspace_settings_unchecked(&mut tx, &w_id)
             .await?
             .and_then(|d| d.get("datatables").cloned())
             .unwrap_or(serde_json::Value::Null),
@@ -8927,13 +8927,24 @@ async fn leave_workspace(
 ) -> Result<String> {
     windmill_api_auth::forbid_job_token_account_destruction(&authed)?;
     let mut tx = db.begin().await?;
-    sqlx::query!(
-        "DELETE FROM usr WHERE workspace_id = $1 AND email = $2",
+    let left = sqlx::query_scalar!(
+        "DELETE FROM usr WHERE workspace_id = $1 AND email = $2 RETURNING username",
         &w_id,
         &authed.email
     )
-    .execute(&mut *tx)
+    .fetch_all(&mut *tx)
     .await?;
+
+    // Leaving frees the username here, and a role that still names it would be
+    // inherited by the next member to take it.
+    for username in left {
+        windmill_common::workspaces::remove_datatable_tenant_in_workspace_unchecked(
+            &w_id,
+            &format!("u/{username}"),
+            &mut tx,
+        )
+        .await?;
+    }
 
     audit_log(
         &mut *tx,
