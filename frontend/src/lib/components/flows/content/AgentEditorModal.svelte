@@ -70,6 +70,16 @@
 			adoptedPath = t && !owns(t) ? t.path : undefined
 		})
 	})
+	// The last agent this dialog showed. The version pane keeps working after `onRestore` returns —
+	// it reloads its list keyed on the path it was given — while the restore handler has already
+	// closed the dialog and dropped the target. Reading the live one there throws, and the throw
+	// lands in the global unhandled-rejection handler as a bare toast with no stack.
+	let lastShownAgent = $state<string | undefined>(undefined)
+	$effect(() => {
+		const p = target?.path
+		if (p) untrack(() => (lastShownAgent = p))
+	})
+
 	let ws = $derived(target?.workspace ?? $workspaceStore)
 	let host = $state<ReturnType<typeof AgentEditorHost> | undefined>(undefined)
 	let versionDrawer: Drawer | undefined = $state(undefined)
@@ -335,7 +345,7 @@
 	<Drawer bind:this={versionDrawer} size="1200px">
 		<DrawerContent title="Version history" on:close={() => versionDrawer?.closeDrawer()} noPadding>
 			<ResourceVersionHistory
-				path={target.path}
+				path={target?.path ?? lastShownAgent ?? ''}
 				workspace={ws}
 				canRestore={!readOnly}
 				onRestore={() => {
