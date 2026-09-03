@@ -4327,8 +4327,7 @@ describe('global AI tools', () => {
 
 		const result = await withCompletedTestJob(() =>
 			callGlobalTool('test_run_script', {
-				path: 'f/scripts/draft-test',
-				args: { name: 'Ada' }
+				path: 'f/scripts/draft-test'
 			})
 		)
 
@@ -4337,7 +4336,7 @@ describe('global AI tools', () => {
 			requestBody: {
 				path: 'f/scripts/draft-test',
 				content,
-				args: { name: 'Ada' },
+				args: {},
 				language: 'bun'
 			}
 		})
@@ -4356,8 +4355,7 @@ describe('global AI tools', () => {
 
 		await withCompletedTestJob(() =>
 			callGlobalTool('test_run_script', {
-				path: 'f/scripts/deployed-test',
-				args: { name: 'Grace' }
+				path: 'f/scripts/deployed-test'
 			})
 		)
 
@@ -4370,15 +4368,14 @@ describe('global AI tools', () => {
 			requestBody: {
 				path: 'f/scripts/deployed-test',
 				content: 'def main(name):\n    return name',
-				args: { name: 'Grace' },
+				args: {},
 				language: 'python3'
 			}
 		})
 	})
 
 	// A test run meets the same card as a deployed one, so what previews is what the form
-	// submitted — not what the model proposed. The two tests above cover the other half:
-	// a schema with no fields to build a form from still runs the proposal as sent.
+	// submitted — not what the model proposed.
 	it('test_run_script previews the arguments the form submitted', async () => {
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
 			path: 'f/scripts/formed-test',
@@ -4464,6 +4461,42 @@ describe('global AI tools', () => {
 		const deployedForm = statuses.find((s) => s.runForm)?.runForm
 		expect(deployedForm.submitted).toBeUndefined()
 		expect(deployedForm.schema).toBeDefined()
+	})
+
+	// A schema with no fields is the one shape that used to run without asking: the form it
+	// would have built was empty, so the tool skipped it and started the job. An empty form
+	// is still the Run button, and that button is the whole confirmation this tool has.
+	it('test_run_script opens a form and starts no job when the schema declares no field', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
+			path: 'f/scripts/noargs-test',
+			content: 'export async function main() {}',
+			language: 'bun',
+			schema: { properties: {} }
+		} as any)
+
+		const cancelled = await callGlobalTool(
+			'test_run_script',
+			{ path: 'f/scripts/noargs-test', args: { force_delete: true } },
+			{ ...toolCallbacks, requestRunArgs: async () => undefined }
+		)
+
+		expect(JobService.runScriptPreview).not.toHaveBeenCalled()
+		expect(cancelled).toContain('The user cancelled the run form')
+
+		// Answered, the run carries nothing the empty form could not show, and the model is
+		// told which argument was dropped rather than left to wonder why it had no effect.
+		const ran = await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_script',
+				{ path: 'f/scripts/noargs-test', args: { force_delete: true } },
+				{ ...toolCallbacks, requestRunArgs: async (_toolId, form) => form.args }
+			)
+		)
+
+		expect(JobService.runScriptPreview).toHaveBeenCalledWith(
+			expect.objectContaining({ requestBody: expect.objectContaining({ args: {} }) })
+		)
+		expect(ran).toContain('force_delete')
 	})
 
 	it('test_run_flow previews draft flow content by path', async () => {
