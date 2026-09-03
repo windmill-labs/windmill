@@ -23,6 +23,12 @@ function agentConfigRunError(args: Record<string, any> | undefined): string | un
 	if (!provider?.resource || !provider?.model) {
 		return 'Select a provider resource and model before deploying.'
 	}
+	// `kind` is what the worker deserializes the provider as, and a config written through the JSON
+	// editor can leave it out entirely. Presence only: the list of kinds lives behind the provider
+	// SDKs, and an unrecognised one already fails the same way at the worker.
+	if (typeof provider.kind !== 'string' || provider.kind === '') {
+		return 'The provider is missing its kind. Pick the resource again to set it.'
+	}
 	// Only a flowmodule tool's summary is a callable name: the worker never reads an mcp or
 	// websearch summary, so a blank one there is not an error and must not count as a sibling.
 	// Same filter as `collectInvalidAgentToolNames`, which is the rule the graph enforces.

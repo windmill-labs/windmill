@@ -58,6 +58,12 @@
 		historyWorkspace === $workspaceStore && isOwner(path ?? '', $userStore, $workspaceStore)
 	)
 
+	/** Shut this drawer without going through its own close button, for a caller opening the other
+	 *  editor over the same list. */
+	export function close(): void {
+		drawer?.closeDrawer?.()
+	}
+
 	/** `json` opens on the JSON editor instead of the resource type's form. For a type with a
 	 *  dedicated editor elsewhere: the generic form would render its configuration field by field,
 	 *  and materialize a default into every one the value leaves out. */

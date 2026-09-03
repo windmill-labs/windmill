@@ -300,7 +300,10 @@
 
 	export function deploy(): Promise<boolean> {
 		return draft.deploy().then(async (ok) => {
-			if (ok) await onSaved?.(draft.state?.path ?? path)
+			// The path this editor opened, not the draft's live one: `deploy` refuses a renaming draft,
+			// so the write always lands here, while the shared draft can be repointed by another tab
+			// mid-request and would send the reconciliation after a resource nobody wrote.
+			if (ok) await onSaved?.(path)
 			return ok
 		})
 	}

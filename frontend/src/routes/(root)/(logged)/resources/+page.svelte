@@ -78,7 +78,7 @@
 	import EditableSchemaWrapper from '$lib/components/schema/EditableSchemaWrapper.svelte'
 	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
 	import AgentEditorModal from '$lib/components/flows/content/AgentEditorModal.svelte'
-	import { openAgentEditor } from '$lib/components/flows/agentEditorStore.svelte'
+	import { closeAgentEditor, openAgentEditor } from '$lib/components/flows/agentEditorStore.svelte'
 	import { copilotInfo } from '$lib/aiStore'
 	import { setPageDrawerAnchor } from '$lib/components/sessions/pageDrawerSession'
 	import { RESOURCES_PATH } from '$lib/components/sessions/previewPaths'
@@ -142,9 +142,14 @@
 			// refresh, and the AI session's idea of where you are all miss the open agent. Claim the
 			// hash first so the deep-link effect does not treat our own write as a new navigation.
 			handledHash = `#/resource/${path}`
+			// One row at a time: the hash can retarget from a resource to an agent, and the two
+			// editors are separate overlays that would otherwise stack, the older one surfacing again
+			// when the newer is closed.
+			resourceEditor?.close?.()
 			openAgentEditor({ path })
 			setPageDrawerAnchor(RESOURCES_PATH, path)
 		} else {
+			closeAgentEditor()
 			resourceEditor?.initEdit?.(path)
 		}
 	}
