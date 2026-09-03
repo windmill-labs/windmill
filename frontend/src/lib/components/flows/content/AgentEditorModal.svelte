@@ -89,15 +89,21 @@
 	let writes = $derived(agentWriteCount(ws, target?.path))
 	let versionResource = resource(
 		() => ({ ws, path: target?.path, writes }),
-		async ({ ws, path }) => {
-			if (!ws || !path) return { ws, path }
+		async ({ ws, path, writes }) => {
+			if (!ws || !path) return { ws, path, writes }
 			const history = await ResourceService.getResourceHistory({ workspace: ws, path })
-			return { ws, path, version: history.versions?.[0]?.version }
+			return { ws, path, writes, version: history.versions?.[0]?.version }
 		}
 	)
+	// `writes` as well as the identity: runed neither aborts nor tags a superseded request, so a
+	// response from before a deploy can land after the one for it and relabel the badge with the
+	// version that deploy replaced.
 	let version = $derived.by(() => {
 		const loaded = versionResource.current
-		return loaded !== undefined && loaded.ws === ws && loaded.path === target?.path
+		return loaded !== undefined &&
+			loaded.ws === ws &&
+			loaded.path === target?.path &&
+			loaded.writes === writes
 			? loaded.version
 			: undefined
 	})

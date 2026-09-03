@@ -71,10 +71,13 @@
 
 	type LinkedInfo = {
 		// What this result was fetched for. runed's resource neither aborts nor tags a superseded
-		// request, so a slow fetch for a previous link can land after a newer one: every consumer
-		// gates on these matching the current (ws, agent).
+		// request, so a slow fetch can land after a newer one: every consumer gates on these matching
+		// the current (ws, agent, writes). `writes` is what covers a refetch of the *same* link after
+		// a deploy — without it a pre-deploy response is indistinguishable from the current one, and
+		// accepting it republishes the tools the deploy just replaced.
 		ws?: string
 		path?: string
+		writes: number
 		config: AIAgentConfig
 		tools: AgentTool[]
 		providerPath?: string
@@ -86,9 +89,9 @@
 	// accessible in this workspace (the user then needs to unlink/fork or gain access).
 	let linkedResource = resource(
 		() => ({ ws, path: agent, writes }),
-		async ({ ws, path }): Promise<LinkedInfo> => {
+		async ({ ws, path, writes }): Promise<LinkedInfo> => {
 			if (!ws || !path) {
-				return { ws, path, config: {}, tools: [], providerOk: true }
+				return { ws, path, writes, config: {}, tools: [], providerOk: true }
 			}
 			const res = await ResourceService.getResource({ workspace: ws, path })
 			const cfg = (res.value ?? {}) as AIAgentConfig & { provider?: { resource?: string } }
@@ -109,6 +112,7 @@
 			return {
 				ws,
 				path,
+				writes,
 				config: cfg,
 				tools,
 				providerPath,
@@ -122,7 +126,7 @@
 	let loadedInfo = $state<LinkedInfo | undefined>(undefined)
 	$effect(() => {
 		const current = linkedResource.current
-		if (current && current.ws === ws && current.path === agent) {
+		if (current && current.ws === ws && current.path === agent && current.writes === writes) {
 			loadedInfo = current
 		}
 	})
@@ -139,18 +143,26 @@
 	// entry does, since recording is a database trigger on every write.
 	let versionResource = resource(
 		() => ({ ws, path: cardPath, writes }),
-		async ({ ws, path }): Promise<{ ws?: string; path?: string; version?: number }> => {
+		async ({
+			ws,
+			path,
+			writes
+		}): Promise<{ ws?: string; path?: string; writes: number; version?: number }> => {
 			if (!ws || !path) {
-				return { ws, path }
+				return { ws, path, writes }
 			}
 			const history = await ResourceService.getResourceHistory({ workspace: ws, path })
-			return { ws, path, version: history.versions?.[0]?.version }
+			return { ws, path, writes, version: history.versions?.[0]?.version }
 		}
 	)
-	// Guarded like the link above: a response for a previous agent must not label this one.
+	// Guarded like the link above, `writes` included: a response for a previous agent must not label
+	// this one, and one from before a deploy must not relabel it with the version it replaced.
 	let version = $derived.by(() => {
 		const loaded = versionResource.current
-		return loaded !== undefined && loaded.ws === ws && loaded.path === cardPath
+		return loaded !== undefined &&
+			loaded.ws === ws &&
+			loaded.path === cardPath &&
+			loaded.writes === writes
 			? loaded.version
 			: undefined
 	})
