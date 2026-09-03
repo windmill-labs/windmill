@@ -13,6 +13,7 @@
 	import { AIMode } from './AIChatManager.svelte'
 	import { CHAT_INPUT_PADDING } from './aiChatManagerContext'
 	import { getChatViewHost } from './chatViewHost'
+	import { COMPOSER_BOX, COMPOSER_FIELD_RESET } from './composerBox'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { formatMention } from './mention'
 	import { twMerge } from 'tailwind-merge'
@@ -568,7 +569,8 @@
 	export function prependText(
 		text: string,
 		restoredImages: AttachedImage[] = [],
-		restoredFiles: AttachedTextFile[] = []
+		restoredFiles: AttachedTextFile[] = [],
+		restoredBlobs: AttachedBlob[] = []
 	): boolean {
 		// mergedIntoDraft: the restored text landed on top of a draft the user was
 		// already writing — both instructions now share one composer, so the caller
@@ -576,7 +578,8 @@
 		const { mergedIntoDraft, droppedImages, droppedFiles } = draft.prepend({
 			text,
 			images: restoredImages,
-			files: restoredFiles
+			files: restoredFiles,
+			blobs: restoredBlobs
 		})
 		if (droppedImages > 0) {
 			sendUserToast(
@@ -800,7 +803,8 @@
 					expanded(chatDraft(sent.text, sent.pastes)),
 					sent.images,
 					[...selectedContext],
-					sent.files
+					sent.files,
+					sent.blobs
 				)
 				// Consumed at enqueue, not at flush: the entry above pinned them.
 				consumeMentionsIfGlobal()
@@ -1212,6 +1216,7 @@
 				chatHost.queuedMessage ||
 				chatHost.queuedImages.length > 0 ||
 				chatHost.queuedFiles.length > 0 ||
+				chatHost.queuedBlobs.length > 0 ||
 				(chatHost.queuedContext?.length ?? 0) > 0
 			) {
 				e.preventDefault()
@@ -1334,13 +1339,9 @@
 			</Portal>
 		{/if}
 	{:else}
-		<!-- Mirrors ContextTextarea's box: border + rounded on the wrapper, not on the
-		     textarea, so the same chip rows sit INSIDE the box above the text. Without
-		     this the rows would float on the page background and read as a different
-		     composer from the session chat's. -->
-		<div
-			class="w-full scroll-pb-2 bg-surface-input rounded-md border border-border-light focus-within:border-border-selected transition-colors"
-		>
+		<!-- Same box as the rich composer above, so a host on the plain textarea shows
+		     the identical chip rows inside the identical field. -->
+		<div class={COMPOSER_BOX}>
 			{@render badgeRow()}
 			{@render imageChipsRow()}
 			<div class={twMerge('relative w-full', className)}>
@@ -1359,13 +1360,7 @@
 					}}
 					rows={1}
 					placeholder={modePlaceholder}
-					class={twMerge(
-						'resize-none',
-						// The box lives on the wrapper; kill the textarea's own forms border,
-						// focus ring and background so only the wrapper reads as the field.
-						'!border-transparent !bg-transparent !shadow-none focus:!border-transparent focus:!ring-0',
-						CHAT_INPUT_PADDING
-					)}
+					class={twMerge('resize-none', COMPOSER_FIELD_RESET, CHAT_INPUT_PADDING)}
 					{disabled}
 				></textarea>
 				{#if !bottomRightSnippet}

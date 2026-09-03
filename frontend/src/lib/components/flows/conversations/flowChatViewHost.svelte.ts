@@ -7,7 +7,9 @@ import type { ChatMessage, FlowChatManager } from './FlowChatManager.svelte'
 import { AIAutonomyMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 import { AttachedFilesStore } from '$lib/components/copilot/chat/files/attachedFiles.svelte'
 import { SessionArtifactsStore } from '$lib/components/copilot/chat/artifacts/artifactsState.svelte'
-import { dataUrlToBlob } from '$lib/components/copilot/chat/blobUtils'
+import { dataUrlToBlob, type AttachedBlob } from '$lib/components/copilot/chat/blobUtils'
+import type { AttachedImage } from '$lib/components/copilot/chat/imageUtils'
+import type { AttachedTextFile } from '$lib/components/copilot/chat/textFileUtils'
 import { HelpersService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { randomUUID } from '$lib/utils/uuid'
@@ -33,7 +35,8 @@ function toDisplayMessage(
 	message: ChatMessage,
 	userIndex: number,
 	showStepNames: boolean,
-	inputs: MessageInputsStore
+	inputs: MessageInputsStore,
+	failed: boolean
 ): DisplayMessage {
 	switch (message.message_type) {
 		case 'user': {
@@ -44,6 +47,8 @@ function toDisplayMessage(
 				role: 'user',
 				index: userIndex,
 				content: message.content,
+				// Drives the shared Retry button: the turn this message started failed.
+				error: failed || undefined,
 				images: images.length > 0 ? images : undefined,
 				contextElements: contextElements.length > 0 ? contextElements : undefined
 			}
@@ -68,6 +73,19 @@ function toDisplayMessage(
 				stepName: showStepNames ? (message.step_name ?? undefined) : undefined
 			}
 	}
+}
+
+/**
+ * Whether the turn a user message started came back unsuccessful. The answer is on
+ * the messages that follow it, up to the next user message: an AI agent step or the
+ * flow itself writes one with `success` false.
+ */
+function turnFailed(messages: ChatMessage[], userIndex: number): boolean {
+	for (let i = userIndex + 1; i < messages.length; i++) {
+		if (messages[i].message_type === 'user') return false
+		if (messages[i].success === false) return true
+	}
+	return false
 }
 
 /**
@@ -98,15 +116,24 @@ export class FlowChatViewHost implements ChatViewHost {
 	displayMessages = $derived.by(() => {
 		let userIndex = 0
 		const showStepNames = this.#showStepNames
-		return this.#manager.messages.map((message) =>
+		const messages = this.#manager.messages
+		return messages.map((message, i) =>
 			toDisplayMessage(
 				message,
 				message.message_type === 'user' ? userIndex++ : -1,
 				showStepNames,
-				this.#messageInputs
+				this.#messageInputs,
+				message.message_type === 'user' && turnFailed(messages, i)
 			)
 		)
 	})
+
+	/** Resend the message at this transcript position, with the inputs it ran with. */
+	retryRequest = (messageIndex: number) => {
+		const message = this.#manager.messages[messageIndex]
+		if (!message || message.message_type !== 'user' || this.loading) return
+		void this.sendRequest({ instructions: message.content })
+	}
 	messages: readonly unknown[] = []
 	contextTokens = 0
 	loading = $derived.by(
@@ -202,35 +229,63 @@ export class FlowChatViewHost implements ChatViewHost {
 	cancel = () => {
 		void this.#manager.cancelCurrentJob()
 	}
-	setAiChatInput = () => {}
+	// Typed off the interface: a Svelte component's own type resolves differently
+	// across import specifiers, and the two would then not be assignable.
+	#aiChatInput: Parameters<ChatViewHost['setAiChatInput']>[0] = null
+	setAiChatInput: ChatViewHost['setAiChatInput'] = (aiChatInput) => {
+		this.#aiChatInput = aiChatInput
+	}
 
-	// A message typed while the flow is running waits here and goes out when the
-	// run finishes (see flushQueuedMessage).
+	// A message typed while the flow is running waits here with its attachments and
+	// goes out whole when the run finishes (see flushQueuedMessage).
 	queuedMessage = $state('')
 	queuedContext = undefined
-	queuedImages = []
-	queuedFiles = []
-	queueMessage = (text: string) => {
+	queuedImages = $state<AttachedImage[]>([])
+	queuedFiles: AttachedTextFile[] = []
+	queuedBlobs = $state<AttachedBlob[]>([])
+	queueMessage = (
+		text: string,
+		images: AttachedImage[] = [],
+		_context?: unknown,
+		_files?: unknown,
+		blobs: AttachedBlob[] = []
+	) => {
 		const trimmed = text.trim()
-		if (!trimmed) return
-		this.queuedMessage = this.queuedMessage ? `${this.queuedMessage}\n${trimmed}` : trimmed
+		if (!trimmed && images.length === 0 && blobs.length === 0) return
+		if (trimmed) {
+			this.queuedMessage = this.queuedMessage ? `${this.queuedMessage}\n${trimmed}` : trimmed
+		}
+		this.queuedImages = [...this.queuedImages, ...images]
+		this.queuedBlobs = [...this.queuedBlobs, ...blobs]
 	}
+	/** Put the queued draft back in the composer, attachments included. */
 	dequeueMessage = () => {
+		const { text, images, blobs } = this.#takeQueue()
+		if (!text && images.length === 0 && blobs.length === 0) return
+		this.#aiChatInput?.prependText(text, images, [], blobs)
+	}
+	#takeQueue() {
+		const taken = {
+			text: this.queuedMessage,
+			images: this.queuedImages,
+			blobs: this.queuedBlobs
+		}
 		this.queuedMessage = ''
+		this.queuedImages = []
+		this.queuedBlobs = []
+		return taken
 	}
 	/** Send whatever was typed during the run. Called once the run settles. */
 	flushQueuedMessage = () => {
-		const queued = this.queuedMessage
-		if (!queued) return
-		this.queuedMessage = ''
-		void this.sendRequest({ instructions: queued })
+		const { text, images, blobs } = this.#takeQueue()
+		if (!text) return
+		void this.sendRequest({ instructions: text, images, blobs })
 	}
 	setComposerStaged = () => {}
 	clearComposerStaged = () => {}
 	attachmentBytesExcluding = () => 0
 
 	storedImages = () => undefined
-	retryRequest = () => {}
 	restartGeneration = () => {}
 	handleUserQuestionAnswer = () => false
 	handleToolConfirmation = () => {}

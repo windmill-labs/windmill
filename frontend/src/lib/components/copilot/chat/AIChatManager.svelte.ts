@@ -1,3 +1,4 @@
+import type { AttachedBlob } from './blobUtils'
 import type { ChatViewHost } from './chatViewHost'
 import type { ScriptLang } from '$lib/gen/types.gen'
 import { JobService, type CompletedJob } from '$lib/gen'
@@ -445,6 +446,8 @@ export class AIChatManager implements ChatViewHost {
 	// to the message — text files after a content sniff).
 	// The copilot reads attachments in the browser, so non-image files decode to text.
 	attachmentsAsBlobs = false
+	// The copilot decodes its attachments, so nothing ever lands in the blob lane.
+	queuedBlobs: AttachedBlob[] = []
 	attachmentAccept =
 		'image/*,text/*,.txt,.csv,.tsv,.json,.jsonl,.ndjson,.md,.markdown,.log,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.xml,.html,.htm,.css,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.rs,.go,.java,.kt,.c,.h,.cpp,.cc,.cs,.php,.sh,.bash,.zsh,.sql,.svelte,.vue,.dockerfile'
 	/** Files the user attached to the current GLOBAL-mode conversation. */

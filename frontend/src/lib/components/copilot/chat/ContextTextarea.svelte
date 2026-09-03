@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { COMPOSER_BOX, COMPOSER_FIELD_RESET } from './composerBox'
 	import autosize from '$lib/autosize'
 	import { tick, type Snippet } from 'svelte'
 	import type { ContextElement } from './context'
@@ -767,12 +768,7 @@
 	}
 </script>
 
-<!-- The composer box: border + rounded live HERE (on the wrapper), not on the
-     textarea, so context chips can sit INSIDE the box, above the text. The
-     textarea's own @tailwindcss/forms border/ring is neutralized below. -->
-<div
-	class="w-full scroll-pb-2 bg-surface-input rounded-md border border-border-light focus-within:border-border-selected transition-colors"
->
+<div class={COMPOSER_BOX}>
 	<!-- Context chips live inside the input box, above the textarea. The snippet
 	     self-guards (renders nothing when empty) so no blank row appears. -->
 	{@render leading?.()}
@@ -821,10 +817,7 @@
 			{placeholder}
 			class={twMerge(
 				'textarea-input resize-none caret-black dark:caret-white overflow-clip',
-				// The box (border/ring) lives on the wrapper; kill the textarea's own
-				// @tailwindcss/forms border, focus ring, and background so only the
-				// wrapper reads as the field.
-				'!border-transparent !bg-transparent !shadow-none focus:!border-transparent focus:!ring-0',
+				COMPOSER_FIELD_RESET,
 				CHAT_INPUT_PADDING,
 				className
 			)}

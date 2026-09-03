@@ -68,11 +68,13 @@ export interface ChatViewHost {
 	queuedContext: ContextElement[] | undefined
 	readonly queuedImages: AttachedImage[]
 	readonly queuedFiles: AttachedTextFile[]
+	readonly queuedBlobs: AttachedBlob[]
 	queueMessage: (
 		text: string,
 		images?: AttachedImage[],
 		context?: ContextElement[],
-		files?: AttachedTextFile[]
+		files?: AttachedTextFile[],
+		blobs?: AttachedBlob[]
 	) => void
 	dequeueMessage: () => void
 	setComposerStaged: (key: string, editingIndex: number | null, bytes: number) => void

@@ -4,6 +4,11 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { type DynamicInput } from '$lib/utils'
 	import AgentChatInputSubmenu from './AgentChatInputSubmenu.svelte'
+	import ChatModelPicker from './ChatModelPicker.svelte'
+	import ReasoningEffortSlider from '$lib/components/copilot/ReasoningEffortSlider.svelte'
+	import MenuItemWrapper from '$lib/components/meltComponents/MenuItemWrapper.svelte'
+	import { getReasoningCapability, explicitOffToken } from '$lib/components/copilot/reasoningRegistry'
+	import type { AIProvider } from '$lib/gen'
 	import { type AgentChatInput, type AgentModel } from './agentChatInputs'
 
 	interface Props {
@@ -37,10 +42,37 @@
 	// several agents, or a model computed per run — there is no single one to name, so the
 	// trigger says what it is instead: settings.
 	const modelInput = $derived(inputs.find((input) => input.key === 'provider'))
+	// Everything but the model gets a submenu; the model and its thinking sit in this
+	// panel together, the way the copilot's own settings menu lays them out.
+	const submenuInputs = $derived(inputs.filter((input) => input.key !== 'provider'))
 	const model = $derived.by((): AgentModel | undefined => {
 		const chosen = modelInput ? values[modelInput.name] : undefined
 		return typeof chosen?.model === 'string' ? chosen : staticModel
 	})
+
+	// Thinking sits in this menu rather than inside the model editor, matching where the
+	// copilot's own chat puts it. Editable only where a flow input feeds the provider —
+	// a model the flow fixes has nothing here for the composer to write.
+	const capability = $derived(
+		model?.kind && model?.model
+			? getReasoningCapability(model.kind as AIProvider, model.model)
+			: { supported: false, levels: [] as string[], canDisable: false }
+	)
+	const offToken = $derived(
+		model?.kind && model?.model
+			? explicitOffToken(model.kind as AIProvider, model.model)
+			: undefined
+	)
+	const effortStops = $derived([
+		...(capability.canDisable && offToken !== undefined ? [offToken] : []),
+		...capability.levels
+	])
+	const currentEffort = $derived(model?.reasoning_effort ?? effortStops[0] ?? '')
+	function selectEffort(stop: string) {
+		if (!modelInput) return
+		onChange(modelInput.name, { ...values[modelInput.name], reasoning_effort: stop })
+	}
+	let effortSlider: ReasoningEffortSlider | undefined = $state(undefined)
 
 	// The trigger resizes when a value changes while the menu is open, which would shift a
 	// bottom-end popover anchored to its right edge. Freeze the width for as long as it is open.
@@ -100,9 +132,9 @@
 	{/snippet}
 	{#snippet menu({ item, builders })}
 		<div
-			class="bg-surface-tertiary dark:border w-64 origin-top-right rounded-lg shadow-lg focus:outline-none py-1 text-xs"
+			class="bg-surface-tertiary dark:border w-72 origin-top-right rounded-lg shadow-lg focus:outline-none py-1 text-xs"
 		>
-			{#each inputs as input (input.name)}
+			{#each submenuInputs as input (input.name)}
 				<AgentChatInputSubmenu
 					{input}
 					value={values[input.name]}
@@ -113,6 +145,38 @@
 					{helperScript}
 				/>
 			{/each}
+			{#if modelInput}
+				<div class="my-1 border-t border-border-light"></div>
+				<div class="px-3 pt-1.5 pb-1 text-2xs uppercase tracking-wide text-secondary">Model</div>
+				<div class="px-3 pb-2">
+					<ChatModelPicker
+						value={values[modelInput.name]}
+						onChange={(v) => onChange(modelInput.name, v)}
+						{workspace}
+					/>
+				</div>
+			{/if}
+			{#if modelInput && model?.model}
+				<div class="my-1 border-t border-border-light"></div>
+				{#if capability.supported && effortStops.length > 1}
+					<MenuItemWrapper {item} onKeydown={(e) => effortSlider?.adjust(e)} class="block group">
+						<ReasoningEffortSlider
+							bind:this={effortSlider}
+							stops={effortStops}
+							current={currentEffort}
+							onSelect={selectEffort}
+							format={(stop) => (stop === offToken ? 'off' : stop)}
+						/>
+					</MenuItemWrapper>
+				{:else}
+					<ReasoningEffortSlider
+						stops={[]}
+						current=""
+						onSelect={() => {}}
+						unsupportedReason="Not supported by this model"
+					/>
+				{/if}
+			{/if}
 			<!-- A model the flow fixes is shown but not offered: no flow input feeds it, so
 			     changing it here would mean editing the flow. -->
 			{#if staticModel && !modelInput}
