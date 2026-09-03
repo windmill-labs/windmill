@@ -80,6 +80,9 @@
 
 	function onKeydown(event: KeyboardEvent) {
 		if (!onNavigate || !listening() || event.metaKey || event.ctrlKey || event.altKey) return
+		// A control on the page that already answered the key keeps it: the arrows move focus
+		// inside a toggle group, a menu, a slider, and those handlers run before this one.
+		if (event.defaultPrevented) return
 		if (!ownsKeyboard(event.target)) return
 		const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
 		if (step === 0) return

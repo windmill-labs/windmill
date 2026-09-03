@@ -94,6 +94,7 @@ living in a bordered card, which reads as heavy once a list runs to dozens of ro
 			<!-- Its own padding and hover are off: both belong to the row around it, which
 			     is what lights up and what the trailing controls sit inside. -->
 			<Button
+				type="button"
 				{aiId}
 				{aiDescription}
 				variant="subtle"
@@ -119,6 +120,7 @@ living in a bordered card, which reads as heavy once a list runs to dozens of ro
 	</div>
 {:else}
 	<Button
+		type="button"
 		{id}
 		{aiId}
 		{aiDescription}

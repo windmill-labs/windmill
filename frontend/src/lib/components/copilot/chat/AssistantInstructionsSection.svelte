@@ -60,14 +60,17 @@ writes whichever of the two changed, including the tab that is not on screen.
 	// reads as no admin: offering the field and taking it away on resolve would discard
 	// whatever was typed in between. Superadmin holds everywhere.
 	let targetRole = $state<{ workspace: string; user: UserExt | undefined } | undefined>(undefined)
-	let roleForTarget = $derived(targetRole?.workspace === ws ? targetRole.user : undefined)
-	let roleResolved = $derived(roleForTarget !== undefined || $userStore?.workspace_id === ws)
+	let roleRead = $derived(targetRole?.workspace === ws ? targetRole : undefined)
+	let navIsTarget = $derived($userStore?.workspace_id === ws)
+	let roleForTarget = $derived(roleRead?.user)
+	let roleResolved = $derived(roleRead !== undefined || navIsTarget)
+	// A read that came back with no user: read-only like a non-admin, but said differently,
+	// since a failed lookup is not evidence of the role it failed to read.
+	let roleUnknown = $derived(roleRead !== undefined && !roleRead.user && !navIsTarget)
 	let isAdmin = $derived(
 		Boolean(
 			$userStore?.is_super_admin ||
-				(roleForTarget
-					? roleForTarget.is_admin
-					: $userStore?.workspace_id === ws && $userStore?.is_admin)
+				(roleForTarget ? roleForTarget.is_admin : navIsTarget && $userStore?.is_admin)
 		)
 	)
 
@@ -99,9 +102,11 @@ writes whichever of the two changed, including the tab that is not on screen.
 			? `This session has not created its workspace yet, so these would be saved to "${pendingForkParent()}" and given to every chat already in it. Send a message first.`
 			: !roleResolved
 				? `Checking your access to ${ws}.`
-				: !isAdmin
-					? 'Only workspace admins can edit the workspace instructions.'
-					: 'This workspace uses instance AI defaults, so a workspace prompt would have no effect. Configure workspace AI providers in AI settings first.'
+				: roleUnknown
+					? `Could not read your access to ${ws}. Reopen this section to try again.`
+					: !isAdmin
+						? 'Only workspace admins can edit the workspace instructions.'
+						: 'This workspace uses instance AI defaults, so a workspace prompt would have no effect. Configure workspace AI providers in AI settings first.'
 	)
 
 	let workspaceChanged = $derived(!workspaceReadOnly && workspaceDraft !== workspaceSaved)
@@ -112,11 +117,10 @@ writes whichever of the two changed, including the tab that is not on screen.
 		blocksClose = dirty
 	})
 
-	// Loaded when the panel is first looked at, and again on a workspace switch: the
-	// workspace half belongs to one workspace, and B's instructions must not be saved over
-	// A's. A reload drops a draft, so it waits until one is saved or reverted — `dirty` is
-	// tracked for that, and `loadedWorkspace` is where the wait picks up (a staged fork
-	// commits into its own workspace, so the target can move while the wait is on).
+	// Loaded on the first look and again on a workspace switch: B's instructions must not
+	// be saved over A's. A reload drops a draft, so it waits until one is saved or
+	// reverted — hence `dirty` tracked, and `loadedWorkspace` to pick the wait up against
+	// whatever `ws` is by then (a staged fork commits into a workspace of its own).
 	let loadSeq = 0
 	let loadedWorkspace: string | undefined = undefined
 	$effect(() => {
