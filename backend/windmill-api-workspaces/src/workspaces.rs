@@ -151,6 +151,7 @@ pub fn workspaced_service() -> Router {
         .route("/edit_deploy_ui_config", post(edit_deploy_ui_config))
         .route("/edit_default_app", post(edit_default_app))
         .route("/edit_guest_access", post(edit_guest_access))
+        .route("/guest_usage", get(get_guest_usage))
         .route("/default_app", get(get_default_app))
         .route(
             "/default_scripts",
@@ -1099,10 +1100,6 @@ async fn get_settings(
     if let Some(git_sync) = settings.git_sync.as_mut() {
         redact_git_sync_webhook_secrets(git_sync);
     }
-    // The effective value, not the column: a switch left on by a plan that no longer
-    // admits guests must not read as open when every gate says shut.
-    settings.guest_access_enabled =
-        settings.guest_access_enabled && windmill_common::workspaces::guest_access_licensed().await;
 
     Ok(Json(settings))
 }
@@ -1139,12 +1136,21 @@ async fn get_public_settings(
     .await
     .map_err(|e| Error::internal_err(format!("getting public settings: {e:#}")))?;
 
-    let mut settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
     tx.commit().await?;
-    settings.guest_access_enabled =
-        settings.guest_access_enabled && windmill_common::workspaces::guest_access_licensed().await;
 
     Ok(Json(settings))
+}
+
+/// The instance's standing against the guest allowance. Instance-wide (a licence is per
+/// instance, and one email is one guest however many workspaces it opens), read by
+/// workspace admins and app publishers to see how close the cap or the meter is.
+async fn get_guest_usage(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(_w_id): Path<String>,
+) -> JsonResult<windmill_common::workspaces::GuestUsage> {
+    Ok(Json(windmill_common::workspaces::guest_usage(&db).await?))
 }
 
 #[derive(Deserialize)]
@@ -4627,11 +4633,6 @@ async fn edit_guest_access(
     Json(EditGuestAccess { guest_access_enabled }): Json<EditGuestAccess>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
-    if guest_access_enabled && !windmill_common::workspaces::guest_access_licensed().await {
-        return Err(Error::BadRequest(
-            "Guest access requires an Enterprise license".to_string(),
-        ));
-    }
 
     let mut tx = db.begin().await?;
     sqlx::query!(

@@ -20,10 +20,6 @@
 //! Users from the `base` fixture:
 //!   test-user   (admin,     token SECRET_TOKEN)
 
-// The plan gate refuses every guest on a build without these, as CI builds with
-// them; on a plain CE build this file would fail at the door rather than test anything.
-#![cfg(all(feature = "enterprise", feature = "private"))]
-
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 use windmill_test_utils::*;

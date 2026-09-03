@@ -28,6 +28,7 @@
 		type InstanceAISummary,
 		type GetSettingsResponse
 	} from '$lib/gen'
+	import type { GuestUsage } from '$lib/gen'
 	import {
 		enterpriseLicense,
 		superadmin,
@@ -37,7 +38,6 @@
 		workspaceStore,
 		isCriticalAlertsUIOpen
 	} from '$lib/stores'
-	import { isEnterprisePlan } from '$lib/enterpriseUtils'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { sendUserToast } from '$lib/toast'
 	import { clone, emptyString, encodeState, hasUnsavedChanges } from '$lib/utils'
@@ -189,6 +189,7 @@
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let publicAppRateLimitPerMinute: number | undefined = $state(undefined)
 	let guestAccessEnabled: boolean = $state(false)
+	let guestUsage: GuestUsage | undefined = $state(undefined)
 	let initialGuestAccessEnabled: boolean = $state(false)
 	let initialPublicAppRateLimitPerMinute: number | undefined = $state(undefined)
 
@@ -644,6 +645,9 @@
 		initialPublicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
 		guestAccessEnabled = settings.guest_access_enabled ?? false
 		initialGuestAccessEnabled = settings.guest_access_enabled ?? false
+		WorkspaceService.getGuestUsage({ workspace: $workspaceStore! })
+			.then((u) => (guestUsage = u))
+			.catch(() => (guestUsage = undefined))
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
 		} else if (
@@ -2183,12 +2187,20 @@ export async function main(
 							>
 								<Toggle
 									bind:checked={guestAccessEnabled}
-									disabled={!isEnterprisePlan($enterpriseLicense)}
 									options={{ right: 'Allow guests to open apps set to Guests' }}
 								/>
-								{#if !isEnterprisePlan($enterpriseLicense)}
+								{#if guestUsage}
 									<span class="text-hint text-2xs">
-										Guest sign-in requires a Windmill Enterprise plan.
+										{guestUsage.guest_count} of {guestUsage.free_allowance} free guests used across
+										this instance in the last {guestUsage.window_days} days.
+										{#if guestUsage.metered}
+											Beyond that, every four guests count as one seat{guestUsage.guest_seats > 0
+												? ` (${guestUsage.guest_seats} now)`
+												: ''}.
+										{:else}
+											Beyond that, new guests are refused until the count drops; an Enterprise
+											license meters them instead.
+										{/if}
 									</span>
 								{/if}
 							</SettingCard>

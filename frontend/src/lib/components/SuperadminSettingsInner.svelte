@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { UserService, type GlobalUserInfo, type ExternalJwtToken, SettingService } from '$lib/gen'
+	import type { GuestList } from '$lib/gen'
 	import { Tab, Tabs } from '$lib/components/common'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
@@ -54,6 +55,7 @@
 	import SettingsSearchInput from './instanceSettings/SettingsSearchInput.svelte'
 	import InstanceAISettings from './instanceSettings/InstanceAISettings.svelte'
 	import ExternalJwtTokens from './instanceSettings/ExternalJwtTokens.svelte'
+	import GuestActivityList from './instanceSettings/GuestActivityList.svelte'
 
 	let filter = $state('')
 
@@ -103,7 +105,28 @@
 		listUsers(activeOnly)
 	})
 
-	let usersSubTab: 'users' | 'ext_jwt' = $state('users')
+	let usersSubTab: 'users' | 'ext_jwt' | 'guests' = $state('users')
+	let guestList: GuestList | undefined = $state(undefined)
+	let guestHasMore = $state(true)
+	let guestLoading = $state(false)
+	const guestPerPage = 50
+
+	async function loadGuestPage(nextPage: number) {
+		guestLoading = true
+		try {
+			const res = await UserService.listGuests({ page: nextPage, perPage: guestPerPage })
+			guestList =
+				nextPage === 1 || !guestList
+					? res
+					: { usage: res.usage, guests: [...guestList.guests, ...res.guests] }
+			guestHasMore = res.guests.length === guestPerPage
+		} catch (e) {
+			sendUserToast(`Failed to load guests: ${e}`, true)
+		} finally {
+			guestLoading = false
+		}
+	}
+	loadGuestPage(1)
 	let extJwtTokens: ExternalJwtToken[] = $state([])
 	let extJwtHasMore = $state(true)
 	let extJwtLoading = $state(false)
@@ -339,14 +362,19 @@
 								</div>
 							{/if}
 
-							{#if extJwtTokens.length > 0}
+							{#if extJwtTokens.length > 0 || (guestList?.guests.length ?? 0) > 0}
 								<Tabs bind:selected={usersSubTab} class="mb-4">
 									<Tab value="users" label="Users" />
-									<Tab value="ext_jwt" label="External JWTs" />
+									{#if extJwtTokens.length > 0}
+										<Tab value="ext_jwt" label="External JWTs" />
+									{/if}
+									{#if (guestList?.guests.length ?? 0) > 0}
+										<Tab value="guests" label="Guests" />
+									{/if}
 								</Tabs>
 							{/if}
 
-							{#if usersSubTab === 'users' || extJwtTokens.length === 0}
+							{#if usersSubTab === 'users' || (usersSubTab === 'ext_jwt' && extJwtTokens.length === 0) || (usersSubTab === 'guests' && !guestList)}
 								<SettingsPageHeader
 									title="Instance users ({users.length})"
 									description="Manage all users across your Windmill instance."
@@ -711,6 +739,15 @@
 										extJwtActiveOnly = v
 										loadExtJwtPage(1)
 									}}
+								/>
+							{:else if usersSubTab === 'guests' && guestList}
+								<GuestActivityList
+									usage={guestList.usage}
+									guests={guestList.guests}
+									hasMore={guestHasMore}
+									loading={guestLoading}
+									onLoadMore={() =>
+										loadGuestPage(Math.floor((guestList?.guests.length ?? 0) / guestPerPage) + 1)}
 								/>
 							{/if}
 						</div>

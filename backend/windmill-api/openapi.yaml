@@ -861,6 +861,34 @@ paths:
                 items:
                   $ref: "#/components/schemas/ExternalJwtToken"
 
+  /users/guests:
+    get:
+      summary: list the distinct guests of the trailing window (superadmin only)
+      description: >-
+        The set the guest allowance is counted on: every distinct email that held a
+        guest session in the last `window_days`, with the workspaces it opened and the
+        days it was first and last seen, most recently seen first. `usage` is the
+        instance's standing against the allowance and the meter.
+      operationId: listGuests
+      tags:
+        - user
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: the guests of the window and the allowance they count against
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuestList"
+
   /users/onboarding:
     post:
       summary: Submit user onboarding data
@@ -5779,6 +5807,26 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/workspaces/guest_usage:
+    get:
+      summary: the instance's standing against the guest allowance
+      description: >-
+        Instance-wide, since a licence is per instance and one email is one guest however
+        many workspaces it opens. Read by workspace admins and app publishers to see how
+        close the cap (Community and Pro) or the meter (Enterprise) is.
+      operationId: getGuestUsage
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: guest usage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuestUsage"
 
   /w/{workspace}/workspaces/default_scripts:
     post:
@@ -28804,6 +28852,72 @@ components:
         - is_admin
         - is_operator
         - last_used_at
+
+    GuestUsage:
+      type: object
+      description: >-
+        Guests are free up to `free_allowance` distinct emails over the trailing
+        `window_days`. Past that an Enterprise plan meters them (`metered`, four guests
+        to one seat: `billable_guests`, `guest_seats`); every other plan and build
+        admits no new email until the count drops.
+      properties:
+        guest_count:
+          type: integer
+          format: int64
+        window_days:
+          type: integer
+        free_allowance:
+          type: integer
+          format: int64
+        metered:
+          type: boolean
+        billable_guests:
+          type: integer
+          format: int64
+        guest_seats:
+          type: integer
+          format: int64
+      required:
+        - guest_count
+        - window_days
+        - free_allowance
+        - metered
+        - billable_guests
+        - guest_seats
+
+    GuestActivity:
+      type: object
+      properties:
+        email:
+          type: string
+        workspaces:
+          type: array
+          items:
+            type: string
+        first_seen:
+          type: string
+          format: date
+        last_seen:
+          type: string
+          format: date
+      required:
+        - email
+        - workspaces
+        - first_seen
+        - last_seen
+
+    GuestList:
+      type: object
+      properties:
+        usage:
+          $ref: "#/components/schemas/GuestUsage"
+        guests:
+          type: array
+          items:
+            $ref: "#/components/schemas/GuestActivity"
+      required:
+        - usage
+        - guests
 
     NewToken:
       type: object

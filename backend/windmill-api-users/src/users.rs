@@ -2966,9 +2966,10 @@ fn guest_session_scopes(app_path: &str) -> Vec<String> {
 /// authenticate on any workspace-less route (`/api/users/*`, `/api/settings/*`); a
 /// page that needs one for a guest must become workspace-scoped, not loosen the pin.
 ///
-/// Refuses unless every gate says yes (`guest_app_admits`), so no caller can mint where
-/// a guest is not wanted, whatever it believed when it decided to call. All that is
-/// left to the caller is the authentication of `email`.
+/// Refuses unless every gate says yes (`guest_app_admits`, then the allowance in
+/// `guest_admission`), so no caller can mint where a guest is not wanted, whatever it
+/// believed when it decided to call. All that is left to the caller is the
+/// authentication of `email`.
 pub async fn create_guest_session_token<'c>(
     email: &str,
     w_id: &str,
@@ -3009,6 +3010,7 @@ pub async fn create_guest_session_token<'c>(
             "app {app_path} is not open to guests"
         )));
     }
+    windmill_common::workspaces::guest_admission(&mut **tx, email).await?;
 
     sqlx::query!(
         "INSERT INTO token

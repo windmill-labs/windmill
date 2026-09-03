@@ -3,7 +3,6 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { isEnterprisePlan } from '$lib/enterpriseUtils'
 	import { Loader2 } from 'lucide-svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -11,6 +10,7 @@
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import { untrack } from 'svelte'
 	import { AppService, SettingService, WorkspaceService } from '$lib/gen'
+	import type { GuestUsage } from '$lib/gen'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Path from '$lib/components/Path.svelte'
@@ -99,7 +99,6 @@
 			(rulesetsLoaded &&
 				canUserBypassRuleKind('RestrictGuestAppDeployment', $userStore ?? undefined))
 	)
-	let guestsLicensed = $derived(isEnterprisePlan($enterpriseLicense))
 	// The three rungs of the access control, widest last. `viewer` is a fourth
 	// execution mode that this control never sets (it runs components as the viewer,
 	// which a guest cannot be), so an app in it shows as members-only here.
@@ -114,6 +113,7 @@
 	// guests off, in which case the mode is stored but inert -- say so rather than
 	// letting the publisher believe the app is open.
 	let guestAccessEnabled: boolean | undefined = $state(undefined)
+	let guestUsage: GuestUsage | undefined = $state(undefined)
 
 	$effect(() => {
 		const ws = opWs
@@ -122,6 +122,9 @@
 			WorkspaceService.getPublicSettings({ workspace: ws })
 				.then((s) => (guestAccessEnabled = s.guest_access_enabled))
 				.catch(() => (guestAccessEnabled = undefined))
+			WorkspaceService.getGuestUsage({ workspace: $workspaceStore! })
+				.then((u) => (guestUsage = u))
+				.catch(() => (guestUsage = undefined))
 		})
 	})
 
@@ -467,10 +470,8 @@
 					<ToggleButton
 						label="Guests"
 						value="guest"
-						disabled={(!canSetGuest || !guestsLicensed) && policy.execution_mode != 'guest'}
-						tooltip={guestsLicensed
-							? 'Anyone your identity provider authenticates who has no Windmill account, plus workspace members. No membership, no seat.'
-							: 'Guest sign-in requires a Windmill Enterprise plan.'}
+						disabled={!canSetGuest && policy.execution_mode != 'guest'}
+						tooltip="Anyone your identity provider authenticates who has no Windmill account, plus workspace members. No membership, no seat up to the instance's allowance."
 						{item}
 					/>
 					<ToggleButton
@@ -487,16 +488,20 @@
 			{#if policy.execution_mode == 'anonymous'}
 				Anyone holding the secret URL below can open this app without signing in.
 			{:else if policy.execution_mode == 'guest'}
-				{#if !guestsLicensed}
-					Guest sign-in requires a Windmill Enterprise plan, so this app still admits members only.
-				{:else if guestAccessEnabled === undefined}
+				{#if guestAccessEnabled === undefined}
 					Checking whether this workspace allows guests…
 				{:else if guestAccessEnabled === false}
 					Guests are turned off for this workspace, so this app still admits members only. A
 					workspace admin can turn them on in the workspace settings.
 				{:else}
 					Anyone your identity provider authenticates can open this app without a Windmill account.
-					They join no workspace and take no seat. Members of this workspace can open it too.
+					They join no workspace. Members of this workspace can open it too.
+					{#if guestUsage}
+						{guestUsage.guest_count} of {guestUsage.free_allowance} free guests used across this
+						instance in the last {guestUsage.window_days} days; beyond that, {guestUsage.metered
+							? 'every four guests count as one seat'
+							: 'new guests are refused until the count drops'}.
+					{/if}
 				{/if}
 			{:else}
 				Only workspace members with read access on this app can open it.

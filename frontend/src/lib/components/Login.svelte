@@ -63,6 +63,8 @@
 		firstTime?: boolean
 		autoRedirect?: boolean
 		onLoginSuccess?: () => void
+		/** A refusal the popup relayed back, in the server's words. */
+		onLoginError?: (message: string) => void
 		preview?: LoginPreview
 		/** Reports the instance's login options once loaded, so the page around the card can
 		 * adapt its heading: a third-party login also creates the account on first use. */
@@ -84,6 +86,7 @@
 		firstTime = false,
 		autoRedirect = true,
 		onLoginSuccess = undefined,
+		onLoginError = undefined,
 		preview = undefined,
 		onOptionsLoaded = undefined,
 		guestApp = undefined
@@ -484,7 +487,9 @@
 
 	function processPopupData(data) {
 		if (data.type === 'error') {
+			clearPendingLoginMethod()
 			sendUserToast(data.error, true)
+			onLoginError?.(data.error)
 		} else if (data.type === 'success') {
 			finishOauthFlow('postMessage')
 		}

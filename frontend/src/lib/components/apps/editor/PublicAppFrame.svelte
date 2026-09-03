@@ -213,6 +213,8 @@
 	 * fix — an identity with an account is never given a guest session — so the card
 	 * gives way to an explanation. */
 	let accountSession = $state<'unknown' | 'none' | 'held'>('unknown')
+	/** What the sign-in refused with, shown above the card until the next attempt. */
+	let signInError: string | undefined = $state(undefined)
 	let deniedStatus: number | undefined = $state(undefined)
 	/** The sign-in card belongs on a 401, and on a 403 unless discovery has settled
 	 * that the app is not open to guests: a 403 on a guest app is a session for another
@@ -617,12 +619,19 @@
 				This app requires read access
 			</div>
 		{/if}
+		{#if signInError}
+			<div class="px-2 mx-auto mt-8 max-w-xl w-full">
+				<Alert type="error" title="Could not sign you in">{signInError}</Alert>
+			</div>
+		{/if}
 		<div class="px-2 mx-auto mt-20 max-w-xl w-full">
 			<Login
 				onLoginSuccess={() => {
+					signInError = undefined
 					accountSession = 'unknown'
 					initEmbedder()
 				}}
+				onLoginError={(message) => (signInError = message)}
 				popup
 				guestApp={guestAppPath}
 				rd={page.url.pathname + page.url.search + page.url.hash}

@@ -775,11 +775,16 @@ pub struct BillableSeats {
     pub seats: i64,
 }
 
-/// Guests are an Enterprise-plan feature, refused on any other plan and on any build
-/// without `enterprise` at every gate: the switch write, discovery, the mint, the
-/// door. The CE image compiles the OAuth callback that mints, so the build check is
-/// load-bearing, not a formality.
-pub async fn guest_access_licensed() -> bool {
+/// Guests are free up to `FREE_GUESTS_PER_WINDOW` distinct emails over the trailing
+/// `GUEST_WINDOW_DAYS`. Past that, an Enterprise plan meters them, `GUESTS_PER_SEAT`
+/// guests to one seat, while every other plan and build stops admitting new emails.
+pub const GUEST_WINDOW_DAYS: i32 = 30;
+pub const FREE_GUESTS_PER_WINDOW: i64 = 100;
+pub const GUESTS_PER_SEAT: i64 = 4;
+
+/// Whether guests past the allowance are metered (Enterprise plan) rather than refused.
+/// A build without `enterprise` has no plan and is capped, like a Pro key.
+pub async fn guests_are_metered() -> bool {
     #[cfg(feature = "enterprise")]
     {
         matches!(
@@ -793,9 +798,88 @@ pub async fn guest_access_licensed() -> bool {
     }
 }
 
+/// Seats the guests past the free allowance consume: `ceil(billable / GUESTS_PER_SEAT)`.
+pub fn guest_seats(distinct_guests: i64) -> i64 {
+    let billable = (distinct_guests - FREE_GUESTS_PER_WINDOW).max(0);
+    (billable + GUESTS_PER_SEAT - 1) / GUESTS_PER_SEAT
+}
+
+/// Distinct guest emails over the trailing window, today included.
+pub async fn guest_count_in_window<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(
+    executor: E,
+) -> Result<i64> {
+    sqlx::query_scalar(
+        "SELECT COUNT(DISTINCT email) FROM guest_activity WHERE day > CURRENT_DATE - $1",
+    )
+    .bind(GUEST_WINDOW_DAYS)
+    .fetch_one(executor)
+    .await
+    .map_err(|e| Error::internal_err(format!("counting guests: {e:#}")))
+}
+
+/// The instance's standing against the guest allowance, as every surface reports it.
+#[derive(Clone, Debug, Serialize)]
+pub struct GuestUsage {
+    /// Distinct guest emails over the trailing `window_days`.
+    pub guest_count: i64,
+    pub window_days: i32,
+    pub free_allowance: i64,
+    /// Enterprise plan: guests past the allowance take `guest_seats`. Otherwise no new
+    /// email is admitted past it.
+    pub metered: bool,
+    pub billable_guests: i64,
+    pub guest_seats: i64,
+}
+
+pub async fn guest_usage(db: &crate::DB) -> Result<GuestUsage> {
+    let guest_count = guest_count_in_window(db).await?;
+    let metered = guests_are_metered().await;
+    let billable_guests = if metered {
+        (guest_count - FREE_GUESTS_PER_WINDOW).max(0)
+    } else {
+        0
+    };
+    Ok(GuestUsage {
+        guest_count,
+        window_days: GUEST_WINDOW_DAYS,
+        free_allowance: FREE_GUESTS_PER_WINDOW,
+        metered,
+        billable_guests,
+        guest_seats: if metered { guest_seats(guest_count) } else { 0 },
+    })
+}
+
+/// Whether `email` may be admitted as a guest right now. Checked once, where a session
+/// is minted: a returning guest (already in the window) is always let back in, so the
+/// cap only ever refuses a stranger, and a metered instance refuses nobody.
+pub async fn guest_admission<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(
+    executor: E,
+    email: &str,
+) -> Result<()> {
+    if guests_are_metered().await {
+        return Ok(());
+    }
+    let (in_window, count): (bool, i64) = sqlx::query_as(
+        "SELECT
+            EXISTS(SELECT 1 FROM guest_activity WHERE email = $1 AND day > CURRENT_DATE - $2),
+            (SELECT COUNT(DISTINCT email) FROM guest_activity WHERE day > CURRENT_DATE - $2)",
+    )
+    .bind(email)
+    .bind(GUEST_WINDOW_DAYS)
+    .fetch_one(executor)
+    .await
+    .map_err(|e| Error::internal_err(format!("checking the guest allowance: {e:#}")))?;
+    if in_window || count < FREE_GUESTS_PER_WINDOW {
+        return Ok(());
+    }
+    Err(Error::PermissionDenied(format!(
+        "This instance has reached its limit of {FREE_GUESTS_PER_WINDOW} guests over \
+         {GUEST_WINDOW_DAYS} days. Guest sign-in beyond that needs an Enterprise license."
+    )))
+}
+
 /// Whether `w_id` admits guest sessions — someone the identity provider authenticated
-/// who is a member of no workspace, and who therefore takes no seat. The plan is
-/// checked first: a switch left on by a plan that no longer admits guests is shut.
+/// who is a member of no workspace, and who therefore takes no seat.
 ///
 /// Read uncached where a session is minted ([`guest_app_admits`]) and then once per
 /// request at the auth door (`AuthCache::get_opt_job_authed`) for every guest. An app
@@ -803,9 +887,6 @@ pub async fn guest_access_licensed() -> bool {
 /// push `guest` past every deploy-time gate; the per-request read is what makes
 /// turning the switch off take effect on sessions already issued.
 pub async fn is_guest_access_enabled(db: &crate::DB, w_id: &str) -> Result<bool> {
-    if !guest_access_licensed().await {
-        return Ok(false);
-    }
     Ok(sqlx::query_scalar!(
         "SELECT guest_access_enabled FROM workspace_settings WHERE workspace_id = $1",
         w_id
@@ -816,18 +897,15 @@ pub async fn is_guest_access_enabled(db: &crate::DB, w_id: &str) -> Result<bool>
     .unwrap_or(false))
 }
 
-/// Every gate at once: the plan, the workspace switch, and `app_path` being in `guest`
-/// execution mode. The single answer to "may a guest session be minted for this app",
-/// used by the mint itself and by the sign-in branch that decides whether to call it.
-/// A missing app or a policy with no stated mode reads as "no".
+/// Both gates at once: the workspace switch, and `app_path` being in `guest` execution
+/// mode. The single answer to "may a guest session be minted for this app", used by the
+/// mint itself and by the sign-in branch that decides whether to call it. A missing app
+/// or a policy with no stated mode reads as "no". The allowance is `guest_admission`.
 pub async fn guest_app_admits<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(
     executor: E,
     w_id: &str,
     app_path: &str,
 ) -> Result<bool> {
-    if !guest_access_licensed().await {
-        return Ok(false);
-    }
     let admits: Option<bool> = sqlx::query_scalar(
         "SELECT COALESCE(ws.guest_access_enabled AND app.policy->>'execution_mode' = 'guest', false)
          FROM app JOIN workspace_settings ws ON ws.workspace_id = app.workspace_id
@@ -2877,4 +2955,18 @@ pub async fn dbt_warehouse_resource(
         .and_then(|t| t.as_str())
         .map(|t| t.to_string());
     Ok((path, target))
+}
+
+#[cfg(test)]
+mod guest_allowance_tests {
+    use super::*;
+
+    #[test]
+    fn guest_seats_round_up_past_the_allowance() {
+        assert_eq!(guest_seats(0), 0);
+        assert_eq!(guest_seats(FREE_GUESTS_PER_WINDOW), 0);
+        assert_eq!(guest_seats(FREE_GUESTS_PER_WINDOW + 1), 1);
+        assert_eq!(guest_seats(FREE_GUESTS_PER_WINDOW + GUESTS_PER_SEAT), 1);
+        assert_eq!(guest_seats(FREE_GUESTS_PER_WINDOW + GUESTS_PER_SEAT + 1), 2);
+    }
 }
