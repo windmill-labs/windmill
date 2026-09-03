@@ -72,7 +72,10 @@
 			console.error('Could not prepare the workspace step:', error)
 		}
 	}
-	void loadWorkspaceStep()
+	// Held, not dropped: Skip awaits one POST that can finish before these two GETs do, and
+	// branching on `ownWorkspace` before they land would skip the naming step this flow exists
+	// for. Both exits await it; `isSubmitting` already covers the wait.
+	const workspaceStepReady = loadWorkspaceStep()
 
 	const sources = [
 		{ id: 'ai_search', label: 'AI search', icon: Bot },
@@ -202,6 +205,7 @@
 			console.error('Error submitting onboarding data:', error)
 			sendUserToast('Failed to save information: ' + (error?.body || error?.message || error), true)
 		} finally {
+			await workspaceStepReady
 			isSubmitting = false
 			// do not block users from accessing windmill even if there is an error
 			if (ownWorkspace) {
@@ -221,6 +225,7 @@
 		} catch (error) {
 			console.error('Error skipping onboarding:', error)
 		} finally {
+			await workspaceStepReady
 			isSubmitting = false
 			// Skipping the survey is not skipping naming the workspace: the questions are ours,
 			// the workspace is theirs.
