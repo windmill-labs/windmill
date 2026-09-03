@@ -2,7 +2,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Disposable from '$lib/components/common/drawer/Disposable.svelte'
 	import FlowEditorPanel from './content/FlowEditorPanel.svelte'
-	import { agentEditorTarget } from './agentEditorStore.svelte'
+	import { agentEditorTarget, type AgentEditorTarget } from './agentEditorStore.svelte'
 	import AgentEditorModal from './content/AgentEditorModal.svelte'
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import type { OpenInSessionSource } from '$lib/components/sessions/OpenInSessionButton.svelte'
@@ -39,9 +39,16 @@
 	import FlowPanelPlacementPicker from './common/FlowPanelPlacementPicker.svelte'
 	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
 	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
-	import { userStore } from '$lib/stores'
-	const { flowStore, selectionManager, pathStore } =
+	import { userStore, workspaceStore } from '$lib/stores'
+	const { flowStore, selectionManager, pathStore, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
+	// Flow paths repeat across workspaces, and a session keeps every tab it has visited alive, so two
+	// editors can hold the same path at once. Both halves are needed to tell them apart.
+	let editorWorkspace = $derived(opWorkspace?.() ?? $workspaceStore)
+	function targetWorkspace(t: AgentEditorTarget): string | undefined {
+		return t.workspace ?? $workspaceStore
+	}
+
 	const sessionScopedManager = getContext<AIChatManager>('aiChatManager')
 	const aiChatManager = sessionScopedManager ?? singletonAiChatManager
 
@@ -238,8 +245,15 @@
 		// same closure hazard as one started from the modal panel. Only this flow's own, on the same
 		// rule the mount below claims one by: a session keeps every visited tab alive, and a target
 		// belonging to another of them is not a dialog over this graph.
-		inModalPanel: () =>
-			panelMode === 'modal' || agentEditorTarget()?.host?.flowPath === get(pathStore)
+		inModalPanel: () => {
+			if (panelMode === 'modal') return true
+			const t = agentEditorTarget()
+			return (
+				t !== undefined &&
+				t.host?.flowPath === get(pathStore) &&
+				targetWorkspace(t) === editorWorkspace
+			)
+		}
 	})
 
 	// Read by graph step items (VirtualItem) to show a per-step "explore" hint on hover,
@@ -537,4 +551,7 @@
      dialog down with it the moment the graph selection moved. Claims only agents opened from this
      flow: a session keeps every visited tab alive, and each would otherwise build its own editor
      over the same draft. -->
-<AgentEditorModal enableAi={!disableAi} owns={(t) => t.host?.flowPath === $pathStore} />
+<AgentEditorModal
+	enableAi={!disableAi}
+	owns={(t) => t.host?.flowPath === $pathStore && targetWorkspace(t) === editorWorkspace}
+/>
