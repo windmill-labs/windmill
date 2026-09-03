@@ -154,7 +154,11 @@
 		}
 
 		timer = setTimeout(next, CYCLE_MS)
-		return () => clearTimeout(timer)
+		return () => {
+			clearTimeout(timer)
+			// Torn down mid-fade, the input would otherwise remount with an invisible placeholder.
+			placeholderVisible = true
+		}
 	})
 </script>
 
