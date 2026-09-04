@@ -46,6 +46,17 @@ export interface UsernamePolicy {
 }
 
 /**
+ * A username the `proper_username` constraint accepts: `^[\w-]+$`, so word characters and
+ * hyphens and nothing else. Everything else is dropped rather than substituted — `O'Connor`
+ * is `oconnor`, not `o-connor` — and a name with nothing left of it answers undefined, which
+ * is the caller's cue to ask for one instead of posting a value the database refuses.
+ */
+export function usernameFromName(name: string): string | undefined {
+	const cleaned = name.toLowerCase().replace(/[^\w-]/g, '')
+	return cleaned === '' ? undefined : cleaned
+}
+
+/**
  * `createWorkspace` rejects a username when the instance automates them and
  * requires one when it does not, so the field only exists in the second case.
  */
@@ -58,7 +69,7 @@ export async function loadUsernamePolicy(): Promise<UsernamePolicy> {
 	try {
 		const me = await UserService.globalWhoami()
 		const from = me.name ? me.name.split(' ')[0] : me.email.split('@')[0]
-		return { automate: false, suggested: from.replace(/\./g, '').toLowerCase() }
+		return { automate: false, suggested: usernameFromName(from) }
 	} catch {
 		return { automate: false }
 	}

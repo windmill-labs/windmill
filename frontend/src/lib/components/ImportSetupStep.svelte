@@ -54,7 +54,12 @@
 		showHeading?: boolean
 		/** Fill the height given, actions pinned to the bottom. See ImportProjectStep. */
 		fillHeight?: boolean
-		onFinish: () => void
+		/**
+		 * Finished. `checked` is false where the export could not be read: the step then has no
+		 * idea what is outstanding, so it offers Finish rather than blocking — and a caller
+		 * counting outcomes must not read that as a step that came out clean.
+		 */
+		onFinish: (checked: boolean) => void
 		onBack?: () => void
 	}
 
@@ -1051,7 +1056,7 @@
 				variant="accent"
 				unifiedSize="sm"
 				disabled={working || loading || (outstanding > 0 && !loadError)}
-				onClick={onFinish}
+				onClick={() => onFinish(!loadError)}
 			>
 				Finish setup →
 			</Button>

@@ -7,7 +7,7 @@ vi.mock('./stores', () => ({ usersWorkspaceStore: { set: () => {} } }))
 vi.mock('./storeUtils', () => ({ switchWorkspace: () => {} }))
 vi.mock('./cloud', () => ({ isCloudHosted: () => false }))
 
-import { defaultWorkspaceName } from './workspaceCreation'
+import { defaultWorkspaceName, usernameFromName } from './workspaceCreation'
 
 describe('defaultWorkspaceName', () => {
 	it('names the workspace after the person, not the address', () => {
@@ -34,5 +34,22 @@ describe('defaultWorkspaceName', () => {
 		// Nothing to derive from at all.
 		expect(defaultWorkspaceName(undefined, undefined)).toBe('My workspace')
 		expect(defaultWorkspaceName(undefined, '@example.com')).toBe('My workspace')
+	})
+})
+
+describe('usernameFromName', () => {
+	// The `proper_username` constraint is `^[\w-]+$`, so a suggestion outside it is posted and
+	// then refused by the database, with the form showing nothing that explains why.
+	it('keeps only what the username constraint accepts', () => {
+		expect(usernameFromName("O'Connor")).toBe('oconnor')
+		expect(usernameFromName('alice+demo')).toBe('alicedemo')
+		expect(usernameFromName('Jean-Luc')).toBe('jean-luc')
+		expect(usernameFromName('ada.lovelace')).toBe('adalovelace')
+	})
+
+	it('answers undefined when nothing usable is left', () => {
+		// The caller opens the full form instead of prefilling something unusable.
+		expect(usernameFromName('++')).toBeUndefined()
+		expect(usernameFromName('')).toBeUndefined()
 	})
 })

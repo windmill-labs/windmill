@@ -149,8 +149,14 @@
 
 	// The counters' key vocabularies, enumerated here so the whole set is reviewable at once.
 	type AbandonStage = 'running' | 'setup' | 'done' | 'idle'
-	type SetupOutcome = 'filled' | 'skipped' | 'none'
-	type SetupBucket = 'filled' | 'none' | 'skipped_1' | 'skipped_2_5' | 'skipped_6plus'
+	type SetupOutcome = 'filled' | 'skipped' | 'none' | 'unchecked'
+	type SetupBucket =
+		| 'filled'
+		| 'none'
+		| 'unchecked'
+		| 'skipped_1'
+		| 'skipped_2_5'
+		| 'skipped_6plus'
 
 	// Set for the closing that Finish itself asks for, since that closing reaches `dismiss()`
 	// by the same falling edge as the X.
@@ -159,9 +165,10 @@
 	/**
 	 * How the credentials step ended, counted alongside the import itself: `filled` only when
 	 * nothing was left outstanding — the step disables Finish until then — `none` where the
-	 * project asked for nothing, and a `skipped_*` bucket carrying roughly how many rows were
-	 * walked away from, since skipping with one credential left and skipping with eight are
-	 * different problems.
+	 * project asked for nothing, `unchecked` where the step could not read the export and so
+	 * offered Finish over lists it never filled, and a `skipped_*` bucket carrying roughly how
+	 * many rows were walked away from, since skipping with one credential left and skipping
+	 * with eight are different problems.
 	 *
 	 * A bucket rather than `value`: `value` is an increment, so counting rows there would make
 	 * `skipped` a sum of rows while its siblings count imports — two units in one counter, and
@@ -188,11 +195,12 @@
 	const IMPORT_PAGE = 'Import the project'
 	const SETUP_PAGE = 'Fill credentials'
 	let currentPage = $derived(onSetupStep ? SETUP_PAGE : IMPORT_PAGE)
-	// Whether this import ends on the credentials step, known before it runs: every resource
-	// the project ships arrives as an empty stub, so a project with any is one to fill in.
-	// `setup.needed` is the real answer and only lands with the export, which also knows about
-	// data tables — this is what lets the stepper name both steps from the first frame rather
-	// than growing one mid-flow.
+	// Whether this import ends on the credentials step, predicted before it runs so the stepper
+	// can name both steps from the first frame rather than growing one mid-flow. The hub's
+	// count is every resource the project ships, while the step only asks about the ones
+	// something in it points at, so this errs towards naming a step the dialog then skips —
+	// `setup.needed` is the real answer and lands with the export. Forward navigation is
+	// blocked on that one, so an over-named step is a label, never a page with nothing on it.
 	let setupExists = $derived((project?.counts?.resources ?? 0) > 0 || setup.needed || onSetupStep)
 
 	// The box height, decided when the dialog opens and left alone. It cannot follow
@@ -251,7 +259,7 @@
 			{folder}
 			showHeading={false}
 			onSkip={(outstanding) => finish('skipped', outstanding)}
-			onFinish={() => finish('filled')}
+			onFinish={(checked) => finish(checked ? 'filled' : 'unchecked')}
 			onBack={execution ? () => (onSetupStep = false) : undefined}
 		/>
 	</div>
