@@ -975,15 +975,13 @@
 	// until the first response instead — it is fetched in parallel with the listing,
 	// so it costs no extra wait in practice. Only the first load gates: `current`
 	// survives a refetch, so an in-place scope change refreshes without flashing.
+	let treeCountsPending = $derived(
+		treeLazyMode && ownerCountsRes.current == undefined && ownerCountsRes.loading
+	)
+
 	// An import just landed, so the rows about to replace the empty state are all new: they
 	// fade in one after another rather than appearing as a finished list. Cleared on a timer
 	// because nothing else marks the end — the reload resolves before the rows animate.
-	// The hub import, owned here rather than by either entry point: the empty state's link and
-	// the create menu's Import section open the same dialog, and mounting one per entry point
-	// would put two of them on the page at once while the workspace is still empty.
-	let hubPick = $state<HubProjectPick | undefined>(undefined)
-	let hubPickerOpen = $state(false)
-
 	let justImported = $state(false)
 	let justImportedTimer: ReturnType<typeof setTimeout> | undefined
 	function onImported() {
@@ -993,9 +991,11 @@
 		justImportedTimer = setTimeout(() => (justImported = false), 2500)
 	}
 
-	let treeCountsPending = $derived(
-		treeLazyMode && ownerCountsRes.current == undefined && ownerCountsRes.loading
-	)
+	// The hub import, owned here rather than by either entry point: the empty state's link and
+	// the create menu's Import section open the same dialog, and mounting one per entry point
+	// would put two of them on the page at once while the workspace is still empty.
+	let hubPick = $state<HubProjectPick | undefined>(undefined)
+	let hubPickerOpen = $state(false)
 
 	// The workspace itself holds nothing — no filter is narrowing the list away. It stays
 	// false until the first load resolves: a skeleton already means "loading", and the

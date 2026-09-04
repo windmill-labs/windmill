@@ -240,7 +240,8 @@
 >
 	{#snippet subtitleSnippet()}
 		<!-- The way out belongs on the line that says who you are, not in a footer as the page's
-		     accent action: leaving is not what anyone came here to do. -->
+		     accent action: leaving is not what anyone came here to do. Shown in both states; the
+		     picker also carries it in the settings menu below, which the create state hides. -->
 		<span class="text-xs text-tertiary">
 			Logged in as <span class="text-secondary">{$usersWorkspaceStore?.email}</span>
 			·
@@ -481,8 +482,8 @@
 		{/if}
 
 		<!-- Settings are for someone who lives here; a user with no workspace yet has one thing
-		     to do. Logging out rides in this menu, and on the subtitle line above for the create
-		     state, which has no menu. -->
+		     to do, so this row stands down for the create state. Logging out is in this menu as
+		     well as on the subtitle line, which is the only one of the two the create state has. -->
 		{#if !showCreate}
 			<div class="flex items-center mt-10 flex-wrap gap-2">
 				{#if $superadmin}

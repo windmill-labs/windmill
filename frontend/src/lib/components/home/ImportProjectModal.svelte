@@ -57,9 +57,17 @@
 	function dismiss() {
 		// Where they left, which is the half of the funnel Finish cannot report: `running`
 		// walked out on an import in progress, `setup` on the credentials it asked for,
-		// `idle` opened the dialog and picked nothing up.
+		// `done` closed a landed import instead of pressing Finish, `idle` opened the dialog
+		// and picked nothing up. `done` is its own bucket because it is a normal exit — folded
+		// into `idle` it would read as people bouncing off a dialog they never used.
 		if (!finishing) {
-			const stage = execution?.running ? 'running' : onSetupStep ? 'setup' : 'idle'
+			const stage: AbandonStage = execution?.running
+				? 'running'
+				: onSetupStep
+					? 'setup'
+					: execution?.done
+						? 'done'
+						: 'idle'
 			logFeatureUsage('home', 'template_abandon', { key: stage })
 		}
 		if (execution?.running) {
@@ -117,10 +125,17 @@
 				: undefined)
 	)
 
+	// Asked for on the first pick, not at init: this dialog is mounted by the home list for
+	// every user on every arrival, and the host is a string only the project card renders.
 	let hubHost = $state('hub.windmill.dev')
-	void hubBrowserUrl()
-		.then((u) => (hubHost = new URL(u).host))
-		.catch(() => {})
+	let hubHostAsked = false
+	$effect(() => {
+		if (!slug || hubHostAsked) return
+		hubHostAsked = true
+		void hubBrowserUrl()
+			.then((u) => (hubHost = new URL(u).host))
+			.catch(() => {})
+	})
 
 	// Each open is its own import: a dialog reopened for another project must not inherit
 	// the previous run, or its step would offer to resume a bundle from a different slug.
@@ -132,21 +147,37 @@
 		}
 	})
 
+	// The counters' key vocabularies, enumerated here so the whole set is reviewable at once.
+	type AbandonStage = 'running' | 'setup' | 'done' | 'idle'
+	type SetupOutcome = 'filled' | 'skipped' | 'none'
+	type SetupBucket = 'filled' | 'none' | 'skipped_1' | 'skipped_2_5' | 'skipped_6plus'
+
 	// Set for the closing that Finish itself asks for, since that closing reaches `dismiss()`
 	// by the same falling edge as the X.
 	let finishing = false
 
 	/**
 	 * How the credentials step ended, counted alongside the import itself: `filled` only when
-	 * nothing was left outstanding — the step disables Finish until then — `skipped` carrying
-	 * how many rows were walked away from, and `none` where the project asked for nothing.
-	 * Skipping with one credential left and skipping with eight are different problems.
+	 * nothing was left outstanding — the step disables Finish until then — `none` where the
+	 * project asked for nothing, and a `skipped_*` bucket carrying roughly how many rows were
+	 * walked away from, since skipping with one credential left and skipping with eight are
+	 * different problems.
+	 *
+	 * A bucket rather than `value`: `value` is an increment, so counting rows there would make
+	 * `skipped` a sum of rows while its siblings count imports — two units in one counter, and
+	 * no way to recover filled-versus-skipped.
 	 */
-	function finish(setupOutcome: 'filled' | 'skipped' | 'none', outstanding = 1) {
+	function setupKey(outcome: SetupOutcome, outstanding: number): SetupBucket {
+		if (outcome !== 'skipped') return outcome
+		if (outstanding <= 1) return 'skipped_1'
+		return outstanding <= 5 ? 'skipped_2_5' : 'skipped_6plus'
+	}
+
+	function finish(setupOutcome: SetupOutcome, outstanding = 1) {
 		// On the way out rather than on the pick: what is worth counting is an import that
 		// landed, not a dialog that was opened and abandoned.
 		if (slug) logFeatureUsage('home', 'template_import', { key: slug })
-		logFeatureUsage('home', 'template_setup', { key: setupOutcome, value: outstanding })
+		logFeatureUsage('home', 'template_setup', { key: setupKey(setupOutcome, outstanding) })
 		finishing = true
 		onImported?.()
 		onClose()
