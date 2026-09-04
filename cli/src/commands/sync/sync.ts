@@ -25,7 +25,7 @@ import {
 } from "yaml";
 import JSZip from "jszip";
 import { minimatch } from "minimatch";
-import { yamlParseContent } from "../../utils/yaml.ts";
+import { yamlParseContent, yamlParseFile } from "../../utils/yaml.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 
 import {
@@ -1138,7 +1138,7 @@ export function rawAppPathWithinFolder(
   return resolved;
 }
 
-function ZipFSElement(
+export function ZipFSElement(
   zip: JSZip,
   useYaml: boolean,
   defaultTs: "bun" | "deno",
@@ -1146,6 +1146,14 @@ function ZipFSElement(
   resourceTypeToIsFileset: Record<string, boolean>,
   ignoreCodebaseChanges: boolean,
   stripOnBehalfOf: boolean,
+  // Names a flow's rendered inline-script files after the checkout's own
+  // `!inline` references (module id -> file). The export carries script
+  // source, never a reference, so without a checkout to defer to every file
+  // is named from the step summary, and a file the checkout names otherwise
+  // reads as a delete + add on every push while the resolved flows are equal.
+  localFlowInlineMapping?: (
+    flowDir: string,
+  ) => Promise<Record<string, string>>,
 ): DynFSElement {
   // Pre-scan: find zip base paths of scripts that have modules.
   // These scripts use the folder layout: {basePath}__mod/script.{ext}
@@ -1249,59 +1257,71 @@ function ZipFSElement(
               log.error(`Failed to parse flow.yaml at path: ${p}`);
               throw error;
             }
-            let inlineScripts;
+            let inlineScripts: InlineScript[];
             try {
-              const assigner = newPathAssigner(defaultTs, {
-                skipInlineScriptSuffix: getNonDottedPaths(),
-              });
-              // Preserve original !inline filenames from the flow to avoid phantom renames
-              const inlineMapping = extractCurrentMapping(
-                flow.value.modules as any,
-                {},
-                flow.value.failure_module,
-                flow.value.preprocessor_module,
-              );
-              inlineScripts = extractInlineScriptsForFlows(
-                flow.value.modules as any,
-                inlineMapping,
-                SEP,
-                defaultTs,
-                assigner,
-                {
+              // Extraction rewrites the modules' content into `!inline` refs,
+              // so each attempt works on its own copy of the flow.
+              const render = (
+                source: OpenFlow,
+                inlineMapping: Record<string, string>,
+              ): [OpenFlow, InlineScript[]] => {
+                const f: OpenFlow = structuredClone(source);
+                const assigner = newPathAssigner(defaultTs, {
+                  skipInlineScriptSuffix: getNonDottedPaths(),
+                });
+                const options = {
                   skipInlineScriptSuffix: getNonDottedPaths(),
                   failOnInlineDirective: true,
-                },
-              );
-              if (flow.value.failure_module) {
-                inlineScripts.push(
-                  ...extractInlineScriptsForFlows(
-                    [flow.value.failure_module],
-                    inlineMapping,
-                    SEP,
-                    defaultTs,
-                    assigner,
-                    {
-                      skipInlineScriptSuffix: getNonDottedPaths(),
-                      failOnInlineDirective: true,
-                    },
-                  ),
+                };
+                const scripts = extractInlineScriptsForFlows(
+                  f.value.modules as any,
+                  inlineMapping,
+                  SEP,
+                  defaultTs,
+                  assigner,
+                  options,
                 );
+                if (f.value.failure_module) {
+                  scripts.push(
+                    ...extractInlineScriptsForFlows(
+                      [f.value.failure_module],
+                      inlineMapping,
+                      SEP,
+                      defaultTs,
+                      assigner,
+                      options,
+                    ),
+                  );
+                }
+                if (f.value.preprocessor_module) {
+                  scripts.push(
+                    ...extractInlineScriptsForFlows(
+                      [f.value.preprocessor_module],
+                      inlineMapping,
+                      SEP,
+                      defaultTs,
+                      assigner,
+                      options,
+                    ),
+                  );
+                }
+                return [f, scripts];
+              };
+              const inlineMapping = localFlowInlineMapping
+                ? await localFlowInlineMapping(finalPath)
+                : {};
+              let rendered = render(flow, inlineMapping);
+              // The assigner keeps the names it hands out unique, not the
+              // checkout's: one of those equal to another step's
+              // summary-derived name would leave two files at one path, so
+              // such a flow renders the export's way.
+              if (
+                new Set(rendered[1].map((s) => s.path)).size !==
+                rendered[1].length
+              ) {
+                rendered = render(flow, {});
               }
-              if (flow.value.preprocessor_module) {
-                inlineScripts.push(
-                  ...extractInlineScriptsForFlows(
-                    [flow.value.preprocessor_module],
-                    inlineMapping,
-                    SEP,
-                    defaultTs,
-                    assigner,
-                    {
-                      skipInlineScriptSuffix: getNonDottedPaths(),
-                      failOnInlineDirective: true,
-                    },
-                  ),
-                );
-              }
+              [flow, inlineScripts] = rendered;
             } catch (error) {
               log.error(
                 `Failed to extract inline scripts for flow at path: ${p}`,
@@ -2577,7 +2597,7 @@ export function preservePendingScriptLocks(
   }
 }
 
-async function compareDynFSElement(
+export async function compareDynFSElement(
   els1: DynFSElement,
   els2: DynFSElement | undefined,
   ignore: (path: string, isDirectory: boolean) => boolean,
@@ -2590,6 +2610,9 @@ async function compareDynFSElement(
   branchOverride?: string,
   isEls1Remote?: boolean,
   caseInsensitiveFs?: boolean,
+  // Which schedule files carry an `enabled` that is not the target's to set
+  // (see push's `parentOwnedScheduleEnabled`): those compare without it.
+  parentOwnsScheduleEnabled?: (scheduleFilePath: string) => boolean,
 ): Promise<{ changes: Change[]; localMap: Record<string, string> }> {
   let [m1, m2] = els2
     ? await Promise.all([
@@ -2781,12 +2804,28 @@ async function compareDynFSElement(
           );
           throw error;
         }
+        if (
+          parentOwnsScheduleEnabled &&
+          getTypeStrFromPath(k) === "schedule" &&
+          parentOwnsScheduleEnabled(k)
+        ) {
+          delete parsedV?.enabled;
+          delete parsedM2?.enabled;
+        }
         if (deepEqual(parsedV, parsedM2)) {
           continue;
         }
       } else if (k.endsWith(".yaml")) {
         const before = parseYaml(k, m2[k]);
         const after = parseYaml(k, v);
+        if (
+          parentOwnsScheduleEnabled &&
+          getTypeStrFromPath(k) === "schedule" &&
+          parentOwnsScheduleEnabled(k)
+        ) {
+          delete before?.enabled;
+          delete after?.enabled;
+        }
         if (deepEqual(before, after)) {
           continue;
         }
@@ -4539,6 +4578,86 @@ async function checkServerLockJobs(
   }
 }
 
+// The checkout's `!inline` references of one flow (module id -> file), as
+// `ZipFSElement`'s `localFlowInlineMapping` names the remote render. Empty
+// when the flow has no local flow.yaml.
+export async function checkoutInlineNames(
+  flowYamlPath: string,
+): Promise<Record<string, string>> {
+  let flow: any;
+  try {
+    flow = await yamlParseFile(flowYamlPath);
+  } catch {
+    return {};
+  }
+  const mapping = extractCurrentMapping(
+    flow?.value?.modules,
+    {},
+    flow?.value?.failure_module,
+    flow?.value?.preprocessor_module,
+  );
+  // A reference that leaves the flow folder would render the remote step
+  // onto another item's path; such a step keeps its summary-derived name.
+  for (const [id, ref] of Object.entries(mapping)) {
+    if (path.isAbsolute(ref) || ref.split(/[\\/]/).includes("..")) {
+      delete mapping[id];
+    }
+  }
+  return mapping;
+}
+
+// For a path the parent also has, a fork's export writes the parent's
+// `enabled` and the backend refuses to enable the fork's copy: the file's flag
+// is the parent's. A parent that cannot be listed (a fork-scoped job token)
+// may own every path. Undefined when the target is not a fork.
+async function parentOwnedScheduleEnabled(
+  workspaceId: string,
+): Promise<((scheduleFilePath: string) => boolean) | undefined> {
+  let parentWorkspaceId: string | null | undefined;
+  let known = false;
+  try {
+    const { workspaces } = await wmill.listUserWorkspaces();
+    const entry = workspaces?.find((w) => w.id === workspaceId);
+    known = entry !== undefined;
+    parentWorkspaceId = entry?.parent_workspace_id;
+  } catch {
+    // A fork-scoped token cannot list workspaces.
+  }
+  // No parent on record (a fork whose parent was deleted keeps its
+  // `wm-fork-` id): nothing defers to a parent any more.
+  if (known && !parentWorkspaceId) {
+    return undefined;
+  }
+  // Without the listing only the `wm-fork-` prefix says fork: a dev
+  // workspace (custom id) reached with a fork-scoped token counts as none.
+  if (!isForkWorkspace(workspaceId, parentWorkspaceId)) {
+    return undefined;
+  }
+  let parentPaths: Set<string> | undefined;
+  if (parentWorkspaceId) {
+    try {
+      parentPaths = new Set();
+      const perPage = 100;
+      for (let page = 1; ; page++) {
+        const batch = await wmill.listSchedules({
+          workspace: parentWorkspaceId,
+          page,
+          perPage,
+        });
+        batch.forEach((s) => parentPaths!.add(s.path));
+        if (batch.length < perPage) break;
+      }
+    } catch {
+      parentPaths = undefined;
+    }
+  }
+  return (scheduleFilePath) =>
+    parentPaths === undefined ||
+    parentPaths.has(
+      removeType(scheduleFilePath, "schedule").replaceAll(SEP, "/"),
+    );
+}
+
 export async function push(
   opts: GlobalOptions &
     SyncOptions & {
@@ -4629,6 +4748,9 @@ export async function push(
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
+  const parentOwnsScheduleEnabled = opts.includeSchedules
+    ? await parentOwnedScheduleEnabled(workspace.workspaceId)
+    : undefined;
 
   if (opts.lint) {
     log.info("Running lint validation before push...");
@@ -4692,6 +4814,10 @@ export async function push(
     // ignore
   }
 
+  // See ZipFSElement's `localFlowInlineMapping`.
+  const localFlowInlineMapping = (flowDir: string) =>
+    checkoutInlineNames(path.join(process.cwd(), flowDir, "flow.yaml"));
+
   const remote = ZipFSElement(
     (await downloadZip(
       workspace,
@@ -4717,6 +4843,7 @@ export async function push(
     resourceTypeToIsFileset,
     false,
     parseSyncBehavior(opts.syncBehavior) >= 1,
+    localFlowInlineMapping,
   );
 
   const local = await FSFSElement(
@@ -4737,6 +4864,7 @@ export async function push(
     wsNameForFiles,
     false, // els1 (local) is not the remote source
     await isCaseInsensitiveFilesystem(process.cwd()),
+    parentOwnsScheduleEnabled,
   );
 
   // Detect resources/variables that the local config flags as ws_specific
@@ -5803,6 +5931,9 @@ export async function push(
                   originalLocalPath: originalWorkspaceSpecificPath,
                   permissionedAsContext,
                   wsSpecific: isWsSpecific ? true : undefined,
+                  enabledOwnedByParent: parentOwnsScheduleEnabled?.(
+                    change.path,
+                  ),
                   keyPushOpts: {
                     noninteractive:
                       (opts.yes ?? false) || !process.stdin.isTTY,
@@ -5938,6 +6069,9 @@ export async function push(
                   originalLocalPath: localFilePath,
                   permissionedAsContext,
                   wsSpecific: isAddedWsSpecific ? true : undefined,
+                  enabledOwnedByParent: parentOwnsScheduleEnabled?.(
+                    change.path,
+                  ),
                   keyPushOpts: {
                     noninteractive:
                       (opts.yes ?? false) || !process.stdin.isTTY,
