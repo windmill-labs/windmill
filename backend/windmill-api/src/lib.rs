@@ -69,7 +69,6 @@ mod ai;
 #[cfg(feature = "private")]
 mod ai_free_tier_ee;
 mod ai_free_tier_oss;
-mod ai_skills;
 mod apps;
 mod apps_raw_bundle;
 pub use apps::invalidate_app_policy_cache;
@@ -453,15 +452,15 @@ pub async fn run_server(
     // unless they are allowed — hence a separate layer rather than widening the
     // one every other route shares. (`Mcp-Param-*` is only sent for tool inputs
     // annotated with `x-mcp-header`, which no tool here declares.)
+    //
+    // The request's own header list is mirrored rather than enumerated: a browser
+    // MCP client may send any custom name for a preprocessor to read, and no fixed
+    // list could cover them. Nothing is granted by echoing it: the origin is
+    // `Any`, so browsers never attach credentials, and the endpoint authenticates
+    // each request on its own.
     let mcp_cors = CorsLayer::new()
         .allow_methods([http::Method::GET, http::Method::POST, http::Method::DELETE])
-        .allow_headers([
-            http::header::CONTENT_TYPE,
-            http::header::AUTHORIZATION,
-            http::HeaderName::from_static("mcp-protocol-version"),
-            http::HeaderName::from_static("mcp-method"),
-            http::HeaderName::from_static("mcp-name"),
-        ])
+        .allow_headers(tower_http::cors::AllowHeaders::mirror_request())
         // The 401 challenge is how a client discovers where to authorize (RFC 9728),
         // and it is not a safelisted response header, so without this a browser
         // client sees an empty one and has no way to begin the OAuth flow.
@@ -713,7 +712,6 @@ pub async fn run_server(
                             Router::new()
                         })
                         .nest("/ai", ai::workspaced_service())
-                        .nest("/ai_skills", ai_skills::workspaced_service())
                         .nest("/npm_proxy", windmill_api_npm_proxy::workspaced_service())
                         .nest(
                             "/path_autocomplete",

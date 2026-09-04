@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
 	import { Badge, Button } from '$lib/components/common'
 	import {
@@ -22,6 +23,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { goto } from '$lib/navigation'
+	import { takeNewSessionSeed, type NewSessionSeed } from './sessionSwitch.svelte'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { slide } from 'svelte/transition'
 	import {
@@ -414,15 +416,50 @@
 	}
 
 	async function createAndOpen() {
-		const fresh = createSession()
 		// A new session opened from a Windmill page adopts that page as its first
-		// preview tab. Skip when already on the sessions page (nothing meaningful to
-		// capture) so the preview starts empty until the chat opens something.
+		// preview tab.
 		if (!onSessionsPage) {
-			const url = page.url.pathname + page.url.search
-			resetSessionPreviewTabs(fresh.id, url)
+			await createAndOpenWith(page.url.pathname + page.url.search)
+			return
 		}
+		// On the sessions page there is nothing meaningful on screen to capture,
+		// except the item the user just left to get here: that one is offered (once)
+		// before the session is created, and answerSeedOffer picks up from there.
+		const seed = takeNewSessionSeed()
+		if (seed) {
+			seedOffer = seed
+			seedOfferOpen = true
+			return
+		}
+		await createAndOpenWith(undefined)
+	}
+
+	// `previewUrl` undefined leaves the preview empty until the chat opens something.
+	async function createAndOpenWith(previewUrl: string | undefined) {
+		const fresh = createSession()
+		if (previewUrl) resetSessionPreviewTabs(fresh.id, previewUrl)
 		await activate(fresh)
+	}
+
+	// The item createAndOpen is asking about. Closing the dialog any other way than
+	// answering (Escape, the corner X, the backdrop) creates nothing: the click was
+	// met with a question, not a session. Kept after the dialog closes, since the
+	// title reads it through the close fade; `seedOfferOpen` alone gates rendering.
+	let seedOffer = $state<NewSessionSeed | undefined>(undefined)
+	let seedOfferOpen = $state(false)
+	// Focus moves onto the primary answer as the dialog opens. Enter is left to
+	// the focused button (the dialog does not bind it), and the "New session"
+	// button that opened the dialog would otherwise keep focus and answer Enter
+	// with a second, unasked session underneath.
+	let keepButton: Button | undefined = $state(undefined)
+	$effect(() => {
+		if (seedOfferOpen) keepButton?.focus()
+	})
+	async function answerSeedOffer(keep: boolean) {
+		const offer = seedOffer
+		seedOfferOpen = false
+		if (!offer) return
+		await createAndOpenWith(keep ? offer.url : undefined)
 	}
 
 	// The `+` on a workspace group header: a new session parked on that group's
@@ -1300,3 +1337,30 @@
 		{/if}
 	</div>
 </ConfirmationModal>
+
+<!-- Two answers of equal standing, so Enter is left to whichever button has
+     focus rather than bound to one of them by the dialog. -->
+<Modal
+	bind:open={seedOfferOpen}
+	kind="X"
+	enterConfirms={false}
+	title="Keep this {seedOffer?.route.kind ?? 'item'} in the new session?"
+	description="You came here from {seedOffer?.route.itemPath ?? ''}."
+>
+	<p class="text-sm text-secondary">
+		Keeping it opens it in the preview, so the chat starts with it as context.
+	</p>
+	<div class="flex justify-end gap-2 mt-4">
+		<Button variant="default" unifiedSize="sm" onClick={() => answerSeedOffer(false)}>
+			Start empty
+		</Button>
+		<Button
+			bind:this={keepButton}
+			variant="accent"
+			unifiedSize="sm"
+			onClick={() => answerSeedOffer(true)}
+		>
+			Keep in preview
+		</Button>
+	</div>
+</Modal>

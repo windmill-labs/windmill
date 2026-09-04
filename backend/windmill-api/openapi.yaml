@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.800.0
+  version: 1.803.0
   title: Windmill API
 
   contact:
@@ -10689,7 +10689,7 @@ paths:
       summary: run script by path
       operationId: runScriptByPath
       x-mcp-tool: true
-      x-mcp-instructions: "You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected."
+      x-mcp-instructions: "You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected. A resource argument (schema format `resource-<type>`) is the bare string `$res:<path>` as that whole argument value -- not a wrapper object, not a plain path. A variable is `$var:<path>`."
       x-mcp-tool-include-query-params: []
       tags:
         - job
@@ -12767,133 +12767,6 @@ paths:
                     type: boolean
                     description: more buckets matched than were returned, so summing them under-reports
 
-  /w/{workspace}/ai_skills/list:
-    get:
-      summary: list the workspace AI chat skills (name + description only)
-      operationId: listAiSkills
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      responses:
-        "200":
-          description: skill listing
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  required:
-                    - name
-                    - description
-                  properties:
-                    name:
-                      type: string
-                    description:
-                      type: string
-
-  /w/{workspace}/ai_skills/get/{name}:
-    get:
-      summary: get a workspace AI chat skill including its instructions
-      operationId: getAiSkill
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: skill
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - name
-                  - description
-                  - instructions
-                properties:
-                  name:
-                    type: string
-                  description:
-                    type: string
-                  instructions:
-                    type: string
-
-  /w/{workspace}/ai_skills/upload:
-    post:
-      summary: upsert workspace AI chat skills (admin only)
-      operationId: uploadAiSkills
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - skills
-              properties:
-                skills:
-                  type: array
-                  maxItems: 50
-                  items:
-                    type: object
-                    required:
-                      - name
-                      - description
-                      - instructions
-                    properties:
-                      name:
-                        type: string
-                        minLength: 1
-                        maxLength: 64
-                        pattern: "^[a-z0-9-]+$"
-                      description:
-                        type: string
-                        minLength: 1
-                        maxLength: 1024
-                      instructions:
-                        type: string
-                        minLength: 1
-                        maxLength: 65536
-      responses:
-        "200":
-          description: uploaded
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/ai_skills/delete/{name}:
-    delete:
-      summary: delete a workspace AI chat skill (admin only)
-      operationId: deleteAiSkill
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: deleted
-          content:
-            text/plain:
-              schema:
-                type: string
-
   /w/{workspace}/apps/get_data/v/{secretWithExtension}:
     get:
       summary: get raw app data by
@@ -14174,7 +14047,7 @@ paths:
       summary: run flow by path
       operationId: runFlowByPath
       x-mcp-tool: true
-      x-mcp-instructions: "You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected."
+      x-mcp-instructions: "You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected. A resource argument (schema format `resource-<type>`) is the bare string `$res:<path>` as that whole argument value -- not a wrapper object, not a plain path. A variable is `$var:<path>`."
       x-mcp-tool-include-query-params: []
       tags:
         - job
@@ -27495,6 +27368,13 @@ components:
           type: object
           additionalProperties:
             $ref: "#/components/schemas/ModelPriceOverride"
+        copilot_disabled:
+          type: boolean
+          description: >-
+            Hides the Windmill AI assistant (chat, sessions, code generation, completion,
+            fixes) from the workspace UI. Read from the workspace's own settings even when
+            the providers served fall back to the instance config. AI agent steps and the
+            AI sandbox in flows are unaffected.
 
     FreeTierInfo:
       type: object
@@ -29347,6 +29227,8 @@ components:
             - "igroup.delete"
             - "igroup.adduser"
             - "igroup.removeuser"
+            - "instance_groups.jit_adduser"
+            - "instance_groups.jit_removeuser"
             - "variables.decrypt_secret"
             - "workspaces.read_encryption_key"
             - "workspaces.edit_command_script"
@@ -29845,6 +29727,12 @@ components:
           type: string
         is_fileset:
           type: boolean
+        format_extension:
+          type: string
+          nullable: true
+          description: >-
+            File extension for a type whose value is one file rather than a set
+            of fields. Omit to leave it unchanged; send null to clear it.
 
     TriggerHistoryEntry:
       type: object

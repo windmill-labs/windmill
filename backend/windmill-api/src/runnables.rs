@@ -261,7 +261,8 @@ fn branch_sqls() -> Branches {
               FROM draft d \
               LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
               LEFT JOIN password p ON p.email = d.email AND p.super_admin = true \
-              WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND {typ_pred}) as draft_users"
+              WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND {typ_pred} \
+                AND (d.email IS NULL OR u.username IS NOT NULL OR p.email IS NOT NULL)) as draft_users"
         )
     };
 

@@ -1239,6 +1239,7 @@ async fn leave_instance(Extension(db): Extension<DB>, authed: ApiAuthed) -> Resu
     sqlx::query!("DELETE FROM password WHERE email = $1", &authed.email)
         .execute(&mut *tx)
         .await?;
+    windmill_common::user_drafts::delete_drafts_of_email(&mut *tx, &authed.email).await?;
 
     audit_log(
         &mut *tx,
@@ -1661,6 +1662,7 @@ async fn delete_user(
     sqlx::query!("DELETE FROM password WHERE email = $1", &email_to_delete)
         .execute(&mut *tx)
         .await?;
+    windmill_common::user_drafts::delete_drafts_of_email(&mut *tx, &email_to_delete).await?;
 
     // Read before deleting, so each membership's tenant can go first. A username
     // is scoped to one workspace, and so are the tenants naming it.
@@ -1889,7 +1891,7 @@ async fn change_user_email(
         .execute(&mut *tx)
         .await?;
 
-    // ---- account ---- (draft.email follows through its ON UPDATE CASCADE fkey)
+    // ---- account ----
     sqlx::query!(
         "UPDATE password SET email = $1 WHERE email = $2",
         &new_email,
@@ -1903,6 +1905,7 @@ async fn change_user_email(
         }
         _ => e.into(),
     })?;
+    windmill_common::user_drafts::rename_drafts_of_email(&mut *tx, &old_email, &new_email).await?;
 
     sqlx::query!(
         "UPDATE usr SET email = $1 WHERE email = $2",
@@ -3580,6 +3583,9 @@ async fn overwrite_global_users(
     require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
+    // Replaces the account table, so — unlike the paths that remove one account — it deliberately
+    // does not call `delete_drafts_of_email`: the addresses are about to be reinstated, and
+    // dropping every draft on the instance to restore accounts would be pure collateral.
     sqlx::query!("DELETE FROM password")
         .execute(&mut *tx)
         .await?;

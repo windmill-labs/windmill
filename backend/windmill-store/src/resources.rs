@@ -130,6 +130,12 @@ pub struct EditResourceType {
     pub schema: Option<serde_json::Value>,
     pub description: Option<String>,
     pub is_fileset: Option<bool>,
+    /// Doubly optional so an edit can distinguish the two things a plain
+    /// `Option` conflates: an absent field leaves the extension alone, while an
+    /// explicit `null` clears it. A hub pull relies on both — a type that stops
+    /// being a file type has to stop being one locally too.
+    #[serde(default, deserialize_with = "windmill_common::more_serde::double_option")]
+    pub format_extension: Option<Option<String>>,
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -2874,9 +2880,41 @@ async fn update_resource_type(
     if let Some(is_fileset) = ns.is_fileset {
         sqlb.set("is_fileset", if is_fileset { "TRUE" } else { "FALSE" });
     }
+    if let Some(format_extension) = ns.format_extension.clone() {
+        match format_extension {
+            Some(ext) => sqlb.set_str("format_extension", ext),
+            None => sqlb.set("format_extension", "NULL"),
+        };
+    }
     sqlb.set_str("edited_at", "now()");
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
+
+    // Creation refuses the pair outright, so an edit must too — otherwise the same
+    // impossible type (a set of files that is also one file) is reachable by setting
+    // either half on an existing row. Whichever half the request omits is read from
+    // the row being edited, inside this transaction and with the row locked: read
+    // outside it, two concurrent edits each supplying one half would both pass.
+    let current = sqlx::query!(
+        "SELECT is_fileset, format_extension FROM resource_type
+         WHERE name = $1 AND workspace_id = $2 FOR UPDATE",
+        &name,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let effective_is_fileset = ns
+        .is_fileset
+        .unwrap_or_else(|| current.as_ref().map(|c| c.is_fileset).unwrap_or(false));
+    let effective_format_extension = match &ns.format_extension {
+        Some(value) => value.clone(),
+        None => current.and_then(|c| c.format_extension),
+    };
+    if effective_is_fileset && effective_format_extension.is_some() {
+        return Err(Error::BadRequest(
+            "A fileset resource type cannot have a format_extension".to_string(),
+        ));
+    }
 
     sqlx::query(&sql).execute(&mut *tx).await?;
     audit_log(

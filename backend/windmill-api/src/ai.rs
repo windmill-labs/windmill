@@ -445,6 +445,12 @@ pub struct AIConfig {
     /// Only models whose rates differ from the built-in table are stored.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_pricing: Option<HashMap<String, ModelPriceOverride>>,
+    /// Hides the Windmill AI assistant (chat, sessions, generation, completion, fixes) from
+    /// the workspace UI. Only the workspace's own row is consulted: the flag holds even when
+    /// the providers served come from the instance config or the free tier. AI agent steps
+    /// and the AI sandbox are unaffected, so the providers stay in force.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub copilot_disabled: bool,
 }
 
 /// Negotiated rates in USD per million tokens. An unset cache rate is read as the

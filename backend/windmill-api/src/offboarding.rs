@@ -618,6 +618,7 @@ pub(crate) async fn offboard_global_user(
         sqlx::query!("DELETE FROM password WHERE email = $1", &email)
             .execute(&mut *tx)
             .await?;
+        windmill_common::user_drafts::delete_drafts_of_email(&mut *tx, &email).await?;
         sqlx::query!("DELETE FROM workspace_invite WHERE email = $1", &email)
             .execute(&mut *tx)
             .await?;
