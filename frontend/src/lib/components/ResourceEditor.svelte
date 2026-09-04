@@ -13,6 +13,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
 	import ResourceForm from './ResourceForm.svelte'
+	import { managedCredentialHost } from './git_sync/managedCredential'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { resource } from 'runed'
@@ -149,6 +150,7 @@
 	let loadingSchema = $derived(resourceTypeResource.loading)
 
 	let current = $derived(selected ? states[selected]?.draft : undefined)
+	let managedHost = $derived(managedCredentialHost(current?.args))
 	let resourceToEdit: Resource | undefined = $derived(
 		selected ? fetchedResources[selected] : undefined
 	)
@@ -410,12 +412,12 @@
 			</Alert>
 		{/if}
 
-		{#if current?.args?.managed_credential}
+		{#if managedHost}
 			<Alert type="info" title="Windmill holds this repository's access token">
 				The URL below carries no credential. Windmill renews the token before it expires and hands
 				it to this workspace's sync jobs, and forks of this workspace use it without storing their
 				own copy. To replace it, pick the project again with the
-				{current.args.managed_credential === 'gitlab' ? 'GitLab' : 'git'} button below.
+				{managedHost === 'gitlab' ? 'GitLab' : 'git'} button below.
 			</Alert>
 		{/if}
 

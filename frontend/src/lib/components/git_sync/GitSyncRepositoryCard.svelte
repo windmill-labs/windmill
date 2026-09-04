@@ -24,6 +24,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import { ResourceService, VariableService } from '$lib/gen'
+	import { managedCredentialHost } from './managedCredential'
 
 	let {
 		idx = null,
@@ -277,7 +278,7 @@
 						// Extract git URL from resource value
 						const value = resource.value as Record<string, any>
 						isGithubApp = value?.is_github_app === true
-						managedCredential = value?.managed_credential ?? undefined
+						managedCredential = managedCredentialHost(value)
 						// A newly added sync connection defaults to pulling from Git only
 						// when the repository is app-backed (instant webhook delivery).
 						// Polling is opt-in for token repositories, and fork/dev workspaces
