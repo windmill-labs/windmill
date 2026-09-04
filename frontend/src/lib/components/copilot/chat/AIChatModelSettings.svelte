@@ -33,6 +33,13 @@
 		type ReasoningProviderModel
 	} from '../reasoningRegistry'
 
+	let {
+		/** Whether this dropdown carries the custom-prompt entries. Off where the surface
+		 * has an assistant settings modal — its Instructions section owns them there, and
+		 * two ways in would drift. The home composer has no such modal, so it keeps them. */
+		promptSettings = true
+	}: { promptSettings?: boolean } = $props()
+
 	const aiChatManager = getAiChatManager()
 	const AI_SETTINGS_HREF = `${base}/workspace_settings?tab=ai`
 
@@ -335,7 +342,9 @@
 			class="bg-surface-tertiary dark:border w-64 origin-top-right rounded-lg shadow-lg focus:outline-none py-1 text-xs"
 		>
 			<!-- Melt submenu: hover-opens and is floating-positioned (flips on screen edges). -->
-			<DropdownSubmenuItem item={paramItems(close)} {builders} meltItem={item} />
+			{#if promptSettings}
+				<DropdownSubmenuItem item={paramItems(close)} {builders} meltItem={item} />
+			{/if}
 
 			<div class="my-1 border-t border-border-light"></div>
 			<div class="px-3 pt-1.5 pb-1 text-2xs uppercase tracking-wide text-secondary">Model</div>
@@ -409,21 +418,24 @@
 	{/snippet}
 </DropdownV2>
 
-<AIPromptsModal
-	bind:open={modalOpen}
-	bind:customPrompts
-	scope={modalScope}
-	modes={[activeMode]}
-	readOnly={modalReadOnly}
-	{readOnlyReason}
-	onSave={modalReadOnly ? undefined : save}
-	onReset={reset}
-	{hasChanges}
-	title={modalScope === 'user' ? 'User AI prompt' : 'Workspace AI prompt'}
-	target="body"
-	fixedHeight="sm"
-	settingsHref={isAdmin ? AI_SETTINGS_HREF : undefined}
-/>
+<!-- Only where the entries that open it are rendered. -->
+{#if promptSettings}
+	<AIPromptsModal
+		bind:open={modalOpen}
+		bind:customPrompts
+		scope={modalScope}
+		modes={[activeMode]}
+		readOnly={modalReadOnly}
+		{readOnlyReason}
+		onSave={modalReadOnly ? undefined : save}
+		onReset={reset}
+		{hasChanges}
+		title={modalScope === 'user' ? 'User AI prompt' : 'Workspace AI prompt'}
+		target="body"
+		fixedHeight="sm"
+		settingsHref={isAdmin ? AI_SETTINGS_HREF : undefined}
+	/>
+{/if}
 
 <style>
 	/* Lean reasoning slider: a thin track and a small, borderless accent thumb. Native range

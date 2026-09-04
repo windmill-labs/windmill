@@ -26,6 +26,9 @@
 		 * around this owns it, and a page component that swallowed it would stop the dialog from
 		 * closing. Without this prop the pages are still navigable, just not from the keyboard —
 		 * the caller owns `current` either way.
+		 *
+		 * A host that stays mounted while hidden must withhold it while hidden: the arrows are
+		 * answered at `window`, so a parked instance would take the key off the visible one.
 		 */
 		onNavigate?: (key: string) => void
 		/**
@@ -80,6 +83,9 @@
 
 	function onKeydown(event: KeyboardEvent) {
 		if (!onNavigate || !listening() || event.metaKey || event.ctrlKey || event.altKey) return
+		// A control on the page that already answered the key keeps it: the arrows move focus
+		// inside a toggle group, a menu, a slider, and those handlers run before this one.
+		if (event.defaultPrevented) return
 		if (!ownsKeyboard(event.target)) return
 		const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
 		if (step === 0) return
