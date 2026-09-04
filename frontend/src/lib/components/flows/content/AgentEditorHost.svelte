@@ -175,9 +175,14 @@
 	let agentValue = $derived(
 		agentModule?.value.type === 'aiagent' ? (agentModule.value as any) : undefined
 	)
-	// Everything that iterates the roster reads this, never the raw value: `tools` is JSON-authored
-	// and a `.filter` on another shape blanks the whole form.
-	let tools = $derived(Array.isArray(agentValue?.tools) ? (agentValue.tools as AgentTool[]) : [])
+	// Everything that iterates the roster reads this, never the raw value: `tools` is JSON-authored,
+	// and neither another shape nor an entry that is not an object survives being rendered as a
+	// tool — either one blanks the whole form.
+	let tools = $derived(
+		Array.isArray(agentValue?.tools)
+			? (agentValue.tools.filter((t) => t && typeof t === 'object') as AgentTool[])
+			: []
+	)
 	let toolIndex = $derived(toolId ? tools.findIndex((t) => t.id === toolId) : -1)
 	let tool = $derived(toolIndex >= 0 ? tools[toolIndex] : undefined)
 
