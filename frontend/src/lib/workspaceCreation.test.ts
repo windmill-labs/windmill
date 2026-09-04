@@ -52,4 +52,11 @@ describe('usernameFromName', () => {
 		expect(usernameFromName('++')).toBeUndefined()
 		expect(usernameFromName('')).toBeUndefined()
 	})
+
+	it('answers undefined rather than a value the column cannot hold', () => {
+		// `usr.username` is VARCHAR(50) while the name and email it is derived from run to 255,
+		// and `create_workspace` inserts it untruncated.
+		expect(usernameFromName('a'.repeat(50))).toBe('a'.repeat(50))
+		expect(usernameFromName('a'.repeat(51))).toBeUndefined()
+	})
 })
