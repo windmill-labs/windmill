@@ -258,13 +258,20 @@ pub fn derive_pipeline_asset_trigger_refs(
 /// for every `dbt://` node anyway (the source that script wrote stays gated).
 /// Callers must therefore already be scoped to `workspace_id`.
 ///
-/// Reads committed rows only, so a caller inside a deploy transaction does not
-/// see its own not-yet-committed writes: a script subscribing to a relation it
-/// also materializes is left to the dispatcher's self-loop skip.
+/// `subscriber_path` is excluded from the producer set, and has to be: reading
+/// committed rows means the deploying script's own are the version being
+/// replaced, so one that just dropped its `// materialize` would still count as a
+/// producer and let a now-dormant subscription through. Excluding it is free of
+/// the opposite error, because a script never wakes its own subscription — the
+/// dispatcher skips that as a self-loop.
+///
+/// A producer another deploy is committing concurrently is still invisible, so
+/// that race resolves toward refusing with a message the user can retry past.
 pub async fn sole_dbt_producer<'e>(
     executor: impl PgExecutor<'e>,
     workspace_id: &str,
     asset_path: &str,
+    subscriber_path: &str,
 ) -> error::Result<Option<String>> {
     use crate::scripts::ScriptLang;
     let producers = sqlx::query!(
@@ -273,9 +280,11 @@ pub async fn sole_dbt_producer<'e>(
              JOIN script s ON s.workspace_id = a.workspace_id AND s.path = a.usage_path
                           AND s.archived = false AND s.deleted = false
             WHERE a.workspace_id = $1 AND a.kind = 'dbt' AND a.path = $2
-              AND a.usage_kind = 'script' AND a.usage_access_type IN ('w', 'rw')"#,
+              AND a.usage_kind = 'script' AND a.usage_access_type IN ('w', 'rw')
+              AND a.usage_path <> $3"#,
         workspace_id,
-        asset_path
+        asset_path,
+        subscriber_path
     )
     .fetch_all(executor)
     .await?;

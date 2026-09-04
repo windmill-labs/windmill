@@ -29,10 +29,10 @@ pub enum AssetKind {
     Ducklake,
     DataTable,
     Volume,
-    /// A warehouse relation a dbt project builds or reads,
-    /// `dbt://<warehouse>/<schema>/<name>`, the warehouse named as the
-    /// workspace configures it. The scheme names the producer, the path stays
-    /// the relation — see `windmill_types::AssetKind::Dbt`.
+    /// A warehouse relation, `dbt://<warehouse>/<schema>/<name>`, the warehouse
+    /// named as the workspace configures it. The scheme names the namespace dbt
+    /// made — a script of any language can declare a write to one — and the path
+    /// stays the relation. See `windmill_types::AssetKind::Dbt`.
     Dbt,
 }
 
@@ -1742,10 +1742,7 @@ mod pipeline_annotation_tests {
     // just stop being the same node and the cross-boundary cascade never fires.
     #[test]
     fn table_paths_from_every_spelling_canonicalize_to_one_key() {
-        let canonical = Some((
-            AssetKind::Dbt,
-            Cow::Owned("main/analytics/orders".into()),
-        ));
+        let canonical = Some((AssetKind::Dbt, Cow::Owned("main/analytics/orders".into())));
         for spelling in [
             // Hand-written annotation.
             "dbt://main/analytics/orders",
@@ -1793,10 +1790,7 @@ mod pipeline_annotation_tests {
         // database qualifier.
         assert_eq!(
             parse_asset_syntax("dbt://main/\"sales.v2\"/orders", false),
-            Some((
-                AssetKind::Dbt,
-                Cow::Owned("main/sales.v2/orders".into())
-            ))
+            Some((AssetKind::Dbt, Cow::Owned("main/sales.v2/orders".into())))
         );
     }
 
@@ -1815,14 +1809,8 @@ mod pipeline_annotation_tests {
                 "dbt://main/analytics/\"order\"\"s\"",
                 "main/analytics/order\"s",
             ),
-            (
-                "dbt://main/`da``ta`/`orders`",
-                "main/da`ta/orders",
-            ),
-            (
-                "dbt://main/[my]]schema]/[orders]",
-                "main/my]schema/orders",
-            ),
+            ("dbt://main/`da``ta`/`orders`", "main/da`ta/orders"),
+            ("dbt://main/[my]]schema]/[orders]", "main/my]schema/orders"),
             // And in one half of a database-qualified segment.
             (
                 "dbt://main/\"arch\"\"ive\".\"sales\"/orders",
@@ -1841,8 +1829,14 @@ mod pipeline_annotation_tests {
         // apart. A lone delimiter treated as opening a quote would be dropped —
         // `sa"les` filed as `sales` — and the two derivations would split.
         for (decoded, spelled) in [
-            ("dbt://main/sa\"les/orders", "dbt://main/\"sa\"\"les\"/orders"),
-            ("dbt://main/analytics/order\"s", "dbt://main/analytics/\"order\"\"s\""),
+            (
+                "dbt://main/sa\"les/orders",
+                "dbt://main/\"sa\"\"les\"/orders",
+            ),
+            (
+                "dbt://main/analytics/order\"s",
+                "dbt://main/analytics/\"order\"\"s\"",
+            ),
             (
                 "dbt://main/arch\"ive.sales/orders",
                 "dbt://main/\"arch\"\"ive\".\"sales\"/orders",

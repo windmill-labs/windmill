@@ -15,6 +15,7 @@ use windmill_common::assets::{dormant_dbt_subscriptions, sole_dbt_producer};
 
 const WS: &str = "test-workspace";
 const RELATION: &str = "main/analytics/orders";
+const SUBSCRIBER: &str = "u/test-user/consumer";
 
 async fn plant_producer(db: &Pool<Postgres>, path: &str, language: &str, hash: i64) {
     sqlx::query(
@@ -58,7 +59,9 @@ async fn plant_subscriber(db: &Pool<Postgres>, path: &str) {
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn no_producer_is_not_dormant(db: Pool<Postgres>) {
     assert_eq!(
-        sole_dbt_producer(&db, WS, RELATION).await.unwrap(),
+        sole_dbt_producer(&db, WS, RELATION, SUBSCRIBER)
+            .await
+            .unwrap(),
         None,
         "a relation nothing produces yet must not refuse the subscription"
     );
@@ -68,7 +71,9 @@ async fn no_producer_is_not_dormant(db: Pool<Postgres>) {
 async fn dbt_only_producer_is_dormant(db: Pool<Postgres>) {
     plant_producer(&db, "u/test-user/project", "dbt", 1).await;
     assert_eq!(
-        sole_dbt_producer(&db, WS, RELATION).await.unwrap(),
+        sole_dbt_producer(&db, WS, RELATION, SUBSCRIBER)
+            .await
+            .unwrap(),
         Some("u/test-user/project".to_string())
     );
 }
@@ -77,7 +82,12 @@ async fn dbt_only_producer_is_dormant(db: Pool<Postgres>) {
 async fn a_native_producer_beside_dbt_is_not_dormant(db: Pool<Postgres>) {
     plant_producer(&db, "u/test-user/project", "dbt", 1).await;
     plant_producer(&db, "u/test-user/ingest", "postgresql", 2).await;
-    assert_eq!(sole_dbt_producer(&db, WS, RELATION).await.unwrap(), None);
+    assert_eq!(
+        sole_dbt_producer(&db, WS, RELATION, SUBSCRIBER)
+            .await
+            .unwrap(),
+        None
+    );
 }
 
 /// `asset` is keyed by path while `script` holds every version of it, so the
@@ -92,7 +102,25 @@ async fn a_superseded_native_version_does_not_count(db: Pool<Postgres>) {
         .expect("archive the old version");
     plant_producer(&db, "u/test-user/project", "dbt", 2).await;
     assert_eq!(
-        sole_dbt_producer(&db, WS, RELATION).await.unwrap(),
+        sole_dbt_producer(&db, WS, RELATION, SUBSCRIBER)
+            .await
+            .unwrap(),
+        Some("u/test-user/project".to_string())
+    );
+}
+
+/// The rows of the script being deployed describe the version it replaces, so a
+/// script dropping its `// materialize` while adding a subscription would
+/// otherwise count itself as the producer that wakes it — and commit a dormant
+/// edge. It can never be that producer anyway: the dispatcher skips self-loops.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn the_subscriber_is_never_its_own_producer(db: Pool<Postgres>) {
+    plant_producer(&db, "u/test-user/project", "dbt", 1).await;
+    plant_producer(&db, SUBSCRIBER, "postgresql", 2).await;
+    assert_eq!(
+        sole_dbt_producer(&db, WS, RELATION, SUBSCRIBER)
+            .await
+            .unwrap(),
         Some("u/test-user/project".to_string())
     );
 }

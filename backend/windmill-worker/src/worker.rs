@@ -5583,6 +5583,15 @@ async fn record_declared_warehouse_write(
     use windmill_common::materialization::{
         MaterializationStatus, RecordMaterializationRequest, UNPARTITIONED,
     };
+    // A DEPLOYED script only. The annotation is a deploy-time contract — `manual`,
+    // a three-segment relation, a configured warehouse — checked in
+    // `create_script_internal`, which also required write access to the path. A
+    // preview, hub or inline-flow body reaches this function without any of that,
+    // so honouring it there would let `jobs:run` alone restamp any relation's last
+    // writer from a script that never touched it.
+    if job.kind != JobKind::Script {
+        return;
+    }
     // Cheap guard: the annotation scan is skipped for the overwhelming majority
     // of jobs, which carry no `materialize` line at all.
     if !code.contains("materialize") {

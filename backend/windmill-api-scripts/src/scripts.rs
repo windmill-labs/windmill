@@ -2441,7 +2441,8 @@ async fn create_script_internal<'c>(
                 )));
             }
             if let Some(dbt_owner) =
-                windmill_common::assets::sole_dbt_producer(&db, &w_id, relation).await?
+                windmill_common::assets::sole_dbt_producer(&db, &w_id, relation, &ns.path)
+                    .await?
             {
                 return Err(Error::BadRequest(format!(
                     "`{trigger_ref}` cannot be subscribed to: it is built by the dbt project at \

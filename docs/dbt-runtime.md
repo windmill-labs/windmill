@@ -715,11 +715,17 @@ deploy-order-independent syncs. A dbt script may not subscribe at all: its graph
 ingest clears its own `dbt://` trigger rows, so accepting one would deploy an edge
 the dependency job then silently removes.
 
-That leaves one ordering the deploy cannot catch: a subscriber accepted while the
-relation had no producer, and a dbt project deployed afterwards that claims it. So
-a dbt deploy names those edges in its own log rather than leaving them silently
-dormant — the same "an edge that can never fire is worse than saying so" the
-refusal is for, at the only other point where it is knowable.
+The producer set is read as it stands committed, minus the deploying script's own
+rows — those describe the version being replaced, so a script dropping its
+`// materialize` while adding a subscription would otherwise count itself as the
+producer that wakes it, which it could not be anyway (the dispatcher skips
+self-loops).
+
+What that leaves is a subscription accepted while it was live and later orphaned:
+a dbt project deployed afterwards that claims the relation, or a native producer
+that stops writing it. A dbt deploy names those edges in its own log rather than
+leaving them silently dormant — the same "an edge that can never fire is worse
+than saying so" the refusal is for, at the only other point where it is knowable.
 
 A plain READ still renders the consumer beside the model, which is what makes
 the lineage one graph — but it is written in the script's own code, not in a

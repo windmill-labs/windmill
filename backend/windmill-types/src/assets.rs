@@ -14,17 +14,19 @@ pub enum AssetKind {
     Ducklake,
     DataTable,
     Volume,
-    /// A warehouse relation a dbt project builds or reads,
-    /// `dbt://<warehouse>/<schema>/<name>`, where `<warehouse>` is the name the
-    /// workspace configures it under.
+    /// A warehouse relation, `dbt://<warehouse>/<schema>/<name>`, where
+    /// `<warehouse>` is the name the workspace configures it under.
     ///
-    /// The SCHEME names the producer — dbt is the only thing that creates one —
-    /// while the PATH stays the physical relation, because that is what two
-    /// projects agree on: a mart one builds is a `source` the next reads, and
-    /// their dbt `unique_id`s differ (`model.a.orders` vs
-    /// `source.b.analytics.orders`) where the relation does not
-    /// (docs/dbt-runtime.md, decision 11). A dbt run does not trigger that
-    /// reader — the shared node is lineage, not a cascade edge.
+    /// The SCHEME names the namespace dbt made rather than an exclusive
+    /// producer: dbt is what derives these relations from a project, and a
+    /// script of any language can DECLARE one it writes
+    /// (`// materialize manual dbt://…`). The PATH stays the physical relation,
+    /// because that is what two producers agree on: a mart one builds is a
+    /// `source` the next reads, and their dbt `unique_id`s differ
+    /// (`model.a.orders` vs `source.b.analytics.orders`) where the relation does
+    /// not (docs/dbt-runtime.md, decision 11). A dbt run does not trigger the
+    /// readers of what it built — that shared node is lineage, not a cascade
+    /// edge — while a declared write does (decision 25).
     Dbt,
 }
 
