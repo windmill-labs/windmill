@@ -2,6 +2,7 @@
 	import type { ComponentType } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import { arrowTabNav } from '$lib/attachments/arrowTabNav'
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 
@@ -32,7 +33,10 @@
 	let { groups, selectedId, onNavigate, class: className = '' }: Props = $props()
 </script>
 
-<div class={twMerge('flex flex-col gap-6', className)}>
+<!-- Up/Down walks the items, wrapping at the ends. On the wrapper rather than on each
+     `<nav>` so the arrows cross group boundaries the way reading down the list does; the
+     Y axis also leaves Left/Right to the paginated dialogs this can sit inside. -->
+<div class={twMerge('flex flex-col gap-6', className)} {@attach arrowTabNav()}>
 	{#each groups as group (group.title)}
 		<div class="flex flex-col gap-1">
 			{#if group.title}

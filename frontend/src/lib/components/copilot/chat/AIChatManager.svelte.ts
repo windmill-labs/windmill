@@ -2123,7 +2123,10 @@ export class AIChatManager {
 	// pipeline surface when a /pipeline editor has registered helpers. Centralized
 	// so changeMode, refreshGlobalSkills, and setPipelineHelpers stay consistent —
 	// each rebuild would otherwise drop the pipeline augmentation the others added.
-	private configureGlobalMode = () => {
+	//
+	// Public because it is purely local, unlike `changeMode(GLOBAL)`, which also
+	// fires the three network refreshes.
+	configureGlobalMode = () => {
 		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 			previewTools: this.isSessionChat,
 			user: this.globalIdentity,
