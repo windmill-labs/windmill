@@ -5564,7 +5564,8 @@ async fn handle_code_execution_job(
 /// Nothing generates warehouse DDL, so the script issues its own write and this
 /// is the only thing that turns it into a `materialized_partition` row — the
 /// relation's last writer on the run page and the graph. Language-agnostic on
-/// purpose: the DuckLake write engine is DuckDB's, this declaration is anyone's.
+/// purpose — the DuckLake write engine is DuckDB's, this declaration is anyone's
+/// — except dbt's own, which is refused at deploy.
 ///
 /// Best-effort, and it can be: the cascade fans out from the deploy-time `asset`
 /// rows, not from this one, so a lost row costs the relation its last writer and

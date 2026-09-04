@@ -131,5 +131,31 @@ async fn test_dbt_materialize_target_deploy_contract(db: Pool<Postgres>) -> anyh
     assert_eq!(resp.status(), 400);
     assert!(resp.text().await?.contains("u/test-user/project"));
 
+    // Neither annotation is accepted on a dbt script: the graph ingest
+    // republishes that path's asset and trigger rows wholesale, so either would
+    // deploy something the dependency job then silently removes.
+    for content in [
+        "# materialize manual dbt://main/analytics/orders\nprofile:\n  warehouse: main\n",
+        "# on dbt://main/analytics/orders\nprofile:\n  warehouse: main\n",
+    ] {
+        let resp = authed(client().post(format!(
+            "http://localhost:{port}/api/w/test-workspace/scripts/create"
+        )))
+        .json(&json!({
+            "path": "u/test-user/dbt_project",
+            "summary": "",
+            "description": "",
+            "content": content,
+            "language": "dbt",
+            "modules": { "dbt_project.yml": { "content": "name: p\n", "language": "dbt" } },
+            "schema": { "type": "object", "properties": {}, "required": [] }
+        }))
+        .send()
+        .await
+        .unwrap();
+        assert_eq!(resp.status(), 400);
+        assert!(resp.text().await?.contains("a dbt script cannot"));
+    }
+
     Ok(())
 }

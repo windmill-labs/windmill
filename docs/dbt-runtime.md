@@ -47,7 +47,7 @@ the dominant way dbt is orchestrated today.
 | 22 | Naming | Match Cosmos field names; importer deferred |
 | 23 | Descriptor | `wm_dbt.yaml` inside the project, OPTIONAL. See below |
 | 24 | Warehouse | Configured on the workspace by name, `main` by default. See below |
-| 25 | Cascade direction | Into a relation, not out of a run: `// materialize manual dbt://…` declares a write from any language and wakes `# on dbt://…` subscribers; a finished dbt run still does not dispatch. See "No cascade *from* dbt" |
+| 25 | Cascade direction | Into a relation, not out of a run: `// materialize manual dbt://…` declares a write from any language but dbt's own and wakes `# on dbt://…` subscribers; a finished dbt run still does not dispatch. See "No cascade *from* dbt" |
 
 ## Decision 1: engine toggle, and why the shipped default is not Fusion yet
 
@@ -163,9 +163,10 @@ put warehouse relations in the asset graph and is what derives them from a
 project; no other language *infers* one, and calling the kind something generic
 promised a parity with native Snowflake and BigQuery scripts that does not exist.
 A script can nonetheless DECLARE that it writes one — `// materialize manual
-dbt://<warehouse>/<schema>/<name>`, in any language — and that declaration lands
-on the same node the dbt model reading the relation does, because identity is the
-relation rather than the tool. See "No cascade *from* dbt" below.
+dbt://<warehouse>/<schema>/<name>`, in any language but dbt's own, whose writes
+come from its manifest — and that declaration lands on the same node the dbt model
+reading the relation does, because identity is the relation rather than the tool.
+See "No cascade *from* dbt" below.
 
 The PATH is the physical relation, and that is the load-bearing half. dbt-core
 has no cross-project `ref()`: two projects meet when one materializes a mart and
@@ -690,7 +691,8 @@ mode: nothing generates warehouse DDL, so the script issues its own write and
 Windmill records the outcome — the same `materialized_partition` row a DuckLake
 target lands, so the relation carries a last writer on the run page and the graph.
 It is language-agnostic (the DuckLake write ENGINE is DuckDB's; this declaration
-is anyone's), and the recording happens in the generic job path
+is anyone's but a dbt project's, whose writes are read from its manifest), and the
+recording happens in the generic job path
 (`record_declared_warehouse_write`) rather than in an executor, for the same
 reason. Identity is unchanged — the physical relation — so the ingestion script
 and the dbt model reading it are one node, and a `source` declared on the relation

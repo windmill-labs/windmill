@@ -1573,9 +1573,10 @@ async fn create_script_internal<'c>(
     //     A non-DuckDB script never reaches that executor.
     //   • `dbt://<warehouse>/<schema>/<name>` — a warehouse relation. Nothing
     //     generates warehouse DDL, so the declaration is track-only (`manual`)
-    //     and any language may make it: the script writes the relation, the
-    //     worker records the materialization, and the relation's asset node is
-    //     shared with whatever dbt model reads it.
+    //     and any language but dbt's own may make it: the script writes the
+    //     relation, the worker records the materialization, and the relation's
+    //     asset node is shared with whatever dbt model reads it. A dbt project's
+    //     own writes are read from its manifest, so it may not declare one.
     // Any other kind would deploy, register a producer in the asset graph, then
     // silently no-op at run time (`build_materialized_query` returns `Ok(None)`).
     // The managed-only checks (single trailing SELECT, no SQL args) come after —

@@ -31,8 +31,8 @@ pub enum AssetKind {
     Volume,
     /// A warehouse relation, `dbt://<warehouse>/<schema>/<name>`, the warehouse
     /// named as the workspace configures it. The scheme names the namespace dbt
-    /// made — a script of any language can declare a write to one — and the path
-    /// stays the relation. See `windmill_types::AssetKind::Dbt`.
+    /// made — a script in any language but dbt's own can declare a write to one —
+    /// and the path stays the relation. See `windmill_types::AssetKind::Dbt`.
     Dbt,
 }
 

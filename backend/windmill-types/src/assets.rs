@@ -18,9 +18,10 @@ pub enum AssetKind {
     /// `<warehouse>` is the name the workspace configures it under.
     ///
     /// The SCHEME names the namespace dbt made rather than an exclusive
-    /// producer: dbt is what derives these relations from a project, and a
-    /// script of any language can DECLARE one it writes
-    /// (`// materialize manual dbt://…`). The PATH stays the physical relation,
+    /// producer: dbt is what derives these relations from a project, and a script
+    /// in any language but dbt's own can DECLARE one it writes
+    /// (`// materialize manual dbt://…`) — a project's writes are read from its
+    /// manifest, never annotated. The PATH stays the physical relation,
     /// because that is what two producers agree on: a mart one builds is a
     /// `source` the next reads, and their dbt `unique_id`s differ
     /// (`model.a.orders` vs `source.b.analytics.orders`) where the relation does

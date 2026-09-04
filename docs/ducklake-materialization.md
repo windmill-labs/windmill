@@ -608,8 +608,8 @@ examples) lives in windmilldocs `core_concepts/63_pipelines` → "Ingestion
 
 - **A `ducklake://` `// materialize` is DuckDB-only** (deploy-rejected
   elsewhere, managed and `manual` alike — `windmill-api-scripts/src/scripts.rs`;
-  a `dbt://` warehouse-relation target is the one any language may declare, and
-  it is track-only — see `docs/dbt-runtime.md`), and the SDK
+  a `dbt://` warehouse-relation target is the one any language but dbt's own may
+  declare, and it is track-only — see `docs/dbt-runtime.md`), and the SDK
   materialize helpers (`upsert_partition` / `upsertPartition`) build their SQL
   inside the SDK, so the asset parsers cannot see the write. A polyglot node
   that "writes the lake directly" therefore deploys with **no output edge** —
