@@ -96,6 +96,16 @@
 		selectedRole !== undefined && loadedRoles.includes(selectedRole) ? selectedRole : undefined
 	)
 
+	// Saved when it is not what the data table would resolve to anyway. Leaving it
+	// out means "whatever the default is", which is right while they agree and
+	// wrong when they do not: the default is the data table's, not filtered by
+	// what this caller may use, so the one usable role has to be named.
+	const roleToSave = $derived(
+		effectiveRole !== undefined && effectiveRole !== roles.current.defaultRole
+			? effectiveRole
+			: undefined
+	)
+
 	// The picked role belongs to the data table it was picked on, and the one it
 	// defaults to is what the app gets without saying anything. Two data tables
 	// can both define an `analyst` that means something different, so the name
@@ -126,7 +136,10 @@
 	// is `undefined`, which the server reads as the data table's configured
 	// default — a different question, and one whose answer says nothing about what
 	// the role finally selected may create.
-	const accessRole = $derived(showRolePicker ? effectiveRole : undefined)
+	// Asked as the role the app will run as, whether or not the picker is shown:
+	// hiding a choice there is only one worth making is not the same as having no
+	// role, and what a role may create in is the question.
+	const accessRole = $derived(effectiveRole)
 	// Read like the role list: only once it answers for what is selected now. At
 	// mount it is the initial value, during a switch the previous data table's,
 	// and in between the same data table asked as another role.
@@ -221,7 +234,7 @@
 						type: 'database',
 						resourceType: 'postgresql',
 						resourcePath: `datatable://${selectedDatatable}`,
-						role: showRolePicker ? effectiveRole : undefined
+						role: roleToSave
 					}
 				})
 				await dbOps.onCreateSchema({ schema: newSchemaName })
@@ -238,7 +251,7 @@
 						tables: formattedTables,
 						datatable: selectedDatatable,
 						schema: effectiveSchema,
-						role: showRolePicker ? effectiveRole : undefined
+						role: roleToSave
 					}
 				: { tables: formattedTables, datatable: undefined, schema: undefined, role: undefined }
 
