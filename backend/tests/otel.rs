@@ -637,6 +637,9 @@ async fn test_root_job_span_relocated_to_inbound_trace() {
 fn test_otlp_resource_merges_env_attributes_without_losing_windmill_identity() {
     use windmill_common::utils::Mode;
 
+    // OTEL_HOST_NAME wins over the hostname argument, so clear it or an ambient one
+    // fails the host.name assertion below for a reason that has nothing to do with merging.
+    std::env::remove_var("OTEL_HOST_NAME");
     std::env::set_var(
         "OTEL_RESOURCE_ATTRIBUTES",
         "k8s.pod.uid=abc-123,service.name=injected,host.name=injected",
