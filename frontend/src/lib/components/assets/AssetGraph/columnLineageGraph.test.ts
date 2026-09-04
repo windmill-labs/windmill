@@ -109,6 +109,48 @@ describe('buildColumnGraph', () => {
 		expect(colNodeId('ducklake', 'a:b', 'c')).not.toBe(colNodeId('ducklake', 'a', 'b:c'))
 	})
 
+	it('takes dbt column edges but not the indirect `scan` ones', () => {
+		// dbt arrives already resolved to two relations rather than anchored to a
+		// producer. `scan` means the column was read to produce the ROW — a join
+		// key, a predicate, a `group by` — so it reaches every output column of
+		// its model and is not the lineage a column trace means.
+		const g = buildColumnGraph({
+			assets: [],
+			runnables: [],
+			edges: [],
+			triggers: [],
+			dbt_column_edges: [
+				{
+					from_asset_path: 'main/s/stg',
+					from_column: 'raw_name',
+					to_asset_path: 'main/s/mart',
+					to_column: 'clean_name',
+					kind: 'mod'
+				},
+				{
+					from_asset_path: 'main/s/stg',
+					from_column: 'id',
+					to_asset_path: 'main/s/mart',
+					to_column: 'id',
+					kind: 'copy'
+				},
+				{
+					from_asset_path: 'main/s/stg',
+					from_column: 'id',
+					to_asset_path: 'main/s/mart',
+					to_column: 'clean_name',
+					kind: 'scan'
+				}
+			]
+		})
+		expect(g.up.get(colNodeId('dbt', 'main/s/mart', 'clean_name'))).toEqual(
+			new Set([colNodeId('dbt', 'main/s/stg', 'raw_name')])
+		)
+		expect(g.up.get(colNodeId('dbt', 'main/s/mart', 'id'))).toEqual(
+			new Set([colNodeId('dbt', 'main/s/stg', 'id')])
+		)
+	})
+
 	it('skips producers with no ducklake output asset (columns unanchorable)', () => {
 		const graph = chainGraph()
 		graph.edges = graph.edges.filter((e) => e.runnable_path !== 's1') // s1 loses its output edge

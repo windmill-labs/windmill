@@ -58,6 +58,19 @@ impl DbtEngine {
     pub fn emits_node_events(&self) -> bool {
         matches!(self, DbtEngine::DbtCore1x)
     }
+
+    /// Whether the engine's CLI has `--write-index`, the flag that writes the
+    /// parquet index column lineage lives in. False for 1.x, whose Python CLI
+    /// has no such option.
+    ///
+    /// True is not a promise that the artifact appears: `dbt-core` 2.0.0-alpha.5
+    /// accepts the flag, declares the views over `dbt.column_lineage` in its own
+    /// `views.sql`, and writes neither that parquet nor `dbt.node_columns`. Only
+    /// Fusion does today. Attempting the pass on both is what lets a later 2.x
+    /// release pick the feature up with no change here.
+    pub fn writes_column_index(&self) -> bool {
+        !matches!(self, DbtEngine::DbtCore1x)
+    }
 }
 
 /// How the warehouse connection is supplied. Both paths are supported
@@ -127,6 +140,18 @@ pub struct DbtDescriptor {
     pub selector: Option<String>,
     #[serde(default)]
     pub test_behavior: DbtTestBehavior,
+    /// Ingest column-to-column lineage and the real column schemas, from the
+    /// engine's static analysis.
+    ///
+    /// Opt-in, and it has to be: the artifact only appears under
+    /// `--static-analysis strict`, which rejects SQL the default accepts (an
+    /// unresolvable identifier is an error there and compiles fine otherwise).
+    /// Turning it on for everyone would make a stricter dialect the price of
+    /// deploying a dbt project. It is a separate `dbt compile` pass, so nothing
+    /// it decides can change what a build does; a project it cannot analyze
+    /// keeps the graph it has today.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub column_lineage: bool,
     /// `--vars`. dbt vars are typed — numbers, booleans, lists and objects are
     /// all normal — so values keep their YAML type; only string leaves carry
     /// `{{ arg }}` placeholders the worker substitutes from job args. Coercing

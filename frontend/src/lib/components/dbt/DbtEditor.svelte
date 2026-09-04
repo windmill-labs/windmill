@@ -31,6 +31,7 @@
 		AssetGraphNodeData,
 		DbtAssetProvenance
 	} from '$lib/components/assets/AssetGraph/types'
+	import type { ColumnLineageGraph } from '$lib/components/assets/AssetGraph/columnLineageGraph'
 	import {
 		DBT_DESCRIPTOR,
 		DBT_MODULE_EXTENSIONS,
@@ -207,6 +208,7 @@
 	let graphSelection = $state<AssetGraphNodeData | undefined>(undefined)
 	let selectedAsset = $derived(graphSelection?.kind === 'asset' ? graphSelection : undefined)
 	let selectedDbt = $state<DbtAssetProvenance | undefined>(undefined)
+	let selectedColumnGraph = $state<ColumnLineageGraph | undefined>(undefined)
 	// Set when the selected node came from a buffer parse: the project that parse
 	// ran on, which is the one its rows must come from. Undefined for a node off
 	// the deployed graph, which previews by version instead. Either way the rows
@@ -514,10 +516,11 @@
 						testRunning={testIsLoading}
 						testResult={testJob?.result}
 						selection={graphSelection}
-						onSelect={(sel, dbt, buffer) => {
+						onSelect={(sel, dbt, buffer, columnGraph) => {
 							graphSelection = sel
 							selectedDbt = dbt
 							selectedBuffer = buffer
+							selectedColumnGraph = columnGraph
 						}}
 					/>
 				</Pane>
@@ -539,6 +542,7 @@
 							{args}
 							fileInBundle={!!selectedDbt.original_file_path &&
 								!!modules?.[selectedDbt.original_file_path]}
+							columnGraph={selectedColumnGraph}
 							onOpenFile={open}
 							onClose={() => (graphSelection = undefined)}
 						/>

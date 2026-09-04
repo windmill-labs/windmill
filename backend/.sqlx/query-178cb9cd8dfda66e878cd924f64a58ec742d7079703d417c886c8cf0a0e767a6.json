@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM dbt_column_edge\n          WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "178cb9cd8dfda66e878cd924f64a58ec742d7079703d417c886c8cf0a0e767a6"
+}

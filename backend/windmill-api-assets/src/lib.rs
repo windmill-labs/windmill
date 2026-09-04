@@ -663,10 +663,18 @@ struct DbtAssetProvenance {
     description: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     data_tests: Vec<DbtDataTest>,
-    /// Declared column metadata (name -> description). NOT column lineage —
-    /// `manifest.json` carries none (docs/dbt-runtime.md, decision 14).
+    /// Declared column metadata (name -> description): what `manifest.json`
+    /// carries, which is only the columns an author wrote down.
     #[serde(skip_serializing_if = "Option::is_none")]
     columns: Option<serde_json::Value>,
+    /// Every column of the relation, typed and in order —
+    /// `[{"name": …, "type": …}]` — from the engine's static analysis. Present
+    /// only for a project that opted into it. Not gated on `script_visible`,
+    /// like the column edges and the `ref()` graph: the SHAPE of a relation is
+    /// what an in-scope consumer needs in order to explain what it reads, and
+    /// the prose about it is what `columns` above gates.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    column_schema: Option<serde_json::Value>,
     /// A source's declared freshness policy, for the staleness chip.
     #[serde(skip_serializing_if = "Option::is_none")]
     freshness: Option<serde_json::Value>,
@@ -921,6 +929,11 @@ pub struct AssetGraphResponse {
     /// instead of the project's actual shape.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     dbt_edges: Vec<DbtLineageEdge>,
+    /// Column-to-column lineage between two dbt models, from the engine's static
+    /// analysis. Empty unless the project opted into it — `manifest.json`
+    /// carries none.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    dbt_column_edges: Vec<DbtColumnLineageEdge>,
     /// The job whose snapshot the dbt half was resolved from, when one was
     /// asked for and found. A run page polls the graph while its job runs
     /// because a dynamic descriptor's snapshot is written mid-run, and this is
@@ -944,6 +957,22 @@ pub struct AssetGraphResponse {
 struct DbtLineageEdge {
     from_asset_path: String,
     to_asset_path: String,
+}
+
+/// One column-to-column edge, in the same terms: the two relations and the two
+/// columns, never dbt's node ids.
+#[derive(Serialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct DbtColumnLineageEdge {
+    from_asset_path: String,
+    from_column: String,
+    to_asset_path: String,
+    to_column: String,
+    /// dbt's own word for how the value travelled: `copy` (passthrough), `mod`
+    /// (transformed), `scan` (read to produce the ROW rather than the value — a
+    /// join key, a predicate, a `group by`). Sent verbatim, including a kind
+    /// this engine version invented, because the renderer decides what a kind
+    /// means and the set is the engine's.
+    kind: String,
 }
 
 async fn asset_graph(
@@ -1323,7 +1352,7 @@ pub async fn asset_graph_for(
                   n.resource_type AS "resource_type!", n.name AS "name!", n.asset_path,
                   n.materialized, n.materialize_strategy, n.tags AS "tags!", n.description,
                   n.test_kind, n.test_column, n.test_args, n.severity, n.attached_node,
-                  n.columns, n.freshness,
+                  n.columns, n.column_schema, n.freshness,
                   n.raw_code, n.original_file_path,
                   -- Whether the caller may read the project this row describes.
                   -- The query deliberately reaches outside the requested folder
@@ -1447,6 +1476,69 @@ pub async fn asset_graph_for(
               -- deploy, so gating on it drops the edges of models this version
               -- had and a later one removed. The pinned graph's own edges are
               -- the answer.
+              AND ($3::bigint IS NOT NULL OR $5::text IS NOT NULL OR EXISTS (
+                SELECT 1 FROM asset a
+                 WHERE a.workspace_id = $1 AND a.kind = 'dbt'
+                   AND a.path = c.asset_path
+                   AND ($2::text IS NULL OR a.usage_path LIKE $2)))"#,
+        &w_id,
+        folder_filter.as_deref(),
+        dbt_script_hash,
+        dbt_job_id,
+        pinned_path,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // Column-to-column lineage, resolved to the relations the two nodes produce,
+    // like the `ref()` edges above and scoped exactly the same way. Present only
+    // for a project that opted into the analysis pass, so the usual graph pays
+    // one indexed lookup that finds nothing.
+    let dbt_column_edge_rows = sqlx::query!(
+        r#"WITH live AS (
+             SELECT * FROM (
+               SELECT DISTINCT ON (s.path) s.path, s.hash
+                 FROM script s
+                WHERE $5::text IS NULL AND s.workspace_id = $1 AND s.language = 'dbt'
+                  AND ($3::bigint IS NULL OR s.hash = $3)
+                  AND ($3::bigint IS NOT NULL OR (s.deleted = false AND s.archived = false))
+                ORDER BY s.path, s.created_at DESC
+             ) cur
+             UNION ALL
+             SELECT $5::text, $3::bigint WHERE $5::text IS NOT NULL
+           ),
+           chosen AS (
+             SELECT CASE WHEN $4::uuid IS NOT NULL AND EXISTS (
+                      SELECT 1 FROM dbt_graph_snapshot g
+                       WHERE g.workspace_id = $1 AND g.job_id = $4)
+                    THEN $4::uuid
+                    ELSE '00000000-0000-0000-0000-000000000000'::uuid END AS job_id
+           )
+           SELECT p.asset_path AS "from_path!", e.parent_column AS "from_column!",
+                  c.asset_path AS "to_path!", e.child_column AS "to_column!",
+                  e.lineage_kind AS "lineage_kind!"
+             FROM dbt_column_edge e
+             JOIN live l ON l.path = e.script_path
+                        AND (e.script_hash = l.hash
+                             OR ($5::text IS NOT NULL AND l.hash IS NULL
+                                 AND e.script_hash IS NULL))
+             JOIN chosen ch ON ch.job_id = e.job_id
+             JOIN dbt_node p ON p.workspace_id = e.workspace_id
+                            AND p.script_path = e.script_path
+                            AND (p.script_hash = e.script_hash
+                                 OR ($5::text IS NOT NULL AND e.script_hash IS NULL
+                                     AND p.script_hash IS NULL))
+                            AND p.job_id = ch.job_id
+                            AND p.unique_id = e.parent_unique_id
+             JOIN dbt_node c ON c.workspace_id = e.workspace_id
+                            AND c.script_path = e.script_path
+                            AND (c.script_hash = e.script_hash
+                                 OR ($5::text IS NOT NULL AND e.script_hash IS NULL
+                                     AND c.script_hash IS NULL))
+                            AND c.job_id = ch.job_id
+                            AND c.unique_id = e.child_unique_id
+            WHERE e.workspace_id = $1
+              AND p.asset_path IS NOT NULL AND c.asset_path IS NOT NULL
               AND ($3::bigint IS NOT NULL OR $5::text IS NOT NULL OR EXISTS (
                 SELECT 1 FROM asset a
                  WHERE a.workspace_id = $1 AND a.kind = 'dbt'
@@ -1604,6 +1696,7 @@ pub async fn asset_graph_for(
             description: r.description.clone().filter(|_| source_allowed),
             data_tests: vec![],
             columns: r.columns.clone().filter(|_| source_allowed),
+            column_schema: r.column_schema.clone(),
             freshness: r.freshness.clone().filter(|_| source_allowed),
         };
         // One relation can carry rows from several projects — typically a model
@@ -2166,6 +2259,21 @@ pub async fn asset_graph_for(
         .collect();
     dbt_edges.sort();
     dbt_edges.dedup();
+    let mut dbt_column_edges: Vec<DbtColumnLineageEdge> = dbt_column_edge_rows
+        .into_iter()
+        .filter(|r| {
+            rendered.contains(r.from_path.as_str()) && rendered.contains(r.to_path.as_str())
+        })
+        .map(|r| DbtColumnLineageEdge {
+            from_asset_path: r.from_path,
+            from_column: r.from_column,
+            to_asset_path: r.to_path,
+            to_column: r.to_column,
+            kind: r.lineage_kind,
+        })
+        .collect();
+    dbt_column_edges.sort();
+    dbt_column_edges.dedup();
 
     Ok(Json(AssetGraphResponse {
         assets,
@@ -2175,6 +2283,7 @@ pub async fn asset_graph_for(
         macro_edges,
         test_edges,
         dbt_edges,
+        dbt_column_edges,
         dbt_snapshot_job,
         dbt_graph_ingested_at,
     }))

@@ -1989,14 +1989,16 @@
 		down: new Map()
 	}
 	// Pipeline-wide column-lineage graph, stitched across every producer's
-	// (inferred + annotated) `column_lineage` and the asset write-edges. Drives
-	// the transitive column trace in the details pane. Built from `displayGraph`
+	// (inferred + annotated) `column_lineage`, the asset write-edges and the
+	// column edges a dbt project's static analysis produced. Drives the
+	// transitive column trace in the details pane. Built from `displayGraph`
 	// — the exact graph the canvas renders — so the trace matches it: draft
-	// overlays in edit / show-drafts, deployed-only in plain View. Gated to a
-	// ducklake-asset selection so it isn't rebuilt on every editor keystroke when
-	// the trace UI isn't even shown.
+	// overlays in edit / show-drafts, deployed-only in plain View. Gated to the
+	// two asset kinds that can carry column lineage so it isn't rebuilt on every
+	// editor keystroke when the trace UI isn't even shown.
 	let columnGraph = $derived(
-		pe.selection?.kind === 'asset' && pe.selection.asset_kind === 'ducklake'
+		pe.selection?.kind === 'asset' &&
+			(pe.selection.asset_kind === 'ducklake' || pe.selection.asset_kind === 'dbt')
 			? buildColumnGraph(displayGraph)
 			: EMPTY_COLUMN_GRAPH
 	)

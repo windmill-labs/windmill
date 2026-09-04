@@ -25952,6 +25952,33 @@ components:
                 type: string
               to_asset_path:
                 type: string
+        dbt_column_edges:
+          type: array
+          description: >-
+            Column-to-column lineage between two dbt models, from the engine's
+            own static analysis: `manifest.json` carries none, and the artifact
+            that does is only written when the project opts into the analysis
+            pass. Omitted when empty, which is the usual case.
+          items:
+            type: object
+            required: [from_asset_path, from_column, to_asset_path, to_column, kind]
+            properties:
+              from_asset_path:
+                type: string
+              from_column:
+                type: string
+              to_asset_path:
+                type: string
+              to_column:
+                type: string
+              kind:
+                type: string
+                description: >-
+                  dbt's own word for how the value travelled — `copy`
+                  (passthrough), `mod` (transformed), `scan` (read to produce the
+                  ROW rather than the value: a join key, a predicate, a `group
+                  by`). Not an enum: the engine's own reader maps those three and
+                  passes anything else through.
         dbt_snapshot_job:
           type: string
           format: uuid
@@ -26018,7 +26045,23 @@ components:
         columns:
           type: object
           additionalProperties: true
-          description: Declared column metadata (name -> description). NOT column lineage — `manifest.json` carries none.
+          description: Declared column metadata (name -> description) — what `manifest.json` carries, which is only the columns an author wrote down. Omitted when the caller cannot read the script.
+        column_schema:
+          type: array
+          description: >-
+            Every column of the relation, typed and in the order the model
+            produces them, from the engine's static analysis. Present only for a
+            project that opted into it. Unlike `columns` this is the relation's
+            SHAPE, so it is not gated on being able to read the project.
+          items:
+            type: object
+            required: [name]
+            properties:
+              name:
+                type: string
+              type:
+                type: string
+                description: The declared type where `schema.yml` gives one, else the inferred one. Omitted when neither is known.
         freshness:
           type: object
           additionalProperties: true

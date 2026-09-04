@@ -12,6 +12,11 @@
 	import { ClipboardCopy, Code2, FileCode2, Loader2, TableProperties, X } from 'lucide-svelte'
 	import { copyToClipboard } from '$lib/utils'
 	import type { DbtAssetProvenance } from '$lib/components/assets/AssetGraph/types'
+	import ColumnLineageTrace from '$lib/components/assets/AssetGraph/ColumnLineageTrace.svelte'
+	import {
+		assetColumnNodes,
+		type ColumnLineageGraph
+	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
 	import { previewDbtRows, type DbtPreview, type DbtPreviewBuffer } from './previewRows'
 	import { nodeSelector } from './parseDbtRun'
 
@@ -34,6 +39,10 @@
 		args,
 		/** Whether this model's file is in the bundle being edited. */
 		fileInBundle = false,
+		/** The project's column-level lineage, when the descriptor asked for it.
+		 *  Resolved from the same graph response the canvas draws, so the trace
+		 *  and the nodes above it describe one parse. */
+		columnGraph,
 		onOpenFile,
 		onClose
 	}: {
@@ -45,6 +54,7 @@
 		buffer?: DbtPreviewBuffer
 		args?: Record<string, unknown>
 		fileInBundle?: boolean
+		columnGraph?: ColumnLineageGraph
 		onOpenFile?: (path: string) => void
 		onClose?: () => void
 	} = $props()
@@ -111,7 +121,29 @@
 		return typeof v === 'object' ? JSON.stringify(v) : String(v)
 	}
 
-	let columns = $derived(Object.entries(dbt.columns ?? {}))
+	// The real columns where the analysis pass produced them — typed and in the
+	// order the model emits them — and the declared ones otherwise. The
+	// description comes from `columns` either way: that is the only place an
+	// author's prose lives, and a project documents a handful of forty.
+	let columns = $derived(
+		dbt.column_schema?.length
+			? dbt.column_schema.map((c) => ({
+					name: c.name,
+					type: c.type,
+					description: dbt.columns?.[c.name] ?? ''
+				}))
+			: Object.entries(dbt.columns ?? {}).map(([name, description]) => ({
+					name,
+					type: undefined,
+					description
+				}))
+	)
+	let columnsAreAnalyzed = $derived(!!dbt.column_schema?.length)
+	// The selected relation's own column nodes: empty for a project that never
+	// asked for the analysis pass, which is the ordinary case.
+	let columnNodes = $derived(
+		columnGraph ? assetColumnNodes(columnGraph, 'dbt', assetPath) : []
+	)
 	// `dbt show` SELECTs from the node's own relation and the worker intersects
 	// the selector with `resource_type:model`, so offering it on a seed, snapshot
 	// or source only ever produces a failed job.
@@ -238,20 +270,29 @@
 			<div class="px-2 py-1.5 border-b flex flex-col gap-1.5">
 				{#if columns.length > 0}
 					<div class="text-2xs">
-						<div class="text-tertiary mb-0.5">columns declared</div>
+						<div class="text-tertiary mb-0.5">
+							{columnsAreAnalyzed ? 'columns' : 'columns declared'}
+						</div>
 						<div class="flex flex-col gap-0.5">
-							{#each columns as [name, desc] (name)}
+							{#each columns as col (col.name)}
 								<div class="flex gap-2">
-									<span class="font-mono text-primary shrink-0">{name}</span>
-									<span class="text-secondary truncate">{desc}</span>
+									<span class="font-mono text-primary shrink-0">{col.name}</span>
+									{#if col.type}
+										<span class="font-mono text-tertiary shrink-0">{col.type}</span>
+									{/if}
+									<span class="text-secondary truncate">{col.description}</span>
 								</div>
 							{/each}
 						</div>
-						<!-- dbt's manifest carries no column-to-column edges, so this is a
-						     declared column SET rather than lineage. -->
-						<div class="text-tertiary mt-0.5">
-							Declared metadata — dbt reports no column-level lineage.
-						</div>
+						<!-- `manifest.json` carries declared columns only, so without the
+						     analysis pass this list is what an author wrote down rather than
+						     what the model produces. -->
+						{#if !columnsAreAnalyzed}
+							<div class="text-tertiary mt-0.5">
+								Declared metadata. Set `column_lineage: true` in the descriptor for the real
+								column schema and column-level lineage.
+							</div>
+						{/if}
 					</div>
 				{/if}
 				{#if (dbt.data_tests?.length ?? 0) > 0}
@@ -266,6 +307,17 @@
 						</div>
 					</div>
 				{/if}
+			</div>
+		{/if}
+
+		{#if columnGraph && columnNodes.length > 0}
+			<div class="border-b overflow-auto max-h-64">
+				<ColumnLineageTrace
+					graph={columnGraph}
+					assetKind="dbt"
+					assetPath={assetPath}
+					targetLabel={dbt.unique_id}
+				/>
 			</div>
 		{/if}
 

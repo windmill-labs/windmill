@@ -23,11 +23,24 @@ export type ColumnLineageGraph = {
 	down: Map<ColumnNodeId, Set<ColumnNodeId>>
 }
 
+// Direct value flow, as dbt's static analysis labels it: `copy` passes a column
+// through, `mod` transforms it. A `scan` edge is the third kind and means the
+// column was read to produce the ROW rather than the value — a join key, a
+// `where` predicate, a `group by` — so it reaches EVERY output column of the
+// model and would draw the diagram as a complete bipartite graph. Kept on the
+// wire (the API sends all three) so a later "show indirect" control needs no
+// backend change; kept out of the lineage a column trace means.
+const DIRECT_DBT_LINEAGE = new Set(['copy', 'mod'])
+
 // Build the column graph from a resolved asset graph. A producer's
 // `column_lineage` describes the columns of the asset it materializes; that
 // output asset is the ducklake target it writes (v1 materialize target), found
 // from its write-edge. Producers without a known ducklake output are skipped
 // (their columns can't be anchored to an asset node).
+//
+// dbt contributes the same edges from the other side: a dbt project is one
+// runnable with many output assets, so its lineage arrives already resolved to
+// the two relations rather than anchored to a producer.
 export function buildColumnGraph(graph: AssetGraphResponse): ColumnLineageGraph {
 	const nodes = new Map<ColumnNodeId, ColumnNode>()
 	const up = new Map<ColumnNodeId, Set<ColumnNodeId>>()
@@ -84,6 +97,14 @@ export function buildColumnGraph(graph: AssetGraphResponse): ColumnLineageGraph 
 				addEdge(srcId, outId)
 			}
 		}
+	}
+
+	for (const e of graph.dbt_column_edges ?? []) {
+		if (!DIRECT_DBT_LINEAGE.has(e.kind)) continue
+		addEdge(
+			addNode({ kind: 'dbt', path: e.from_asset_path, column: e.from_column }),
+			addNode({ kind: 'dbt', path: e.to_asset_path, column: e.to_column })
+		)
 	}
 
 	return { nodes, up, down }

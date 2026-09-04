@@ -25,6 +25,10 @@
 		DbtAssetProvenance
 	} from '$lib/components/assets/AssetGraph/types'
 	import { useDbtRunStatus } from './runStatus.svelte'
+	import {
+		buildColumnGraph,
+		type ColumnLineageGraph
+	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
 
 	let {
 		workspace,
@@ -80,7 +84,12 @@
 			 *  buffer rather than a deployed version — as submitted, not as the
 			 *  editor holds it now. Sent with the selection rather than exposed on
 			 *  its own so it can never disagree with the SQL the parent shows. */
-			buffer: DbtPreviewBuffer | undefined
+			buffer: DbtPreviewBuffer | undefined,
+			/** The project's column-level lineage, when the descriptor asked for
+			 *  it. Travels with the selection for the same reason the provenance
+			 *  does: it is resolved from the graph response, which is this
+			 *  component's. */
+			columnGraph: ColumnLineageGraph | undefined
 		) => void
 	} = $props()
 
@@ -364,6 +373,13 @@
 	// graph that actually came back.
 	let editorParsed = $derived(refreshJob != undefined && raw?.dbt_snapshot_job === refreshJob)
 
+	// Built lazily off the graph on screen, so the trace in the details pane
+	// describes the same parse the canvas does. Empty for a project that never
+	// asked for the analysis pass, which is the ordinary case.
+	let columnGraph = $derived(
+		graph?.dbt_column_edges?.length ? buildColumnGraph(graph) : undefined
+	)
+
 	// `untrack`, because the effect that reloads the graph clears the selection
 	// through here: reading the graph to describe a selection would subscribe that
 	// effect to the very state its own fetch writes, and it would reload forever.
@@ -374,7 +390,8 @@
 				sel?.kind === 'asset'
 					? graph?.assets.find((a) => a.kind === sel.asset_kind && a.path === sel.path)?.dbt
 					: undefined,
-				editorParsed ? parsedBuffer : undefined
+				editorParsed ? parsedBuffer : undefined,
+				sel?.kind === 'asset' ? columnGraph : undefined
 			)
 		)
 	}

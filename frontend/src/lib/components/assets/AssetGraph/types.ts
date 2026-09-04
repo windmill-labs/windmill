@@ -36,9 +36,14 @@ export interface DbtAssetProvenance {
 	tags?: string[]
 	description?: string
 	data_tests?: DbtDataTest[]
-	/** Declared column metadata (name -> description). NOT column lineage:
-	 *  `manifest.json` carries none (docs/dbt-runtime.md, decision 14). */
+	/** Declared column metadata (name -> description): what `manifest.json`
+	 *  carries, which is only the columns an author wrote down. */
 	columns?: Record<string, string>
+	/** Every column of the relation, typed and in the order the model produces
+	 *  them, from the engine's static analysis. Present only for a project that
+	 *  opted into it (`column_lineage: true`); `manifest.json` has no such
+	 *  thing. Lockstep with Rust `DbtAssetProvenance.column_schema`. */
+	column_schema?: { name: string; type?: string }[]
 	/** A source's declared freshness policy. */
 	freshness?: unknown
 	/** The model's SQL as written — the transform behind the node. Read-only:
@@ -225,6 +230,7 @@ export interface AssetGraphResponse {
 	macro_edges?: AssetGraphMacroEdge[]
 	test_edges?: AssetGraphTestEdge[]
 	dbt_edges?: AssetGraphDbtEdge[]
+	dbt_column_edges?: AssetGraphDbtColumnEdge[]
 	/** The job whose snapshot the dbt half was resolved from, when one was
 	 *  asked for and found. A run page polls the graph until this is its own
 	 *  job, which is how it knows a dynamic descriptor's ingest has landed. */
@@ -241,6 +247,21 @@ export interface AssetGraphResponse {
 export interface AssetGraphDbtEdge {
 	from_asset_path: string
 	to_asset_path: string
+}
+
+// Column-to-column lineage between two dbt models, from the engine's own static
+// analysis. Empty unless the project opted into it — `manifest.json` carries no
+// column edges at all.
+export interface AssetGraphDbtColumnEdge {
+	from_asset_path: string
+	from_column: string
+	to_asset_path: string
+	to_column: string
+	// dbt's own word: `copy` (passthrough), `mod` (transformed), `scan` (read to
+	// produce the ROW rather than the value — a join key, a predicate, a
+	// `group by`). Left open: the engine's own reader maps those three and
+	// passes anything else through.
+	kind: string
 }
 
 export type AssetGraphNodeData =
