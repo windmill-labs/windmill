@@ -934,7 +934,7 @@ pub async fn guest_app_admits<'c, E: sqlx::Executor<'c, Database = sqlx::Postgre
     app_path: &str,
 ) -> Result<bool> {
     // The mint refuses a path it cannot scope, so discovery must not advertise one.
-    if crate::utils::check_proper_path(app_path).is_err() {
+    if !crate::auth::is_scope_literal_path(app_path) {
         return Ok(false);
     }
     let instance_admits = instance_admits_guests_sql();

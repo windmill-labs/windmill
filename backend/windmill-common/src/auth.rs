@@ -81,6 +81,13 @@ pub fn is_guest_session_label(label: Option<&str>) -> bool {
     label == Some(GUEST_SESSION_LABEL)
 }
 
+/// Whether `path` can be spliced into a scope as one literal resource. The scope
+/// grammar reserves three characters: `:` separates the parts, `,` separates
+/// resources, `*` is a wildcard. App paths are otherwise free-form (spaces, `@`).
+pub fn is_scope_literal_path(path: &str) -> bool {
+    !path.is_empty() && !path.chars().any(|c| matches!(c, ':' | ',' | '*'))
+}
+
 /// Whether `label` is the one minted for a browser session at login. [`is_server_minted_label`]
 /// stops a member minting it directly, but `/users/refresh_token` hands one to any authenticated
 /// caller, so this attributes a request to the UI without proving it: never gate authority on it.

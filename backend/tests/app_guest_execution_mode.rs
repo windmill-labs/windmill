@@ -8,9 +8,10 @@
 //!     could type into `users/tokens/create`;
 //!   * the confinement — a guest reaches the one app it was let in for and nothing
 //!     else;
-//!   * the two gates — an app's own `execution_mode: guest` is inert unless the
-//!     workspace switch is on, checked at the door rather than only where a policy
-//!     is written (git-sync and the CLI push policies past every UI).
+//!   * the switches — an app's own `execution_mode: guest` is inert unless the
+//!     workspace and the instance allow guests, checked at the door rather than only
+//!     where a policy is written (git-sync and the CLI push policies past every UI);
+//!     the allowance on top of them has a binary of its own.
 //!
 //! The token is inserted directly: how a guest session is minted is the identity
 //! provider's business (EE), what one can do is this file's.
@@ -454,31 +455,46 @@ async fn guest_cannot_run_another_guest_app(db: Pool<Postgres>) -> anyhow::Resul
     Ok(())
 }
 
-/// The app path is spliced into the session's scopes, whose parser splits resources on
-/// `,` and reads `*` as a wildcard: a path carrying either would scope the guest to more
-/// than the one app it was let in for, so the mint refuses it before anything else.
+/// The app path is spliced into the session's scopes, whose grammar reserves `:`, `,`
+/// and `*`: a path carrying one would scope the guest to more than the one app it was
+/// let in for, so the mint refuses it before anything else. Anything else in a path
+/// (spaces, `@`) is literal to that grammar and stays admissible.
 #[sqlx::test(fixtures("base"))]
 async fn a_scope_metacharacter_in_the_app_path_is_refused(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     initialize_tracing().await;
+    let mint = |path: &'static str| {
+        let db = db.clone();
+        async move {
+            let mut tx = db.begin().await?;
+            let minted = windmill_api_users::users::create_guest_session_token(
+                "guest@example.com",
+                "test-workspace",
+                path,
+                &mut tx,
+                tower_cookies::Cookies::default(),
+            )
+            .await;
+            anyhow::Ok(minted)
+        }
+    };
     for path in [
         "u/test-user/entry,u/test-user/hidden",
         "u/test-user/*",
-        "u/test-user/a b",
+        "u/test-user/entry:run",
     ] {
-        let mut tx = db.begin().await?;
-        let minted = windmill_api_users::users::create_guest_session_token(
-            "guest@example.com",
-            "test-workspace",
-            path,
-            &mut tx,
-            tower_cookies::Cookies::default(),
-        )
-        .await;
+        let minted = mint(path).await?;
         assert!(
-            matches!(minted, Err(windmill_common::error::Error::BadRequest(ref m)) if m.contains("Invalid path")),
+            matches!(minted, Err(windmill_common::error::Error::BadRequest(ref m)) if m.contains("cannot be scoped")),
             "{path}: {minted:?}"
+        );
+    }
+    for path in ["u/test-user/My App", "u/admin@windmill.dev/x"] {
+        let minted = mint(path).await?;
+        assert!(
+            !matches!(minted, Err(windmill_common::error::Error::BadRequest(ref m)) if m.contains("cannot be scoped")),
+            "{path} is literal to the scope grammar and must get past the guard: {minted:?}"
         );
     }
     Ok(())

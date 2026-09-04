@@ -2946,9 +2946,11 @@ lazy_static::lazy_static! {
 /// The `guest` sentinel here only narrows. What makes the session a guest at all is the
 /// server-minted label ([`windmill_common::auth::GUEST_SESSION_LABEL`]).
 fn guest_session_scopes(app_path: &str) -> Result<Vec<String>> {
-    // The path is spliced into a scope, whose parser reads `,` as a resource separator
-    // and `*` as a wildcard; a canonical path carries neither.
-    windmill_common::utils::check_proper_path(app_path)?;
+    if !windmill_common::auth::is_scope_literal_path(app_path) {
+        return Err(Error::BadRequest(format!(
+            "app path {app_path} cannot be scoped: `:`, `,` and `*` are reserved in scopes"
+        )));
+    }
     Ok(vec![
         windmill_api_auth::scopes::GUEST_SENTINEL.to_string(),
         "jobs:read".to_string(),

@@ -321,6 +321,18 @@ impl ExecutionMode {
 /// The protection rule gating a *transition into* `mode`, if any. Anonymous and
 /// guest each widen who may open an app past the workspace's own members, so each
 /// carries its own rule; the two member-only modes are ungated.
+/// A guest session is scoped to its app by path, so an app whose path the scope
+/// grammar cannot hold as one literal (`is_scope_literal_path`) can never admit a
+/// guest; refuse the mode at deploy time rather than advertise an app nobody enters.
+fn refuse_unscopable_guest_app(path: &str, mode: ExecutionMode) -> Result<()> {
+    if matches!(mode, ExecutionMode::Guest) && !windmill_common::auth::is_scope_literal_path(path) {
+        return Err(Error::BadRequest(format!(
+            "app {path} cannot be set to Guests: `:`, `,` and `*` in a path cannot be scoped"
+        )));
+    }
+    Ok(())
+}
+
 fn deployment_rule_for_mode(mode: ExecutionMode) -> Option<ProtectionRuleKind> {
     match mode {
         ExecutionMode::Anonymous => Some(ProtectionRuleKind::RestrictAnonymousAppDeployment),
@@ -2499,6 +2511,7 @@ async fn create_app_internal<'a>(
     // Pin the mode the app is created under, so the stored policy states one
     // even when the caller did not.
     app.policy.set_execution_mode(app.policy.execution_mode());
+    refuse_unscopable_guest_app(&app.path, app.policy.execution_mode())?;
     if let Some(rule) = deployment_rule_for_mode(app.policy.execution_mode()) {
         if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
             w_id,
@@ -3520,6 +3533,7 @@ async fn update_app_internal<'a>(
                         .unwrap_or_default(),
                 );
             }
+            refuse_unscopable_guest_app(path, npolicy.execution_mode())?;
             if let Some(rule) =
                 deployment_rule_for_mode(npolicy.execution_mode()).filter(|_| !authed.is_admin)
             {
