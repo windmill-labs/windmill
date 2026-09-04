@@ -138,12 +138,28 @@ impl AuthCache {
         w_id: Option<String>,
         token: &str,
     ) -> Option<OptJobAuthed> {
-        let mut opt_job_authed = self.get_opt_job_authed_inner(w_id, token).await?;
+        let mut opt_job_authed = self.get_opt_job_authed_inner(w_id.clone(), token).await?;
         // Single source of truth: mirror the resolved job_id onto the authed so
         // every consumer (require_super_admin, ...) sees that this identity came
         // from a job's WM_TOKEN, even on an AUTH_CACHE hit whose cached authed
         // predates this field.
         opt_job_authed.authed.job_id = opt_job_authed.job_id;
+        // The workspace's guest switch is enforced here, once, for every guest request
+        // — not per handler, where each guest-reachable route would have to remember
+        // it. Uncached, so turning guests off takes effect on the next request of every
+        // guest session and every token derived from one.
+        if crate::scopes::has_guest_sentinel(opt_job_authed.authed.scopes.as_deref()) {
+            let Some(w_id) = w_id else { return None };
+            let email = &opt_job_authed.authed.email;
+            match windmill_common::workspaces::guest_session_stands(&self.db, &w_id, email).await {
+                Ok(true) => {}
+                Ok(false) => return None,
+                Err(e) => {
+                    tracing::error!("guest session check failed for {w_id}: {e:#}");
+                    return None;
+                }
+            }
+        }
         Some(opt_job_authed)
     }
 
@@ -427,6 +443,8 @@ impl AuthCache {
                             }
                             (_, Some(email), super_admin, scopes, label, read_only) => {
                                 let is_session_token = is_session_label(label.as_deref());
+                                let is_guest_session =
+                                    windmill_common::auth::is_guest_session_label(label.as_deref());
                                 let (username_override, username_override_is_token_label) =
                                     username_override_from_label(label);
                                 if w_id.is_some() {
@@ -508,6 +526,36 @@ impl AuthCache {
                                                     None
                                                 }
                                             }
+                                        }
+                                        // A guest session: IdP-authenticated, member of
+                                        // nothing. No `usr` lookup, groups or folders, so
+                                        // every ACL denies it and the token's scopes are
+                                        // its whole grant. After the superadmin arm, so
+                                        // that token is never demoted into this one.
+                                        None if is_guest_session => {
+                                            // The server-minted label is the grant, never
+                                            // the `guest` scope (a user-minted token's
+                                            // scopes are whatever the caller typed); the
+                                            // sentinel is pinned on here so every guest
+                                            // control downstream sees a guest regardless.
+                                            let scopes = Some(crate::scopes::with_guest_sentinel(
+                                                scopes.unwrap_or_default(),
+                                            ));
+                                            Some(ApiAuthed {
+                                                username: email.clone(),
+                                                email,
+                                                is_admin: false,
+                                                is_operator: true,
+                                                groups: vec![],
+                                                folders: vec![],
+                                                scopes,
+                                                username_override,
+                                                username_override_is_token_label,
+                                                is_session_token,
+                                                token_prefix: Some(safe_token_prefix(token)),
+                                                read_only,
+                                                job_id: None,
+                                            })
                                         }
                                         None => None,
                                     }
@@ -934,10 +982,17 @@ pub(crate) fn username_override_from_label(label: Option<String>) -> (Option<Str
         {
             (Some(label), true)
         }
-        Some(label) if label != "ephemeral-script" && label != "session" && !label.is_empty() => (
-            Some(format!("{}{label}", crate::GENERIC_TOKEN_LABEL_PREFIX)),
-            true,
-        ),
+        Some(label)
+            if label != "ephemeral-script"
+                && label != "session"
+                && label != windmill_common::auth::GUEST_SESSION_LABEL
+                && !label.is_empty() =>
+        {
+            (
+                Some(format!("{}{label}", crate::GENERIC_TOKEN_LABEL_PREFIX)),
+                true,
+            )
+        }
         _ => (None, false),
     }
 }

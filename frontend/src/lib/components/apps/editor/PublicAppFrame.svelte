@@ -23,7 +23,7 @@
 	 * bearer token (no cookie); the raw wrapper document always carries `CSP: sandbox`.
 	 */
 	import { BROWSER } from 'esm-env'
-	import { OpenAPI } from '$lib/gen'
+	import { OpenAPI, UserService } from '$lib/gen'
 	import { page } from '$app/state'
 	import { onDestroy, onMount, setContext, type Snippet } from 'svelte'
 	import { Alert, Skeleton } from '$lib/components/common'
@@ -49,7 +49,9 @@
 		fetchEmbedToken,
 		onViewerReady,
 		viewer,
-		viewerUrl
+		viewerUrl,
+		guestAppPath = undefined,
+		guestEntry = 'none'
 	}: {
 		/** Embedder-side: validate access + mint the scoped token. Throws with a
 		 * `.status` of 401 (login required) or 404 (not found). Pass
@@ -68,6 +70,16 @@
 		 * (`/apps/get`, auth-gated, with chrome) differs from the cookieless,
 		 * chrome-less viewer route (`/app_embed`). */
 		viewerUrl?: string
+		/** `<workspace>/<app_path>` when this app is open to guests. The embedder's
+		 * login gate fires before the page's own load, so the page must resolve this
+		 * up front and pass it down — otherwise a signed-out visitor is offered an
+		 * ordinary sign-in that creates an account and still cannot open the app. */
+		guestAppPath?: string | undefined
+		/** Whether the app admits guests, as far as the page has found out. The sign-in
+		 * card waits while `pending` (a configured auto-login would otherwise start an
+		 * ordinary sign-in) and refuses to offer one on `error` — a transient fault must
+		 * not become an account and a seat. Nothing else waits on it. */
+		guestEntry?: 'pending' | 'none' | 'guest' | 'error'
 	} = $props()
 
 	const EMBED_PARAM = 'wm_embed'
@@ -194,7 +206,48 @@
 	}
 
 	// ---------------------------- embedder mode ----------------------------
-	let status: 'loading' | 'ready' | 'noPermission' | 'notExists' | 'sdkPrompt' = $state('loading')
+	type FrameStatus = 'loading' | 'ready' | 'noPermission' | 'notExists' | 'sdkPrompt'
+	let status = $state<FrameStatus>('loading')
+	/** Whether the visitor holds an account session, probed whenever the app denies
+	 * them. An account this app still refuses is not something signing in again can
+	 * fix — an identity with an account is never given a guest session — so the card
+	 * gives way to an explanation. */
+	let accountSession = $state<'unknown' | 'none' | 'held'>('unknown')
+	/** What the sign-in refused with, shown above the card until the next attempt. */
+	let signInError: string | undefined = $state(undefined)
+	let deniedStatus: number | undefined = $state(undefined)
+	/** The sign-in card belongs on a 401, and on a 403 unless discovery has settled
+	 * that the app is not open to guests: a 403 on a guest app is a session for another
+	 * app of the workspace, which a fresh sign-in replaces. True while discovery is
+	 * pending, so the skeleton shows rather than a flash of "Not found". */
+	let offerSignIn = $derived(
+		status === 'noPermission' ||
+			(status === 'notExists' && deniedStatus === 403 && guestEntry !== 'none')
+	)
+	let signInDidNotHelp = $derived(offerSignIn && accountSession === 'held')
+	$effect(() => {
+		if (offerSignIn && accountSession === 'unknown') {
+			// Workspace-less, so it answers for an account and never for a guest
+			// (pinned to its workspace) or for nobody.
+			UserService.getCurrentEmail()
+				.then(() => (accountSession = 'held'))
+				.catch(() => (accountSession = 'none'))
+		}
+	})
+
+	// The stale guest session must be gone before the card mounts: it still
+	// authenticates here, so the popup's success poll would see it and complete the
+	// sign-in before the new session lands. The card waits on `staleGuestCleared`; a
+	// failed logout fails closed rather than offering a sign-in that cannot complete.
+	let staleGuestCleared = $state(false)
+	let staleGuestLogoutFailed = $state(false)
+	$effect(() => {
+		if (deniedStatus === 403 && guestEntry === 'guest' && !staleGuestCleared) {
+			UserService.logout()
+				.then(() => (staleGuestCleared = true))
+				.catch(() => (staleGuestLogoutFailed = true))
+		}
+	})
 	let embedToken: string | null = $state(null)
 	let iframeEl: HTMLIFrameElement | undefined = $state(undefined)
 
@@ -293,6 +346,10 @@
 			}
 			finishReady()
 		} catch (e: any) {
+			// 401: no session. 403 on an app that admits guests: a guest session for a
+			// different app of this workspace, which a fresh sign-in replaces. Either
+			// way the sign-in card is the answer; anything else is not found.
+			deniedStatus = e?.status
 			status = e?.status === 401 ? 'noPermission' : 'notExists'
 		}
 	}
@@ -514,7 +571,7 @@
 	{/if}
 {:else if status === 'loading'}
 	<Skeleton layout={[[4], 0.5, [50]]} />
-{:else if status === 'notExists'}
+{:else if status === 'notExists' && !offerSignIn}
 	<div class="px-4 mt-20">
 		<Alert type="error" title="Not found">
 			There was an error loading the app, is the url correct?
@@ -529,17 +586,58 @@
 		onContinue={onSdkConsentContinue}
 		onDecline={onSdkConsentDecline}
 	/>
-{:else if status === 'noPermission'}
+{:else if offerSignIn && (guestEntry === 'pending' || accountSession === 'unknown' || (deniedStatus === 403 && guestEntry === 'guest' && !staleGuestCleared && !staleGuestLogoutFailed))}
+	<Skeleton layout={[[4], 0.5, [50]]} />
+{:else if offerSignIn && (guestEntry === 'error' || staleGuestLogoutFailed)}
+	<div class="px-4 mt-20">
+		<Alert type="error" title="Could not check access">
+			The app could not be reached to find out who may open it. Reload to try again.
+		</Alert>
+	</div>
+{:else if offerSignIn}
 	<!-- Login happens here, on the embedder (main) window, so the session cookie
 	     is set on the main origin only and never reaches the opaque iframe. -->
-	<div class="px-4 mt-20 w-full text-center font-bold text-xl">This app requires read access</div>
-	<div class="px-2 mx-auto mt-20 max-w-xl w-full">
-		<Login
-			onLoginSuccess={() => initEmbedder()}
-			popup
-			rd={page.url.pathname + page.url.search + page.url.hash}
-		/>
-	</div>
+	{#if signInDidNotHelp}
+		<!-- Offering the same sign-in again would loop: they are signed in, and this
+		     app still will not open for them. Say why and stop. -->
+		<div class="px-4 mt-20 w-full text-center font-bold text-xl">
+			You are signed in, but this app is not open to you
+		</div>
+		<div class="text-center mt-8 text-sm text-primary">
+			It is open to the people it was shared with{guestAppPath
+				? ', and to guests who have no Windmill account'
+				: ''}. Ask the person who shared it to give your account access.
+		</div>
+	{:else}
+		{#if guestAppPath}
+			<div class="px-4 mt-20 w-full text-center font-bold text-xl">Sign in to open this app</div>
+			<div class="text-center mt-8 text-sm text-primary">
+				You do not need a Windmill account. Signing in lets you open this app and nothing else.
+			</div>
+		{:else}
+			<div class="px-4 mt-20 w-full text-center font-bold text-xl">
+				This app requires read access
+			</div>
+		{/if}
+		{#if signInError}
+			<div class="px-2 mx-auto mt-8 max-w-xl w-full">
+				<Alert type="error" title="Could not sign you in">{signInError}</Alert>
+			</div>
+		{/if}
+		<div class="px-2 mx-auto mt-20 max-w-xl w-full">
+			<Login
+				onLoginSuccess={() => {
+					signInError = undefined
+					accountSession = 'unknown'
+					initEmbedder()
+				}}
+				onLoginError={(message) => (signInError = message)}
+				popup
+				guestApp={guestAppPath}
+				rd={page.url.pathname + page.url.search + page.url.hash}
+			/>
+		</div>
+	{/if}
 {:else if unsandboxed}
 	<!-- Same-origin (full session): the app was not opted into sandbox isolation
 	     (the default). Rendered directly here; RawAppPreview reads
