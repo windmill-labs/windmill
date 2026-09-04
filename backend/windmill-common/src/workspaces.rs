@@ -1382,6 +1382,10 @@ pub async fn ensure_resource_identity_change_allowed(
 /// Fingerprint the database a connection resolves to, over the fields that make
 /// it a different database rather than the same one reached differently — a
 /// password rotation is not an identity change.
+///
+/// `user` is one of those fields, so this is the resource as it resolves, before
+/// a role's login is swapped in: recording one and comparing the other never
+/// matches.
 pub fn datatable_database_identity(resolved: &serde_json::Value) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
@@ -1857,6 +1861,9 @@ async fn get_datatable_resource_inner(
             })?
         };
 
+    // Before the swap below, not merely outside it: the recorded identity is of the
+    // connection as the resource resolves it, and swapping a role's login into
+    // `user` would make every comparison fail.
     if resolution_proves_database_identity(internal, &datatable) {
         ensure_datatable_database_unchanged(name, &datatable, &db_resource)?;
     }

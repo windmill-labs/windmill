@@ -76,6 +76,10 @@
 		// The tree shows every data table; this only picks which one the query
 		// editor and the table preview run against.
 		selectedDatatable = datatables.current.includes('main') ? 'main' : datatables.current[0]
+		// A role belongs to the data table it was picked on, and this drawer outlives
+		// the session that picked it: kept, it would query another data table under a
+		// role of that name, or under one it has never heard of.
+		selectedRole = undefined
 		selectedSchemaKey = undefined
 		selectedTableKey = undefined
 		selectedTables = []
@@ -85,6 +89,7 @@
 
 	export function openDrawerWithRef(ref: DataTableRef) {
 		selectedDatatable = ref.datatable
+		selectedRole = undefined
 		selectedSchemaKey = ref.schema
 		selectedTableKey = ref.table
 		selectedTables = []

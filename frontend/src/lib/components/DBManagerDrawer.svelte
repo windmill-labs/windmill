@@ -44,10 +44,12 @@
 	// not currently on, not just the selected one.
 	const datatables = resource(
 		// The privileges it reports are the connected role's, so the role picked on
-		// the open data table is part of what is being asked.
-		() => [ws, uriState.selectedDatatable, uriState.selectedRole] as const,
-		async ([workspace, roleFor, role]): Promise<DataTableTables[]> => {
-			if (!workspace) return []
+		// the open data table is part of what is being asked. Gated on the drawer
+		// being open: this reaches every data table's database in turn, and the
+		// component is mounted on every logged-in page.
+		() => [open, ws, uriState.selectedDatatable, uriState.selectedRole] as const,
+		async ([isOpen, workspace, roleFor, role]): Promise<DataTableTables[]> => {
+			if (!isOpen || !workspace) return []
 			try {
 				return await WorkspaceService.listDataTableTables({ workspace, roleFor, role })
 			} catch (e) {
