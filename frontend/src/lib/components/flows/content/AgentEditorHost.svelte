@@ -97,7 +97,7 @@
 			onSelectTool?.(undefined)
 			return true
 		}
-		if (tools.some((t) => t.id === id)) {
+		if (tools.some((t) => t?.id === id)) {
 			onSelectTool?.(id)
 			return true
 		}
@@ -175,15 +175,12 @@
 	let agentValue = $derived(
 		agentModule?.value.type === 'aiagent' ? (agentModule.value as any) : undefined
 	)
-	// Everything that iterates the roster reads this, never the raw value: `tools` is JSON-authored,
-	// and neither another shape nor an entry that is not an object survives being rendered as a
-	// tool — either one blanks the whole form.
-	let tools = $derived(
-		Array.isArray(agentValue?.tools)
-			? (agentValue.tools.filter((t) => t && typeof t === 'object') as AgentTool[])
-			: []
-	)
-	let toolIndex = $derived(toolId ? tools.findIndex((t) => t.id === toolId) : -1)
+	// The resource's own array, never a copy: the tool drawer writes replacements back through
+	// `tools[toolIndex]`, and a copy would take them instead of the value being edited. Only the
+	// container is shape-checked — `tools` is JSON-authored, and a `.filter` on another shape
+	// throws; entries are read with `?.` wherever they are dereferenced.
+	let tools = $derived(Array.isArray(agentValue?.tools) ? (agentValue.tools as AgentTool[]) : [])
+	let toolIndex = $derived(toolId ? tools.findIndex((t) => t?.id === toolId) : -1)
 	let tool = $derived(toolIndex >= 0 ? tools[toolIndex] : undefined)
 
 	// The caller owns which tool is open, so the drawer follows it rather than holding that state
@@ -328,7 +325,7 @@
 	 *  list, so the graph's delete has nothing here to act on. */
 	function deleteTool(id: string) {
 		if (!agentValue) return
-		const remaining = tools.filter((t) => t.id !== id)
+		const remaining = tools.filter((t) => t?.id !== id)
 		if (remaining.length === tools.length) return
 		agentValue.tools = remaining
 		delete flowStateStore.val[id]
@@ -451,7 +448,7 @@
 						staticOnly
 						noToolNavigation
 						forceTestTab={readOnly ? undefined : { [tool.id]: true }}
-						siblingToolNames={tools.filter((t) => t.id !== tool?.id).map((t) => t.summary ?? '')}
+						siblingToolNames={tools.filter((t) => t?.id !== tool?.id).map((t) => t?.summary ?? '')}
 					/>
 				</div>
 			{/if}

@@ -35,7 +35,7 @@
 	const portalTarget = overlayPortalTarget(() => pickerPortal)
 
 	function toolKind(tool: AgentTool): string | undefined {
-		const value = tool.value as Record<string, any>
+		const value = tool?.value as Record<string, any>
 		if (value?.type === 'aiagent') return 'agent'
 		if (value?.tool_type === 'mcp') return 'MCP'
 		if (value?.tool_type === 'websearch') return 'web search'
@@ -45,21 +45,21 @@
 	/** Only a flow module tool's summary is the name the model is given; an mcp or websearch
 	 *  summary is never sent, so a blank one there is not an error. Same rule as `agentToolTree`. */
 	function isNamed(tool: AgentTool): boolean {
-		return tool.value?.tool_type !== 'mcp' && tool.value?.tool_type !== 'websearch'
+		return tool?.value?.tool_type !== 'mcp' && tool?.value?.tool_type !== 'websearch'
 	}
 
-	let siblingNames = $derived(tools.filter(isNamed).map((tool) => tool.summary ?? ''))
+	let siblingNames = $derived(tools.filter(isNamed).map((tool) => tool?.summary ?? ''))
 
 	function nameError(tool: AgentTool): string | undefined {
 		if (!isNamed(tool)) return undefined
-		return getToolNameError(tool.summary ?? '', tool.value?.tool_type, siblingNames)
+		return getToolNameError(tool?.summary ?? '', tool?.value?.tool_type, siblingNames)
 	}
 
 	/** What to call a tool that has nothing to be called yet. A kind that carries no name says what
 	 *  it is still missing instead; the rest are named by their problem, since the run cannot start
 	 *  without one. There is room here for the full wording the graph node has to abbreviate. */
 	function unnamedLabel(tool: AgentTool): string {
-		if (tool.value?.tool_type === 'mcp') return 'No MCP server selected'
+		if (tool?.value?.tool_type === 'mcp') return 'No MCP server selected'
 		return 'Missing tool name'
 	}
 </script>
@@ -115,7 +115,9 @@
 	</div>
 {:else}
 	<div class="flex flex-col border rounded-md divide-y overflow-hidden">
-		{#each tools as tool (tool.id)}
+		<!-- Keyed by index as well as id: the list is JSON-authored, so two entries can share an id
+		     or carry none at all, and a duplicate key is a render-time throw. -->
+		{#each tools as tool, i (tool?.id ?? i)}
 			{@const kind = toolKind(tool)}
 			{@const error = nameError(tool)}
 			<!-- The delete sits beside the row rather than inside it: the row is itself a button, and
@@ -125,7 +127,7 @@
 					variant="subtle"
 					unifiedSize="sm"
 					disabled={!onSelectTool}
-					onClick={() => onSelectTool?.(tool.id)}
+					onClick={() => onSelectTool?.(tool?.id)}
 					wrapperClasses="grow min-w-0"
 					btnClasses="w-full min-w-0 !justify-start !text-left !px-2 !font-normal !text-xs text-primary"
 				>
@@ -134,10 +136,10 @@
 					     chose: the id would read as a name and hide that the run cannot start. -->
 					<span class={twMerge('truncate shrink min-w-0', error && 'text-red-400')}>
 						{error
-							? tool.summary || unnamedLabel(tool)
+							? tool?.summary || unnamedLabel(tool)
 							: (toolDisplayName(tool) ?? unnamedLabel(tool))}
 					</span>
-					{#if error && tool.summary}
+					{#if error && tool?.summary}
 						<span class="truncate grow min-w-0 text-2xs text-red-400">{error}</span>
 					{:else}
 						<span class="grow"></span>
@@ -157,7 +159,7 @@
 						startIcon={{ icon: X }}
 						title="Delete {toolDisplayName(tool) ?? 'this tool'}"
 						wrapperClasses="shrink-0 self-center pr-1"
-						onclick={() => onDeleteTool?.(tool.id)}
+						onclick={() => onDeleteTool?.(tool?.id)}
 					/>
 				{/if}
 			</div>

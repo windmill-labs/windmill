@@ -92,12 +92,9 @@ async function mapFlowModule(
 			// resource tool ids are not flow-unique and must not key into the flow state.
 			await publishLinkedAgentTools(agentRef, workspace, scope, flowModule.id)
 		} else {
-			// Shape-checked, entries included, because `tools` is JSON-authored: throwing here would
-			// skip the agent's own state below, leaving it with no schema rather than with no tool
-			// schemas. `isFlowModuleTool` reads `.value` off each entry unguarded.
-			const tools = Array.isArray(value.tools)
-				? value.tools.filter((t) => t && typeof t === 'object')
-				: []
+			// Shape-checked because `tools` is JSON-authored: throwing here would skip the agent's
+			// own state below, leaving it with no schema rather than with no tool schemas.
+			const tools = Array.isArray(value.tools) ? value.tools : []
 			await Promise.all(
 				tools.filter(isFlowModuleTool).map(async (tool) => {
 					modulesState[tool.id] = await loadFlowModuleState(agentToolToFlowModule(tool), workspace)

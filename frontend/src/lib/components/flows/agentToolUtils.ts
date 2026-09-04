@@ -65,6 +65,9 @@ export type WebsearchTool = AgentTool & {
  * Type guard to check if a tool is a FlowModule tool
  */
 export function isFlowModuleTool(tool: AgentTool): tool is FlowModuleTool {
+	// `value` must be there, not merely lack a `tool_type`: the tool list is JSON-authored, and an
+	// entry without one is not a flowmodule tool for the callers that go on to read its script.
+	if (tool?.value == undefined) return false
 	return tool.value.tool_type === undefined || tool.value.tool_type === 'flowmodule'
 }
 
@@ -72,14 +75,14 @@ export function isFlowModuleTool(tool: AgentTool): tool is FlowModuleTool {
  * Type guard to check if a tool is an MCP tool
  */
 export function isMcpTool(tool: AgentTool): tool is McpTool {
-	return tool.value.tool_type === 'mcp'
+	return tool?.value?.tool_type === 'mcp'
 }
 
 /**
  * Type guard to check if a tool is a Websearch tool
  */
 export function isWebsearchTool(tool: AgentTool): tool is WebsearchTool {
-	return tool.value.tool_type === 'websearch'
+	return tool?.value?.tool_type === 'websearch'
 }
 
 /** The only input a nested agent used as a tool has the calling agent fill: the rest is its own
@@ -92,8 +95,8 @@ export const AI_AGENT_TOOL_AI_KEYS = ['user_message']
  *  which is internal. Undefined when it has nothing to be called yet — an MCP tool with no server
  *  picked is unnamed rather than misnamed, so each surface words that for itself. */
 export function toolDisplayName(tool: AgentTool): string | undefined {
-	const value = tool.value as Record<string, any>
-	return tool.summary || value?.path || value?.resource_path || undefined
+	const value = tool?.value as Record<string, any>
+	return tool?.summary || value?.path || value?.resource_path || undefined
 }
 
 /**
