@@ -89,6 +89,19 @@ const CATALOG = [
 		}
 	},
 	{
+		name: 'runScriptByPath',
+		description: 'Run script by path',
+		instructions: 'Trigger a run of a deployed script',
+		path: '/w/{workspace}/jobs/run/p/{path}',
+		method: 'POST',
+		path_params_schema: {
+			type: 'object',
+			properties: { workspace: { type: 'string' }, path: { type: 'string' } },
+			required: ['workspace', 'path']
+		},
+		body_schema: { type: 'object', additionalProperties: true }
+	},
+	{
 		name: 'runFlowByPath',
 		description: 'Run flow by path',
 		instructions: 'Trigger a run of a deployed flow',
@@ -176,6 +189,19 @@ describe('call_api_get', () => {
 		expect(byHash.error).toContain('delete_workspace_item')
 		const search = await run('search_api_endpoints', { query: 'delete script' })
 		expect(search.matches.map((m: any) => m.name)).not.toContain('deleteScriptByHash')
+	})
+
+	// Left reachable, this endpoint is the way around the argument form: it runs the
+	// deployed script on the model's arguments, unstripped and unshown.
+	it('refuses a deployed script run, pointing at run_script', async () => {
+		const called = await run('call_api_endpoint', { name: 'runScriptByPath' })
+		expect(called.error).toContain('run_script')
+		expect(called.success).toBe(false)
+
+		// And it is gone from search, so the model is redirected before it ever calls.
+		const search = await run('search_api_endpoints', { query: 'run deployed script' })
+		expect(search.matches.map((m: any) => m.name)).not.toContain('runScriptByPath')
+		expect(search.covered_by_dedicated_tools?.join(' ')).toContain('run_script')
 	})
 
 	it('refuses draft-blind item reads and lists, pointing at the draft-aware tools', async () => {
