@@ -162,6 +162,11 @@
 	// opening the drawer materialises schema defaults (`folder: ""`), so a whole-
 	// resource dirty check would disable it the moment the drawer opens.
 	let urlDirty = $derived(!!deployedUrl && current?.args?.url !== deployedUrl)
+	// The saved path, for the same reason as the saved URL: a credential filed
+	// under an unsaved rename would sit at a path nothing points at, while the
+	// repository kept authenticating with the token it already had.
+	let deployedPath = $derived(selected ? (initialStates[selected]?.path ?? initialPath) : undefined)
+	let pathDirty = $derived(!!deployedPath && current?.path !== deployedPath)
 	let resourceToEdit: Resource | undefined = $derived(
 		selected ? fetchedResources[selected] : undefined
 	)
@@ -342,7 +347,10 @@
 		current.path = npath
 	}
 
-	let pendingGitCredential: { token: string; repoUrl: string } | undefined = $state(undefined)
+	// Carries the workspace it was picked in: `save()` loops over every dirty
+	// workspace, so an unkeyed token would be filed in all of them.
+	let pendingGitCredential: { workspace: string; token: string; repoUrl: string } | undefined =
+		$state(undefined)
 
 	/** Whether the write landed. It toasts its own failure, so most callers ignore this;
 	 * one that follows the save with bookkeeping of its own has to know not to. */
@@ -352,6 +360,23 @@
 			for (const ws of dirty) {
 				const s = states[ws].draft!
 				const ini = initialStates[ws]
+				// Before the resource write, and only for the workspace the token was
+				// picked in. Ordered this way so a failure is always the recoverable
+				// one: if this throws, nothing else has happened and the workspace is
+				// still dirty, so saving again retries it. Were it to run after, the
+				// baseline would already be reset and the retry would find nothing to
+				// do while discarding the token — a saved repository with a managed
+				// marker and no credential.
+				if (pendingGitCredential?.workspace === ws) {
+					await GitSyncService.setGitCredential({
+						workspace: ws,
+						requestBody: {
+							repo_path: s.path,
+							repo_url: pendingGitCredential.repoUrl,
+							token: pendingGitCredential.token
+						}
+					})
+				}
 				if (existedInitially[ws]) {
 					await ResourceService.updateResource({
 						workspace: ws,
@@ -389,18 +414,6 @@
 				// Path now exists server-side — drop the autocomplete cache so
 				// it shows up immediately instead of after the 60s TTL.
 				invalidateWorkspacePaths(ws)
-				// Only now is the path the credential is filed under settled, so a
-				// cancelled edit leaves the repository's existing token alone.
-				if (pendingGitCredential) {
-					await GitSyncService.setGitCredential({
-						workspace: ws,
-						requestBody: {
-							repo_path: s.path,
-							repo_url: pendingGitCredential.repoUrl,
-							token: pendingGitCredential.token
-						}
-					})
-				}
 			}
 			pendingGitCredential = undefined
 			sendUserToast(
@@ -430,15 +443,15 @@
 						The URL below carries no credential. Windmill renews the token before it expires and
 						hands it to this workspace's sync jobs, and forks of this workspace use it without
 						storing their own copy.
-						{#if urlDirty}
-							Save the URL change to replace the token.
+						{#if urlDirty || pathDirty}
+							Save your {urlDirty ? 'URL' : 'path'} change to replace the token.
 						{/if}
 					</div>
 					<ReplaceGitCredential
 						workspace={selected}
-						resourcePath={current?.path ?? initialPath ?? ''}
+						resourcePath={deployedPath ?? ''}
 						repoUrl={deployedUrl ?? ''}
-						disabled={urlDirty || !deployedUrl}
+						disabled={urlDirty || pathDirty || !deployedUrl || !deployedPath}
 					/>
 				</div>
 			</Alert>
@@ -466,7 +479,8 @@
 					{resourceToEdit}
 					onLoadResourceType={() => resourceTypeResource.refetch()}
 					workspace={selected}
-					onCredentialSelected={(c) => (pendingGitCredential = c)}
+					onCredentialSelected={(c) =>
+						(pendingGitCredential = selected ? { ...c, workspace: selected } : undefined)}
 				/>
 			{/key}
 		{/if}

@@ -933,6 +933,21 @@
 				}
 			}
 
+			// Before the resource is written, so a failure here leaves nothing behind
+			// and the whole save can simply be retried. After it, a failed credential
+			// write would leave a created resource that the retry cannot create again,
+			// with a managed marker and no token behind it.
+			if (pendingGitCredential) {
+				await GitSyncService.setGitCredential({
+					workspace: effectiveWorkspace,
+					requestBody: {
+						repo_path: path,
+						repo_url: pendingGitCredential.repoUrl,
+						token: pendingGitCredential.token
+					}
+				})
+			}
+
 			if (filling) {
 				// The stub the import made carries no description, so this is the one chance to
 				// give it one; its resource_type and path are already what we want.
@@ -954,19 +969,7 @@
 					}
 				})
 			}
-			// After the resource exists, so the path the credential is filed under is
-			// the one that was actually saved and a cancelled form writes nothing.
-			if (pendingGitCredential) {
-				await GitSyncService.setGitCredential({
-					workspace: effectiveWorkspace,
-					requestBody: {
-						repo_path: path,
-						repo_url: pendingGitCredential.repoUrl,
-						token: pendingGitCredential.token
-					}
-				})
-				pendingGitCredential = undefined
-			}
+			pendingGitCredential = undefined
 			dispatch('refresh', path)
 			dispatch('close')
 			sendUserToast(
