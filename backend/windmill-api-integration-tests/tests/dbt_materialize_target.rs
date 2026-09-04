@@ -146,6 +146,41 @@ async fn test_dbt_materialize_target_deploy_contract(db: Pool<Postgres>) -> anyh
     assert_eq!(resp.status(), 400);
     assert!(resp.text().await?.contains("u/test-user/project"));
 
+    // A rename is the other half of that: the producer's write still sits at the
+    // OLD path in the committed snapshot this deploy reads, while the same
+    // transaction removes it — so it must not count as the producer that would
+    // wake the subscription the rename adds.
+    let hash = sqlx::query_scalar!(
+        "SELECT hash FROM script WHERE workspace_id = 'test-workspace' \
+           AND path = 'u/test-user/ingest' AND archived = false"
+    )
+    .fetch_one(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind)
+         VALUES ('test-workspace', 'main/analytics/orders', 'dbt', 'w', 'u/test-user/project',
+                 'script')"
+    )
+    .execute(&db)
+    .await?;
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/w/test-workspace/scripts/create"
+    )))
+    .json(&json!({
+        "path": "u/test-user/ingest_renamed",
+        "parent_hash": format!("{:x}", hash),
+        "summary": "",
+        "description": "",
+        "content": "// on dbt://main/analytics/orders\nexport async function main() {}",
+        "language": "deno",
+        "schema": { "type": "object", "properties": {}, "required": [] }
+    }))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 400);
+    assert!(resp.text().await?.contains("u/test-user/project"));
+
     // Neither annotation is accepted on a dbt script: the graph ingest
     // republishes that path's asset and trigger rows wholesale, so either would
     // deploy something the dependency job then silently removes.

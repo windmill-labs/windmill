@@ -59,7 +59,7 @@ async fn plant_subscriber(db: &Pool<Postgres>, path: &str) {
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn no_producer_is_not_dormant(db: Pool<Postgres>) {
     assert_eq!(
-        sole_dbt_producer(&db, WS, RELATION, SUBSCRIBER)
+        sole_dbt_producer(&db, WS, RELATION, &[SUBSCRIBER.to_string()])
             .await
             .unwrap(),
         None,
@@ -71,7 +71,7 @@ async fn no_producer_is_not_dormant(db: Pool<Postgres>) {
 async fn dbt_only_producer_is_dormant(db: Pool<Postgres>) {
     plant_producer(&db, "u/test-user/project", "dbt", 1).await;
     assert_eq!(
-        sole_dbt_producer(&db, WS, RELATION, SUBSCRIBER)
+        sole_dbt_producer(&db, WS, RELATION, &[SUBSCRIBER.to_string()])
             .await
             .unwrap(),
         Some("u/test-user/project".to_string())
@@ -83,7 +83,7 @@ async fn a_native_producer_beside_dbt_is_not_dormant(db: Pool<Postgres>) {
     plant_producer(&db, "u/test-user/project", "dbt", 1).await;
     plant_producer(&db, "u/test-user/ingest", "postgresql", 2).await;
     assert_eq!(
-        sole_dbt_producer(&db, WS, RELATION, SUBSCRIBER)
+        sole_dbt_producer(&db, WS, RELATION, &[SUBSCRIBER.to_string()])
             .await
             .unwrap(),
         None
@@ -102,7 +102,7 @@ async fn a_superseded_native_version_does_not_count(db: Pool<Postgres>) {
         .expect("archive the old version");
     plant_producer(&db, "u/test-user/project", "dbt", 2).await;
     assert_eq!(
-        sole_dbt_producer(&db, WS, RELATION, SUBSCRIBER)
+        sole_dbt_producer(&db, WS, RELATION, &[SUBSCRIBER.to_string()])
             .await
             .unwrap(),
         Some("u/test-user/project".to_string())
@@ -113,15 +113,35 @@ async fn a_superseded_native_version_does_not_count(db: Pool<Postgres>) {
 /// script dropping its `// materialize` while adding a subscription would
 /// otherwise count itself as the producer that wakes it — and commit a dormant
 /// edge. It can never be that producer anyway: the dispatcher skips self-loops.
+/// Under a rename that write sits at the OLD path, which the deploy is removing
+/// in the same uncommitted transaction, so both paths have to be excluded.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn the_subscriber_is_never_its_own_producer(db: Pool<Postgres>) {
     plant_producer(&db, "u/test-user/project", "dbt", 1).await;
     plant_producer(&db, SUBSCRIBER, "postgresql", 2).await;
     assert_eq!(
-        sole_dbt_producer(&db, WS, RELATION, SUBSCRIBER)
+        sole_dbt_producer(&db, WS, RELATION, &[SUBSCRIBER.to_string()])
             .await
             .unwrap(),
         Some("u/test-user/project".to_string())
+    );
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn a_renamed_producer_is_excluded_too(db: Pool<Postgres>) {
+    plant_producer(&db, "u/test-user/project", "dbt", 1).await;
+    plant_producer(&db, "u/test-user/old_ingest", "postgresql", 2).await;
+    assert_eq!(
+        sole_dbt_producer(
+            &db,
+            WS,
+            RELATION,
+            &[SUBSCRIBER.to_string(), "u/test-user/old_ingest".to_string()]
+        )
+        .await
+        .unwrap(),
+        Some("u/test-user/project".to_string()),
+        "the write this deploy is moving off the old path cannot wake the subscription"
     );
 }
 

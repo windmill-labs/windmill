@@ -2468,8 +2468,15 @@ async fn create_script_internal<'c>(
                      and a project is run on its schedule, not woken by an asset cascade."
                 )));
             }
+            // Both paths under a rename: the old one's committed write row is
+            // still there and this transaction is about to remove it.
+            let deploying_paths = match p_path_opt.as_deref().filter(|old| *old != ns.path) {
+                Some(old) => vec![ns.path.clone(), old.to_string()],
+                None => vec![ns.path.clone()],
+            };
             if let Some(dbt_owner) =
-                windmill_common::assets::sole_dbt_producer(&db, &w_id, relation, &ns.path).await?
+                windmill_common::assets::sole_dbt_producer(&db, &w_id, relation, &deploying_paths)
+                    .await?
             {
                 return Err(Error::BadRequest(format!(
                     "`{trigger_ref}` cannot be subscribed to: it is built by the dbt project at \

@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT hash FROM script WHERE workspace_id = 'test-workspace' AND path = 'u/test-user/ingest' AND archived = false",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "hash",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "87877da7342ee745514442387c707f75182ea2f25162fe6e3c9b99a8a8cfacdb"
+}
