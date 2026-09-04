@@ -84,6 +84,7 @@
 	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
 	import SessionModeSwitch from '$lib/components/sessions/SessionModeSwitch.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
+	import { copilotInfo } from '$lib/aiStore'
 	import { parsePreviewItemRoute } from '$lib/components/sessions/previewPaths'
 	import { rememberNavRoute } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { sessionState } from '$lib/components/sessions/sessionState.svelte'
@@ -251,6 +252,10 @@
 	// so it follows the gate; opted-out users get the legacy Ask-AI pane instead.
 	// The /sessions page has its own gate for direct navigation.
 	const globalAiEnabled = isGlobalAiEnabled()
+	// A workspace that hid the assistant (`ai_config.copilot_disabled`) loses both entry
+	// points: the Workspace ⇄ Sessions switch and the legacy Ask-AI button.
+	const sessionsSwitchShown = $derived(globalAiEnabled && !$copilotInfo.workspaceDisabled)
+	const askAiShown = $derived(!globalAiEnabled && !$copilotInfo.workspaceDisabled)
 
 	if (page.status == 404) {
 		goto('/user/login')
@@ -1004,7 +1009,7 @@
 										</Menubar>
 									</div>
 
-									{#if !embedded && globalAiEnabled}
+									{#if !embedded && sessionsSwitchShown}
 										<!-- The switch: workspace navigation ⇄ sessions sidebar. -->
 										<div class="px-2 pb-1 w-52">
 											<SessionModeSwitch
@@ -1016,7 +1021,7 @@
 
 									{#if !sessionMode}
 										<!-- Workspace scope (fork picker): part of the top workspace group. -->
-										<div class="pb-1 w-52 {globalAiEnabled ? '' : '-mt-1'}">
+										<div class="pb-1 w-52 {sessionsSwitchShown ? '' : '-mt-1'}">
 											<WorkspaceScopeHeader isCollapsed={false} />
 										</div>
 									{/if}
@@ -1052,7 +1057,7 @@
 													class="!text-xs"
 													shortcut={`${getModifierKey()}k`}
 												/>
-												{#if !globalAiEnabled}
+												{#if askAiShown}
 													<!-- Legacy Ask-AI pane, shown only when the user opted out of the
 													     AI Sessions beta (otherwise SessionModeSwitch replaces it). -->
 													<MenuButton
@@ -1139,7 +1144,7 @@
 								</Menubar>
 							</div>
 
-							{#if !embedded && globalAiEnabled}
+							{#if !embedded && sessionsSwitchShown}
 								<!-- The switch: workspace navigation ⇄ sessions sidebar. -->
 								<div class="px-2 pb-1 {isCollapsed ? 'flex justify-center' : ''}">
 									<SessionModeSwitch mode={sessionMode ? 'session' : 'nav'} {isCollapsed} />
@@ -1150,7 +1155,7 @@
 								<!-- Workspace scope (fork picker): part of the top workspace group,
 								     together with the family menu and the mode switch above. Without
 								     the switch, pull it up so the group still reads as one block. -->
-								<div class="pb-1 {globalAiEnabled ? '' : '-mt-1'}">
+								<div class="pb-1 {sessionsSwitchShown ? '' : '-mt-1'}">
 									<WorkspaceScopeHeader {isCollapsed} />
 								</div>
 							{/if}
@@ -1189,7 +1194,7 @@
 											class="!text-xs"
 											shortcut={`${getModifierKey()}k`}
 										/>
-										{#if !globalAiEnabled}
+										{#if askAiShown}
 											<!-- Legacy Ask-AI pane, shown only when the user opted out of the
 											     AI Sessions beta (otherwise SessionModeSwitch replaces it). -->
 											<MenuButton
@@ -1328,19 +1333,21 @@
 									class="!text-xs"
 									shortcut={`${getModifierKey()}k`}
 								/>
-								<MenuButton
-									stopPropagationOnClick={true}
-									on:click={() => aiChatManager.toggleOpen()}
-									{isCollapsed}
-									icon={WandSparkles}
-									iconProps={{
-										forceDarkMode: true
-									}}
-									label="Ask AI"
-									class="!text-xs"
-									iconClasses="!text-ai"
-									shortcut={`${getModifierKey()}L`}
-								/>
+								{#if !$copilotInfo.workspaceDisabled}
+									<MenuButton
+										stopPropagationOnClick={true}
+										on:click={() => aiChatManager.toggleOpen()}
+										{isCollapsed}
+										icon={WandSparkles}
+										iconProps={{
+											forceDarkMode: true
+										}}
+										label="Ask AI"
+										class="!text-xs"
+										iconClasses="!text-ai"
+										shortcut={`${getModifierKey()}L`}
+									/>
+								{/if}
 							</div>
 
 							<SidebarContent

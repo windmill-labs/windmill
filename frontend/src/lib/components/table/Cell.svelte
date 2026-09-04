@@ -11,7 +11,9 @@
 		shouldStopPropagation?: boolean
 		selected?: boolean
 		sticky?: boolean
-		stickyEnd?: boolean
+		/** The column holding a row's action buttons. It hugs its content at the table's
+		 *  right edge instead of absorbing the width the other columns leave over. */
+		actions?: boolean
 		wrap?: boolean
 		children?: import('svelte').Snippet
 		[key: string]: any
@@ -25,7 +27,7 @@
 		shouldStopPropagation = false,
 		selected = false,
 		sticky = false,
-		stickyEnd = false,
+		actions = false,
 		wrap = false,
 		children,
 		...rest
@@ -55,11 +57,11 @@
 		last && size === 'xs' ? 'sm:pr-3' : '',
 
 		numeric ? 'text-right' : '',
-		// Pin an actions column to the right so it stays visible when a wide table
-		// scrolls horizontally. The background must be opaque so cells sliding under it
-		// are occluded — the row's hover tint is translucent and would bleed through.
-		stickyEnd ? 'sticky right-0 border-l' : '',
-		stickyEnd ? (head ? 'bg-surface-secondary' : 'bg-surface') : '',
+		// `w-0` shrinks the column to its buttons instead of taking the leftover width, and
+		// the pin keeps them reachable while a wide table scrolls. The background must stay
+		// opaque for the cells passing under it to be occluded — see `wm-cell-pinned` below.
+		actions ? 'w-0 text-right [&>*]:ml-auto sticky right-0 wm-cell-pinned' : '',
+		actions ? (head ? 'bg-surface-secondary' : 'bg-surface') : '',
 		sticky ? `!p-0 sticky ${first ? 'left-0' : 'right-0'}` : 'px-2 py-2',
 		size === 'sm' ? 'px-1.5 py-2.5' : '',
 		size === 'lg' ? 'px-3 py-4' : '',
@@ -77,3 +79,32 @@
 		{@render children?.()}
 	{/if}
 </svelte:element>
+
+<style>
+	/* A sticky cell paints over its row's hover tint rather than inheriting it, and the tint
+	   token carries alpha — adopting it would make the cell translucent and stop it
+	   occluding. So it is layered over the opaque colour. A pseudo-element, not a
+	   `background-image`: that is not animatable, and the row fades its tint on this curve. */
+	.wm-cell-pinned::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		/* Above the cell's own background, below its buttons. */
+		z-index: -1;
+		pointer-events: none;
+		background-color: rgb(var(--color-surface-hover));
+		opacity: 0;
+		transition: opacity 150ms cubic-bezier(0.4, 0, 0.2, 1);
+	}
+
+	:global(tr.wm-row-hoverable:hover) > .wm-cell-pinned::after {
+		opacity: 1;
+	}
+
+	/* Drawn only while the table overflows (DataTable measures it), since the seam marks that
+	   content is passing under. A shadow, not a border: under `border-collapse: collapse` a
+	   cell's borders belong to the table and scroll away with it. */
+	:global(.wm-table-x-overflow) .wm-cell-pinned {
+		box-shadow: -1px 0 0 0 rgb(var(--color-border-light));
+	}
+</style>

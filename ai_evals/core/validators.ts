@@ -278,6 +278,20 @@ export function validateToolExpectations(input: {
       );
     }
 
+    if (rule.stringEqualsAnyOf && rule.stringEqualsAnyOf.length > 0) {
+      const invalidValues = values.filter(
+        (value) =>
+          typeof value !== "string" || !rule.stringEqualsAnyOf!.includes(value)
+      );
+      checks.push(
+        check(
+          `${rule.tool}.${rule.field} matches an accepted value`,
+          invalidValues.length === 0,
+          `accepted values: ${rule.stringEqualsAnyOf.join(", ")}; values: ${summarizeToolValues(values)}`
+        )
+      );
+    }
+
     if (rule.stringMustNotStartWithAnyOf && rule.stringMustNotStartWithAnyOf.length > 0) {
       const invalidValues = values.filter(
         (value) =>

@@ -7,14 +7,14 @@
  */
 use anyhow::Context;
 use monitor::{
-    load_base_url, load_otel, reload_critical_alerts_on_db_oversize,
-    reload_delete_logs_periodically_setting, reload_indexer_config,
-    reload_instance_python_version_setting, reload_maven_repos_setting,
+    flush_pending_log_files_to_object_store, load_base_url, load_otel,
+    reload_critical_alerts_on_db_oversize, reload_delete_logs_periodically_setting,
+    reload_indexer_config, reload_instance_python_version_setting, reload_maven_repos_setting,
     reload_maven_settings_xml_setting, reload_no_default_maven_setting,
     reload_nuget_config_setting, reload_powershell_repo_pat_setting,
     reload_powershell_repo_url_setting, reload_ruby_repos_setting,
     reload_timeout_wait_result_setting, reload_workspace_registries_setting,
-    flush_pending_log_files_to_object_store, send_logs_to_object_store, WORKERS_NAMES,
+    send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
 use sqlx::{Pool, Postgres};
@@ -53,9 +53,9 @@ use windmill_common::{
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MAVEN_SETTINGS_XML_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING,
-        NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING, OTEL_TRACING_PROXY_SETTING,
-        PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING,
-        PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING, OTEL_TRACES_RETENTION_SECS_SETTING,
+        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
+        POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RESTART_COORDINATION_SETTING,
         RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING,
         SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
@@ -140,12 +140,12 @@ use crate::monitor::{
     reload_instance_events_webhook_setting, reload_job_default_timeout_setting,
     reload_job_isolation_setting, reload_jwt_secret_setting, reload_license_key,
     reload_npm_config_registry_setting, reload_nsjail_tmp_backing_setting,
-    reload_nsjail_tmpfs_size_setting, reload_otel_tracing_proxy_setting,
-    reload_pip_index_url_setting, reload_retention_period_setting,
-    reload_sandbox_image_cache_max_setting, reload_sandbox_image_default_registry_setting,
-    reload_sandbox_image_max_size_setting, reload_sandbox_image_pull_policy_setting,
-    reload_sandbox_registry_auth_setting, reload_scim_token_setting,
-    reload_service_log_retention_secs_setting, reload_smtp_config,
+    reload_nsjail_tmpfs_size_setting, reload_otel_traces_retention_secs_setting,
+    reload_otel_tracing_proxy_setting, reload_pip_index_url_setting,
+    reload_retention_period_setting, reload_sandbox_image_cache_max_setting,
+    reload_sandbox_image_default_registry_setting, reload_sandbox_image_max_size_setting,
+    reload_sandbox_image_pull_policy_setting, reload_sandbox_registry_auth_setting,
+    reload_scim_token_setting, reload_service_log_retention_secs_setting, reload_smtp_config,
     reload_store_audit_logs_s3_setting, reload_uv_exclude_newer_setting,
     reload_uv_index_strategy_setting, reload_uv_python_install_mirror_setting,
     reload_worker_config, MonitorIteration,
@@ -406,7 +406,11 @@ struct HubResourceTypeRaw {
     pub schema: Option<String>,
     pub app: String,
     pub description: Option<String>,
+    /// Absent from hubs predating the column, and from caches written before it.
+    #[serde(default)]
+    pub format_extension: Option<String>,
 }
+
 
 /// Processed resource type with parsed schema
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
@@ -416,6 +420,18 @@ pub struct HubResourceType {
     pub schema: Option<serde_json::Value>,
     pub app: String,
     pub description: Option<String>,
+    /// Doubly optional on purpose. A cache written before this column has no key at
+    /// all (`None`) and must leave the stored extension alone; one written since
+    /// always writes the key, so an explicit null (`Some(None)`) is the hub genuinely
+    /// dropping it and must clear. A single `Option` conflates the two, and picking
+    /// either meaning breaks the other — as does plain serde, which folds `null`
+    /// into the outer `None`, hence the wrapping deserializer.
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub format_extension: Option<Option<String>>,
 }
 
 const HUB_RT_CACHE_FILE: &str = "resource_types.json";
@@ -462,6 +478,7 @@ async fn cache_hub_resource_types() -> anyhow::Result<()> {
                 schema,
                 app: rt.app,
                 description: rt.description,
+                format_extension: Some(rt.format_extension),
             })
         })
         .collect();
@@ -503,9 +520,17 @@ pub async fn sync_cached_resource_types(db: &sqlx::Pool<sqlx::Postgres>) -> anyh
 
     tracing::info!("Found {} cached resource types", cached_types.len());
 
-    // Get existing resource types in admins workspace
-    let existing_types: Vec<(String, Option<serde_json::Value>, Option<String>)> = sqlx::query_as(
-        "SELECT name, schema, description FROM resource_type WHERE workspace_id = 'admins'",
+    // Get existing resource types in admins workspace. `format_extension` is part of
+    // the comparison below, so a type whose only change is gaining or losing it is
+    // not mistaken for unchanged; `is_fileset` decides whether it may take one.
+    let existing_types: Vec<(
+        String,
+        Option<serde_json::Value>,
+        Option<String>,
+        Option<String>,
+        bool,
+    )> = sqlx::query_as(
+        "SELECT name, schema, description, format_extension, is_fileset FROM resource_type WHERE workspace_id = 'admins'",
     )
     .fetch_all(db)
     .await
@@ -513,19 +538,42 @@ pub async fn sync_cached_resource_types(db: &sqlx::Pool<sqlx::Postgres>) -> anyh
 
     let existing_map: std::collections::HashMap<
         String,
-        (Option<serde_json::Value>, Option<String>),
+        (Option<serde_json::Value>, Option<String>, Option<String>, bool),
     > = existing_types
         .into_iter()
-        .map(|(name, schema, desc)| (name, (schema, desc)))
+        .map(|(name, schema, desc, format_extension, is_fileset)| {
+            (name, (schema, desc, format_extension, is_fileset))
+        })
         .collect();
 
     let mut synced_count = 0;
     let mut skipped_count = 0;
 
     for rt in cached_types {
-        // Check if resource type already exists with same schema and description
-        if let Some((existing_schema, existing_desc)) = existing_map.get(&rt.name) {
-            if existing_schema == &rt.schema && existing_desc == &rt.description {
+        let existing = existing_map.get(&rt.name);
+        let is_fileset = existing.map(|(_, _, _, f)| *f).unwrap_or(false);
+        let stored_extension = existing.and_then(|(_, _, e, _)| e.clone());
+        // A fileset is a set of files, so it cannot also be one file. Create, update
+        // and the manual sync all reject the pair; this writer would otherwise
+        // persist it onto a same-named local fileset.
+        //
+        // A cache with no key at all leaves the stored value alone, so the target is
+        // what is already there — which is also what makes the comparison below
+        // agree with the write instead of re-upserting the row on every boot.
+        let format_extension = if is_fileset {
+            None
+        } else {
+            match &rt.format_extension {
+                Some(from_cache) => from_cache.clone(),
+                None => stored_extension.clone(),
+            }
+        };
+
+        if let Some((existing_schema, existing_desc, _, _)) = existing {
+            if existing_schema == &rt.schema
+                && existing_desc == &rt.description
+                && stored_extension == format_extension
+            {
                 skipped_count += 1;
                 continue;
             }
@@ -533,14 +581,19 @@ pub async fn sync_cached_resource_types(db: &sqlx::Pool<sqlx::Postgres>) -> anyh
 
         // Insert or update resource type
         sqlx::query(
-            "INSERT INTO resource_type (workspace_id, name, schema, description, edited_at)
-             VALUES ('admins', $1, $2, $3, now())
+            // `format_extension` is resolved above rather than coalesced here: a
+            // COALESCE could never clear one, so a hub that dropped an extension
+            // would leave the stale value behind forever.
+            "INSERT INTO resource_type (workspace_id, name, schema, description, format_extension, edited_at)
+             VALUES ('admins', $1, $2, $3, $4, now())
              ON CONFLICT (workspace_id, name) DO UPDATE
-             SET schema = EXCLUDED.schema, description = EXCLUDED.description, edited_at = now()",
+             SET schema = EXCLUDED.schema, description = EXCLUDED.description,
+                 format_extension = EXCLUDED.format_extension, edited_at = now()",
         )
         .bind(&rt.name)
         .bind(&rt.schema)
         .bind(&rt.description)
+        .bind(&format_extension)
         .execute(db)
         .await
         .with_context(|| format!("Failed to upsert resource type {}", rt.name))?;
@@ -1959,6 +2012,9 @@ async fn process_notify_event(
                 RETENTION_PERIOD_SECS_SETTING => reload_retention_period_setting(conn).await,
                 SERVICE_LOG_RETENTION_SECS_SETTING => {
                     reload_service_log_retention_secs_setting(conn).await
+                }
+                OTEL_TRACES_RETENTION_SECS_SETTING => {
+                    reload_otel_traces_retention_secs_setting(conn).await
                 }
                 RETENTION_PERIOD_SECS_OVERRIDES_SETTING => {
                     if let Err(e) = load_retention_period_overrides(db).await {

@@ -24,7 +24,8 @@
 		ChevronsDownUp,
 		ChevronsUpDown,
 		Code2,
-		LayoutDashboard
+		LayoutDashboard,
+		Tag
 	} from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import CreateActionsMenu from './CreateActionsMenu.svelte'
@@ -39,6 +40,7 @@
 		type FilterSchemaRec
 	} from '$lib/components/FilterSearchbar.svelte'
 	import NoItemFound from './NoItemFound.svelte'
+	import ListFilters from './ListFilters.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
@@ -74,10 +76,10 @@
 	)
 
 	// FilterSearchbar schema — `_default_` is the free-text search; the rest mirror the
-	// boolean/kind list filters. Owner and label scoping are offered as searchbar presets
-	// (searchPresets) and resolve server-side (path_start / label) rather than filtering
-	// client-side. `content` is a distinct mode: it swaps the list for the client-side
-	// content-match view below (usable on any instance, not EE-gated).
+	// boolean/kind list filters. Owner and label are also reachable as searchbar presets
+	// (searchPresets) and as on-page chip rows (the ListFilters markup below). `content` is
+	// a distinct mode: it swaps the list for the client-side content-match view below
+	// (usable on any instance, not EE-gated).
 	let searchFilterSchema = $derived({
 		_default_: { type: 'string' as const, hidden: true },
 		content: {
@@ -86,8 +88,8 @@
 			description: 'Search across item contents'
 		},
 		// Owner (u/<user> or f/<folder>) and label are offered as presets built from what the
-		// list actually holds (see searchPresets); they drive the same server path-scope / label
-		// filter the old on-page chips did.
+		// list actually holds (see searchPresets); owner is a server path-scope, label a
+		// client-side filter over the loaded rows.
 		owner: { type: 'string' as const, label: 'Owner' },
 		label: { type: 'string' as const, label: 'Label' },
 		kind: {
@@ -717,11 +719,20 @@
 		return true // should not happen
 	}
 
-	// Owner/label scope now live on the URL-synced searchbar filters (set via the presets),
-	// not standalone chip state — the whole data layer below still reads these two, so keep
-	// them as the single derived source. Empty string reads as "no filter".
+	// The whole data layer below reads these two derived views of the searchbar filters, so
+	// keep them the single source. Empty string reads as "no filter".
 	let ownerFilter = $derived((filterValues.val.owner || undefined) as string | undefined)
 	let labelFilter = $derived((filterValues.val.label || undefined) as string | undefined)
+	// Chip-row setters. Clearing deletes the key rather than writing null, which the
+	// searchbar would otherwise render as a `key: null` tag.
+	function setOwnerFilter(o: string | undefined) {
+		if (o == undefined) delete filterValues.val.owner
+		else filterValues.val.owner = o
+	}
+	function setLabelFilter(l: string | undefined) {
+		if (l == undefined) delete filterValues.val.label
+		else filterValues.val.label = l
+	}
 
 	const cmp = new Intl.Collator('en').compare
 
@@ -1155,11 +1166,26 @@
 	function itemLabels(x: { labels?: string[]; inherited_labels?: string[] }): string[] {
 		return [...(x.labels ?? []), ...(x.inherited_labels ?? [])]
 	}
-	let allLabels = $derived(
-		Array.from(new Set(combinedItems?.flatMap((x) => itemLabels(x)) ?? [])).sort()
+	// Labels ranked by how many loaded rows carry them (ties alphabetical). Unlike the owner
+	// chips there is no workspace-wide count endpoint, so the order is window-local and can
+	// shift as later pages load. A row carrying a label both directly and by inheritance
+	// counts once.
+	let allLabels = $derived.by(() => {
+		const counts = new Map<string, number>()
+		for (const x of combinedItems ?? [])
+			for (const l of new Set(itemLabels(x))) counts.set(l, (counts.get(l) ?? 0) + 1)
+		return [...counts.keys()].sort(
+			(a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0) || cmp(a, b)
+		)
+	})
+	let hasChips = $derived(
+		owners.length > 0 ||
+			allLabels.length > 0 ||
+			ownerFilter != undefined ||
+			labelFilter != undefined
 	)
 	// FilterSearchbar presets: the owner prefixes and labels the list actually holds, so
-	// scoping to one is a click in the searchbar dropdown instead of a wall of on-page chips.
+	// scoping to one is a click in the searchbar dropdown.
 	// Owner sets the `owner` filter (server path-scope), label sets `label` (client filter).
 	// The `:\ ` separator and escaped spaces match the canonical `key:\ value` form parseToText
 	// emits, so the "already applied" check finds them after a reparse and won't re-offer a
@@ -1743,6 +1769,30 @@
 			{/if}
 		</div>
 	</div>
+	{#if !contentActive && hasChips}
+		<!-- Owner and label chips on one line. Each function binding routes the chip's
+		     selection into the searchbar key of the same name, and `queryName` points
+		     ListFilters' own mount-time URL read at the param the filter instance syncs, so
+		     the two writers agree. No `syncQuery`: the filter instance owns the URL. -->
+		<div class="gap-2 w-full flex flex-wrap mt-3">
+			<ListFilters
+				inline
+				bind:selectedFilter={() => ownerFilter, setOwnerFilter}
+				filters={owners}
+				queryName="owner"
+				maxDisplayed={10}
+			/>
+			<ListFilters
+				inline
+				bind:selectedFilter={() => labelFilter, setLabelFilter}
+				filters={allLabels}
+				queryName="label"
+				maxDisplayed={10}
+				color="blue"
+				icon={Tag}
+			/>
+		</div>
+	{/if}
 	{#if filteredItems?.length == 0}
 		<div class="mt-10"></div>
 	{/if}
