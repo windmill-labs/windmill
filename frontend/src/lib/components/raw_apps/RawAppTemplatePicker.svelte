@@ -96,14 +96,11 @@
 		selectedRole !== undefined && loadedRoles.includes(selectedRole) ? selectedRole : undefined
 	)
 
-	// Omitted when it is the data table's own default, which is what the server
-	// resolves anyway. Named otherwise: that default is not filtered by what this
-	// caller may use, so a caller who cannot use it has to say what they can.
-	const roleToSave = $derived(
-		effectiveRole !== undefined && effectiveRole !== roles.current.defaultRole
-			? effectiveRole
-			: undefined
-	)
+	// The role this app is created with, written down rather than left to resolve.
+	// Leaving it out means "whatever the default is then", which silently moves the
+	// app the day an admin changes it — and that default is not filtered by what
+	// this caller may use in the first place.
+	const roleToSave = $derived(effectiveRole)
 
 	const availableDatatables = $derived(datatables.current)
 	// `undefined` while the list loads, so this is false until it has answered.
@@ -365,11 +362,8 @@
 												class="w-40"
 											/>
 											{#if noUsableRole}
-												<!-- Turning table creation off is not a way around this: the app
-												     then names no data table, and what the assistant writes falls
-												     back to the workspace's default — this one. -->
 												<span class="text-xs text-red-600 dark:text-red-400">
-													no role you can use — queries against it will be refused
+													no role you can use
 												</span>
 											{/if}
 											{#if showRolePicker}
