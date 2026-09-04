@@ -216,8 +216,10 @@ async fn rename_user(
     .execute(&mut *tx)
     .await?;
 
+    // Ordered, so a rename and a deletion that touch the same workspaces take
+    // their settings rows in the same sequence rather than head-on.
     let workspace_usernames = sqlx::query!(
-        "SELECT workspace_id, username FROM usr WHERE email = $1",
+        "SELECT workspace_id, username FROM usr WHERE email = $1 ORDER BY workspace_id",
         &user_email
     )
     .fetch_all(&mut *tx)
@@ -891,21 +893,25 @@ async fn update_username_in_workpsace<'c>(
 
     // ---- instance and workspace users ----
 
-    // Last, after the settings row above: every path that frees or renames a
-    // username takes `workspace_settings` before `usr` and `usr_to_group`, and
-    // one that took them the other way round would deadlock against it.
+    // Last, after the settings row above, and scoped to this workspace like
+    // everything else here: every path that frees or renames a username takes
+    // `workspace_settings` before `usr` and `usr_to_group`, and reaching into
+    // another workspace's rows would hold this one's settings row while waiting
+    // on a principal that workspace's own settings row guards.
     sqlx::query!(
-        "UPDATE usr SET username = $1 WHERE email = $2",
+        "UPDATE usr SET username = $1 WHERE email = $2 AND workspace_id = $3",
         new_username,
-        email
+        email,
+        w_id
     )
     .execute(&mut **tx)
     .await?;
 
     sqlx::query!(
-        "UPDATE usr_to_group SET usr = $1 WHERE usr = $2",
+        "UPDATE usr_to_group SET usr = $1 WHERE usr = $2 AND workspace_id = $3",
         new_username,
-        old_username
+        old_username,
+        w_id
     )
     .execute(&mut **tx)
     .await?;

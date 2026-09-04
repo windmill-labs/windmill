@@ -227,6 +227,11 @@ pub(crate) struct AdminConnection {
 /// The `wm_` logins the cluster holds, split by whether this data table may take
 /// one over.
 #[derive(Default)]
+/// Only the planner reads these, and that is the enterprise module.
+#[cfg_attr(
+    not(all(feature = "private", feature = "enterprise")),
+    allow(dead_code)
+)]
 pub(crate) struct PgRoleInventory {
     /// Every one of them. `pg_roles` is a cluster catalog, so this spans every
     /// database and every workspace on the instance — a name in here cannot be
@@ -530,6 +535,19 @@ pub(crate) async fn run_planned_drop(
             .and_then(|d| d.get(datatable_name))
             .is_some_and(|v| !v.is_null());
         if !recreated {
+            // The settings row is held for as long as these run, and they run on
+            // a database this workspace does not control — a lock held there, or
+            // a role with a great deal to reassign, would otherwise stall every
+            // save of every data table in the workspace behind it.
+            client
+                .batch_execute("SET statement_timeout = '60s'")
+                .await
+                .map_err(|e| {
+                    Error::internal_err(format!(
+                        "Failed to bound the role drop: {}",
+                        pg_error_message(&e)
+                    ))
+                })?;
             run_statements(&mut client, &plan).await?;
         }
         tx.commit().await?;
