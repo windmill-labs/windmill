@@ -77,6 +77,8 @@ If the user hasn't already told you to run/test the flow, offer it as a one-sent
 
 If the user already asked to test/run/try the flow in their original request, skip the offer and just execute `wmill flow preview <path> -d '<args>'` directly — pick plausible args from the flow's input schema.
 
+An input typed as a resource (`format: resource-<type>` in the schema) takes the bare string `"$res:<path>"` as its whole value — `-d '{"db": "$res:f/databases/postgres_prod"}'`, not `{"db": {"$res": "..."}}` and not a plain path. Same for a variable, with `"$var:<path>"`. See the `resources` skill.
+
 `wmill flow preview` is safe to run yourself (it does not deploy). `wmill generate-metadata` does not deploy either (it only writes local lock/hash files) but re-resolves deps — offer it and run on agreement, unless the project's `AGENTS.md` opts into automatic metadata. After running it, check the regenerated `.lock` diff and tell the user which inline-script dependency versions changed, so they can catch an unwanted bump before deploying. Only `wmill sync push` deploys; run it only when the user explicitly asks.
 
 ### Visual preview

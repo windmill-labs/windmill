@@ -38,7 +38,7 @@
 		{/snippet}
 		{@render button({ onPress: () => togglePanel() })}
 	</DarkPopover>
-{:else}
+{:else if !$copilotInfo.workspaceDisabled}
 	<Popover placement="bottom" class="h-full">
 		{#snippet trigger()}
 			{@render button({ onPress: () => togglePanel() })}

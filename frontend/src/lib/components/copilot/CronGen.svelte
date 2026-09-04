@@ -79,66 +79,68 @@
 	})
 </script>
 
-<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
-	{#snippet trigger()}
-		<Button
-			color={genLoading ? 'red' : 'light'}
-			size="xs"
-			nonCaptureEvent={!genLoading}
-			startIcon={{ icon: Wand2 }}
-			iconOnly
-			title="AI Assistant"
-			btnClasses="text-ai bg-violet-100 dark:bg-gray-700"
-			loading={genLoading}
-			clickableWhileLoading
-			on:click={genLoading ? () => abortController?.abort() : () => {}}
-		/>
-	{/snippet}
-	{#snippet content({ close })}
-		<div class="border rounded-lg shadow-lg p-4 bg-surface">
-			{#if $copilotInfo.enabled}
-				<div class="flex w-96">
-					<input
-						bind:this={instructionsField}
-						type="text"
-						placeholder="CRON schedule description"
-						bind:value={instructions}
-						onkeypress={({ key }) => {
-							if (key === 'Enter' && instructions.length > 0) {
+{#if !$copilotInfo.workspaceDisabled}
+	<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
+		{#snippet trigger()}
+			<Button
+				color={genLoading ? 'red' : 'light'}
+				size="xs"
+				nonCaptureEvent={!genLoading}
+				startIcon={{ icon: Wand2 }}
+				iconOnly
+				title="AI Assistant"
+				btnClasses="text-ai bg-violet-100 dark:bg-gray-700"
+				loading={genLoading}
+				clickableWhileLoading
+				on:click={genLoading ? () => abortController?.abort() : () => {}}
+			/>
+		{/snippet}
+		{#snippet content({ close })}
+			<div class="border rounded-lg shadow-lg p-4 bg-surface">
+				{#if $copilotInfo.enabled}
+					<div class="flex w-96">
+						<input
+							bind:this={instructionsField}
+							type="text"
+							placeholder="CRON schedule description"
+							bind:value={instructions}
+							onkeypress={({ key }) => {
+								if (key === 'Enter' && instructions.length > 0) {
+									close()
+									generateCron()
+								}
+							}}
+						/>
+						<Button
+							size="xs"
+							color="light"
+							variant="contained"
+							buttonType="button"
+							btnClasses="!ml-2 text-ai bg-violet-100 dark:bg-gray-700"
+							title="Generate CRON schedule from prompt"
+							aria-label="Generate"
+							iconOnly
+							on:click={() => {
 								close()
 								generateCron()
-							}
-						}}
-					/>
-					<Button
-						size="xs"
-						color="light"
-						variant="contained"
-						buttonType="button"
-						btnClasses="!ml-2 text-ai bg-violet-100 dark:bg-gray-700"
-						title="Generate CRON schedule from prompt"
-						aria-label="Generate"
-						iconOnly
-						on:click={() => {
-							close()
-							generateCron()
-						}}
-						disabled={instructions.length == 0}
-						startIcon={{ icon: Wand2 }}
-					/>
-				</div>
-			{:else}
-				<div class="block text-primary">
-					<p class="text-sm"
-						>Enable Windmill AI in the <a
-							href="{base}/workspace_settings?tab=ai"
-							target="_blank"
-							class="inline-flex flex-row items-center gap-1"
-							>workspace settings <ExternalLink size={16} /></a
-						></p
-					>
-				</div>
-			{/if}
-		</div>
-	{/snippet}
-</Popover>
+							}}
+							disabled={instructions.length == 0}
+							startIcon={{ icon: Wand2 }}
+						/>
+					</div>
+				{:else}
+					<div class="block text-primary">
+						<p class="text-sm"
+							>Enable Windmill AI in the <a
+								href="{base}/workspace_settings?tab=ai"
+								target="_blank"
+								class="inline-flex flex-row items-center gap-1"
+								>workspace settings <ExternalLink size={16} /></a
+							></p
+						>
+					</div>
+				{/if}
+			</div>
+		{/snippet}
+	</Popover>
+{/if}

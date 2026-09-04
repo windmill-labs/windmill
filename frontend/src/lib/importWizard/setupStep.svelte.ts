@@ -30,9 +30,10 @@ export function useSetupStep(
 			undecided = false
 			return
 		}
-		// Every resource the project ships arrives as an empty stub, so any project with
-		// resources has something to fill in. The step itself re-checks and shows only
-		// what is genuinely outstanding, which is what makes a re-import quiet.
+		// `resourceCount` is the referenced subset — the resources something in the project
+		// points at — and each one arrives as an empty stub, so any project that has them has
+		// something to fill in. The step itself re-checks and shows only what is genuinely
+		// outstanding, which is what makes a re-import quiet.
 		if (execution.resourceCount > 0) {
 			needed = true
 			undecided = false

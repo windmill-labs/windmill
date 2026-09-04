@@ -16,7 +16,7 @@ use crate::{
     runnable_settings::{ConcurrencySettings, DebouncingSettings},
 };
 
-#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ScriptModule {
     pub content: String,
     pub language: ScriptLang,
