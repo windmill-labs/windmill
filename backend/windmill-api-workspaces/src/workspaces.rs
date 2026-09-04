@@ -12,10 +12,10 @@ use windmill_api_auth::{
 };
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
-use windmill_dep_map::lock_hash::record_lock_hashes_for_workspace;
 use windmill_common::usernames::{get_instance_username_or_create_pending, VALID_USERNAME};
 use windmill_common::webhook::WebhookShared;
 use windmill_common::{BASE_URL, DB};
+use windmill_dep_map::lock_hash::record_lock_hashes_for_workspace;
 
 use axum::{
     extract::{Extension, Path, Query},
@@ -3094,6 +3094,42 @@ pub(crate) async fn is_instance_datatable(db: &DB, w_id: &str, name: &str) -> Re
 }
 
 /// Same, for the `datatable://<name>` / `$res:<path>` form the import endpoints take.
+/// Refuse to clone a data table whose role permissions are enabled.
+///
+/// A clone lands in a brand-new database where none of the roles exist, and the
+/// fork's copy of the config is stripped of its permissions — so every member of
+/// the fork resolves to the copy's own owner connection and reads, in full, the
+/// data the roles existed to divide. Reproducing the roles in the copy is a
+/// separate piece of work; until it exists, a fork shares the original, which
+/// keeps the parent's restrictions, or goes without.
+pub(crate) async fn refuse_clone_of_permissioned_datatable(
+    db: &DB,
+    w_id: &str,
+    source: &str,
+) -> Result<()> {
+    let Some(name) = source.strip_prefix("datatable://") else {
+        return Ok(());
+    };
+    let enabled = sqlx::query_scalar!(
+        "SELECT COALESCE((datatable->'datatables'->$2->'permissions'->>'enabled')::boolean, false)
+         FROM workspace_settings WHERE workspace_id = $1",
+        w_id,
+        name,
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .unwrap_or(false);
+    if enabled {
+        return Err(Error::BadRequest(format!(
+            "Data table '{name}' has role permissions enabled and cannot be cloned into a fork: \
+             the copy cannot carry its roles, so it would be readable in full by every member of \
+             the fork. Keep the original instead — the fork shares it with the same restrictions."
+        )));
+    }
+    Ok(())
+}
+
 async fn is_instance_datatable_source(db: &DB, w_id: &str, source: &str) -> Result<bool> {
     match source.strip_prefix("datatable://") {
         Some(name) => is_instance_datatable(db, w_id, name).await,
@@ -3420,6 +3456,7 @@ async fn create_pg_database(
     Json(req): Json<CreatePgDatabaseRequest>,
 ) -> Result<String> {
     windmill_common::validate_dbname(&req.target_dbname)?;
+    refuse_clone_of_permissioned_datatable(&db, &w_id, &req.source).await?;
 
     // Non-superadmin: restrict dbname to wm_fork_ prefix
     if !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
@@ -3509,6 +3546,13 @@ async fn import_pg_database(
                 "Importing schema and data is not available on cloud".to_string(),
             ));
         }
+    }
+
+    // Only the fork clone flow overrides the target database name; a plain
+    // database-to-database import is an admin moving data between databases they
+    // already reach, and lands nowhere that strips permissions.
+    if req.target_dbname_override.is_some() {
+        refuse_clone_of_permissioned_datatable(&db, &w_id, &req.source).await?;
     }
 
     let schema_only = req.fork_behavior == DataTableForkBehavior::SchemaOnly;
@@ -7610,6 +7654,10 @@ async fn apply_forked_datatable(
     fdt: &ForkedDatatableInfo,
 ) -> Result<()> {
     windmill_common::validate_dbname(&fdt.new_dbname)?;
+    // The clone endpoints refuse this too; this is the one a caller cannot go
+    // around, since it is what wires the fork's config to the copied database.
+    refuse_clone_of_permissioned_datatable(db, parent_w_id, &format!("datatable://{}", fdt.name))
+        .await?;
     if !fdt.new_dbname.starts_with("wm_fork_") {
         return Err(Error::BadRequest(format!(
             "Forked datatable database name '{}' must start with 'wm_fork_'",

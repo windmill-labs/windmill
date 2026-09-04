@@ -226,9 +226,18 @@
 											? 'Not shared (permissions enabled)'
 											: 'Keep original'
 							},
-							{ value: 'schema_only', label: 'Clone schema only' },
-							...(!isCloudHosted() && $userStore?.is_admin
-								? [{ value: 'schema_and_data', label: 'Clone schema and data' }]
+							// A clone cannot carry the data table's roles, and the fork's copy
+							// is stripped of its permissions — so the copy would be readable in
+							// full by every member of the fork. The backend refuses it; not
+							// offering it is what keeps the two in step. Where the check could
+							// not answer, the safe reading is "permissioned".
+							...(dt.permissioned === false
+								? [
+										{ value: 'schema_only', label: 'Clone schema only' },
+										...(!isCloudHosted() && $userStore?.is_admin
+											? [{ value: 'schema_and_data', label: 'Clone schema and data' }]
+											: [])
+									]
 								: [])
 						]}
 					/>
