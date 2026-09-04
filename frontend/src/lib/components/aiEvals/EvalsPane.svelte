@@ -674,18 +674,18 @@
 			onNavigate={!active
 				? undefined
 				: (key) => {
-				// Right opens the run under the highlight, falling back to whichever was open before;
-				// left is the way back, the same as the breadcrumb.
-				if (key === 'run') {
-					// Both branches go through `openRun`: it is what brings the run's own dataset back,
-					// and the fallback run may be of a dataset the list has since moved off.
-					const id = highlightedRunId ?? experimentId
-					if (id) openRun(id)
-				} else if (key === 'list') {
-					viewingRun = false
-					selectedCaseId = undefined
-				}
-			}}
+						// Right opens the run under the highlight, falling back to whichever was open before;
+						// left is the way back, the same as the breadcrumb.
+						if (key === 'run') {
+							// Both branches go through `openRun`: it is what brings the run's own dataset back,
+							// and the fallback run may be of a dataset the list has since moved off.
+							const id = highlightedRunId ?? experimentId
+							if (id) openRun(id)
+						} else if (key === 'list') {
+							viewingRun = false
+							selectedCaseId = undefined
+						}
+					}}
 			pages={[
 				{ key: 'list', content: listPage },
 				{ key: 'run', content: runPage }
@@ -734,7 +734,7 @@
 			{datasets}
 			{caseProgress}
 			{loaded}
-			active={!viewingRun}
+			active={active && !viewingRun}
 			{deployedHash}
 			{currentVersion}
 			onOpen={(e) => openRun(e.id)}

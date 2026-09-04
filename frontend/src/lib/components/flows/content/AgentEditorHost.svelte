@@ -58,7 +58,7 @@
 	 *  schema per tool — the linked branch deliberately loads none. Reserved in `forbiddenIds`:
 	 *  the root shares a flow-state map with the tools, so a tool of this id would lose its
 	 *  schema to the root's. */
-	const AGENT_ID = '__agent_root'
+	const AGENT_ID = '__wm_agent_root'
 
 	const draft = useAgentDraft({ path: () => path, workspace: () => workspace })
 
