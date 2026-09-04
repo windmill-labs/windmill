@@ -3553,10 +3553,25 @@ pub(crate) struct Captured {
     pub stdout: String,
     pub stderr: String,
     /// Whether the child exited zero. Separate from the `Result` on purpose: an
-    /// `Err` from `run_captured` is never the child's exit status but the JOB's
-    /// — a cancellation, the deadline, an output ceiling — so a caller that
-    /// tolerates a failed command must still propagate one.
+    /// `Err` from `run_captured` is the JOB's — a cancellation or its deadline —
+    /// so a caller that tolerates a failed command must still propagate one.
     pub success: bool,
+    /// Whether the output ceiling cut the child short. Only ever true under
+    /// [`Overflow::Truncate`].
+    pub truncated: bool,
+}
+
+/// What an over-long stdout means to the caller.
+///
+/// The ceiling belongs to the PASS, not to the job: a caller that only annotates
+/// a job wants to keep what it read and carry on, while one whose whole result
+/// is that output has nothing to return without it.
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub(crate) enum Overflow {
+    /// Fail the job. For a command whose output IS the answer.
+    Fail,
+    /// Stop reading, kill the child, and report `truncated`.
+    Truncate,
 }
 
 /// Run a command for its stdout under the job's cancellation and timeout.
@@ -3579,6 +3594,7 @@ pub(crate) async fn run_captured(
     w_id: &str,
     conn: &Connection,
     max_stdout_bytes: usize,
+    on_overflow: Overflow,
 ) -> error::Result<Captured> {
     use tokio::io::AsyncReadExt;
 
@@ -3614,6 +3630,7 @@ pub(crate) async fn run_captured(
             let mut out_buf = vec![0u8; 16 * 1024];
             let mut err_buf = vec![0u8; 16 * 1024];
             let (mut out_open, mut err_open) = (true, true);
+            let mut truncated = false;
             while out_open || err_open {
                 tokio::select! {
                     r = stdout_pipe.read(&mut out_buf[..]), if out_open => match r {
@@ -3621,14 +3638,19 @@ pub(crate) async fn run_captured(
                         Ok(n) => {
                             if stdout.len() + n > max_stdout_bytes {
                                 // Killed here rather than left to `kill_on_drop`
-                                // so the child is gone before the error unwinds,
-                                // not merely once this future is dropped.
+                                // so the child is gone before this returns, not
+                                // merely once the future is dropped.
                                 let _ = child.kill().await;
-                                return Err(Error::ExecutionErr(format!(
-                                    "{name} produced more than {} MB of output. Narrow the \
-                                     selection, or query the relation from a SQL script.",
-                                    max_stdout_bytes / 1024 / 1024
-                                )));
+                                if on_overflow == Overflow::Fail {
+                                    return Err(Error::ExecutionErr(format!(
+                                        "{name} produced more than {} MB of output. Narrow the \
+                                         selection, or query the relation from a SQL script.",
+                                        max_stdout_bytes / 1024 / 1024
+                                    )));
+                                }
+                                truncated = true;
+                                out_open = false;
+                                continue;
                             }
                             stdout.extend_from_slice(&out_buf[..n]);
                         }
@@ -3651,7 +3673,7 @@ pub(crate) async fn run_captured(
                 .wait()
                 .await
                 .map_err(|e| Error::internal_err(format!("{name} failed: {e}")))?;
-            Ok((status, stdout, stderr))
+            Ok((status, stdout, stderr, truncated))
         },
         ctx.worker_name,
         w_id,
@@ -3661,11 +3683,14 @@ pub(crate) async fn run_captured(
         })),
     )
     .await?;
-    let (status, stdout, stderr) = out;
+    let (status, stdout, stderr, truncated) = out;
     Ok(Captured {
         stdout: String::from_utf8_lossy(&stdout).to_string(),
         stderr: String::from_utf8_lossy(&stderr).to_string(),
+        // A killed child reports failure; under `Truncate` that is the ceiling's
+        // doing, not the project's, and the caller reads `truncated` to tell.
         success: status.success(),
+        truncated,
     })
 }
 
@@ -3680,7 +3705,17 @@ pub(crate) async fn run_capturing(
     conn: &Connection,
     max_stdout_bytes: usize,
 ) -> error::Result<Captured> {
-    let captured = run_captured(cmd, name, ctx, job_id, w_id, conn, max_stdout_bytes).await?;
+    let captured = run_captured(
+        cmd,
+        name,
+        ctx,
+        job_id,
+        w_id,
+        conn,
+        max_stdout_bytes,
+        Overflow::Fail,
+    )
+    .await?;
     if !captured.success {
         return Err(Error::ExecutionErr(format!(
             "{name} failed: {}",

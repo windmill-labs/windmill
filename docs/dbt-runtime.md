@@ -1169,12 +1169,20 @@ ref(...)` is `UnresolvedIdentifier (dbt0227)` and exit 1 under `strict`, and
 compiles fine under `baseline` (the default). So this is a separate `dbt compile`
 with its own `--target-path`, never a flag on the build, and it is opt-in per
 project: `column_lineage: true` in the descriptor. Off, nothing changes. On, a
-project that cannot be analyzed keeps exactly the graph it had. The pass never
-fails a deploy or a run.
+project that cannot be analyzed keeps exactly the graph it had.
+
+The pass is best-effort about everything that is ITS: a wrong engine, a rejected
+analysis, a missing or unreadable artifact, an over-long output, and outrunning
+its own time budget all degrade to no lineage and a line in the job log. It is
+not best-effort about the JOB: a cancellation or the job's own deadline fail it,
+because swallowing those would let a run that blew its timeout inside an optional
+annotation publish a graph and report success. The budget is half the job's
+remaining wall clock, spent on the compile alone, so the build that follows
+cannot be starved by it.
 
 **A failed pass still writes the index**, holding every edge of the models that
 did analyze, so the artifact is read whatever the exit status and partial lineage
-is a normal outcome rather than an error. An unreachable *source* is milder
+is a normal outcome. An unreachable *source* is milder
 still: `RemoteError (dbt1014)` downgrades that model to `static_analysis: off`
 and the compile succeeds. (Strict analysis queries the warehouse catalog for
 source schemas; a `ref()`ed model is inferred statically and needs no built
@@ -1203,7 +1211,21 @@ what a project's index holds. Keeping it in the table is what lets a later
 
 Storage mirrors `dbt_edge` exactly: `dbt_column_edge`, keyed by (path, version,
 job) with the same composite foreign key to `script`, so a version's column
-lineage dies with the version and a run's snapshot with the sweep. The typed
+lineage dies with the version and a run's snapshot with the sweep.
+
+**A table of its own, not `dbt_edge.column_lineage` JSONB.** Hanging the links on
+the `ref()` edge they sit beneath would inherit its clone, prune, clear and
+cascade paths for free, and it does not work: a model reading `{{ this }}` gets
+column lineage from itself to itself, and `parent_map` has no self-loop, because
+a model does not `ref()` itself. Those pairs have no `dbt_edge` row to attach to.
+The loss is not hypothetical — an incremental that selects from `{{ this }}`
+(`coalesce(p.dbl, s.dbl)`, `p.up as prev_up`) yields `up → prev_up` with kind
+`copy`, a drawn edge meaning "this column carries the previous run's value".
+Inventing self-loop `dbt_edge` rows to hold it is not an option either: that
+table is `ref()` lineage. What the separate table DOES inherit is the read: the
+column edges come back from the same statement as the `ref()` edges, over a
+`UNION ALL`'d edge source, so the `live`/`chosen` CTEs and the version and
+editor-buffer join conditions exist once. The typed
 column list lands in `dbt_node.column_schema`, beside `columns` rather than
 merged into it — `columns` stays what the author *declared*. Both are gated on
 being able to read the producing project, like the model's SQL: a column-level

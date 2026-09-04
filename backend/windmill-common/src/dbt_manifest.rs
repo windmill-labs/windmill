@@ -518,10 +518,11 @@ impl IngestedManifest {
         // passes over one project must not read as two different graphs.
         //
         // Direct kinds first, so what the truncation below gives up is `scan` —
-        // the bulk of a wide project's lineage and the kind nothing renders.
-        // The worker's own reader already prioritizes them while decoding, since
-        // the memory bound has to apply there; this is the same order for a
-        // caller that did not come through it, which is the agent-worker wire.
+        // the bulk of a wide project's lineage and the kind nothing renders. The
+        // worker's reader already applies this order while decoding, because the
+        // memory bound has to; repeating it here is what makes the ordering a
+        // property of the manifest rather than of one caller's reader, and it is
+        // the only ordering an index assembled some other way would get.
         edges.sort_by(|a, b| {
             is_direct(&b.lineage_kind)
                 .cmp(&is_direct(&a.lineage_kind))

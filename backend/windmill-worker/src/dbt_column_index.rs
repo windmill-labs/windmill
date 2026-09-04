@@ -52,54 +52,19 @@ const NODE_COLUMNS_PARQUET: &str = "dbt.node_columns.parquet";
 
 /// Run the lineage pass and read what it produced.
 ///
-/// Best-effort about the COMPILE and about the artifact: a wrong engine, a
-/// failed analysis, a missing or unreadable parquet, or this phase outrunning
-/// its budget all return `None` with a line in the job log saying which, because
-/// the graph without column lineage is exactly the graph this project had before
-/// it asked for any.
+/// Two steps with deliberately different contracts, because conflating them is
+/// what made a best-effort annotation able to fail the job it annotates:
 ///
-/// NOT best-effort about the job: a cancellation, the job's own deadline or the
-/// output ceiling are returned as `Err` and fail it. Swallowing those would let
-/// a run that blew its timeout inside an optional annotation go on to publish a
-/// graph and report success.
+/// - [`compile_index`] runs a subprocess and owns the JOB's semantics. Only a
+///   cancellation or the job's own deadline can `Err` out of it; a non-zero exit
+///   and an over-long output are outcomes, not failures.
+/// - [`read_index`] owns the ARTIFACT's semantics. It is infallible and
+///   memory-bounded, and knows nothing about the job.
+///
+/// The phase budget wraps the compile alone. A budget around the whole pass
+/// would time out with a decode still running on a blocking thread, which is
+/// precisely what "the build below gets the rest" must not mean.
 pub(crate) async fn collect(
-    p: &PreparedProject,
-    descriptor: &DbtDescriptor,
-    inv: &Invocation,
-    ctx: &mut JobCtx<'_>,
-    job_id: &Uuid,
-    w_id: &str,
-    conn: &Connection,
-    kept: &HashSet<&str>,
-) -> error::Result<Option<ColumnIndex>> {
-    let Some(budget) = phase_budget(ctx) else {
-        return run_pass(p, descriptor, inv, ctx, job_id, w_id, conn, kept).await;
-    };
-    match tokio::time::timeout(
-        budget,
-        run_pass(p, descriptor, inv, ctx, job_id, w_id, conn, kept),
-    )
-    .await
-    {
-        Ok(r) => r,
-        Err(_) => {
-            append_logs(
-                job_id,
-                w_id,
-                format!(
-                    "\nNo column lineage: the analysis pass did not finish within {}s, half of \
-                     what was left of this job's time. The build below gets the rest.\n",
-                    budget.as_secs()
-                ),
-                conn,
-            )
-            .await;
-            Ok(None)
-        }
-    }
-}
-
-async fn run_pass(
     p: &PreparedProject,
     descriptor: &DbtDescriptor,
     inv: &Invocation,
@@ -129,6 +94,90 @@ async fn run_pass(
     }
 
     let index_dir = p.project_dir.join(CLL_ARTIFACTS_DIR).join("index");
+    let Some(compiled) =
+        compile_index(p, descriptor, inv, ctx, job_id, w_id, conn).await?
+    else {
+        return Ok(None);
+    };
+
+    let index = read_index(&index_dir, kept).await;
+    // What only the pass knows. The COUNTS are logged where the index is folded
+    // into the graph, since the graph decides how much of it is kept.
+    match (&index, compiled.analyzed_everything()) {
+        (Some(_), true) => {}
+        // The ordinary partial outcome: some models did not analyze, the rest
+        // did, and their lineage is real.
+        (Some(_), false) => {
+            let note = "Column lineage: `--static-analysis strict` rejected part of the project, \
+                        so the lineage covers only the models it could analyze.";
+            append_logs(job_id, w_id, format!("\n{note}\n{}", compiled.detail()), conn).await;
+        }
+        (None, _) => {
+            let note = format!(
+                "No column lineage: the analysis pass wrote no `{COLUMN_LINEAGE_PARQUET}`. Only \
+                 an engine that computes it does, and only for the warehouses it analyzes \
+                 natively — the flag alone is not the capability."
+            );
+            // The engine's own diagnostics. They are how a reader learns that
+            // this adapter turned static analysis off, which it reports as a
+            // warning on a SUCCESSFUL compile that nothing else would show.
+            append_logs(job_id, w_id, format!("\n{note}\n{}", compiled.detail()), conn).await;
+        }
+    }
+    Ok(index)
+}
+
+/// What the analysis compile did, from the pass's point of view.
+///
+/// Every way the COMPILE can disappoint is a value here rather than an error: a
+/// non-zero exit (strict analysis rejected some SQL), an output ceiling, or the
+/// phase budget. An `Err` from `compile_index` is the JOB's — a cancellation or
+/// its deadline — and must fail it.
+struct Compiled {
+    /// `None` once the pass gave up on its own terms, which the caller has
+    /// already been told about.
+    outcome: Option<crate::dbt_executor::Captured>,
+}
+
+impl Compiled {
+    /// Whether the engine analyzed the whole project. False means the index, if
+    /// there is one, covers only part of it.
+    ///
+    /// A truncated run is not a rejected project: the ceiling killed a compile
+    /// that was otherwise doing its job, and whatever it had already written to
+    /// `target/index/` is still on disk.
+    fn analyzed_everything(&self) -> bool {
+        self.outcome
+            .as_ref()
+            .is_some_and(|c| c.success || c.truncated)
+    }
+
+    /// The engine's own diagnostics, bounded, or nothing when the pass never got
+    /// far enough to have any.
+    fn detail(&self) -> String {
+        self.outcome
+            .as_ref()
+            .map(|c| diagnostics(&c.stderr))
+            .unwrap_or_default()
+    }
+}
+
+/// Run `dbt compile --static-analysis strict --write-index`, under this phase's
+/// share of the job's clock.
+///
+/// `Ok(None)` is "the pass gave up and said so"; `Err` is the job's own
+/// cancellation or deadline and must propagate. Nothing outlives this function:
+/// the budget is a race around the child, and dropping that future kills it
+/// through `run_captured`'s `kill_on_drop`.
+async fn compile_index(
+    p: &PreparedProject,
+    descriptor: &DbtDescriptor,
+    inv: &Invocation,
+    ctx: &mut JobCtx<'_>,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> error::Result<Option<Compiled>> {
     // A previous pass in the same job directory — a retry's second attempt —
     // would otherwise be read back as this one's answer.
     tokio::fs::remove_dir_all(p.project_dir.join(CLL_ARTIFACTS_DIR))
@@ -159,13 +208,9 @@ async fn run_pass(
     // Captured rather than streamed: a strict-analysis failure is a wall of
     // diagnostics about SQL the build itself accepts, and this pass decides
     // nothing about whether that build runs.
-    //
-    // `run_captured`, so a failed COMPILE is `success == false` and gets
-    // downgraded below, while an `Err` — a cancellation, the job's deadline, the
-    // output ceiling — still fails the job. Swallowing those would let a run
-    // that blew its timeout inside this pass go on to publish a graph and report
-    // success.
-    let outcome = crate::dbt_executor::run_captured(
+    // Read before the future below borrows `ctx` mutably.
+    let budget = phase_budget(ctx);
+    let run = crate::dbt_executor::run_captured(
         cmd,
         "dbt compile (column lineage)",
         ctx,
@@ -173,47 +218,31 @@ async fn run_pass(
         w_id,
         conn,
         CLL_MAX_OUTPUT_BYTES,
-    )
-    .await?;
-
-    let index = read_index(&index_dir, kept).await;
-    // What the caller cannot say for itself. The COUNTS are logged where the
-    // index is folded into the graph, since the graph is what decides how much
-    // of it is kept; this is the part only the pass knows.
-    match (&index, outcome.success) {
-        (Some(_), true) => {}
-        // The ordinary partial outcome: some models did not analyze, the rest
-        // did, and their lineage is real.
-        (Some(_), false) => {
-            let note = "Column lineage: `--static-analysis strict` rejected part of the project, \
-                        so the lineage covers only the models it could analyze.";
+        // The ceiling is this pass's, not the job's: a compile that prints more
+        // than it than we care to read has still analyzed the project, and the
+        // index it wrote is on disk either way.
+        crate::dbt_executor::Overflow::Truncate,
+    );
+    let Some(budget) = budget else {
+        return Ok(Some(Compiled { outcome: Some(run.await?) }));
+    };
+    match tokio::time::timeout(budget, run).await {
+        Ok(r) => Ok(Some(Compiled { outcome: Some(r?) })),
+        Err(_) => {
             append_logs(
                 job_id,
                 w_id,
-                format!("\n{note}\n{}", diagnostics(&outcome.stderr)),
+                format!(
+                    "\nNo column lineage: the analysis pass did not finish within {}s, half of \
+                     what was left of this job's time. The build below gets the rest.\n",
+                    budget.as_secs()
+                ),
                 conn,
             )
             .await;
-        }
-        (None, _) => {
-            let note = format!(
-                "No column lineage: the analysis pass wrote no `{COLUMN_LINEAGE_PARQUET}`. Only \
-                 an engine that computes it does, and only for the warehouses it analyzes \
-                 natively — the flag alone is not the capability."
-            );
-            // The engine's own diagnostics. They are how a reader learns that
-            // this adapter turned static analysis off, which it reports as a
-            // warning on a SUCCESSFUL compile that nothing else would show.
-            append_logs(
-                job_id,
-                w_id,
-                format!("\n{note}\n{}", diagnostics(&outcome.stderr)),
-                conn,
-            )
-            .await;
+            Ok(None)
         }
     }
-    Ok(index)
 }
 
 /// stdout the pass may produce. It is a compile, so this is diagnostics rather
@@ -227,12 +256,12 @@ const CLL_MAX_OUTPUT_BYTES: usize = 1 << 20;
 /// budget and fail the run it exists only to annotate. Half leaves the build at
 /// least as long as the annotation was allowed to take.
 ///
-/// Spent as a race around the whole pass rather than as a shortened deadline
-/// handed to the runner: the runner reports its expiry as an `Err`, which is
-/// indistinguishable from a cancellation or the job's own deadline, and those
-/// two MUST fail the job. Expiring here is this budget and nothing else, so it
-/// degrades to no lineage. Dropping the future kills the child, which
-/// `run_captured` spawns with `kill_on_drop`.
+/// Spent as a race around the COMPILE rather than as a shortened deadline handed
+/// to the runner: the runner reports its expiry as an `Err`, indistinguishable
+/// from a cancellation or the job's own deadline, and those two MUST fail the
+/// job. Expiring here is this budget and nothing else. The child dies with the
+/// dropped future through `run_captured`'s `kill_on_drop`, and the decode is
+/// outside the race so nothing survives it.
 fn phase_budget(ctx: &JobCtx<'_>) -> Option<Duration> {
     ctx.timeout()
         .map(|left| Duration::from_secs((left.max(0) as u64 / 2).max(1)))
