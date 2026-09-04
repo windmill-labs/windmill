@@ -88,10 +88,10 @@ Only images published from a release tag (`v*`) are signed: `windmill`,
 `windmill-cli` (`build_cli_image.yml`) and `windmill-extra`
 (`publish_extra.yml`). The `:latest` and `:main` tags are repointed on
 every `main` push as well as on releases, so they resolve to a signed
-digest only until the next `main` build lands (the `tag_latest` jobs verify
-the signature at release time) — verify a version tag or a digest, not
-`:latest`. Development images (`:dev`, branch builds, `windmill-test`) and
-the dispatch-only RHEL/rpi/caddy-l4 images are not signed.
+digest only until the next `main` build lands — verify a version tag or a
+digest, not `:latest`. Development images (`:dev`, branch builds,
+`windmill-test`), the dispatch-only RHEL/rpi images and the `caddy-l4`
+image are not signed.
 
 ## How to verify
 
