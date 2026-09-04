@@ -171,7 +171,17 @@ pub(crate) fn quote_ident(ident: &str) -> String {
     render_db_quoted_identifier(ident, DbType::Postgresql)
 }
 
-pub(crate) async fn read_datatable(db: &DB, w_id: &str, datatable_name: &str) -> Result<DataTable> {
+/// Read a data table's config, whatever the caller is.
+///
+/// Authorization: performs none. What it returns is the config as stored,
+/// generated role passwords included, so callers MUST have authorized the read —
+/// every one today is admin-gated or a system path — and MUST NOT pass the value
+/// outward without [`windmill_common::workspaces::redact_datatable_settings_for_export`].
+pub(crate) async fn read_datatable_unchecked(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+) -> Result<DataTable> {
     let value = sqlx::query_scalar!(
         "SELECT ws.datatable->'datatables'->$2 FROM workspace_settings ws WHERE ws.workspace_id = $1",
         w_id,
@@ -198,7 +208,7 @@ pub(crate) async fn read_datatable(db: &DB, w_id: &str, datatable_name: &str) ->
 /// Windmill does not own the Postgres user. Never fatal: the caller's own work
 /// is what the admin asked for, and it may well not need any of this.
 pub(crate) async fn ensure_instance_db_can_delegate(db: &DB, w_id: &str, datatable_name: &str) {
-    let Ok(datatable) = read_datatable(db, w_id, datatable_name).await else {
+    let Ok(datatable) = read_datatable_unchecked(db, w_id, datatable_name).await else {
         return;
     };
     if datatable.database.resource_type != DataTableCatalogResourceType::Instance {
@@ -323,13 +333,20 @@ async fn read_default_acl_rules(
 /// Connect to the data table's own database as `admin` and report the identity a
 /// plan has to be built against: the database name, the role that owns the
 /// existing objects, and the roles that actually exist in the cluster.
-pub(crate) async fn connect_as_admin(
+///
+/// Authorization: performs none. This is the data table's own connection — it
+/// owns every object in that database and can grant anything it holds — so
+/// callers MUST have authorized the operation it is opened for, and MUST NOT
+/// hand it to a request that has not been. Every caller today is admin-gated,
+/// except `apply_datatable_acl`, which authorizes the object owner against the
+/// catalog before it reaches here.
+pub(crate) async fn connect_as_admin_unchecked(
     db: &DB,
     w_id: &str,
     datatable_name: &str,
 ) -> Result<(tokio_postgres::Client, AdminConnection)> {
     let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
-    let database_identity = (read_datatable(db, w_id, datatable_name)
+    let database_identity = (read_datatable_unchecked(db, w_id, datatable_name)
         .await?
         .database
         .resource_type
@@ -419,7 +436,7 @@ pub(crate) async fn connect_as_admin(
     // own, plus the connection they were all created from.
     let mut own_pg_roles = vec![admin_pg_role.clone()];
     own_pg_roles.extend(
-        read_datatable(db, w_id, datatable_name)
+        read_datatable_unchecked(db, w_id, datatable_name)
             .await?
             .permissions
             .filter(|p| p.enabled)
@@ -449,8 +466,8 @@ async fn build_plan(
     req: &SetDatatablePermissions,
 ) -> Result<(tokio_postgres::Client, RolePlan)> {
     require_datatable_permissions_license().await?;
-    let datatable = read_datatable(db, w_id, datatable_name).await?;
-    let (client, conn) = connect_as_admin(db, w_id, datatable_name).await?;
+    let datatable = read_datatable_unchecked(db, w_id, datatable_name).await?;
+    let (client, conn) = connect_as_admin_unchecked(db, w_id, datatable_name).await?;
     let plan = crate::datatable_permissions_oss::plan_role_changes(
         w_id,
         datatable_name,
@@ -495,7 +512,7 @@ pub(crate) async fn plan_drop_of_deleted_datatable(
         renames: vec![],
     };
     let res = async {
-        let datatable = read_datatable(db, w_id, datatable_name).await?;
+        let datatable = read_datatable_unchecked(db, w_id, datatable_name).await?;
         if !datatable
             .permissions
             .as_ref()
@@ -636,7 +653,7 @@ async fn get_datatable_permissions(
     Path((w_id, datatable_name)): Path<(String, String)>,
 ) -> JsonResult<DatatablePermissionsInfo> {
     require_admin(authed.is_admin, &authed.username)?;
-    let datatable = read_datatable(&db, &w_id, &datatable_name).await?;
+    let datatable = read_datatable_unchecked(&db, &w_id, &datatable_name).await?;
     let permissions = datatable.permissions.unwrap_or_default();
     let default_role = permissions.default_role().to_string();
     Ok(Json(DatatablePermissionsInfo {
@@ -667,7 +684,7 @@ pub(crate) async fn ensure_can_use_datatable_role(
     authed: &ApiAuthed,
     context: &str,
 ) -> Result<()> {
-    let datatable = read_datatable(db, w_id, datatable_name).await?;
+    let datatable = read_datatable_unchecked(db, w_id, datatable_name).await?;
     let Some(permissions) = datatable.permissions.filter(|p| p.enabled) else {
         // Unpermissioned: only the built-in role exists, and everyone reaches it.
         return match role {
@@ -698,7 +715,7 @@ async fn list_usable_datatable_roles(
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
 ) -> JsonResult<UsableDatatableRoles> {
-    let datatable = read_datatable(&db, &w_id, &datatable_name).await?;
+    let datatable = read_datatable_unchecked(&db, &w_id, &datatable_name).await?;
     let Some(permissions) = datatable.permissions.filter(|p| p.enabled) else {
         return Ok(Json(UsableDatatableRoles {
             enabled: false,

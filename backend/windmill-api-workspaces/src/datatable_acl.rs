@@ -35,7 +35,7 @@ use windmill_common::workspaces::{
 };
 use windmill_common::{PgDatabase, DB};
 
-use crate::datatable_permissions::{connect_as_admin, read_datatable};
+use crate::datatable_permissions::{connect_as_admin_unchecked, read_datatable_unchecked};
 
 pub(crate) fn routes() -> Router {
     Router::new()
@@ -255,7 +255,7 @@ async fn connect_as_caller(
     // resolves to the data table's own connection, which owns everything — so
     // there it is the workspace admins' to change, as the roles themselves are.
     if !authed.is_admin
-        && !read_datatable(db, w_id, datatable_name)
+        && !read_datatable_unchecked(db, w_id, datatable_name)
             .await?
             .permissions
             .is_some_and(|p| p.enabled)
@@ -414,7 +414,7 @@ async fn usable_role_names(
     authed: &ApiAuthed,
 ) -> Result<Vec<String>> {
     let authed_ref = authed.to_authed_ref();
-    let datatable = read_datatable(db, w_id, datatable_name).await?;
+    let datatable = read_datatable_unchecked(db, w_id, datatable_name).await?;
     Ok(match datatable.permissions.filter(|p| p.enabled) {
         Some(p) => p
             .roles
@@ -470,7 +470,7 @@ async fn role_map(
     datatable_name: &str,
     admin_pg_role: &str,
 ) -> Result<BTreeMap<String, String>> {
-    let datatable = read_datatable(db, w_id, datatable_name).await?;
+    let datatable = read_datatable_unchecked(db, w_id, datatable_name).await?;
     let mut map = BTreeMap::new();
     map.insert(ADMIN_DATATABLE_ROLE.to_string(), admin_pg_role.to_string());
     if let Some(permissions) = datatable.permissions.filter(|p| p.enabled) {
@@ -1020,7 +1020,7 @@ async fn build_acl_plan(
         &existing_objects,
     )?;
     drop(client);
-    let (admin_client, _) = connect_as_admin(db, w_id, datatable_name).await?;
+    let (admin_client, _) = connect_as_admin_unchecked(db, w_id, datatable_name).await?;
     Ok((admin_client, plan, conn.dbname))
 }
 
