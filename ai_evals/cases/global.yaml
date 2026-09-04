@@ -2010,8 +2010,8 @@
 
 - id: global-test34-run-with-secret-from-variable
   prompt: |-
-    Run `f/evals/global/billing_sync` for the account `acme` — use the billing API token
-    we already keep in the workspace.
+    Run the deployed `f/evals/global/billing_sync` for the account `acme` — use the billing
+    API token we already keep in the workspace.
   initial: ai_evals/fixtures/frontend/global/initial/billing_sync_with_secret_arg.json
   runtime:
     maxTurns: 10
