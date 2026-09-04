@@ -627,3 +627,39 @@ async fn test_root_job_span_relocated_to_inbound_trace() {
         expected_uuid_trace
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// RESOURCE ATTRIBUTES (OTEL_RESOURCE_ATTRIBUTES)
+// ═══════════════════════════════════════════════════════════════════════
+
+#[test]
+#[serial_test::serial]
+fn test_otlp_resource_merges_env_attributes_without_losing_windmill_identity() {
+    use windmill_common::utils::Mode;
+
+    std::env::set_var(
+        "OTEL_RESOURCE_ATTRIBUTES",
+        "k8s.pod.uid=abc-123,service.name=injected,host.name=injected",
+    );
+    let attrs: std::collections::HashMap<String, String> =
+        otlp_service_resource(&Mode::Worker, "fallback-host", "dev")
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+    std::env::remove_var("OTEL_RESOURCE_ATTRIBUTES");
+
+    // Attributes the deployment injects reach the exporters.
+    assert_eq!(
+        attrs.get("k8s.pod.uid").map(String::as_str),
+        Some("abc-123")
+    );
+    // The env var is the secondary resource, so Windmill's own values still win.
+    assert_eq!(
+        attrs.get("service.name").map(String::as_str),
+        Some("windmill-worker")
+    );
+    assert_eq!(
+        attrs.get("host.name").map(String::as_str),
+        Some("fallback-host")
+    );
+}
