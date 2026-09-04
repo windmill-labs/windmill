@@ -141,15 +141,16 @@ pub(crate) async fn publish(
     // which describes the same project in the same environment — versioned keys
     // would move that window to a pointer at an object a reader may already have
     // been about to fetch, and buy a grace period to sweep.
+    //
+    // An advisory lock rather than the row's, because the first publish of an
+    // environment has no row to lock and is exactly when two runs of a newly
+    // deployed script are most likely to race.
     let mut tx = db.begin().await?;
-    sqlx::query!(
-        "SELECT 1 as _e FROM dbt_environment_state
-          WHERE workspace_id = $1 AND script_path = $2 AND environment = $3 FOR UPDATE",
-        w_id,
-        &p.script_path,
-        environment
+    sqlx::query_scalar!(
+        "SELECT pg_advisory_xact_lock($1)",
+        publication_lock(w_id, &p.script_path, &environment)
     )
-    .fetch_optional(&mut *tx)
+    .execute(&mut *tx)
     .await?;
     let manifest = store(
         manifest,
@@ -298,6 +299,19 @@ fn split(home: Option<Home>) -> (Option<String>, Option<String>) {
         Some(Home::Stored(k)) => (None, Some(k)),
         None => (None, None),
     }
+}
+
+/// The advisory lock one environment's publishers take, so that only one of them
+/// is between its first upload and its row at a time.
+///
+/// Derived from the same three components as the row's key. Two environments
+/// whose digests collide in 64 bits wait for each other, which costs a moment and
+/// nothing else.
+fn publication_lock(w_id: &str, script_path: &str, environment: &str) -> i64 {
+    let d = digest(&format!("{w_id}|{script_path}|{environment}"));
+    let mut bytes = [0u8; 8];
+    bytes.copy_from_slice(&d.as_bytes()[..8]);
+    i64::from_be_bytes(bytes)
 }
 
 /// The object-storage key an artifact takes.
