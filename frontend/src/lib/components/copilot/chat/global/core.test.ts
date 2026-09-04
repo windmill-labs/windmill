@@ -4688,9 +4688,9 @@ describe('global AI tools', () => {
 		expect(JobService.runScriptPreview).not.toHaveBeenCalled()
 		expect(cancelled).toContain('The user cancelled the run form')
 
-		// Answered, the run carries nothing the empty form could not show, and the model is
-		// told which argument was dropped rather than left to wonder why it had no effect.
-		const ran = await withCompletedTestJob(() =>
+		// Answered, the run carries the argument even though the schema names no field for
+		// it: the worker reads the draft's own signature, not this schema.
+		await withCompletedTestJob(() =>
 			callGlobalTool(
 				'test_run_script',
 				{ path: 'f/scripts/noargs-test', args: { force_delete: true } },
@@ -4699,9 +4699,10 @@ describe('global AI tools', () => {
 		)
 
 		expect(JobService.runScriptPreview).toHaveBeenCalledWith(
-			expect.objectContaining({ requestBody: expect.objectContaining({ args: {} }) })
+			expect.objectContaining({
+				requestBody: expect.objectContaining({ args: { force_delete: true } })
+			})
 		)
-		expect(ran).toContain('force_delete')
 	})
 
 	it('test_run_flow previews draft flow content by path', async () => {
@@ -4989,9 +4990,10 @@ describe('global AI tools', () => {
 		expect(result).toContain('Do not call run_script again')
 	})
 
-	// The card is a consent surface: an argument it cannot show is an argument the user
-	// never approved, so the prefill is conformed to the schema before the form opens.
-	it('run_script drops a proposed argument the schema does not declare', async () => {
+	// The stored schema is not what the worker obeys: it takes the arguments its own
+	// signature names, so a **kwargs script and one whose schema is stale or absent accept
+	// what no property declares. Dropping those made such a script unrunnable from here.
+	it('run_script carries a proposed argument the schema does not declare', async () => {
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
 			path: 'f/scripts/noargs',
 			summary: 'Takes nothing',
@@ -4999,8 +5001,7 @@ describe('global AI tools', () => {
 		} as any)
 
 		let shown: Record<string, any> | undefined
-		let dropped: string[] | undefined
-		const result = await withCompletedTestJob(() =>
+		await withCompletedTestJob(() =>
 			callGlobalTool(
 				'run_script',
 				{ path: 'f/scripts/noargs', args: { force_delete: true } },
@@ -5008,23 +5009,86 @@ describe('global AI tools', () => {
 					...toolCallbacks,
 					requestRunArgs: async (_toolId, form) => {
 						shown = form.args
-						dropped = form.droppedKeys
 						return form.args
 					}
 				}
 			)
 		)
 
-		expect(shown).toEqual({})
-		// Named on the card and to the model: a silent drop makes the user approve a run
-		// they think carries force_delete.
-		expect(dropped).toEqual(['force_delete'])
-		expect(result).toContain('force_delete')
+		expect(shown).toEqual({ force_delete: true })
 		expect(JobService.runScriptByPath).toHaveBeenCalledWith({
 			workspace: WORKSPACE,
 			path: 'f/scripts/noargs',
-			requestBody: {}
+			requestBody: { force_delete: true }
 		})
+	})
+
+	// A scalar widget renders its own reading of a wrong-typed value and never writes it
+	// back, so an untouched form would submit something it never displayed.
+	it('run_script coerces a wrong-typed argument and empties one it cannot read', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/typed',
+			schema: {
+				properties: {
+					count: { type: 'number' },
+					flag: { type: 'boolean' },
+					label: { type: 'string' },
+					ratio: { type: 'number' }
+				}
+			}
+		} as any)
+
+		let shown: Record<string, any> | undefined
+		let cleared: string[] | undefined
+		const result = await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{
+					path: 'f/scripts/typed',
+					args: { count: '7', flag: 'false', label: 3, ratio: 'abc' }
+				},
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => {
+						shown = form.args
+						cleared = form.clearedKeys
+						return form.args
+					}
+				}
+			)
+		)
+
+		expect(shown).toEqual({ count: 7, flag: false, label: '3' })
+		expect(cleared).toEqual(['ratio'])
+		// Only the unreadable one is worth a word: the rest run as the form showed them.
+		expect(result).toContain('ratio')
+		expect(result).not.toContain('count')
+	})
+
+	// A reference occupies a typed slot on purpose and is resolved by the job, so coercing
+	// it would turn a variable into NaN and clearing it would delete the user's intent.
+	it('run_script leaves a variable reference in a number slot alone', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/batch',
+			schema: { properties: { size: { type: 'number' } } }
+		} as any)
+
+		let shown: Record<string, any> | undefined
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/batch', args: { size: '$var:u/admin/batch_size' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => {
+						shown = form.args
+						return form.args
+					}
+				}
+			)
+		)
+
+		expect(shown).toEqual({ size: '$var:u/admin/batch_size' })
 	})
 
 	// A secret the model picked is not consent, and a result that echoed one back would let

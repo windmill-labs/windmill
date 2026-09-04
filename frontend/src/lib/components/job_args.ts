@@ -2,7 +2,7 @@
  * A job's arguments as something other than the job sees them: prepared for a run form,
  * for the readers of one, and for a result view.
  *
- * The form filters split by what a mistake costs: conforming must not drop what the user
+ * The form filters split by what a mistake costs: coercing must not lose what the caller
  * meant to send, so it stays exact and shallow, while stripping and redacting only blank
  * a field, so they go to any depth and err towards visiting too much.
  */
@@ -13,7 +13,7 @@ const isLockedProp = (prop: any) => !!prop?.disabled && 'default' in prop
 /**
  * A field the schema disables is not the caller's to set: whatever it holds, the run
  * sends the schema's default. Top-level only, like every other filter here — see
- * {@link conformArgsToSchema}. Returns the keys it overwrote so the caller can say so;
+ * {@link coerceArgsToSchema}. Returns the keys it overwrote so the caller can say so;
  * notifying is the caller's job.
  */
 export function enforceDisabledDefaults(
@@ -46,44 +46,6 @@ export const resetKeysToast = (resetKeys: string[]): string =>
 		.map((k) => `'${k}'`)
 		.join(', ')} reset to default value${resetKeys.length > 1 ? 's' : ''}`
 
-/**
- * Keys removed from a caller's arguments, split by cause. Kept apart because the two
- * read as opposites to whoever is told: an undeclared argument is one to stop sending,
- * an unshowable one is an argument the script really has, sent in a shape no field fits.
- */
-export type DroppedKeys = { undeclared: string[]; unshowable: string[] }
-
-/**
- * Conform caller-supplied arguments to what a run form can show, then apply
- * {@link enforceDisabledDefaults}. An argument the schema does not declare — including
- * every argument of a script whose schema declares none — would otherwise be approved
- * without ever being seen, and one in a shape its field cannot bind renders as an empty
- * box over a value only the job gets.
- *
- * Top-level only, deliberately. `SchemaForm` prunes undeclared keys at every level it
- * mounts, and below the top the form has the same limitations everywhere else in the
- * product: a nested mismatch renders the way it renders on the script run page. Matching
- * that is the point — a filter precise enough to descend has to resolve `oneOf` branches
- * and merged declarations, and getting that wrong deletes what the user typed.
- */
-export function conformArgsToSchema(
-	args: Record<string, any>,
-	schema: { properties?: Record<string, any> } | undefined
-): { args: Record<string, any>; resetKeys: string[]; dropped: DroppedKeys } {
-	const dropped: DroppedKeys = { undeclared: [], unshowable: [] }
-	const properties = schema?.properties ?? {}
-	// hasOwn, not `in`: every object inherits `constructor` and `toString`, so `in` would
-	// wave through arguments no schema declares.
-	const kept: Record<string, any> = Object.create(null)
-	for (const [key, value] of Object.entries(args ?? {})) {
-		if (!Object.hasOwn(properties, key)) dropped.undeclared.push(key)
-		else if (!fitsDeclaredShape(value, properties[key])) dropped.unshowable.push(key)
-		else kept[key] = value
-	}
-	const { args: result, resetKeys } = enforceDisabledDefaults({ ...kept }, schema)
-	return { args: result, resetKeys, dropped }
-}
-
 /** Types `setInputCat` routes to a widget bound to a scalar. */
 const SCALAR_TYPES = new Set(['string', 'number', 'integer', 'boolean'])
 
@@ -95,28 +57,93 @@ const SCALAR_TYPES = new Set(['string', 'number', 'integer', 'boolean'])
 const declaresDynMultiselect = (prop: any) =>
 	typeof prop?.format === 'string' && prop.format.startsWith('dynmultiselect-')
 
-/**
- * Whether a primitive fits a declared scalar type. Each scalar widget binds one JS type and
- * shows nothing else: a string in a number input renders blank, and `ArgInput.validateInput`
- * range-checks only an actual number, so the field passes as filled. The user would approve
- * an empty box over a value only the job ever sees.
- */
+/** Whether a primitive already is what its declared scalar type asks for. */
 const fitsScalarType = (value: any, type: string): boolean =>
 	type === 'integer' ? typeof value === 'number' : typeof value === type
 
 /**
- * Whether `prop` declares a slot the form can show `value` in. Only the mismatches
- * `ArgInput` itself passes over: a scalar slot renders a wrong-typed value as an empty
- * box, with no error and Run still enabled, so the user approves nothing over a value
- * only the job gets. Where `ArgInput` already says something — "Expected an array, got
- * object instead" over a list, a nested form rewriting a stray array into its own shape —
- * the value is left to it, and this form reads like every other one in the product.
+ * Resolved at run time to a variable or resource, so the declared type describes what the
+ * job receives and never the string standing in for it. `ArgInput.validateInput` blesses
+ * these prefixes ahead of every type check for the same reason.
  */
-function fitsDeclaredShape(value: any, prop: any): boolean {
-	if (value == null) return true
-	if (declaresDynMultiselect(prop)) return Array.isArray(value)
-	if (!SCALAR_TYPES.has(prop?.type)) return true
-	return typeof value !== 'object' && fitsScalarType(value, prop.type)
+const REFERENCE_PREFIXES = ['$var:', '$res:', '$jsonvar:']
+const isReference = (value: any): boolean =>
+	typeof value === 'string' && REFERENCE_PREFIXES.some((prefix) => value.startsWith(prefix))
+
+/** No plain reading in the declared type; distinct from a value that reads as `undefined`. */
+const UNCOERCIBLE = Symbol('uncoercible')
+
+/**
+ * The value a scalar widget would stand for, or {@link UNCOERCIBLE}. Only conversions with
+ * one plain reading: a number input shows `"7"` as 7 and a toggle shows any non-empty
+ * string as on, so guessing past this would put a value on screen that nobody wrote.
+ */
+function coerceScalar(value: any, type: string): any {
+	if (typeof value === 'object') return UNCOERCIBLE
+	if (type === 'string') {
+		return typeof value === 'number' || typeof value === 'boolean' ? String(value) : UNCOERCIBLE
+	}
+	if (typeof value !== 'string') return UNCOERCIBLE
+	const trimmed = value.trim()
+	if (type === 'number' || type === 'integer') {
+		if (trimmed === '') return UNCOERCIBLE
+		const parsed = Number(trimmed)
+		return Number.isFinite(parsed) ? parsed : UNCOERCIBLE
+	}
+	if (type === 'boolean') {
+		if (trimmed.toLowerCase() === 'true') return true
+		if (trimmed.toLowerCase() === 'false') return false
+	}
+	return UNCOERCIBLE
+}
+
+/**
+ * Make caller-supplied arguments say the same thing the run form will show, then apply
+ * {@link enforceDisabledDefaults}. A scalar widget binds one JS type and renders anything
+ * else as its own reading of it — `"7"` paints a filled-looking 7 in a number input, any
+ * non-empty string turns a toggle on — while never writing that reading back, so an
+ * untouched form submits a value it never displayed.
+ *
+ * Converts rather than removes, so an argument the schema does not describe still reaches
+ * the job: the worker takes the arguments its own signature names, and a script whose
+ * stored schema is stale or absent accepts what that schema never declared. A value with
+ * no reading in its slot is cleared instead — the field shows nothing, so nothing is what
+ * it submits — and the caller is told which.
+ *
+ * Top-level only, like every filter here: below the top a mismatch renders the way it does
+ * on the script run page, and descending means resolving `oneOf` branches and merged
+ * declarations, where being wrong rewrites what the user typed.
+ */
+export function coerceArgsToSchema(
+	args: Record<string, any>,
+	schema: { properties?: Record<string, any> } | undefined
+): { args: Record<string, any>; resetKeys: string[]; clearedKeys: string[] } {
+	const properties = schema?.properties ?? {}
+	const clearedKeys: string[] = []
+	// hasOwn, not `in`: every object inherits `constructor` and `toString`, so `in` would
+	// hand an inherited declaration to an argument the schema never named.
+	const kept: Record<string, any> = Object.create(null)
+	for (const [key, value] of Object.entries(args ?? {})) {
+		const prop = Object.hasOwn(properties, key) ? properties[key] : undefined
+		if (prop === undefined || value == null || isReference(value)) {
+			kept[key] = value
+			continue
+		}
+		if (declaresDynMultiselect(prop)) {
+			if (Array.isArray(value)) kept[key] = value
+			else clearedKeys.push(key)
+			continue
+		}
+		if (!SCALAR_TYPES.has(prop.type) || fitsScalarType(value, prop.type)) {
+			kept[key] = value
+			continue
+		}
+		const coerced = coerceScalar(value, prop.type)
+		if (coerced === UNCOERCIBLE) clearedKeys.push(key)
+		else kept[key] = coerced
+	}
+	const { args: result, resetKeys } = enforceDisabledDefaults({ ...kept }, schema)
+	return { args: result, resetKeys, clearedKeys }
 }
 
 /**
@@ -190,8 +217,7 @@ const isSecretProp = (prop: any) => !!prop?.password
  * value stays in the variable and the argument carries only its path, so it is safe to show
  * and safe to store. `$jsonvar:` is deliberately not one of these — those are minted from
  * what the user typed, so a caller naming one is naming a secret it was never shown. */
-const isVariableRef = (value: unknown) =>
-	typeof value === 'string' && /^\$var:\S/.test(value)
+const isVariableRef = (value: unknown) => typeof value === 'string' && /^\$var:\S/.test(value)
 
 const isFileProp = (prop: any) =>
 	prop?.contentEncoding === 'base64' || prop?.items?.contentEncoding === 'base64'

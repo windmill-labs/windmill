@@ -1,74 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import {
-	conformArgsToSchema,
+	coerceArgsToSchema,
 	enforceDisabledDefaults,
 	redactFileArgs,
 	redactSecretArgs,
 	stripSecretArgs
 } from './job_args'
 
-describe('conformArgsToSchema', () => {
-	it('drops what the schema does not declare, prototype names included', () => {
-		const schema = { properties: { a: { type: 'string' } } }
-		const { args, dropped } = conformArgsToSchema(
-			{ a: 'keep', b: 'drop', constructor: 'drop' },
-			schema
-		)
-		expect(args).toEqual({ a: 'keep' })
-		expect(dropped.undeclared.sort()).toEqual(['b', 'constructor'])
-	})
-
-	// Both sides parsed, never written as literals: `__proto__:` in an object literal is
-	// the prototype setter, so a literal declares nothing to keep in the first place.
-	it('keeps a declared __proto__ instead of losing it to the setter', () => {
-		const { args, dropped } = conformArgsToSchema(
-			JSON.parse('{"__proto__":"legit","keep":1}'),
-			JSON.parse('{"properties":{"__proto__":{"type":"string"},"keep":{"type":"number"}}}')
-		)
-		expect(Object.hasOwn(args, '__proto__')).toBe(true)
-		expect(args['__proto__']).toBe('legit')
-		expect(dropped.undeclared).toEqual([])
-	})
-
-	it('returns a plain object even when the schema declares nothing', () => {
-		const { args, dropped } = conformArgsToSchema({ a: 1 }, undefined)
-		expect(args).toEqual({})
-		expect(dropped.undeclared).toEqual(['a'])
-	})
-
-	// The form has the same limitations here as everywhere else in the product: below the
-	// top level, `SchemaForm` prunes what it mounts and a mismatch renders as it renders on
-	// the run page. A filter precise enough to descend has to resolve `oneOf` branches, and
-	// getting that wrong deletes what the user typed into the branch they did open.
-	it('leaves nested arguments alone, declared or not', () => {
-		const schema = {
-			properties: {
-				obj: { type: 'object', properties: { known: { type: 'string' } } },
-				either: {
-					type: 'object',
-					oneOf: [
-						{ title: 'Structured', properties: { name: { type: 'string' } } },
-						{ title: 'Freeform', properties: {} }
-					]
-				}
-			}
-		}
-		const { args, dropped } = conformArgsToSchema(
-			{ obj: { known: 'a', extra: 'b' }, either: { label: 'Freeform', anything: 1 } },
-			schema
-		)
-		expect(args).toEqual({
-			obj: { known: 'a', extra: 'b' },
-			either: { label: 'Freeform', anything: 1 }
-		})
-		expect(dropped).toEqual({ undeclared: [], unshowable: [] })
-	})
-
-	// Each scalar widget binds one JS type and shows nothing else: a string in a number
-	// input renders blank, with no error and Run still enabled, so the user would approve
-	// an empty box over a value only the job sees. A boolean is worse — `"false"` renders
-	// checked. An object in the same slot renders blank the same way.
-	it('drops a value that contradicts its declared scalar type', () => {
+describe('coerceArgsToSchema', () => {
+	// A scalar widget renders its own reading of a wrong-typed value and never writes that
+	// reading back, so an untouched form submits something it never displayed: a number
+	// input paints `"12"` as a filled-looking 12, and a toggle shows `"false"` as on.
+	it('converts a value its widget would read, so the form shows what runs', () => {
 		const schema = {
 			properties: {
 				count: { type: 'number' },
@@ -77,39 +20,102 @@ describe('conformArgsToSchema', () => {
 				name: { type: 'string' }
 			}
 		}
-		const { args, dropped } = conformArgsToSchema(
-			{ count: '12', flag: 'false', label: { a: 1 }, name: 'ada' },
+		const { args, clearedKeys } = coerceArgsToSchema(
+			{ count: '12', flag: 'false', label: 3, name: 'ada' },
 			schema
 		)
-		expect(args).toEqual({ name: 'ada' })
-		expect(dropped.unshowable.sort()).toEqual(['count', 'flag', 'label'])
+		expect(args).toEqual({ count: 12, flag: false, label: '3', name: 'ada' })
+		expect(clearedKeys).toEqual([])
 	})
 
-	// `ArgInput` says "Expected an array, got object instead" and disables Run, and a
-	// nested form rewrites a stray array into its own shape. Filtering either here would
-	// only replace a message the form already gives with a quieter one.
-	it('leaves a container mismatch to the widget that reports it', () => {
+	// Cleared, not carried: the widget shows nothing for these, so nothing is what an
+	// untouched form should send.
+	it('empties a value with no reading in its declared type', () => {
 		const schema = {
 			properties: {
-				rows: { type: 'array', items: { type: 'object', properties: { id: {} } } },
-				cfg: { type: 'object', properties: { known: { type: 'string' } } }
+				count: { type: 'number' },
+				flag: { type: 'boolean' },
+				label: { type: 'string' }
 			}
 		}
-		const { args, dropped } = conformArgsToSchema({ rows: { id: 'x' }, cfg: [1, 2] }, schema)
-		expect(args).toEqual({ rows: { id: 'x' }, cfg: [1, 2] })
-		expect(dropped.unshowable).toEqual([])
+		const { args, clearedKeys } = coerceArgsToSchema(
+			{ count: 'abc', flag: 'maybe', label: { a: 1 } },
+			schema
+		)
+		expect(args).toEqual({})
+		expect(clearedKeys.sort()).toEqual(['count', 'flag', 'label'])
+	})
+
+	// The worker takes the arguments its own signature names, so a **kwargs script and one
+	// whose stored schema is stale or absent accept what no property declares. Removing
+	// these made such a script unrunnable through the form.
+	it('carries arguments the schema does not declare', () => {
+		const kept = coerceArgsToSchema({ a: 'keep', b: 2, constructor: 'x' }, {
+			properties: { a: { type: 'string' } }
+		} as any)
+		expect(kept.args).toEqual({ a: 'keep', b: 2, constructor: 'x' })
+		expect(coerceArgsToSchema({ a: 1 }, undefined).args).toEqual({ a: 1 })
+	})
+
+	// Resolved by the job, so the declared type describes what it receives and never the
+	// string standing in for it. `Number('$var:…')` is NaN, so coercing would destroy it.
+	it('leaves a variable or resource reference in any slot', () => {
+		const schema = {
+			properties: {
+				size: { type: 'number' },
+				on: { type: 'boolean' },
+				db: { type: 'object', format: 'resource-postgresql' }
+			}
+		}
+		const { args, clearedKeys } = coerceArgsToSchema(
+			{ size: '$var:u/admin/size', on: '$var:u/admin/on', db: '$res:u/admin/pg' },
+			schema
+		)
+		expect(args).toEqual({
+			size: '$var:u/admin/size',
+			on: '$var:u/admin/on',
+			db: '$res:u/admin/pg'
+		})
+		expect(clearedKeys).toEqual([])
 	})
 
 	// Not merely unreadable: `MultiSelect` maps over the value as it renders, so anything
 	// else throws and takes the whole card down, Cancel with it.
-	it('drops a non-array in a dyn-multiselect slot', () => {
-		const schema = {
-			properties: { tags: { type: 'object', format: 'dynmultiselect-list' } }
-		}
-		expect(conformArgsToSchema({ tags: ['a'] }, schema).args).toEqual({ tags: ['a'] })
-		const { args, dropped } = conformArgsToSchema({ tags: { a: 1 } }, schema)
+	it('empties a non-array in a dyn-multiselect slot', () => {
+		const schema = { properties: { tags: { type: 'object', format: 'dynmultiselect-list' } } }
+		expect(coerceArgsToSchema({ tags: ['a'] }, schema).args).toEqual({ tags: ['a'] })
+		const { args, clearedKeys } = coerceArgsToSchema({ tags: { a: 1 } }, schema)
 		expect(args).toEqual({})
-		expect(dropped.unshowable).toEqual(['tags'])
+		expect(clearedKeys).toEqual(['tags'])
+	})
+
+	// Below the top the form has the same limitations as everywhere else in the product,
+	// and descending means resolving `oneOf` branches — where being wrong rewrites what the
+	// user typed into the branch they did open.
+	it('leaves nested and container values to the widget that renders them', () => {
+		const schema = {
+			properties: {
+				obj: { type: 'object', properties: { known: { type: 'string' } } },
+				rows: { type: 'array', items: { type: 'object' } }
+			}
+		}
+		const { args, clearedKeys } = coerceArgsToSchema(
+			{ obj: { known: 1, extra: 'b' }, rows: { id: 'x' } },
+			schema
+		)
+		expect(args).toEqual({ obj: { known: 1, extra: 'b' }, rows: { id: 'x' } })
+		expect(clearedKeys).toEqual([])
+	})
+
+	// Both sides parsed, never written as literals: `__proto__:` in an object literal is
+	// the prototype setter, so a literal declares nothing to coerce in the first place.
+	it('keeps a declared __proto__ instead of losing it to the setter', () => {
+		const { args } = coerceArgsToSchema(
+			JSON.parse('{"__proto__":"legit","keep":1}'),
+			JSON.parse('{"properties":{"__proto__":{"type":"string"},"keep":{"type":"number"}}}')
+		)
+		expect(Object.hasOwn(args, '__proto__')).toBe(true)
+		expect(args['__proto__']).toBe('legit')
 	})
 })
 
