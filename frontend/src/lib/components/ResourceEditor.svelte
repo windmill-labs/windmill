@@ -14,6 +14,7 @@
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
 	import ResourceForm from './ResourceForm.svelte'
 	import { managedCredentialHost } from './git_sync/managedCredential'
+	import ReplaceGitCredential from './git_sync/ReplaceGitCredential.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { resource } from 'runed'
@@ -151,6 +152,16 @@
 
 	let current = $derived(selected ? states[selected]?.draft : undefined)
 	let managedHost = $derived(managedCredentialHost(current?.args))
+	// The saved URL, not the draft's: a credential is bound to the repository it
+	// is issued for, so binding one to an edit that has not landed yet would tie
+	// it to something the resource does not point at.
+	let deployedUrl = $derived(
+		selected ? ((fetchedResources[selected]?.value as any)?.url as string | undefined) : undefined
+	)
+	// Only an unsaved *URL* blocks replacing the token, not any unsaved change:
+	// opening the drawer materialises schema defaults (`folder: ""`), so a whole-
+	// resource dirty check would disable it the moment the drawer opens.
+	let urlDirty = $derived(!!deployedUrl && current?.args?.url !== deployedUrl)
 	let resourceToEdit: Resource | undefined = $derived(
 		selected ? fetchedResources[selected] : undefined
 	)
@@ -412,12 +423,24 @@
 			</Alert>
 		{/if}
 
-		{#if managedHost}
+		{#if managedHost && selected}
 			<Alert type="info" title="Windmill holds this repository's access token">
-				The URL below carries no credential. Windmill renews the token before it expires and hands
-				it to this workspace's sync jobs, and forks of this workspace use it without storing their
-				own copy. To replace it, pick the project again with the
-				{managedHost === 'gitlab' ? 'GitLab' : 'git'} button below.
+				<div class="flex flex-col items-start gap-2">
+					<div>
+						The URL below carries no credential. Windmill renews the token before it expires and
+						hands it to this workspace's sync jobs, and forks of this workspace use it without
+						storing their own copy.
+						{#if urlDirty}
+							Save the URL change to replace the token.
+						{/if}
+					</div>
+					<ReplaceGitCredential
+						workspace={selected}
+						resourcePath={current?.path ?? initialPath ?? ''}
+						repoUrl={deployedUrl ?? ''}
+						disabled={urlDirty || !deployedUrl}
+					/>
+				</div>
 			</Alert>
 		{/if}
 

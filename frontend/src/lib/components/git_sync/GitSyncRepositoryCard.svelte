@@ -226,9 +226,15 @@
 		return {
 			type: days <= 7 ? ('error' as const) : days <= 14 ? ('warning' as const) : ('info' as const),
 			title: `Repository token ${when}`,
-			body: canSelfRotate
-				? 'Windmill cannot renew it because it cannot write the new token back to where this URL is stored. Move the URL into a Windmill variable, or replace the token before it expires.'
-				: 'Give the token the api or self_rotate scope and Windmill will renew it on its own. Otherwise, replace it before it expires to keep sync running.'
+			body:
+				(canSelfRotate
+					? 'Windmill cannot renew it because it cannot write the new token back to where this URL is stored. Move the URL into a Windmill variable, or replace the token before it expires.'
+					: 'Give the token the api or self_rotate scope and Windmill will renew it on its own. Otherwise, replace it before it expires to keep sync running.') +
+				// The remedy lives with the credential, which the resource owns; saying
+				// where stops the warning being a dead end.
+				(managedCredential
+					? ` Replace it on the ${repo?.git_repo_resource_path?.replace(/^\$res:/, '') ?? 'repository'} resource.`
+					: '')
 		}
 	})
 
