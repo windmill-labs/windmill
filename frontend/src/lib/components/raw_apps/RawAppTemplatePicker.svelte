@@ -365,10 +365,11 @@
 												class="w-40"
 											/>
 											{#if noUsableRole}
+												<!-- Turning table creation off is not a way around this: the app
+												     then names no data table, and what the assistant writes falls
+												     back to the workspace's default — this one. -->
 												<span class="text-xs text-red-600 dark:text-red-400">
-													{tableCreationEnabled
-														? 'no role you can use — pick another data table, or turn off table creation'
-														: 'no role you can use'}
+													no role you can use — queries against it will be refused
 												</span>
 											{/if}
 											{#if showRolePicker}
