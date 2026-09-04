@@ -146,12 +146,12 @@ export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 			const memoryTransform = mod.value.input_transforms?.memory
 			if (memoryTransform?.type === 'static' && memoryTransform.value) {
 				const memoryValue = memoryTransform.value as MemoryConfig
-				if (
-					memoryValue.kind === 'auto' &&
-					memoryValue.context_length &&
-					memoryValue.context_length > 0 &&
-					!memoryValue.memory_id
-				) {
+				const needsMemoryId =
+					memoryValue.kind === 'autocompacted' ||
+					(memoryValue.kind === 'auto' &&
+						!!memoryValue.context_length &&
+						memoryValue.context_length > 0)
+				if (needsMemoryId && !('memory_id' in memoryValue && memoryValue.memory_id)) {
 					memoryTransform.value = {
 						...memoryValue,
 						memory_id: randomUUID()

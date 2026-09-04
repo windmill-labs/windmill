@@ -74,6 +74,16 @@ impl Default for OutputType {
     }
 }
 
+/// Context window assumed when the step does not declare one, matching the flow editor's
+/// default. A step pointed at a smaller model has to say so: the assumed window is what
+/// compaction measures against, so too large a one never trips and the provider raises
+/// the context error itself.
+const DEFAULT_CONTEXT_WINDOW: usize = 128000;
+
+fn default_context_window() -> usize {
+    DEFAULT_CONTEXT_WINDOW
+}
+
 #[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Memory {
@@ -83,6 +93,15 @@ pub enum Memory {
         context_length: usize,
         #[serde(default)]
         memory_id: Option<Uuid>,
+    },
+    AutoCompacted {
+        #[serde(default)]
+        memory_id: Option<Uuid>,
+        /// The model's context window in tokens. Compaction is driven off this, so a
+        /// value larger than the model actually serves lets the conversation overflow
+        /// before the summary is ever taken.
+        #[serde(default = "default_context_window")]
+        context_window: usize,
     },
     Manual {
         messages: Vec<OpenAIMessage>,
@@ -135,12 +154,14 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
         });
 
         // Backward compatibility: if context_length is 0, use off mode
-        let memory = memory.map(|memory| {
-            if let Memory::Auto { context_length: 0, .. } = memory {
-                Memory::Off
-            } else {
-                memory
+        let memory = memory.map(|memory| match memory {
+            Memory::Auto { context_length: 0, .. } => Memory::Off,
+            // A window of 0 — an input expression that resolved to nothing — would put
+            // the compaction threshold at zero and summarize on every iteration.
+            Memory::AutoCompacted { memory_id, context_window: 0 } => {
+                Memory::AutoCompacted { memory_id, context_window: DEFAULT_CONTEXT_WINDOW }
             }
+            memory => memory,
         });
 
         AIAgentArgs {
@@ -331,6 +352,25 @@ impl TokenUsage {
         self.cache_read_input_tokens = read;
         self.cache_write_input_tokens = write;
         self
+    }
+
+    /// How many tokens the prompt of a single request actually occupied.
+    ///
+    /// The two provider shapes report caching differently: Anthropic and Bedrock keep
+    /// the cached prefix out of `input_tokens` and report it beside it, while the
+    /// OpenAI-shaped providers count `cached_tokens` inside `input_tokens` and never
+    /// report a write count. Adding the cache fields only when a write count is present
+    /// puts both on the same scale instead of double counting the OpenAI one.
+    pub fn prompt_tokens(&self) -> Option<i32> {
+        let input = self.input_tokens?;
+        if self.cache_write_input_tokens.is_none() {
+            return Some(input);
+        }
+        Some(
+            input
+                .saturating_add(self.cache_read_input_tokens.unwrap_or(0))
+                .saturating_add(self.cache_write_input_tokens.unwrap_or(0)),
+        )
     }
 
     pub fn is_empty(&self) -> bool {
@@ -870,6 +910,22 @@ pub struct S3ObjectWithType {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    /// Getting this wrong under-reports Anthropic's prompt by the whole cached prefix,
+    /// which is exactly the case compaction has to notice.
+    #[test]
+    fn prompt_tokens_puts_both_provider_cache_shapes_on_one_scale() {
+        // OpenAI-shaped: cached_tokens is inside input_tokens, no write count.
+        let openai = TokenUsage::new(Some(1000), Some(10), Some(1010)).with_cache(Some(800), None);
+        assert_eq!(openai.prompt_tokens(), Some(1000));
+
+        // Anthropic-shaped: the cached prefix is reported beside input_tokens.
+        let anthropic =
+            TokenUsage::from_input_output(Some(200), Some(10)).with_cache(Some(5000), Some(300));
+        assert_eq!(anthropic.prompt_tokens(), Some(5500));
+
+        assert_eq!(TokenUsage::default().prompt_tokens(), None);
+    }
 
     /// Helper to create a simple string type schema
     fn string_schema() -> OpenAPISchema {

@@ -297,7 +297,16 @@ pub enum AnthropicDelta {
     Unknown,
 }
 
-/// Anthropic usage information from message_delta event
+/// The `message` envelope of a `message_start` event. Only its usage is read: the
+/// prompt-side counts appear here and nowhere else in the stream.
+#[derive(Deserialize, Debug)]
+pub struct AnthropicStreamMessage {
+    #[serde(default)]
+    pub usage: Option<AnthropicUsage>,
+}
+
+/// Anthropic usage information, reported across `message_start` (prompt side) and
+/// `message_delta` (completion side)
 #[derive(Deserialize, Debug, Clone)]
 pub struct AnthropicUsage {
     #[serde(default)]
@@ -315,7 +324,10 @@ pub struct AnthropicUsage {
 #[serde(tag = "type")]
 pub enum AnthropicSSEEvent {
     #[serde(rename = "message_start")]
-    MessageStart {},
+    MessageStart {
+        #[serde(default)]
+        message: Option<AnthropicStreamMessage>,
+    },
     #[serde(rename = "content_block_start")]
     ContentBlockStart { index: usize, content_block: AnthropicContentBlockStart },
     #[serde(rename = "content_block_delta")]
@@ -362,7 +374,8 @@ pub struct AnthropicSSEParser {
     pub annotations: Vec<UrlCitation>,
     /// Whether web search was used in this response
     pub used_websearch: bool,
-    /// Token usage from message_delta event
+    /// Token usage, merged from the `message_start` (prompt side) and `message_delta`
+    /// (completion side) events
     pub usage: Option<AnthropicUsage>,
     /// Claude thinking block accumulated from `thinking`/`signature` deltas
     /// (or a redacted block). Attached to the first tool call of the turn so it
@@ -562,14 +575,35 @@ impl SSEParser for AnthropicSSEParser {
                     let error_msg = message.unwrap_or_else(|| "Unknown error".to_string());
                     tracing::error!("Anthropic streaming error: {}", error_msg);
                 }
+                AnthropicSSEEvent::MessageStart { message } => {
+                    // The only event carrying the prompt-side counts. `message_delta`
+                    // reports the completion, so dropping this one leaves the request
+                    // with no input token count at all.
+                    if let Some(usage) = message.and_then(|message| message.usage) {
+                        self.usage = Some(usage);
+                    }
+                }
                 AnthropicSSEEvent::MessageDelta { usage } => {
                     if let Some(u) = usage {
-                        self.usage = Some(u);
+                        match &mut self.usage {
+                            // Field by field, so the prompt counts from `message_start`
+                            // survive a delta that only reports the completion.
+                            Some(existing) => {
+                                existing.input_tokens = u.input_tokens.or(existing.input_tokens);
+                                existing.output_tokens = u.output_tokens.or(existing.output_tokens);
+                                existing.cache_read_input_tokens = u
+                                    .cache_read_input_tokens
+                                    .or(existing.cache_read_input_tokens);
+                                existing.cache_creation_input_tokens = u
+                                    .cache_creation_input_tokens
+                                    .or(existing.cache_creation_input_tokens);
+                            }
+                            None => self.usage = Some(u),
+                        }
                     }
                 }
                 // Ignore other events
-                AnthropicSSEEvent::MessageStart {}
-                | AnthropicSSEEvent::MessageStop {}
+                AnthropicSSEEvent::MessageStop {}
                 | AnthropicSSEEvent::Ping {}
                 | AnthropicSSEEvent::Unknown => {}
             }
@@ -987,6 +1021,43 @@ mod tests {
         assert_eq!(token_usage.cache_read_input_tokens, Some(4736));
         assert_eq!(token_usage.input_tokens, Some(4819));
         assert_eq!(token_usage.total_tokens, Some(4820));
+    }
+
+    struct NoopSink;
+
+    #[async_trait::async_trait]
+    impl StreamEventSink for NoopSink {
+        async fn send(
+            &self,
+            _event: StreamingEvent,
+            _events_str: &mut String,
+        ) -> Result<(), Error> {
+            Ok(())
+        }
+    }
+
+    /// The prompt-side counts arrive only on `message_start` and the completion total
+    /// only on `message_delta`; a parser that keeps just the last one reports a request
+    /// with no input tokens at all.
+    #[tokio::test]
+    async fn anthropic_usage_merges_message_start_and_message_delta() {
+        let mut parser = AnthropicSSEParser::new(Box::new(NoopSink));
+        parser
+            .parse_event_data(
+                r#"{"type":"message_start","message":{"id":"msg_1","role":"assistant","usage":{"input_tokens":4821,"output_tokens":1,"cache_read_input_tokens":4096,"cache_creation_input_tokens":128}}}"#,
+            )
+            .await
+            .unwrap();
+        parser
+            .parse_event_data(r#"{"type":"message_delta","usage":{"output_tokens":312}}"#)
+            .await
+            .unwrap();
+
+        let usage = parser.usage.expect("usage");
+        assert_eq!(usage.input_tokens, Some(4821));
+        assert_eq!(usage.output_tokens, Some(312));
+        assert_eq!(usage.cache_read_input_tokens, Some(4096));
+        assert_eq!(usage.cache_creation_input_tokens, Some(128));
     }
 
     #[test]

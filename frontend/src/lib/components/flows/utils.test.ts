@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import type { FlowValue } from '$lib/gen'
-import { modulesWithRetryOrSleep } from './utils.svelte'
+import type { FlowValue, MemoryConfig, OpenFlow } from '$lib/gen'
+import { cleanFlow, modulesWithRetryOrSleep } from './utils.svelte'
 
 const constantRetry = { constant: { attempts: 1, seconds: 5 } }
 
@@ -45,5 +45,39 @@ describe('modulesWithRetryOrSleep', () => {
 		}
 
 		expect(modulesWithRetryOrSleep(flow)).toEqual([])
+	})
+})
+
+describe('cleanFlow memory_id stamping', () => {
+	function agentFlow(memory: MemoryConfig): OpenFlow {
+		return {
+			summary: '',
+			value: {
+				modules: [
+					{
+						id: 'a',
+						value: {
+							type: 'aiagent',
+							tools: [],
+							input_transforms: { memory: { type: 'static', value: memory } }
+						}
+					} as any
+				]
+			}
+		} as OpenFlow
+	}
+
+	function memoryOf(flow: OpenFlow): any {
+		return (flow.value.modules[0].value as any).input_transforms.memory.value
+	}
+
+	// Two steps left without one share a memory key, which silently merges their
+	// conversations.
+	it('stamps one on the modes that persist, and nowhere else', () => {
+		expect(memoryOf(cleanFlow(agentFlow({ kind: 'autocompacted' })))).toHaveProperty('memory_id')
+		expect(memoryOf(cleanFlow(agentFlow({ kind: 'auto', context_length: 5 })))).toHaveProperty(
+			'memory_id'
+		)
+		expect(memoryOf(cleanFlow(agentFlow({ kind: 'off' })))).not.toHaveProperty('memory_id')
 	})
 })

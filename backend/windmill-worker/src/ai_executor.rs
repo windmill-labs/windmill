@@ -1,3 +1,4 @@
+use crate::ai::compaction::{CompactionRequest, Compactor, LastRequest};
 use crate::ai::tools::{execute_tool_calls, ToolAbortHandles, ToolExecutionContext};
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
@@ -105,6 +106,54 @@ fn prepare_auto_memory_messages_for_persistence(
     let non_system_messages = strip_system_messages(all_messages);
     let start_idx = non_system_messages.len().saturating_sub(context_length);
     non_system_messages[start_idx..].to_vec()
+}
+
+/// Everything the two compaction sites of the agent loop share. Only the query builder
+/// and `include_usage` differ between them, since both can change mid-run.
+struct CompactionContext<'a> {
+    compactor: Option<&'a mut Compactor>,
+    timeout: Option<std::time::Duration>,
+    credentials: &'a windmill_ai::credentials::ProviderCredentials,
+    args: &'a AIAgentArgs,
+    client: &'a AuthedClient,
+    workspace_id: &'a str,
+}
+
+/// Compacts when the conversation has outgrown the window, billing the summarization
+/// call to the step.
+async fn compact_if_needed(
+    ctx: CompactionContext<'_>,
+    query_builder: &dyn windmill_ai::query_builder::QueryBuilder,
+    include_usage: bool,
+    messages: &mut Vec<OpenAIMessage>,
+    last_request: LastRequest,
+    final_usage: &mut Option<TokenUsage>,
+) {
+    let (Some(compactor), Some(timeout)) = (ctx.compactor, ctx.timeout) else {
+        return;
+    };
+    let usage = compactor
+        .maybe_compact(
+            messages,
+            last_request,
+            &CompactionRequest {
+                query_builder,
+                credentials: ctx.credentials,
+                model: ctx.args.provider.get_model(),
+                temperature: ctx.args.temperature,
+                timeout,
+                client: ctx.client,
+                workspace_id: ctx.workspace_id,
+                include_usage,
+            },
+        )
+        .await;
+    if let Some(usage) = usage {
+        match final_usage {
+            Some(existing) => existing.accumulate(&usage),
+            None => *final_usage = Some(usage),
+        }
+    }
 }
 
 fn find_module_by_id(
@@ -923,9 +972,10 @@ pub async fn run_agent(
         .as_ref()
         .and_then(|fs| fs.memory_id)
         .or_else(|| {
-            // Extract memory_id from Memory::Auto if present
+            // Extract memory_id from the automatic memory modes if present
             match &args.memory {
-                Some(Memory::Auto { memory_id, .. }) => *memory_id,
+                Some(Memory::Auto { memory_id, .. })
+                | Some(Memory::AutoCompacted { memory_id, .. }) => *memory_id,
                 _ => None,
             }
         });
@@ -939,7 +989,13 @@ pub async fn run_agent(
                     messages.extend(manual_messages.clone());
                 }
             }
-            Some(Memory::Auto { context_length, .. }) => {
+            // `auto` keeps only the last `context_length` messages; `autocompacted`
+            // loads the whole persisted history, which compaction has already bounded.
+            Some(Memory::Auto { .. }) | Some(Memory::AutoCompacted { .. }) => {
+                let context_length = match &args.memory {
+                    Some(Memory::Auto { context_length, .. }) => *context_length,
+                    _ => usize::MAX,
+                };
                 // Auto mode: load from memory
                 if let Some(step_id) = effective_flow_step_id {
                     if let Some(memory_id) = memory_id {
@@ -948,7 +1004,7 @@ pub async fn run_agent(
                             Ok(Some(loaded_messages)) => {
                                 let messages_to_load = prepare_auto_memory_messages_for_request(
                                     &loaded_messages,
-                                    *context_length,
+                                    context_length,
                                 );
                                 messages.extend(messages_to_load);
                             }
@@ -1129,6 +1185,33 @@ pub async fn run_agent(
         .map(|m| m.clamp(1, HARD_MAX_AGENT_ITERATIONS))
         .unwrap_or(DEFAULT_MAX_AGENT_ITERATIONS);
 
+    let mut compactor = match &args.memory {
+        Some(Memory::AutoCompacted { context_window, .. }) if is_text_output => {
+            let tool_schema_tokens = tool_defs
+                .as_ref()
+                .and_then(|defs| serde_json::to_string(defs).ok())
+                .map(|schemas| schemas.len() / 4)
+                .unwrap_or(0);
+            Some(Compactor::new(*context_window, tool_schema_tokens))
+        }
+        _ => None,
+    };
+    // The summarization call runs under the agent's own request timeout, which resolves
+    // from the job alone and so is the same for every iteration.
+    let compaction_timeout = match compactor {
+        Some(_) => Some(
+            resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
+                .await
+                .0,
+        ),
+        None => None,
+    };
+    // Compaction runs only after a request the endpoint accepted: the fallbacks the loop
+    // learns from a rejection — `stream_options`, the chat/completions reroute — are not
+    // known before it, so a summarization issued ahead of the first request would be
+    // malformed by construction on exactly the endpoints that need them.
+    let mut last_request = LastRequest { prompt_tokens: None, message_count: 0 };
+
     // Main agent loop
     for i in 0..max_iterations {
         // Check if parent was canceled — stop iterating but let current tool calls finish
@@ -1139,6 +1222,10 @@ pub async fn run_agent(
         if used_structured_output_tool {
             break;
         }
+
+        // How many messages this request carries, so the provider's prompt count can
+        // later be told apart from what the response and its tool results add.
+        let request_message_count = messages.len();
 
         // Handle AWS Bedrock provider specially using the official SDK
         let parsed = if credentials.provider == AIProvider::AWSBedrock {
@@ -1361,6 +1448,16 @@ pub async fn run_agent(
                 used_websearch,
                 usage,
             } => {
+                // What this one request's prompt occupied. `final_usage` sums every
+                // iteration, so it says nothing about how full the context is.
+                last_request = LastRequest {
+                    prompt_tokens: usage.as_ref().and_then(|u| u.prompt_tokens()),
+                    message_count: request_message_count,
+                };
+                if let Some(compactor) = compactor.as_mut() {
+                    compactor.record_response();
+                }
+
                 // Accumulate usage from this iteration
                 if let Some(u) = usage {
                     match &mut final_usage {
@@ -1550,6 +1647,25 @@ pub async fn run_agent(
                 if *cancel_rx.borrow() {
                     return Err(Error::ExecutionErr("Job cancelled".to_string()));
                 }
+
+                // Compact between iterations rather than mid-request: the next iteration
+                // is what would carry the grown conversation to the provider.
+                compact_if_needed(
+                    CompactionContext {
+                        compactor: compactor.as_mut(),
+                        timeout: compaction_timeout,
+                        credentials: &credentials,
+                        args,
+                        client,
+                        workspace_id: &job.workspace_id,
+                    },
+                    query_builder.as_ref(),
+                    include_usage,
+                    &mut messages,
+                    last_request,
+                    &mut final_usage,
+                )
+                .await;
             }
             ParsedResponse::Image { base64_data } => {
                 // For image output, upload to S3 and track in conversation
@@ -1603,6 +1719,27 @@ pub async fn run_agent(
         }
     }
 
+    // A turn the model answers without calling a tool leaves the loop on its first
+    // iteration, so this is the only compaction a chat-shaped step ever gets: without it
+    // the conversation is persisted whole and every later turn reloads it, until the
+    // provider refuses the request outright.
+    compact_if_needed(
+        CompactionContext {
+            compactor: compactor.as_mut(),
+            timeout: compaction_timeout,
+            credentials: &credentials,
+            args,
+            client,
+            workspace_id: &job.workspace_id,
+        },
+        query_builder.as_ref(),
+        include_usage,
+        &mut messages,
+        last_request,
+        &mut final_usage,
+    )
+    .await;
+
     // Return the final result
     let final_messages: Vec<Message> = messages
         .iter()
@@ -1650,17 +1787,22 @@ pub async fn run_agent(
     // Skip memory persistence if using manual messages (bypass memory entirely)
     // final_messages contains the complete history (old messages + new ones)
     if matches!(output_type, OutputType::Text) && !use_manual_messages {
-        if let Some(Memory::Auto { context_length, .. }) = &args.memory {
+        let persisted_context_length = match &args.memory {
+            Some(Memory::Auto { context_length, .. }) => Some(*context_length),
+            // The compacted messages are the source of truth: truncating them again
+            // would drop the tail the summary was written to precede.
+            Some(Memory::AutoCompacted { .. }) => Some(usize::MAX),
+            _ => None,
+        };
+        if let Some(context_length) = persisted_context_length {
             if let Some(step_id) = effective_flow_step_id {
                 // Extract OpenAIMessages from final_messages
                 let all_messages: Vec<OpenAIMessage> =
                     final_messages.iter().map(|m| m.message.clone()).collect();
 
                 if !all_messages.is_empty() {
-                    let messages_to_persist = prepare_auto_memory_messages_for_persistence(
-                        &all_messages,
-                        *context_length,
-                    );
+                    let messages_to_persist =
+                        prepare_auto_memory_messages_for_persistence(&all_messages, context_length);
 
                     if let Some(memory_id) = memory_id {
                         if let Err(e) = write_to_memory(

@@ -47,7 +47,7 @@
 	import type { AiAgent, InputTransform, ScriptLang } from '$lib/gen'
 	import { deepEqual } from 'fast-equals'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { AI_AGENT_SCHEMA } from '../flowInfers'
+	import { AI_AGENT_SCHEMA, defaultChatMemory } from '../flowInfers'
 	import { nextId } from '../flowModuleNextId'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import FlowChat from '../conversations/FlowChat.svelte'
@@ -566,7 +566,7 @@
 		const aiAgentModules = flowStore.val.value.modules.filter((m) => m.value.type === 'aiagent')
 
 		if (aiAgentModules.length === 0) {
-			// No AI agent exists, create one with context memory set to 10
+			// No AI agent exists, create one that keeps the whole chat and compacts it
 			const aiAgentId = nextId(flowStateStore.val, flowStore.val)
 			flowStore.val.value.modules = [
 				...flowStore.val.value.modules,
@@ -580,7 +580,7 @@
 								if (key === 'user_message') {
 									accu[key] = { type: 'javascript', expr: 'flow_input.user_message' }
 								} else if (key === 'memory') {
-									accu[key] = { type: 'static', value: { kind: 'auto', context_length: 10 } }
+									accu[key] = { type: 'static', value: defaultChatMemory() }
 								} else {
 									accu[key] = {
 										type: 'static',
@@ -595,7 +595,7 @@
 				}
 			]
 			sendUserToast(
-				'Chat mode enabled. AI agent created with user message input and context memory set to 10.',
+				'Chat mode enabled. AI agent created with user message input and compacted context memory.',
 				false
 			)
 		} else if (aiAgentModules.length === 1) {
@@ -629,9 +629,9 @@
 			if (isUnconfigured(value.input_transforms['memory'])) {
 				value.input_transforms['memory'] = {
 					type: 'static',
-					value: { kind: 'auto', context_length: 10 }
+					value: defaultChatMemory()
 				}
-				applied.push('context memory set to 10')
+				applied.push('compacted context memory')
 			}
 
 			sendUserToast(
