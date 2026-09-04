@@ -97,7 +97,7 @@
 			onSelectTool?.(undefined)
 			return true
 		}
-		if ((agentValue?.tools ?? []).some((t) => t.id === id)) {
+		if (tools.some((t) => t.id === id)) {
 			onSelectTool?.(id)
 			return true
 		}
@@ -175,7 +175,9 @@
 	let agentValue = $derived(
 		agentModule?.value.type === 'aiagent' ? (agentModule.value as any) : undefined
 	)
-	let tools = $derived((agentValue?.tools ?? []) as AgentTool[])
+	// Everything that iterates the roster reads this, never the raw value: `tools` is JSON-authored
+	// and a `.filter` on another shape blanks the whole form.
+	let tools = $derived(Array.isArray(agentValue?.tools) ? (agentValue.tools as AgentTool[]) : [])
 	let toolIndex = $derived(toolId ? tools.findIndex((t) => t.id === toolId) : -1)
 	let tool = $derived(toolIndex >= 0 ? tools[toolIndex] : undefined)
 
@@ -303,6 +305,9 @@
 	// tool it just created is the only place the click can land.
 	async function addTool(detail: { kind: string; script?: any; flow?: any; inlineScript?: any }) {
 		if (!agentValue) return
+		// Adding a tool is the explicit action that replaces a JSON-authored non-list; without this
+		// the insert goes into a value that cannot hold it.
+		if (!Array.isArray(agentValue.tools)) agentValue.tools = []
 		const id = await insertAgentTool(
 			flowStore,
 			flowStateStore,
@@ -318,8 +323,8 @@
 	 *  list, so the graph's delete has nothing here to act on. */
 	function deleteTool(id: string) {
 		if (!agentValue) return
-		const remaining = (agentValue.tools ?? []).filter((t) => t.id !== id)
-		if (remaining.length === (agentValue.tools ?? []).length) return
+		const remaining = tools.filter((t) => t.id !== id)
+		if (remaining.length === tools.length) return
 		agentValue.tools = remaining
 		delete flowStateStore.val[id]
 		if (toolId === id) onSelectTool?.(undefined)
