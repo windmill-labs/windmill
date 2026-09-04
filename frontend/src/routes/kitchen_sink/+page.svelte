@@ -9,6 +9,7 @@
 	import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
 	import DraggableTabs, { type TabItem } from '$lib/components/common/tabs/DraggableTabs.svelte'
 	import { Globe } from 'lucide-svelte'
+	import { workspaceStore } from '$lib/stores'
 
 	let tab = $state('button')
 
@@ -195,7 +196,7 @@ That's the full round-trip.`
 				<code>CodeDisplay</code> → <code>HighlightCode</code>), constrained to the chat panel width.
 			</div>
 			<div class="border border-border-light rounded-lg p-3 bg-surface" style="max-width: 420px;">
-				<AssistantMessage message={chatMessage} />
+				<AssistantMessage message={chatMessage} workspace={$workspaceStore} />
 			</div>
 		</TabContent>
 		<TabContent value="scrollbar" class="p-4">

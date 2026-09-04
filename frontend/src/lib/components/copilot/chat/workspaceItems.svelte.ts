@@ -22,6 +22,8 @@ import { findAndReplace } from 'mdast-util-find-and-replace'
 import { visit } from 'unist-util-visit'
 import type { Root, InlineCode, Link } from 'mdast'
 import type { CreatedResourceAction, ToolDisplayAction } from './shared'
+// Leaf module, deliberately not './shared' — see the header of itemPreview.ts.
+import { openItemPreviewAction } from './itemPreview'
 
 export type WindmillItemKind =
 	| 'script'
@@ -46,6 +48,9 @@ export interface WorkspaceItemEntry {
 	kind: WindmillItemKind
 	path: string
 	targetKind?: WorkspaceItemTargetKind
+	/** Apps only. Both kinds share the `app` kind and the same `/apps/get/<path>` route,
+	 * so this flag is all that tells them apart downstream. */
+	rawApp?: boolean
 }
 
 export type WorkspaceItemTargetKind = 'script' | 'flow'
@@ -96,6 +101,7 @@ export function itemHref(entry: WorkspaceItemEntry, workspace?: string): string 
 type WorkspaceItemListResult = Array<{
 	path: string
 	is_flow?: boolean | null
+	raw_app?: boolean | null
 }>
 
 const workspaceItemLoaders: Array<{
@@ -165,7 +171,8 @@ class WorkspaceItemRegistry {
 						kind,
 						path: it.path,
 						targetKind:
-							typeof it.is_flow === 'boolean' ? (it.is_flow ? 'flow' : 'script') : undefined
+							typeof it.is_flow === 'boolean' ? (it.is_flow ? 'flow' : 'script') : undefined,
+						rawApp: kind === 'app' ? it.raw_app === true : undefined
 					})
 				}
 			}
@@ -213,12 +220,29 @@ export function extractCandidatePaths(text: string | undefined | null): string[]
 	return [...seen]
 }
 
+/**
+ * The in-app action a resolved path link runs instead of opening a new tab, or undefined
+ * when the kind has none (its link then stays outbound). Returning an action does not mean
+ * it can run on this surface — only the sessions page hosts a preview panel, so callers
+ * gate on `hasToolDisplayActionHandler(action.type)`.
+ */
 export function workspaceItemAction(
 	kind: WindmillItemKind | undefined,
 	path: string | undefined,
-	targetKind?: WorkspaceItemTargetKind
+	targetKind?: WorkspaceItemTargetKind,
+	rawApp?: boolean
 ): ToolDisplayAction | undefined {
 	if (!kind || !path) return undefined
+
+	if (kind === 'script' || kind === 'flow') {
+		return openItemPreviewAction(kind, path)
+	}
+
+	// Raw apps only. A legacy drag-and-drop app has no editor the panel can host, and
+	// legacy items are not extended onto new surfaces — its link stays outbound.
+	if (kind === 'app') {
+		return rawApp ? openItemPreviewAction('raw_app', path) : undefined
+	}
 
 	const base = {
 		id: `open_workspace_item:${kind}:${path}`,
@@ -252,6 +276,9 @@ function buildPathLinkNode(
 	}
 	if (entry.targetKind) {
 		hProperties['data-wm-target-kind'] = entry.targetKind
+	}
+	if (entry.rawApp) {
+		hProperties['data-wm-raw-app'] = 'true'
 	}
 
 	return {

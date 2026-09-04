@@ -148,41 +148,74 @@ pub const DEFAULT_MAX_CONNECTIONS_INDEXER: u32 = 5;
 pub const DEFAULT_HUB_BASE_URL: &str = "https://hub.windmill.dev";
 pub const PRIVATE_HUB_MIN_VERSION: i32 = 10_000_000;
 pub const DEFAULT_SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 weeks retention period for logs
+pub const DEFAULT_OTEL_TRACES_RETENTION_SECS: i64 = 60 * 60 * 24 * 7; // 1 week retention period for HTTP request spans
 pub const WM_DEPLOYERS_GROUP: &str = "wm_deployers";
 
 /// A century. Every consumer has to survive `now - retention`, and the ceilings are much lower
 /// than an `i64`: `DateTime` subtraction panics past year 262143, and the `(<n> s)::interval`
 /// the cleanup queries build overflows Postgres' microsecond field.
-const MAX_SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 365 * 100;
+const MAX_RETENTION_SECS: i64 = 60 * 60 * 24 * 365 * 100;
 
-/// Apply a configured service log retention, in seconds.
+/// Clamp a configured retention window, in seconds, to one a cutoff can be built from.
 ///
-/// The only way into [`SERVICE_LOG_RETENTION_SECS`], so an unusable value can never reach a
-/// cutoff. The two unusable directions are not the same mistake and must not share a landing
-/// point: too large still says "keep these for a very long time", so it is capped and the
-/// intent survives, whereas falling back would delete logs the operator meant to keep. A
-/// non-positive value has no such reading — every cutoff is `now - retention`, so it lands at
-/// or after `now` and the next sweep expires the entire history, rows and object-storage files
-/// alike. Unlike job retention there is no "keep forever" spelling here, so `0` — what an
-/// operator types by analogy with it, and what the settings UI writes into a field that was
-/// merely focused — falls back to the default.
-pub fn set_service_log_retention_secs(configured: i64) {
-    let effective = if configured > MAX_SERVICE_LOG_RETENTION_SECS {
+/// Shared by the retention windows that have no "keep forever" spelling, so that an unusable
+/// value can never reach a cutoff. The two unusable directions are not the same mistake and must
+/// not share a landing point: too large still says "keep these for a very long time", so it is
+/// capped and the intent survives, whereas falling back would delete data the operator meant to
+/// keep. A non-positive value has no such reading — every cutoff is `now - retention`, so it
+/// lands at or after `now` and the next sweep expires the entire history. `0` is both what an
+/// operator types by analogy with job retention, where it does mean keep forever, and what the
+/// settings UI writes into a field that was merely focused, so it falls back to the default.
+fn clamp_retention_secs(configured: i64, default: i64, what: &str) -> i64 {
+    if configured > MAX_RETENTION_SECS {
         tracing::warn!(
-            "service log retention of {configured}s exceeds the maximum of \
-             {MAX_SERVICE_LOG_RETENTION_SECS}s, capping it there"
+            "{what} retention of {configured}s exceeds the maximum of {MAX_RETENTION_SECS}s, \
+             capping it there"
         );
-        MAX_SERVICE_LOG_RETENTION_SECS
+        MAX_RETENTION_SECS
     } else if configured >= 1 {
         configured
     } else {
         tracing::warn!(
-            "service log retention of {configured}s would expire every service log, \
-             falling back to the default of {DEFAULT_SERVICE_LOG_RETENTION_SECS}s"
+            "{what} retention of {configured}s would expire the entire history, \
+             falling back to the default of {default}s"
         );
-        DEFAULT_SERVICE_LOG_RETENTION_SECS
-    };
+        default
+    }
+}
+
+/// Apply a configured service log retention, in seconds.
+///
+/// The only way into [`SERVICE_LOG_RETENTION_SECS`]. Expiry reaches every copy of a log line:
+/// the row, the file on disk, and the object-storage object.
+pub fn set_service_log_retention_secs(configured: i64) {
+    let effective = clamp_retention_secs(
+        configured,
+        DEFAULT_SERVICE_LOG_RETENTION_SECS,
+        "service log",
+    );
     SERVICE_LOG_RETENTION_SECS.store(effective, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Apply a configured OTEL trace retention, in seconds.
+///
+/// The only way into [`OTEL_TRACES_RETENTION_SECS`].
+pub fn set_otel_traces_retention_secs(configured: i64) {
+    let effective = clamp_retention_secs(
+        configured,
+        DEFAULT_OTEL_TRACES_RETENTION_SECS,
+        "otel traces",
+    );
+    OTEL_TRACES_RETENTION_SECS.store(effective, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// How long an HTTP request tracing span stays in `otel_traces`, in seconds.
+///
+/// Spans are keyed by the job they were captured for and read back by the job detail view, so
+/// this is the outer bound on how far back that view can show a job's HTTP requests. It is
+/// independent of job retention: a span can outlive its job, or be swept while the job remains.
+pub fn otel_traces_retention_secs() -> i64 {
+    OTEL_TRACES_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// How long a service log line stays retrievable, in seconds.
@@ -423,6 +456,10 @@ lazy_static::lazy_static! {
     /// would expire every service log cannot reach a cutoff. Read it with
     /// [`service_log_retention_secs`].
     static ref SERVICE_LOG_RETENTION_SECS: AtomicI64 = AtomicI64::new(DEFAULT_SERVICE_LOG_RETENTION_SECS);
+    /// Private on purpose, same as [`SERVICE_LOG_RETENTION_SECS`]:
+    /// [`set_otel_traces_retention_secs`] is the only writer, [`otel_traces_retention_secs`] the
+    /// only reader.
+    static ref OTEL_TRACES_RETENTION_SECS: AtomicI64 = AtomicI64::new(DEFAULT_OTEL_TRACES_RETENTION_SECS);
 
     pub static ref MONITOR_LOGS_ON_OBJECT_STORE: AtomicBool = AtomicBool::new(false);
 

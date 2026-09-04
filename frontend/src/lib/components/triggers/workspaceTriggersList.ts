@@ -79,6 +79,12 @@ export const TRIGGER_KINDS: Record<
 			onError?: (message: string) => void
 		) => Promise<Array<Record<string, any>>>
 		create?: (workspace: string, requestBody: any) => Promise<unknown>
+		/**
+		 * Write back an existing trigger's config. Used to point an imported trigger at a
+		 * resource the workspace already has; `schedule` has none because its own service
+		 * takes a different body shape, handled by the caller.
+		 */
+		update?: (workspace: string, path: string, requestBody: any) => Promise<unknown>
 	}
 > = {
 	http: {
@@ -101,7 +107,9 @@ export const TRIGGER_KINDS: Record<
 		resourceField: 'authentication_resource_path',
 		list: (workspace) => HttpTriggerService.listHttpTriggers({ workspace }),
 		create: (workspace, requestBody) =>
-			HttpTriggerService.createHttpTrigger({ workspace, requestBody })
+			HttpTriggerService.createHttpTrigger({ workspace, requestBody }),
+		update: (workspace, path, requestBody) =>
+			HttpTriggerService.updateHttpTrigger({ workspace, path, requestBody })
 	},
 	websocket: {
 		configFields: [
@@ -119,7 +127,9 @@ export const TRIGGER_KINDS: Record<
 		note: 'Reconnect WebSocket auth after import if external service requires it.',
 		list: (workspace) => WebsocketTriggerService.listWebsocketTriggers({ workspace }),
 		create: (workspace, requestBody) =>
-			WebsocketTriggerService.createWebsocketTrigger({ workspace, requestBody })
+			WebsocketTriggerService.createWebsocketTrigger({ workspace, requestBody }),
+		update: (workspace, path, requestBody) =>
+			WebsocketTriggerService.updateWebsocketTrigger({ workspace, path, requestBody })
 	},
 	schedule: {
 		configFields: [
@@ -180,7 +190,9 @@ export const TRIGGER_KINDS: Record<
 		eeOnly: true,
 		list: (workspace) => KafkaTriggerService.listKafkaTriggers({ workspace }),
 		create: (workspace, requestBody) =>
-			KafkaTriggerService.createKafkaTrigger({ workspace, requestBody })
+			KafkaTriggerService.createKafkaTrigger({ workspace, requestBody }),
+		update: (workspace, path, requestBody) =>
+			KafkaTriggerService.updateKafkaTrigger({ workspace, path, requestBody })
 	},
 	nats: {
 		configFields: [
@@ -197,7 +209,9 @@ export const TRIGGER_KINDS: Record<
 		eeOnly: true,
 		list: (workspace) => NatsTriggerService.listNatsTriggers({ workspace }),
 		create: (workspace, requestBody) =>
-			NatsTriggerService.createNatsTrigger({ workspace, requestBody })
+			NatsTriggerService.createNatsTrigger({ workspace, requestBody }),
+		update: (workspace, path, requestBody) =>
+			NatsTriggerService.updateNatsTrigger({ workspace, path, requestBody })
 	},
 	sqs: {
 		configFields: [
@@ -212,7 +226,9 @@ export const TRIGGER_KINDS: Record<
 		eeOnly: true,
 		list: (workspace) => SqsTriggerService.listSqsTriggers({ workspace }),
 		create: (workspace, requestBody) =>
-			SqsTriggerService.createSqsTrigger({ workspace, requestBody })
+			SqsTriggerService.createSqsTrigger({ workspace, requestBody }),
+		update: (workspace, path, requestBody) =>
+			SqsTriggerService.updateSqsTrigger({ workspace, path, requestBody })
 	},
 	mqtt: {
 		configFields: [
@@ -228,7 +244,9 @@ export const TRIGGER_KINDS: Record<
 		resourceField: 'mqtt_resource_path',
 		list: (workspace) => MqttTriggerService.listMqttTriggers({ workspace }),
 		create: (workspace, requestBody) =>
-			MqttTriggerService.createMqttTrigger({ workspace, requestBody })
+			MqttTriggerService.createMqttTrigger({ workspace, requestBody }),
+		update: (workspace, path, requestBody) =>
+			MqttTriggerService.updateMqttTrigger({ workspace, path, requestBody })
 	},
 	amqp: {
 		configFields: ['amqp_resource_path', 'queue_name', 'exchange', 'options'],
@@ -238,7 +256,9 @@ export const TRIGGER_KINDS: Record<
 		resourceField: 'amqp_resource_path',
 		list: (workspace) => AmqpTriggerService.listAmqpTriggers({ workspace }),
 		create: (workspace, requestBody) =>
-			AmqpTriggerService.createAmqpTrigger({ workspace, requestBody })
+			AmqpTriggerService.createAmqpTrigger({ workspace, requestBody }),
+		update: (workspace, path, requestBody) =>
+			AmqpTriggerService.updateAmqpTrigger({ workspace, path, requestBody })
 	},
 	gcp: {
 		configFields: [
@@ -256,7 +276,9 @@ export const TRIGGER_KINDS: Record<
 		eeOnly: true,
 		list: (workspace) => GcpTriggerService.listGcpTriggers({ workspace }),
 		create: (workspace, requestBody) =>
-			GcpTriggerService.createGcpTrigger({ workspace, requestBody })
+			GcpTriggerService.createGcpTrigger({ workspace, requestBody }),
+		update: (workspace, path, requestBody) =>
+			GcpTriggerService.updateGcpTrigger({ workspace, path, requestBody })
 	},
 	azure: {
 		configFields: [
@@ -274,7 +296,9 @@ export const TRIGGER_KINDS: Record<
 		eeOnly: true,
 		list: (workspace) => AzureTriggerService.listAzureTriggers({ workspace }),
 		create: (workspace, requestBody) =>
-			AzureTriggerService.createAzureTrigger({ workspace, requestBody })
+			AzureTriggerService.createAzureTrigger({ workspace, requestBody }),
+		update: (workspace, path, requestBody) =>
+			AzureTriggerService.updateAzureTrigger({ workspace, path, requestBody })
 	},
 	postgres: {
 		configFields: [
@@ -288,7 +312,9 @@ export const TRIGGER_KINDS: Record<
 		resourceField: 'postgres_resource_path',
 		list: (workspace) => PostgresTriggerService.listPostgresTriggers({ workspace }),
 		create: (workspace, requestBody) =>
-			PostgresTriggerService.createPostgresTrigger({ workspace, requestBody })
+			PostgresTriggerService.createPostgresTrigger({ workspace, requestBody }),
+		update: (workspace, path, requestBody) =>
+			PostgresTriggerService.updatePostgresTrigger({ workspace, path, requestBody })
 	},
 	email: {
 		configFields: ['local_part', 'workspaced_local_part'],
@@ -297,7 +323,9 @@ export const TRIGGER_KINDS: Record<
 		note: 'Email address regenerates on import.',
 		list: (workspace) => EmailTriggerService.listEmailTriggers({ workspace }),
 		create: (workspace, requestBody) =>
-			EmailTriggerService.createEmailTrigger({ workspace, requestBody })
+			EmailTriggerService.createEmailTrigger({ workspace, requestBody }),
+		update: (workspace, path, requestBody) =>
+			EmailTriggerService.updateEmailTrigger({ workspace, path, requestBody })
 	}
 }
 

@@ -68,7 +68,6 @@
 		Plus,
 		RotateCw,
 		Save,
-		FlaskConical,
 		SearchX,
 		Shield,
 		Trash,
@@ -78,12 +77,19 @@
 	import autosize from '$lib/autosize'
 	import EditableSchemaWrapper from '$lib/components/schema/EditableSchemaWrapper.svelte'
 	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
+	import {
+		agentEditorTarget,
+		closeAgentEditor,
+		openAgentEditor
+	} from '$lib/components/flows/agentEditorStore.svelte'
+	import { copilotInfo } from '$lib/aiStore'
+	import { setPageDrawerAnchor } from '$lib/components/sessions/pageDrawerSession'
+	import { RESOURCES_PATH } from '$lib/components/sessions/previewPaths'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import ExploreAssetButton, {
 		assetCanBeExplored
 	} from '../../../../lib/components/ExploreAssetButton.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
-	import AgentEvalModal from '$lib/components/aiEvals/AgentEvalModal.svelte'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -129,14 +135,33 @@
 		isFileset: false
 	})
 	let resourceEditor: ResourceEditorDrawer | undefined = $state(undefined)
+
+	/** An `ai_agent` gets the agent editor rather than the generic resource form, which would
+	 *  render its configuration as raw JSON. Both write the same resource draft, so the choice is
+	 *  presentational and either can open a path the other left a draft at. */
+	function openResourceEditor(path: string, resourceType: string | undefined) {
+		if (resourceType === 'ai_agent') {
+			// The generic editor anchors itself from `initEdit`; this one has to, or the URL, a
+			// refresh, and the AI session's idea of where you are all miss the open agent. Claim the
+			// hash first so the deep-link effect does not treat our own write as a new navigation.
+			handledHash = `#/resource/${path}`
+			// One row at a time: the hash can retarget from a resource to an agent, and the two
+			// editors are separate overlays that would otherwise stack, the older one surfacing again
+			// when the newer is closed.
+			resourceEditor?.close?.({ keepAnchor: true })
+			openAgentEditor({ path })
+			setPageDrawerAnchor(RESOURCES_PATH, path)
+		} else {
+			closeAgentEditor()
+			resourceEditor?.initEdit?.(path)
+		}
+	}
 	let shareModal: ShareModal | undefined = $state(undefined)
 	let appConnect: AppConnect | undefined = $state(undefined)
 	let supabaseConnect: SupabaseConnect | undefined = $state(undefined)
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let deleteIsLinked = $state(false)
 	let deletePath = $state('')
-	let evalsOpen = $state(false)
-	let evalsAgentPath = $state<string | undefined>(undefined)
 	let loading = $state({
 		resources: true,
 		types: true
@@ -646,9 +671,39 @@
 			return
 		}
 		if (hash === handledHash || !resourceEditor) return
+		// The type decides which editor opens, so wait for the list that carries it.
+		if (!resources) return
 		handledHash = hash
-		resourceEditor.initEdit(hash.slice(11))
+		const path = hash.slice(11)
+		void openResourceFromHash(path)
 	})
+
+	/** The listing is narrowed by the active filters, so a deep-linked resource may not be in it.
+	 *  Treating that absence as "unknown type" would open the generic form, which materializes a
+	 *  default into every field the value omits and so writes a draft just by rendering. Ask the
+	 *  server instead. */
+	async function openResourceFromHash(path: string) {
+		let resourceType = resources?.find((r) => r.path === path)?.resource_type
+		if (resourceType === undefined) {
+			// The hash can move on while this is in flight, and two lookups can land out of order.
+			// Whichever resolves last must not open an editor the URL has already left.
+			const openingFor = handledHash
+			try {
+				resourceType = (await ResourceService.getResource({ workspace: $workspaceStore!, path }))
+					.resource_type
+			} catch (err) {
+				if (handledHash !== openingFor) return
+				// Opening the generic form on an unknown type is the very thing this avoids, so a
+				// failed lookup opens nothing at all. The hash stays claimed: the effect above reads
+				// it, so releasing it here would re-enter this lookup and toast on a loop. Clicking
+				// the row is the way to try again.
+				sendUserToast(`Could not open ${path}: ${err}`, true)
+				return
+			}
+			if (handledHash !== openingFor) return
+		}
+		openResourceEditor(path, resourceType)
+	}
 
 	let showTable = $derived(
 		tab == 'workspace' || tab == 'states' || tab == 'cache' || tab == 'theme'
@@ -1086,8 +1141,8 @@
 									<Cell head>Path</Cell>
 									<Cell head>Resource type</Cell>
 									<Cell head>Description</Cell>
-									<Cell head />
-									<Cell head last stickyEnd />
+									<Cell head>Status</Cell>
+									<Cell head last actions>Actions</Cell>
 								</Row>
 							</Head>
 							<tbody class="divide-y bg-surface">
@@ -1106,7 +1161,7 @@
 														href="#/resource/{path}"
 														onclick={() => {
 															handledHash = `#/resource/${path}`
-															resourceEditor?.initEdit?.(path)
+															openResourceEditor(path, resource_type)
 														}}
 														>{#if marked}{@html marked}{:else}{path}{/if}{hasDraft ? '*' : ''}</a
 													>
@@ -1254,8 +1309,8 @@
 													{/if}
 												</div>
 											</Cell>
-											<Cell last stickyEnd>
-												<div class="flex justify-end">
+											<Cell last actions>
+												<div class="flex justify-end items-center gap-2">
 													{#if path && assetCanBeExplored({ kind: 'resource', path }, { resource_type }) && !$userStore?.operator}
 														<ExploreAssetButton
 															asset={{ kind: 'resource', path }}
@@ -1266,18 +1321,6 @@
 													<Dropdown
 														class="w-fit"
 														items={[
-															...(resource_type === 'ai_agent' && !draft_only
-																? [
-																		{
-																			displayName: 'Evals',
-																			icon: FlaskConical,
-																			action: () => {
-																				evalsAgentPath = path
-																				evalsOpen = true
-																			}
-																		}
-																	]
-																: []),
 															{
 																displayName: 'Permissions',
 																icon: Shield,
@@ -1290,9 +1333,31 @@
 																icon: Pen,
 																disabled: !canWrite || !showCreateButtons,
 																action: () => {
-																	resourceEditor?.initEdit?.(path)
+																	openResourceEditor(path, resource_type)
 																}
 															},
+															// The agent form covers an agent's configuration, not everything a
+															// resource carries: the workspace-specific toggle in particular is
+															// only in the generic editor. JSON rather than that editor's form,
+															// which would render the configuration field by field and write a
+															// default into every one the agent leaves unset. Both write the same
+															// draft row, so this is a second view of the same edits.
+															...(resource_type === 'ai_agent'
+																? [
+																		{
+																			displayName: 'Edit as JSON',
+																			icon: Braces,
+																			disabled: !canWrite || !showCreateButtons,
+																			action: () => {
+																				// The drawer anchors itself in the hash, which the deep-link
+																				// effect would then read and route back to the agent editor.
+																				// Claim it first, as the row's own link does.
+																				handledHash = `#/resource/${path}`
+																				resourceEditor?.initEdit?.(path, { json: true })
+																			}
+																		}
+																	]
+																: []),
 															...(!ws_specific && isDeployable('resource', path, deployUiSettings)
 																? [
 																		{
@@ -1374,7 +1439,7 @@
 								<Row>
 									<Cell head first>Name</Cell>
 									<Cell head>Description</Cell>
-									<Cell head last stickyEnd />
+									<Cell head last actions>Actions</Cell>
 								</Row>
 							</Head>
 							<tbody class="divide-y bg-surface">
@@ -1418,7 +1483,7 @@
 													</span>
 												</div>
 											</Cell>
-											<Cell last stickyEnd class="border-l-0 text-right">
+											<Cell last actions>
 												{#if !canWrite}
 													<!-- Badge is inline-flex, so it needs a right-aligning wrapper to sit
 														flush with the action buttons on the rows that have them. -->
@@ -1478,7 +1543,6 @@
 
 <SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResources} />
 <AppConnect bind:this={appConnect} on:refresh={loadResources} />
-<AgentEvalModal agentPath={evalsAgentPath} bind:open={evalsOpen} />
 
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
@@ -1492,3 +1556,13 @@
 		loadResources()
 	}}
 />
+
+<!-- Same capabilities as from a flow step: the editor is the same one, so which surface opened it
+     must not decide whether its tools can be written with the copilot. -->
+<!-- Imported only once an agent is opened: the editor pulls in the flow editor, which is most of
+     this route's JavaScript and none of what the resources table needs. -->
+{#if agentEditorTarget()}
+	{#await import('$lib/components/flows/content/AgentEditorModal.svelte') then { default: AgentEditorModal }}
+		<AgentEditorModal enableAi={$copilotInfo.enabled} owns={(t) => t.host === undefined} />
+	{/await}
+{/if}
