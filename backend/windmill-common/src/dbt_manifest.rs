@@ -406,6 +406,13 @@ pub struct IngestedNode {
     /// from the engine's static analysis. `None` when the project did not ask
     /// for it or the engine wrote none. Beside `columns` rather than merged into
     /// it: that one is what the author DECLARED, and stays that.
+    ///
+    /// Skipped when absent, unlike its neighbours, because `graph_digest`
+    /// serializes these nodes: emitting `"column_schema":null` would change
+    /// every stored digest at once, and every dynamic run of a project that
+    /// never asked for the pass would store a full snapshot until its script is
+    /// redeployed.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub column_schema: Option<serde_json::Value>,
     pub freshness: Option<serde_json::Value>,
     /// The transform itself, for the graph to render. The copy taken at
@@ -510,10 +517,11 @@ impl IngestedManifest {
         // stores a snapshot at all: parquet row order is the engine's and two
         // passes over one project must not read as two different graphs.
         //
-        // Direct kinds first, so the cap below spends the budget on the edges a
-        // column trace actually draws. `scan` is both the bulk of a wide
-        // project's lineage and the kind nothing renders, so a plain sort would
-        // let it evict the lineage this exists for.
+        // Direct kinds first, so what the truncation below gives up is `scan` —
+        // the bulk of a wide project's lineage and the kind nothing renders.
+        // The worker's own reader already prioritizes them while decoding, since
+        // the memory bound has to apply there; this is the same order for a
+        // caller that did not come through it, which is the agent-worker wire.
         edges.sort_by(|a, b| {
             is_direct(&b.lineage_kind)
                 .cmp(&is_direct(&a.lineage_kind))

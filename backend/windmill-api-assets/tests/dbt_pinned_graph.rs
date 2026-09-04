@@ -364,7 +364,25 @@ async fn seed_editor_graph(db: &Pool<Postgres>, job: uuid::Uuid) {
         r#"INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,
                                  resource_type, name, asset_path, raw_code, tags)
            VALUES ($1, $2, NULL, $3, 'model.p.draft', 'model', 'draft',
-                   'u/a/wh/analytics/draft', 'select 3', '{}')"#,
+                   'u/a/wh/analytics/draft', 'select 3', '{}'),
+                  ($1, $2, NULL, $3, 'model.p.draft_src', 'model', 'draft_src',
+                   'u/a/wh/analytics/draft_src', 'select 4', '{}')"#,
+        WS,
+        PATH,
+        job
+    )
+    .execute(db)
+    .await
+    .unwrap();
+    // A version-less row's `script_hash` is NULL on both sides of every join and
+    // every visibility check, and `= NULL` is never true — so the column edges
+    // need the same NULL arm the node query has, or a buffer parse renders its
+    // columns and none of their lineage.
+    sqlx::query!(
+        "INSERT INTO dbt_column_edge (workspace_id, script_path, script_hash, job_id,
+                                      parent_unique_id, parent_column, child_unique_id,
+                                      child_column, lineage_kind)
+         VALUES ($1, $2, NULL, $3, 'model.p.draft_src', 'raw', 'model.p.draft', 'clean', 'mod')",
         WS,
         PATH,
         job
@@ -409,6 +427,17 @@ async fn an_editor_graph_renders_only_through_its_own_job(db: Pool<Postgres>) {
         body["dbt_snapshot_job"],
         serde_json::json!(parse),
         "labelled as a graph of its own, so the editor can say where it came from"
+    );
+    assert_eq!(
+        body["dbt_column_edges"],
+        serde_json::json!([{
+            "from_asset_path": "u/a/wh/analytics/draft_src",
+            "from_column": "raw",
+            "to_asset_path": "u/a/wh/analytics/draft",
+            "to_column": "clean",
+            "kind": "mod",
+        }]),
+        "and its column lineage, which the buffer parse is the whole point of: {body}"
     );
     assert!(
         !body.to_string().contains("select 1"),

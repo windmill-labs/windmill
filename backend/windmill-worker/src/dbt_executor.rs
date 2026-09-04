@@ -3182,9 +3182,14 @@ async fn attach_column_index(
     w_id: &str,
     conn: &Connection,
 ) -> error::Result<()> {
-    let Some(index) =
-        crate::dbt_column_index::collect(p, descriptor, inv, ctx, job_id, w_id, conn).await?
-    else {
+    // The nodes this graph kept, so the pass reads only rows it could store: the
+    // index describes the whole project, this graph one selection of it.
+    let kept: std::collections::HashSet<&str> =
+        ingested.nodes.iter().map(|n| n.unique_id.as_str()).collect();
+    let index =
+        crate::dbt_column_index::collect(p, descriptor, inv, ctx, job_id, w_id, conn, &kept).await?;
+    drop(kept);
+    let Some(index) = index else {
         return Ok(());
     };
     let found = index.edges.len();
@@ -3574,11 +3579,6 @@ pub(crate) async fn run_captured(
     w_id: &str,
     conn: &Connection,
     max_stdout_bytes: usize,
-    // How much of the job's wall clock this phase may spend. `None` is what is
-    // left of it, which is what a phase the job exists to run wants; a phase
-    // that only ANNOTATES the job passes less, so it cannot starve the one that
-    // does the work.
-    timeout_secs: Option<i32>,
 ) -> error::Result<Captured> {
     use tokio::io::AsyncReadExt;
 
@@ -3600,7 +3600,7 @@ pub(crate) async fn run_captured(
 
     let out = run_future_with_polling_update_job_poller(
         *job_id,
-        timeout_secs.or_else(|| ctx.timeout()),
+        ctx.timeout(),
         conn,
         ctx.mem_peak,
         ctx.canceled_by,
@@ -3680,8 +3680,7 @@ pub(crate) async fn run_capturing(
     conn: &Connection,
     max_stdout_bytes: usize,
 ) -> error::Result<Captured> {
-    let captured =
-        run_captured(cmd, name, ctx, job_id, w_id, conn, max_stdout_bytes, None).await?;
+    let captured = run_captured(cmd, name, ctx, job_id, w_id, conn, max_stdout_bytes).await?;
     if !captured.success {
         return Err(Error::ExecutionErr(format!(
             "{name} failed: {}",

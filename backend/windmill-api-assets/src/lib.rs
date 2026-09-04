@@ -1541,10 +1541,17 @@ pub async fn asset_graph_for(
                   -- level finer than the `ref()` graph, which is ungated only
                   -- because it draws relations the caller already sees in
                   -- `asset`.
-                  EXISTS (SELECT 1 FROM script sc
-                           WHERE sc.workspace_id = e.workspace_id
-                             AND sc.path = e.script_path
-                             AND sc.hash = e.script_hash) AS "script_visible!"
+                  --
+                  -- The NULL arm is not optional, for the reason the node query
+                  -- gives: a version-less row has no `script` row to ask and
+                  -- needs none, and `sc.hash = NULL` is never true — so without
+                  -- it an editor buffer's parse renders its columns and none of
+                  -- their lineage.
+                  (e.script_hash IS NULL OR EXISTS (
+                      SELECT 1 FROM script sc
+                       WHERE sc.workspace_id = e.workspace_id
+                         AND sc.path = e.script_path
+                         AND sc.hash = e.script_hash)) AS "script_visible!"
              FROM dbt_column_edge e
              JOIN live l ON l.path = e.script_path
                         AND (e.script_hash = l.hash

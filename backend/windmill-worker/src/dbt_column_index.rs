@@ -22,13 +22,15 @@
 //!   asks which engine it is beyond "has the flag" — a release that starts
 //!   writing them is picked up with no change.
 
+use std::collections::HashSet;
 use std::path::Path;
+use std::time::Duration;
 
 use parquet::file::reader::{FileReader, SerializedFileReader};
 use parquet::record::{Field, Row};
 use uuid::Uuid;
 use windmill_common::dbt_manifest::{
-    ColumnIndex, IndexedColumn, IngestedColumnEdge, MAX_COLUMN_EDGES,
+    is_direct, ColumnIndex, IndexedColumn, IngestedColumnEdge, MAX_COLUMN_EDGES,
 };
 use windmill_common::error;
 use windmill_common::worker::Connection;
@@ -50,9 +52,16 @@ const NODE_COLUMNS_PARQUET: &str = "dbt.node_columns.parquet";
 
 /// Run the lineage pass and read what it produced.
 ///
-/// Best-effort throughout: every failure returns `None` with a line in the job
-/// log saying which one, because the graph without column lineage is exactly the
-/// graph this project had before it asked for any.
+/// Best-effort about the COMPILE and about the artifact: a wrong engine, a
+/// failed analysis, a missing or unreadable parquet, or this phase outrunning
+/// its budget all return `None` with a line in the job log saying which, because
+/// the graph without column lineage is exactly the graph this project had before
+/// it asked for any.
+///
+/// NOT best-effort about the job: a cancellation, the job's own deadline or the
+/// output ceiling are returned as `Err` and fail it. Swallowing those would let
+/// a run that blew its timeout inside an optional annotation go on to publish a
+/// graph and report success.
 pub(crate) async fn collect(
     p: &PreparedProject,
     descriptor: &DbtDescriptor,
@@ -61,6 +70,44 @@ pub(crate) async fn collect(
     job_id: &Uuid,
     w_id: &str,
     conn: &Connection,
+    kept: &HashSet<&str>,
+) -> error::Result<Option<ColumnIndex>> {
+    let Some(budget) = phase_budget(ctx) else {
+        return run_pass(p, descriptor, inv, ctx, job_id, w_id, conn, kept).await;
+    };
+    match tokio::time::timeout(
+        budget,
+        run_pass(p, descriptor, inv, ctx, job_id, w_id, conn, kept),
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(_) => {
+            append_logs(
+                job_id,
+                w_id,
+                format!(
+                    "\nNo column lineage: the analysis pass did not finish within {}s, half of \
+                     what was left of this job's time. The build below gets the rest.\n",
+                    budget.as_secs()
+                ),
+                conn,
+            )
+            .await;
+            Ok(None)
+        }
+    }
+}
+
+async fn run_pass(
+    p: &PreparedProject,
+    descriptor: &DbtDescriptor,
+    inv: &Invocation,
+    ctx: &mut JobCtx<'_>,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+    kept: &HashSet<&str>,
 ) -> error::Result<Option<ColumnIndex>> {
     if !descriptor.column_lineage {
         return Ok(None);
@@ -126,11 +173,10 @@ pub(crate) async fn collect(
         w_id,
         conn,
         CLL_MAX_OUTPUT_BYTES,
-        ctx_share(ctx),
     )
     .await?;
 
-    let index = read_index(&index_dir).await;
+    let index = read_index(&index_dir, kept).await;
     // What the caller cannot say for itself. The COUNTS are logged where the
     // index is folded into the graph, since the graph is what decides how much
     // of it is kept; this is the part only the pass knows.
@@ -180,8 +226,16 @@ const CLL_MAX_OUTPUT_BYTES: usize = 1 << 20;
 /// so an unbounded pass on a slow project would hand `dbt build` an expired
 /// budget and fail the run it exists only to annotate. Half leaves the build at
 /// least as long as the annotation was allowed to take.
-fn ctx_share(ctx: &JobCtx<'_>) -> Option<i32> {
-    ctx.timeout().map(|left| (left / 2).max(1))
+///
+/// Spent as a race around the whole pass rather than as a shortened deadline
+/// handed to the runner: the runner reports its expiry as an `Err`, which is
+/// indistinguishable from a cancellation or the job's own deadline, and those
+/// two MUST fail the job. Expiring here is this budget and nothing else, so it
+/// degrades to no lineage. Dropping the future kills the child, which
+/// `run_captured` spawns with `kill_on_drop`.
+fn phase_budget(ctx: &JobCtx<'_>) -> Option<Duration> {
+    ctx.timeout()
+        .map(|left| Duration::from_secs((left.max(0) as u64 / 2).max(1)))
 }
 
 /// The tail of what the engine said, bounded. The whole of it is every rendered
@@ -202,15 +256,20 @@ fn diagnostics(out: &str) -> String {
 /// The column schemas alone are not worth a graph: they arrive with the lineage
 /// or not at all, and a node's declared columns already answer for the case
 /// where the pass never ran.
-async fn read_index(index_dir: &Path) -> Option<ColumnIndex> {
+async fn read_index(index_dir: &Path, kept: &HashSet<&str>) -> Option<ColumnIndex> {
     let lineage = index_dir.join(COLUMN_LINEAGE_PARQUET);
     if !tokio::fs::try_exists(&lineage).await.unwrap_or(false) {
         return None;
     }
     let columns = index_dir.join(NODE_COLUMNS_PARQUET);
+    // Owned, because the decode moves to a blocking thread. The index describes
+    // the whole project while this graph describes one selection of it, so
+    // scoping HERE is what keeps the cap below from being spent on rows the
+    // graph would discard anyway.
+    let kept: HashSet<String> = kept.iter().map(|s| (*s).to_string()).collect();
     // Decompressing and decoding a parquet is CPU work on a file the engine just
     // wrote, so it does not belong on the runtime's poll thread.
-    tokio::task::spawn_blocking(move || read_index_blocking(&lineage, &columns))
+    tokio::task::spawn_blocking(move || read_index_blocking(&lineage, &columns, &kept))
         .await
         .map_err(|e| tracing::warn!("reading the dbt column index: {e:#}"))
         .ok()?
@@ -218,37 +277,58 @@ async fn read_index(index_dir: &Path) -> Option<ColumnIndex> {
         .ok()
 }
 
-fn read_index_blocking(lineage: &Path, columns: &Path) -> error::Result<ColumnIndex> {
+fn read_index_blocking(
+    lineage: &Path,
+    columns: &Path,
+    kept: &HashSet<String>,
+) -> error::Result<ColumnIndex> {
     let mut out = ColumnIndex::default();
-    for_each_row(lineage, MAX_COLUMN_EDGES, |row| {
-        let parent_unique_id = string(row, "from_node_unique_id");
-        let child_unique_id = string(row, "to_node_unique_id");
-        let parent_column = string(row, "from_column_name");
-        let child_column = string(row, "to_column_name");
-        // A column of a node the analysis could not name is not an endpoint the
-        // graph can draw.
-        if parent_unique_id.is_empty()
-            || child_unique_id.is_empty()
-            || parent_column.is_empty()
-            || child_column.is_empty()
-        {
-            return;
+    // Two passes, direct kinds first. The cap is a memory bound, so it has to
+    // apply while decoding — but applied to the file's own row order it would
+    // let `scan` edges, which are the bulk of a wide project's index and which
+    // nothing renders, fill the budget before a single `copy` edge is read.
+    // Reading a row and dropping it costs no memory, so the second pass is only
+    // time, on a file the engine just wrote.
+    for direct in [true, false] {
+        let remaining = MAX_COLUMN_EDGES - out.edges.len();
+        if remaining == 0 {
+            break;
         }
-        out.edges.push(IngestedColumnEdge {
-            parent_unique_id,
-            parent_column,
-            child_unique_id,
-            child_column,
-            lineage_kind: string(row, "lineage_kind"),
-        });
-    })?;
+        for_each_row(lineage, remaining, |row| {
+            let lineage_kind = string(row, "lineage_kind");
+            if is_direct(&lineage_kind) != direct {
+                return Kept::No;
+            }
+            let parent_unique_id = string(row, "from_node_unique_id");
+            let child_unique_id = string(row, "to_node_unique_id");
+            let parent_column = string(row, "from_column_name");
+            let child_column = string(row, "to_column_name");
+            // A column of a node the analysis could not name is not an endpoint
+            // the graph can draw, and neither is one outside this graph's nodes.
+            if parent_column.is_empty()
+                || child_column.is_empty()
+                || !kept.contains(&parent_unique_id)
+                || !kept.contains(&child_unique_id)
+            {
+                return Kept::No;
+            }
+            out.edges.push(IngestedColumnEdge {
+                parent_unique_id,
+                parent_column,
+                child_unique_id,
+                child_column,
+                lineage_kind,
+            });
+            Kept::Yes
+        })?;
+    }
     // Absent is normal — an engine can write the lineage table and not this one —
     // and unreadable is not worth losing the lineage over.
     let _ = for_each_row(columns, MAX_INDEXED_COLUMNS, |row| {
         let unique_id = string(row, "unique_id");
         let name = string(row, "column_name");
-        if unique_id.is_empty() || name.is_empty() {
-            return;
+        if name.is_empty() || !kept.contains(&unique_id) {
+            return Kept::No;
         }
         // The author's `data_type` where `schema.yml` gives one, since that is
         // what the project calls the column; the analysis's own inference
@@ -265,6 +345,7 @@ fn read_index_blocking(lineage: &Path, columns: &Path) -> error::Result<ColumnIn
                 column_type,
                 index: int(row, "column_index").unwrap_or(i64::MAX),
             });
+        Kept::Yes
     });
     Ok(out)
 }
@@ -274,34 +355,46 @@ fn read_index_blocking(lineage: &Path, columns: &Path) -> error::Result<ColumnIn
 /// reaches; it exists for the same reason.
 const MAX_INDEXED_COLUMNS: usize = MAX_COLUMN_EDGES;
 
-/// Decode a parquet row at a time, stopping at `limit`.
+/// Decode a parquet row at a time, stopping once `f` has ACCEPTED `limit` rows.
 ///
-/// The bound is enforced HERE and not on the collected result, because the input
-/// it defends against is the one that cannot be collected: `scan` lineage is
-/// emitted from every predicate and join column to every output column, so a
-/// project shaped that way writes an index whose row count is quadratic in its
-/// widest model. Materializing that into a `Vec<Row>` first — each row holding
-/// its own copy of every column NAME — is what would take the worker process
-/// down, and this module's whole contract is that it cannot fail a deploy or a
-/// run.
-fn for_each_row(path: &Path, limit: usize, mut f: impl FnMut(&Row)) -> error::Result<()> {
+/// Counted on what the caller keeps, not on what the file holds, because the
+/// input this defends against is the one that cannot be collected: `scan`
+/// lineage is emitted from every predicate and join column to every output
+/// column, so a project shaped that way writes an index whose row count is
+/// quadratic in its widest model. Materializing that into a `Vec<Row>` first —
+/// each row holding its own copy of every column NAME — is what would take the
+/// worker process down, and this module's whole contract is that it cannot fail
+/// a deploy or a run. A row the caller skips costs nothing, so skipping is free
+/// and only keeping is budgeted.
+fn for_each_row(path: &Path, limit: usize, mut f: impl FnMut(&Row) -> Kept) -> error::Result<()> {
     let fail = |e: parquet::errors::ParquetError| {
         error::Error::internal_err(format!("reading {}: {e}", path.display()))
     };
     let file = std::fs::File::open(path)
         .map_err(|e| error::Error::internal_err(format!("opening {}: {e}", path.display())))?;
     let reader = SerializedFileReader::new(file).map_err(fail)?;
-    for (kept, row) in reader.get_row_iter(None).map_err(fail)?.enumerate() {
-        if kept >= limit {
+    let mut budget = limit;
+    for row in reader.get_row_iter(None).map_err(fail)? {
+        if budget == 0 {
             tracing::warn!(
-                "dbt column index: {} holds more than {limit} rows; the rest is dropped",
+                "dbt column index: {} yielded more than {limit} usable rows; the rest is dropped",
                 path.display()
             );
             break;
         }
-        f(&row.map_err(fail)?);
+        if f(&row.map_err(fail)?) == Kept::Yes {
+            budget -= 1;
+        }
     }
     Ok(())
+}
+
+/// Whether the row the closure just saw was retained, which is what the budget
+/// counts.
+#[derive(PartialEq, Eq)]
+enum Kept {
+    Yes,
+    No,
 }
 
 /// By NAME, not by position: these tables are the engine's own schema and it
