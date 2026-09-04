@@ -477,10 +477,59 @@ async fn a_scope_metacharacter_in_the_app_path_is_refused(
         )
         .await;
         assert!(
-            matches!(minted, Err(windmill_common::error::Error::BadRequest(ref m)) if m.contains("cannot be scoped")),
+            matches!(minted, Err(windmill_common::error::Error::BadRequest(ref m)) if m.contains("Invalid path")),
             "{path}: {minted:?}"
         );
     }
+    Ok(())
+}
+
+/// A guest reads the jobs it launched and nothing else: with no membership behind it,
+/// it must stop where an app embed token stops, before the share-token and ACL grants
+/// a member would get, and with the same "not found" so it cannot probe for jobs.
+#[sqlx::test(fixtures("base"))]
+async fn a_guest_cannot_read_a_job_it_did_not_launch(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    enable_guests(port, "test-workspace").await?;
+    insert_guest_token(&db, "test-workspace").await?;
+    let resp = authed(client().post(format!("{ws}/scripts/create")), ADMIN_TOKEN)
+        .json(&json!({
+            "path": "u/test-user/noop",
+            "summary": "",
+            "description": "",
+            "content": "echo 42",
+            "language": "bash",
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    let resp = authed(
+        client().post(format!("{ws}/jobs/run/p/u/test-user/noop")),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({}))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    let job_id = resp.text().await?;
+
+    let resp = authed(
+        client().get(format!("{ws}/jobs_u/getupdate/{job_id}")),
+        GUEST_TOKEN,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        404,
+        "another caller's job is not found for a guest: {}",
+        resp.text().await?
+    );
+
     Ok(())
 }
 

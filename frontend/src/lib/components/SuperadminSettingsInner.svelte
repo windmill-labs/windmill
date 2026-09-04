@@ -112,7 +112,7 @@
 	let guestLoading = $state(false)
 	const guestPerPage = 50
 
-	async function loadGuestPage(nextPage: number) {
+	async function loadGuestPage(nextPage: number): Promise<boolean> {
 		guestLoading = true
 		try {
 			const res = await UserService.listGuests({ page: nextPage, perPage: guestPerPage })
@@ -121,8 +121,10 @@
 					? res
 					: { usage: res.usage, guests: [...guestList.guests, ...res.guests] }
 			guestHasMore = res.guests.length === guestPerPage
+			return true
 		} catch (e) {
 			sendUserToast(`Failed to load guests: ${e}`, true)
+			return false
 		} finally {
 			guestLoading = false
 		}

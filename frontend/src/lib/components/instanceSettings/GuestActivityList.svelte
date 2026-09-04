@@ -14,24 +14,30 @@
 		hasMore: boolean
 		loading: boolean
 		onLoadMore: () => void
-		/** The instance switch was written; the caller re-reads usage and resolves once
-		 * the toggle may show the stored value again. */
-		onInstanceSwitch: () => Promise<void>
+		/** The instance switch was written; the caller re-reads usage and says whether
+		 * that read succeeded, so the toggle can show what is actually stored. */
+		onInstanceSwitch: () => Promise<boolean>
 	}
 
 	let { usage, guests, hasMore, loading, onLoadMore, onInstanceSwitch }: Props = $props()
 	const loadMoreSize = 50
-	// One write at a time, and the toggle shows the stored value again after either
-	// outcome: a refused write must not leave it showing the click.
+	// One write at a time, and the toggle always ends on what is stored: the reloaded
+	// value when the reload succeeds, else the write's outcome.
 	let switchPending = $state(false)
+	let switchOn = $state(usage.instance_enabled)
+	$effect(() => {
+		switchOn = usage.instance_enabled
+	})
 
 	async function setInstanceSwitch(enabled: boolean) {
 		switchPending = true
+		let written = false
 		try {
 			await SettingService.setGlobal({
 				key: 'guest_access_disabled',
 				requestBody: { value: !enabled }
 			})
+			written = true
 			sendUserToast(
 				enabled
 					? 'Guests can sign in again where a workspace allows them'
@@ -40,7 +46,10 @@
 		} catch (e) {
 			sendUserToast(`Could not change the instance guest switch: ${e}`, true)
 		}
-		await onInstanceSwitch()
+		const reloaded = await onInstanceSwitch()
+		if (!reloaded) {
+			switchOn = written ? enabled : usage.instance_enabled
+		}
 		switchPending = false
 	}
 	// A capped instance refuses the next stranger as soon as the allowance is used up.
@@ -59,7 +68,7 @@
 <div class="flex flex-row gap-2 items-center mb-4">
 	{#key usage}
 		<Toggle
-			checked={usage.instance_enabled}
+			bind:checked={switchOn}
 			disabled={switchPending}
 			on:change={(e) => setInstanceSwitch(e.detail)}
 			options={{

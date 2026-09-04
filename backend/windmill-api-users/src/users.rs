@@ -2945,22 +2945,10 @@ lazy_static::lazy_static! {
 ///
 /// The `guest` sentinel here only narrows. What makes the session a guest at all is the
 /// server-minted label ([`windmill_common::auth::GUEST_SESSION_LABEL`]).
-pub fn guest_session_scopes(app_path: &str) -> Result<Vec<String>> {
+fn guest_session_scopes(app_path: &str) -> Result<Vec<String>> {
     // The path is spliced into a scope, whose parser reads `,` as a resource separator
-    // and `*` as a wildcard: a path carrying either would name more than one app.
-    let canonical = app_path.split('/').count() >= 3
-        && app_path.split('/').all(|seg| {
-            !seg.is_empty()
-                && seg
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || "_-.".contains(c))
-        });
-    if !canonical {
-        return Err(Error::BadRequest(format!(
-            "app path {app_path} cannot be scoped: only letters, digits, `_`, `-` and `.` \
-             in `/`-separated segments"
-        )));
-    }
+    // and `*` as a wildcard; a canonical path carries neither.
+    windmill_common::utils::check_proper_path(app_path)?;
     Ok(vec![
         windmill_api_auth::scopes::GUEST_SENTINEL.to_string(),
         "jobs:read".to_string(),

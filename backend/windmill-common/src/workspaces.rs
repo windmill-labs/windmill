@@ -933,6 +933,10 @@ pub async fn guest_app_admits<'c, E: sqlx::Executor<'c, Database = sqlx::Postgre
     w_id: &str,
     app_path: &str,
 ) -> Result<bool> {
+    // The mint refuses a path it cannot scope, so discovery must not advertise one.
+    if crate::utils::check_proper_path(app_path).is_err() {
+        return Ok(false);
+    }
     let instance_admits = instance_admits_guests_sql();
     let admits: Option<bool> = sqlx::query_scalar(&format!(
         "SELECT COALESCE(ws.guest_access_enabled AND app.policy->>'execution_mode' = 'guest', false)
