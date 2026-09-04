@@ -8121,9 +8121,15 @@ async fn create_workspace_fork(
 
     // A forked data table now points at a fresh database where the parent's roles hold
     // nothing, so its cloned `permissions` block is meaningless and is dropped — the fork
-    // opts in on its own. A data table that was NOT forked still points at the parent's
-    // database, where those roles do hold grants: keeping its block is what stops a fork
-    // (which any member may create) from reaching the parent's data as root.
+    // opts in on its own.
+    //
+    // A data table that was NOT forked still points at the parent's database, where those
+    // roles do hold grants, and neither answer is safe: dropping the block would let a
+    // fork (which any member may create) reach the parent's data as root, while keeping it
+    // freezes who may run as what at the moment of the fork — the parent revoking a tenant
+    // would never reach the copy, and the fork would keep running as the role it named. So
+    // a permissioned data table is not shared into a fork at all; the fork can fork it, or
+    // go without it.
     let forked_datatable_names: Vec<String> = nw
         .forked_datatables
         .iter()
@@ -8137,6 +8143,8 @@ async fn create_workspace_fork(
                    CASE WHEN key = ANY($2) THEN value - 'permissions' ELSE value END
                ), '{}'::jsonb)
                FROM jsonb_each(datatable->'datatables')
+               WHERE key = ANY($2)
+                  OR COALESCE((value->'permissions'->>'enabled')::boolean, false) = false
            ))
            WHERE workspace_id = $1 AND jsonb_typeof(datatable->'datatables') = 'object'"#,
         &forked_id,

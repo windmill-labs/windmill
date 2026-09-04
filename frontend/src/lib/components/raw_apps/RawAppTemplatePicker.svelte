@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { Sparkles, Plus, List, Ban, ExternalLinkIcon, Loader2 } from 'lucide-svelte'
 	import type { Policy } from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
@@ -86,13 +87,18 @@
 	const showRolePicker = $derived(rolesWorthPicking(availableRoles))
 
 	// The picked role belongs to the data table it was picked on, and the one it
-	// defaults to is what the app gets without saying anything.
+	// defaults to is what the app gets without saying anything. Two data tables
+	// can both define an `analyst` that means something different, so the name
+	// surviving the switch is not the role surviving it.
+	let rolesPickedOn = $state<string | undefined>(undefined)
 	$effect(() => {
 		const available = roles.current.roles
-		if (selectedRole === undefined || !available.includes(selectedRole)) {
+		const switched = untrack(() => rolesPickedOn) !== selectedDatatable
+		if (switched || selectedRole === undefined || !available.includes(selectedRole)) {
 			selectedRole = available.includes(roles.current.defaultRole)
 				? roles.current.defaultRole
 				: available[0]
+			rolesPickedOn = selectedDatatable
 		}
 	})
 

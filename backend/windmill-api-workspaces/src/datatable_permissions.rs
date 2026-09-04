@@ -836,16 +836,27 @@ async fn set_datatable_permissions(
 
     tx.commit().await?;
 
-    // What the config no longer names, now that it says so.
+    // What the config no longer names, now that it says so. A failure here is the
+    // end of the line for these logins: the config that named them has committed,
+    // so no later plan diffs against them and nothing will try again. Say which
+    // ones, since dropping them is now a database administrator's job.
     if !deferred.is_empty() {
-        drop_roles_the_config_no_longer_names(&db, &w_id, &mut client, &deferred)
-            .await
-            .map_err(|e| {
-                Error::ExecutionErr(format!(
-                    "Permissions of data table {datatable_name} were saved, but removing the roles \
-                     they no longer name failed: {e}. Save them again to retry."
-                ))
-            })?;
+        if let Err(e) =
+            drop_roles_the_config_no_longer_names(&db, &w_id, &mut client, &deferred).await
+        {
+            let mut orphans: Vec<&str> = deferred
+                .iter()
+                .filter_map(|s| s.drops_role.as_deref())
+                .collect();
+            orphans.sort();
+            orphans.dedup();
+            return Err(Error::ExecutionErr(format!(
+                "Permissions of data table {datatable_name} were saved, but the Postgres logins \
+                 they no longer name could not be removed: {e}. Saving again will not retry \
+                 them — the config no longer names them. Drop {} by hand.",
+                orphans.join(", ")
+            )));
+        }
     }
 
     Ok(format!(
