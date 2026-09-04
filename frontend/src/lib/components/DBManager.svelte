@@ -55,13 +55,19 @@
 	 * data table re-mounts this component, so the request — which has to run
 	 * against the connection of the data table it names — travels through the
 	 * parent. */
-	export type PendingRowAction =
+	/** An action asked for on one data table's row, waiting for the manager to be
+	 * connected to that data table. `datatable` is what it was asked for: a switch
+	 * that lands anywhere else — because the target failed to load, or because the
+	 * user picked another one meanwhile — must not run it there. */
+	export type RowAction =
 		| { kind: 'create-table'; schema: string }
 		| { kind: 'create-schema' }
 		| { kind: 'alter-table'; schema: string; table: string }
 		| { kind: 'delete-table'; schema: string; table: string }
 		| { kind: 'drop-schema'; schema: string }
 		| { kind: 'rename-schema'; schema: string }
+
+	export type PendingRowAction = RowAction & { datatable: string }
 
 	type Props = {
 		dbType: DbType
@@ -366,11 +372,11 @@
 
 	/** Run a row action on the data table it belongs to, switching to it first
 	 * when it is not the one the manager is connected to. */
-	function onDatatable(dt: string | undefined, action: PendingRowAction): boolean {
+	function onDatatable(dt: string | undefined, action: RowAction): boolean {
 		if (dt === undefined || dt === currentDatatable) return true
 		if ('schema' in action) selectedSchemaKey = action.schema
 		if ('table' in action) selectedTableKey = action.table
-		pendingAction = action
+		pendingAction = { ...action, datatable: dt }
 		onSelectDatatable?.(dt)
 		return false
 	}
@@ -449,6 +455,13 @@
 	$effect(() => {
 		const req = pendingAction
 		if (!req) return
+		// Landed somewhere else: the target may have failed to load, or the user
+		// may have moved on. Either way this action was asked for on another
+		// database, and dropping a schema is not a thing to do by approximation.
+		if (currentDatatable !== undefined && req.datatable !== currentDatatable) {
+			pendingAction = undefined
+			return
+		}
 		// Creating a schema is the one action a data table with none can still
 		// take, so it must not wait on a schema being there.
 		if (req.kind === 'create-schema') {

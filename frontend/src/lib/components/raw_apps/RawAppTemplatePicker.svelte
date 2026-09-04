@@ -74,7 +74,7 @@
 	// What the picked role can reach, which is not what the data table holds.
 	const access = createDatatableAccessResource(
 		() => selectedDatatable,
-		() => (showRolePicker ? selectedRole : undefined),
+		() => (showRolePicker ? effectiveRole : undefined),
 		() => opWs
 	)
 	const roles = createRolesResource(
@@ -83,8 +83,18 @@
 	)
 
 	let selectedRole = $state<string | undefined>(undefined)
-	const availableRoles = $derived(roles.current.roles)
-	const showRolePicker = $derived(rolesWorthPicking(availableRoles))
+	// While a switch is in flight `roles.current` still answers for the previous
+	// data table: its roles are not this one's, and neither is the selection made
+	// from them. Everything below reads the loaded list only once it matches, so
+	// the picker offers nothing and the app is created with this data table's own
+	// default rather than a name carried over from the last one.
+	const loadedRoles = $derived(
+		roles.current.datatable === selectedDatatable ? roles.current.roles : []
+	)
+	const showRolePicker = $derived(rolesWorthPicking(loadedRoles))
+	const effectiveRole = $derived(
+		selectedRole !== undefined && loadedRoles.includes(selectedRole) ? selectedRole : undefined
+	)
 
 	// The picked role belongs to the data table it was picked on, and the one it
 	// defaults to is what the app gets without saying anything. Two data tables
@@ -189,7 +199,7 @@
 						type: 'database',
 						resourceType: 'postgresql',
 						resourcePath: `datatable://${selectedDatatable}`,
-						role: showRolePicker ? selectedRole : undefined
+						role: showRolePicker ? effectiveRole : undefined
 					}
 				})
 				await dbOps.onCreateSchema({ schema: newSchemaName })
@@ -206,7 +216,7 @@
 						tables: formattedTables,
 						datatable: selectedDatatable,
 						schema: effectiveSchema,
-						role: showRolePicker ? selectedRole : undefined
+						role: showRolePicker ? effectiveRole : undefined
 					}
 				: { tables: formattedTables, datatable: undefined, schema: undefined, role: undefined }
 
@@ -318,7 +328,7 @@
 												<Select
 													id="datatable-role"
 													disablePortal
-													items={availableRoles.map((r) => ({ value: r, label: r }))}
+													items={loadedRoles.map((r) => ({ value: r, label: r }))}
 													bind:value={selectedRole}
 													clearable={false}
 													placeholder="Role"
@@ -342,7 +352,7 @@
 															disabled={!canCreateSchema}
 															tooltip={canCreateSchema
 																? undefined
-																: `${selectedRole ?? 'This role'} cannot create schemas in ${selectedDatatable}`}
+																: `${effectiveRole ?? 'This role'} cannot create schemas in ${selectedDatatable}`}
 															{item}
 															size="sm"
 														/>
