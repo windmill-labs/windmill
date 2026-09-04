@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { roleAfterDatatableChange } from './datatableUtils.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { paneMinPercent } from '$lib/utils/splitpaneSizing'
 	import RawAppInlineScriptsPanel from './RawAppInlineScriptsPanel.svelte'
@@ -2364,14 +2365,18 @@
 						}}
 						defaultDatatable={data.datatable}
 						defaultSchema={data.schema}
+						defaultRole={data.role}
 						onDefaultChange={(datatable, schema) => {
+							const role = roleAfterDatatableChange(data.datatable, datatable, data.role)
 							data.datatable = datatable
 							data.schema = schema
+							data.role = role
 							// Also sync to aiChatManager
 							aiChatManager.datatableCreationPolicy = {
 								...aiChatManager.datatableCreationPolicy,
 								datatable,
-								schema
+								schema,
+								role
 							}
 						}}
 						{runnables}

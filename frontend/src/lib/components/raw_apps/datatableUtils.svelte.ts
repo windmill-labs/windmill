@@ -1,9 +1,23 @@
 import { resource } from 'runed'
-import { workspaceStore, dbSchemas } from '$lib/stores'
+import { workspaceStore } from '$lib/stores'
 import { WorkspaceService } from '$lib/gen'
-import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/metadata'
 import { ADMIN_DATATABLE_ROLE } from '$lib/components/dbTypes'
 import { get } from 'svelte/store'
+
+/**
+ * The role an app keeps when its default data table changes.
+ *
+ * A data table role is defined on one data table, so it does not follow the
+ * default to another: kept, the app's queries would name a role that data table
+ * has never heard of, and the one it names here may not be the one it gets.
+ */
+export function roleAfterDatatableChange(
+	previous: string | undefined,
+	next: string | undefined,
+	role: string | undefined
+): string | undefined {
+	return next === previous ? role : undefined
+}
 
 /**
  * Creates a resource that loads available datatables from the workspace.
@@ -22,43 +36,6 @@ export function createDatatablesResource(getWorkspace: () => string | undefined)
 	})
 }
 
-/**
- * Creates a resource that loads schemas for a given datatable.
- * The getDatatable getter is used as a reactive dependency - when it changes, schemas are refetched.
- */
-export function createSchemasResource(
-	getDatatable: () => string | undefined,
-	getWorkspace: () => string | undefined = () => get(workspaceStore)
-) {
-	return resource<string[]>([() => getDatatable() ?? '', () => getWorkspace() ?? ''], async () => {
-		const datatable = getDatatable()
-		const workspace = getWorkspace()
-		if (!datatable || !workspace) return []
-
-		const resourcePath = `datatable://${datatable}`
-		// Key the schema cache by workspace too: a datatable of the same name can
-		// exist in both the nav and the acting workspace, so `datatable://<name>`
-		// alone would let one workspace's schema be reused for the other.
-		const cacheKey = `${workspace}:${resourcePath}`
-		const schemas = get(dbSchemas)
-		let dbSchema = schemas[cacheKey]
-
-		if (!dbSchema) {
-			try {
-				schemas[cacheKey] = await getDbSchemas('postgresql', resourcePath, workspace, (msg) =>
-					console.error('Schema error:', msg)
-				)
-				dbSchema = get(dbSchemas)[cacheKey]
-			} catch (e) {
-				console.error(`Failed to load schema for ${datatable}:`, e)
-				return []
-			}
-		}
-
-		if (!dbSchema?.schema) return []
-		return Object.keys(dbSchema.schema)
-	})
-}
 
 /**
  * Creates a resource that loads the roles the caller may use on a datatable,
