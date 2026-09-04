@@ -3822,21 +3822,24 @@ async fn edit_datatable_config(
         }
     }
 
-    // Planned before the config is overwritten, while the deleted data tables can
-    // still be resolved to a connection, and run once it has committed: `DROP
-    // OWNED` discards the roles' grants for good, so a save that rolls back after
-    // this point must not have destroyed anything. `deleted_datatables` is
-    // client-supplied, so only names the save is actually removing are planned —
-    // a stale client must not reach a data table that survives it.
+    // Planned before the config is overwritten, while the data tables about to
+    // disappear can still be resolved to a connection, and run once it has
+    // committed: `DROP OWNED` discards the roles' grants for good, so a save that
+    // rolls back after this point must not have destroyed anything.
+    //
+    // What is disappearing is read from the two configs rather than from the
+    // request's `deleted_datatables`: a save that drops a name and adds another
+    // declares no rename and no deletion, and the logins of the name it dropped
+    // would be left for whatever data table is created under it next.
     let mut planned_role_drops = Vec::new();
-    for deleted in &new_config.deleted_datatables {
-        if new_config.settings.datatables.contains_key(deleted) {
-            continue;
-        }
+    for gone in old_datatables
+        .keys()
+        .filter(|name| !new_config.settings.datatables.contains_key(*name))
+    {
         if let Some(planned) =
-            crate::datatable_permissions::plan_drop_of_deleted_datatable(&db, &w_id, deleted).await
+            crate::datatable_permissions::plan_drop_of_deleted_datatable(&db, &w_id, gone).await
         {
-            planned_role_drops.push((deleted.clone(), planned));
+            planned_role_drops.push((gone.clone(), planned));
         }
     }
 

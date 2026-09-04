@@ -1246,18 +1246,18 @@ pub(crate) async fn delete_workspace(
     // endpoint first for per-lake error toasts; the rerun is an idempotent no-op). Best
     // effort: failures are logged — the workspace row is already gone, and broken storage
     // credentials must not have made it undeletable.
-    // The workspace is gone, so nothing names these logins any more and the drop
-    // below finds them unclaimed. A workspace id is reusable, and so are the names
-    // generated under it, which is what makes leaving them behind more than litter.
-    for (name, planned) in planned_role_drops {
-        crate::datatable_permissions::run_planned_drop(&db, &w_id, &name, planned).await;
-    }
-
     for e in cleanup_fork_ducklake_namespaces(&db, &w_id, fork_ducklake_cleanups).await {
         tracing::warn!(
             "deleted workspace {w_id}: ducklake namespace cleanup: {}",
             e.msg
         );
+    }
+
+    // The workspace is gone, so nothing names these logins any more and the drop
+    // finds them unclaimed. A workspace id is reusable, and so are the names
+    // generated under it, which is what makes leaving them behind more than litter.
+    for (name, planned) in planned_role_drops {
+        crate::datatable_permissions::run_planned_drop(&db, &w_id, &name, planned).await;
     }
 
     if let Some(parent) = dev_lock_parent {
@@ -1366,6 +1366,38 @@ pub async fn drop_forked_datatable_databases(
             Some(dt) if dt.forked_from.is_some() => dt,
             _ => continue,
         };
+
+        // Before the database goes: the logins are in it, and the plan is built by
+        // connecting to it. Dropping the database first leaves them behind — a
+        // login is cluster-wide, so it survives its database and stays adoptable by
+        // whatever takes this workspace's id and this data table's name next.
+        //
+        // The config stops naming them first, both because a data table whose
+        // database is being dropped has no business claiming roles in it, and
+        // because that is what the drop reads to know they are nobody's.
+        if let Some(planned) =
+            crate::datatable_permissions::plan_drop_of_deleted_datatable(&db, &w_id, dt_name).await
+        {
+            let cleared = sqlx::query!(
+                "UPDATE workspace_settings
+                 SET datatable = datatable #- ARRAY['datatables', $2, 'permissions']
+                 WHERE workspace_id = $1",
+                &w_id,
+                dt_name,
+            )
+            .execute(&db)
+            .await;
+            match cleared {
+                Ok(_) => {
+                    crate::datatable_permissions::run_planned_drop(&db, &w_id, dt_name, planned)
+                        .await
+                }
+                Err(e) => errors.push(format!(
+                    "Could not clear the permissions of datatable://{}: {}",
+                    dt_name, e
+                )),
+            }
+        }
 
         if dt.database.resource_type
             == windmill_common::workspaces::DataTableCatalogResourceType::Instance

@@ -65,11 +65,14 @@
 	// when the drawer opens — it reaches every data table's database in turn, and
 	// the editor mounts this whether or not anyone opens it.
 	const datatableTree = resource(
-		() => [open, opWs] as const,
-		async ([isOpen, workspace]): Promise<DataTableTables[]> => {
+		// The privileges it reports are the connected role's, so the role picked on
+		// the open data table is part of what is being asked — the same key its
+		// sibling in the DB manager uses.
+		() => [open, opWs, selectedDatatable, selectedRole] as const,
+		async ([isOpen, workspace, roleFor, role]): Promise<DataTableTables[]> => {
 			if (!isOpen || !workspace) return []
 			try {
-				return await WorkspaceService.listDataTableTables({ workspace })
+				return await WorkspaceService.listDataTableTables({ workspace, roleFor, role })
 			} catch (e) {
 				console.error('Failed to load datatable tables:', e)
 				return []
