@@ -669,10 +669,13 @@ struct DbtAssetProvenance {
     columns: Option<serde_json::Value>,
     /// Every column of the relation, typed and in order —
     /// `[{"name": …, "type": …}]` — from the engine's static analysis. Present
-    /// only for a project that opted into it. Not gated on `script_visible`,
-    /// like the column edges and the `ref()` graph: the SHAPE of a relation is
-    /// what an in-scope consumer needs in order to explain what it reads, and
-    /// the prose about it is what `columns` above gates.
+    /// only for a project that opted into it.
+    ///
+    /// Gated exactly like `columns` and the model's SQL: a full column list is
+    /// the shape of what the author WROTE, one level finer than the `ref()`
+    /// graph, which is ungated only because it draws relations the caller
+    /// already sees in `asset`. Widening that boundary has to be a decision, not
+    /// a consequence of a project turning the analysis pass on.
     #[serde(skip_serializing_if = "Option::is_none")]
     column_schema: Option<serde_json::Value>,
     /// A source's declared freshness policy, for the staleness chip.
@@ -958,6 +961,11 @@ struct DbtLineageEdge {
     from_asset_path: String,
     to_asset_path: String,
 }
+
+/// The most column edges one graph response carries. Generous for the direct
+/// lineage of a real project and a ceiling on a pathological one, since this
+/// endpoint is polled by the run page.
+const MAX_RENDERED_COLUMN_EDGES: i64 = 20_000;
 
 /// One column-to-column edge, in the same terms: the two relations and the two
 /// columns, never dbt's node ids.
@@ -1494,6 +1502,17 @@ pub async fn asset_graph_for(
     // like the `ref()` edges above and scoped exactly the same way. Present only
     // for a project that opted into the analysis pass, so the usual graph pays
     // one indexed lookup that finds nothing.
+    //
+    // DIRECT edges only. `scan` — the column was read to produce the row, not
+    // the value — is emitted from every join key and predicate column to every
+    // output column, so it is most of a project's stored lineage and none of
+    // what a column trace draws. It stays in `dbt_column_edge`, where a later
+    // view can ask for it without every project being redeployed, rather than
+    // riding on the graph endpoint a run page polls.
+    //
+    // Bounded for the same reason: every other array here is bounded by the
+    // relations in view, and this one would be bounded by the size of a
+    // project's column graph.
     let dbt_column_edge_rows = sqlx::query!(
         r#"WITH live AS (
              SELECT * FROM (
@@ -1516,7 +1535,16 @@ pub async fn asset_graph_for(
            )
            SELECT p.asset_path AS "from_path!", e.parent_column AS "from_column!",
                   c.asset_path AS "to_path!", e.child_column AS "to_column!",
-                  e.lineage_kind AS "lineage_kind!"
+                  e.lineage_kind AS "lineage_kind!", e.script_path AS "script_path!",
+                  -- Same gate as the model's own SQL, applied in Rust beside it:
+                  -- a column graph is the shape of what the author WROTE, one
+                  -- level finer than the `ref()` graph, which is ungated only
+                  -- because it draws relations the caller already sees in
+                  -- `asset`.
+                  EXISTS (SELECT 1 FROM script sc
+                           WHERE sc.workspace_id = e.workspace_id
+                             AND sc.path = e.script_path
+                             AND sc.hash = e.script_hash) AS "script_visible!"
              FROM dbt_column_edge e
              JOIN live l ON l.path = e.script_path
                         AND (e.script_hash = l.hash
@@ -1538,17 +1566,20 @@ pub async fn asset_graph_for(
                             AND c.job_id = ch.job_id
                             AND c.unique_id = e.child_unique_id
             WHERE e.workspace_id = $1
+              AND e.lineage_kind IN ('copy', 'mod')
               AND p.asset_path IS NOT NULL AND c.asset_path IS NOT NULL
               AND ($3::bigint IS NOT NULL OR $5::text IS NOT NULL OR EXISTS (
                 SELECT 1 FROM asset a
                  WHERE a.workspace_id = $1 AND a.kind = 'dbt'
                    AND a.path = c.asset_path
-                   AND ($2::text IS NULL OR a.usage_path LIKE $2)))"#,
+                   AND ($2::text IS NULL OR a.usage_path LIKE $2)))
+            LIMIT $6"#,
         &w_id,
         folder_filter.as_deref(),
         dbt_script_hash,
         dbt_job_id,
         pinned_path,
+        MAX_RENDERED_COLUMN_EDGES,
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -1696,7 +1727,7 @@ pub async fn asset_graph_for(
             description: r.description.clone().filter(|_| source_allowed),
             data_tests: vec![],
             columns: r.columns.clone().filter(|_| source_allowed),
-            column_schema: r.column_schema.clone(),
+            column_schema: r.column_schema.clone().filter(|_| source_allowed),
             freshness: r.freshness.clone().filter(|_| source_allowed),
         };
         // One relation can carry rows from several projects — typically a model
@@ -2262,7 +2293,10 @@ pub async fn asset_graph_for(
     let mut dbt_column_edges: Vec<DbtColumnLineageEdge> = dbt_column_edge_rows
         .into_iter()
         .filter(|r| {
-            rendered.contains(r.from_path.as_str()) && rendered.contains(r.to_path.as_str())
+            rendered.contains(r.from_path.as_str())
+                && rendered.contains(r.to_path.as_str())
+                && r.script_visible
+                && dbt_source_scope(&r.script_path)
         })
         .map(|r| DbtColumnLineageEdge {
             from_asset_path: r.from_path,

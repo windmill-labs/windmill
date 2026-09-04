@@ -1195,15 +1195,26 @@ no index appears, since without it "no column lineage" has no explanation.
 (passthrough), `mod` (transformed) and `scan` (the column was read to produce the
 ROW rather than the value: a join key, a `where` predicate, a `group by`) — and
 the engine's own reader maps those three and passes anything else through, so the
-set is the engine's to extend. All three are stored and sent; the column-trace
-diagram draws `copy` and `mod`, because a `scan` edge reaches every output column
-of its model and would render as a complete bipartite graph.
+set is the engine's to extend. All three are STORED; only `copy` and `mod` are
+served to the graph endpoint, because a `scan` edge reaches every output column
+of its model — it would render as a complete bipartite graph, and it is most of
+what a project's index holds. Keeping it in the table is what lets a later
+"show indirect" view ask for it without every project being redeployed.
 
 Storage mirrors `dbt_edge` exactly: `dbt_column_edge`, keyed by (path, version,
 job) with the same composite foreign key to `script`, so a version's column
 lineage dies with the version and a run's snapshot with the sweep. The typed
 column list lands in `dbt_node.column_schema`, beside `columns` rather than
-merged into it — `columns` stays what the author *declared*.
+merged into it — `columns` stays what the author *declared*. Both are gated on
+being able to read the producing project, like the model's SQL: a column-level
+view is the shape of what the author wrote, one level finer than the `ref()`
+graph, which is ungated only because it draws relations the caller already sees.
+
+The pass is best-effort about the COMPILE and nothing else. A non-zero exit is
+downgraded to a log line; a cancellation, the job's deadline or the output
+ceiling still fail the job, since those are the job's and swallowing one would
+let a run that blew its timeout inside this pass publish a graph and report
+success.
 
 ## Concept mapping
 

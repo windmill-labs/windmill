@@ -24,12 +24,12 @@ export type ColumnLineageGraph = {
 }
 
 // Direct value flow, as dbt's static analysis labels it: `copy` passes a column
-// through, `mod` transforms it. A `scan` edge is the third kind and means the
-// column was read to produce the ROW rather than the value — a join key, a
-// `where` predicate, a `group by` — so it reaches EVERY output column of the
-// model and would draw the diagram as a complete bipartite graph. Kept on the
-// wire (the API sends all three) so a later "show indirect" control needs no
-// backend change; kept out of the lineage a column trace means.
+// through, `mod` transforms it. The API serves only those two — the third kind,
+// `scan`, means the column was read to produce the ROW rather than the value (a
+// join key, a `where` predicate, a `group by`), so it reaches EVERY output
+// column of the model and would draw the diagram as a complete bipartite graph.
+// Filtered here as well so a kind the engine invents cannot silently become an
+// edge the trace claims is data flow.
 const DIRECT_DBT_LINEAGE = new Set(['copy', 'mod'])
 
 // Build the column graph from a resolved asset graph. A producer's

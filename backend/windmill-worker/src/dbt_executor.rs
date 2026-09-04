@@ -669,7 +669,7 @@ pub(crate) async fn dbt_dep(
             w_id,
             &conn,
         )
-        .await;
+        .await?;
         let published = persist_ingest(
             db,
             w_id,
@@ -3092,7 +3092,7 @@ async fn run_parse_only(
         &job.workspace_id,
         conn,
     )
-    .await;
+    .await?;
     result.nodes = ingested.nodes.len();
     result.edges = ingested.edges.len();
     for n in &ingested.nodes {
@@ -3181,11 +3181,11 @@ async fn attach_column_index(
     job_id: &Uuid,
     w_id: &str,
     conn: &Connection,
-) {
+) -> error::Result<()> {
     let Some(index) =
-        crate::dbt_column_index::collect(p, descriptor, inv, ctx, job_id, w_id, conn).await
+        crate::dbt_column_index::collect(p, descriptor, inv, ctx, job_id, w_id, conn).await?
     else {
-        return;
+        return Ok(());
     };
     let found = index.edges.len();
     ingested.attach_column_index(index);
@@ -3209,6 +3209,7 @@ async fn attach_column_index(
         conn,
     )
     .await;
+    Ok(())
 }
 
 /// Refresh the stored graph from the manifest this run produced.
@@ -3248,7 +3249,7 @@ async fn ingest_from_run(
         &job.workspace_id,
         conn,
     )
-    .await;
+    .await?;
     // Only a run whose models are its own snapshots per run. A static
     // descriptor at a moved profile re-ingests the VERSION's graph, since the
     // move outlives the run; one that neither drifted nor overrode anything
@@ -3540,6 +3541,19 @@ async fn resolve_selection(
 /// what is kept is the TAIL, because dbt prints its error summary last.
 const CAPTURE_MAX_STDERR_BYTES: usize = 64 * 1024;
 
+/// What a captured invocation produced. `stderr` is where dbt writes its
+/// diagnostics — the errors and warnings block — so a caller that has to explain
+/// a SUCCESSFUL run needs it as much as a failing one does.
+pub(crate) struct Captured {
+    pub stdout: String,
+    pub stderr: String,
+    /// Whether the child exited zero. Separate from the `Result` on purpose: an
+    /// `Err` from `run_captured` is never the child's exit status but the JOB's
+    /// — a cancellation, the deadline, an output ceiling — so a caller that
+    /// tolerates a failed command must still propagate one.
+    pub success: bool,
+}
+
 /// Run a command for its stdout under the job's cancellation and timeout.
 /// The same poller `handle_child` uses drives them, so a cancel or a deadline
 /// drops the wait future — which owns the child, and `kill_on_drop` then
@@ -3552,15 +3566,7 @@ const CAPTURE_MAX_STDERR_BYTES: usize = 64 * 1024;
 /// never holds more than it, so it has to be enforced while reading. Both pipes
 /// are drained concurrently because a child that fills the one nobody reads
 /// blocks forever.
-/// What a captured invocation produced. `stderr` is where dbt writes its
-/// diagnostics — the errors and warnings block — so a caller that has to explain
-/// a SUCCESSFUL run needs it as much as a failing one does.
-pub(crate) struct Captured {
-    pub stdout: String,
-    pub stderr: String,
-}
-
-pub(crate) async fn run_capturing(
+pub(crate) async fn run_captured(
     mut cmd: Command,
     name: &str,
     ctx: &mut JobCtx<'_>,
@@ -3568,6 +3574,11 @@ pub(crate) async fn run_capturing(
     w_id: &str,
     conn: &Connection,
     max_stdout_bytes: usize,
+    // How much of the job's wall clock this phase may spend. `None` is what is
+    // left of it, which is what a phase the job exists to run wants; a phase
+    // that only ANNOTATES the job passes less, so it cannot starve the one that
+    // does the work.
+    timeout_secs: Option<i32>,
 ) -> error::Result<Captured> {
     use tokio::io::AsyncReadExt;
 
@@ -3589,7 +3600,7 @@ pub(crate) async fn run_capturing(
 
     let out = run_future_with_polling_update_job_poller(
         *job_id,
-        ctx.timeout(),
+        timeout_secs.or_else(|| ctx.timeout()),
         conn,
         ctx.mem_peak,
         ctx.canceled_by,
@@ -3651,16 +3662,33 @@ pub(crate) async fn run_capturing(
     )
     .await?;
     let (status, stdout, stderr) = out;
-    if !status.success() {
-        return Err(Error::ExecutionErr(format!(
-            "{name} failed: {}",
-            String::from_utf8_lossy(&stderr)
-        )));
-    }
     Ok(Captured {
         stdout: String::from_utf8_lossy(&stdout).to_string(),
         stderr: String::from_utf8_lossy(&stderr).to_string(),
+        success: status.success(),
     })
+}
+
+/// `run_captured`, with a non-zero exit folded into the error — what a caller
+/// that needs the command to have WORKED wants.
+pub(crate) async fn run_capturing(
+    cmd: Command,
+    name: &str,
+    ctx: &mut JobCtx<'_>,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+    max_stdout_bytes: usize,
+) -> error::Result<Captured> {
+    let captured =
+        run_captured(cmd, name, ctx, job_id, w_id, conn, max_stdout_bytes, None).await?;
+    if !captured.success {
+        return Err(Error::ExecutionErr(format!(
+            "{name} failed: {}",
+            captured.stderr
+        )));
+    }
+    Ok(captured)
 }
 
 /// Run a preparation command through the same child handler the build uses, so

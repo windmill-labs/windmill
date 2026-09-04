@@ -27,7 +27,9 @@ use std::path::Path;
 use parquet::file::reader::{FileReader, SerializedFileReader};
 use parquet::record::{Field, Row};
 use uuid::Uuid;
-use windmill_common::dbt_manifest::{ColumnIndex, IndexedColumn, IngestedColumnEdge};
+use windmill_common::dbt_manifest::{
+    ColumnIndex, IndexedColumn, IngestedColumnEdge, MAX_COLUMN_EDGES,
+};
 use windmill_common::error;
 use windmill_common::worker::Connection;
 use windmill_parser_yaml::dbt::DbtDescriptor;
@@ -59,9 +61,9 @@ pub(crate) async fn collect(
     job_id: &Uuid,
     w_id: &str,
     conn: &Connection,
-) -> Option<ColumnIndex> {
+) -> error::Result<Option<ColumnIndex>> {
     if !descriptor.column_lineage {
-        return None;
+        return Ok(None);
     }
     if !p.engine.engine.writes_column_index() {
         append_logs(
@@ -76,7 +78,7 @@ pub(crate) async fn collect(
             conn,
         )
         .await;
-        return None;
+        return Ok(None);
     }
 
     let index_dir = p.project_dir.join(CLL_ARTIFACTS_DIR).join("index");
@@ -101,14 +103,22 @@ pub(crate) async fn collect(
             CLL_ARTIFACTS_DIR,
         ],
     );
-    if let Err(e) = crate::dbt_executor::add_vars(&mut cmd, descriptor, inv) {
-        tracing::warn!("dbt column lineage: {e:#}");
-        return None;
-    }
+    // The flag already wins over the env var dbt_command sets, but setting both
+    // means this pass cannot write into the runtime's artifacts even if that
+    // precedence ever changes — and what is in there after a build is the
+    // `run_results.json` a `dbt retry` resumes from.
+    cmd.env("DBT_TARGET_PATH", CLL_ARTIFACTS_DIR);
+    crate::dbt_executor::add_vars(&mut cmd, descriptor, inv)?;
     // Captured rather than streamed: a strict-analysis failure is a wall of
     // diagnostics about SQL the build itself accepts, and this pass decides
     // nothing about whether that build runs.
-    let outcome = crate::dbt_executor::run_capturing(
+    //
+    // `run_captured`, so a failed COMPILE is `success == false` and gets
+    // downgraded below, while an `Err` — a cancellation, the job's deadline, the
+    // output ceiling — still fails the job. Swallowing those would let a run
+    // that blew its timeout inside this pass go on to publish a graph and report
+    // success.
+    let outcome = crate::dbt_executor::run_captured(
         cmd,
         "dbt compile (column lineage)",
         ctx,
@@ -116,24 +126,30 @@ pub(crate) async fn collect(
         w_id,
         conn,
         CLL_MAX_OUTPUT_BYTES,
+        ctx_share(ctx),
     )
-    .await;
+    .await?;
 
     let index = read_index(&index_dir).await;
     // What the caller cannot say for itself. The COUNTS are logged where the
     // index is folded into the graph, since the graph is what decides how much
     // of it is kept; this is the part only the pass knows.
-    match (&index, &outcome) {
+    match (&index, outcome.success) {
+        (Some(_), true) => {}
         // The ordinary partial outcome: some models did not analyze, the rest
         // did, and their lineage is real.
-        (Some(_), Err(e)) => {
+        (Some(_), false) => {
             let note = "Column lineage: `--static-analysis strict` rejected part of the project, \
                         so the lineage covers only the models it could analyze.";
-            append_logs(job_id, w_id, format!("\n{note}\n{}", diagnostics(&e.to_string())), conn)
-                .await;
+            append_logs(
+                job_id,
+                w_id,
+                format!("\n{note}\n{}", diagnostics(&outcome.stderr)),
+                conn,
+            )
+            .await;
         }
-        (Some(_), Ok(_)) => {}
-        (None, outcome) => {
+        (None, _) => {
             let note = format!(
                 "No column lineage: the analysis pass wrote no `{COLUMN_LINEAGE_PARQUET}`. Only \
                  an engine that computes it does, and only for the warehouses it analyzes \
@@ -142,19 +158,31 @@ pub(crate) async fn collect(
             // The engine's own diagnostics. They are how a reader learns that
             // this adapter turned static analysis off, which it reports as a
             // warning on a SUCCESSFUL compile that nothing else would show.
-            let detail = match outcome {
-                Ok(c) => diagnostics(&c.stderr),
-                Err(e) => diagnostics(&e.to_string()),
-            };
-            append_logs(job_id, w_id, format!("\n{note}\n{detail}"), conn).await;
+            append_logs(
+                job_id,
+                w_id,
+                format!("\n{note}\n{}", diagnostics(&outcome.stderr)),
+                conn,
+            )
+            .await;
         }
     }
-    index
+    Ok(index)
 }
 
 /// stdout the pass may produce. It is a compile, so this is diagnostics rather
 /// than data.
 const CLL_MAX_OUTPUT_BYTES: usize = 1 << 20;
+
+/// The share of the job's remaining wall clock this pass may spend.
+///
+/// A per-run refresh ingests BEFORE the build and shares the job's one deadline,
+/// so an unbounded pass on a slow project would hand `dbt build` an expired
+/// budget and fail the run it exists only to annotate. Half leaves the build at
+/// least as long as the annotation was allowed to take.
+fn ctx_share(ctx: &JobCtx<'_>) -> Option<i32> {
+    ctx.timeout().map(|left| (left / 2).max(1))
+}
 
 /// The tail of what the engine said, bounded. The whole of it is every rendered
 /// model on a large project, which is not what a job log is for.
@@ -192,11 +220,11 @@ async fn read_index(index_dir: &Path) -> Option<ColumnIndex> {
 
 fn read_index_blocking(lineage: &Path, columns: &Path) -> error::Result<ColumnIndex> {
     let mut out = ColumnIndex::default();
-    for row in rows(lineage)? {
-        let parent_unique_id = string(&row, "from_node_unique_id");
-        let child_unique_id = string(&row, "to_node_unique_id");
-        let parent_column = string(&row, "from_column_name");
-        let child_column = string(&row, "to_column_name");
+    for_each_row(lineage, MAX_COLUMN_EDGES, |row| {
+        let parent_unique_id = string(row, "from_node_unique_id");
+        let child_unique_id = string(row, "to_node_unique_id");
+        let parent_column = string(row, "from_column_name");
+        let child_column = string(row, "to_column_name");
         // A column of a node the analysis could not name is not an endpoint the
         // graph can draw.
         if parent_unique_id.is_empty()
@@ -204,55 +232,76 @@ fn read_index_blocking(lineage: &Path, columns: &Path) -> error::Result<ColumnIn
             || parent_column.is_empty()
             || child_column.is_empty()
         {
-            continue;
+            return;
         }
         out.edges.push(IngestedColumnEdge {
             parent_unique_id,
             parent_column,
             child_unique_id,
             child_column,
-            lineage_kind: string(&row, "lineage_kind"),
+            lineage_kind: string(row, "lineage_kind"),
         });
-    }
+    })?;
     // Absent is normal — an engine can write the lineage table and not this one —
     // and unreadable is not worth losing the lineage over.
-    if let Ok(rows) = rows(columns) {
-        for row in rows {
-            let unique_id = string(&row, "unique_id");
-            let name = string(&row, "column_name");
-            if unique_id.is_empty() || name.is_empty() {
-                continue;
-            }
-            // The author's `data_type` where `schema.yml` gives one, since that
-            // is what the project calls the column; the analysis's own inference
-            // otherwise.
-            let column_type = match string(&row, "declared_type") {
-                t if !t.is_empty() => t,
-                _ => string(&row, "inferred_type"),
-            };
-            out.columns
-                .entry(unique_id)
-                .or_default()
-                .push(IndexedColumn {
-                    name,
-                    column_type,
-                    index: int(&row, "column_index").unwrap_or(i64::MAX),
-                });
+    let _ = for_each_row(columns, MAX_INDEXED_COLUMNS, |row| {
+        let unique_id = string(row, "unique_id");
+        let name = string(row, "column_name");
+        if unique_id.is_empty() || name.is_empty() {
+            return;
         }
-    }
+        // The author's `data_type` where `schema.yml` gives one, since that is
+        // what the project calls the column; the analysis's own inference
+        // otherwise.
+        let column_type = match string(row, "declared_type") {
+            t if !t.is_empty() => t,
+            _ => string(row, "inferred_type"),
+        };
+        out.columns
+            .entry(unique_id)
+            .or_default()
+            .push(IndexedColumn {
+                name,
+                column_type,
+                index: int(row, "column_index").unwrap_or(i64::MAX),
+            });
+    });
     Ok(out)
 }
 
-fn rows(path: &Path) -> error::Result<Vec<Row>> {
+/// The most rows of `dbt.node_columns.parquet` one pass keeps. One per column of
+/// the project, so the same bound as the edges is far more than any project
+/// reaches; it exists for the same reason.
+const MAX_INDEXED_COLUMNS: usize = MAX_COLUMN_EDGES;
+
+/// Decode a parquet row at a time, stopping at `limit`.
+///
+/// The bound is enforced HERE and not on the collected result, because the input
+/// it defends against is the one that cannot be collected: `scan` lineage is
+/// emitted from every predicate and join column to every output column, so a
+/// project shaped that way writes an index whose row count is quadratic in its
+/// widest model. Materializing that into a `Vec<Row>` first — each row holding
+/// its own copy of every column NAME — is what would take the worker process
+/// down, and this module's whole contract is that it cannot fail a deploy or a
+/// run.
+fn for_each_row(path: &Path, limit: usize, mut f: impl FnMut(&Row)) -> error::Result<()> {
+    let fail = |e: parquet::errors::ParquetError| {
+        error::Error::internal_err(format!("reading {}: {e}", path.display()))
+    };
     let file = std::fs::File::open(path)
         .map_err(|e| error::Error::internal_err(format!("opening {}: {e}", path.display())))?;
-    let reader = SerializedFileReader::new(file)
-        .map_err(|e| error::Error::internal_err(format!("reading {}: {e}", path.display())))?;
-    reader
-        .get_row_iter(None)
-        .map_err(|e| error::Error::internal_err(format!("reading {}: {e}", path.display())))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| error::Error::internal_err(format!("reading {}: {e}", path.display())))
+    let reader = SerializedFileReader::new(file).map_err(fail)?;
+    for (kept, row) in reader.get_row_iter(None).map_err(fail)?.enumerate() {
+        if kept >= limit {
+            tracing::warn!(
+                "dbt column index: {} holds more than {limit} rows; the rest is dropped",
+                path.display()
+            );
+            break;
+        }
+        f(&row.map_err(fail)?);
+    }
+    Ok(())
 }
 
 /// By NAME, not by position: these tables are the engine's own schema and it

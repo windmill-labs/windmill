@@ -327,6 +327,12 @@
 			triggers: [],
 			dbt_edges: (raw.dbt_edges ?? []).filter(
 				(e) => ids.has(`dbt:${e.from_asset_path}`) && ids.has(`dbt:${e.to_asset_path}`)
+			),
+			// Scoped like the edges above, and for the same reason: the response is
+			// folder-wide, so without this the trace reaches columns of relations
+			// this canvas is deliberately not drawing.
+			dbt_column_edges: (raw.dbt_column_edges ?? []).filter(
+				(e) => ids.has(`dbt:${e.from_asset_path}`) && ids.has(`dbt:${e.to_asset_path}`)
 			)
 		} as AssetGraphResponse
 	})

@@ -25958,7 +25958,9 @@ components:
             Column-to-column lineage between two dbt models, from the engine's
             own static analysis: `manifest.json` carries none, and the artifact
             that does is only written when the project opts into the analysis
-            pass. Omitted when empty, which is the usual case.
+            pass. Omitted when empty, which is the usual case. DIRECT edges only
+            (`copy` / `mod`); the indirect `scan` kind is stored but not served
+            here, since it reaches every output column of its model.
           items:
             type: object
             required: [from_asset_path, from_column, to_asset_path, to_column, kind]
@@ -25975,10 +25977,8 @@ components:
                 type: string
                 description: >-
                   dbt's own word for how the value travelled — `copy`
-                  (passthrough), `mod` (transformed), `scan` (read to produce the
-                  ROW rather than the value: a join key, a predicate, a `group
-                  by`). Not an enum: the engine's own reader maps those three and
-                  passes anything else through.
+                  (passthrough) or `mod` (transformed). Not an enum: the engine's
+                  own reader maps its kinds and passes anything else through.
         dbt_snapshot_job:
           type: string
           format: uuid
@@ -26051,8 +26051,8 @@ components:
           description: >-
             Every column of the relation, typed and in the order the model
             produces them, from the engine's static analysis. Present only for a
-            project that opted into it. Unlike `columns` this is the relation's
-            SHAPE, so it is not gated on being able to read the project.
+            project that opted into it, and gated like `columns` and the model's
+            SQL: a full column list is the shape of what the author wrote.
           items:
             type: object
             required: [name]

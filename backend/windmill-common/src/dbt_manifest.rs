@@ -188,12 +188,19 @@ fn graph_digest(ingested: &IngestedManifest, relation_root: &str) -> String {
             .unwrap_or_default()
             .as_bytes(),
     );
-    h.update(b"\0");
-    h.update(
-        serde_json::to_string(&ingested.column_edges)
-            .unwrap_or_default()
-            .as_bytes(),
-    );
+    // Only when there are any, so a project that never asked for the analysis
+    // pass keeps the digest it already has. Hashing an empty section
+    // unconditionally would change every stored digest at once, and every
+    // dynamic run would then store a full snapshot until its script is
+    // redeployed — which reads exactly like the suppression above never working.
+    if !ingested.column_edges.is_empty() {
+        h.update(b"\0");
+        h.update(
+            serde_json::to_string(&ingested.column_edges)
+                .unwrap_or_default()
+                .as_bytes(),
+        );
+    }
     format!("{:x}", h.finalize())
 }
 
@@ -471,6 +478,16 @@ pub struct IngestedManifest {
 /// is truncated and the rest of the graph is unaffected.
 pub const MAX_COLUMN_EDGES: usize = 200_000;
 
+/// Whether the value travelled along this edge, as opposed to the column merely
+/// being read to produce the row.
+///
+/// The graph endpoint serves these two and the trace draws them; `scan` is kept
+/// in the table for a view that wants indirect influence, and is the first thing
+/// `MAX_COLUMN_EDGES` gives up.
+pub fn is_direct(lineage_kind: &str) -> bool {
+    matches!(lineage_kind, "copy" | "mod")
+}
+
 impl IngestedManifest {
     /// Fold one `--write-index` pass into the graph.
     ///
@@ -492,7 +509,16 @@ impl IngestedManifest {
         // Sorted and deduplicated for the digest, which decides whether a run
         // stores a snapshot at all: parquet row order is the engine's and two
         // passes over one project must not read as two different graphs.
-        edges.sort();
+        //
+        // Direct kinds first, so the cap below spends the budget on the edges a
+        // column trace actually draws. `scan` is both the bulk of a wide
+        // project's lineage and the kind nothing renders, so a plain sort would
+        // let it evict the lineage this exists for.
+        edges.sort_by(|a, b| {
+            is_direct(&b.lineage_kind)
+                .cmp(&is_direct(&a.lineage_kind))
+                .then_with(|| a.cmp(b))
+        });
         edges.dedup();
         edges.truncate(MAX_COLUMN_EDGES);
         self.column_edges = edges;

@@ -257,10 +257,10 @@ export interface AssetGraphDbtColumnEdge {
 	from_column: string
 	to_asset_path: string
 	to_column: string
-	// dbt's own word: `copy` (passthrough), `mod` (transformed), `scan` (read to
-	// produce the ROW rather than the value — a join key, a predicate, a
-	// `group by`). Left open: the engine's own reader maps those three and
-	// passes anything else through.
+	// dbt's own word: `copy` (passthrough) or `mod` (transformed). The indirect
+	// `scan` kind is stored but never served here — it reaches every output
+	// column of its model. Left open rather than a union: the set is the
+	// engine's.
 	kind: string
 }
 
