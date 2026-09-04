@@ -1269,17 +1269,21 @@ Against a real dbt project (jaffle_shop shape) and the local Postgres:
    script reading one of the marts gets an edge to it.
 6. **Shared node**: a native script that READS a mart renders as a reader of the
    same node the dbt model writes — one node, not two islands. Declared with a
-   plain read (`# dbt://<mart>`), never `# on`: a `dbt://` subscription is
-   refused at deploy, because nothing but dbt writes a warehouse relation and a
-   dbt run does not dispatch (see "no cascade from dbt").
-7. **Selection**: descriptor `select`/`exclude`, and a run-arg override, each
+   plain read (`# dbt://<mart>`), never `# on`: a subscription to a relation dbt
+   alone builds is refused at deploy, since a dbt run does not dispatch.
+7. **Declared write**: a native `// materialize manual dbt://<relation>` script
+   and a dbt project reading that relation as a `source` render as one node; a
+   run of the script records its materialization and wakes a
+   `# on dbt://<relation>` subscriber — a subscription only that producer's
+   existence makes deployable (see "no cascade *from* dbt").
+8. **Selection**: descriptor `select`/`exclude`, and a run-arg override, each
    build only the expected subset.
-8. **Dynamic descriptors**: a `{{ }}` placeholder in `vars` re-ingests the graph
+9. **Dynamic descriptors**: a `{{ }}` placeholder in `vars` re-ingests the graph
    from the run's own manifest, so a model that placeholder enables appears in
    the same run that builds it.
-9. **Both credential paths**: resource-rendered `profiles.yml`, and the project's
+10. **Both credential paths**: resource-rendered `profiles.yml`, and the project's
    own `profiles.yml` with env-var injection.
-10. **Caching**: a second run reuses the cached `dbt_packages/` with no network
+11. **Caching**: a second run reuses the cached `dbt_packages/` with no network
     fetch.
 
 Keep only tests that pin behavior a future change could break. Per AGENTS.md,
