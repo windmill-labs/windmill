@@ -103,7 +103,6 @@ individually switchable, they follow the mode and the connected servers.
 	 * arrows once it is given this. Forward only goes somewhere once a tool has been
 	 * opened: the detail page has nothing to show before that. */
 	function navigate(key: string) {
-		if (!active) return
 		if (key === 'list') detailOpen = false
 		else if (selected) detailOpen = true
 	}
@@ -121,7 +120,7 @@ individually switchable, they follow the mode and the connected servers.
 	warm={active}
 	class="grow min-h-0"
 	current={detailOpen ? 'detail' : 'list'}
-	onNavigate={navigate}
+	onNavigate={active ? navigate : undefined}
 	pages={[
 		{ key: 'list', content: listPage },
 		{ key: 'detail', content: detailPage }

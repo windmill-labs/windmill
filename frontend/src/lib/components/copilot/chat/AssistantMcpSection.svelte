@@ -212,7 +212,6 @@ switch that decides whether this chat carries its tools.
 	 * from the connect form asks for the detail page. Both of those are levels below the
 	 * list rather than a sequence, so backwards out of either lands on the list. */
 	function navigate(key: string) {
-		if (!active) return
 		if (key === 'list' || connectOpen) {
 			connectOpen = false
 			detailOpen = false
@@ -414,7 +413,7 @@ switch that decides whether this chat carries its tools.
 	warm={active}
 	class="grow min-h-0"
 	current={page}
-	onNavigate={navigate}
+	onNavigate={active ? navigate : undefined}
 	pages={[
 		{ key: 'list', content: listPage },
 		{ key: 'detail', content: detailPage },

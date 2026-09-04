@@ -241,7 +241,6 @@ What the assistant should do when this skill applies.
 	 * opened: before that it holds no skill. `editing` is deliberately not cleared on the
 	 * way out — both entry points set it, so it stays the skill the parked page shows. */
 	function navigate(key: string) {
-		if (!active) return
 		if (key === 'list') closeEditor()
 		else if (editorSeq > 0) editorOpen = true
 	}
@@ -619,7 +618,7 @@ What the assistant should do when this skill applies.
 	warm={active}
 	class="grow min-h-0"
 	current={editorOpen ? 'editor' : 'list'}
-	onNavigate={navigate}
+	onNavigate={active ? navigate : undefined}
 	pages={[
 		{ key: 'list', content: listPage },
 		{ key: 'editor', content: editorPage }

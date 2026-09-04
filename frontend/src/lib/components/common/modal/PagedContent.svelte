@@ -26,6 +26,9 @@
 		 * around this owns it, and a page component that swallowed it would stop the dialog from
 		 * closing. Without this prop the pages are still navigable, just not from the keyboard —
 		 * the caller owns `current` either way.
+		 *
+		 * A host that stays mounted while hidden must withhold it while hidden: the arrows are
+		 * answered at `window`, so a parked instance would take the key off the visible one.
 		 */
 		onNavigate?: (key: string) => void
 		/**
