@@ -1476,7 +1476,7 @@
 					>
 
 					{#if editScopes}
-						<OauthScopes bind:scopes />
+						<OauthScopes bind:scopes options={registryEntry()?.scope_options} />
 					{:else}
 						<div class="flex flex-col gap-1">
 							{#each scopes as scope}
