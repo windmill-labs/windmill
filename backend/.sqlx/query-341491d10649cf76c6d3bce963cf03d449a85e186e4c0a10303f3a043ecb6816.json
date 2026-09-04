@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT 1 as _e FROM dbt_environment_state\n          WHERE workspace_id = $1 AND script_path = $2 AND environment = $3 FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "_e",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "341491d10649cf76c6d3bce963cf03d449a85e186e4c0a10303f3a043ecb6816"
+}

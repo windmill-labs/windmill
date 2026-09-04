@@ -1164,8 +1164,14 @@ Success is half of the contract: a relation a later run defers to has to exist.
 ### The environment is the warehouse, the target and where they resolve to
 
 `<warehouse>|<target>|<schema>|<database>` — the workspace warehouse's name and
-the descriptor's `profile.target`, plus the database and schema that target
-resolves to, which is the same `relation_root` the graph's drift check reads.
+the target dbt actually runs, plus the database and schema that target resolves
+to, which is the same `relation_root` the graph's drift check reads.
+
+The target is the EFFECTIVE one, not the descriptor's `profile.target`: a
+descriptor naming none inherits the workspace warehouse's, or the default in the
+project's own `profiles.yml`, so reading the descriptor's would file every
+inherited target under one empty name — and a `target.name` macro decides where a
+model is built.
 
 The last two are in the key because deferring is resolving a relation NAME. A
 warehouse repointed at another database, or a `profile.schema` moved by a
@@ -1203,29 +1209,63 @@ environment's state is therefore the last full successful build, exactly as dbt
 Cloud's "last successful run" is, and a run recovered by a retry leaves it at
 the previous one.
 
+The AUTOMATIC in-job node retry is the same artifact under a different name: a
+build it recovers is a successful build, but the `run_results.json` on disk is
+the retry's. Such a run publishes the manifest **without** results, rather than
+with a set describing some other slice of the build — the manifest is a function
+of the project rather than of what ran, so deferral is unaffected and only
+`result:` selectors lose their input.
+
 Under `test_behavior: after_all` the stored `run_results.json` is the test
 phase's, because that is what the second invocation leaves in the target
 directory — the same artifact a local `dbt run && dbt test` leaves behind.
+
+**What that condition means for what the artifacts may carry**, and why this
+table is keyed by environment where `dbt_run_state` is keyed by principal. dbt
+records the invocation's flags into `run_results.json`, and Windmill resolves
+`$var:` / `$res:` references before dbt sees them — which is exactly why the
+retry state is per-principal, so one caller's resolved `select` and `vars` are
+not restorable by the next. Here they cannot be one caller's: a publishing run
+added nothing of its own, and a descriptor that interpolates a `{{ }}`
+placeholder into `vars` never publishes at all, so what is recorded is the
+descriptor's own arguments — the script's content, which anyone entitled to run
+it may already read. Widen the publish condition and that stops being true.
 
 ### Where the blob goes
 
 `run_results.json` is small; `manifest.json` is not, and grows with the project
 (535 KB on a two-model fixture). Each takes the same two homes: inline in the row
-under `DBT_STATE_INLINE_MAX_BYTES` (8 MiB), and the workspace's object storage
+under `DBT_STATE_INLINE_MAX_BYTES` (8 MiB), and the INSTANCE's object storage
 above it, with the row keeping the key. Inline is what makes the feature work on
-a workspace that has configured no storage at all; the ceiling is what stops one
+an instance that has configured no storage at all; the ceiling is what stops one
 project's manifest from becoming a multi-megabyte row rewritten by every run. A
 project past the ceiling with no storage configured is told so, in the job log,
 naming the setting and the variable — the run itself still succeeds, since
 losing the state costs the next deferral rather than the build that just ran.
 
+**The instance store, not the workspace's**, which is where every other internal
+worker artifact already lives (bun bundles, python wheels, job logs, the global
+cache). The workspace bucket is the one members read and write through
+`job_helpers/*` and `wmill.write_s3_file` with a caller-supplied key, and only
+`volumes/` is reserved there — so a manifest under it is one any member could
+replace, and the next deferring run would hand dbt an attacker-chosen
+`defer_relation` for every unbuilt `ref()` while holding the script's warehouse
+credentials. Its compiled SQL would be readable there too, for a project the
+reader may have no access to. The consequence to know: a project past the ceiling
+needs the instance store configured, which is an EE feature, so on CE the ceiling
+is the limit and `DBT_STATE_INLINE_MAX_BYTES` is how it moves.
+
 The object key is derived from the path and the environment
 (`wmill_dbt_state/<workspace>/<digest>/<artifact>`), so a republish overwrites in
 place and the store holds one object per artifact per environment however many
-times the project runs. A blob whose row is gone — the script was deleted, or the
-project grew past the ceiling and then shrank back under it — stays in the
-bucket, as a script bundle does; the key is derived rather than random precisely
-so the project coming back reuses it instead of accumulating a second one.
+times the project runs — no versions to sweep, and no window where the row points
+at an object a reader is about to find gone. Publishers of one environment
+serialize on the row (`FOR UPDATE`) so two of them cannot interleave their
+uploads and leave one run's manifest beside another's results. A reader between
+an upload and its commit still sees the older row's `job_id` over the newer
+manifest, which describes the same project in the same environment. A blob whose
+row is gone — the script was deleted, or the project grew past the ceiling and
+then shrank back under it — stays in the store, as a script bundle does.
 
 ### Retention
 
@@ -1234,10 +1274,19 @@ door. Those are pruned by age by the dbt runs themselves because their reader is
 a transient run page. This one holds a single row per script per environment,
 replaced in place, so it does not grow with runs — and its reader is every later
 run of that script, so a project that runs monthly must still find last month's
-state. It goes with the script instead: a rename moves it, and a path no live dbt
-version occupies any more clears it, alongside `dbt_run_state`
-(`move_dbt_script_state`, `clear_dbt_script_state`,
-`clear_dbt_script_state_if_path_retired`).
+state. It goes with the script instead: a path no live dbt version occupies any
+more clears it, alongside `dbt_run_state` (`clear_dbt_script_state`,
+`clear_dbt_script_state_if_path_retired`). The same guard is on the write: a job
+finishing after its script was renamed, archived, deleted or converted to another
+language publishes nothing, so it cannot recreate state at a path for whatever is
+created there next to defer through.
+
+A RENAME is where the two halves part. The retry state travels, because nothing
+regenerates it. The environment state is cleared, because an oversized artifact's
+key is derived from the path: a moved row would keep pointing at a key a script
+created at the old path publishes over, and the renamed project would then defer
+through an unrelated project's manifest. The next successful run republishes, so
+one deferral is the price of a rename.
 
 ### Asking for it
 

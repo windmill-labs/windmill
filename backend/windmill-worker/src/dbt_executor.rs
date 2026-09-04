@@ -398,8 +398,7 @@ pub(crate) async fn handle_dbt_job(
                 prepared.engine.engine.as_str()
             )));
         }
-        let deferral =
-            prepare_deferral(&prepared, &job.workspace_id, &job.id, job_dir, conn, client).await?;
+        let deferral = prepare_deferral(&prepared, &job.workspace_id, job_dir, conn).await?;
         append_logs(
             &job.id,
             &job.workspace_id,
@@ -600,9 +599,17 @@ pub(crate) async fn handle_dbt_job(
     if run.is_ok() && command == "build" && prepared.graph_refresh.publishes_ownership() {
         // Losing it costs the next deferral, not the run that just finished —
         // but silently, so the one actionable case (an artifact too large for
-        // the database on a workspace with no object storage) says so.
-        if let Err(e) =
-            crate::dbt_state::publish(&prepared, &job.workspace_id, &job.id, conn, client).await
+        // the database on an instance with no object storage) says so.
+        if let Err(e) = crate::dbt_state::publish(
+            &prepared,
+            &job.workspace_id,
+            &job.id,
+            // An attempt was spent, so `run_results.json` on disk is the one
+            // `dbt retry` left: the nodes it redid, not the build.
+            node_retry.is_some_and(|p| retries_left < p.attempts()),
+            conn,
+        )
+        .await
         {
             append_logs(
                 &job.id,
@@ -988,6 +995,11 @@ pub struct PreparedProject {
     /// The descriptor's `profile.target`, passed as `--target` so it applies to
     /// a project-owned `profiles.yml` as well as a rendered one.
     pub target: Option<String>,
+    /// The target dbt actually runs, which is the above only when the descriptor
+    /// names one: otherwise it is the workspace warehouse's, or the project's own
+    /// `profiles.yml` default. Half of an environment's identity, since a
+    /// `target.name` macro decides where a model is built.
+    pub effective_target: Option<String>,
     /// The profile target's database. Nodes that override it qualify their
     /// `dbt://` schema segment so two databases cannot collapse onto one node.
     pub default_database: Option<String>,
@@ -1157,8 +1169,8 @@ pub(crate) async fn prepare_project(
         .chain(invocation_env.iter().map(|(k, v)| (k.clone(), v.clone())))
         .collect();
 
-    let (profiles_dir, warehouse, adapter, default_database, default_schema, profile_digest) =
-        write_profiles(descriptor, &project_dir, job_dir, client, &template_env).await?;
+    let profile = write_profiles(descriptor, &project_dir, job_dir, client, &template_env).await?;
+    let adapter = profile.adapter.clone();
     // The lockfile's version, when it pinned one for this same engine — a
     // descriptor edited to another engine invalidates the pin.
     let pinned_version = locks
@@ -1279,18 +1291,19 @@ pub(crate) async fn prepare_project(
             h.finish()
         },
         sandbox_config,
-        profile_digest,
+        profile_digest: profile.digest,
         project_dir,
-        profiles_dir,
+        profiles_dir: profile.dir,
         engine,
         graph_refresh,
-        warehouse,
+        warehouse: profile.warehouse,
         target: descriptor.profile.target.clone(),
+        effective_target: profile.target,
         descriptor_content: descriptor_content.to_string(),
         descriptor_env,
 
-        default_database,
-        default_schema,
+        default_database: profile.database,
+        default_schema: profile.schema,
         script_path: script_path.to_string(),
         env,
     };
@@ -1609,20 +1622,29 @@ async fn strip_git_remote(dir: &Path) -> std::io::Result<()> {
 /// the project itself. Both paths are supported (decision 8): the workspace
 /// warehouse is the ergonomic one, the project's own file is what makes an
 /// existing repo run unchanged.
+/// What resolving the run's connection settled, beyond the file itself.
+struct ResolvedProfile {
+    dir: PathBuf,
+    /// The workspace warehouse's NAME, when this project belongs to one.
+    warehouse: Option<String>,
+    adapter: DbtAdapter,
+    database: Option<String>,
+    schema: Option<String>,
+    /// The target dbt actually runs, which is not always the descriptor's: it
+    /// falls back to the workspace warehouse's, and to the project's own
+    /// `profiles.yml` default. Resolved because it is half of an environment's
+    /// identity and a `target.name` macro can move every relation.
+    target: Option<String>,
+    digest: String,
+}
+
 async fn write_profiles(
     descriptor: &DbtDescriptor,
     project_dir: &Path,
     job_dir: &str,
     client: &AuthedClient,
     template_env: &HashMap<String, String>,
-) -> error::Result<(
-    PathBuf,
-    Option<String>,
-    DbtAdapter,
-    Option<String>,
-    Option<String>,
-    String,
-)> {
+) -> error::Result<ResolvedProfile> {
     // The workspace's warehouse, always: a descriptor names one by NAME or takes
     // `main`, and cannot name a resource at all. The NAME is what asset identity
     // keys on, so every project on one warehouse shares its nodes while the
@@ -1703,14 +1725,15 @@ async fn write_profiles(
             }
             None => None,
         };
-        return Ok((
+        return Ok(ResolvedProfile {
             dir,
-            identity,
+            warehouse: identity,
             adapter,
-            target.database,
-            target.schema,
-            profile_digest,
-        ));
+            database: target.database,
+            schema: target.schema,
+            target: Some(target.name),
+            digest: profile_digest,
+        });
     }
 
     use windmill_common::workspaces::DBT_PROFILE_RESOURCE_TYPE;
@@ -1805,14 +1828,15 @@ async fn write_profiles(
         rendered.root_certificate_pem.as_deref(),
         &client.token,
     );
-    Ok((
+    Ok(ResolvedProfile {
         dir,
-        Some(warehouse.to_string()),
+        warehouse: Some(warehouse.to_string()),
         adapter,
-        rendered.database,
-        rendered.schema,
-        profile_digest,
-    ))
+        database: rendered.database,
+        schema: rendered.schema,
+        target: Some(target.to_string()),
+        digest: profile_digest,
+    })
 }
 
 /// Where a workspace warehouse name points: its resource path and, if the
@@ -1959,7 +1983,20 @@ async fn adapter_from_profiles_yml(
             .map(|v| v.to_string())
             .filter(|v| !v.is_empty() && !v.contains("{{"))
     };
-    Ok(ProfileTarget { adapter, database: read(database_key), schema: read(schema_key) })
+    Ok(ProfileTarget {
+        adapter,
+        database: read(database_key),
+        schema: read(schema_key),
+        // The output actually chosen, which for a templated `target:` is the sole
+        // one rather than the template text no output answers to.
+        name: match (
+            templated_target,
+            outputs.as_mapping().and_then(|m| m.keys().next()),
+        ) {
+            (true, Some(only)) => only.as_str().unwrap_or(target).to_string(),
+            _ => target.to_string(),
+        },
+    })
 }
 
 /// What a project-owned `profiles.yml` target says, for the two things Windmill
@@ -1970,6 +2007,8 @@ struct ProfileTarget {
     adapter: DbtAdapter,
     database: Option<String>,
     schema: Option<String>,
+    /// The output this resolved to, by name.
+    name: String,
 }
 
 lazy_static::lazy_static! {

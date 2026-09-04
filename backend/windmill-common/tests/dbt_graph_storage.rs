@@ -236,7 +236,11 @@ async fn clearing_one_version_leaves_the_others(db: Pool<Postgres>) {
     // this is where two versions coexist: it pins the batched edge insert
     // against a real database as well as the version scoping.
     assert_eq!(edges_for(&db, 1).await, 0, "the cleared version's edges go");
-    assert_eq!(edges_for(&db, 2).await, 1, "the other version keeps its own");
+    assert_eq!(
+        edges_for(&db, 2).await,
+        1,
+        "the other version keeps its own"
+    );
 }
 
 /// The routes that hard-delete a path clear no graph rows: they delete the
@@ -364,7 +368,11 @@ async fn only_the_newest_deploys_keep_their_graph(db: Pool<Postgres>) {
     // The newest is always among them: losing the live version's graph would
     // empty the page of every run of it.
     assert_eq!(nodes_for(&db, over, DEPLOYED_GRAPH).await, 1);
-    assert_eq!(nodes_for(&db, 1, DEPLOYED_GRAPH).await, 0, "the oldest is reclaimed");
+    assert_eq!(
+        nodes_for(&db, 1, DEPLOYED_GRAPH).await,
+        0,
+        "the oldest is reclaimed"
+    );
 }
 
 /// The third provenance: a `parse` of the EDITOR's buffer, which names no
@@ -481,17 +489,27 @@ async fn a_version_clear_spares_editor_graphs_and_a_path_clear_does_not(db: Pool
     replace_dbt_editor_graph(&mut tx, WS, PATH, job, ME, &manifest(&["a"]), "root")
         .await
         .unwrap();
-    clear_dbt_manifest_version(&mut tx, WS, PATH, 1).await.unwrap();
+    clear_dbt_manifest_version(&mut tx, WS, PATH, 1)
+        .await
+        .unwrap();
     tx.commit().await.unwrap();
 
     assert_eq!(nodes_for(&db, 1, DEPLOYED_GRAPH).await, 0);
-    assert_eq!(editor_nodes(&db, job).await, 1, "the buffer's graph survives");
+    assert_eq!(
+        editor_nodes(&db, job).await,
+        1,
+        "the buffer's graph survives"
+    );
 
     let mut tx = db.begin().await.unwrap();
     clear_dbt_editor_graphs(&mut tx, WS, PATH).await.unwrap();
     tx.commit().await.unwrap();
 
-    assert_eq!(editor_nodes(&db, job).await, 0, "retiring the path takes it");
+    assert_eq!(
+        editor_nodes(&db, job).await,
+        0,
+        "retiring the path takes it"
+    );
 }
 
 /// A preview names its own PATH and needs only `jobs:run`, so a bound over the
@@ -555,34 +573,39 @@ async fn editor_markers(db: &Pool<Postgres>) -> i64 {
 }
 
 /// A deferral resolves a `ref()` through the manifest of the last successful run
-/// at this path, so that state has to follow the script the way the retry state
-/// does: a rename must not strand it, and a path a dbt script has left must not
-/// hand its manifest to whatever is created there next.
+/// at this path, and an oversized one lives in object storage under a key derived
+/// from that path. So a rename takes the state rather than moving it — a moved
+/// row would point at a key a script created at the old path publishes over —
+/// and a path no live dbt version occupies must not hand its manifest to whatever
+/// is created there next.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn environment_state_follows_the_script(db: Pool<Postgres>) {
+async fn a_rename_clears_environment_state_rather_than_moving_it(db: Pool<Postgres>) {
     const MOVED: &str = "f/test/renamed";
     deploy_script(&db, 1).await;
     publish_environment_state(&db, PATH).await;
 
     let mut tx = db.begin().await.unwrap();
-    move_dbt_script_state(&mut tx, WS, PATH, MOVED).await.unwrap();
+    move_dbt_script_state(&mut tx, WS, PATH, MOVED)
+        .await
+        .unwrap();
     tx.commit().await.unwrap();
     assert_eq!(environment_states(&db, PATH).await, 0);
-    assert_eq!(environment_states(&db, MOVED).await, 1);
+    assert_eq!(environment_states(&db, MOVED).await, 0);
 
-    // Still live at the old path as far as `script` is concerned, so a clear
+    // Still live at this path as far as `script` is concerned, so a clear
     // conditioned on retirement leaves it be.
+    publish_environment_state(&db, PATH).await;
     let mut tx = db.begin().await.unwrap();
     clear_dbt_script_state_if_path_retired(&mut tx, WS, PATH)
         .await
         .unwrap();
     tx.commit().await.unwrap();
-    assert_eq!(environment_states(&db, MOVED).await, 1);
+    assert_eq!(environment_states(&db, PATH).await, 1);
 
     let mut tx = db.begin().await.unwrap();
-    clear_dbt_script_state(&mut tx, WS, MOVED).await.unwrap();
+    clear_dbt_script_state(&mut tx, WS, PATH).await.unwrap();
     tx.commit().await.unwrap();
-    assert_eq!(environment_states(&db, MOVED).await, 0);
+    assert_eq!(environment_states(&db, PATH).await, 0);
 }
 
 async fn publish_environment_state(db: &Pool<Postgres>, path: &str) {
