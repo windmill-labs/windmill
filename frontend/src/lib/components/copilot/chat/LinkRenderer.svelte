@@ -3,6 +3,7 @@
 	import { ExternalLink, PanelRight } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
+	import { newTabModifier } from '$lib/utils/newTabModifier.svelte'
 	import {
 		hasToolDisplayActionHandler,
 		runToolDisplayAction
@@ -85,7 +86,9 @@
 					<span
 						class="absolute inset-0 flex items-center justify-center text-tertiary opacity-0 transition-opacity group-hover:opacity-100"
 					>
-						{#if previewAction}
+						<!-- Narrower than the modifier list `onclick` bails on: only the modifier that
+						     really opens a tab may show the icon for one. -->
+						{#if previewAction && !newTabModifier.held}
 							<PanelRight size={12} />
 						{:else}
 							<ExternalLink size={11} />
