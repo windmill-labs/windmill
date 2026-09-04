@@ -35,6 +35,12 @@ function agentConfigRunError(args: Record<string, any> | undefined): string | un
 	if (typeof provider.kind !== 'string' || provider.kind === '') {
 		return 'The provider is missing its kind. Pick the resource again to set it.'
 	}
+	// Reported rather than iterated: the editor renders a JSON-authored non-list as an empty
+	// roster, so this is the only place left that would meet the raw value, and a bare `.filter`
+	// on it throws past the caller. `null` is how the API spells "unset".
+	if (args?.tools != null && !Array.isArray(args.tools)) {
+		return 'Tools must be a list. Fix it in the resource editor before deploying.'
+	}
 	// Only a flowmodule tool's summary is a callable name: the worker never reads an mcp or
 	// websearch summary, so a blank one there is not an error and must not count as a sibling.
 	// Same filter as `collectInvalidAgentToolNames`, which is the rule the graph enforces.
