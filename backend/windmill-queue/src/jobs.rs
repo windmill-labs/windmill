@@ -4007,33 +4007,10 @@ async fn clone_runnable(j: &mut PulledJob, db: &DB) -> error::Result<()> {
 
     {
         let maybe_new_id = match j.kind {
-            JobKind::Dependencies => {
-                let deployment_message = j
-                    .args
-                    .clone()
-                    .map(|hashmap| {
-                        hashmap
-                            .get("deployment_message")
-                            .map(|map_value| serde_json::from_str::<String>(map_value.get()).ok())
-                            .flatten()
-                    })
-                    .flatten();
-
-                // This way we tell downstream which script we should archive when the resolution is finished.
-                // (not used at the moment)
-                j.args
-                    .as_mut()
-                    .map(|args| args.insert("base_hash".to_owned(), to_raw_value(&*base_hash)));
-
-                windmill_common::scripts::clone_script(
-                    j.runnable_path(),
-                    &j.workspace_id,
-                    deployment_message,
-                    db,
-                )
-                .await?
-                .new_hash
-            }
+            // A script gets its new version from the worker, once the generated lock is known
+            // to differ from the live version's: minting one here would deploy, and walk the
+            // importers of, a version whose lock turns out byte-identical to its parent's.
+            JobKind::Dependencies => *base_hash,
             JobKind::FlowDependencies => {
                 sqlx::query_scalar!(
                     "INSERT INTO flow_version
