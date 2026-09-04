@@ -38,12 +38,6 @@ function agentConfigRunError(args: Record<string, any> | undefined): string | un
 	// Only a flowmodule tool's summary is a callable name: the worker never reads an mcp or
 	// websearch summary, so a blank one there is not an error and must not count as a sibling.
 	// Same filter as `collectInvalidAgentToolNames`, which is the rule the graph enforces.
-	// JSON-edited, so `tools` can be any shape. Reported rather than iterated: the worker reads it
-	// as a list, and a bare `.filter` here would throw past the caller's error handling. `null` is
-	// how the API spells "unset", so it passes as the empty list every other reader takes it for.
-	if (args?.tools != null && !Array.isArray(args.tools)) {
-		return 'Tools must be a list. Fix it in the resource editor before deploying.'
-	}
 	const tools = (args?.tools ?? []) as Record<string, any>[]
 	const named = tools.filter(
 		(t) => t?.value?.tool_type !== 'mcp' && t?.value?.tool_type !== 'websearch'
