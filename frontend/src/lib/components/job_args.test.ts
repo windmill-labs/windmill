@@ -80,13 +80,17 @@ describe('coerceArgsToSchema', () => {
 	})
 
 	// Not merely unreadable: `MultiSelect` maps over the value as it renders, so anything
-	// else throws and takes the whole card down, Cancel with it.
-	it('empties a non-array in a dyn-multiselect slot', () => {
+	// else throws and takes the whole card down, Cancel with it. A reference is no
+	// exception — the widget draws before anything resolves — so this slot is the one
+	// place the reference rule above does not hold.
+	it('empties a non-array in a dyn-multiselect slot, reference included', () => {
 		const schema = { properties: { tags: { type: 'object', format: 'dynmultiselect-list' } } }
 		expect(coerceArgsToSchema({ tags: ['a'] }, schema).args).toEqual({ tags: ['a'] })
-		const { args, clearedKeys } = coerceArgsToSchema({ tags: { a: 1 } }, schema)
-		expect(args).toEqual({})
-		expect(clearedKeys).toEqual(['tags'])
+		for (const bad of [{ a: 1 }, '$var:u/admin/watchlist']) {
+			const { args, clearedKeys } = coerceArgsToSchema({ tags: bad }, schema)
+			expect(args).toEqual({})
+			expect(clearedKeys).toEqual(['tags'])
+		}
 	})
 
 	// Below the top the form has the same limitations as everywhere else in the product,
