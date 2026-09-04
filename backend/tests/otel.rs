@@ -677,8 +677,9 @@ fn test_otlp_resource_merges_env_attributes_without_losing_windmill_identity() {
 #[test]
 #[serial_test::serial]
 fn test_otlp_resource_dedicated_overrides_win() {
-    std::env::remove_var("OTEL_RESOURCE_ATTRIBUTES");
-    // A deployment sets these per pod, e.g. from Kubernetes downward-API labels.
+    // A deployment sets these per pod, e.g. from Kubernetes downward-API labels. The
+    // competing service.name must lose: the spec ranks OTEL_SERVICE_NAME above it.
+    std::env::set_var("OTEL_RESOURCE_ATTRIBUTES", "service.name=should-lose");
     std::env::set_var("OTEL_SERVICE_NAME", "windmill-workers");
     std::env::set_var("OTEL_HOST_NAME", "pod-7");
     let overridden = resource_attrs();
@@ -688,7 +689,11 @@ fn test_otlp_resource_dedicated_overrides_win() {
         std::env::set_var(var, "");
     }
     let empty = resource_attrs();
-    for var in ["OTEL_SERVICE_NAME", "OTEL_HOST_NAME"] {
+    for var in [
+        "OTEL_SERVICE_NAME",
+        "OTEL_HOST_NAME",
+        "OTEL_RESOURCE_ATTRIBUTES",
+    ] {
         std::env::remove_var(var);
     }
 
