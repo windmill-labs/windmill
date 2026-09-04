@@ -137,8 +137,8 @@
 						</div>
 						<TextInput bind:value={token} size="sm" inputProps={{ type: 'password' }} />
 						<div class="text-2xs font-normal text-hint">
-							Use one token per project. A group token covers every project in the group, but
-							renewal replaces it for one project at a time.
+							Windmill stores it and renews it before it expires. Use one token per project: a group
+							token covers the group, but renewal replaces it for one project at a time.
 						</div>
 					</div>
 					<div class="flex flex-col gap-y-1">
@@ -174,10 +174,6 @@
 								clearable={false}
 							/>
 						</div>
-						<Alert type="info" title="Windmill manages this token" size="xs">
-							It is stored when you save the resource, kept out of the repository URL, and renewed
-							before it expires. Forks of this workspace use it without storing their own copy.
-						</Alert>
 						<div class="flex justify-end">
 							<Button
 								variant="accent"
