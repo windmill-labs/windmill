@@ -94,6 +94,12 @@ export function useUserDraftSync<Draft>(opts: UserDraftSyncOptions<Draft>): void
 			// re-apply only advances the sig, never reverts an edit or fires a save.
 			if (sig === lastInboundSig) return
 			lastInboundSig = sig
+			// The store can already hold exactly this draft — the load wrote it
+			// there, or a hand-off seeded it. Applying anyway costs a full rebuild
+			// of the flow's per-module state (a fetch per path-referenced step) and
+			// discards what it holds, including the seeded test results.
+			const current = codec.storeToDraft(undefined)
+			if (current != null && codec.sig(current) === sig) return
 			codec.applyDraftToStore(incoming)
 		})
 	})

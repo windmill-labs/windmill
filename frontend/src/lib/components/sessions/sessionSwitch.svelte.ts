@@ -19,6 +19,7 @@ import { findMountedOpenInSessionSource } from './openInSessionContext'
 // Type-only: erased at compile time, so the component graph stays out of this
 // navigation seam (see the dynamic import in openEditorInSession).
 import type { OpenInSessionSource } from './OpenInSessionButton.svelte'
+import type { EditorSeed } from './editorSeed.svelte'
 
 // The session/navigation switch turns the global rail into either the workspace
 // navigation (navigation mode) or the sessions sidebar (session mode). Session
@@ -152,7 +153,7 @@ export async function openEditorInSession(
 	target: SessionTarget,
 	workspaceId?: string,
 	previewParams?: Record<string, string>,
-	opts?: { seedPrompt?: string; autoSend?: boolean }
+	opts?: { seedPrompt?: string; autoSend?: boolean; seed?: EditorSeed }
 ): Promise<void> {
 	await openInSession(
 		withPreviewParams(sessionTargetHref(target), previewParams),
@@ -175,7 +176,7 @@ export async function openPageInSession(
 async function openInSession(
 	url: string | undefined,
 	workspaceId?: string,
-	opts?: { seedPrompt?: string; autoSend?: boolean }
+	opts?: { seedPrompt?: string; autoSend?: boolean; seed?: EditorSeed }
 ): Promise<void> {
 	// Seed the fresh session's preview with a single tab on `url` so it opens
 	// straight onto what the caller wants (resetSessionPreviewTabs also writes
@@ -190,8 +191,12 @@ async function openInSession(
 		// Dynamic import: a static one would drag the runtime's heavy graph
 		// (chat manager → monaco) into this thin navigation seam, breaking its
 		// node-run unit tests.
-		const { resetSessionPreviewTabs } = await import('./sessionRuntime.svelte')
+		const { resetSessionPreviewTabs, seedEditorCell } = await import('./sessionRuntime.svelte')
 		resetSessionPreviewTabs(session.id, url)
+		// After the tabs: reusing a session that already has a runtime seeds its
+		// cell right away, and the tab change prunes every cell no open tab
+		// points at — which would drop this one.
+		if (opts?.seed) seedEditorCell(session.id, opts.seed)
 		// Hand-offs seed the page they leave, so the arrival has opened the item
 		// itself and "New session" need not offer it again.
 		navRouteOffered = true
@@ -211,7 +216,11 @@ export async function openSourceInSession(
 	await source.beforeOpen?.()
 	const opts = {
 		seedPrompt: overrides?.seedPrompt ?? source.seedPrompt,
-		autoSend: overrides?.autoSend ?? source.autoSend
+		autoSend: overrides?.autoSend ?? source.autoSend,
+		// Read after beforeOpen: the persist can rewrite what the editor holds
+		// (a new flow's path), and the seed must match what the preview would
+		// have loaded.
+		seed: source.seed?.()
 	}
 	if (source.target) {
 		await openEditorInSession(

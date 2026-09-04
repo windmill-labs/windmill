@@ -22,7 +22,10 @@ import { goto } from '$lib/navigation'
 // Seeding a preview tab dynamically imports the runtime, whose graph reaches
 // monaco (hence that import being dynamic in the first place) and cannot load
 // under node.
-vi.mock('./sessionRuntime.svelte', () => ({ resetSessionPreviewTabs: vi.fn() }))
+vi.mock('./sessionRuntime.svelte', () => ({
+	resetSessionPreviewTabs: vi.fn(),
+	seedEditorCell: vi.fn()
+}))
 import { resetSessionPreviewTabs } from './sessionRuntime.svelte'
 import { registerMountedOpenInSessionHandoff } from './openInSessionContext'
 

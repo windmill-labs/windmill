@@ -23,6 +23,7 @@ import {
 // the response type still need an explicit cast).
 type SavedScript = Omit<Script & UserDraftOverlay, 'draft'> & { draft?: NewScript }
 type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
+import type { EditorSeed } from './editorSeed.svelte'
 import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { userWorkspaces, workspaceStore } from '$lib/stores'
@@ -952,6 +953,13 @@ export function getOrCreateRuntime(session: Session): SessionRuntime {
 	if (!runtime) {
 		runtime = createRuntime(session)
 		runtimes.set(session.id, runtime)
+		// Before the first load: a hand-off's content is what this session's
+		// editor should render, in place of the fetch its first mount triggers.
+		if (pendingSeed?.sessionId === session.id) {
+			const { seed } = pendingSeed
+			pendingSeed = undefined
+			applyEditorSeed(runtime, session.id, seed)
+		}
 		initRuntime(runtime, session).catch((e) => console.error('Failed to init session runtime', e))
 	}
 	return runtime
@@ -971,6 +979,49 @@ export function listRuntimes(): SessionRuntime[] {
 
 export function getRuntime(sessionId: string): SessionRuntime | undefined {
 	return runtimes.get(sessionId)
+}
+
+// The seed of the hand-off currently navigating, consumed by the runtime the
+// arriving sessions page creates. Only one can be in flight — a hand-off
+// navigates immediately — so a later one simply replaces it, and nothing is
+// left behind if the navigation never lands.
+let pendingSeed: { sessionId: string; seed: EditorSeed } | undefined = undefined
+
+/** Hand `seed` to `sessionId`'s editor cell, so its preview mounts on
+ * already-loaded content instead of showing loadFlow's spinner.
+ *
+ * Takes an id, and deliberately does NOT create the runtime. `createSession`
+ * hands back the raw session object while `sessionState.sessions` holds its
+ * `$state` proxy, so fields added afterwards (`previewTabs`) are visible only
+ * through the proxy: building the runtime from the caller's object would
+ * hydrate its preview tabs empty and leave the arriving page with no tab at
+ * all. The seed waits for whoever creates the runtime instead. */
+export function seedEditorCell(sessionId: string, seed: EditorSeed): void {
+	const runtime = runtimes.get(sessionId)
+	if (runtime) applyEditorSeed(runtime, sessionId, seed)
+	else pendingSeed = { sessionId, seed }
+}
+
+/** Fill the cell and mark it loaded, keyed by (kind, path) exactly as loadFlow
+ * would leave it — so `loadFlow` early-returns and a later forced reload still
+ * refetches. */
+function applyEditorSeed(runtime: SessionRuntime, sessionId: string, seed: EditorSeed): void {
+	// Read the workspace off the live record, not the caller's session object:
+	// between the hand-off and the runtime's creation the session may have
+	// committed to a fork, whose copy of the item is not what was captured.
+	const session = sessionState.sessions.find((s) => s.id === sessionId)
+	if (!session || getEffectiveWorkspaceId(session) !== seed.workspace) return
+	const { slot, store, stateStore, saved } = runtime.flowCell(seed.path)
+	// The page editor types its flow as an `OpenFlow` and its baseline without
+	// the draft overlay; both hold the same loaded rows this cell's own fetch
+	// would have returned.
+	store.val = seed.flow as Flow
+	stateStore.val = seed.flowState
+	saved.val = seed.saved as SavedFlow | undefined
+	slot.loadedPath = seed.path
+	slot.loadedWorkspace = seed.workspace
+	slot.loading = false
+	slot.notFound = false
 }
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 <script lang="ts" module>
 	import type { SessionTarget } from './sessionState.svelte'
+	import type { EditorSeed } from './editorSeed.svelte'
 
 	// What an editor hands over for "Open in AI session": the session target it
 	// maps to, the workspace it lives in, and a persist hook run before routing
@@ -14,6 +15,11 @@
 		 * (fix this error, run this item) hand it over as text rather than driving
 		 * a chat the caller cannot see. */
 		seedPrompt?: string
+		/** The item's live content, so the session's preview renders it without a
+		 * round-trip. Read after `beforeOpen`, on click rather than at render, and
+		 * optional throughout: without it the preview loads from the persisted
+		 * draft as before. */
+		seed?: () => EditorSeed | undefined
 		/** Send `seedPrompt` on arrival rather than parking it in the composer.
 		 * For clicks that already stated the intent; leave it off where the prompt
 		 * is a proposal the user should read first. */

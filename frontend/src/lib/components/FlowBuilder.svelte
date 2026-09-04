@@ -116,6 +116,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
+	import { captureEditorSeed, type EditorSeed } from './sessions/editorSeed.svelte'
 
 	let {
 		initialPath = $bindable(''),
@@ -736,12 +737,28 @@
 	// falling back to `$pathStore` in drawer mounts that carry no storage path.
 	const sessionTargetPath = $derived(liveEditorDraftStoragePath || $pathStore)
 
+	// Hand the session the flow as this editor holds it, so its preview mounts on
+	// content instead of re-fetching (and rebuilding every step's schema) what is
+	// already on screen. Best-effort: no seed simply loads as before.
+	function seedForSession(): EditorSeed | undefined {
+		if (!sessionTargetPath || !opWorkspace) return undefined
+		return captureEditorSeed({
+			kind: 'flow',
+			path: sessionTargetPath,
+			workspace: opWorkspace,
+			flow: flowStore.val,
+			flowState: flowStateStore.val,
+			saved: savedFlow
+		})
+	}
+
 	const sessionOpen = $derived(
 		sessionTargetPath
 			? {
 					target: { kind: 'flow' as const, path: sessionTargetPath },
 					workspaceId: opWorkspace ?? undefined,
-					beforeOpen: persistDraftForSession
+					beforeOpen: persistDraftForSession,
+					seed: seedForSession
 				}
 			: undefined
 	)
