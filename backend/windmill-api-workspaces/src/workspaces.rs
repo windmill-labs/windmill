@@ -3773,6 +3773,19 @@ async fn edit_datatable_config(
                      database they were created in."
                 )));
             }
+            // A generated login is named from the data table's name, so a renamed
+            // one keeps logins named for the name it left — and a data table
+            // created under that name next generates those same names, adopts
+            // those logins and resets their passwords. Renaming is rare; sharing
+            // a login between two data tables is not something to leave open.
+            if lookup != name.as_str() {
+                return Err(Error::BadRequest(format!(
+                    "Data table '{lookup}' has permissions enabled, so it cannot be renamed to \
+                     '{name}': its Postgres logins are named after '{lookup}' and a data table \
+                     created under that name would take them over. Disable its permissions \
+                     first, which drops those logins, then rename and enable them again."
+                )));
+            }
         }
     }
 

@@ -971,6 +971,32 @@ pub(crate) async fn delete_workspace(
             vec![]
         });
 
+    // Same shape, same reason: a permissioned data table's logins live in a
+    // database whose only record is the settings row below, so what to drop is
+    // resolved while that row is here and the drop itself runs after the commit.
+    // Nothing is dropped here.
+    let mut planned_role_drops = Vec::new();
+    let datatable_config: Option<serde_json::Value> = sqlx::query_scalar!(
+        "SELECT datatable FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+    for name in datatable_config
+        .as_ref()
+        .and_then(|c| c.get("datatables"))
+        .and_then(|d| d.as_object())
+        .map(|d| d.keys().map(|k| k.to_string()).collect::<Vec<String>>())
+        .unwrap_or_default()
+    {
+        if let Some(planned) =
+            crate::datatable_permissions::plan_drop_of_deleted_datatable(&db, &w_id, &name).await
+        {
+            planned_role_drops.push((name, planned));
+        }
+    }
+
     sqlx::query!("DELETE FROM ai_agent_memory WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
@@ -1220,6 +1246,13 @@ pub(crate) async fn delete_workspace(
     // endpoint first for per-lake error toasts; the rerun is an idempotent no-op). Best
     // effort: failures are logged — the workspace row is already gone, and broken storage
     // credentials must not have made it undeletable.
+    // The workspace is gone, so nothing names these logins any more and the drop
+    // below finds them unclaimed. A workspace id is reusable, and so are the names
+    // generated under it, which is what makes leaving them behind more than litter.
+    for (name, planned) in planned_role_drops {
+        crate::datatable_permissions::run_planned_drop(&db, &w_id, &name, planned).await;
+    }
+
     for e in cleanup_fork_ducklake_namespaces(&db, &w_id, fork_ducklake_cleanups).await {
         tracing::warn!(
             "deleted workspace {w_id}: ducklake namespace cleanup: {}",

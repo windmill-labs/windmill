@@ -61,16 +61,22 @@
 	})
 
 	// Every data table with its schemas and tables: the tree is the picker, so it
-	// has to cover the data tables the query editor is not pointed at.
-	const datatableTree = resource<DataTableTables[]>([], async () => {
-		if (!opWs) return []
-		try {
-			return await WorkspaceService.listDataTableTables({ workspace: opWs })
-		} catch (e) {
-			console.error('Failed to load datatable tables:', e)
-			return []
-		}
-	})
+	// has to cover the data tables the query editor is not pointed at. Asked for
+	// when the drawer opens — it reaches every data table's database in turn, and
+	// the editor mounts this whether or not anyone opens it.
+	const datatableTree = resource(
+		() => [open, opWs] as const,
+		async ([isOpen, workspace]): Promise<DataTableTables[]> => {
+			if (!isOpen || !workspace) return []
+			try {
+				return await WorkspaceService.listDataTableTables({ workspace })
+			} catch (e) {
+				console.error('Failed to load datatable tables:', e)
+				return []
+			}
+		},
+		{ initialValue: [] }
+	)
 
 	export function openDrawer() {
 		// The tree shows every data table; this only picks which one the query

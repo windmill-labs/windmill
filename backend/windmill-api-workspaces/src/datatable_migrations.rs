@@ -845,8 +845,7 @@ async fn require_datatable_migrations_manager(db: &DB, authed: &ApiAuthed) -> Re
         Ok(())
     } else {
         Err(Error::BadRequest(
-            "Only workspace admins and super admins can enable or disable data table migrations"
-                .to_string(),
+            "Only workspace admins and super admins can manage data table migrations".to_string(),
         ))
     }
 }
@@ -1445,6 +1444,11 @@ async fn generate_initial_datatable_migration(
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
 ) -> JsonResult<DatatableMigration> {
+    // The snapshot below is taken with the data table's own connection and returns
+    // every object in it, so it answers to the same gate as turning migrations on
+    // rather than to whatever roles the caller may run as: a member who is a
+    // tenant of none would otherwise read the whole schema through it.
+    require_datatable_migrations_manager(&db, &authed).await?;
     validate_datatable_path_segment(&datatable_name)?;
     ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
 
