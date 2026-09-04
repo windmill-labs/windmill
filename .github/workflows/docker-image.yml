@@ -374,7 +374,7 @@ jobs:
           docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }} --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }} --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
 
-      - uses: sigstore/cosign-installer@v4
+      - uses: sigstore/cosign-installer@v4.1.2
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           cosign-release: "v2.6.5"
@@ -409,7 +409,7 @@ jobs:
           docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }} --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
           docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }} --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
 
-      - uses: sigstore/cosign-installer@v4
+      - uses: sigstore/cosign-installer@v4.1.2
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           cosign-release: "v2.6.5"

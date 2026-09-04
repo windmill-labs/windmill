@@ -39,7 +39,7 @@ runs:
     # cosign v2 writes the classic sha256-<digest>.sig/.att tag format that the
     # installed base of cosign clients can verify; v3's bundle format cannot be
     # verified by v2 clients yet, so stay on v2 until v3 verification is common.
-    - uses: sigstore/cosign-installer@v4
+    - uses: sigstore/cosign-installer@v4.1.2
       with:
         cosign-release: "v2.6.5"
 
