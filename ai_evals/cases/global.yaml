@@ -1987,14 +1987,14 @@
   toolExpect:
     requiredToolsUsed:
       - run_script
+      # A draft may declare different arguments than the deployed version being run, so
+      # the names to prefill have to come from the deployed schema.
+      - read_workspace_item
     forbiddenToolsUsed:
       - test_run_script
       - call_api_endpoint
       - write_script
       - deploy_workspace_item
-      # run_script renders the deployed schema itself, so reading the item first is a
-      # wasted round-trip.
-      - read_workspace_item
     # An empty form pushes the work back onto the user, so the prefill is part of
     # what the tool is for.
     toolCallArgs:
