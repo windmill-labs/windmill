@@ -1169,9 +1169,10 @@ pub fn remove_datatable_tenant(datatable: &mut serde_json::Value, tenant: &str) 
 ///
 /// Authorization: performs none, for any workspace it is handed. What it returns
 /// is the config as stored, generated role passwords included, so callers MUST
-/// have authorized the read — every one today is admin-gated or a system path —
-/// and MUST NOT pass the value outward without
-/// [`redact_datatable_settings_for_export`].
+/// have authorized the read, and MUST NOT pass the value outward without
+/// [`redact_datatable_settings_for_export`]. Taking the lock is not itself a
+/// read of anything a caller must be admin for — a path that only serializes
+/// against other writers may take it and ignore the value.
 pub async fn lock_workspace_settings_unchecked(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,

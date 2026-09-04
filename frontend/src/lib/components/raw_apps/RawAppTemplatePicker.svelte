@@ -83,11 +83,11 @@
 	)
 
 	let selectedRole = $state<string | undefined>(undefined)
-	// While a switch is in flight `roles.current` still answers for the previous
-	// data table: its roles are not this one's, and neither is the selection made
-	// from them. Everything below reads the loaded list only once it matches, so
-	// the picker offers nothing and the app is created with this data table's own
-	// default rather than a name carried over from the last one.
+
+	// A resource answers for the data table (and role) it was asked about, and
+	// says which. Anything read before its answer matches the selection belongs to
+	// the previous data table, to another role, or to no question at all — so
+	// every reader below waits for the stamp rather than trusting `current`.
 	const loadedRoles = $derived(
 		roles.current.datatable === selectedDatatable ? roles.current.roles : []
 	)
@@ -96,35 +96,32 @@
 		selectedRole !== undefined && loadedRoles.includes(selectedRole) ? selectedRole : undefined
 	)
 
-	// Saved when it is not what the data table would resolve to anyway. Leaving it
-	// out means "whatever the default is", which is right while they agree and
-	// wrong when they do not: the default is the data table's, not filtered by
-	// what this caller may use, so the one usable role has to be named.
+	// Omitted when it is the data table's own default, which is what the server
+	// resolves anyway. Named otherwise: that default is not filtered by what this
+	// caller may use, so a caller who cannot use it has to say what they can.
 	const roleToSave = $derived(
 		effectiveRole !== undefined && effectiveRole !== roles.current.defaultRole
 			? effectiveRole
 			: undefined
 	)
 
-	// The picked role belongs to the data table it was picked on, and the one it
-	// defaults to is what the app gets without saying anything. Two data tables
-	// can both define an `analyst` that means something different, so the name
-	// surviving the switch is not the role surviving it.
-	// Whether the role list in hand answers for the data table selected. Until it
-	// does there is no role to save: `undefined` resolves server-side to the data
-	// table's configured default, which is not filtered by what this caller may
-	// use, so starting then can hand the app a role its queries are refused.
-	// `undefined === undefined` is not an answer: before auto-select lands there is
-	// no data table to have asked about, and the initial value stamps nothing.
+	const availableDatatables = $derived(datatables.current)
+	// `undefined` while the list loads, so this is false until it has answered.
+	const hasNoDatatables = $derived(availableDatatables?.length === 0)
+
+	// A workspace with no data tables has nothing to wait for; anything else waits
+	// for the answer about what is selected.
 	const rolesSettled = $derived(
-		selectedDatatable !== undefined && roles.current.datatable === selectedDatatable
+		hasNoDatatables ||
+			(selectedDatatable !== undefined && roles.current.datatable === selectedDatatable)
 	)
+
+	// The picked role belongs to the data table it was picked on: two data tables
+	// can both define an `analyst` that means something different, so a name
+	// surviving the switch is not the role surviving it.
 	let rolesPickedOn = $state<string | undefined>(undefined)
 	$effect(() => {
 		const loaded = roles.current
-		// Until the list for the table now selected has arrived, the one in hand
-		// is the previous table's — picking from it would choose that table's
-		// default, and record the choice as if it were this table's.
 		if (loaded.datatable !== selectedDatatable) return
 		const switched = untrack(() => rolesPickedOn) !== selectedDatatable
 		if (switched || selectedRole === undefined || !loaded.roles.includes(selectedRole)) {
@@ -135,27 +132,24 @@
 		}
 	})
 
-	const availableDatatables = $derived(datatables.current)
-	// The role the access question is asked as. Until the role list settles this
-	// is `undefined`, which the server reads as the data table's configured
-	// default — a different question, and one whose answer says nothing about what
-	// the role finally selected may create.
-	// Asked as the role the app will run as, whether or not the picker is shown:
-	// hiding a choice there is only one worth making is not the same as having no
-	// role, and what a role may create in is the question.
+	// Asked as the role the app will run as, picker or no picker: hiding a choice
+	// there is only one of is not the same as having no role.
 	const accessRole = $derived(effectiveRole)
-	// Read like the role list: only once it answers for what is selected now. At
-	// mount it is the initial value, during a switch the previous data table's,
-	// and in between the same data table asked as another role.
-	// Settled means: about this data table, asked as the role this app will run as,
-	// and that role is itself settled — until the role list lands `accessRole` is
-	// `undefined`, which the server answers as the data table's configured default
-	// and which says nothing about the role finally selected.
-	const accessSettled = $derived(
+	// Permissioned, and this caller may run as none of its roles. Leaving the role
+	// out would save the data table's configured default, which is exactly the one
+	// they cannot use, so the app would be created with queries that are refused.
+	const noUsableRole = $derived(
 		rolesSettled &&
 			selectedDatatable !== undefined &&
-			access.current.datatable === selectedDatatable &&
-			access.current.role === accessRole
+			roles.current.permissioned &&
+			loadedRoles.length === 0
+	)
+	const accessSettled = $derived(
+		hasNoDatatables ||
+			(rolesSettled &&
+				selectedDatatable !== undefined &&
+				access.current.datatable === selectedDatatable &&
+				access.current.role === accessRole)
 	)
 	const loadedAccess = $derived(
 		accessSettled
@@ -215,7 +209,6 @@
 		schemaMode === 'new' ? newSchemaName : schemaMode === 'existing' ? selectedSchema : undefined
 	)
 
-	const hasNoDatatables = $derived(availableDatatables?.length === 0)
 
 	// copilotInfo is a global that stays empty until some ancestor's fetch lands, so
 	// `enabled` alone cannot tell "no providers" from "not loaded yet" and the modal
@@ -367,6 +360,11 @@
 												size="sm"
 												class="w-40"
 											/>
+											{#if noUsableRole}
+												<span class="text-xs text-red-600 dark:text-red-400">
+													no role you can use
+												</span>
+											{/if}
 											{#if showRolePicker}
 												<!-- Reads as one phrase — "main as admin" — so the role needs no
 												     label of its own. -->
@@ -546,7 +544,8 @@
 					disabled={!templates[selectedTemplateIndex] ||
 						newSchemaAlreadyExists ||
 						!rolesSettled ||
-						!accessSettled}
+						!accessSettled ||
+						noUsableRole}
 				>
 					{$copilotInfo.workspaceDisabled ? 'Start' : 'Start without AI'}
 				</Button>
@@ -556,6 +555,7 @@
 						on:click={() => start(true)}
 						disabled={!rolesSettled ||
 							!accessSettled ||
+							noUsableRole ||
 							!templates[selectedTemplateIndex] ||
 							!initialPrompt.trim() ||
 							newSchemaAlreadyExists}

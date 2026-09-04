@@ -52,25 +52,42 @@ export function createRolesResource(
 			 * previous one's roles are still what `current` holds, and they say
 			 * nothing about the one now selected. */
 			datatable: string | undefined
+			/** Whether the data table has permissions on. With none, every caller
+			 * reaches it through its own connection and `roles` is empty because
+			 * there is nothing to pick — which is not the same as a permissioned one
+			 * this caller may run as nothing on. */
+			permissioned: boolean
 			roles: string[]
 			defaultRole: string
 		}> => {
-			const datatable = datatableName || undefined
-			if (!datatableName || !workspace)
-				return { datatable, roles: [], defaultRole: ADMIN_DATATABLE_ROLE }
+			const empty = {
+				datatable: datatableName || undefined,
+				permissioned: false,
+				roles: [],
+				defaultRole: ADMIN_DATATABLE_ROLE
+			}
+			if (!datatableName || !workspace) return empty
 			try {
 				const res = await WorkspaceService.listUsableDatatableRoles({ workspace, datatableName })
 				return {
-					datatable,
+					...empty,
+					permissioned: res.enabled,
 					roles: res.enabled ? res.roles : [],
 					defaultRole: res.default_role
 				}
 			} catch (e) {
 				console.error('Failed to load datatable roles:', e)
-				return { datatable, roles: [], defaultRole: ADMIN_DATATABLE_ROLE }
+				return empty
 			}
 		},
-		{ initialValue: { datatable: undefined, roles: [], defaultRole: ADMIN_DATATABLE_ROLE } }
+		{
+			initialValue: {
+				datatable: undefined,
+				permissioned: false,
+				roles: [],
+				defaultRole: ADMIN_DATATABLE_ROLE
+			}
+		}
 	)
 }
 
