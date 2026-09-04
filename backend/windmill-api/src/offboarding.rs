@@ -488,8 +488,10 @@ pub(crate) async fn global_offboard_preview(
 ) -> JsonResult<GlobalOffboardPreview> {
     require_super_admin(&db, &authed).await?;
 
+    // Ordered, so offboarding from several workspaces takes their settings rows
+    // in the same sequence as every other multi-workspace path.
     let workspaces = sqlx::query!(
-        "SELECT workspace_id, username FROM usr WHERE email = $1",
+        "SELECT workspace_id, username FROM usr WHERE email = $1 ORDER BY workspace_id",
         &email
     )
     .fetch_all(&db)
@@ -830,6 +832,12 @@ async fn offboard_user_from_workspace<'c>(
     reassign_to: &str,
     new_permissioned_as: &str,
 ) -> Result<OffboardSummary> {
+    // Before this transaction locks anything else — see
+    // `lock_workspace_settings_unchecked`. Everything below reassigns rows a
+    // rename or a deletion writes while holding this row.
+    let datatable_settings =
+        windmill_common::workspaces::lock_workspace_settings_unchecked(tx, w_id).await?;
+
     let new_prefix = reassign_to.to_string();
     let departing = windmill_common::users::username_to_permissioned_as(username);
 
@@ -989,13 +997,6 @@ async fn offboard_user_from_workspace<'c>(
     // A data table names its database by resource path, so one just moved has to
     // move in the config too: left behind it stops resolving, and the path it
     // named is free for a resource pointing somewhere else entirely.
-    let datatable_settings = sqlx::query_scalar!(
-        "SELECT datatable FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
-        w_id
-    )
-    .fetch_optional(&mut **tx)
-    .await?
-    .flatten();
     if let Some(mut settings) = datatable_settings {
         if windmill_common::workspaces::move_datatable_resource_paths(
             &mut settings,

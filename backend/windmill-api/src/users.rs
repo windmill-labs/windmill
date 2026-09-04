@@ -208,14 +208,6 @@ async fn rename_user(
         )));
     }
 
-    sqlx::query!(
-        "UPDATE password SET username = $1 WHERE email = $2",
-        ru.new_username,
-        user_email
-    )
-    .execute(&mut *tx)
-    .await?;
-
     // Ordered, so a rename and a deletion that touch the same workspaces take
     // their settings rows in the same sequence rather than head-on.
     let workspace_usernames = sqlx::query!(
@@ -239,6 +231,16 @@ async fn rename_user(
         )
         .await?;
     }
+
+    // After the settings rows above: the deletion paths take `password` while
+    // holding one, so taking it first here would be the other order.
+    sqlx::query!(
+        "UPDATE password SET username = $1 WHERE email = $2",
+        ru.new_username,
+        user_email
+    )
+    .execute(&mut *tx)
+    .await?;
 
     audit_log(
         &mut *tx,

@@ -2585,6 +2585,11 @@ async fn delete_workspace_user(
 ) -> Result<String> {
     let mut tx = db.begin().await?;
 
+    // Before the `usr` row below — see `lock_workspace_settings_unchecked`. The
+    // removal itself takes this row too; re-acquiring it inside a transaction
+    // costs nothing.
+    windmill_common::workspaces::lock_workspace_settings_unchecked(&mut tx, &w_id).await?;
+
     // Locked so that the authorization below and the delete it guards see the same row.
     let target = sqlx::query!(
         "SELECT email, is_admin FROM usr where username = $1 AND workspace_id = $2 FOR UPDATE",
