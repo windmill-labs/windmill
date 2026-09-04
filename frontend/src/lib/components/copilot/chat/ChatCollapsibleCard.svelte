@@ -61,6 +61,7 @@
 			)}
 			onclick={onToggle}
 			disabled={!toggleable}
+			aria-expanded={toggleable ? expanded : undefined}
 		>
 			{#if shimmer}
 				<span class="shimmer inline-flex items-center min-w-0">

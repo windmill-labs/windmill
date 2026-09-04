@@ -1,0 +1,37 @@
+{
+  "workspace": {
+    "resources": [
+      {
+        "path": "f/evals/global/github_main",
+        "resource_type": "github",
+        "description": "GitHub credentials",
+        "value": { "token": "$var:f/evals/global/github_token" }
+      }
+    ],
+    "scripts": [
+      {
+        "path": "f/evals/global/github_repo_stats",
+        "summary": "Count open issues on a GitHub repository",
+        "description": "Reads the open issue count for a repository using GitHub credentials.",
+        "language": "bun",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "gh_auth": {
+              "type": "object",
+              "format": "resource-github",
+              "description": "GitHub credentials"
+            },
+            "repo": {
+              "type": "string",
+              "description": "Repository in owner/name form"
+            }
+          },
+          "required": ["gh_auth", "repo"]
+        },
+        "content": "type Github = { token: string }\n\nexport async function main(gh_auth: Github, repo: string) {\n  const res = await fetch(`https://api.github.com/repos/${repo}/issues?state=open`, {\n    headers: { Authorization: `Bearer ${gh_auth.token}` }\n  })\n  const issues = await res.json()\n  return { repo, open_issues: issues.length }\n}\n"
+      }
+    ]
+  }
+}

@@ -1099,7 +1099,7 @@ pub async fn run_agent(
         // For non-Anthropic providers, response_format is handled by the query builder
     }
 
-    let user_wants_streaming = args.streaming.unwrap_or(false);
+    let user_wants_streaming = streaming_requested(args.streaming);
     *has_stream = user_wants_streaming && is_text_output;
 
     let mut final_events_str = String::new();
@@ -1701,6 +1701,17 @@ pub async fn run_agent(
     }))
 }
 
+/// Whether the step asked for its answer as it is generated. Absence means on, matching the
+/// schema's own default: a step that never wrote the key never had an opinion, and an answer
+/// arriving as it is written is what people expect. Only an explicit `false` holds it back.
+///
+/// The chat surfaces decide whether to open a stream from their own reading of the same config,
+/// and a surface that opens one for an answer sent in a single piece re-runs the flow when the
+/// connection times out. So this default is half of a contract, not a local preference.
+fn streaming_requested(streaming: Option<bool>) -> bool {
+    streaming.unwrap_or(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1711,6 +1722,13 @@ mod tests {
             content: Some(OpenAIContent::Text(content.to_string())),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn an_unwritten_streaming_field_streams() {
+        assert!(streaming_requested(None));
+        assert!(streaming_requested(Some(true)));
+        assert!(!streaming_requested(Some(false)));
     }
 
     /// Over 64 characters OpenAI rejects the key outright, which costs a wasted round

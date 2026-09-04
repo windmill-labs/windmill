@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.801.0
+  version: 1.803.0
   title: Windmill API
 
   contact:
@@ -10543,7 +10543,7 @@ paths:
       summary: run script by path
       operationId: runScriptByPath
       x-mcp-tool: true
-      x-mcp-instructions: "You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected."
+      x-mcp-instructions: "You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected. A resource argument (schema format `resource-<type>`) is the bare string `$res:<path>` as that whole argument value -- not a wrapper object, not a plain path. A variable is `$var:<path>`."
       x-mcp-tool-include-query-params: []
       tags:
         - job
@@ -13901,7 +13901,7 @@ paths:
       summary: run flow by path
       operationId: runFlowByPath
       x-mcp-tool: true
-      x-mcp-instructions: "You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected."
+      x-mcp-instructions: "You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected. A resource argument (schema format `resource-<type>`) is the bare string `$res:<path>` as that whole argument value -- not a wrapper object, not a plain path. A variable is `$var:<path>`."
       x-mcp-tool-include-query-params: []
       tags:
         - job
@@ -27222,6 +27222,13 @@ components:
           type: object
           additionalProperties:
             $ref: "#/components/schemas/ModelPriceOverride"
+        copilot_disabled:
+          type: boolean
+          description: >-
+            Hides the Windmill AI assistant (chat, sessions, code generation, completion,
+            fixes) from the workspace UI. Read from the workspace's own settings even when
+            the providers served fall back to the instance config. AI agent steps and the
+            AI sandbox in flows are unaffected.
 
     FreeTierInfo:
       type: object
@@ -29074,6 +29081,8 @@ components:
             - "igroup.delete"
             - "igroup.adduser"
             - "igroup.removeuser"
+            - "instance_groups.jit_adduser"
+            - "instance_groups.jit_removeuser"
             - "variables.decrypt_secret"
             - "workspaces.read_encryption_key"
             - "workspaces.edit_command_script"

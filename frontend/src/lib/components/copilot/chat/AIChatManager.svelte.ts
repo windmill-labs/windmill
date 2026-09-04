@@ -2123,7 +2123,10 @@ export class AIChatManager {
 	// pipeline surface when a /pipeline editor has registered helpers. Centralized
 	// so changeMode, refreshGlobalSkills, and setPipelineHelpers stay consistent —
 	// each rebuild would otherwise drop the pipeline augmentation the others added.
-	private configureGlobalMode = () => {
+	//
+	// Public because it is purely local, unlike `changeMode(GLOBAL)`, which also
+	// fires the three network refreshes.
+	configureGlobalMode = () => {
 		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 			previewTools: this.isSessionChat,
 			user: this.globalIdentity,
@@ -2350,6 +2353,10 @@ export class AIChatManager {
 	}
 
 	openChat = () => {
+		// Nothing may open the docked pane in a workspace that hid the assistant.
+		if (get(copilotInfo).workspaceDisabled) {
+			return
+		}
 		chatState.size = this.savedSize > 0 ? this.savedSize : DEFAULT_SIZE
 		localStorage.setItem('ai-chat-open', 'true')
 	}
@@ -2361,6 +2368,9 @@ export class AIChatManager {
 	}
 
 	toggleOpen = () => {
+		if (chatState.size === 0 && get(copilotInfo).workspaceDisabled) {
+			return
+		}
 		if (chatState.size > 0) {
 			this.savedSize = chatState.size
 		}
@@ -2878,6 +2888,12 @@ export class AIChatManager {
 		if (!this.isSessionChat && !chatState.dockedChatAvailable) {
 			console.error('sendRequest called with no chat UI mounted; dropping the turn')
 			sendUserToast('This action needs the AI chat. Start an AI session to continue.', true)
+			return
+		}
+		// The workspace hid the assistant: every entry point is gone from the UI, so a turn
+		// reaching here comes from a path that missed the gate and would stream unseen.
+		if (!this.isSessionChat && get(copilotInfo).workspaceDisabled) {
+			sendUserToast('Windmill AI is hidden in this workspace.', true)
 			return
 		}
 		// Refused before anything mutates, so there is nothing to unwind: the

@@ -64,10 +64,11 @@ use windmill_common::{
         JOB_ISOLATION_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPMRC_SETTING, NPM_CONFIG_REGISTRY_SETTING,
         NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING, NUGET_CONFIG_SETTING,
-        OTEL_SETTING, OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING,
-        POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING,
-        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
-        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
+        OTEL_SETTING, OTEL_TRACES_RETENTION_SECS_SETTING, OTEL_TRACING_PROXY_SETTING,
+        PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING,
+        PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
+        SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
         SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
         SANDBOX_IMAGE_PULL_POLICY_SETTING, SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING,
         SERVICE_LOG_RETENTION_SECS_SETTING, SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING,
@@ -97,10 +98,10 @@ use windmill_common::{
     KillpillSender, AUDIT_LOG_RETENTION_DAYS, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE,
     CRITICAL_ALERTS_ON_TOKEN_EXPIRY, CRITICAL_ALERT_MUTE_UI_ENABLED,
     CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL,
-    DEFAULT_SERVICE_LOG_RETENTION_SECS, HUB_BASE_URL, JOB_RETENTION_SECS,
-    JOB_RETENTION_SECS_OVERRIDES, JOB_RETENTION_SECS_OVERRIDES_LOADED, METRICS_DEBUG_ENABLED,
-    METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED,
-    OTEL_TRACING_ENABLED, STORE_AUDIT_LOGS_S3,
+    DEFAULT_OTEL_TRACES_RETENTION_SECS, DEFAULT_SERVICE_LOG_RETENTION_SECS, HUB_BASE_URL,
+    JOB_RETENTION_SECS, JOB_RETENTION_SECS_OVERRIDES, JOB_RETENTION_SECS_OVERRIDES_LOADED,
+    METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED,
+    OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, STORE_AUDIT_LOGS_S3,
 };
 use windmill_common::{
     client::AuthedClient,
@@ -513,6 +514,15 @@ pub async fn initial_load(
                 ),
                 Ordering::Relaxed,
             )
+        });
+        pass.setting(OTEL_TRACES_RETENTION_SECS_SETTING, true, |v| async move {
+            windmill_common::set_otel_traces_retention_secs(parse_setting_value::<i64>(
+                v,
+                OTEL_TRACES_RETENTION_SECS_SETTING,
+                "OTEL_TRACES_RETENTION_SECS",
+                DEFAULT_OTEL_TRACES_RETENTION_SECS,
+                |x| x,
+            ))
         });
         pass.setting(STORE_AUDIT_LOGS_S3_SETTING, true, |v| async move {
             STORE_AUDIT_LOGS_S3.store(
@@ -1682,6 +1692,57 @@ const SERVICE_LOG_DELETE_BATCH: i64 = 2_000;
 /// across ticks rather than inside one, the way the neighbouring sweeps already do.
 const SERVICE_LOG_DELETE_MAX_BATCHES: usize = 10;
 
+/// One span per HTTP request made from a job script, so the table grows far faster than the
+/// job table it is keyed against; batched for the same reason the service log sweep is.
+const OTEL_TRACES_DELETE_BATCH: i64 = 10_000;
+const OTEL_TRACES_DELETE_MAX_BATCHES: usize = 10;
+
+/// Delete HTTP request tracing spans older than `retention_secs`, returning how many went.
+///
+/// `retention_secs` is a parameter rather than a read of the process-wide setting so a test can
+/// pin a window without writing state the other tests in this binary run against concurrently.
+async fn delete_expired_otel_traces(db: &DB, retention_secs: i64) -> u64 {
+    // `start_time_unix_nano` is the proto field stored verbatim, so the cutoff is built in that
+    // unit rather than compared against `now()`. Truncating the epoch to whole seconds first
+    // keeps the multiplication inside `bigint`.
+    //
+    // Batched on `ctid`, not on the `(trace_id, span_id)` primary key: with the key the planner
+    // hashes the LIMITed subquery and Seq Scans the whole table to probe it, which at the size
+    // this table reaches is the cost the batching exists to avoid. `ctid` plans as a Tid Scan, so
+    // each batch touches only the rows it deletes. Safe because the subquery and the delete share
+    // one snapshot, and spans are never updated after insert.
+    let mut deleted = 0;
+    for _ in 0..OTEL_TRACES_DELETE_MAX_BATCHES {
+        let batch = sqlx::query!(
+            "DELETE FROM otel_traces WHERE ctid IN (
+                 SELECT ctid FROM otel_traces
+                 WHERE start_time_unix_nano < EXTRACT(
+                     EPOCH FROM now() - ($1::bigint::text || ' s')::interval
+                 )::bigint * 1000000000
+                 LIMIT $2
+             )",
+            retention_secs,
+            OTEL_TRACES_DELETE_BATCH,
+        )
+        .execute(db)
+        .await;
+
+        match batch {
+            Ok(res) => {
+                deleted += res.rows_affected();
+                if (res.rows_affected() as i64) < OTEL_TRACES_DELETE_BATCH {
+                    break;
+                }
+            }
+            Err(e) => {
+                tracing::error!("Error deleting expired otel trace spans: {:?}", e);
+                break;
+            }
+        }
+    }
+    deleted
+}
+
 pub async fn delete_expired_items(db: &DB) -> () {
     let expired_tokens_r = sqlx::query_as!(
         TokenRow,
@@ -1806,6 +1867,12 @@ pub async fn delete_expired_items(db: &DB) -> () {
                 break;
             }
         }
+    }
+
+    let deleted_spans =
+        delete_expired_otel_traces(db, windmill_common::otel_traces_retention_secs()).await;
+    if deleted_spans > 0 {
+        tracing::info!("deleted {} expired otel trace spans", deleted_spans);
     }
 
     let audit_retention_days = audit_log_retention_days().await;
@@ -2924,6 +2991,21 @@ pub async fn reload_service_log_retention_secs_setting(conn: &Connection) {
     {
         Ok(v) => windmill_common::set_service_log_retention_secs(v),
         Err(e) => tracing::error!("Error reloading service log retention period: {:?}", e),
+    }
+}
+
+pub async fn reload_otel_traces_retention_secs_setting(conn: &Connection) {
+    match load_setting_value::<i64>(
+        conn,
+        OTEL_TRACES_RETENTION_SECS_SETTING,
+        "OTEL_TRACES_RETENTION_SECS",
+        DEFAULT_OTEL_TRACES_RETENTION_SECS,
+        |x| x,
+    )
+    .await
+    {
+        Ok(v) => windmill_common::set_otel_traces_retention_secs(v),
+        Err(e) => tracing::error!("Error reloading otel traces retention period: {:?}", e),
     }
 }
 
@@ -5024,7 +5106,7 @@ async fn poll_git_fork_branches(
 }
 
 async fn vacuuming_tables(db: &Pool<Postgres>) -> error::Result<()> {
-    sqlx::query!("VACUUM v2_job, v2_job_completed, job_result_stream_v2, job_stats, job_logs, job_perms, concurrency_key, log_file, metrics")
+    sqlx::query!("VACUUM v2_job, v2_job_completed, job_result_stream_v2, job_stats, job_logs, job_perms, concurrency_key, log_file, metrics, otel_traces")
         .execute(db)
         .await?;
     Ok(())
@@ -7157,6 +7239,46 @@ mod zombie_worker_memory_pct_tests {
             zombie_worker_memory_pct(Some(500), Some(500), Some(0)),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod otel_traces_retention_tests {
+    use super::{delete_expired_otel_traces, DB};
+
+    async fn insert_span(db: &DB, id: u8, age_secs: i64) {
+        sqlx::query!(
+            "INSERT INTO otel_traces (trace_id, span_id, name, kind, start_time_unix_nano, end_time_unix_nano)
+             VALUES ($1, $2, 'GET /', 3, $3, $3)",
+            &[id; 16][..],
+            &[id; 8][..],
+            (chrono::Utc::now() - chrono::Duration::seconds(age_secs))
+                .timestamp_nanos_opt()
+                .unwrap(),
+        )
+        .execute(db)
+        .await
+        .unwrap();
+    }
+
+    /// The cutoff crosses two units: a retention configured in seconds against a column holding
+    /// nanoseconds. Getting that conversion wrong is silent in both directions — a window a
+    /// billion times too wide never deletes anything, one a billion times too narrow deletes
+    /// every span on the next tick — so pin it on either side of the boundary.
+    #[sqlx::test(migrations = "./migrations")]
+    async fn deletes_only_spans_past_the_window(db: DB) -> anyhow::Result<()> {
+        let day = 60 * 60 * 24;
+        insert_span(&db, 1, 60).await;
+        insert_span(&db, 2, 6 * day).await;
+        insert_span(&db, 3, 8 * day).await;
+
+        assert_eq!(delete_expired_otel_traces(&db, 7 * day).await, 1);
+
+        let kept = sqlx::query_scalar!("SELECT trace_id FROM otel_traces ORDER BY trace_id")
+            .fetch_all(&db)
+            .await?;
+        assert_eq!(kept, vec![vec![1u8; 16], vec![2u8; 16]]);
+        Ok(())
     }
 }
 

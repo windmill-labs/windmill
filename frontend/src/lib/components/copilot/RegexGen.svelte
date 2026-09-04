@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
+	import { run } from 'svelte/legacy'
 
 	import { base } from '$lib/base'
 	import { Button } from '../common'
@@ -55,7 +55,7 @@
 
 	run(() => {
 		input && setTimeout(() => input?.focus(), 100)
-	});
+	})
 
 	let promptHistory: string[] = $state(JSON.parse(getPromptsRegex() || '[]'))
 
@@ -93,17 +93,17 @@
 	}
 </script>
 
-<Popover
-	floatingConfig={{
-		middleware: [
-			autoPlacement({
-				allowedPlacements: ['bottom-start', 'bottom-end', 'top-start', 'top-end', 'top', 'bottom']
-			})
-		]
-	}}
->
-	{#snippet trigger()}
-	
+{#if !$copilotInfo.workspaceDisabled}
+	<Popover
+		floatingConfig={{
+			middleware: [
+				autoPlacement({
+					allowedPlacements: ['bottom-start', 'bottom-end', 'top-start', 'top-end', 'top', 'bottom']
+				})
+			]
+		}}
+	>
+		{#snippet trigger()}
 			<Button
 				title="Generate regexes from prompt"
 				btnClasses="text-ai bg-violet-100 dark:bg-gray-700"
@@ -116,10 +116,8 @@
 				clickableWhileLoading
 				on:click={genLoading ? () => abortController?.abort() : () => {}}
 			/>
-		
-	{/snippet}
-	{#snippet content({ close })}
-	
+		{/snippet}
+		{#snippet content({ close })}
 			<div class="block text-primary p-4">
 				{#if $copilotInfo.enabled}
 					<div class="flex flex-col gap-4">
@@ -129,11 +127,11 @@
 								bind:this={input}
 								bind:value={funcDesc}
 								onkeypress={({ key }) => {
-								if (key === 'Enter' && funcDesc?.length > 0) {
-									close()
-									onGenerate()
-								}
-							}}
+									if (key === 'Enter' && funcDesc?.length > 0) {
+										close()
+										onGenerate()
+									}
+								}}
 								placeholder="Describe what the regex should do"
 							/>
 							<Button
@@ -183,6 +181,6 @@
 					</p>
 				{/if}
 			</div>
-		
-	{/snippet}
-</Popover>
+		{/snippet}
+	</Popover>
+{/if}

@@ -160,11 +160,11 @@ flow related commands
 - `flow push <file_path:string> <remote_path:string>` - push a local flow spec. This overrides any remote versions.
   - `--message <message:string>` - Deployment message
 - `flow run <path:string>` - run a flow by path.
-  - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - `-s --silent` - Do not ouput anything other then the final output. Useful for scripting.
   - `--tag <tag:string>` - Override the worker tag the run is dispatched to (e.g. to route it to dev workers instead of the flow's default tag).
 - `flow preview <flow_path:string>` - preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default. Pass --step <id> to run only one module in isolation (resolves nested steps inside branchone/branchall/forloopflow/whileloopflow plus the special preprocessor/failure modules; supported step types: rawscript, script, flow).
-  - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
   - `--remote` - Use deployed workspace scripts for PathScript steps instead of local files.
   - `--step <step_id:string>` - Run only the named step instead of the whole flow. Honors --data as the step's args and --remote / local-PathScript resolution the same way the full-flow preview does.
@@ -560,11 +560,11 @@ script related commands
   - `--json` - Output as JSON (for piping to jq)
 - `script show <path:file>` - show a script's content (alias for get)
 - `script run <path:file>` - run a script by path
-  - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
   - `--tag <tag:string>` - Override the worker tag the run is dispatched to (e.g. to route it to dev workers instead of the script's default tag).
 - `script preview <path:file>` - preview a local script without deploying it. Supports both regular and codebase scripts.
-  - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - `-s --silent` - Do not output anything other than the final output. Useful for scripting.
   - `--tag <tag:string>` - Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the script's default tag).
 - `script new <path:file> <language:string>` - create a new script
