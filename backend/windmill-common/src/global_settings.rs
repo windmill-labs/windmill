@@ -94,6 +94,9 @@ pub const AUTOMATE_USERNAME_CREATION_SETTING: &str = "automate_username_creation
 pub const DISABLE_WORKSPACE_INVITE_EMAILS_SETTING: &str = "disable_workspace_invite_emails";
 pub const DISABLE_PASSWORD_LOGIN_SETTING: &str = "disable_password_login";
 pub const AUTO_LOGIN_PROVIDER_SETTING: &str = "auto_login_provider";
+/// Name of the SAML attribute or OIDC userinfo claim carrying the user's IdP groups. Unset or
+/// empty leaves instance-group membership entirely to SCIM.
+pub const SSO_GROUPS_CLAIM_SETTING: &str = "sso_groups_claim";
 pub const HUB_BASE_URL_SETTING: &str = "hub_base_url";
 pub const HUB_ACCESSIBLE_URL_SETTING: &str = "hub_accessible_url";
 pub const DISABLE_HUB_SETTING: &str = "disable_hub";

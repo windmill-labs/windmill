@@ -35,8 +35,9 @@
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
-	import McpConnections from './McpConnections.svelte'
-	import SkillsPicker from './SkillsPicker.svelte'
+	import AssistantSettingsModal from './AssistantSettingsModal.svelte'
+	import { SkillsMenu } from './skills/skillsMenu.svelte'
+	import { McpMenu } from '$lib/components/mcp/mcpMenu.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
@@ -207,8 +208,11 @@
 	} = $props()
 
 	let aiChatInput: AIChatInput | undefined = $state()
-	let mcpConnections: McpConnections | undefined = $state()
-	let skillsPicker: SkillsPicker | undefined = $state()
+	let assistantSettings: AssistantSettingsModal | undefined = $state()
+	// The "+" menu's skill and MCP rows: enough state to check and flip one, with
+	// everything else about them behind the assistant settings modal.
+	const skillsMenu = new SkillsMenu(aiChatManager, () => assistantSettings?.open('skills'))
+	const mcpMenu = new McpMenu(aiChatManager, () => assistantSettings?.open('mcp'))
 	let plusMenuOpen = $state(false)
 	let editingMessageIndex = $state<number | null>(null)
 
@@ -959,8 +963,8 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 									const closeMenu = () => (plusMenuOpen = false)
 									const inGlobal = aiChatManager.mode === AIMode.GLOBAL
 									const [skillItems, mcpItems] = await Promise.all([
-										inGlobal ? skillsPicker?.menuItems(closeMenu) : undefined,
-										inGlobal ? mcpConnections?.menuItems(closeMenu) : undefined
+										inGlobal ? skillsMenu.items(closeMenu) : undefined,
+										inGlobal ? mcpMenu.items(closeMenu) : undefined
 									])
 									return [
 										{
@@ -1143,10 +1147,12 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							<DatatableCreationPolicy />
 						{/if}
 						<ContextUsageIndicator />
-						<AIChatModelSettings />
+						<!-- Unconditional: this composer mounts only via `AIChat` ← `SessionWrapper`,
+						     and `sessionRuntime` locks a session to GLOBAL, where the settings
+						     modal's Instructions section owns the prompt entries. -->
+						<AIChatModelSettings promptSettings={false} />
 						{#if aiChatManager.mode === AIMode.GLOBAL}
-							<SkillsPicker bind:this={skillsPicker} />
-							<McpConnections bind:this={mcpConnections} />
+							<AssistantSettingsModal bind:this={assistantSettings} />
 						{/if}
 
 						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}

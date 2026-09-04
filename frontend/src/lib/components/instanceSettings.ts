@@ -662,6 +662,16 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'text',
 			placeholder: 'okta',
 			storage: 'setting'
+		},
+		{
+			label: 'SSO groups claim',
+			description:
+				'Name of the SAML attribute or OIDC userinfo claim carrying the user\'s IdP groups ("http://schemas.microsoft.com/ws/2008/06/identity/claims/groups" on Entra SAML, "groups" for most OIDC providers). Its values must be the same group ids that SCIM stored as the instance groups\' external id (Entra emits object ids in both), since matching is by external id only. When set, every SSO login reconciles the user\'s membership in those SCIM-provisioned instance groups against the claim, so IdP group changes take effect at the next login instead of waiting for the SCIM push. Instance groups without an external id are never touched, and a login whose claim is absent or empty changes nothing. Leave empty to disable.',
+			key: 'sso_groups_claim',
+			fieldType: 'text',
+			placeholder: 'groups',
+			storage: 'setting',
+			ee_only: ''
 		}
 	],
 	'DB Health': [],

@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.803.0](https://github.com/windmill-labs/windmill/compare/v1.802.0...v1.803.0) (2026-09-03)
+
+
+### Features
+
+* expose request headers to scripts invoked via MCP ([#10903](https://github.com/windmill-labs/windmill/issues/10903)) ([e474e88](https://github.com/windmill-labs/windmill/commit/e474e8803ce2ff5c2df09a58dab51d45f5c922ca))
+* reuse an existing workspace resource in the project import wizard ([#10935](https://github.com/windmill-labs/windmill/issues/10935)) ([582761e](https://github.com/windmill-labs/windmill/commit/582761e37c776e92dc1c6ebfee8c4efe7c35d822))
+
+
+### Bug Fixes
+
+* bump git sync hub scripts to cli 1.802.1, test the fork ui pull ([#10955](https://github.com/windmill-labs/windmill/issues/10955)) ([ca88009](https://github.com/windmill-labs/windmill/commit/ca8800959aa6a0017cc29bad187c9f49e0d13cc4))
+* **cli:** make a sync push into a fork converge on schedules and inline names ([#10951](https://github.com/windmill-labs/windmill/issues/10951)) ([0f5a1db](https://github.com/windmill-labs/windmill/commit/0f5a1db2abba8df30a2f975f4498e269f13cf93d))
+* fade the home Build with AI placeholder every 10s instead of typing it ([#10953](https://github.com/windmill-labs/windmill/issues/10953)) ([3d089b5](https://github.com/windmill-labs/windmill/commit/3d089b57344f5814086e6176301c5031dc519674))
+* let operators use wmill.datatable() from within running jobs ([#10931](https://github.com/windmill-labs/windmill/issues/10931)) ([9b64a89](https://github.com/windmill-labs/windmill/commit/9b64a89cd46ae718d6c58fa12f925fa041fb1032))
+
 ## [1.802.0](https://github.com/windmill-labs/windmill/compare/v1.801.0...v1.802.0) (2026-09-02)
 
 
