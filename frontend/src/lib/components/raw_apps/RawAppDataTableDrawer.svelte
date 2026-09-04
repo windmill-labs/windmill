@@ -6,6 +6,7 @@
 	import Button from '../common/button/Button.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import type { DataTableRef } from './dataTableRefUtils'
+	import { untrack } from 'svelte'
 	import { resource } from 'runed'
 	import { ArrowLeft, Expand, Minimize, Plus, RefreshCcw } from 'lucide-svelte'
 	import DBManagerContent from '../DBManagerContent.svelte'
@@ -58,6 +59,56 @@
 			console.error('Failed to load datatables:', e)
 			return []
 		}
+	})
+
+	// Roles the *caller* may use, so the picker never offers one that would be
+	// refused. Absent/disabled permissions yield no roles and hide the picker.
+	const usableRoles = resource(
+		() => [open, opWs, selectedDatatable] as const,
+		async ([isOpen, workspace, datatable]) => {
+			if (!isOpen || !workspace || !datatable) return undefined
+			try {
+				return {
+					datatable,
+					...(await WorkspaceService.listUsableDatatableRoles({
+						workspace,
+						datatableName: datatable
+					}))
+				}
+			} catch (e) {
+				// Never leave the drawer waiting on this: fall back to the
+				// unpermissioned shape so it opens and the server picks the role.
+				console.error('Failed to load datatable roles:', e)
+				return { datatable, enabled: false, roles: [], default_role: 'admin' }
+			}
+		}
+	)
+
+	// Roles are per data table, and a resource keeps its previous value while it
+	// refetches.
+	const rolesOfCurrent = $derived(
+		usableRoles.current?.datatable === selectedDatatable ? usableRoles.current : undefined
+	)
+
+	// The content must not mount until the role is settled: mounting is what fires
+	// the schema and metadata queries, and a first round sent without a role would
+	// run — and cache — as whatever the server defaults to.
+	const roleSettled = $derived(
+		selectedDatatable === undefined ||
+			(rolesOfCurrent !== undefined &&
+				(!rolesOfCurrent.enabled ||
+					rolesOfCurrent.roles.length === 0 ||
+					selectedRole !== undefined))
+	)
+
+	// Settle the role before anything queries the data table: leaving it unset
+	// until the user touches the picker would send the first — and cached — round
+	// of queries as a role they may not be allowed to use.
+	$effect(() => {
+		const roles = rolesOfCurrent
+		if (!roles?.enabled || selectedRole !== undefined) return
+		const effective = roles.roles.includes(roles.default_role) ? roles.default_role : roles.roles[0]
+		if (effective) untrack(() => (selectedRole = effective))
 	})
 
 	// Every data table with its schemas and tables: the tree is the picker, so it
@@ -186,25 +237,27 @@
 		noPadding
 	>
 		{#if dbInput && opWs}
-			{#key `${selectedDatatable}~${selectedRole ?? ''}`}
-				<DBManagerContent
-					bind:this={dbManagerContent}
-					input={dbInput}
-					workspace={opWs}
-					bind:workerTag={() => workerTag.tag, (v) => (workerTag.tag = v)}
-					bind:hasReplResult
-					bind:selectedSchemaKey
-					bind:selectedTableKey
-					multiSelectMode={true}
-					bind:selectedTables
-					{disabledTables}
-					datatableTree={datatableTree.current}
-					datatableTreeLoading={datatableTree.loading}
-					onSelectDatatable={(dt) => ((selectedDatatable = dt), (selectedRole = undefined))}
-					onSelectRole={(dt, role) => ((selectedDatatable = dt), (selectedRole = role))}
-					bind:pendingAction
-				/>
-			{/key}
+			{#if roleSettled}
+				{#key `${selectedDatatable}~${selectedRole ?? ''}`}
+					<DBManagerContent
+						bind:this={dbManagerContent}
+						input={dbInput}
+						workspace={opWs}
+						bind:workerTag={() => workerTag.tag, (v) => (workerTag.tag = v)}
+						bind:hasReplResult
+						bind:selectedSchemaKey
+						bind:selectedTableKey
+						multiSelectMode={true}
+						bind:selectedTables
+						{disabledTables}
+						datatableTree={datatableTree.current}
+						datatableTreeLoading={datatableTree.loading}
+						onSelectDatatable={(dt) => ((selectedDatatable = dt), (selectedRole = undefined))}
+						onSelectRole={(dt, role) => ((selectedDatatable = dt), (selectedRole = role))}
+						bind:pendingAction
+					/>
+				{/key}
+			{/if}
 		{:else}
 			<div class="flex items-center justify-center h-full text-tertiary">
 				<span>Select a data table to explore</span>
