@@ -281,7 +281,7 @@
 				{#if step === 1}
 					·
 					<a
-						class="text-blue-500 hover:underline"
+						class="text-accent hover:underline"
 						href="{base}/user/logout?rd={encodeURIComponent(logoutReturnTo)}"
 					>
 						Switch account

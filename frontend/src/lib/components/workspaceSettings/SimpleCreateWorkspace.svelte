@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -22,23 +23,16 @@
 		/** Where to go once the workspace exists. It is already the active one by then. */
 		onCreated: (workspaceId: string) => void
 		/**
-		 * Told when the form starts handing over to the new workspace and if it comes back, so
-		 * a surface with chrome of its own around this one — onboarding's Previous button — can
-		 * stand down for the hand-over instead of offering a way back out of a workspace that
-		 * now exists. A callback rather than a bound prop: this is something the form reports,
-		 * not state it shares, and `$bindable(default)` on an optional prop is banned.
+		 * Rendered at the head of the action row — a host's own way back, next to Advanced
+		 * settings rather than stranded under the button that finishes the form.
 		 */
-		onCreatingChange?: (creating: boolean) => void
+		leading?: Snippet
 	}
 
-	let { onCreated, onCreatingChange }: Props = $props()
+	let { onCreated, leading }: Props = $props()
 
 	let name = $state('')
 	let creating = $state(false)
-	function setCreating(next: boolean) {
-		creating = next
-		onCreatingChange?.(next)
-	}
 
 	// The full form — id, colour, username, invites — for the person who wants it. Forced on
 	// when the instance does not derive usernames: one is required and a name field has
@@ -98,7 +92,7 @@
 
 	async function create() {
 		if (problem || creating) return
-		setCreating(true)
+		creating = true
 		const workspaceName = name.trim()
 		const started = Date.now()
 		try {
@@ -109,7 +103,7 @@
 					true
 				)
 				advanced = true
-				setCreating(false)
+				creating = false
 				return
 			}
 			await WorkspaceService.createWorkspace({
@@ -130,7 +124,7 @@
 		} catch (error) {
 			console.error('Could not create the workspace:', error)
 			sendUserToast('Could not create the workspace: ' + (error?.body || error?.message), true)
-			setCreating(false)
+			creating = false
 		}
 	}
 </script>
@@ -142,6 +136,11 @@
 	</div>
 {:else if advanced}
 	<CreateWorkspaceInner inModal onFinish={() => onCreated('')} />
+	<!-- The full form has no way back to this one, so the host's way out of the step stays
+	     reachable here too — below it, since that form ends on its own action row. -->
+	{#if leading}
+		<div class="mt-6 flex items-center">{@render leading()}</div>
+	{/if}
 {:else}
 	<div class="flex flex-col gap-1">
 		<span class="text-xs font-semibold text-emphasis">Workspace name</span>
@@ -158,11 +157,17 @@
 		{/if}
 
 		<div class="mt-6 flex items-center justify-between gap-4">
-			<!-- A bare <button> as a quiet text link, signed off by design: a second <Button> here
-			     would compete with Create workspace for the eye. -->
-			<button class="text-xs text-secondary hover:text-emphasis" onclick={() => (advanced = true)}>
-				Advanced settings
-			</button>
+			<div class="flex items-center gap-3">
+				{@render leading?.()}
+				<!-- A bare <button> as a quiet text link, signed off by design: a second <Button> here
+				     would compete with Create workspace for the eye. -->
+				<button
+					class="text-xs text-secondary hover:text-emphasis"
+					onclick={() => (advanced = true)}
+				>
+					Advanced settings
+				</button>
+			</div>
 			<Button variant="accent" unifiedSize="md" disabled={!!problem} onClick={create}>
 				Create workspace
 			</Button>

@@ -40,6 +40,9 @@
 	} from '$lib/components/FilterSearchbar.svelte'
 	import NoItemFound from './NoItemFound.svelte'
 	import WorkspaceEmptyState from './WorkspaceEmptyState.svelte'
+	import HubProjectPickerModal from './HubProjectPickerModal.svelte'
+	import ImportProjectModal from './ImportProjectModal.svelte'
+	import type { HubProjectPick } from '$lib/hubProject'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
@@ -975,6 +978,12 @@
 	// An import just landed, so the rows about to replace the empty state are all new: they
 	// fade in one after another rather than appearing as a finished list. Cleared on a timer
 	// because nothing else marks the end — the reload resolves before the rows animate.
+	// The hub import, owned here rather than by either entry point: the empty state's link and
+	// the create menu's Import section open the same dialog, and mounting one per entry point
+	// would put two of them on the page at once while the workspace is still empty.
+	let hubPick = $state<HubProjectPick | undefined>(undefined)
+	let hubPickerOpen = $state(false)
+
 	let justImported = $state(false)
 	let justImportedTimer: ReturnType<typeof setTimeout> | undefined
 	function onImported() {
@@ -1774,7 +1783,7 @@
 			     whose direct-deploy protection cleared showEditButtons (NoDirectDeployAlert), since
 			     the menu itself does no permission check. -->
 			{#if !$userStore?.operator && showEditButtons}
-				<CreateActionsMenu />
+				<CreateActionsMenu onImportHubProject={() => (hubPickerOpen = true)} />
 			{/if}
 		</div>
 	</div>
@@ -1810,7 +1819,7 @@
 			     workspace whose direct-deploy protection cleared `showEditButtons`, gets the plain
 			     message instead of two actions it may not take. -->
 			{#if workspaceEmpty && !$userStore?.operator && showEditButtons}
-				<WorkspaceEmptyState {onImported} />
+				<WorkspaceEmptyState onPick={(project) => (hubPick = project)} />
 			{:else}
 				<NoItemFound {activeFilters} />
 			{/if}
@@ -1929,6 +1938,16 @@
 		onDone={reloadItemsAndCounts}
 	/>
 {/if}
+
+<HubProjectPickerModal
+	open={hubPickerOpen}
+	onClose={() => (hubPickerOpen = false)}
+	onPick={(project) => {
+		hubPickerOpen = false
+		hubPick = project
+	}}
+/>
+<ImportProjectModal pick={hubPick} onClose={() => (hubPick = undefined)} {onImported} />
 
 <style>
 	/* Rows arriving after an import, one after another. The animation is declared on the

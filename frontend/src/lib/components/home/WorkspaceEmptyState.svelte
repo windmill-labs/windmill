@@ -6,16 +6,13 @@
 	import { workspaceStore } from '$lib/stores'
 	import CreateActionsMenu from './CreateActionsMenu.svelte'
 	import HubTemplatePicker from './HubTemplatePicker.svelte'
-	import ImportProjectModal from './ImportProjectModal.svelte'
 
 	interface Props {
-		/** An import landed: the list has rows now, so the caller reloads it. */
-		onImported?: () => void
+		/** A project was chosen here. The list owns the import dialog, and opens it on this. */
+		onPick: (project: HubProjectPick) => void
 	}
 
-	let { onImported }: Props = $props()
-
-	let picked = $state<HubProjectPick | undefined>(undefined)
+	let { onPick }: Props = $props()
 
 	// Row opacities: the list fading out of existence. Static on purpose — motion is what
 	// makes a skeleton mean "loading", and this state means "empty".
@@ -86,14 +83,15 @@
 			contentStyle="height: min(72vh, 520px);"
 			class="border-b border-transparent text-accent hover:border-accent"
 			triggerAttrs={{ 'aria-label': 'Start from a template' }}
-			on:openChange={(e) => e.detail && logFeatureUsage('home', 'template_picker_open')}
+			on:openChange={(e) =>
+				e.detail && logFeatureUsage('home', 'template_picker_open', { key: 'empty_state' })}
 		>
 			{#snippet trigger()}Start from a template{/snippet}
 			{#snippet content({ close })}
 				<HubTemplatePicker
 					onPick={(project) => {
 						close()
-						picked = project
+						onPick(project)
 					}}
 				/>
 			{/snippet}
@@ -103,8 +101,7 @@
 			{#snippet trigger()}
 				<!-- A bare <button> for a link inside a sentence, signed off by design: <Button>
 				     carries its own padding and background and cannot sit inline in running text.
-				     The colour is `text-accent` — the `text-blue-500` older links use is the
-				     mistake to avoid, not the pattern to copy.
+				     Inline links take `text-accent`, never a raw Tailwind blue.
 				     The full stop rides inside the snippet: across a component boundary Svelte
 				     keeps the markup whitespace, which would leave a gap before it. -->
 				<button
@@ -116,5 +113,3 @@
 		</CreateActionsMenu>
 	</div>
 </div>
-
-<ImportProjectModal pick={picked} onClose={() => (picked = undefined)} {onImported} />

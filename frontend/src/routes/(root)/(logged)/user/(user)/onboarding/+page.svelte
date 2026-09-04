@@ -50,8 +50,6 @@
 	let alreadyPlaced = $state(false)
 	// The survey was skipped, so the last step has nothing to go back to.
 	let skippedSurvey = $state(false)
-	// Set by the create form while it hands over to the new workspace.
-	let creatingWorkspace = $state(false)
 
 	async function loadWorkspaceStep() {
 		try {
@@ -315,23 +313,20 @@
 			<!-- The same one-field form the workspace picker falls back to, so a user who leaves
 			     onboarding early meets it again rather than something new. It owns the name, the
 			     id, the advanced form and the hand-over into the workspace. -->
-			<SimpleCreateWorkspace
-				onCreated={leaveOnboarding}
-				onCreatingChange={(v) => (creatingWorkspace = v)}
-			/>
-
-			{#if !skippedSurvey && !creatingWorkspace}
-				<div class="flex flex-row justify-start items-center pt-6">
-					<Button
-						variant="default"
-						unifiedSize="xs"
-						startIcon={{ icon: ArrowLeft }}
-						on:click={goToPreviousStep}
-					>
-						Previous
-					</Button>
-				</div>
-			{/if}
+			<SimpleCreateWorkspace onCreated={leaveOnboarding}>
+				{#snippet leading()}
+					{#if !skippedSurvey}
+						<Button
+							variant="default"
+							unifiedSize="xs"
+							startIcon={{ icon: ArrowLeft }}
+							on:click={goToPreviousStep}
+						>
+							Previous
+						</Button>
+					{/if}
+				{/snippet}
+			</SimpleCreateWorkspace>
 
 			<div class="flex justify-center mt-4">
 				<div class="flex items-center gap-2">

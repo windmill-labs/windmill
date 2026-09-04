@@ -43,7 +43,8 @@
 		 *  own slug and `installProject` retargets them, so reading the raw paths here would
 		 *  look for stubs that are not where they landed. */
 		folder?: string
-		onSkip: () => void
+		/** Left with `outstanding` rows still unfilled, which the caller may want to count. */
+		onSkip: (outstanding: number) => void
 		/** Off where the surface already names the step, e.g. a dialog whose title is it. */
 		showHeading?: boolean
 		/** Fill the height given, actions pinned to the bottom. See ImportProjectStep. */
@@ -492,7 +493,7 @@
 			})
 			if (!confirmed) return
 		}
-		onSkip()
+		onSkip(outstanding)
 	}
 
 	/**
@@ -564,7 +565,7 @@
 						{#if row.status === 'done'}
 							<Check size={20} class="text-emerald-600" />
 						{:else if row.status === 'running'}
-							<Loader2 size={20} class="animate-spin text-blue-500" />
+							<Loader2 size={20} class="animate-spin text-accent" />
 						{:else if row.status === 'failed'}
 							<X size={20} class="text-red-500" />
 						{:else if row.status === 'unknown'}

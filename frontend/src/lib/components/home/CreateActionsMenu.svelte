@@ -15,6 +15,7 @@
 		Loader2,
 		Workflow,
 		Import,
+		Store,
 		PanelLeftClose
 	} from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
@@ -36,9 +37,15 @@
 		triggerElement?: HTMLElement
 		/** Which entry point this menu hangs off, for telemetry. */
 		source?: 'toolbar' | 'empty_state'
+		/**
+		 * Opens the hub project picker. The menu only offers the entry; the picker and the
+		 * import dialog belong to the host, which is the one place a single import modal can
+		 * serve both this menu and the empty state's own link.
+		 */
+		onImportHubProject?: () => void
 	}
 
-	let { trigger, triggerElement, source = 'toolbar' }: Props = $props()
+	let { trigger, triggerElement, source = 'toolbar', onImportHubProject }: Props = $props()
 
 	type Variant = {
 		label: string
@@ -241,8 +248,15 @@
 	}
 
 	let activeKey = $state(allOptions[0]?.key)
-	// every option's import action, surfaced together under the bottom "Import" submenu
-	const importActions: Extra[] = allOptions.flatMap((o) => o.extras ?? [])
+	// every option's import action, surfaced together under the bottom "Import" submenu.
+	// The hub project leads and is separated below: the others each paste one artifact the
+	// user already holds, while this one brings a whole project in from somewhere else.
+	const importActions: Extra[] = $derived([
+		...(onImportHubProject
+			? [{ label: 'Import a hub project', onSelect: onImportHubProject }]
+			: []),
+		...allOptions.flatMap((o) => o.extras ?? [])
+	])
 
 	// melt dropdown menu: arrow-key nav, typeahead, focus management and outside/escape
 	// close all come for free; we only drive the doc panel off the highlighted item.
@@ -554,17 +568,24 @@
 					use:hugViewportRight
 					class="z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
 				>
-					{#each importActions as action (action.label)}
+					{#each importActions as action, i (action.label)}
 						<button
 							use:melt={$item}
 							class="flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
 							onclick={() => action.onSelect()}
 						>
-							<Import size={14} class="shrink-0 text-tertiary" />
+							{#if onImportHubProject && i === 0}
+								<Store size={14} class="shrink-0 text-tertiary" />
+							{:else}
+								<Import size={14} class="shrink-0 text-tertiary" />
+							{/if}
 							<span class="text-xs font-medium text-primary whitespace-nowrap">
 								{action.label}
 							</span>
 						</button>
+						{#if onImportHubProject && i === 0}
+							<div class="mx-1 my-0.5 border-t border-gray-200 dark:border-gray-700"></div>
+						{/if}
 					{/each}
 				</div>
 			{/if}

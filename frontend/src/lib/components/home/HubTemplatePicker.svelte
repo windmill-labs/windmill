@@ -11,9 +11,11 @@
 
 	interface Props {
 		onPick: (project: HubProjectPick) => void
+		/** Take the width given instead of the popover's own, for a host that sets one. */
+		fullWidth?: boolean
 	}
 
-	let { onPick }: Props = $props()
+	let { onPick, fullWidth = false }: Props = $props()
 
 	let list: InfiniteList | undefined = $state(undefined)
 
@@ -47,7 +49,7 @@
 
 <!-- The popover gives this box a definite height; the list takes what the header leaves and
      scrolls inside it, which is also what lets it page. -->
-<div class="flex min-h-0 w-[380px] flex-col">
+<div class="flex min-h-0 flex-col {fullWidth ? 'w-full flex-1' : 'w-[380px]'}">
 	<!-- The hub is named once, as the link to it: a footer row saying the same thing again is
 	     a second line spent on somewhere the reader is not going. -->
 	<p class="px-3 pb-2 pt-3 text-[11.5px] leading-snug text-hint">

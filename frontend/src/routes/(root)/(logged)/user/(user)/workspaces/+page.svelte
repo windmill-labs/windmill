@@ -24,7 +24,15 @@
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { switchWorkspace } from '$lib/storeUtils'
-	import { GitFork, Settings, User, Search, ChevronsDownUp, ChevronsUpDown } from 'lucide-svelte'
+	import {
+		GitFork,
+		Settings,
+		User,
+		Search,
+		ChevronsDownUp,
+		ChevronsUpDown,
+		LogOut
+	} from 'lucide-svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import { canCreateWorkspace } from '$lib/workspaceCreation'
 	import SimpleCreateWorkspace from '$lib/components/workspaceSettings/SimpleCreateWorkspace.svelte'
@@ -228,22 +236,18 @@
 
 <CenteredModal
 	title={showCreate ? 'Create your workspace' : 'Select a workspace'}
-	subtitle={showCreate ? undefined : `Logged in as ${$usersWorkspaceStore?.email}`}
 	centerVertically={false}
 >
 	{#snippet subtitleSnippet()}
-		<!-- With one thing to do on the page, the way out belongs on the line that says who you
-		     are rather than in a footer of its own. -->
-		{#if showCreate}
-			<span class="text-xs text-tertiary">
-				Logged in as <span class="text-secondary">{$usersWorkspaceStore?.email}</span>
-				·
-				<!-- A bare <button> for a link inside the sentence, signed off by design: <Button>
-				     cannot sit inline in running text. `text-accent`, not the `text-blue-500` of
-				     older links. -->
-				<button class="text-accent hover:underline" onclick={() => logout()}>Log out</button>
-			</span>
-		{/if}
+		<!-- The way out belongs on the line that says who you are, not in a footer as the page's
+		     accent action: leaving is not what anyone came here to do. -->
+		<span class="text-xs text-tertiary">
+			Logged in as <span class="text-secondary">{$usersWorkspaceStore?.email}</span>
+			·
+			<!-- A bare <button> for a link inside the sentence, signed off by design: <Button>
+			     cannot sit inline in running text. Inline links take `text-accent`. -->
+			<button class="text-accent hover:underline" onclick={() => logout()}>Log out</button>
+		</span>
 	{/snippet}
 	{@const nonForkInvites = invites.filter((invite) => invite.parent_workspace_id == undefined)}
 	<div class="flex flex-col">
@@ -335,7 +339,7 @@
 						wrapperClasses="w-full"
 					>
 						<Button
-							unifiedSize="sm"
+							unifiedSize="md"
 							href="{base}/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
 							variant={onlyAdminsWorkspace || noWorkspaces ? 'accent' : 'default'}
 							wrapperClasses="w-full"
@@ -476,14 +480,15 @@
 			{/if}
 		{/if}
 
-		<!-- Settings and the way out are for someone who lives here. A user with no workspace yet
-		     has one thing to do, and their way out is on the subtitle line. -->
+		<!-- Settings are for someone who lives here; a user with no workspace yet has one thing
+		     to do. Logging out rides in this menu, and on the subtitle line above for the create
+		     state, which has no menu. -->
 		{#if !showCreate}
-			<div class="flex justify-between items-center mt-10 flex-wrap gap-2">
+			<div class="flex items-center mt-10 flex-wrap gap-2">
 				{#if $superadmin}
 					<Button
 						variant="default"
-						unifiedSize="md"
+						unifiedSize="sm"
 						onClick={superadminSettings?.openDrawer}
 						startIcon={{ icon: Settings }}
 						dropdownItems={[
@@ -491,7 +496,8 @@
 								label: 'User settings',
 								onClick: () => userSettings?.openDrawer(),
 								icon: User
-							}
+							},
+							{ label: 'Log out', onClick: () => logout(), icon: LogOut }
 						]}
 					>
 						Instance settings
@@ -499,23 +505,14 @@
 				{:else}
 					<Button
 						variant="default"
-						unifiedSize="md"
+						unifiedSize="sm"
 						onClick={() => userSettings?.openDrawer()}
 						startIcon={{ icon: Settings }}
+						dropdownItems={[{ label: 'Log out', onClick: () => logout(), icon: LogOut }]}
 					>
 						User settings
 					</Button>
 				{/if}
-
-				<Button
-					variant="accent"
-					unifiedSize="md"
-					onClick={async () => {
-						logout()
-					}}
-				>
-					Log out
-				</Button>
 			</div>
 		{/if}
 	</div>

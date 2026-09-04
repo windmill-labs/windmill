@@ -55,6 +55,13 @@
 	 * there rather than importing twice.
 	 */
 	function dismiss() {
+		// Where they left, which is the half of the funnel Finish cannot report: `running`
+		// walked out on an import in progress, `setup` on the credentials it asked for,
+		// `idle` opened the dialog and picked nothing up.
+		if (!finishing) {
+			const stage = execution?.running ? 'running' : onSetupStep ? 'setup' : 'idle'
+			logFeatureUsage('home', 'template_abandon', { key: stage })
+		}
 		if (execution?.running) {
 			execution.abandon()
 			// Not on the way out through Finish: `done` survives a retry, so Finish is clickable
@@ -129,10 +136,17 @@
 	// by the same falling edge as the X.
 	let finishing = false
 
-	function finish() {
+	/**
+	 * How the credentials step ended, counted alongside the import itself: `filled` only when
+	 * nothing was left outstanding — the step disables Finish until then — `skipped` carrying
+	 * how many rows were walked away from, and `none` where the project asked for nothing.
+	 * Skipping with one credential left and skipping with eight are different problems.
+	 */
+	function finish(setupOutcome: 'filled' | 'skipped' | 'none', outstanding = 1) {
 		// On the way out rather than on the pick: what is worth counting is an import that
 		// landed, not a dialog that was opened and abandoned.
 		if (slug) logFeatureUsage('home', 'template_import', { key: slug })
+		logFeatureUsage('home', 'template_setup', { key: setupOutcome, value: outstanding })
 		finishing = true
 		onImported?.()
 		onClose()
@@ -181,7 +195,7 @@
 			setupPending={setup.needed}
 			setupUndecided={setup.undecided}
 			onFolderChange={(f) => (folder = f)}
-			onFinish={() => (setup.needed ? (onSetupStep = true) : finish())}
+			onFinish={() => (setup.needed ? (onSetupStep = true) : finish('none'))}
 			onBack={onClose}
 			onExecution={(e) => (execution = e)}
 			resume={execution}
@@ -205,8 +219,8 @@
 			slug={slug ?? ''}
 			{folder}
 			showHeading={false}
-			onSkip={finish}
-			onFinish={finish}
+			onSkip={(outstanding) => finish('skipped', outstanding)}
+			onFinish={() => finish('filled')}
 			onBack={execution ? () => (onSetupStep = false) : undefined}
 		/>
 	</div>
