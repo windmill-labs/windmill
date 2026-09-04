@@ -977,13 +977,10 @@ fn emit_value(
             }
         }
         Value::String(s) => out.push_str(&format!(" {}\n", secrets.leaf(secret, s).render())),
-        // A number under a credential-named key is credential material as much as
-        // a string is, and reaches the adapter as text — what `env_var()` yields
-        // for every credential that goes this way. NOT a bool: one is a mode
-        // rather than a credential (dbt-snowflake's
-        // `client_store_temporary_credential` matches `credential` and is one),
-        // and registering `true` as a secret redacts a substring of nearly every
-        // event dbt emits.
+        // A number is credential material as much as a string, and reaches the
+        // adapter as text like every other hidden value. NOT a bool: one is a
+        // mode (dbt-snowflake's `client_store_temporary_credential` matches
+        // `credential`), and `true` redacts a substring of nearly every event.
         Value::Number(_) if secret => out.push_str(&format!(
             " {}\n",
             secrets.leaf(true, &yaml_value(v)).render()

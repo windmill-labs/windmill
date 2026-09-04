@@ -359,7 +359,7 @@ value is replaced with `*****` wherever dbt prints it, which is what Windmill
 streams into the job log. A plainly named variable would be worth nothing: the
 project would read it back with one `env_var()`.
 
-Five things this had to get right, each of which quietly undoes it otherwise.
+Six things this had to get right, each of which quietly undoes it otherwise.
 
 **Only credentials go through a variable, and hiding everything is not the safer
 choice.** dbt redacts a secret's VALUE from every line it emits — the console
@@ -378,9 +378,13 @@ adapter Windmill may know nothing about (decision 24), so there the rule is by
 key name — `password`, `token`, `secret`, `private_key`, `passphrase`,
 `credential`, `api_key`, `access_key`, `authorization`, matched as a substring
 with `-` folded to `_`, so `client_secret` and an `http_headers` `x-api-key` are
-covered — and everything nested under such a key goes with it, whatever it is
-called and whatever its JSON type, since an `oauth_credentials` mapping spells
-its own keys and there is no list to check them against. `authorization` rather
+covered — and everything nested under such a key goes with it whatever it is
+called, since an `oauth_credentials` mapping spells its own keys and there is no
+list to check them against. A number under one goes too, reaching the adapter as
+text like every hidden value; a bool does not, because it is a mode rather than a
+credential (dbt-snowflake's `client_store_temporary_credential` matches
+`credential`) and registering `true` as a secret would redact a substring of
+nearly every event dbt emits. `authorization` rather
 than `auth`, because several adapters spell an `authenticator` naming a METHOD
 and redacting `oauth` from a whole run is the failure above.
 

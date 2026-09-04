@@ -1812,16 +1812,17 @@ fn profile_identity_digest(
         }
         s
     };
-    let mut material = anonymize(yaml);
-    for (_, value) in env {
-        material.push('\n');
-        material.push_str(&anonymize(value));
-    }
-    digest(&format!(
-        "{}\n{}",
-        material,
-        root_cert_pem.unwrap_or_default()
-    ))
+    // `stable_digest` for its length prefixes: a credential carries newlines of
+    // its own (a private key is a PEM body), so a separator would let two
+    // different splits of the same bytes hash alike, and a retry would accept a
+    // saved run from the warehouse it was repointed away from.
+    let material: Vec<String> = std::iter::once(anonymize(yaml))
+        .chain(env.iter().map(|(_, value)| anonymize(value)))
+        .chain(std::iter::once(
+            root_cert_pem.unwrap_or_default().to_string(),
+        ))
+        .collect();
+    stable_digest(material.iter().map(String::as_str))
 }
 
 async fn adapter_from_profiles_yml(
@@ -2502,12 +2503,10 @@ fn parse_node_event(
     {
         return None;
     }
-    // dbt redacts a secret's VALUE from its log events, so a credential that is
-    // also a substring of a relation's own name arrives here as `*****`. That
-    // names no relation, and recording it strands a row nothing clears: the
-    // end-of-run reconciliation restates the true path from `run_results.json`,
-    // which is not redacted, and only settles rows still `running`. The node's
-    // outcome comes from that pass instead; it loses live status, not its record.
+    // A credential that is also a substring of a relation's name arrives here
+    // redacted, and a `*****` path recorded now outlives the run: the end-of-run
+    // pass restates the true one from `run_results.json` and only settles rows
+    // still `running`. Dropped, the node loses live status but not its record.
     const REDACTED: &str = "*****";
     if schema.contains(REDACTED)
         || alias.contains(REDACTED)
@@ -5124,6 +5123,18 @@ mod tests {
             digest_of("AAAA", "static-a", "tok-first"),
             digest_of("BBBB", "static-b", "tok-retry")
         );
+        // A credential carries newlines of its own — a private key is a PEM body
+        // — so two different splits of the same bytes must not hash alike.
+        let two = |a: &str, b: &str| {
+            profile_identity_digest(
+                "key: \"{{ env_var('K1') }}\"\npass: \"{{ env_var('K2') }}\"\n",
+                dir,
+                None,
+                "",
+                &[("K1".into(), a.into()), ("K2".into(), b.into())],
+            )
+        };
+        assert_ne!(two("a\nb", "c"), two("a", "b\nc"));
     }
 
     // The jail profile is protobuf text format, and the project path and the
@@ -5884,10 +5895,7 @@ mod tests {
             "node_relation":{"alias":"c","schema":"a","relation_name":"\"w\".\"a\".\"c\""}}},
             "info":{"name":"LogModelResult","msg":"skip"}}"#;
         assert!(parse_node_event(s, "f/prod/wh", Some("wh")).is_none());
-        // dbt redacts a secret's VALUE from its events, so a warehouse password
-        // that is also a schema name arrives redacted. Recorded, that path would
-        // outlive the run: the end-of-run pass restates the true one from
-        // `run_results.json` and only settles rows still `running`.
+        // A warehouse password that is also a schema name arrives redacted.
         let r = r#"{"data":{"node_info":{"node_status":"success",
             "node_relation":{"alias":"c","schema":"*****","database":"w",
             "relation_name":"\"w\".\"*****\".\"c\""}}},
