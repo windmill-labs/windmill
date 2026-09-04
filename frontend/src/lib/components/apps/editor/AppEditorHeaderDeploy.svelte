@@ -22,7 +22,7 @@
 	} from '$lib/components/OnBehalfOfSelector.svelte'
 	import { canUserBypassRuleKind, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
 	import { FRONTEND_SDK_SCOPES } from '$lib/components/raw_apps/sdkScopes'
-	import { logAppSandboxToggle } from './appSandboxTelemetry'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
 
@@ -301,7 +301,12 @@
 		checked={policy.sandbox == true}
 		on:change={(e) => {
 			policy.sandbox = e.detail || undefined
-			logAppSandboxToggle(rawApp ? 'raw' : 'low_code', e.detail)
+			// Counted where the toggle is flipped rather than where the policy is
+			// persisted: a not-yet-deployed app only mutates it locally, and skipping
+			// those would read as unused in the case where it is picked up front.
+			logFeatureUsage('app_sandbox', 'toggled', {
+				key: `${rawApp ? 'raw' : 'low_code'}:${e.detail ? 'on' : 'off'}`
+			})
 			// Frontend API access exists only for a sandboxed app, so turning
 			// isolation off drops the declared scopes with it rather than leaving
 			// them set but inert.

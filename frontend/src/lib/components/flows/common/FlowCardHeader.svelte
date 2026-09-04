@@ -25,7 +25,7 @@
 	import { sendUserToast, type Item } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 	import { getToolNameError } from '$lib/components/flows/agentToolUtils'
-	import { logStepScriptEdit } from '$lib/components/flows/stepScriptEditTelemetry'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import autosize from '$lib/autosize'
 
 	interface Props {
@@ -110,11 +110,11 @@
 					// this a no-op — and a no-op must not be counted as an editor open.
 					const drawer = $scriptEditorDrawer
 					if (!drawer) return
-					logStepScriptEdit('opened')
+					logFeatureUsage('flow_step', 'script_edit', { key: 'opened' })
 					// The drawer only runs this callback once a new version is deployed, so it is
 					// what separates opening the editor from actually editing the script here.
 					drawer.openDrawer(hash, () => {
-						logStepScriptEdit('saved')
+						logFeatureUsage('flow_step', 'script_edit', { key: 'saved' })
 						dispatch('reload')
 						sendUserToast('Script has been updated')
 					})

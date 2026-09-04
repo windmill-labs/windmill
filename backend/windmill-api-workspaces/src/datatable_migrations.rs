@@ -416,6 +416,16 @@ async fn run_datatable_migrations(
 
     let applied_versions = read_applied_versions_on_client(&client, &datatable_name).await?;
 
+    // How the user scoped the run, for the counter emitted on the first migration
+    // that lands below.
+    let scope = if query.only.is_some() {
+        "only"
+    } else if query.up_to.is_some() {
+        "up_to"
+    } else {
+        "all"
+    };
+
     let mut applied = Vec::new();
     for m in migrations {
         if let Some(only) = query.only {
@@ -453,23 +463,14 @@ async fn run_datatable_migrations(
                 ))
             })?;
         applied.push(AppliedMigration { version: m.timestamp, name: m.name });
-    }
-
-    // One event per run that moved the data table forward, keyed by how the user
-    // scoped it. A run with nothing pending is not counted: it is the common
-    // outcome of opening the list and would drown out the runs that did something.
-    if !applied.is_empty() {
-        windmill_common::feature_usage::log_feature_usage(
-            "datatable",
-            "migration_run",
-            if query.only.is_some() {
-                "only"
-            } else if query.up_to.is_some() {
-                "up_to"
-            } else {
-                "all"
-            },
-        );
+        // One event per run that moved the data table forward, emitted on the
+        // first migration that lands rather than after the loop: a later one
+        // failing returns early, and that run still advanced the data table. A
+        // run with nothing pending stays uncounted — it is the common outcome of
+        // opening the list and would drown out the runs that did something.
+        if applied.len() == 1 {
+            windmill_common::feature_usage::log_feature_usage("datatable", "migration_run", scope);
+        }
     }
 
     Ok(Json(RunDatatableMigrationsResult { applied }))

@@ -1073,19 +1073,16 @@
 							are started for, whether AI chat skills are turned on or off and how often one is
 							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
 							membership, the plan tier and quota shown when the execution meter is opened, whether
-							sandbox isolation is turned on or off for low-code and raw apps, whether a step's
-							workspace script is opened and saved from inside the flow editor, and how data tables
-							are set up and used (which database kind is picked, how far the setup wizard gets,
-							which choice the schema-change prompt is answered with, and whether migrations are
-							opted into, written, run or rolled back), last 30 days)</li
+							sandbox isolation is turned on or off for apps, whether a step's script is edited from
+							the flow editor, and how data tables are set up and used (database kind, setup wizard
+							progress, schema-change prompt choice, and migrations opted into, written, run or
+							rolled back), last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger, worker and data table
 							features your deployed items use, including how many apps run sandboxed, how many data
-							tables are configured per database kind, how many of those have migrations turned on
-							or off, how many migrations they carry and how many of those can be rolled back, how
-							many scripts and flows read or write a data table, and how many data tables a job
-							touched in the last 30 days)</li
+							tables exist per database kind, how many have migrations turned on, how many
+							migrations they carry, and how many scripts, flows and recent jobs use a data table)</li
 						>
 						<li
 							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
@@ -1136,19 +1133,16 @@
 							are started for, whether AI chat skills are turned on or off and how often one is
 							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
 							membership, the plan tier and quota shown when the execution meter is opened, whether
-							sandbox isolation is turned on or off for low-code and raw apps, whether a step's
-							workspace script is opened and saved from inside the flow editor, and how data tables
-							are set up and used (which database kind is picked, how far the setup wizard gets,
-							which choice the schema-change prompt is answered with, and whether migrations are
-							opted into, written, run or rolled back), last 30 days)</li
+							sandbox isolation is turned on or off for apps, whether a step's script is edited from
+							the flow editor, and how data tables are set up and used (database kind, setup wizard
+							progress, schema-change prompt choice, and migrations opted into, written, run or
+							rolled back), last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger, worker and data table
 							features your deployed items use, including how many apps run sandboxed, how many data
-							tables are configured per database kind, how many of those have migrations turned on
-							or off, how many migrations they carry and how many of those can be rolled back, how
-							many scripts and flows read or write a data table, and how many data tables a job
-							touched in the last 30 days)</li
+							tables exist per database kind, how many have migrations turned on, how many
+							migrations they carry, and how many scripts, flows and recent jobs use a data table)</li
 						>
 						<li
 							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
