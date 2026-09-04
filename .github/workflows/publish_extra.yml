@@ -119,6 +119,7 @@ jobs:
           file: ./docker/DockerfileExtra
           platforms: linux/amd64,linux/arm64
           push: true
+          sbom: ${{ startsWith(github.ref, 'refs/tags/v') }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ steps.meta.outputs.tags }}

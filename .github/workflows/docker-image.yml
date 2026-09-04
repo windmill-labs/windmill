@@ -92,6 +92,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          sbom: ${{ startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' }}
           build-args: |
             features=ce
             WM_BUILD_VERSION=${{ github.sha }}
@@ -163,6 +164,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          sbom: ${{ startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' }}
           build-args: |
             features=ee
             WM_BUILD_VERSION=${{ github.sha }}
@@ -543,6 +545,7 @@ jobs:
           context: .
           platforms: linux/amd64
           push: true
+          sbom: ${{ startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' }}
           file: "./docker/DockerfileCuda"
           tags: |
             ${{ steps.meta-ee-public.outputs.tags }}
@@ -556,7 +559,6 @@ jobs:
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-cuda
           digest: ${{ steps.docker_build.outputs.digest }}
-          platforms: linux/amd64
 
   build_slim:
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
@@ -596,6 +598,7 @@ jobs:
           context: .
           platforms: linux/amd64
           push: true
+          sbom: ${{ startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' }}
           file: "./docker/DockerfileSlim"
           tags: |
             ${{ steps.meta-ee-public.outputs.tags }}
@@ -608,7 +611,6 @@ jobs:
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-slim
           digest: ${{ steps.docker_build.outputs.digest }}
-          platforms: linux/amd64
 
   build_ee_slim:
     needs: [build_ee]
@@ -650,6 +652,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          sbom: ${{ startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' }}
           file: "./docker/DockerfileSlimEe"
           tags: |
             ${{ steps.meta-ee-public.outputs.tags }}
@@ -702,6 +705,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          sbom: ${{ startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' }}
           file: "./docker/DockerfileFull"
           tags: |
             ${{ steps.meta-public.outputs.tags }}
@@ -753,6 +757,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          sbom: ${{ startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' }}
           file: "./docker/DockerfileFullEe"
           tags: |
             ${{ steps.meta-ee-public.outputs.tags }}

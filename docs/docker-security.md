@@ -66,13 +66,17 @@ base-OS finding count stays low.
 
 # Verifying image signatures, SBOMs and provenance
 
-Release images are signed and attested at publish time by the
-`.github/actions/sign-attest-image` composite action:
+Release images are signed and attested at publish time:
 
 - **cosign keyless signature** on the pushed manifest digest (index and
-  per-arch manifests), via GitHub OIDC — no long-lived signing key exists.
-- **SPDX SBOM attestations** (one per platform, generated with syft) attached
-  to the image with `cosign attest --type spdxjson`.
+  per-arch manifests), via GitHub OIDC — no long-lived signing key exists
+  (`.github/actions/sign-attest-image`).
+- **SBOMs** are generated at build time (`sbom: true` on the depot build
+  step) and embedded in the image index as BuildKit attestation manifests —
+  one SPDX document per platform. They are part of the signed index digest,
+  so the cosign signature covers them. They are not sent to a transparency
+  log: SPDX documents for these images run tens of MB, beyond what Rekor or
+  GitHub attestations accept as payloads.
 - **SLSA build provenance** recorded as a GitHub artifact attestation and
   pushed to the registry (`actions/attest-build-provenance`).
 
@@ -101,14 +105,12 @@ cosign verify \
   ghcr.io/windmill-labs/windmill:<version>
 ```
 
-Fetch and inspect the SBOM attestations (one per platform):
+Extract the embedded SBOM (per platform; verify the signature first — it
+covers the index these documents live in):
 
 ```bash
-cosign verify-attestation --type spdxjson \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp '^https://github.com/windmill-labs/windmill/\.github/workflows/(docker-image|publish_extra|build_cli_image)\.yml@refs/tags/v' \
-  ghcr.io/windmill-labs/windmill:<version> \
-  | jq -r '.payload | @base64d | fromjson | .predicate'
+docker buildx imagetools inspect ghcr.io/windmill-labs/windmill:<version> \
+  --format '{{ json .SBOM }}'
 ```
 
 Verify SLSA provenance through GitHub's attestation API:
@@ -118,6 +120,7 @@ gh attestation verify oci://ghcr.io/windmill-labs/windmill:<version> \
   -R windmill-labs/windmill
 ```
 
-Note for registry housekeeping: cosign stores signatures and attestations as
-extra `sha256-<digest>.sig` / `.att` tags in the same ghcr package — any
+Note for registry housekeeping: cosign stores signatures as extra
+`sha256-<digest>.sig` tags in the same ghcr package, and the pushed
+provenance attestations live there as referrer artifacts — any
 tag-retention automation must not prune them.
