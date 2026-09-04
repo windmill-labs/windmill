@@ -745,17 +745,6 @@ async fn update_username_in_workpsace<'c>(
     .execute(&mut **tx)
     .await?;
 
-    // ---- group_ ----
-
-    sqlx::query!(
-        "UPDATE group_ SET extra_perms = extra_perms - ('u/' || $2) || jsonb_build_object(('u/' || $1), extra_perms->('u/' || $2)) WHERE extra_perms ? ('u/' || $2) AND workspace_id = $3",
-        new_username,
-        old_username,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
-
     // ---- folders ----
 
     sqlx::query!(
@@ -891,13 +880,22 @@ async fn update_username_in_workpsace<'c>(
         }
     }
 
-    // ---- instance and workspace users ----
+    // ---- group_ and workspace users ----
 
     // Last, after the settings row above, and scoped to this workspace like
-    // everything else here: every path that frees or renames a username takes
-    // `workspace_settings` before `usr` and `usr_to_group`, and reaching into
-    // another workspace's rows would hold this one's settings row while waiting
-    // on a principal that workspace's own settings row guards.
+    // everything else here: every path that frees or renames a principal takes
+    // `workspace_settings` before `group_`, `usr` and `usr_to_group`, and
+    // reaching into another workspace's rows would hold this one's settings row
+    // while waiting on a principal that workspace's own settings row guards.
+    sqlx::query!(
+        "UPDATE group_ SET extra_perms = extra_perms - ('u/' || $2) || jsonb_build_object(('u/' || $1), extra_perms->('u/' || $2)) WHERE extra_perms ? ('u/' || $2) AND workspace_id = $3",
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
     sqlx::query!(
         "UPDATE usr SET username = $1 WHERE email = $2 AND workspace_id = $3",
         new_username,
