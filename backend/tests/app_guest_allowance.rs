@@ -74,10 +74,11 @@ async fn the_allowance_caps_strangers_and_meters_an_enterprise_plan(
         .send()
         .await?;
     assert_eq!(resp.status(), 201, "{}", resp.text().await?);
-    // The whole allowance, used today.
+    // The whole allowance, used yesterday: still in the window, and a day the mint
+    // does not write, so a row dated today can only be the mint's own.
     sqlx::query(
         "INSERT INTO guest_activity (email, workspace_id, day)
-         SELECT 'g' || i || '@example.com', 'test-workspace', CURRENT_DATE
+         SELECT 'g' || i || '@example.com', 'test-workspace', CURRENT_DATE - 1
          FROM generate_series(1, $1) AS i",
     )
     .bind(FREE_GUESTS_PER_WINDOW)
@@ -97,13 +98,13 @@ async fn the_allowance_caps_strangers_and_meters_an_enterprise_plan(
     let recorded: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM guest_activity
                        WHERE email = 'g1@example.com' AND workspace_id = 'test-workspace'
-                         AND day = CURRENT_DATE AND last_seen_at > now() - interval '1 minute')",
+                         AND day = CURRENT_DATE)",
     )
     .fetch_one(&db)
     .await?;
     assert!(
         recorded,
-        "the mint writes the guest_activity row the allowance is counted on"
+        "the mint writes today's guest_activity row, the allowance's unit"
     );
 
     let list: serde_json::Value = authed(
