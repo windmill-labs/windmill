@@ -222,6 +222,10 @@ def extract_py_functions(content: str) -> list[dict]:
         # Handle *args
         if args.vararg:
             params.append(f"*{args.vararg.arg}")
+        elif args.kwonlyargs:
+            # The bare separator is part of the signature: without it the advertised
+            # call is positional, and an agent following it gets a TypeError.
+            params.append('*')
 
         # Handle keyword-only args
         for i, arg in enumerate(args.kwonlyargs):

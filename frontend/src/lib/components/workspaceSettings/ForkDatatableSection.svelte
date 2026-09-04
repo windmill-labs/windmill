@@ -216,9 +216,12 @@
 						items={[
 							{
 								value: 'keep_original',
+								// What the backend does is decided by the config, not by this
+								// label, so where the check did not answer the label says both
+								// outcomes rather than promising the one it cannot know.
 								label:
 									dt.permissioned === undefined
-										? 'Keep original (permissions unknown)'
+										? 'Keep original unless permissioned (check failed)'
 										: dt.permissioned
 											? 'Not shared (permissions enabled)'
 											: 'Keep original'
