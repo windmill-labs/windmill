@@ -144,6 +144,10 @@
 			roles.current.permissioned &&
 			loadedRoles.length === 0
 	)
+	// Only the app that will name the data table is refused: with table creation
+	// off nothing saves it, and an app that does not touch it is not this caller's
+	// problem to be stopped over.
+	const blockedByRole = $derived(noUsableRole && tableCreationEnabled)
 	const accessSettled = $derived(
 		hasNoDatatables ||
 			(rolesSettled &&
@@ -362,7 +366,9 @@
 											/>
 											{#if noUsableRole}
 												<span class="text-xs text-red-600 dark:text-red-400">
-													no role you can use
+													{tableCreationEnabled
+														? 'no role you can use — pick another data table, or turn off table creation'
+														: 'no role you can use'}
 												</span>
 											{/if}
 											{#if showRolePicker}
@@ -545,7 +551,7 @@
 						newSchemaAlreadyExists ||
 						!rolesSettled ||
 						!accessSettled ||
-						noUsableRole}
+						blockedByRole}
 				>
 					{$copilotInfo.workspaceDisabled ? 'Start' : 'Start without AI'}
 				</Button>
@@ -555,7 +561,7 @@
 						on:click={() => start(true)}
 						disabled={!rolesSettled ||
 							!accessSettled ||
-							noUsableRole ||
+							blockedByRole ||
 							!templates[selectedTemplateIndex] ||
 							!initialPrompt.trim() ||
 							newSchemaAlreadyExists}
