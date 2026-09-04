@@ -47,20 +47,30 @@ export function createRolesResource(
 ) {
 	return resource(
 		() => [getDatatable() ?? '', getWorkspace() ?? ''] as const,
-		async ([datatableName, workspace]): Promise<{ roles: string[]; defaultRole: string }> => {
-			if (!datatableName || !workspace) return { roles: [], defaultRole: ADMIN_DATATABLE_ROLE }
+		async ([datatableName, workspace]): Promise<{
+			/** The data table this answers for: while a switch is in flight the
+			 * previous one's roles are still what `current` holds, and they say
+			 * nothing about the one now selected. */
+			datatable: string | undefined
+			roles: string[]
+			defaultRole: string
+		}> => {
+			const datatable = datatableName || undefined
+			if (!datatableName || !workspace)
+				return { datatable, roles: [], defaultRole: ADMIN_DATATABLE_ROLE }
 			try {
 				const res = await WorkspaceService.listUsableDatatableRoles({ workspace, datatableName })
 				return {
+					datatable,
 					roles: res.enabled ? res.roles : [],
 					defaultRole: res.default_role
 				}
 			} catch (e) {
 				console.error('Failed to load datatable roles:', e)
-				return { roles: [], defaultRole: ADMIN_DATATABLE_ROLE }
+				return { datatable, roles: [], defaultRole: ADMIN_DATATABLE_ROLE }
 			}
 		},
-		{ initialValue: { roles: [], defaultRole: ADMIN_DATATABLE_ROLE } }
+		{ initialValue: { datatable: undefined, roles: [], defaultRole: ADMIN_DATATABLE_ROLE } }
 	)
 }
 

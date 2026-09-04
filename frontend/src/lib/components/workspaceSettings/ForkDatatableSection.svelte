@@ -41,9 +41,31 @@
 
 	let effectiveSource = $derived(sourceWorkspace ?? $workspaceStore ?? undefined)
 
+	// Listed with whether each is permissioned, in one unit: a data table whose
+	// roles were created in the source's database is not shared with the fork —
+	// the fork would either run as the data table's own connection, which owns
+	// everything there, or as a tenant list frozen at fork time. It has to be
+	// cloned, or the fork goes without it.
 	let allDatatables = resource(
 		() => effectiveSource,
-		async (ws) => (ws ? WorkspaceService.listDataTables({ workspace: ws }) : undefined)
+		async (ws) => {
+			if (!ws) return undefined
+			const datatables = await WorkspaceService.listDataTables({ workspace: ws })
+			return await Promise.all(
+				datatables.map(async (dt) => {
+					try {
+						const roles = await WorkspaceService.listUsableDatatableRoles({
+							workspace: ws,
+							datatableName: dt.name
+						})
+						return { ...dt, permissioned: roles.enabled }
+					} catch (e) {
+						console.error('Failed to read datatable permissions:', e)
+						return { ...dt, permissioned: false }
+					}
+				})
+			)
+		}
 	)
 
 	let datatableBehaviors: Record<string, 'schema_only' | 'schema_and_data' | 'keep_original'> =
@@ -189,7 +211,10 @@
 							(v) => (datatableBehaviors[dt.name] = v)
 						}
 						items={[
-							{ value: 'keep_original', label: 'Keep original' },
+							{
+								value: 'keep_original',
+								label: dt.permissioned ? 'Not shared (permissions enabled)' : 'Keep original'
+							},
 							{ value: 'schema_only', label: 'Clone schema only' },
 							...(!isCloudHosted() && $userStore?.is_admin
 								? [{ value: 'schema_and_data', label: 'Clone schema and data' }]

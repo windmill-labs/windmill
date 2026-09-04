@@ -174,9 +174,9 @@ pub(crate) fn quote_ident(ident: &str) -> String {
 /// Read a data table's config, whatever the caller is.
 ///
 /// Authorization: performs none. What it returns is the config as stored,
-/// generated role passwords included, so callers MUST have authorized the read —
-/// every one today is admin-gated or a system path — and MUST NOT pass the value
-/// outward without [`windmill_common::workspaces::redact_datatable_settings_for_export`].
+/// generated role passwords included, so callers MUST have authorized the read,
+/// and MUST NOT pass the value outward without
+/// [`windmill_common::workspaces::redact_datatable_settings_for_export`].
 pub(crate) async fn read_datatable_unchecked(
     db: &DB,
     w_id: &str,
@@ -336,10 +336,9 @@ async fn read_default_acl_rules(
 ///
 /// Authorization: performs none. This is the data table's own connection — it
 /// owns every object in that database and can grant anything it holds — so
-/// callers MUST have authorized the operation it is opened for, and MUST NOT
-/// hand it to a request that has not been. Every caller today is admin-gated,
-/// except `apply_datatable_acl`, which authorizes the object owner against the
-/// catalog before it reaches here.
+/// callers MUST have authorized the operation it is opened for, against the
+/// identity making the request, and MUST NOT hand it to a request that has not
+/// been.
 pub(crate) async fn connect_as_admin_unchecked(
     db: &DB,
     w_id: &str,
@@ -582,6 +581,12 @@ async fn drop_roles_the_config_no_longer_names(
         .copied()
         .collect();
     if !to_run.is_empty() {
+        let mut attempted: Vec<&str> = to_run
+            .iter()
+            .filter_map(|s| s.drops_role.as_deref())
+            .collect();
+        attempted.sort();
+        attempted.dedup();
         // The settings row is held for as long as these run, and they run on a
         // database this workspace does not control — a lock held there, or a role
         // with a great deal to reassign, would otherwise stall every save of every
@@ -595,7 +600,11 @@ async fn drop_roles_the_config_no_longer_names(
                     pg_error_message(&e)
                 ))
             })?;
-        run_statements(client, &to_run).await?;
+        // Named here rather than by the caller: which of them were skipped because
+        // the config names them again is only known under the lock above.
+        run_statements(client, &to_run).await.map_err(|e| {
+            Error::ExecutionErr(format!("{e}. Roles left behind: {}", attempted.join(", ")))
+        })?;
     }
     tx.commit().await?;
     Ok(())
@@ -841,22 +850,16 @@ async fn set_datatable_permissions(
     // so no later plan diffs against them and nothing will try again. Say which
     // ones, since dropping them is now a database administrator's job.
     if !deferred.is_empty() {
-        if let Err(e) =
-            drop_roles_the_config_no_longer_names(&db, &w_id, &mut client, &deferred).await
-        {
-            let mut orphans: Vec<&str> = deferred
-                .iter()
-                .filter_map(|s| s.drops_role.as_deref())
-                .collect();
-            orphans.sort();
-            orphans.dedup();
-            return Err(Error::ExecutionErr(format!(
-                "Permissions of data table {datatable_name} were saved, but the Postgres logins \
-                 they no longer name could not be removed: {e}. Saving again will not retry \
-                 them — the config no longer names them. Drop {} by hand.",
-                orphans.join(", ")
-            )));
-        }
+        drop_roles_the_config_no_longer_names(&db, &w_id, &mut client, &deferred)
+            .await
+            .map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "Permissions of data table {datatable_name} were saved, but the Postgres \
+                     logins they no longer name could not be removed: {e}. Saving again will not \
+                     retry them — the config no longer names them, so they have to be dropped by \
+                     hand."
+                ))
+            })?;
     }
 
     Ok(format!(

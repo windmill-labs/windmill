@@ -92,12 +92,16 @@
 	// surviving the switch is not the role surviving it.
 	let rolesPickedOn = $state<string | undefined>(undefined)
 	$effect(() => {
-		const available = roles.current.roles
+		const loaded = roles.current
+		// Until the list for the table now selected has arrived, the one in hand
+		// is the previous table's — picking from it would choose that table's
+		// default, and record the choice as if it were this table's.
+		if (loaded.datatable !== selectedDatatable) return
 		const switched = untrack(() => rolesPickedOn) !== selectedDatatable
-		if (switched || selectedRole === undefined || !available.includes(selectedRole)) {
-			selectedRole = available.includes(roles.current.defaultRole)
-				? roles.current.defaultRole
-				: available[0]
+		if (switched || selectedRole === undefined || !loaded.roles.includes(selectedRole)) {
+			selectedRole = loaded.roles.includes(loaded.defaultRole)
+				? loaded.defaultRole
+				: loaded.roles[0]
 			rolesPickedOn = selectedDatatable
 		}
 	})
