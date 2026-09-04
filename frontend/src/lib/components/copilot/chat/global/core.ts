@@ -1344,11 +1344,7 @@ ${pipelineBullet}
 			: ' Pass items ("<kind>:<path>" entries naming the items you changed) so the review is scoped to them — omitting items preselects every pending change in the workspace'
 	}, or mode ("draft" or "fork") to force which comparison is shown. Prefer offering this review page over calling deploy_workspace_item directly when several items changed.
 - For a Windmill operation no other tool covers (workers, queue state, a run's args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
-- ${
-		previewTools
-			? 'To run a DEPLOYED script for real (the user asks to run/execute something that already exists), use run_script: it shows them an argument form prefilled with what you pass, and they submit it. Fill in every argument you can infer from the conversation — an empty form makes them do the work. runScriptByPath and runFlowByPath from the API catalog also run the deployed item, but without a form: reach for them only for a flow, or when the user explicitly asks for a deployed run you cannot route through run_script — for those, read the item with read_workspace_item version: "deployed" first so the arguments match the deployed input schema (a draft may have different inputs)'
-			: 'runScriptByPath / runFlowByPath from the API catalog run the DEPLOYED version of an item. Use them only when the user explicitly asks to run the deployed version, and read the item with read_workspace_item version: "deployed" first so the arguments match the deployed input schema (a draft may have different inputs)'
-	}. To test something you are editing or just wrote, always use test_run_script, test_run_flow, or test_run_step — they run the draft.
+- To run a DEPLOYED script for real (the user asks to run/execute something that already exists), use run_script: it shows them an argument form prefilled with what you pass, and they submit it. Fill in every argument you can infer from the conversation — an empty form makes them do the work. runFlowByPath from the API catalog runs a deployed flow, without a form: reach for it only for a flow, and read the item with read_workspace_item version: "deployed" first so the arguments match the deployed input schema (a draft may have different inputs). To test something you are editing or just wrote, always use test_run_script, test_run_flow, or test_run_step — they run the draft.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
@@ -4327,23 +4323,15 @@ export const SESSION_PREVIEW_TOOL_NAMES = new Set([
 	'list_artifact_versions'
 ])
 
-// Withheld from the side-panel chat, which is scoped to authoring what is open in the
-// editor rather than running deployed scripts. Both surfaces can render the form.
-const SESSION_ONLY_TOOL_NAMES = new Set(['run_script'])
-
 /**
  * The global tool set for a given chat: the full `globalTools` for a session
- * chat, or `globalTools` minus the session-only tools for the regular global
+ * chat, or `globalTools` minus the preview tools for the regular global
  * side-panel chat.
  */
 export function globalToolsFor({ sessionPreview }: { sessionPreview: boolean }): Tool<{}>[] {
 	const tools = sessionPreview
 		? globalTools
-		: globalTools.filter(
-				(t) =>
-					!SESSION_PREVIEW_TOOL_NAMES.has(t.def.function.name) &&
-					!SESSION_ONLY_TOOL_NAMES.has(t.def.function.name)
-			)
+		: globalTools.filter((t) => !SESSION_PREVIEW_TOOL_NAMES.has(t.def.function.name))
 	// DOM capture re-renders the app through the engine's SVG-image path, which is
 	// only faithful on Blink — Gecko/WebKit shift text spacing and wrapping (font
 	// fallback, sub-pixel rounding). Elsewhere the tool is withheld entirely and
