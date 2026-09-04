@@ -53,6 +53,10 @@ const CREDENTIAL_KEY_MARKERS: &[&str] = &[
     "api_key",
     "apikey",
     "access_key",
+    // The whole word, not `auth`: several adapters spell an `authenticator`
+    // naming a METHOD (`oauth`, `externalbrowser`), and redacting `oauth` from
+    // every line of a run is the failure above.
+    "authorization",
 ];
 
 fn is_credential_key(key: &str) -> bool {
@@ -93,14 +97,34 @@ impl ProfileSecrets {
     }
 
     /// One target key's value: hidden when the key names a credential, inline
-    /// otherwise. An empty value is always inline — dbt scrubs by substring, and
-    /// an empty secret matches between every pair of characters in the log.
+    /// otherwise.
     fn field(&mut self, key: &str, value: &str) -> ProfileValue {
-        if is_credential_key(key) && !value.is_empty() {
+        self.leaf(is_credential_key(key), value)
+    }
+
+    /// A value whose classification the caller already knows, from its own key
+    /// or an enclosing one.
+    fn leaf(&mut self, secret: bool, value: &str) -> ProfileValue {
+        if secret && Self::hideable(value) {
             self.hide(value)
         } else {
             quoted(value)
         }
+    }
+
+    /// Whether standing in for this value is safe.
+    ///
+    /// An EMPTY value never is: dbt redacts by substring, and an empty one
+    /// matches between every pair of characters in the log.
+    ///
+    /// Neither is a Jinja expression, which NAMES a credential rather than being
+    /// one — a `dbt_profile` block is pasted from a working `profiles.yml`,
+    /// where `password: "{{ env_var('PGPASSWORD') }}"` is the ordinary shape,
+    /// resolved against the descriptor's `env`. dbt renders a profile value once
+    /// and does not re-render what `env_var()` returns, so standing in for that
+    /// text would hand the adapter the template instead of the password.
+    fn hideable(value: &str) -> bool {
+        !value.is_empty() && !value.contains("{{") && !value.contains("{%")
     }
 }
 
@@ -873,7 +897,7 @@ pub fn render_dbt_profile(
         if (k == schema_key && schema_override.is_some()) || (k == "threads" && threads.is_some()) {
             continue;
         }
-        emit_entry(&mut yaml, 6, k, v, &mut secrets);
+        emit_entry(&mut yaml, 6, k, v, false, &mut secrets);
     }
     if root_certificate_pem.is_some() {
         yaml.push_str(&format!(
@@ -907,19 +931,31 @@ pub fn render_dbt_profile(
 /// Emit one target key, nesting as deep as the value goes — an adapter's credential can be
 /// a mapping (bigquery's `keyfile_json`) or a list. Keys are quoted like values: one nothing
 /// here enumerates is as free-form as a password.
-fn emit_entry(out: &mut String, indent: usize, key: &str, v: &Value, secrets: &mut ProfileSecrets) {
+///
+/// `enclosing_secret` is what a key ABOVE this one decided. Everything under a key naming a
+/// credential is credential material, whatever it is called — an `oauth_credentials` mapping
+/// spells its own keys, and Windmill has no list to check them against.
+fn emit_entry(
+    out: &mut String,
+    indent: usize,
+    key: &str,
+    v: &Value,
+    enclosing_secret: bool,
+    secrets: &mut ProfileSecrets,
+) {
     out.push_str(&format!("{}{}:", " ".repeat(indent), yaml_scalar(key)));
-    emit_value(out, indent, v, is_credential_key(key), secrets);
+    emit_value(
+        out,
+        indent,
+        v,
+        enclosing_secret || is_credential_key(key),
+        secrets,
+    );
 }
 
 /// The value half, after `key:`. An empty collection is emitted INLINE: a block with no
 /// children reads back as `null`, so `extensions: []` would reach the adapter as a missing
 /// value rather than the empty list dbt was handed.
-///
-/// `secret` says whether the key this value hangs off names a credential. A list inherits
-/// it, since its items share that one key; a mapping does not, because each of its own keys
-/// answers for itself — a `keyfile_json` holds a private key beside a project id, and dbt
-/// redacts a secret's value wherever it appears in the run's output.
 fn emit_value(
     out: &mut String,
     indent: usize,
@@ -938,7 +974,7 @@ fn emit_value(
             }
             out.push('\n');
             for (k, v) in kept {
-                emit_entry(out, indent + 2, k, v, secrets);
+                emit_entry(out, indent + 2, k, v, secret, secrets);
             }
         }
         Value::Array(items) => {
@@ -954,9 +990,7 @@ fn emit_value(
                 emit_value(out, indent + 2, item, secret, secrets);
             }
         }
-        Value::String(s) if secret && !s.is_empty() => {
-            out.push_str(&format!(" {}\n", secrets.hide(s).render()))
-        }
+        Value::String(s) => out.push_str(&format!(" {}\n", secrets.leaf(secret, s).render())),
         _ => out.push_str(&format!(" {}\n", yaml_value(v))),
     }
 }
@@ -1535,12 +1569,14 @@ mod tests {
     }
 
     // A `dbt_profile` block is written for an adapter Windmill may know nothing
-    // about, so the credential is recognized by key name — including nested, where
-    // a mapping's own keys answer for themselves rather than inheriting.
+    // about, so the credential is recognized by key name, and everything under
+    // such a key with it.
     #[test]
     fn a_dbt_profile_hides_its_credential_keys() {
         let r = json!({"type": "trino", "host": "trino.internal", "schema": "analytics",
-                       "user": "u", "password": "pw", "http_headers": {"x-api-key": "k"},
+                       "user": "u", "password": "pw",
+                       "http_headers": {"x-api-key": "k", "X-Trace": "on"},
+                       "oauth_credentials": {"client": "c"},
                        "keyfile_json": {"project_id": "proj", "private_key": "pem"}});
         let p = render_dbt_profile(
             &DbtAdapter::from_dbt_type("trino").unwrap(),
@@ -1554,13 +1590,42 @@ mod tests {
         .unwrap();
         let mut hidden: Vec<&str> = p.env.iter().map(|(_, v)| v.as_str()).collect();
         hidden.sort();
-        assert_eq!(hidden, vec!["k", "pem", "pw"], "{}", p.yaml);
+        // `client` for the enclosing `oauth_credentials`; `X-Trace` names nothing
+        // and its enclosing key names nothing either.
+        assert_eq!(hidden, vec!["c", "k", "pem", "pw"], "{}", p.yaml);
         let parsed: serde_yml::Value = serde_yml::from_str(&p.yaml).unwrap();
         let target = &parsed["wm"]["outputs"]["prod"];
         assert_eq!(target["host"].as_str(), Some("trino.internal"));
         assert_eq!(target["user"].as_str(), Some("u"));
+        assert_eq!(target["http_headers"]["X-Trace"].as_str(), Some("on"));
         assert_eq!(target["keyfile_json"]["project_id"].as_str(), Some("proj"));
         assert_eq!(p.schema.as_deref(), Some("analytics"));
+    }
+
+    // The block is pasted from a working `profiles.yml`, where a credential is
+    // ordinarily an `env_var()` resolved against the descriptor's `env`. dbt
+    // renders a profile value once, so standing in for that expression would
+    // hand the adapter the template text instead of the password.
+    #[test]
+    fn a_dbt_profile_leaves_an_env_var_expression_for_dbt_to_render() {
+        let r = json!({"type": "clickhouse", "host": "ch.internal",
+                       "password": "{{ env_var('CH_PASSWORD') }}"});
+        let p = render_dbt_profile(
+            &KnownAdapter::Clickhouse.into(),
+            r.as_object().unwrap(),
+            "wm",
+            "prod",
+            None,
+            None,
+            std::path::Path::new("/tmp/p"),
+        )
+        .unwrap();
+        assert!(p.env.is_empty(), "{:?}", p.env);
+        let parsed: serde_yml::Value = serde_yml::from_str(&p.yaml).unwrap();
+        assert_eq!(
+            parsed["wm"]["outputs"]["prod"]["password"].as_str(),
+            Some("{{ env_var('CH_PASSWORD') }}")
+        );
     }
 
     // A RUNTIME check, because one dbt executor serves every adapter. A refactor

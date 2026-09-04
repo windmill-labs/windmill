@@ -1773,10 +1773,11 @@ async fn resolve_warehouse(
 
 /// Identifies the connection a rendered profile describes, for run identity.
 ///
-/// The credentials are no longer IN the rendered text, so `env` is hashed
-/// alongside it: without them a resource repointed at another warehouse with the
-/// same host and database names — a different account, a rotated password —
-/// would present the identity of the one a retry saved its failures against.
+/// The rendered text names the credentials rather than carrying them, so `env`
+/// is hashed alongside it: on the text alone, a resource repointed at another
+/// warehouse with the same host and database names — a different account, a
+/// rotated password — would present the identity a retry saved its failures
+/// against.
 ///
 /// Three things belong to the ATTEMPT rather than the connection, and hashing
 /// any of them as-is makes a retry reject its own predecessor — it compares
@@ -1787,8 +1788,8 @@ async fn resolve_warehouse(
 ///   hashed in place of its path.
 /// * the job's own token, where the warehouse resource interpolates `$WM_TOKEN`
 ///   (a warehouse reached through an OIDC or on-behalf flow does). Every
-///   attempt is a new job with a new token, and it reaches the yaml through a
-///   credential now, so both sides are normalized.
+///   attempt is a new job with a new token, and it arrives as a credential, so
+///   both halves are normalized.
 /// * the secret variable names, a fresh nonce per render.
 fn profile_identity_digest(
     yaml: &str,
@@ -5068,11 +5069,11 @@ mod tests {
         assert_ne!(first, recerted);
     }
 
-    // Two things the rendered profile carries belong to the attempt: the job's
-    // own token, where the warehouse resource interpolates `$WM_TOKEN`, and the
+    // Two things about a rendered profile belong to the attempt: the job's own
+    // token, where the warehouse resource interpolates `$WM_TOKEN`, and the
     // nonce the credential variables are named on, fresh per render. Neither may
     // move the identity, or a retry never recognizes its own saved run — while
-    // the credentials themselves, which the file no longer holds, still must.
+    // the credentials, which reach the digest beside the text, still must.
     #[test]
     fn profile_identity_ignores_the_attempt_but_not_the_credential() {
         let dir = Path::new("/tmp/windmill/w/job-1/profiles");

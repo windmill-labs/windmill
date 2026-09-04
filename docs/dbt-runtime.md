@@ -30,7 +30,7 @@ the dominant way dbt is orchestrated today.
 | 5 | Project storage | The project is the script's module bundle; nothing is cloned. See "Where the dbt project lives" |
 | 6 | Multiple run configs | Per-run `select` on one script; N scripts means N projects |
 | 7 | Run-time `select` | Descriptor default plus run-arg override |
-| 8 | Credentials | Workspace warehouses, plus `profiles.yml` passthrough. A descriptor never names a resource. A rendered profile names its credentials through `env_var()` and carries none. See below |
+| 8 | Credentials | Workspace warehouses, plus `profiles.yml` passthrough. A descriptor never names a resource. A rendered profile names its credentials through `env_var()` rather than carrying them. See below |
 | 9 | Adapter mappings | postgres, redshift, mysql, snowflake, bigquery, databricks translate from their Windmill resource; **every** adapter dbt has is reachable from a `dbt_profile` resource, or the project's own `profiles.yml` |
 | 10 | Private repo auth | Not applicable: the project is synced, not fetched |
 | 11 | Asset kind | `dbt://<warehouse>/<schema>/<name>` — keyed on the relation, not on dbt's node id. See below |
@@ -359,20 +359,43 @@ value is replaced with `*****` wherever dbt prints it, which is what Windmill
 streams into the job log. A plainly named variable would be worth nothing: the
 project would read it back with one `env_var()`.
 
-Four things this had to get right, each of which quietly undoes it otherwise.
+Five things this had to get right, each of which quietly undoes it otherwise.
 
-**Only credentials go through a variable.** dbt redacts a secret's VALUE from
-every line it prints, so routing a coordinate through one redacts the run: a
-`user` of `postgres` turns `Registered adapter: postgres=1.11.0` into
-`Registered adapter: *****=1.11.0`, and a `schema` of `public` would blank out
-half the log. A translated resource knows its own credential fields; a
-`dbt_profile` block is written for an adapter Windmill may know nothing about
-(decision 24), so there it is by key name — `password`, `token`, `secret`,
-`private_key`, `passphrase`, `credential`, `api_key`, `access_key`, matched as a
-substring with `-` folded to `_`, so `client_secret` and an `http_headers`
-`x-api-key` are covered. Nested, each mapping key answers for itself rather than
-inheriting: a `keyfile_json` holds a private key beside a project id. The rule
-errs toward leaving a value inline, which is where it already was.
+**Only credentials go through a variable, and hiding everything is not the safer
+choice.** dbt redacts a secret's VALUE from every line it emits — the console
+log Windmill streams to the job, *and* the JSON event log Windmill parses for
+per-model status and relation names. Registering the string `public` as a secret
+does not merely make the log ugly: every relation whose name contains it is
+recorded as `*****`, so the run succeeds while the asset graph fills with
+nonsense. Measured, not feared — a `user` of `postgres` turns
+`Registered adapter: postgres=1.11.0` into `Registered adapter: *****=1.11.0`,
+and a schema registered as a secret vanishes from all 64 places it appears in the
+JSON log. Fail-closed is the wrong direction here.
+
+So: a translated resource knows exactly which of its fields are credentials,
+and there the file provably carries none. A `dbt_profile` block is written for an
+adapter Windmill may know nothing about (decision 24), so there the rule is by
+key name — `password`, `token`, `secret`, `private_key`, `passphrase`,
+`credential`, `api_key`, `access_key`, `authorization`, matched as a substring
+with `-` folded to `_`, so `client_secret` and an `http_headers` `x-api-key` are
+covered — and everything nested under such a key goes with it, since an
+`oauth_credentials` mapping spells its own keys and there is no list to check
+them against. `authorization` rather than `auth`, because several adapters spell
+an `authenticator` naming a METHOD and redacting `oauth` from a whole run is the
+failure above.
+
+That rule is not exhaustive over an open adapter set, and it is not claimed to
+be: a key nobody recognized stays exactly where it already was, inline. The
+guarantee is the translated path; the block path is a large reduction whose
+boundary is a list one line long to extend.
+
+**A value that is already an `env_var()` expression stays inline.** A
+`dbt_profile` block is pasted from a working `profiles.yml`, where
+`password: "{{ env_var('PGPASSWORD') }}"` is the ordinary shape, resolved against
+the descriptor's `env`. dbt renders a profile value ONCE and does not re-render
+what `env_var()` returns, so standing in for that text would hand the adapter the
+template instead of the password — and there is nothing to hide either way, since
+such a value names a credential rather than being one.
 
 **The names are a fresh nonce per render.** `packages.yml` is rendered under the
 same secret context as `profiles.yml`, on every dbt invocation and not only
@@ -385,12 +408,12 @@ descriptor's `env` and the script's environment variables, alongside the
 while a project's own `DBT_ENV_SECRET_*` package token, outside Windmill's
 namespace, still works.
 
-**Run identity moved with them.** `profile_digest` is a one-way digest of the
-resolved connection, and the connection is no longer all in the text, so the
-values are hashed beside it — otherwise a resource repointed at another
+**Run identity covers what the text no longer states.** `profile_digest` is a
+one-way digest of the resolved connection, so the credential values are hashed
+beside the rendered text — on the text alone, a resource repointed at another
 warehouse with the same host and database names would present the identity a
 retry saved its failures against. The nonce is normalized out of both halves for
-the same reason the job's own token already was: it belongs to the attempt.
+the same reason the job's own token is: it belongs to the attempt.
 
 **A project's own `profiles.yml` is passed through untouched.** It is written by
 the same author as the macros that would read it, so there is no credential to
