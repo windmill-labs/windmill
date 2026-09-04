@@ -33,8 +33,7 @@ use windmill_common::query_builders::{render_db_quoted_identifier, DbType};
 use windmill_common::utils::require_admin;
 use windmill_common::workspaces::{
     can_use_datatable_role, datatable_database_identity, get_datatable_resource_from_db_unchecked,
-    DataTable,
-    DataTableCatalogResourceType, DataTablePermissions, ADMIN_DATATABLE_ROLE,
+    DataTable, DataTableCatalogResourceType, DataTablePermissions, ADMIN_DATATABLE_ROLE,
 };
 use windmill_common::{PgDatabase, DB};
 
@@ -317,7 +316,10 @@ pub(crate) async fn connect_as_admin(
     datatable_name: &str,
 ) -> Result<(tokio_postgres::Client, AdminConnection)> {
     let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
-    let database_identity = (read_datatable(db, w_id, datatable_name).await?.database.resource_type
+    let database_identity = (read_datatable(db, w_id, datatable_name)
+        .await?
+        .database
+        .resource_type
         == DataTableCatalogResourceType::Postgresql)
         .then(|| datatable_database_identity(&db_resource));
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
@@ -454,13 +456,8 @@ async fn build_plan(
     Ok((client, plan))
 }
 
-/// Drop the Postgres roles a data table leaves behind when it is removed from the
-/// workspace config, giving its objects back to admin first.
-///
-/// Best-effort: a data table whose database is already unreachable must still be
-/// removable from the config, so a failure is logged rather than propagated. Any
-/// role that survives is reconciled by the next plan, which reads `pg_roles`.
-/// The connection and statements that drop a deleted data table's roles.
+/// The connection and statements that drop a deleted data table's roles, giving
+/// its objects back to admin first.
 ///
 /// Resolved separately from being run: resolving needs the data table's config,
 /// which the save is about to remove, while running is irreversible and must not
@@ -469,6 +466,10 @@ pub(crate) type PlannedRoleDrop = (tokio_postgres::Client, RolePlan);
 
 /// Plan the removal of every Postgres role of a data table that is being
 /// deleted, against the config as it still stands.
+///
+/// A data table whose database is already unreachable must still be removable
+/// from the config, so a failure here is logged and the deletion goes ahead
+/// without a plan — leaving roles that only a `DROP ROLE` by hand will clear.
 pub(crate) async fn plan_drop_of_deleted_datatable(
     db: &DB,
     w_id: &str,
@@ -503,18 +504,47 @@ pub(crate) async fn plan_drop_of_deleted_datatable(
     }
 }
 
-/// Run a planned drop. Best-effort: the roles outliving their data table is
-/// recoverable — the next save of a data table on that database reconciles them
-/// — whereas dropping them before the deletion commits is not.
+/// Run a planned drop, unless the data table came back.
+///
+/// A role name is generated from `(workspace, data table, role)`, so a data
+/// table recreated under the same name generates the same names — and its save
+/// adopts the very roles this plan plans to drop, since they are still granted
+/// to the same admin login. The settings row is taken for the check and held
+/// through the drop, which is the lock a save of that data table takes first.
+///
+/// Best-effort otherwise: roles outliving their data table are recoverable,
+/// dropping the ones a live data table depends on is not.
 pub(crate) async fn run_planned_drop(
+    db: &DB,
     w_id: &str,
     datatable_name: &str,
     (mut client, plan): PlannedRoleDrop,
 ) {
-    if let Err(e) = run_statements(&mut client, &plan).await {
-        tracing::error!(
+    let res = async {
+        let mut tx = db.begin().await?;
+        let settings =
+            windmill_common::workspaces::lock_workspace_settings_unchecked(&mut tx, w_id).await?;
+        let recreated = settings
+            .as_ref()
+            .and_then(|s| s.get("datatables"))
+            .and_then(|d| d.get(datatable_name))
+            .is_some_and(|v| !v.is_null());
+        if !recreated {
+            run_statements(&mut client, &plan).await?;
+        }
+        tx.commit().await?;
+        Ok::<_, Error>(recreated)
+    }
+    .await;
+    match res {
+        Ok(true) => tracing::info!(
+            "Data table {datatable_name} in {w_id} was recreated before its old Postgres roles \
+             were dropped; leaving them to the data table that now holds them"
+        ),
+        Ok(false) => {}
+        Err(e) => tracing::error!(
             "Could not drop the Postgres roles of deleted data table {datatable_name} in {w_id}: {e:#}"
-        );
+        ),
     }
 }
 

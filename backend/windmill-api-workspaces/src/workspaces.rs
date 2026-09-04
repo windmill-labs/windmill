@@ -3850,7 +3850,7 @@ async fn edit_datatable_config(
     tx.commit().await?;
 
     for (deleted, planned) in planned_role_drops {
-        crate::datatable_permissions::run_planned_drop(&w_id, &deleted, planned).await;
+        crate::datatable_permissions::run_planned_drop(&db, &w_id, &deleted, planned).await;
     }
 
     crate::datatable_migrations::record_datatable_cascade_deployments(

@@ -263,23 +263,6 @@ async fn update_username_in_workpsace<'c>(
     new_username: &str,
     w_id: &str,
 ) -> error::Result<()> {
-    // ---- instance and workspace users ----
-    sqlx::query!(
-        "UPDATE usr SET username = $1 WHERE email = $2",
-        new_username,
-        email
-    )
-    .execute(&mut **tx)
-    .await?;
-
-    sqlx::query!(
-        "UPDATE usr_to_group SET usr = $1 WHERE usr = $2",
-        new_username,
-        old_username
-    )
-    .execute(&mut **tx)
-    .await?;
-
     // ---- v2_job ----
     sqlx::query!(
         r#"UPDATE v2_job SET runnable_path = REGEXP_REPLACE(runnable_path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE runnable_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
@@ -905,6 +888,27 @@ async fn update_username_in_workpsace<'c>(
             .await?;
         }
     }
+
+    // ---- instance and workspace users ----
+
+    // Last, after the settings row above: every path that frees or renames a
+    // username takes `workspace_settings` before `usr` and `usr_to_group`, and
+    // one that took them the other way round would deadlock against it.
+    sqlx::query!(
+        "UPDATE usr SET username = $1 WHERE email = $2",
+        new_username,
+        email
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE usr_to_group SET usr = $1 WHERE usr = $2",
+        new_username,
+        old_username
+    )
+    .execute(&mut **tx)
+    .await?;
 
     Ok(())
 }
