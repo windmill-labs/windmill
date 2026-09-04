@@ -383,12 +383,16 @@
 												class="w-40"
 											/>
 											{#if noUsableRole || rolesUnknown || accessUnknown}
+												<!-- With no usable role the access question goes out role-less,
+												     which the server answers as the default role — the one that was
+												     refused — so `accessUnknown` is true here too and says the less
+												     specific thing. -->
 												<span class="text-xs text-red-600 dark:text-red-400">
 													{rolesUnknown
 														? 'could not read its roles'
-														: accessUnknown
-															? 'could not reach it'
-															: 'no role you can use'}
+														: noUsableRole
+															? 'no role you can use'
+															: 'could not reach it'}
 												</span>
 											{/if}
 											{#if showRolePicker}
