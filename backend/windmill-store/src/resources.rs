@@ -89,6 +89,9 @@ pub fn workspaced_service() -> Router {
         .route("/git_commit_hash/{*path}", get(get_git_commit_hash))
         .route("/type/list", get(list_resource_types))
         .route("/type/listnames", get(list_resource_types_names))
+        .route("/type/resource_counts", get(list_resource_counts_by_type))
+        .route("/type/hub/picked", get(list_hub_picked_resource_types))
+        .route("/type/hub/pick/{name}", get(pick_hub_resource_type))
         .route("/type/get/{name}", get(get_resource_type))
         .route("/type/exists/{name}", get(exists_resource_type))
         .route("/type/update/{name}", post(update_resource_type))
@@ -134,7 +137,10 @@ pub struct EditResourceType {
     /// `Option` conflates: an absent field leaves the extension alone, while an
     /// explicit `null` clears it. A hub pull relies on both — a type that stops
     /// being a file type has to stop being one locally too.
-    #[serde(default, deserialize_with = "windmill_common::more_serde::double_option")]
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option"
+    )]
     pub format_extension: Option<Option<String>>,
 }
 
@@ -2564,6 +2570,208 @@ async fn list_resource_types_names(
     .await?;
 
     Ok(Json(rows))
+}
+
+#[derive(Serialize)]
+struct ResourceTypeCount {
+    resource_type: String,
+    count: i64,
+}
+
+/// How many resources of each type this workspace holds — how popular a type is *here*,
+/// which is what the pickers rank on below the hub's own pick counts.
+async fn list_resource_counts_by_type(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<ResourceTypeCount>> {
+    // A count per type is aggregate, so there is no path to narrow it by: a token scoped
+    // to individual resources gets nothing rather than a total spanning paths it cannot
+    // read. Callers treat the refusal as "no local signal".
+    check_scopes(&authed, || "resources:read".to_string())?;
+    let mut tx = user_db.begin(&authed).await?;
+    let rows = sqlx::query!(
+        "SELECT resource_type, count(*) as \"count!\" FROM resource WHERE workspace_id = $1 GROUP BY resource_type",
+        &w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| ResourceTypeCount { resource_type: r.resource_type, count: r.count })
+            .collect(),
+    ))
+}
+
+/// A hub read, remembered with the hub it came from: `hub_base_url` is a live instance
+/// setting, so a cache ignoring it would keep serving the previous hub's answers.
+struct HubCached<T> {
+    hub_base_url: String,
+    fetched_at: std::time::Instant,
+    value: T,
+}
+
+/// Ids only change when a resource type is published to the hub; picks move slowly and
+/// only reorder a list. Both are read on every drawer open, hence caching at all.
+const HUB_RT_IDS_TTL: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+const HUB_RT_PICKS_TTL: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
+static HUB_RT_IDS: LazyLock<std::sync::RwLock<Option<HubCached<HashMap<String, i64>>>>> =
+    LazyLock::new(|| std::sync::RwLock::new(None));
+static HUB_RT_PICKS: LazyLock<std::sync::RwLock<Option<HubCached<Vec<HubResourceTypePicks>>>>> =
+    LazyLock::new(|| std::sync::RwLock::new(None));
+
+fn hub_cache_get<T: Clone>(
+    cache: &std::sync::RwLock<Option<HubCached<T>>>,
+    hub_base_url: &str,
+    ttl: std::time::Duration,
+) -> Option<T> {
+    let guard = cache.read().ok()?;
+    let entry = guard.as_ref()?;
+    (entry.hub_base_url == hub_base_url && entry.fetched_at.elapsed() < ttl)
+        .then(|| entry.value.clone())
+}
+
+fn hub_cache_put<T>(cache: &std::sync::RwLock<Option<HubCached<T>>>, hub_base_url: &str, value: T) {
+    if let Ok(mut guard) = cache.write() {
+        *guard = Some(HubCached {
+            hub_base_url: hub_base_url.to_string(),
+            fetched_at: std::time::Instant::now(),
+            value,
+        });
+    }
+}
+
+#[derive(Deserialize)]
+struct HubResourceTypeId {
+    id: i64,
+    name: String,
+}
+
+/// Maps a resource type's name to the id the hub addresses it by. Windmill knows types by
+/// name — the hub id is not stored anywhere locally — so reporting a pick has to resolve
+/// one. `None` when the hub cannot be reached or does not answer with a list.
+async fn hub_resource_type_ids(db: &DB, hub_base_url: &str) -> Option<HashMap<String, i64>> {
+    if let Some(ids) = hub_cache_get(&HUB_RT_IDS, hub_base_url, HUB_RT_IDS_TTL) {
+        return Some(ids);
+    }
+    let response = windmill_common::utils::http_get_from_hub(
+        &windmill_common::utils::HTTP_CLIENT,
+        &format!("{hub_base_url}/resource_types/list"),
+        false,
+        None,
+        Some(db),
+    )
+    .await
+    .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    // Only the ids are kept. That listing carries every type's schema — around a megabyte
+    // — and none of it has anything to do with reporting a pick.
+    let ids: HashMap<String, i64> = response
+        .json::<Vec<HubResourceTypeId>>()
+        .await
+        .ok()?
+        .into_iter()
+        .map(|rt| (rt.name, rt.id))
+        .collect();
+    hub_cache_put(&HUB_RT_IDS, hub_base_url, ids.clone());
+    Some(ids)
+}
+
+#[derive(Serialize)]
+struct PickHubResourceTypeResult {
+    success: bool,
+}
+
+/// Tells the hub a resource type was taken into a workspace, which is the counter its
+/// `/resource_types/picked` ranking reads.
+///
+/// Never fails the caller: a hub predating the route, an unreachable one, and a type that
+/// is local-only all mean the same thing — not counted — and the request that reaches here
+/// has already saved the user's resource.
+async fn pick_hub_resource_type(
+    Extension(db): Extension<DB>,
+    Path((_w_id, name)): Path<(String, String)>,
+) -> JsonResult<PickHubResourceTypeResult> {
+    let hub_base_url = (**windmill_common::HUB_BASE_URL.load()).clone();
+    let success = async {
+        let id = hub_resource_type_ids(&db, &hub_base_url)
+            .await?
+            .get(&name)
+            .copied()?;
+        let response = windmill_common::utils::http_get_from_hub(
+            &windmill_common::utils::HTTP_CLIENT,
+            &format!("{hub_base_url}/resource_types/{id}/pick"),
+            false,
+            None,
+            Some(&db),
+        )
+        .await
+        .ok()?;
+        Some(response.status().is_success())
+    }
+    .await
+    .unwrap_or(false);
+
+    if !success {
+        tracing::debug!("hub did not record a pick for resource type {name}");
+    }
+    Ok(Json(PickHubResourceTypeResult { success }))
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct HubResourceTypePicks {
+    name: String,
+    /// The hub counts picks in a bigint, which its driver serialises as a string.
+    #[serde(deserialize_with = "windmill_common::more_serde::maybe_number")]
+    picks: i64,
+}
+
+#[derive(Deserialize)]
+struct HubPickedResourceTypes {
+    resource_types: Vec<HubResourceTypePicks>,
+}
+
+/// The hub's own popularity ranking for resource types. Empty rather than an error when
+/// the hub has no such endpoint, so the pickers reading this treat an older or private hub
+/// as "no hub signal" and fall back to what the workspace itself uses.
+async fn list_hub_picked_resource_types(
+    Extension(db): Extension<DB>,
+) -> JsonResult<Vec<HubResourceTypePicks>> {
+    let hub_base_url = (**windmill_common::HUB_BASE_URL.load()).clone();
+    if let Some(picks) = hub_cache_get(&HUB_RT_PICKS, &hub_base_url, HUB_RT_PICKS_TTL) {
+        return Ok(Json(picks));
+    }
+    let picks = async {
+        let response = windmill_common::utils::http_get_from_hub(
+            &windmill_common::utils::HTTP_CLIENT,
+            &format!("{hub_base_url}/resource_types/picked"),
+            false,
+            Some(vec![("limit", "200".to_string())]),
+            Some(&db),
+        )
+        .await
+        .ok()?;
+        if !response.status().is_success() {
+            return None;
+        }
+        Some(
+            response
+                .json::<HubPickedResourceTypes>()
+                .await
+                .ok()?
+                .resource_types,
+        )
+    }
+    .await
+    .unwrap_or_default();
+
+    hub_cache_put(&HUB_RT_PICKS, &hub_base_url, picks.clone());
+    Ok(Json(picks))
 }
 
 async fn get_resource_type(
