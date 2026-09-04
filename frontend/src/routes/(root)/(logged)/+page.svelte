@@ -23,11 +23,6 @@
 	import { goto, replaceState } from '$app/navigation'
 	import ForkWorkspaceBanner from '$lib/components/ForkWorkspaceBanner.svelte'
 	import WorkspaceDraftsBanner from '$lib/components/WorkspaceDraftsBanner.svelte'
-	import WorkspaceTutorials from '$lib/components/WorkspaceTutorials.svelte'
-	import { onMount, setContext } from 'svelte'
-	import { tutorialsToDo } from '$lib/stores'
-	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
-	import TutorialBanner from '$lib/components/home/TutorialBanner.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { z } from 'zod'
@@ -87,39 +82,7 @@
 		appViewer?.openDrawer?.()
 	}
 
-	let workspaceTutorials: WorkspaceTutorials | undefined = $state(undefined)
-
-	// Provide workspaceTutorials to child components via a reactive wrapper
-	let workspaceTutorialsContext = $derived(workspaceTutorials)
-	setContext('workspaceTutorials', {
-		get value() {
-			return workspaceTutorialsContext
-		}
-	})
-
 	let showCreateButtons = $state(false)
-
-	onMount(() => {
-		// Check if there's a tutorial parameter in the URL
-		const tutorialParam = page.url.searchParams.get('tutorial')
-		if (tutorialParam === 'workspace-onboarding') {
-			// Small delay to ensure page is fully loaded
-			setTimeout(() => {
-				workspaceTutorials?.runTutorialById('workspace-onboarding')
-			}, 500)
-		} else if (tutorialParam === 'workspace-onboarding-operator') {
-			// Small delay to ensure page is fully loaded
-			setTimeout(() => {
-				workspaceTutorials?.runTutorialById('workspace-onboarding-operator')
-			}, 500)
-		} else if (!$ignoredTutorials.includes(8) && $tutorialsToDo.includes(8)) {
-			// Check if user hasn't completed or ignored the workspace onboarding tutorial
-			// Small delay to ensure page is fully loaded
-			setTimeout(() => {
-				workspaceTutorials?.runTutorialById('workspace-onboarding')
-			}, 500)
-		}
-	})
 </script>
 
 <Drawer bind:this={codeViewer} size="900px">
@@ -257,14 +220,12 @@
 </Drawer>
 
 <div
-	class="flex flex-col w-full h-full overflow-y-auto items-center"
+	class="wm-page-in flex flex-col w-full h-full overflow-y-auto items-center"
 	style="scrollbar-gutter: stable both-edges;"
 >
 	<ForkWorkspaceBanner />
 	<WorkspaceDraftsBanner />
 	<div class="max-w-7xl px-4 sm:px-8 md:px-8 h-fit w-full mb-6">
-		<TutorialBanner />
-
 		<!-- HomeAIChat carries both the AI composer and the AI-independent CLI/MCP connect row,
 		     so it shows whenever the sessions beta is on; the composer itself is gated on operator
 		     status and on the workspace inside the component, which owns its own vertical spacing
@@ -363,4 +324,27 @@
 	{/if}
 </div>
 
-<WorkspaceTutorials bind:this={workspaceTutorials} />
+<style>
+	/* The page's content arriving, rather than being there. The layout has already painted the
+	   sidebar and the surface behind it, so only what is new to this route fades. It plays on
+	   every arrival at Home, not just the one off a workspace hand-over — that is the arrival it
+	   is for, and a soft one costs nothing on the others. */
+	@keyframes wm-page-in {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
+	}
+
+	.wm-page-in {
+		animation: wm-page-in 500ms ease-out both;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.wm-page-in {
+			animation: none;
+		}
+	}
+</style>

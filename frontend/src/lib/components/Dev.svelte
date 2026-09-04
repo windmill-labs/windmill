@@ -1244,7 +1244,6 @@
 								<FlowModuleSchemaMap
 									bind:this={flowModuleSchemaMap}
 									disableAi
-									disableTutorials
 									smallErrorHandler={true}
 									disableStaticInputs
 									localModuleStates={showJobStatus ? localModuleStates : {}}

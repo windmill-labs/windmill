@@ -40,6 +40,10 @@
 		type FilterSchemaRec
 	} from '$lib/components/FilterSearchbar.svelte'
 	import NoItemFound from './NoItemFound.svelte'
+	import WorkspaceEmptyState from './WorkspaceEmptyState.svelte'
+	import HubProjectPickerModal from './HubProjectPickerModal.svelte'
+	import ImportProjectModal from './ImportProjectModal.svelte'
+	import type { HubProjectPick } from '$lib/hubProject'
 	import ListFilters from './ListFilters.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
@@ -986,6 +990,39 @@
 		treeLazyMode && ownerCountsRes.current == undefined && ownerCountsRes.loading
 	)
 
+	// An import just landed, so the rows about to replace the empty state are all new: they
+	// fade in one after another rather than appearing as a finished list. Cleared on a timer
+	// because nothing else marks the end — the reload resolves before the rows animate.
+	let justImported = $state(false)
+	let justImportedTimer: ReturnType<typeof setTimeout> | undefined
+	function onImported() {
+		reloadItemsAndCounts()
+		justImported = true
+		clearTimeout(justImportedTimer)
+		justImportedTimer = setTimeout(() => (justImported = false), 2500)
+	}
+
+	// The hub import, owned here rather than by either entry point: the empty state's link and
+	// the create menu's Import section open the same dialog, and mounting one per entry point
+	// would put two of them on the page at once while the workspace is still empty.
+	let hubPick = $state<HubProjectPick | undefined>(undefined)
+	let hubPickerOpen = $state(false)
+
+	// The workspace itself holds nothing — no filter is narrowing the list away. It stays
+	// false until the first load resolves: a skeleton already means "loading", and the
+	// empty state must not be mistaken for one. The controls it dims stay mounted, so
+	// nothing moves when the first item lands.
+	let workspaceEmpty = $derived(
+		!loading &&
+			!treeCountsPending &&
+			!contentActive &&
+			activeFilters.length === 0 &&
+			filteredItems != undefined &&
+			filteredItems.length === 0 &&
+			visiblePipelineFolders.size === 0 &&
+			!hasMoreServer
+	)
+
 	// Owners the counts found the user has something in, split by kind. They cover
 	// what the folder/username lists miss: an item shared individually out of a
 	// folder or user space the user is otherwise not a member of.
@@ -1651,7 +1688,9 @@
 		}}
 	>
 		{#if !contentActive}
-			<div class="flex justify-start">
+			<!-- Kept mounted, not hidden, so the toolbar doesn't reflow the moment the first
+			     item lands: `inert` takes it out of the tab order and off the pointer too. -->
+			<div class="flex justify-start" class:opacity-40={workspaceEmpty} inert={workspaceEmpty}>
 				<ToggleButtonGroup
 					selected={itemKind}
 					onSelected={(v) => {
@@ -1692,9 +1731,10 @@
 			</div>
 		{/if}
 
-		{#if !loading && !contentActive}
+		{#if !loading && !contentActive && !workspaceEmpty}
 			<!-- List controls, between the kind toggle and the searchbar: select mode, tree
-			     view, expand/collapse (tree only), sort. -->
+			     view, expand/collapse (tree only), sort. Nothing to select, group or order on
+			     an empty workspace, so the whole row goes. -->
 			<div class="flex items-center gap-2">
 				{#if homeSelection.available && !homeSelection.active}
 					<Button
@@ -1749,7 +1789,11 @@
 		{/if}
 
 		<div class="flex grow items-center justify-end gap-2 min-w-0">
-			<div class="relative text-primary w-full min-w-[200px] max-w-[26rem]">
+			<div
+				class="relative text-primary w-full min-w-[200px] max-w-[26rem]"
+				class:opacity-40={workspaceEmpty}
+				inert={workspaceEmpty}
+			>
 				<FilterSearchbar
 					schema={searchbarSchema}
 					bind:value={filterValues.val}
@@ -1765,7 +1809,7 @@
 			     whose direct-deploy protection cleared showEditButtons (NoDirectDeployAlert), since
 			     the menu itself does no permission check. -->
 			{#if !$userStore?.operator && showEditButtons}
-				<CreateActionsMenu />
+				<CreateActionsMenu onImportHubProject={() => (hubPickerOpen = true)} />
 			{/if}
 		</div>
 	</div>
@@ -1793,7 +1837,7 @@
 			/>
 		</div>
 	{/if}
-	{#if filteredItems?.length == 0}
+	{#if filteredItems?.length == 0 && !workspaceEmpty}
 		<div class="mt-10"></div>
 	{/if}
 	<div class="mt-3">
@@ -1820,7 +1864,15 @@
 			<!-- Pipelines aren't part of the text filter, so only fall through to show
 			     them (list rows / injected tree folders) when not actively searching;
 			     a no-match search still reads as empty. -->
-			<NoItemFound {activeFilters} />
+			<!-- Same gate as the create menu above: the empty state offers a template import and
+			     that very menu, and neither does a permission check of its own. An operator, or a
+			     workspace whose direct-deploy protection cleared `showEditButtons`, gets the plain
+			     message instead of two actions it may not take. -->
+			{#if workspaceEmpty && !$userStore?.operator && showEditButtons}
+				<WorkspaceEmptyState onPick={(project) => (hubPick = project)} />
+			{:else}
+				<NoItemFound {activeFilters} />
+			{/if}
 			{#if hasMoreServer && !searching}
 				<!-- The active filter matched nothing on the loaded pages, but the server
 				     has more: keep paging reachable so matches on later pages aren't lost. -->
@@ -1863,7 +1915,7 @@
 				/>
 			{/key}
 		{:else}
-			<div class="border rounded-md bg-surface-tertiary">
+			<div class="border rounded-md bg-surface-tertiary" class:wm-imported={justImported}>
 				{#if filter === ''}
 					{#each [...visiblePipelineFolders].sort() as folder (folder)}
 						<a
@@ -1936,3 +1988,66 @@
 		onDone={reloadItemsAndCounts}
 	/>
 {/if}
+
+<HubProjectPickerModal
+	open={hubPickerOpen}
+	onClose={() => (hubPickerOpen = false)}
+	onPick={(project) => {
+		hubPickerOpen = false
+		hubPick = project
+	}}
+/>
+<ImportProjectModal pick={hubPick} onClose={() => (hubPick = undefined)} {onImported} />
+
+<style>
+	/* Rows arriving after an import, one after another. The animation is declared on the
+	   container's children rather than on each row: a wrapper element around a row would make
+	   every row `first-of-type` and `last-of-type`, which is how Row draws its corners and
+	   separators. The delay steps for the first rows only — past those the stagger is longer
+	   than anyone waits, so they share the last one. */
+	@keyframes wm-row-in {
+		from {
+			opacity: 0;
+			transform: translateY(4px);
+		}
+		to {
+			opacity: 1;
+			transform: none;
+		}
+	}
+
+	.wm-imported > :global(*) {
+		animation: wm-row-in 260ms ease-out both;
+		animation-delay: 320ms;
+	}
+	.wm-imported > :global(*:nth-child(1)) {
+		animation-delay: 0ms;
+	}
+	.wm-imported > :global(*:nth-child(2)) {
+		animation-delay: 40ms;
+	}
+	.wm-imported > :global(*:nth-child(3)) {
+		animation-delay: 80ms;
+	}
+	.wm-imported > :global(*:nth-child(4)) {
+		animation-delay: 120ms;
+	}
+	.wm-imported > :global(*:nth-child(5)) {
+		animation-delay: 160ms;
+	}
+	.wm-imported > :global(*:nth-child(6)) {
+		animation-delay: 200ms;
+	}
+	.wm-imported > :global(*:nth-child(7)) {
+		animation-delay: 240ms;
+	}
+	.wm-imported > :global(*:nth-child(8)) {
+		animation-delay: 280ms;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.wm-imported > :global(*) {
+			animation: none;
+		}
+	}
+</style>

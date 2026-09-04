@@ -28,7 +28,6 @@
 	import { locateModules, groupByParent } from '../multiSelectUtils'
 	import { workspaceStore } from '$lib/stores'
 	import { copilotInfo } from '$lib/aiStore'
-	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
 	import { replaceId } from '../flowStore.svelte'
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
@@ -73,7 +72,6 @@
 	interface Props {
 		sidebarSize?: number | undefined
 		disableStaticInputs?: boolean
-		disableTutorials?: boolean
 		disableAi?: boolean
 		disableSettings?: boolean
 		newFlow?: boolean
@@ -104,7 +102,6 @@
 	let {
 		sidebarSize = $bindable(undefined),
 		disableStaticInputs = false,
-		disableTutorials = false,
 		disableAi = false,
 		disableSettings = false,
 		newFlow = false,
@@ -960,7 +957,3 @@
 		/>
 	</div>
 </div>
-
-{#if !disableTutorials}
-	<FlowTutorials on:reload />
-{/if}

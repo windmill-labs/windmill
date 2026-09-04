@@ -1,6 +1,6 @@
 import type { Component } from 'svelte'
 import { appIconComponent } from '$lib/components/icons'
-import { SettingService } from '$lib/gen'
+import { HubPublishService, SettingService } from '$lib/gen'
 import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 import type { ImportProjectSummary } from '$lib/components/ImportProjectCard.svelte'
 
@@ -84,4 +84,129 @@ const HUB_APP_ICON_ALIAS: Record<string, string> = { postgres: 'postgresql' }
 
 export function hubAppIcon(app: string): Component | undefined {
 	return appIconComponent(HUB_APP_ICON_ALIAS[app] ?? app)
+}
+
+/** One row of the hub's catalogue (`GET <hub>/projects`), which carries no item counts. */
+interface HubProjectListRow {
+	slug: string
+	name: string
+	summary: string
+	description: string
+	readme: string
+	author: string
+	apps: string[]
+	hasLogo: boolean
+	stars: number
+}
+
+const DESCRIPTION_MAX = 320
+
+/**
+ * What a project says about itself, in prose.
+ *
+ * The hub's `description` field is empty on every published project — the writing all
+ * goes in the readme — so the readme's opening paragraphs stand in. Everything from the
+ * first heading onwards is dropped: that is the "Windmill concepts demonstrated" /
+ * "Usage" material, which is documentation rather than a description. A readme that
+ * *starts* with a heading (`## Description`) has it skipped rather than treated as the
+ * end of the intro.
+ */
+export function hubProjectDescription(row: {
+	description?: string
+	readme?: string
+	summary?: string
+}): string {
+	if (row.description?.trim()) return row.description.trim()
+
+	const lines = (row.readme ?? '').split('\n')
+	let i = 0
+	while (i < lines.length && (lines[i].trim() === '' || lines[i].startsWith('#'))) i++
+	const intro: string[] = []
+	for (; i < lines.length; i++) {
+		if (lines[i].startsWith('#')) break
+		intro.push(lines[i])
+	}
+
+	const text = intro
+		.join(' ')
+		// Inline markdown only — the block syntax is already gone with the headings.
+		.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+		.replace(/[*_`]/g, '')
+		.replace(/\s+/g, ' ')
+		.trim()
+	if (!text) return row.summary?.trim() ?? ''
+	if (text.length <= DESCRIPTION_MAX) return text
+	// Cut on a word boundary: a description sliced mid-word reads as corrupted rather
+	// than shortened.
+	const cut = text.slice(0, DESCRIPTION_MAX)
+	const lastSpace = cut.lastIndexOf(' ')
+	return `${(lastSpace > DESCRIPTION_MAX * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`
+}
+
+/**
+ * A card in the template picker. Everything it shows comes from the catalogue listing,
+ * so a whole page of cards costs one request; the item counts, which only the import
+ * step needs, are fetched per project by `fetchHubProject` when one is picked.
+ * `id` is what `InfiniteList` dedupes rows by.
+ */
+export interface HubProjectPick {
+	id: string
+	slug: string
+	name: string
+	summary: string
+	description: string
+	author: string
+	apps: string[]
+	logoUrl?: string
+	iconApps: string[]
+	stars: number
+}
+
+let catalogue: { workspace: string; projects: Promise<HubProjectPick[]> } | undefined
+
+/**
+ * Every published project, most-starred first, fetched once per workspace and held for
+ * the life of the page.
+ *
+ * Through the workspace-scoped proxy rather than straight at the hub the way
+ * `fetchHubProject` goes: the catalogue endpoint sends no `Access-Control-Allow-Origin`,
+ * so the browser cannot read it directly.
+ */
+export function hubProjectCatalogue(workspace: string): Promise<HubProjectPick[]> {
+	if (catalogue?.workspace !== workspace) {
+		const projects = loadCatalogue(workspace).catch((e) => {
+			// A cached rejection would make the failure permanent for the whole session;
+			// dropping it lets the next open try again.
+			if (catalogue?.projects === projects) catalogue = undefined
+			throw e
+		})
+		catalogue = { workspace, projects }
+	}
+	return catalogue.projects
+}
+
+/** Warms the catalogue so the picker opens on content instead of a spinner. */
+export function preloadHubProjects(workspace: string): void {
+	void hubProjectCatalogue(workspace).catch(() => {})
+}
+
+async function loadCatalogue(workspace: string): Promise<HubProjectPick[]> {
+	const raw = await HubPublishService.listHubProjects({ workspace })
+	const rows = ((typeof raw === 'string' ? JSON.parse(raw) : raw)?.projects ??
+		[]) as HubProjectListRow[]
+	const hub = await hubBrowserUrl()
+	return rows
+		.map((row) => ({
+			id: row.slug,
+			slug: row.slug,
+			name: row.name,
+			summary: row.summary,
+			description: hubProjectDescription(row),
+			author: row.author,
+			apps: row.apps ?? [],
+			logoUrl: row.hasLogo ? `${hub}/projects/${encodeURIComponent(row.slug)}/logo` : undefined,
+			iconApps: row.apps ?? [],
+			stars: row.stars ?? 0
+		}))
+		.sort((a, b) => b.stars - a.stars || a.name.localeCompare(b.name))
 }

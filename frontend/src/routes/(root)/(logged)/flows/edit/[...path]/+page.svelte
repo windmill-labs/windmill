@@ -310,20 +310,6 @@
 			loading = false
 			selectedId = page.url.searchParams.get('selected') ?? seedSelectedId ?? 'settings-metadata'
 			renderEditor = true
-			// Tutorial links ("/flows/add?tutorial=...") land here via the
-			// redirect; fire once the builder has mounted and the flow input
-			// anchor the tour points at exists.
-			const tutorialParam = page.url.searchParams.get('tutorial')
-			if (tutorialParam) {
-				await tick()
-				let attempts = 0
-				while (attempts < 20 && !document.querySelector('#flow-editor-virtual-Input')) {
-					await new Promise((resolve) => setTimeout(resolve, 100))
-					attempts++
-				}
-				if (tok !== loadFlowToken) return
-				flowBuilder?.triggerTutorial()
-			}
 			return
 		}
 		// Falling through with `?new_draft=true` still set means the draft is

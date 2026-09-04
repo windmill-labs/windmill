@@ -1072,8 +1072,9 @@
 							model identifiers, the names of public hub scripts used, the languages debug sessions
 							are started for, whether AI chat skills are turned on or off and how often one is
 							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
-							membership, and the plan tier and quota shown when the execution meter is opened, last
-							30 days)</li
+							membership, the plan tier and quota shown when the execution meter is opened, and which
+							home-page entry point a new item is created from, the name of any public hub project
+							imported from it and how far that import got, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger and worker features your
@@ -1127,8 +1128,9 @@
 							model identifiers, the names of public hub scripts used, the languages debug sessions
 							are started for, whether AI chat skills are turned on or off and how often one is
 							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
-							membership, and the plan tier and quota shown when the execution meter is opened, last
-							30 days)</li
+							membership, the plan tier and quota shown when the execution meter is opened, and which
+							home-page entry point a new item is created from, the name of any public hub project
+							imported from it and how far that import got, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger and worker features your

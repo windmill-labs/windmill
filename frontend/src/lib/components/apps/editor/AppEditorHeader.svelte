@@ -9,23 +9,16 @@
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import {
 		enterpriseLicense,
-		tutorialsToDo,
 		userStore,
 		userWorkspaces,
 		workspaceStore
 	} from '$lib/stores'
 	import { isMac, type Item, userPathPrefix } from '$lib/utils'
-	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
-	import { getTutorialIndex } from '$lib/tutorials/config'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 	import {
 		AlignHorizontalSpaceAround,
 		BellOff,
-		BookOpen,
 		Bug,
-		CheckCheck,
-		CheckCircle,
-		Circle,
 		DiffIcon,
 		Expand,
 		FileJson,
@@ -33,7 +26,6 @@
 		FormInput,
 		History,
 		Laptop2,
-		RefreshCw,
 		Save,
 		Smartphone,
 		FileClock,
@@ -61,7 +53,6 @@
 	import Awareness from '$lib/components/Awareness.svelte'
 	import { secondaryMenuLeftStore, secondaryMenuRightStore } from './settingsPanel/secondaryMenu'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
-	import AppEditorTutorial from './AppEditorTutorial.svelte'
 	import AppReportsDrawer from './AppReportsDrawer.svelte'
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 
@@ -679,48 +670,8 @@
 			action: () => {
 				appExport?.open(toStatic($app, $staticExporter, $summary).app)
 			}
-		},
-		{
-			displayName: 'Tutorials',
-			icon: BookOpen,
-			separatorTop: true,
-			submenuItems: [
-				{
-					displayName: 'Background runnables',
-					action: () => appEditorTutorial?.runTutorialById('backgroundrunnables'),
-					icon: $tutorialsToDo.includes(getTutorialIndex('backgroundrunnables'))
-						? Circle
-						: CheckCircle,
-					iconColor: $tutorialsToDo.includes(getTutorialIndex('backgroundrunnables'))
-						? undefined
-						: 'green'
-				},
-				{
-					displayName: 'Connection',
-					action: () => appEditorTutorial?.runTutorialById('connection'),
-					icon: $tutorialsToDo.includes(getTutorialIndex('connection')) ? Circle : CheckCircle,
-					iconColor: $tutorialsToDo.includes(getTutorialIndex('connection')) ? undefined : 'green'
-				},
-				{
-					displayName: 'Reset tutorials',
-					action: () => resetAllTodos(),
-					icon: RefreshCw,
-					separatorTop: true
-				},
-				{
-					displayName: 'Skip tutorials',
-					action: () => skipAllTodos(),
-					icon: CheckCheck
-				}
-			]
 		}
 	]) as Item[]
-
-	let appEditorTutorial: AppEditorTutorial | undefined = $state(undefined)
-
-	export function runTutorialById(id: string, options?: { skipStepsCount?: number }) {
-		appEditorTutorial?.runTutorialById(id, options)
-	}
 
 	let appReportingDrawerOpen = $state(false)
 
@@ -1090,15 +1041,7 @@
 		</div>
 	{/if}
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible shrink-0">
-		<div class="relative">
-			<Dropdown items={moreItems} />
-			{#if $tutorialsToDo.includes(getTutorialIndex('backgroundrunnables')) || $tutorialsToDo.includes(getTutorialIndex('connection'))}
-				<span
-					class="absolute top-0.5 right-0.5 block w-2 h-2 rounded-full bg-surface-accent-primary pointer-events-none"
-				></span>
-			{/if}
-		</div>
-		<AppEditorTutorial bind:this={appEditorTutorial} />
+		<Dropdown items={moreItems} />
 
 		<div class="{compactTopbar ? 'hidden' : 'hidden md:inline'} relative overflow-visible shrink-0">
 			{#if hasErrors}

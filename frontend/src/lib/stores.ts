@@ -68,8 +68,6 @@ export function clearWorkspaceFromStorage() {
 	sessionStorage.removeItem('workspace')
 }
 
-export const tutorialsToDo = writable<number[]>([])
-export const skippedAll = writable<boolean>(false)
 export const globalEmailInvite = writable<string>('')
 export const awarenessStore = writable<Record<string, string>>(undefined)
 export const enterpriseLicense = writable<string | undefined>(undefined)
@@ -332,8 +330,6 @@ export const workspaceColor: Readable<string | null | undefined> = derived(
 			})
 	}
 )
-
-export const isCurrentlyInTutorial: StateStore<boolean> = createState({ val: false })
 
 export function getFlatTableNamesFromSchema(dbSchema: DBSchema | undefined): string[] {
 	const schema = dbSchema?.schema ?? {}

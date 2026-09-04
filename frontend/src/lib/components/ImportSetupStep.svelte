@@ -48,12 +48,26 @@
 		 *  own slug and `installProject` retargets them, so reading the raw paths here would
 		 *  look for stubs that are not where they landed. */
 		folder?: string
-		onSkip: () => void
+		/** Left with `outstanding` rows still unfilled, which the caller may want to count. */
+		onSkip: (outstanding: number) => void
+		/** Off where the surface already names the step, e.g. a dialog whose title is it. */
+		showHeading?: boolean
+		/** Fill the height given, actions pinned to the bottom. See ImportProjectStep. */
+		fillHeight?: boolean
 		onFinish: () => void
 		onBack?: () => void
 	}
 
-	let { workspace, slug, folder, onSkip, onFinish, onBack }: Props = $props()
+	let {
+		workspace,
+		slug,
+		folder,
+		onSkip,
+		onFinish,
+		onBack,
+		showHeading = true,
+		fillHeight = false
+	}: Props = $props()
 
 	type Row = {
 		name: string
@@ -710,7 +724,7 @@
 			})
 			if (!confirmed) return
 		}
-		onSkip()
+		onSkip(outstanding)
 	}
 
 	/**
@@ -736,9 +750,11 @@
 	}
 </script>
 
-<div class="flex flex-col gap-4">
+<div class="flex flex-col gap-4 {fillHeight ? 'flex-1' : ''}">
 	<div>
-		<h2 class="text-sm font-semibold text-emphasis">Finish setting up</h2>
+		{#if showHeading}
+			<h2 class="text-sm font-semibold text-emphasis">Finish setting up</h2>
+		{/if}
 		<!-- Reads as what the user gets out of it, not as what the import failed to do:
 		     the step is skippable, so it has to say why finishing is worth their time. -->
 		<p class="mt-0.5 text-xs text-secondary">
@@ -780,7 +796,7 @@
 						{#if row.status === 'done'}
 							<Check size={20} class="text-emerald-600" />
 						{:else if row.status === 'running'}
-							<Loader2 size={20} class="animate-spin text-blue-500" />
+							<Loader2 size={20} class="animate-spin text-accent" />
 						{:else if row.status === 'failed'}
 							<X size={20} class="text-red-500" />
 						{:else if row.status === 'unknown'}
@@ -982,38 +998,16 @@
 			</div>
 		{/if}
 
-		<!-- Three different things to say, and which one depends on what is left. A missing
-		     credential degrades the project; a missing data table ends it, because every app
-		     queries tables that do not exist. Only the credential case is offered as
-		     skippable — saying "you can skip this" above a missing data table would be
-		     telling the user something that is not true. -->
+		<!-- Two things to say, and which one depends on what is left. A missing credential
+		     degrades the project; a missing data table ends it, because every app queries tables
+		     that do not exist — but that case is not stated here: Skip already asks to confirm
+		     it, in the words the user is about to act on. Nor is it offered as skippable, which
+		     would be telling the user something that is not true.  -->
 		{#if outstanding === 0}
 			<Alert type="success" title="You're all set" size="xs">
 				Everything this project needs is configured. Finish, and it is ready to run.
 			</Alert>
-		{:else if pendingTables.length > 0}
-			<Alert
-				type="warning"
-				title={missingTables.length > 0
-					? 'The project will not run without this'
-					: 'This could not be checked'}
-				size="xs"
-			>
-				{#if missingTables.length > 0}
-					The tables {missingTables.length === 1
-						? 'this data table holds'
-						: 'these data tables hold'}
-					do not exist, and the project's apps and flows read them. Every one of those fails as soon
-					as it opens.
-				{/if}
-				{#if uncheckedTables.length > 0}
-					{#if missingTables.length > 0}<br /><br />{/if}
-					{uncheckedTables.length === 1 ? 'One data table is' : 'Some data tables are'} set up, but
-					{uncheckedTables.length === 1 ? 'its' : 'their'} schema could not be read, so whether the project's
-					tables are there is unknown. Check again once the database is reachable.
-				{/if}
-			</Alert>
-		{:else}
+		{:else if pendingTables.length === 0}
 			<Alert type="info" title="You can skip this" size="xs" collapsible>
 				The project's apps and flows will fail wherever they read a credential that is still
 				missing. Everything else it imported works either way, and you can fill these in from the
@@ -1022,7 +1016,11 @@
 		{/if}
 	{/if}
 
-	<div class="mt-2 flex items-center justify-between">
+	<div
+		class="mt-2 flex items-center justify-between {fillHeight
+			? 'sticky bottom-0 mt-auto bg-surface pb-1 pt-3'
+			: ''}"
+	>
 		{#if onBack}
 			<Button
 				variant="subtle"

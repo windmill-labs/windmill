@@ -52,11 +52,6 @@
 				use:clickOutside={{
 					eventToListenName: 'pointerdown',
 					stopPropagation: true,
-					exclude: async () => {
-						const tutorial = document.querySelector('#driver-popover-content') as HTMLElement | null
-						if (tutorial) return [tutorial]
-						return []
-					},
 					onClickOutside: () => (open = false)
 				}}
 			>
