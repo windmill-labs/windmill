@@ -729,6 +729,10 @@ fn test_otlp_resource_dedicated_overrides_win() {
         empty.get("host.name").map(String::as_str),
         Some("fallback-host")
     );
+    assert_eq!(
+        empty.get("service.version").map(String::as_str),
+        Some(windmill_common::utils::GIT_VERSION)
+    );
 
     // With nothing set at all — the default deployment — SdkProvidedResourceDetector still
     // contributes service.name = "unknown_service". Ours has to overwrite it.
