@@ -1082,8 +1082,10 @@
 						<li
 							>feature adoption (counts of which flow, script, trigger, worker and data table
 							features your deployed items use, including how many apps run sandboxed, how many data
-							tables are configured per database kind, how many migrations they carry, and how many
-							scripts, flows and jobs read or write a data table)</li
+							tables are configured per database kind, how many of those have migrations turned on
+							or off, how many migrations they carry and how many of those can be rolled back, how
+							many scripts and flows read or write a data table, and how many data tables a job
+							touched in the last 30 days)</li
 						>
 						<li
 							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
@@ -1143,8 +1145,10 @@
 						<li
 							>feature adoption (counts of which flow, script, trigger, worker and data table
 							features your deployed items use, including how many apps run sandboxed, how many data
-							tables are configured per database kind, how many migrations they carry, and how many
-							scripts, flows and jobs read or write a data table)</li
+							tables are configured per database kind, how many of those have migrations turned on
+							or off, how many migrations they carry and how many of those can be rolled back, how
+							many scripts and flows read or write a data table, and how many data tables a job
+							touched in the last 30 days)</li
 						>
 						<li
 							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code

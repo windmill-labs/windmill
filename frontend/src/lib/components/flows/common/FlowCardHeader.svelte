@@ -105,10 +105,15 @@
 					if (flowModuleValue?.type !== 'script') return
 					const hash =
 						flowModuleValue.hash ?? (await getLatestHashForScript(flowModuleValue.path, opWs))
+					// Same reason the settings item below is gated: the local-dev editors publish
+					// the context store but never render the drawer, so an unmounted one makes
+					// this a no-op — and a no-op must not be counted as an editor open.
+					const drawer = $scriptEditorDrawer
+					if (!drawer) return
 					logStepScriptEdit('opened')
 					// The drawer only runs this callback once a new version is deployed, so it is
 					// what separates opening the editor from actually editing the script here.
-					$scriptEditorDrawer?.openDrawer(hash, () => {
+					drawer.openDrawer(hash, () => {
 						logStepScriptEdit('saved')
 						dispatch('reload')
 						sendUserToast('Script has been updated')
