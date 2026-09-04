@@ -149,10 +149,14 @@
 			!draftValuesEqual({ ...current, path: '' }, { ...openedWith[selected], path: '' }),
 		value: () => (current ? ($state.snapshot(current) as VariableState) : undefined),
 		pathIsFree: (p) => (selected ? variablePathIsFree(selected, p) : Promise.resolve(false)),
+		keyed: (v, p) => ({ ...v, path: p }),
 		onAbandonKey: (ws, p) => {
 			// The handle is pinned to the path this editor opened; once the draft
 			// has moved off it, its next write would recreate the row it left.
 			if (p === editPath) UserDraft.stopSync('variable', p, { workspace: ws })
+		},
+		onResumeKey: (ws, p) => {
+			if (p === editPath) UserDraft.restartSync('variable', p, { workspace: ws })
 		}
 	})
 

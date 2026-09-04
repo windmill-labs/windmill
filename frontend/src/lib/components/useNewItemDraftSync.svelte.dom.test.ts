@@ -4,12 +4,14 @@ import { flushSync } from 'svelte'
 const save = vi.fn()
 const remove = vi.fn()
 const discard = vi.fn()
+const forcePersist = vi.fn(async () => {})
 const flush = vi.fn(async () => {})
 vi.mock('$lib/userDraft.svelte', () => ({
 	UserDraft: {
 		save: (...a: unknown[]) => save(...a),
 		remove: (...a: unknown[]) => remove(...a),
-		discard: (...a: unknown[]) => discard(...a)
+		discard: (...a: unknown[]) => discard(...a),
+		forcePersist: (...a: unknown[]) => forcePersist(...a)
 	}
 }))
 vi.mock('$lib/userDraftDbSyncer.svelte', () => ({
@@ -217,6 +219,84 @@ describe('useNewItemDraftSync', () => {
 		await sync!.flush()
 		expect(discard.mock.calls.at(-1)?.slice(0, 2)).toEqual(['resource', 'u/me/adopted'])
 		expect(save).toHaveBeenLastCalledWith('resource', 'u/me/moved', { n: 1 }, { workspace: 'w' })
+		cleanup()
+	})
+
+	/** The list synthesizes a draft-only row from the path INSIDE the draft while
+	 * get and delete address the key, so a stored draft has to describe its own
+	 * key. A rename the draft can't follow yet must not smuggle the new path
+	 * into the row it is still living in. */
+	it('stores a draft describing the key it lives under, not an unusable path', async () => {
+		const form = $state({ path: 'u/me/home', pathError: '', n: 1 })
+		let sync: ReturnType<typeof useNewItemDraftSync> | undefined
+		const cleanup = $effect.root(() => {
+			sync = useNewItemDraftSync({
+				itemKind: 'resource',
+				enabled: () => true,
+				workspace: () => 'w',
+				path: () => form.path,
+				pathError: () => form.pathError,
+				contentTouched: () => false,
+				value: () => ({ path: form.path, n: form.n }),
+				keyed: (v, p) => ({ ...v, path: p })
+			})
+			sync.adopt('w', 'u/me/home', { path: 'u/me/home', n: 1 })
+		})
+		flushSync()
+
+		// Renamed to a path the draft cannot move to, then edited.
+		form.path = 'u/me/taken'
+		form.pathError = 'path already used'
+		form.n = 2
+		flushSync()
+		vi.advanceTimersByTime(2000)
+		flushSync()
+		await sync!.flush()
+		expect(save).toHaveBeenLastCalledWith(
+			'resource',
+			'u/me/home',
+			{ path: 'u/me/home', n: 2 },
+			{ workspace: 'w' }
+		)
+	})
+
+	/** Renaming away suspends the handle pinned to the original key; renaming
+	 * back has to resume it, or the draft is deleted at both keys and written
+	 * to neither. */
+	it('resumes a key it returns to after abandoning it', async () => {
+		const form = $state({ path: 'u/me/there', n: 1 })
+		const events: string[] = []
+		let sync: ReturnType<typeof useNewItemDraftSync> | undefined
+		const cleanup = $effect.root(() => {
+			sync = useNewItemDraftSync({
+				itemKind: 'resource',
+				enabled: () => true,
+				workspace: () => 'w',
+				path: () => form.path,
+				pathError: () => '',
+				contentTouched: () => false,
+				value: () => ({ n: form.n }),
+				onAbandonKey: (_ws, p) => events.push(`abandon:${p}`),
+				onResumeKey: (_ws, p) => events.push(`resume:${p}`)
+			})
+			sync.adopt('w', 'u/me/there', { n: 1 })
+		})
+		flushSync()
+
+		form.path = 'u/me/away'
+		flushSync()
+		vi.advanceTimersByTime(1000)
+		flushSync()
+
+		form.path = 'u/me/there'
+		flushSync()
+		vi.advanceTimersByTime(1000)
+		flushSync()
+		await sync!.flush()
+		expect(events).toEqual(['abandon:u/me/there', 'abandon:u/me/away', 'resume:u/me/there'])
+		expect(save).toHaveBeenLastCalledWith('resource', 'u/me/there', { n: 1 }, { workspace: 'w' })
+		// The resumed handle's own change detection can no-op this write away.
+		expect(forcePersist).toHaveBeenCalledWith('resource', 'u/me/there', { workspace: 'w' })
 		cleanup()
 	})
 

@@ -30,6 +30,15 @@ export interface NewItemDraftSyncOptions<V> {
 	 * deleted. An editor whose own autosave handle is pinned to that key MUST
 	 * suspend it here, or the handle's next write would recreate the row. */
 	onAbandonKey?: (workspace: string, path: string) => void
+	/** Called before writing to a key previously passed to `onAbandonKey`, so
+	 * the editor can resume the handle it suspended there. */
+	onResumeKey?: (workspace: string, path: string) => void
+	/** Return `value` with its own path set to `path`. A stored draft has to
+	 * describe the key it lives under: the list synthesizes a draft-only row
+	 * from the path INSIDE the draft, while get and delete address the key, so
+	 * letting the two diverge makes the row unreachable. Divergence is normal
+	 * while the form holds a path the draft cannot move to yet. */
+	keyed?: (value: V, path: string) => V
 }
 
 export interface NewItemDraftSync<V> {
@@ -90,6 +99,8 @@ export function useNewItemDraftSync<V>(opts: NewItemDraftSyncOptions<V>): NewIte
 	// edits anything, and an invalid path leaves it where it is rather than
 	// deleting it. Only a brand-new item's draft is gated on being touched.
 	let adopted = false
+	// Keys handed to `onAbandonKey`, so a return to one can resume it.
+	const abandoned = new Set<string>()
 
 	function markUnsettled(workspace: string, path: string): void {
 		if (!unsettled.some((k) => k.workspace === workspace && k.path === path)) {
@@ -110,14 +121,28 @@ export function useNewItemDraftSync<V>(opts: NewItemDraftSyncOptions<V>): NewIte
 			// mid-rename. The fallback leaves the cell holding what the form holds.
 			UserDraft.discard(opts.itemKind, written.path, value, { workspace: written.workspace })
 			opts.onAbandonKey?.(written.workspace, written.path)
+			abandoned.add(`${written.workspace}/${written.path}`)
 			markUnsettled(written.workspace, written.path)
 			written = undefined
 			writtenValue = undefined
 		}
 		if (!workspace || !path || value === undefined) return
-		const serialized = JSON.stringify(value)
+		// Stored describing its own key: while the form holds a path the draft
+		// cannot move to yet, the row must still name where it actually lives.
+		const stored = opts.keyed ? opts.keyed(value, path) : value
+		const serialized = JSON.stringify(stored)
 		if (written && serialized === writtenValue) return
-		UserDraft.save(opts.itemKind, path, value, { workspace })
+		const resumed = abandoned.delete(`${workspace}/${path}`)
+		if (resumed) opts.onResumeKey?.(workspace, path)
+		UserDraft.save(opts.itemKind, path, stored, { workspace })
+		if (resumed) {
+			// A live handle at this key mirrors CHANGES, and its baseline advanced
+			// while it was suspended — the value we just restored can equal it, so
+			// nothing would be sent and the row we deleted on the way out would
+			// never come back. Safe here: only a never-deployed draft is keyed this
+			// way, so there is no baseline this could overwrite.
+			void UserDraft.forcePersist(opts.itemKind, path, { workspace })
+		}
 		markUnsettled(workspace, path)
 		written = { workspace, path }
 		writtenValue = serialized
@@ -230,6 +255,7 @@ export function useNewItemDraftSync<V>(opts: NewItemDraftSyncOptions<V>): NewIte
 		reset() {
 			finished = false
 			adopted = false
+			abandoned.clear()
 			dropPending()
 			written = undefined
 			writtenValue = undefined
