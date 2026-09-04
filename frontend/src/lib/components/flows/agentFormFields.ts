@@ -57,13 +57,15 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		label: 'Provider',
 		core: true
 	},
+	// Not text-only, unlike the fields around it: image output runs through an ordinary chat model
+	// (OpenAI's `image_generation` tool, OpenRouter's `modalities`) that samples at this
+	// temperature, so hiding it would hide a setting the run still uses.
 	{
 		key: 'temperature',
 		group: 'model',
 		label: 'Temperature',
 		tooltip: 'How random the generation is, from 0 for deterministic up to 2.',
-		defaultHint: 'Default: the provider decides',
-		textOnly: true
+		defaultHint: 'Default: the provider decides'
 	},
 	{
 		key: 'max_completion_tokens',
@@ -153,11 +155,6 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 export const AGENT_FIELD_BY_KEY: Record<string, AgentFieldSpec> = Object.fromEntries(
 	AGENT_FIELDS.map((f) => [f.key, f])
 )
-
-/** Keys that mean nothing for image output, so the form drops them while `output_type` is
- *  `'image'`. `temperature` is genuinely forwarded to an image request, so this is a clear and not
- *  merely a hide. */
-export const AGENT_TEXT_ONLY_KEYS = AGENT_FIELDS.filter((f) => f.textOnly).map((f) => f.key)
 
 /**
  * Whether a transform holds something a run would do differently from an absent key. Core fields

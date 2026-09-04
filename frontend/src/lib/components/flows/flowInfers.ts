@@ -157,8 +157,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 		},
 		temperature: {
 			type: 'number',
-			description: 'How random the generation is, from 0 for deterministic up to 2.',
-			showExpr: "fields.output_type !== 'image'"
+			description: 'How random the generation is, from 0 for deterministic up to 2.'
 		},
 		max_iterations: {
 			type: 'number',
