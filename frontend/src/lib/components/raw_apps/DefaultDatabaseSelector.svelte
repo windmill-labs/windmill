@@ -46,7 +46,14 @@
 	)
 
 	const datatableItems = $derived(toDatatableItems(datatables.current))
-	const schemaItems = $derived(toSchemaItems(access.current.schemas))
+	// The answer says what it answers for: switching the database above leaves the
+	// previous one's schemas in hand until the refetch lands, and picking from
+	// them would name a schema this data table may not have.
+	const schemaItems = $derived(
+		access.current.datatable === datatable && access.current.role === role
+			? toSchemaItems(access.current.schemas)
+			: []
+	)
 
 	// Track datatable changes to reset schema
 	let previousDatatable = $state<string | undefined>(undefined)
