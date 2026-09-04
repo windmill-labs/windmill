@@ -134,7 +134,10 @@ pub struct EditResourceType {
     /// `Option` conflates: an absent field leaves the extension alone, while an
     /// explicit `null` clears it. A hub pull relies on both — a type that stops
     /// being a file type has to stop being one locally too.
-    #[serde(default, deserialize_with = "windmill_common::more_serde::double_option")]
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option"
+    )]
     pub format_extension: Option<Option<String>>,
 }
 
@@ -3265,6 +3268,12 @@ async fn get_git_commit_hash(
     })?;
     git_resource.url =
         resolve_azure_devops_url(&db_with_opt_authed, &w_id, &git_resource.url, false).await?;
+    // Safe to attach for a caller-named resource because the stored credential
+    // is bound to the repository it was issued for: a resource repointed at
+    // another host resolves to no credential rather than carrying this one there.
+    git_resource.url =
+        windmill_common::git_sync_oss::with_stored_credential(&db, &w_id, path, git_resource.url)
+            .await?;
 
     let identities: Vec<String> = query
         .git_ssh_identity
@@ -3943,6 +3952,15 @@ pub async fn get_git_repo_head_for_autopull(
     }
     git_resource.url =
         resolve_azure_devops_url(&git_sync_system_dba(db), w_id, &git_resource.url, true).await?;
+    // A repo whose credential Windmill holds carries none in its URL, so the
+    // poller has to attach it here or every probe would be unauthenticated.
+    git_resource.url = windmill_common::git_sync_oss::with_stored_credential(
+        db,
+        w_id,
+        git_repo_resource_path,
+        git_resource.url,
+    )
+    .await?;
 
     if let Some(branch) = git_resource.branch.as_deref().filter(|s| !s.is_empty()) {
         let branch = branch.to_string();

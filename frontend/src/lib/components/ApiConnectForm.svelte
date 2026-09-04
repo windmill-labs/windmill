@@ -12,6 +12,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import { untrack } from 'svelte'
 	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
+	import GitLabIntegration from './GitLabIntegration.svelte'
 	import BedrockCredentialsCheck from './BedrockCredentialsCheck.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import ResourceGen from './copilot/ResourceGen.svelte'
@@ -28,6 +29,13 @@
 		isValid?: boolean
 		linkedSecretCandidates?: string[] | undefined
 		description?: string | undefined
+		/** Workspace the resource is being saved into, which is not always the one
+		 * being navigated. The GitLab picker has to store the credential where the
+		 * resource will look for it. */
+		workspace?: string
+		/** A git credential the picker chose, for the drawer to store once it has
+		 * saved the resource and its path is final. */
+		onCredentialSelected?: (credential: { token: string; repoUrl: string }) => void
 		onSynced?: () => void
 	}
 
@@ -39,6 +47,8 @@
 		isValid = $bindable(true),
 		linkedSecretCandidates = undefined,
 		description = $bindable(undefined),
+		workspace = undefined,
+		onCredentialSelected,
 		onSynced = undefined
 	}: Props = $props()
 
@@ -248,6 +258,19 @@
 				rawCodeEditor?.setCode(rawCode)
 			}}
 			onDescriptionUpdate={(newDescription) => (description = newDescription)}
+		/>
+		<!-- Last in a `flex-row-reverse` row, so it lands beside the GitHub App
+		button without splitting it from its own refresh control. -->
+		<GitLabIntegration
+			{resourceType}
+			{args}
+			{workspace}
+			{onCredentialSelected}
+			onArgsUpdate={(newArgs) => {
+				args = newArgs
+				rawCode = JSON.stringify(args, null, 2)
+				rawCodeEditor?.setCode(rawCode)
+			}}
 		/>
 	</div>
 	{#if resourceType?.includes('bedrock') && !isCloudHosted()}

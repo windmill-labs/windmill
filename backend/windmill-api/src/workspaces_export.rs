@@ -1587,10 +1587,11 @@ pub(crate) async fn tarball_workspace(
         .await?;
 
         // Use v2 format only if explicitly requested, otherwise use v1 (legacy) for backward compatibility
-        // Server-owned auto-pull state (the HMAC webhook secret + hook id/error and
-        // the synced-sha / last-pull status) must never leave the server: keep it out
-        // of export archives and synced repos, and don't let a re-imported workspace
-        // inherit another install's hook/sync state. Mirrors the GET-settings redaction.
+        // Server-owned state (the HMAC webhook secret + hook id/error, the
+        // synced-sha / last-pull status, and what the credential check observed)
+        // must never leave the server: keep it out of export archives and synced
+        // repos, and don't let a re-imported workspace inherit another install's
+        // hook/sync state. Mirrors the GET-settings redaction.
         fn redact_git_sync_for_export(git_sync: Option<Value>) -> Option<Value> {
             let mut git_sync = git_sync?;
             if let Some(repos) = git_sync
@@ -1610,6 +1611,13 @@ pub(crate) async fn tarball_workspace(
                         ] {
                             auto_pull.remove(field);
                         }
+                    }
+                    // What this install observed about its own credential: a token
+                    // id and fingerprint, and a `checked_at` that moves on its own.
+                    // None of it describes the workspace, and in a git-synced
+                    // `wmill.yaml` it would churn the file for no reason.
+                    if let Some(repo) = repo.as_object_mut() {
+                        repo.remove("credential");
                     }
                 }
             }

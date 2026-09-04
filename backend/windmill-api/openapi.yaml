@@ -2713,7 +2713,7 @@ paths:
 
   /w/{workspace}/github_app/token:
     post:
-      summary: get github app token
+      summary: get the git credential for a git-sync job (GitHub App token, or the credential stored for the repository)
       operationId: getGithubAppToken
       tags:
         - workspace
@@ -2733,7 +2733,7 @@ paths:
                 - job_token
       responses:
         "200":
-          description: github app token
+          description: git credential
           content:
             application/json:
               schema:
@@ -2876,6 +2876,93 @@ paths:
       responses:
         "200":
           description: Successfully imported the installation
+
+  /w/{workspace}/git_sync/gitlab/projects:
+    post:
+      tags:
+        - Git Sync
+      summary: List the GitLab projects a token can sync
+      description: >-
+        Lists the projects the supplied GitLab token can push to, so a git
+        repository resource can be filled in without hand-writing a project
+        path. The token is used for this call only and is never stored.
+        Requires workspace admin.
+      operationId: listGitlabProjects
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                base_url:
+                  type: string
+                  description: The GitLab instance, e.g. https://gitlab.com
+                token:
+                  type: string
+                  description: A group access token or group service account personal access token
+                search:
+                  type: string
+                  description: Narrow the list to projects matching this text
+              required:
+                - base_url
+                - token
+      responses:
+        "200":
+          description: the projects the token can sync
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GitlabProject"
+
+  /w/{workspace}/git_sync/credential:
+    post:
+      tags:
+        - Git Sync
+      summary: Store the credential for a git repository
+      description: >-
+        Stores the access token a git repository authenticates with, so it does
+        not have to be written into the repository URL or a workspace variable.
+        The token is write-only: it is served only to a git-sync job that
+        presents its own job token, and a fork of this workspace reads this
+        copy instead of holding one of its own. Requires workspace admin.
+      operationId: setGitCredential
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                repo_path:
+                  type: string
+                  description: Path of the git repository resource the credential authenticates
+                repo_url:
+                  type: string
+                  description: >-
+                    The repository the credential is for. The token is only used
+                    against this repository, so repointing the resource elsewhere
+                    cannot carry it along.
+                token:
+                  type: string
+                  description: The access token, as pasted
+              required:
+                - repo_path
+                - repo_url
+                - token
+      responses:
+        "200":
+          description: the credential was stored
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/github_app/ghes_installation_callback:
     post:
@@ -33990,8 +34077,59 @@ components:
         open_pr_error:
           type: string
           description: server-owned, last failure opening a PR for a deploy branch of this repo
+        credential:
+          $ref: "#/components/schemas/GitCredentialStatus"
       required:
         - git_repo_resource_path
+
+    GitCredentialStatus:
+      type: object
+      description: server-owned, what the repo's own credential reports about itself
+      properties:
+        provider:
+          type: string
+          enum:
+            - gitlab
+        token_id:
+          type: integer
+          format: int64
+        expires_at:
+          type: string
+          format: date
+          description: absent for a non-expiring token
+        scopes:
+          type: array
+          items:
+            type: string
+        token_fingerprint:
+          type: string
+          description: one-way digest identifying which credential this status describes
+        rotatable:
+          type: boolean
+        checked_at:
+          type: integer
+          format: int64
+        error:
+          type: string
+      required:
+        - provider
+        - rotatable
+        - checked_at
+
+    GitlabProject:
+      type: object
+      description: a GitLab project a token can sync, as the resource form needs it
+      properties:
+        path_with_namespace:
+          type: string
+          description: nested group path plus project name, which is also GitLab's project id
+        http_url_to_repo:
+          type: string
+        default_branch:
+          type: string
+      required:
+        - path_with_namespace
+        - http_url_to_repo
 
     AutoPullMode:
       type: string

@@ -3938,6 +3938,7 @@ async fn edit_git_sync_config(
                 clear_client_supplied_auto_pull_state(ap);
             }
             repo.open_pr_error = None;
+            repo.credential = None;
         }
         reject_parent_only_git_sync_settings_on_fork(
             &db,
@@ -4038,6 +4039,7 @@ async fn edit_git_sync_config(
                     continue;
                 };
                 repo.open_pr_error = old.open_pr_error.clone();
+                repo.credential = old.credential.clone();
                 if let (Some(new_ap), Some(old_ap)) =
                     (repo.auto_pull.as_mut(), old.auto_pull.as_ref())
                 {
@@ -4083,6 +4085,7 @@ async fn edit_git_sync_config(
             .flatten()
             .and_then(|v| serde_json::from_value(v).ok());
             let removed_webhooks: Vec<(String, i64)> = existing
+                .as_ref()
                 .map(|e| {
                     e.repositories
                         .iter()
@@ -4116,6 +4119,19 @@ async fn edit_git_sync_config(
             // `sync_repo_webhook` writes back the webhook fields it changes itself:
             // the remote hook and the record of it have to move together, so
             // persisting them out here would let one land without the other.
+            // Before the webhook reconcile, which decides whether this repo can have
+            // one from the credential this records. Also puts a short-lived or
+            // under-scoped token in front of the operator while they are still on the
+            // settings page, rather than when it expires.
+            if let Err(e) = windmill_common::git_sync_ee::refresh_git_credential_status(
+                &db,
+                &w_id,
+                &repo.git_repo_resource_path,
+            )
+            .await
+            {
+                tracing::warn!("git credential check error: {}", e);
+            }
             if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await
             {
                 tracing::warn!("git auto-pull: webhook sync error: {}", e);
@@ -4169,6 +4185,7 @@ async fn edit_git_sync_repository(
         clear_client_supplied_auto_pull_state(ap);
     }
     new_config.repository.open_pr_error = None;
+    new_config.repository.credential = None;
     reject_parent_only_git_sync_settings_on_fork(
         &db,
         &w_id,
@@ -4293,6 +4310,7 @@ async fn edit_git_sync_repository(
         // from the UI cannot revert what the poller/webhook layer wrote.
         let mut updated = new_config.repository;
         updated.open_pr_error = existing_repo.open_pr_error.clone();
+        updated.credential = existing_repo.credential.clone();
         match (updated.auto_pull.as_mut(), existing_repo.auto_pull.as_ref()) {
             (Some(new_ap), Some(old_ap)) => {
                 new_ap.last_synced_sha = old_ap.last_synced_sha.clone();
@@ -4350,6 +4368,15 @@ async fn edit_git_sync_repository(
         .iter_mut()
         .find(|r| r.git_repo_resource_path == new_config.git_repo_resource_path)
     {
+        if let Err(e) = windmill_common::git_sync_ee::refresh_git_credential_status(
+            &db,
+            &w_id,
+            &repo.git_repo_resource_path,
+        )
+        .await
+        {
+            tracing::warn!("git credential check error: {}", e);
+        }
         if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await {
             tracing::warn!("git auto-pull: webhook sync error: {}", e);
         }
@@ -4488,6 +4515,10 @@ async fn delete_git_sync_repository(
                 windmill_common::git_sync_ee::delete_repo_webhook(&db, &w_id, &url, hook_id).await;
         }
     }
+
+    // The stored credential is deliberately left alone: it belongs to the git
+    // repository resource, which this endpoint does not delete, and the resource
+    // still authenticates with it for connection tests and commit lookups.
 
     // Trigger git sync for repository deletion
     handle_deployment_metadata(
@@ -6160,6 +6191,7 @@ async fn update_workspace_settings(
             r.auto_pull = None;
             r.fork_open_prs = false;
             r.open_pr_error = None;
+            r.credential = None;
             r
         })
         .collect();
@@ -8160,6 +8192,7 @@ async fn attach_dev_workspace(
                 r.auto_pull = None;
                 r.fork_open_prs = false;
                 r.open_pr_error = None;
+                r.credential = None;
             }
             let serialized =
                 serde_json::to_value(&settings).map_err(|e| Error::internal_err(e.to_string()))?;

@@ -12,6 +12,7 @@
 		sortResourceTypesByMatch
 	} from './resourceTypeDisplay'
 	import {
+		GitSyncService,
 		OauthService,
 		ResourceService,
 		WorkspaceService,
@@ -75,6 +76,7 @@
 	}: Props = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
+	let pendingGitCredential: { token: string; repoUrl: string } | undefined = $state(undefined)
 
 	let isValid = $state(true)
 
@@ -931,6 +933,21 @@
 				}
 			}
 
+			// Before the resource is written, so a failure here leaves nothing behind
+			// and the whole save can simply be retried. After it, a failed credential
+			// write would leave a created resource that the retry cannot create again,
+			// with a managed marker and no token behind it.
+			if (pendingGitCredential) {
+				await GitSyncService.setGitCredential({
+					workspace: effectiveWorkspace,
+					requestBody: {
+						repo_path: path,
+						repo_url: pendingGitCredential.repoUrl,
+						token: pendingGitCredential.token
+					}
+				})
+			}
+
 			if (filling) {
 				// The stub the import made carries no description, so this is the one chance to
 				// give it one; its resource_type and path are already what we want.
@@ -952,6 +969,7 @@
 					}
 				})
 			}
+			pendingGitCredential = undefined
 			dispatch('refresh', path)
 			dispatch('close')
 			sendUserToast(
@@ -1332,6 +1350,16 @@
 						{linkedSecretCandidates}
 						{resourceType}
 						{resourceTypeInfo}
+						workspace={effectiveWorkspace}
+						onCredentialSelected={(c) => {
+							pendingGitCredential = c
+							// `forceSecretValue` files a git_repository's `url` in a secret
+							// variable, for the URLs that carry a token in them. The picker's
+							// does not — the token is stored separately — so that variable
+							// would hold nothing secret and add a second place to keep in
+							// step with the resource.
+							linkedSecrets = linkedSecrets.filter((f) => f !== 'url')
+						}}
 						bind:args
 						bind:isValid
 						onSynced={getResourceTypeInfo}

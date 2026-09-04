@@ -958,6 +958,15 @@ pub async fn run_server(
                     #[cfg(not(feature = "enterprise"))]
                     Router::new()
                 })
+                .nest("/w/{workspace_id}/git_sync", {
+                    #[cfg(feature = "enterprise")]
+                    {
+                        git_sync_oss::workspaced_git_sync_service()
+                    }
+
+                    #[cfg(not(feature = "enterprise"))]
+                    Router::new()
+                })
                 .nest(
                     "/w/{workspace_id}/resources_u",
                     public_service().layer(cors.clone()),

@@ -1,12 +1,20 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { ResourceService, WorkspaceService, type Resource, type ResourceType } from '$lib/gen'
+	import {
+		GitSyncService,
+		ResourceService,
+		WorkspaceService,
+		type Resource,
+		type ResourceType
+	} from '$lib/gen'
 	import { canWrite } from '$lib/utils'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
 	import ResourceForm from './ResourceForm.svelte'
+	import { managedCredentialHost } from './git_sync/managedCredential'
+	import ReplaceGitCredential from './git_sync/ReplaceGitCredential.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { resource } from 'runed'
@@ -143,6 +151,22 @@
 	let loadingSchema = $derived(resourceTypeResource.loading)
 
 	let current = $derived(selected ? states[selected]?.draft : undefined)
+	let managedHost = $derived(managedCredentialHost(current?.args))
+	// The saved URL, not the draft's: a credential is bound to the repository it
+	// is issued for, so binding one to an edit that has not landed yet would tie
+	// it to something the resource does not point at.
+	let deployedUrl = $derived(
+		selected ? ((fetchedResources[selected]?.value as any)?.url as string | undefined) : undefined
+	)
+	// Only an unsaved *URL* blocks replacing the token, not any unsaved change:
+	// opening the drawer materialises schema defaults (`folder: ""`), so a whole-
+	// resource dirty check would disable it the moment the drawer opens.
+	let urlDirty = $derived(!!deployedUrl && current?.args?.url !== deployedUrl)
+	// The saved path, for the same reason as the saved URL: a credential filed
+	// under an unsaved rename would sit at a path nothing points at, while the
+	// repository kept authenticating with the token it already had.
+	let deployedPath = $derived(selected ? (initialStates[selected]?.path ?? initialPath) : undefined)
+	let pathDirty = $derived(!!deployedPath && current?.path !== deployedPath)
 	let resourceToEdit: Resource | undefined = $derived(
 		selected ? fetchedResources[selected] : undefined
 	)
@@ -323,6 +347,11 @@
 		current.path = npath
 	}
 
+	// Carries the workspace it was picked in: `save()` loops over every dirty
+	// workspace, so an unkeyed token would be filed in all of them.
+	let pendingGitCredential: { workspace: string; token: string; repoUrl: string } | undefined =
+		$state(undefined)
+
 	/** Whether the write landed. It toasts its own failure, so most callers ignore this;
 	 * one that follows the save with bookkeeping of its own has to know not to. */
 	export async function save(): Promise<boolean> {
@@ -331,6 +360,23 @@
 			for (const ws of dirty) {
 				const s = states[ws].draft!
 				const ini = initialStates[ws]
+				// Before the resource write, and only for the workspace the token was
+				// picked in. Ordered this way so a failure is always the recoverable
+				// one: if this throws, nothing else has happened and the workspace is
+				// still dirty, so saving again retries it. Were it to run after, the
+				// baseline would already be reset and the retry would find nothing to
+				// do while discarding the token — a saved repository with a managed
+				// marker and no credential.
+				if (pendingGitCredential?.workspace === ws) {
+					await GitSyncService.setGitCredential({
+						workspace: ws,
+						requestBody: {
+							repo_path: s.path,
+							repo_url: pendingGitCredential.repoUrl,
+							token: pendingGitCredential.token
+						}
+					})
+				}
 				if (existedInitially[ws]) {
 					await ResourceService.updateResource({
 						workspace: ws,
@@ -369,6 +415,7 @@
 				// it shows up immediately instead of after the 60s TTL.
 				invalidateWorkspacePaths(ws)
 			}
+			pendingGitCredential = undefined
 			sendUserToast(
 				dirty.length > 1 ? `Saved resource in ${dirty.length} workspaces` : `Saved resource`
 			)
@@ -386,6 +433,27 @@
 		{#if otherDirty.length > 0}
 			<Alert type="warning" title="Editing multiple workspaces">
 				You are going to edit the value in: {otherDirty.join(', ')}
+			</Alert>
+		{/if}
+
+		{#if managedHost && selected}
+			<Alert type="info" title="Windmill holds this repository's access token">
+				<div class="flex flex-col items-start gap-2">
+					<div>
+						The URL below carries no credential. Windmill renews the token before it expires and
+						hands it to this workspace's sync jobs, and forks of this workspace use it without
+						storing their own copy.
+						{#if urlDirty || pathDirty}
+							Save your {urlDirty ? 'URL' : 'path'} change to replace the token.
+						{/if}
+					</div>
+					<ReplaceGitCredential
+						workspace={selected}
+						resourcePath={deployedPath ?? ''}
+						repoUrl={deployedUrl ?? ''}
+						disabled={urlDirty || pathDirty || !deployedUrl || !deployedPath}
+					/>
+				</div>
 			</Alert>
 		{/if}
 
@@ -411,6 +479,8 @@
 					{resourceToEdit}
 					onLoadResourceType={() => resourceTypeResource.refetch()}
 					workspace={selected}
+					onCredentialSelected={(c) =>
+						(pendingGitCredential = selected ? { ...c, workspace: selected } : undefined)}
 				/>
 			{/key}
 		{/if}

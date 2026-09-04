@@ -4307,6 +4307,18 @@ pub async fn monitor_db(
         }
     };
 
+    // Re-check what each git-sync repository's own credential says about its expiry,
+    // and rotate the ones close to it. Every ~40 min: the values move over days, and
+    // `should_run` counts iterations in a u8.
+    let git_credential_maintenance_f = async {
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(240) {
+            if let Some(db) = conn.as_sql() {
+                maintain_git_credentials(db).await;
+            }
+        }
+    };
+
     // run every 2 iterations (~20s at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
     // Enterprise feature: the active `// freshness` backstop lives in
     // windmill-queue's `freshness_watchdog` (`private`); OSS gets a no-op stub.
@@ -4360,6 +4372,7 @@ pub async fn monitor_db(
         export_audit_logs_to_object_store_f,
         cleanup_scheduled_job_deletions_f,
         git_auto_pull_f,
+        git_credential_maintenance_f,
         pipeline_freshness_watchdog_f,
         reconcile_unarmed_schedules_f,
     );
@@ -4681,6 +4694,178 @@ lazy_static::lazy_static! {
 /// equals the ~60s tick isn't skipped by tick jitter.
 #[cfg(feature = "private")]
 const AUTO_PULL_POLL_SLACK_S: i64 = 30;
+
+/// Advisory lock id ensuring only one server replica maintains git credentials at
+/// a time (adjacent to GIT_AUTO_PULL_LOCK_ID).
+#[cfg(all(feature = "enterprise", feature = "private"))]
+const GIT_CREDENTIAL_LOCK_ID: i64 = 737_483_923;
+
+/// Wall-clock budget for one credential maintenance pass, spent between
+/// repositories rather than inside one.
+///
+/// `monitor_db` cancels every future in its `join!` at 600s, and an unreachable
+/// GitLab costs a repository up to the client's 20s timeout, so enough of them
+/// would take the whole pass — and the other maintenance futures with it. A
+/// rotation must never be cancelled between GitLab issuing a token and Windmill
+/// storing it, so the pass stops at a repository boundary instead and the
+/// least-recently-checked ordering brings the rest along on the next tick.
+const GIT_CREDENTIAL_PASS_BUDGET: Duration = Duration::from_secs(180);
+
+/// Refresh every git-sync repository's credential status and rotate the ones near
+/// expiry, so a token dies visibly (and usually not at all) rather than taking
+/// sync down on its expiry date.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn maintain_git_credentials(db: &Pool<Postgres>) {
+    use windmill_common::ee_oss::{get_license_plan, LicensePlan};
+
+    if !matches!(get_license_plan().await, LicensePlan::Enterprise) {
+        return;
+    }
+
+    let mut lock_conn = match db.acquire().await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("git credentials: failed to acquire connection: {e:#}");
+            return;
+        }
+    };
+    let locked: bool = match sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+        .bind(GIT_CREDENTIAL_LOCK_ID)
+        .fetch_one(&mut *lock_conn)
+        .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("git credentials: advisory lock failed: {e:#}");
+            return;
+        }
+    };
+    if !locked {
+        return;
+    }
+
+    if let Err(e) = maintain_git_credentials_inner(db).await {
+        tracing::error!("git credentials: maintenance error: {e:#}");
+    }
+
+    if let Err(e) = sqlx::query("SELECT pg_advisory_unlock($1)")
+        .bind(GIT_CREDENTIAL_LOCK_ID)
+        .execute(&mut *lock_conn)
+        .await
+    {
+        tracing::error!("git credentials: advisory unlock failed: {e:#}");
+    }
+}
+
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn maintain_git_credentials_inner(db: &Pool<Postgres>) -> error::Result<()> {
+    use windmill_common::workspaces::WorkspaceGitSyncSettings;
+
+    // Same deleted/archived exclusion as the auto-pull poller: a dead workspace's
+    // settings row survives, and rotating a token for one would be pure damage.
+    // Least-recently-checked first, so a pass that runs out of budget resumes
+    // where it stopped instead of re-checking the same head of the list forever.
+    // A repository with no recorded credential sorts first and stays there,
+    // which is deliberate: it has no token to introspect, so it costs a few
+    // database queries and nothing else. Tens of thousands of them would have to
+    // exist in one instance before they consumed the pass budget ahead of a
+    // repository that does have a token.
+    let rows = sqlx::query!(
+        r#"SELECT ws.workspace_id, ws.git_sync
+           FROM workspace_settings ws
+           JOIN workspace w ON w.id = ws.workspace_id
+           WHERE NOT w.deleted
+             AND ws.git_sync IS NOT NULL
+             AND jsonb_typeof(ws.git_sync->'repositories') = 'array'
+           ORDER BY (
+             SELECT min((elem->'credential'->>'checked_at')::bigint)
+             FROM jsonb_array_elements(ws.git_sync->'repositories') AS elem
+           ) ASC NULLS FIRST"#
+    )
+    .fetch_all(db)
+    .await?;
+
+    let started = Instant::now();
+    let mut skipped = 0usize;
+    for row in rows {
+        let Some(git_sync) = row.git_sync else {
+            continue;
+        };
+        let settings: WorkspaceGitSyncSettings = match serde_json::from_value(git_sync) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(
+                    "git credentials: invalid git_sync settings for workspace {}: {e}",
+                    row.workspace_id
+                );
+                continue;
+            }
+        };
+
+        // The workspace ordering above only decides which workspace comes first;
+        // within one, the repositories need the same least-recently-checked
+        // order or the tail of a large workspace never gets its turn.
+        let mut repositories: Vec<_> = settings.repositories.iter().collect();
+        repositories.sort_by_key(|r| r.credential.as_ref().map(|c| c.checked_at));
+
+        for repo in repositories {
+            if started.elapsed() >= GIT_CREDENTIAL_PASS_BUDGET {
+                skipped += 1;
+                continue;
+            }
+            let path = &repo.git_repo_resource_path;
+            // This refreshes and records the status on every repository it looks at,
+            // rotating only the ones near expiry, so it is the whole maintenance pass
+            // rather than just the rotation half.
+            if let Err(e) = windmill_common::git_sync_ee::rotate_git_credential_if_due(
+                db,
+                &row.workspace_id,
+                path,
+            )
+            .await
+            {
+                tracing::error!(
+                    "git credentials: maintenance failed for {path} in workspace {}: {e:#}",
+                    row.workspace_id
+                );
+            }
+
+            // A repository that wants webhook delivery but holds no hook never
+            // gets one otherwise: the reconcile runs on a settings save, so a
+            // credential that was unusable when the hook should have been created
+            // would leave it missing until an admin saved again. Checking stored
+            // state costs nothing, and only the repositories actually missing a
+            // hook reach the host.
+            use windmill_common::workspaces::AutoPullMode;
+            // Also when a hook exists but carries a warning: a save during a GitLab
+            // outage keeps the hook and records why it could not be confirmed, and
+            // that warning is only cleared by a reconcile that confirms it again.
+            let needs_hook = repo.auto_pull.as_ref().is_some_and(|a| {
+                a.enabled
+                    && matches!(a.mode, AutoPullMode::Auto | AutoPullMode::Webhook)
+                    && (a.webhook_id.is_none() || a.webhook_error.is_some())
+            });
+            if needs_hook {
+                let mut repo = repo.clone();
+                if let Err(e) =
+                    windmill_common::git_sync_ee::sync_repo_webhook(db, &row.workspace_id, &mut repo)
+                        .await
+                {
+                    tracing::warn!(
+                        "git credentials: could not reconcile the webhook for {path} in workspace {}: {e:#}",
+                        row.workspace_id
+                    );
+                }
+            }
+        }
+    }
+    if skipped > 0 {
+        tracing::info!(
+            "git credentials: pass budget reached, {skipped} repositories deferred to the next pass"
+        );
+    }
+    Ok(())
+}
 
 #[cfg(feature = "private")]
 async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {

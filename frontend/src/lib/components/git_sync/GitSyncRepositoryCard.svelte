@@ -24,6 +24,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import { ResourceService, VariableService } from '$lib/gen'
+	import { managedCredentialHost } from './managedCredential'
 
 	let {
 		idx = null,
@@ -151,6 +152,91 @@
 	let loadingResourceInfo = $state(false)
 	// Only GitHub App-backed repos can register webhooks; PAT repos poll only.
 	let isGithubApp = $state(false)
+	/** The host named by the resource's `managed_credential`, when Windmill holds
+	 * the repository's token rather than it being written into the URL. */
+	let managedCredential = $state<string | undefined>(undefined)
+	// Whether Windmill itself holds a credential for the repository, which is
+	// what the managed features (webhooks, pull requests, commit checks) need.
+	// A GitHub App installation qualifies, and so does a token the server keeps.
+	//
+	// The resource has to answer this, not just the recorded credential status:
+	// that status is written when the repository is saved, and the defaults below
+	// only apply to a connection that has not been saved yet, so relying on it
+	// alone left every managed control hidden while a repository was being set up.
+	let hasManagedCredential = $derived(
+		isGithubApp || managedCredential != null || (repo?.credential != null && !repo.credential.error)
+	)
+
+	const MS_PER_DAY = 86_400_000
+
+	/**
+	 * Whole days until the repository's own token expires, or undefined when it
+	 * never expires and when nothing has checked it yet.
+	 *
+	 * Counted between calendar dates, not instants: GitLab expires a token on a
+	 * date, so measuring from "now" would call a token expiring later today
+	 * expired, and one expiring tomorrow today's problem.
+	 */
+	const credentialDaysLeft = $derived.by(() => {
+		const expiresAt = repo.credential?.expires_at
+		if (!expiresAt) return undefined
+		const expiry = new Date(`${expiresAt}T00:00:00Z`).getTime()
+		const now = new Date()
+		const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+		return Math.round((expiry - today) / MS_PER_DAY)
+	})
+
+	/**
+	 * Only raised when a person has to act. A token Windmill renews on its own is
+	 * reported in the quiet status line instead, so the alert keeps meaning
+	 * "this needs you".
+	 */
+	const credentialAlert = $derived.by(() => {
+		const credential = repo.credential
+		if (!credential) return undefined
+		if (credential.error) {
+			return {
+				type: 'error' as const,
+				title: 'Repository token needs attention',
+				body: credential.error
+			}
+		}
+		const days = credentialDaysLeft
+		if (days === undefined) return undefined
+		const when =
+			days <= 0 ? 'has expired' : days === 1 ? 'expires tomorrow' : `expires in ${days} days`
+		if (credential.rotatable) {
+			// A token Windmill renews needs no countdown: a renewal that fails records
+			// an error, which is handled above. Reaching the expiry date anyway is the
+			// one state that proves renewal never happened, and it is the only one
+			// worth raising here — picking an earlier threshold would just be guessing
+			// at the server's renewal window from the client.
+			if (days > 0) return undefined
+			return {
+				type: 'error' as const,
+				title: 'Repository token has expired',
+				body: 'Windmill renews this token automatically but has not managed to. Check that the instance can reach GitLab, then replace the token to restore sync.'
+			}
+		}
+		if (days > 30) return undefined
+		// Two different things stop a renewal, and they need opposite advice: a
+		// token that may not rotate itself, or a token Windmill cannot store the
+		// replacement for. Scopes say which.
+		const canSelfRotate = (credential.scopes ?? []).some((s) => s === 'api' || s === 'self_rotate')
+		return {
+			type: days <= 7 ? ('error' as const) : days <= 14 ? ('warning' as const) : ('info' as const),
+			title: `Repository token ${when}`,
+			body:
+				(canSelfRotate
+					? 'Windmill cannot renew it because it cannot write the new token back to where this URL is stored. Move the URL into a Windmill variable, or replace the token before it expires.'
+					: 'Give the token the api or self_rotate scope and Windmill will renew it on its own. Otherwise, replace it before it expires to keep sync running.') +
+				// The remedy lives with the credential, which the resource owns; saying
+				// where stops the warning being a dead end.
+				(managedCredential
+					? ` Replace it on the ${repo?.git_repo_resource_path?.replace(/^\$res:/, '') ?? 'repository'} resource.`
+					: '')
+		}
+	})
 
 	// Update target branch when repository changes
 	$effect(() => {
@@ -187,6 +273,7 @@
 				// Clear stale app state up front so a resource change or a failed
 				// fetch can't leave webhook/fork controls showing for the wrong repo.
 				isGithubApp = false
+				managedCredential = undefined
 				try {
 					const resource = await ResourceService.getResource({
 						workspace: $workspaceStore,
@@ -197,6 +284,7 @@
 						// Extract git URL from resource value
 						const value = resource.value as Record<string, any>
 						isGithubApp = value?.is_github_app === true
+						managedCredential = managedCredentialHost(value)
 						// A newly added sync connection defaults to pulling from Git only
 						// when the repository is app-backed (instant webhook delivery).
 						// Polling is opt-in for token repositories, and fork/dev workspaces
@@ -205,7 +293,7 @@
 						if (
 							repoMode === 'sync' &&
 							repo.isUnsavedConnection &&
-							isGithubApp &&
+							hasManagedCredential &&
 							!isFork &&
 							$enterpriseLicense &&
 							repo.auto_pull === undefined
@@ -219,7 +307,7 @@
 						if (
 							repoMode === 'promotion' &&
 							repo.isUnsavedConnection &&
-							isGithubApp &&
+							hasManagedCredential &&
 							$enterpriseLicense &&
 							repo.promotion_open_prs === undefined
 						) {
@@ -292,6 +380,7 @@
 			} else {
 				resourceInfo = null
 				isGithubApp = false
+				managedCredential = undefined
 			}
 		}
 
@@ -537,6 +626,27 @@
 			</div>
 		{/if}
 
+		{#if credentialAlert}
+			<Alert type={credentialAlert.type} title={credentialAlert.title} size="xs">
+				{credentialAlert.body}
+			</Alert>
+		{:else if repo.credential && !repo.credential.error}
+			<div class="text-xs text-secondary">
+				{#if credentialDaysLeft === undefined}
+					Repository token does not expire.
+				{:else if repo.credential.rotatable && $enterpriseLicense}
+					Repository token expires on {repo.credential.expires_at}, and Windmill renews it
+					automatically.
+				{:else if repo.credential.rotatable}
+					Repository token expires on {repo.credential.expires_at}. Renewing it automatically
+					requires an enterprise license.
+				{:else}
+					Repository token expires on {repo.credential.expires_at}. Give it the api or self_rotate
+					scope to let Windmill renew it automatically.
+				{/if}
+			</div>
+		{/if}
+
 		{#if !emptyString(repo.git_repo_resource_path)}
 			<!-- Validation and Test Status -->
 			{#if validation?.isDuplicate}
@@ -671,7 +781,7 @@
 									{/if}
 								</div>
 							{/if}
-							{#if repoMode === 'promotion' && isGithubApp}
+							{#if repoMode === 'promotion' && hasManagedCredential}
 								<div class="mt-2">
 									<!-- Locked while the dev promotion toggle's save is in flight: this
 										toggle is revealed by that save, and an edit made mid-save would be
@@ -700,7 +810,12 @@
 										href="https://www.windmill.dev/docs/integrations/git_repository#github-app"
 										target="_blank"
 										class="text-blue-500 hover:underline">GitHub App</a
-									> and Windmill opens them automatically.
+									>, or give a GitLab repository a
+									<a
+										href="https://www.windmill.dev/docs/integrations/git_repository"
+										target="_blank"
+										class="text-blue-500 hover:underline">project access token</a
+									>, and Windmill opens them automatically.
 								</div>
 							{/if}
 							{#if repoMode === 'sync' && isFork}
@@ -715,7 +830,7 @@
 									fork is pushed to the fork's own
 									<span class="font-mono">wm-fork/…</span> branch instead of the tracked branch.
 								</div>
-								{#if isGithubApp}
+								{#if hasManagedCredential}
 									<div class="mt-2">
 										<Toggle
 											checked={repo.fork_open_prs ?? false}
@@ -740,11 +855,12 @@
 											target="_blank"
 											class="text-blue-500 hover:underline font-mono">open-pr-on-fork-commit</a
 										>
-										workflow in the repository. Recommended: connect the repository through the
+										workflow in the repository. Recommended: connect the repository through the GitHub
+										App, or give a GitLab repository a
 										<a
-											href="https://www.windmill.dev/docs/integrations/git_repository#github-app"
+											href="https://www.windmill.dev/docs/integrations/git_repository"
 											target="_blank"
-											class="text-blue-500 hover:underline">GitHub App</a
+											class="text-blue-500 hover:underline">project access token</a
 										> and Windmill opens them automatically.
 									</div>
 								{/if}
@@ -806,7 +922,7 @@
 										options={{
 											right: 'Automatically deploy changes from Git',
 											rightTooltip:
-												'Windmill deploys new commits from the tracked branch into this workspace. Repositories connected through the GitHub App sync instantly via webhooks with a polling fallback; token-based repositories are checked about every minute.'
+												'Windmill deploys new commits from the tracked branch into this workspace. Repositories Windmill holds a credential for sync instantly via webhooks with a polling fallback; other token-based repositories are checked about every minute.'
 										}}
 										on:change={(e) => setAutoPullEnabled(e.detail)}
 									>
@@ -828,7 +944,7 @@
 										/>
 									</div>
 								{/if}
-								{#if !isGithubApp && !loadingResourceInfo}
+								{#if !hasManagedCredential && !loadingResourceInfo}
 									<div class="mt-2">
 										<Alert type="info" title="Instant pull recommended" size="xs">
 											Pull for this repository checks the tracked branch about every minute; longer
@@ -838,25 +954,30 @@
 												href="https://www.windmill.dev/docs/integrations/git_repository#github-app"
 												target="_blank"
 												class="text-blue-500 hover:underline">GitHub App</a
+											>, or give a GitLab repository a
+											<a
+												href="https://www.windmill.dev/docs/integrations/git_repository"
+												target="_blank"
+												class="text-blue-500 hover:underline">project access token</a
 											>
-											(which also lets Windmill manage pull requests), or push changes into Windmill
+											(either also lets Windmill manage pull requests), or push changes into Windmill
 											with the
 											<a
 												href="https://www.windmill.dev/docs/advanced/git_sync#github-actions"
 												target="_blank"
 												class="text-blue-500 hover:underline">sync GitHub workflow</a
-											>. If you already push changes with a GitHub Action, keep either the Action or
-											automatic pull, not both, so they don't fight over deploys.
+											>. If you already push changes from CI, keep either that or automatic pull,
+											not both, so they don't fight over deploys.
 										</Alert>
 									</div>
 								{/if}
 								{#if repo.auto_pull?.enabled}
 									{@const viaWebhook = repo.auto_pull?.webhook_id != null}
-									{#if isGithubApp}
+									{#if hasManagedCredential}
 										<div class="mt-2">
-											<Alert type="info" title="Already pulling with a GitHub Action?" size="xs">
-												If you previously set up a GitHub Action to push changes into Windmill,
-												remove it now so the two don't fight over deploys.
+											<Alert type="info" title="Already pulling with a CI job?" size="xs">
+												If you previously set up a CI job to push changes into Windmill, remove it
+												now so the two don't fight over deploys.
 											</Alert>
 										</div>
 									{/if}
@@ -882,7 +1003,7 @@
 												: 'Checking the tracked branch about every minute. New commits deploy automatically.'}
 										{/if}
 									</div>
-									{#if isGithubApp && repo.auto_pull?.webhook_error}
+									{#if hasManagedCredential && repo.auto_pull?.webhook_error}
 										<div class="mt-2">
 											<Alert type="warning" title="Falling back to polling" size="xs">
 												{repo.auto_pull.webhook_error}

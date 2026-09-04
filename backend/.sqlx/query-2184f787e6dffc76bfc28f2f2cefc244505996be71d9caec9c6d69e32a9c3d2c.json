@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ws.workspace_id, ws.git_sync\n           FROM workspace_settings ws\n           JOIN workspace w ON w.id = ws.workspace_id\n           WHERE NOT w.deleted\n             AND ws.git_sync IS NOT NULL\n             AND jsonb_typeof(ws.git_sync->'repositories') = 'array'\n           ORDER BY (\n             SELECT min((elem->'credential'->>'checked_at')::bigint)\n             FROM jsonb_array_elements(ws.git_sync->'repositories') AS elem\n           ) ASC NULLS FIRST",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "git_sync",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "2184f787e6dffc76bfc28f2f2cefc244505996be71d9caec9c6d69e32a9c3d2c"
+}

@@ -15,6 +15,18 @@ pub async fn get_github_app_token_internal(
     ));
 }
 
+/// Server-held git credentials are an enterprise feature, so on this build a
+/// repository URL authenticates with whatever it already carries.
+#[cfg(not(feature = "private"))]
+pub async fn with_stored_credential(
+    _db: &Pool<Postgres>,
+    _w_id: &str,
+    _resource_path: &str,
+    url: String,
+) -> crate::error::Result<String> {
+    Ok(url)
+}
+
 lazy_static::lazy_static! {
     /// Matches a `user:password@` (or `user@`) userinfo component right after the URL scheme.
     static ref GIT_URL_USERINFO_RE: regex::Regex =
