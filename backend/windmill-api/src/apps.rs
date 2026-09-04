@@ -321,9 +321,18 @@ impl ExecutionMode {
 /// The protection rule gating a *transition into* `mode`, if any. Anonymous and
 /// guest each widen who may open an app past the workspace's own members, so each
 /// carries its own rule; the two member-only modes are ungated.
+fn deployment_rule_for_mode(mode: ExecutionMode) -> Option<ProtectionRuleKind> {
+    match mode {
+        ExecutionMode::Anonymous => Some(ProtectionRuleKind::RestrictAnonymousAppDeployment),
+        ExecutionMode::Guest => Some(ProtectionRuleKind::RestrictGuestAppDeployment),
+        ExecutionMode::Publisher | ExecutionMode::Viewer => None,
+    }
+}
+
 /// A guest session is scoped to its app by path, so an app whose path the scope
 /// grammar cannot hold as one literal (`is_scope_literal_path`) can never admit a
 /// guest; refuse the mode at deploy time rather than advertise an app nobody enters.
+/// `path` is where the app ends up: on a rename, the destination.
 fn refuse_unscopable_guest_app(path: &str, mode: ExecutionMode) -> Result<()> {
     if matches!(mode, ExecutionMode::Guest) && !windmill_common::auth::is_scope_literal_path(path) {
         return Err(Error::BadRequest(format!(
@@ -331,14 +340,6 @@ fn refuse_unscopable_guest_app(path: &str, mode: ExecutionMode) -> Result<()> {
         )));
     }
     Ok(())
-}
-
-fn deployment_rule_for_mode(mode: ExecutionMode) -> Option<ProtectionRuleKind> {
-    match mode {
-        ExecutionMode::Anonymous => Some(ProtectionRuleKind::RestrictAnonymousAppDeployment),
-        ExecutionMode::Guest => Some(ProtectionRuleKind::RestrictGuestAppDeployment),
-        ExecutionMode::Publisher | ExecutionMode::Viewer => None,
-    }
 }
 
 /// Gate a viewer on the app's `execution_mode`, as far as can be decided without an
@@ -3354,6 +3355,24 @@ async fn update_app_internal<'a>(
     // the token's write scope, not just the source path.
     if let Some(npath) = ns.path.as_deref() {
         check_scopes(&authed, || format!("apps:write:{}", npath))?;
+        // The destination is what a guest session would be scoped to; a rename that
+        // carries no policy keeps the deployed mode.
+        let mode = match ns.policy.as_ref().and_then(|p| p.stated_execution_mode()) {
+            Some(mode) => mode,
+            None => sqlx::query_scalar::<_, Option<String>>(
+                "SELECT policy->>'execution_mode' FROM app WHERE workspace_id = $1 AND path = $2",
+            )
+            .bind(w_id)
+            .bind(path)
+            .fetch_optional(&db)
+            .await?
+            .flatten()
+            .and_then(|m| {
+                serde_json::from_value::<ExecutionMode>(serde_json::Value::String(m)).ok()
+            })
+            .unwrap_or_default(),
+        };
+        refuse_unscopable_guest_app(npath, mode)?;
     }
 
     if raw_app {
@@ -3533,7 +3552,10 @@ async fn update_app_internal<'a>(
                         .unwrap_or_default(),
                 );
             }
-            refuse_unscopable_guest_app(path, npolicy.execution_mode())?;
+            refuse_unscopable_guest_app(
+                ns.path.as_deref().unwrap_or(path),
+                npolicy.execution_mode(),
+            )?;
             if let Some(rule) =
                 deployment_rule_for_mode(npolicy.execution_mode()).filter(|_| !authed.is_admin)
             {

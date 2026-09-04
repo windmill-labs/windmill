@@ -549,6 +549,51 @@ async fn a_guest_cannot_read_a_job_it_did_not_launch(db: Pool<Postgres>) -> anyh
     Ok(())
 }
 
+/// Guests mode cannot land on a path the scope grammar cannot hold, however it gets
+/// there: set at creation, set on update, or a rename of an app already in that mode.
+#[sqlx::test(fixtures("base"))]
+async fn guests_mode_needs_a_scopable_path(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
+        .json(&guest_app_with_runnable("u/test-user/a:b", false))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 400, "created into Guests on a `:` path");
+
+    let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
+        .json(&guest_app_with_runnable(APP_PATH, false))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    let resp = authed(
+        client().post(format!("{ws}/apps/update/{APP_PATH}")),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({ "path": "u/test-user/a,b" }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 400, "renamed to a `,` path while in Guests");
+    let resp = authed(
+        client().post(format!("{ws}/apps/update/{APP_PATH}")),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({ "path": "u/test-user/My App" }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "a space is literal: {}",
+        resp.text().await?
+    );
+
+    Ok(())
+}
+
 /// The superadmin switch sits above every workspace's: off, no guest session stands and
 /// no app discovers as open, whatever the workspace and the app say.
 #[sqlx::test(fixtures("base"))]

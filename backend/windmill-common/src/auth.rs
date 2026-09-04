@@ -83,9 +83,12 @@ pub fn is_guest_session_label(label: Option<&str>) -> bool {
 
 /// Whether `path` can be spliced into a scope as one literal resource. The scope
 /// grammar reserves three characters: `:` separates the parts, `,` separates
-/// resources, `*` is a wildcard. App paths are otherwise free-form (spaces, `@`).
+/// resources, `*` is a wildcard. App paths are otherwise free-form (spaces, `@`). A
+/// leading `/` is refused too: routes strip it, so the scope would never match.
 pub fn is_scope_literal_path(path: &str) -> bool {
-    !path.is_empty() && !path.chars().any(|c| matches!(c, ':' | ',' | '*'))
+    !path.is_empty()
+        && !path.starts_with('/')
+        && !path.chars().any(|c| matches!(c, ':' | ',' | '*'))
 }
 
 /// Whether `label` is the one minted for a browser session at login. [`is_server_minted_label`]
