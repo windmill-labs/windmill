@@ -1809,6 +1809,10 @@ async fn get_datatable_resource_inner(
         .ok_or_else(|| datatable_not_found_error(name, datatables.as_ref()))?;
     let datatable = serde_json::from_value::<DataTable>(datatable.clone())?;
 
+    // The internal machinery — role DDL, migration bookkeeping, fork snapshots —
+    // resolves as admin to repair a data table, including one that has moved, so
+    // the check below is for callers that have an identity to answer for.
+    let internal = matches!(access, DatatableAccess::Unchecked);
     let role_override = resolve_datatable_role(db, w_id, name, &datatable, role, access).await?;
 
     let mut db_resource =
@@ -1839,10 +1843,18 @@ async fn get_datatable_resource_inner(
             })?
         };
 
+    // Every role of a permissioned data table, `admin` included: it has no login
+    // to swap in — it is the data table's own connection — but following that
+    // connection to another database is the thing the record exists to stop, and
+    // a caller granted `admin` would otherwise be handed whatever the resource
+    // now points at.
+    if !internal && datatable.permissions.as_ref().is_some_and(|p| p.enabled) {
+        ensure_datatable_database_unchanged(name, &datatable, &db_resource)?;
+    }
+
     // The role logs in as itself rather than through `SET ROLE`, which a script
     // could `RESET ROLE` its way back out of and regain admin's privileges.
     if let Some((pg_rolename, pg_password)) = role_override {
-        ensure_datatable_database_unchanged(name, &datatable, &db_resource)?;
         let creds = db_resource.as_object_mut().ok_or_else(|| {
             Error::internal_err(format!(
                 "Data table '{name}' does not resolve to a postgres resource"
@@ -3213,6 +3225,24 @@ mod tests {
 
     /// The roles of a data table live in one database, so a config that points
     /// somewhere else must not be able to use them there.
+    /// `admin` has no login of its own — it is the data table's own connection —
+    /// so the check that a data table still points where its roles live is not
+    /// something the presence of an override can gate.
+    #[test]
+    fn admin_is_refused_there_too() {
+        let resolved = |host: &str| {
+            serde_json::json!({ "host": host, "port": 5432, "dbname": "app", "user": "owner" })
+        };
+        let mut dt = permissioned(&[(ADMIN_DATATABLE_ROLE, &["u/alice"]), ("analyst", &[])]);
+        dt.database.resource_type = DataTableCatalogResourceType::Postgresql;
+        dt.permissions.as_mut().unwrap().database_identity =
+            Some(datatable_database_identity(&resolved("db.internal")));
+
+        // The role a caller lands on says nothing about which database answered.
+        assert!(ensure_datatable_database_unchanged("main", &dt, &resolved("elsewhere")).is_err());
+        ensure_datatable_database_unchanged("main", &dt, &resolved("db.internal")).unwrap();
+    }
+
     #[test]
     fn a_role_is_refused_once_its_data_table_points_at_another_database() {
         let resolved = |host: &str, password: &str| {

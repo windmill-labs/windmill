@@ -426,9 +426,11 @@
 															disabled={!canCreateSchema}
 															tooltip={canCreateSchema
 																? undefined
-																: accessUnknown
-																	? `Could not read what may be created in ${selectedDatatable}`
-																	: `${effectiveRole ?? 'This role'} cannot create schemas in ${selectedDatatable}`}
+																: noUsableRole
+																	? `You may run as no role on ${selectedDatatable}`
+																	: accessUnknown
+																		? `Could not read what may be created in ${selectedDatatable}`
+																		: `${effectiveRole ?? 'This role'} cannot create schemas in ${selectedDatatable}`}
 															{item}
 															size="sm"
 														/>
