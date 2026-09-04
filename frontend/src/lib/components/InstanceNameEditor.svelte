@@ -6,7 +6,6 @@
 	import { createEventDispatcher } from 'svelte'
 	import Button from './common/button/Button.svelte'
 	import Popover from './meltComponents/Popover.svelte'
-	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import ChangeInstanceUsernameInner from './ChangeInstanceUsernameInner.svelte'
 	import ChangeInstanceEmailInner from './ChangeInstanceEmailInner.svelte'
 	import { UserService } from '$lib/gen'
@@ -53,11 +52,8 @@
 </script>
 
 <Popover
-	floatingConfig={{
-		strategy: 'fixed',
-		placement: 'left-end',
-		middleware: [offset(8), flip(), shift()]
-	}}
+	floatingConfig={{ strategy: 'fixed', placement: 'left-end' }}
+	contentClasses="flex flex-col pt-9"
 	closeButton
 >
 	{#snippet trigger()}
@@ -66,7 +62,10 @@
 		>
 	{/snippet}
 	{#snippet content()}
-		<div class="flex flex-col gap-8 max-w-sm p-4">
+		<!-- The scroll sits here rather than on the popover box, which is what the close button
+		     is positioned against — box-level overflow scrolls that button out of reach. The
+		     box's `pt-9` clears the button's 34px, so the scrollbar starts below it. -->
+		<div class="flex flex-col gap-8 max-w-sm p-4 pt-0 min-h-0 max-h-[70vh] overflow-y-auto">
 			<ChangeInstanceEmailInner
 				{email}
 				{username}
