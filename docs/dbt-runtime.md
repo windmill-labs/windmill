@@ -1255,17 +1255,22 @@ reader may have no access to. The consequence to know: a project past the ceilin
 needs the instance store configured, which is an EE feature, so on CE the ceiling
 is the limit and `DBT_STATE_INLINE_MAX_BYTES` is how it moves.
 
-The object key is derived from the path and the environment
-(`wmill_dbt_state/<workspace>/<digest>/<artifact>`), so a republish overwrites in
-place and the store holds one object per artifact per environment however many
-times the project runs — no versions to sweep, and no window where the row points
-at an object a reader is about to find gone. Publishers of one environment
-serialize on the row (`FOR UPDATE`) so two of them cannot interleave their
-uploads and leave one run's manifest beside another's results. A reader between
-an upload and its commit still sees the older row's `job_id` over the newer
-manifest, which describes the same project in the same environment. A blob whose
-row is gone — the script was deleted, or the project grew past the ceiling and
-then shrank back under it — stays in the store, as a script bundle does.
+Each publication writes its OWN keys
+(`wmill_dbt_state/<workspace>/<digest of path and environment>/<job>/<artifact>`)
+and the row switches to them in one statement, so an upload never overwrites an
+artifact the committed row still names: a run that fails between its two uploads,
+or between them and its row, leaves the state pointing at the pair it already
+had. The objects the commit displaced are dropped afterwards, never before, since
+a reader that has already read the row is about to fetch them; a reader that
+loses that race re-reads the row once rather than reporting a state that is
+there. What a publication uploaded and then could not commit is dropped on the
+way out.
+
+Publishers of one environment serialize on `pg_advisory_xact_lock`, so two of
+them cannot interleave and leave one run's manifest beside another's results —
+an advisory lock rather than the row's, because the first publish of an
+environment has no row to lock and is exactly when two runs of a newly deployed
+script are most likely to race.
 
 ### Retention
 
@@ -1276,10 +1281,15 @@ replaced in place, so it does not grow with runs — and its reader is every lat
 run of that script, so a project that runs monthly must still find last month's
 state. It goes with the script instead: a path no live dbt version occupies any
 more clears it, alongside `dbt_run_state` (`clear_dbt_script_state`,
-`clear_dbt_script_state_if_path_retired`). The same guard is on the write: a job
-finishing after its script was renamed, archived, deleted or converted to another
-language publishes nothing, so it cannot recreate state at a path for whatever is
-created there next to defer through.
+`clear_dbt_script_state_if_path_retired`).
+
+The write carries a guard of its own, and it names the VERSION rather than the
+path: the live dbt script there must be the one this job ran, or a later version
+of it (`hash = $n OR $n = ANY(parent_hashes)`). "Some live dbt script is here" —
+which is what the retry state settles for — is also satisfied by a script created
+at a path this one was renamed away from, and this job's manifest would then
+become that project's deferral state. A preview names no version and so publishes
+nothing, which is right for a run of content that was never deployed.
 
 A RENAME is where the two halves part. The retry state travels, because nothing
 regenerates it. The environment state is cleared, because an oversized artifact's
@@ -1297,11 +1307,15 @@ invocations of ONE script (decision 6: N scripts means N projects): a project
 that could only defer by descriptor could never populate the state it reads.
 
 A run that asks to defer with nothing published is refused, naming the
-environment and saying that one run without `defer` publishes it. The
-alternative — running without deferral — fails deep inside dbt with a
-relation-not-found the caller has no way to connect back to a missing state.
-An agent worker is refused the same way and for a reason it can act on: it
-reaches the database only through the API, which does not expose this table.
+environment and the runs that cannot publish one. The alternative — running
+without deferral — fails deep inside dbt with a relation-not-found the caller has
+no way to connect back to a missing state. An agent worker is refused the same
+way and for a reason it can act on: it reaches the database only through the API,
+which does not expose this table.
+
+A `show` defers too, and every engine takes the flags on it. It compiles the
+model it previews, so a model whose upstream this environment built and this run
+did not is exactly the case a deferral exists for.
 
 The result carries `deferred_to`, the run whose state was used. Without it what
 a deferring run built against is unrecoverable, since the next successful run of

@@ -236,11 +236,7 @@ async fn clearing_one_version_leaves_the_others(db: Pool<Postgres>) {
     // this is where two versions coexist: it pins the batched edge insert
     // against a real database as well as the version scoping.
     assert_eq!(edges_for(&db, 1).await, 0, "the cleared version's edges go");
-    assert_eq!(
-        edges_for(&db, 2).await,
-        1,
-        "the other version keeps its own"
-    );
+    assert_eq!(edges_for(&db, 2).await, 1, "the other version keeps its own");
 }
 
 /// The routes that hard-delete a path clear no graph rows: they delete the
@@ -368,11 +364,7 @@ async fn only_the_newest_deploys_keep_their_graph(db: Pool<Postgres>) {
     // The newest is always among them: losing the live version's graph would
     // empty the page of every run of it.
     assert_eq!(nodes_for(&db, over, DEPLOYED_GRAPH).await, 1);
-    assert_eq!(
-        nodes_for(&db, 1, DEPLOYED_GRAPH).await,
-        0,
-        "the oldest is reclaimed"
-    );
+    assert_eq!(nodes_for(&db, 1, DEPLOYED_GRAPH).await, 0, "the oldest is reclaimed");
 }
 
 /// The third provenance: a `parse` of the EDITOR's buffer, which names no
@@ -495,21 +487,13 @@ async fn a_version_clear_spares_editor_graphs_and_a_path_clear_does_not(db: Pool
     tx.commit().await.unwrap();
 
     assert_eq!(nodes_for(&db, 1, DEPLOYED_GRAPH).await, 0);
-    assert_eq!(
-        editor_nodes(&db, job).await,
-        1,
-        "the buffer's graph survives"
-    );
+    assert_eq!(editor_nodes(&db, job).await, 1, "the buffer's graph survives");
 
     let mut tx = db.begin().await.unwrap();
     clear_dbt_editor_graphs(&mut tx, WS, PATH).await.unwrap();
     tx.commit().await.unwrap();
 
-    assert_eq!(
-        editor_nodes(&db, job).await,
-        0,
-        "retiring the path takes it"
-    );
+    assert_eq!(editor_nodes(&db, job).await, 0, "retiring the path takes it");
 }
 
 /// A preview names its own PATH and needs only `jobs:run`, so a bound over the
@@ -606,6 +590,61 @@ async fn a_rename_clears_environment_state_rather_than_moving_it(db: Pool<Postgr
     clear_dbt_script_state(&mut tx, WS, PATH).await.unwrap();
     tx.commit().await.unwrap();
     assert_eq!(environment_states(&db, PATH).await, 0);
+}
+
+/// The worker publishes under a guard naming the version that ran, and the whole
+/// point of it is a job that finishes late: its script can be renamed away and an
+/// unrelated one created at the same path while it runs, and that project must
+/// not inherit this one's manifest as its deferral state. Enforced in raw SQL,
+/// where a refactor can drop a predicate with no type error, so it is pinned
+/// against a real database — the same shape `dbt_state::publish` issues.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn a_late_job_cannot_publish_for_a_path_it_no_longer_owns(db: Pool<Postgres>) {
+    deploy_script(&db, 1).await;
+    assert_eq!(guarded_publish(&db, PATH, 1).await, 1, "its own version");
+    assert_eq!(
+        guarded_publish(&db, PATH, 2).await,
+        0,
+        "a version that never lived here"
+    );
+
+    // The script is gone from this path and another one takes it.
+    sqlx::query!(
+        "DELETE FROM script WHERE workspace_id = $1 AND hash = 1",
+        WS
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+    deploy_script(&db, 3).await;
+    assert_eq!(
+        guarded_publish(&db, PATH, 1).await,
+        0,
+        "the late job's version does not own this path any more"
+    );
+}
+
+/// `dbt_state::publish`'s guarded insert, reduced to what it decides.
+async fn guarded_publish(db: &Pool<Postgres>, path: &str, ran: i64) -> u64 {
+    sqlx::query!(
+        "INSERT INTO dbt_environment_state (workspace_id, script_path, environment, job_id,
+                                            manifest)
+         SELECT $1::varchar, $2::varchar, 'main||analytics|wh'::text, $3::uuid, '{}'::text
+          WHERE EXISTS (SELECT 1 FROM script
+                         WHERE workspace_id = $1 AND path = $2
+                           AND deleted = false AND archived = false
+                           AND language = 'dbt'
+                           AND (hash = $4 OR $4 = ANY(parent_hashes)))
+         ON CONFLICT (workspace_id, script_path, environment) DO UPDATE SET job_id = EXCLUDED.job_id",
+        WS,
+        path,
+        uuid::Uuid::from_u128(9),
+        ran,
+    )
+    .execute(db)
+    .await
+    .unwrap()
+    .rows_affected()
 }
 
 async fn publish_environment_state(db: &Pool<Postgres>, path: &str) {

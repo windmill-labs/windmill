@@ -1215,7 +1215,7 @@ pub async fn clear_dbt_script_state_if_path_retired(
 /// otherwise inherit a stranger's resumable failure and defer to a project it
 /// has nothing to do with.
 ///
-/// A manifest this moves out of the database and into the workspace's object
+/// A manifest this moves out of the database and into the instance's object
 /// storage is left in the bucket, as a script bundle is: the key is derived from
 /// the path and the environment, so a project that comes back reuses it rather
 /// than accumulating a second one.

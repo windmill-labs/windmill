@@ -22,7 +22,7 @@ use windmill_common::worker::Connection;
 use crate::dbt_executor::{digest, PreparedProject, ARTIFACTS_DIR};
 
 lazy_static::lazy_static! {
-    /// Above this, an artifact goes to the workspace's object storage instead of
+    /// Above this, an artifact goes to the instance's object storage instead of
     /// into the row. A manifest passes a few hundred KB on a handful of models
     /// and grows with the project, so this ceiling is what decides whether a
     /// large project needs storage configured at all; a small one stays in the
@@ -101,6 +101,8 @@ pub(crate) async fn publish(
     p: &PreparedProject,
     w_id: &str,
     job_id: &Uuid,
+    // The version this job ran. `None` for a preview, which publishes nothing.
+    script_hash: Option<i64>,
     // A build recovered by the automatic in-job node retry has a
     // `run_results.json` naming only the nodes that retry redid. The manifest is
     // unaffected — it is a function of the project, not of what ran — so the
@@ -133,18 +135,11 @@ pub(crate) async fn publish(
             .ok(),
     };
     let environment = environment(p);
-    // One publisher per environment at a time. The object keys are derived, so
-    // two of them would otherwise interleave their uploads and leave a manifest
-    // from one run beside results from another; the lock is also what makes the
-    // row and the objects agree once this commits. A reader between an upload and
-    // this commit still sees the older row's `job_id` over the newer manifest,
-    // which describes the same project in the same environment — versioned keys
-    // would move that window to a pointer at an object a reader may already have
-    // been about to fetch, and buy a grace period to sweep.
-    //
-    // An advisory lock rather than the row's, because the first publish of an
-    // environment has no row to lock and is exactly when two runs of a newly
-    // deployed script are most likely to race.
+    // One publisher per environment at a time, so two of them cannot interleave
+    // and leave a manifest from one run beside results from another. An advisory
+    // lock rather than the row's, because the first publish of an environment has
+    // no row to lock and is exactly when two runs of a newly deployed script are
+    // most likely to race.
     let mut tx = db.begin().await?;
     sqlx::query_scalar!(
         "SELECT pg_advisory_xact_lock($1)",
@@ -152,26 +147,57 @@ pub(crate) async fn publish(
     )
     .execute(&mut *tx)
     .await?;
+    // What the row points at NOW, so those objects can go once this one is
+    // committed in their place — never before, since a reader that has already
+    // read the row is about to fetch them.
+    let displaced = sqlx::query!(
+        "SELECT manifest_key, run_results_key FROM dbt_environment_state
+          WHERE workspace_id = $1 AND script_path = $2 AND environment = $3",
+        w_id,
+        &p.script_path,
+        environment
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .map(|r| [r.manifest_key, r.run_results_key])
+    .unwrap_or_default();
+    // Every publication writes its OWN keys and the row switches to them in one
+    // statement, so nothing overwrites an artifact another row still names: a
+    // failure anywhere below leaves the committed state pointing at the objects
+    // it was already paired with, rather than at this run's manifest beside the
+    // previous run's results.
     let manifest = store(
         manifest,
         "manifest.json",
         &environment,
         &p.script_path,
         w_id,
+        job_id,
     )
     .await?;
     let run_results = match run_results {
-        Some(r) => Some(store(r, "run_results.json", &environment, &p.script_path, w_id).await?),
+        Some(r) => Some(
+            store(
+                r,
+                "run_results.json",
+                &environment,
+                &p.script_path,
+                w_id,
+                job_id,
+            )
+            .await?,
+        ),
         None => None,
     };
     let (manifest, manifest_key) = split(Some(manifest));
     let (run_results, run_results_key) = split(run_results);
-    // Only while a live dbt version stays at this path, exactly as the retry
-    // state is saved: a job finishing after its script was renamed, archived,
-    // deleted or converted to another language would otherwise recreate state at
-    // a path no dbt script occupies, for whatever is created there next to defer
-    // through.
-    sqlx::query!(
+    // Only while the live dbt version at this path is the one this job ran, or a
+    // later version of it. The retry state settles for "some live dbt script is
+    // here", which a script created at a path this one was renamed away from also
+    // satisfies — and this job's manifest would then become that project's
+    // deferral state. A preview names no version and so publishes nothing, which
+    // is right for a run of content that was never deployed.
+    let published = sqlx::query!(
         "INSERT INTO dbt_environment_state (workspace_id, script_path, environment, job_id,
                                             manifest, manifest_key, run_results, run_results_key,
                                             updated_at)
@@ -180,7 +206,8 @@ pub(crate) async fn publish(
           WHERE EXISTS (SELECT 1 FROM script
                          WHERE workspace_id = $1 AND path = $2
                            AND deleted = false AND archived = false
-                           AND language = 'dbt')
+                           AND language = 'dbt'
+                           AND (hash = $9 OR $9 = ANY(parent_hashes)))
          ON CONFLICT (workspace_id, script_path, environment) DO UPDATE SET
            job_id = EXCLUDED.job_id, manifest = EXCLUDED.manifest,
            manifest_key = EXCLUDED.manifest_key, run_results = EXCLUDED.run_results,
@@ -193,10 +220,29 @@ pub(crate) async fn publish(
         manifest_key,
         run_results,
         run_results_key,
+        script_hash,
     )
     .execute(&mut *tx)
-    .await?;
-    tx.commit().await?;
+    .await;
+    let mine = [manifest_key, run_results_key];
+    match published.and_then(|r| Ok(r.rows_affected())) {
+        // Committed: the row names this run's objects, so the ones it displaced
+        // have no reader left.
+        Ok(1) => match tx.commit().await {
+            Ok(()) => forget_objects(&displaced).await,
+            Err(e) => {
+                forget_objects(&mine).await;
+                return Err(e.into());
+            }
+        },
+        // Refused by the guard, or the write failed: the committed state is
+        // untouched and what was uploaded above has no row.
+        Ok(_) => forget_objects(&mine).await,
+        Err(e) => {
+            forget_objects(&mine).await;
+            return Err(e.into());
+        }
+    }
     Ok(())
 }
 
@@ -215,28 +261,41 @@ pub(crate) async fn load(
         ));
     };
     let environment = environment(p);
-    let Some(row) = sqlx::query!(
-        "SELECT job_id, manifest, manifest_key, run_results, run_results_key
-           FROM dbt_environment_state
-          WHERE workspace_id = $1 AND script_path = $2 AND environment = $3",
-        w_id,
-        &p.script_path,
-        environment
-    )
-    .fetch_optional(db)
-    .await?
-    else {
-        return Ok(None);
-    };
-    let Some(manifest) = fetch(row.manifest, row.manifest_key).await? else {
-        return Ok(None);
-    };
-    let run_results = fetch(row.run_results, row.run_results_key).await?;
-    Ok(Some(StoredState {
-        manifest,
-        run_results,
-        job_id: row.job_id,
-    }))
+    // Twice at most: a publish committing between the row and the objects it
+    // named drops those objects, so a miss is one re-read rather than a run
+    // refused for a state that is there.
+    let mut attempts = 0;
+    loop {
+        attempts += 1;
+        let Some(row) = sqlx::query!(
+            "SELECT job_id, manifest, manifest_key, run_results, run_results_key
+               FROM dbt_environment_state
+              WHERE workspace_id = $1 AND script_path = $2 AND environment = $3",
+            w_id,
+            &p.script_path,
+            environment
+        )
+        .fetch_optional(db)
+        .await?
+        else {
+            return Ok(None);
+        };
+        let job_id = row.job_id;
+        let fetched = async {
+            let manifest = fetch(row.manifest, row.manifest_key).await?;
+            let run_results = fetch(row.run_results, row.run_results_key).await?;
+            error::Result::Ok((manifest, run_results))
+        }
+        .await;
+        match fetched {
+            Ok((Some(manifest), run_results)) => {
+                return Ok(Some(StoredState { manifest, run_results, job_id }))
+            }
+            Ok((None, _)) => return Ok(None),
+            Err(_) if attempts < 2 => continue,
+            Err(e) => return Err(e),
+        }
+    }
 }
 
 /// A `manifest.json` for a state directory, whichever side it comes from.
@@ -289,7 +348,7 @@ pub(crate) async fn write_state_dir(
 enum Home {
     /// Small enough to sit in the row.
     Inline(String),
-    /// In the workspace's object storage, under this key.
+    /// In the instance's object storage, under this key.
     Stored(String),
 }
 
@@ -316,34 +375,42 @@ fn publication_lock(w_id: &str, script_path: &str, environment: &str) -> i64 {
 
 /// The object-storage key an artifact takes.
 ///
-/// Derived from the row's own key rather than randomly, so a republish
-/// overwrites in place and the store holds one object per artifact per
-/// environment however many times a project runs — no versions to sweep, and no
-/// window where the row points at an object a reader is about to find gone.
-/// Digested because a Windmill path and a schema name may both carry characters
-/// an object key gives meaning to.
+/// One key per PUBLICATION, so an upload never overwrites an artifact the
+/// committed row still names: a run that fails between its two uploads, or
+/// between them and its row, leaves the state pointing at the pair it already
+/// had. The row switches to these in one statement and the objects it displaced
+/// are dropped afterwards. Digested because a Windmill path and a schema name may
+/// both carry characters an object key gives meaning to.
 ///
-/// Being derived from the PATH is why a rename clears the row rather than moving
-/// it (`move_dbt_script_state`): the object cannot move with it.
-fn object_key(w_id: &str, script_path: &str, environment: &str, artifact: &str) -> String {
+/// The environment prefix is derived from the PATH, which is why a rename clears
+/// the row rather than moving it (`move_dbt_script_state`).
+fn object_key(
+    w_id: &str,
+    script_path: &str,
+    environment: &str,
+    job_id: &Uuid,
+    artifact: &str,
+) -> String {
     format!(
-        "wmill_dbt_state/{w_id}/{}/{artifact}",
+        "wmill_dbt_state/{w_id}/{}/{job_id}/{artifact}",
         digest(&format!("{script_path}|{environment}"))
     )
 }
 
 /// Put an artifact where its size says it belongs.
+#[allow(clippy::too_many_arguments)]
 async fn store(
     value: String,
     artifact: &str,
     environment: &str,
     script_path: &str,
     w_id: &str,
+    job_id: &Uuid,
 ) -> error::Result<Home> {
     if value.len() <= *DBT_STATE_INLINE_MAX_BYTES {
         return Ok(Home::Inline(value));
     }
-    let key = object_key(w_id, script_path, environment, artifact);
+    let key = object_key(w_id, script_path, environment, job_id, artifact);
     let size = value.len();
     if put_object(&key, value).await? {
         return Ok(Home::Stored(key));
@@ -358,7 +425,7 @@ async fn store(
 }
 
 fn mib(bytes: usize) -> String {
-    format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    format!("{:.1} MiB", bytes as f64 / (1024.0 * 1024.0))
 }
 
 /// Read an artifact back from whichever home the row names.
@@ -367,6 +434,15 @@ async fn fetch(inline: Option<String>, key: Option<String>) -> error::Result<Opt
         (Some(inline), _) => Ok(Some(inline)),
         (None, Some(key)) => get_object(&key).await.map(Some),
         (None, None) => Ok(None),
+    }
+}
+
+/// Drop the objects nothing points at any more. Best-effort: an object left
+/// behind costs storage, and there is nothing useful to do about it in the path
+/// of a run that has already finished.
+async fn forget_objects(keys: &[Option<String>; 2]) {
+    for key in keys.iter().flatten() {
+        delete_object(key).await;
     }
 }
 
@@ -403,6 +479,20 @@ async fn get_object(key: &str) -> error::Result<String> {
     String::from_utf8(bytes.to_vec())
         .map_err(|e| Error::internal_err(format!("the stored dbt state is not valid UTF-8: {e}")))
 }
+
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+async fn delete_object(key: &str) {
+    use windmill_object_store::object_store_reexports::Path as ObjectPath;
+    let Some(store) = windmill_object_store::get_object_store().await else {
+        return;
+    };
+    if let Err(e) = store.delete(&ObjectPath::from(key)).await {
+        tracing::warn!("dbt: could not drop the superseded state object {key}: {e:#}");
+    }
+}
+
+#[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+async fn delete_object(_key: &str) {}
 
 /// A build without the instance store carries no client at all, so an oversized
 /// artifact has nowhere but the row, and a row naming a key was written by a

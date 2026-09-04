@@ -381,7 +381,10 @@ pub(crate) async fn handle_dbt_job(
     // resumes did: a retry's own arguments are the command block alone, and the
     // relations its unbuilt `ref()`s resolve to must not depend on that.
     let defer = arg_bool(&inv.args, "defer")?.unwrap_or(descriptor.defer);
-    let inv = if defer && !windmill_parser_yaml::dbt::is_read_only_command(&command) {
+    // A `show` defers too, and every engine takes the flags on it: it COMPILES
+    // the model it previews, so a model whose upstream this environment built and
+    // this run did not is exactly the case a deferral exists for.
+    let inv = if defer {
         // Refused before anything runs. `dbt retry` reads the run it resumes
         // from `--state`, the flag a deferral needs, so an engine without
         // `--defer-state` can be given one or the other: told to defer, it
@@ -604,6 +607,7 @@ pub(crate) async fn handle_dbt_job(
             &prepared,
             &job.workspace_id,
             &job.id,
+            job.runnable_id.map(|h| h.0),
             // An attempt was spent, so `run_results.json` on disk is the one
             // `dbt retry` left: the nodes it redid, not the build.
             node_retry.is_some_and(|p| retries_left < p.attempts()),
@@ -3023,6 +3027,9 @@ async fn run_show(
         )));
     }
     let mut cmd = dbt_command(p, &["show"]);
+    if inv.deferral.is_some() {
+        cmd.args(defer_flags("show", p.engine.engine));
+    }
     add_vars(&mut cmd, descriptor, inv)?;
     // Intersected with `resource_type:model`, because `show` is only read-only
     // for models: dbt dispatches a selected SEED through its seed runner and
