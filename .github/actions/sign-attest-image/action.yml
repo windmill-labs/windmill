@@ -1,0 +1,83 @@
+name: Sign image and attach SBOM + provenance
+description: >
+  Keyless-signs a pushed image digest with cosign, attaches per-platform SPDX
+  SBOM attestations, and records SLSA provenance as a GitHub artifact
+  attestation pushed to the registry. The calling job must already be logged
+  in to the registry and must have id-token: write, attestations: write and
+  packages: write permissions (write-all covers all three).
+inputs:
+  image:
+    description: "Fully-qualified image name without tag, e.g. ghcr.io/windmill-labs/windmill"
+    required: true
+  digest:
+    description: "Pushed manifest digest (sha256:...) from build-push-action"
+    required: true
+  platforms:
+    description: "Comma-separated platforms to generate SBOMs for"
+    required: false
+    default: "linux/amd64,linux/arm64"
+runs:
+  using: composite
+  steps:
+    - name: Preflight
+      shell: bash
+      env:
+        DIGEST: ${{ inputs.digest }}
+      run: |
+        if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+          echo "::error::No OIDC token available; the calling job needs id-token: write"
+          exit 1
+        fi
+        case "$DIGEST" in
+          sha256:*) ;;
+          *)
+            echo "::error::digest '$DIGEST' is not a sha256: digest"
+            exit 1
+            ;;
+        esac
+
+    # cosign v2 writes the classic sha256-<digest>.sig/.att tag format that the
+    # installed base of cosign clients can verify; v3's bundle format cannot be
+    # verified by v2 clients yet, so stay on v2 until v3 verification is common.
+    - uses: sigstore/cosign-installer@v4
+      with:
+        cosign-release: "v2.6.5"
+
+    - name: Cosign keyless sign (index + per-arch manifests)
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        DIGEST: ${{ inputs.digest }}
+      run: cosign sign --yes --recursive "${IMAGE}@${DIGEST}"
+
+    - name: Install syft
+      id: syft
+      uses: anchore/sbom-action/download-syft@v0.24.2
+
+    - name: Generate and attest per-platform SPDX SBOMs
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        DIGEST: ${{ inputs.digest }}
+        PLATFORMS: ${{ inputs.platforms }}
+        SYFT: ${{ steps.syft.outputs.cmd }}
+      run: |
+        IFS=',' read -ra plats <<< "$PLATFORMS"
+        for p in "${plats[@]}"; do
+          slug="${p//\//-}"
+          "$SYFT" scan "registry:${IMAGE}@${DIGEST}" \
+            --platform "$p" \
+            --source-name "${IMAGE} (${p})" \
+            -o "spdx-json=sbom-${slug}.spdx.json"
+          cosign attest --yes --type spdxjson \
+            --predicate "sbom-${slug}.spdx.json" \
+            "${IMAGE}@${DIGEST}"
+          rm -f "sbom-${slug}.spdx.json"
+        done
+
+    - name: SLSA provenance (GitHub artifact attestation)
+      uses: actions/attest-build-provenance@v4
+      with:
+        subject-name: ${{ inputs.image }}
+        subject-digest: ${{ inputs.digest }}
+        push-to-registry: true

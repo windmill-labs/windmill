@@ -63,3 +63,61 @@ gap, rebuild and republish the `latest` / patch tags:
 
 Scan the published images (e.g. Trivy / Defender) after rebuilds to confirm the
 base-OS finding count stays low.
+
+# Verifying image signatures, SBOMs and provenance
+
+Release images are signed and attested at publish time by the
+`.github/actions/sign-attest-image` composite action:
+
+- **cosign keyless signature** on the pushed manifest digest (index and
+  per-arch manifests), via GitHub OIDC — no long-lived signing key exists.
+- **SPDX SBOM attestations** (one per platform, generated with syft) attached
+  to the image with `cosign attest --type spdxjson`.
+- **SLSA build provenance** recorded as a GitHub artifact attestation and
+  pushed to the registry (`actions/attest-build-provenance`).
+
+## What is covered
+
+Only images published from a release tag (`v*`) are signed: `windmill`,
+`windmill-ee`, `windmill-ee-cuda`, `windmill-slim`, `windmill-ee-slim`,
+`windmill-full`, `windmill-ee-full` (`.github/workflows/docker-image.yml`),
+`windmill-cli` (`build_cli_image.yml`) and `windmill-extra`
+(`publish_extra.yml`). The `:latest` and `:main` tags are retags of the
+release manifest, so they resolve to the signed digest (the `tag_latest`
+jobs verify this on every release). Development images (`:dev`, branch
+builds, `windmill-test`) and the dispatch-only RHEL/rpi/caddy-l4 images are
+not signed.
+
+## How to verify
+
+Signatures are keyless: trust is anchored in the Fulcio certificate identity,
+which for these images is the *calling workflow file at a `v*` tag ref* in
+this repository. Verify a signature with cosign (v2.x):
+
+```bash
+cosign verify \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github.com/windmill-labs/windmill/\.github/workflows/(docker-image|publish_extra|build_cli_image)\.yml@refs/tags/v' \
+  ghcr.io/windmill-labs/windmill:<version>
+```
+
+Fetch and inspect the SBOM attestations (one per platform):
+
+```bash
+cosign verify-attestation --type spdxjson \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github.com/windmill-labs/windmill/\.github/workflows/(docker-image|publish_extra|build_cli_image)\.yml@refs/tags/v' \
+  ghcr.io/windmill-labs/windmill:<version> \
+  | jq -r '.payload | @base64d | fromjson | .predicate'
+```
+
+Verify SLSA provenance through GitHub's attestation API:
+
+```bash
+gh attestation verify oci://ghcr.io/windmill-labs/windmill:<version> \
+  -R windmill-labs/windmill
+```
+
+Note for registry housekeeping: cosign stores signatures and attestations as
+extra `sha256-<digest>.sig` / `.att` tags in the same ghcr package — any
+tag-retention automation must not prune them.

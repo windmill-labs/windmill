@@ -86,6 +86,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
 
       - name: Build and push publicly
+        id: docker_build
         uses: depot/build-push-action@v1
         with:
           context: .
@@ -99,6 +100,13 @@ jobs:
             ${{ steps.meta-public.outputs.tags }}
           labels: |
             ${{ steps.meta-public.outputs.labels }}
+
+      - name: Sign and attest release image
+        if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+        uses: ./.github/actions/sign-attest-image
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          digest: ${{ steps.docker_build.outputs.digest }}
 
   build_ee:
     runs-on: ubicloud
@@ -149,6 +157,7 @@ jobs:
           ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
       - name: Build and push publicly ee
+        id: docker_build
         uses: depot/build-push-action@v1
         with:
           context: .
@@ -163,6 +172,13 @@ jobs:
           labels: |
             ${{ steps.meta-ee-public.outputs.labels }}
             org.opencontainers.image.licenses=Windmill-Enterprise-License
+
+      - name: Sign and attest release image
+        if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+        uses: ./.github/actions/sign-attest-image
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee
+          digest: ${{ steps.docker_build.outputs.digest }}
 
   attach_amd64_binary_to_release:
     needs: [build, build_ee]
@@ -358,6 +374,20 @@ jobs:
           docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }} --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }} --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
 
+      - uses: sigstore/cosign-installer@v4
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          cosign-release: "v2.6.5"
+      # single-source `imagetools create` must preserve the signed manifest
+      # digest; this fails the release if :latest ever stops resolving to it
+      - name: Verify latest is signed
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          cosign verify \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity-regexp '^https://github.com/windmill-labs/windmill/\.github/workflows/docker-image\.yml@refs/tags/v' \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
   tag_latest_ee:
     runs-on: ubicloud
     needs: [run_integration_test, build_ee]
@@ -378,6 +408,20 @@ jobs:
         run: |
           docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }} --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
           docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }} --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
+
+      - uses: sigstore/cosign-installer@v4
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          cosign-release: "v2.6.5"
+      # single-source `imagetools create` must preserve the signed manifest
+      # digest; this fails the release if :latest ever stops resolving to it
+      - name: Verify latest ee is signed
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          cosign verify \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity-regexp '^https://github.com/windmill-labs/windmill/\.github/workflows/docker-image\.yml@refs/tags/v' \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
 
   verify_ee_image_vulnerabilities:
     runs-on: ubicloud
@@ -493,6 +537,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push publicly ee
+        id: docker_build
         uses: depot/build-push-action@v1
         with:
           context: .
@@ -504,6 +549,14 @@ jobs:
           labels: |
             ${{ steps.meta-ee-public.outputs.labels }}
             org.opencontainers.image.licenses=Windmill-Enterprise-License
+
+      - name: Sign and attest release image
+        if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+        uses: ./.github/actions/sign-attest-image
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-cuda
+          digest: ${{ steps.docker_build.outputs.digest }}
+          platforms: linux/amd64
 
   build_slim:
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
@@ -537,6 +590,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push publicly ee
+        id: docker_build
         uses: depot/build-push-action@v1
         with:
           context: .
@@ -547,6 +601,14 @@ jobs:
             ${{ steps.meta-ee-public.outputs.tags }}
           labels: |
             ${{ steps.meta-ee-public.outputs.labels }}
+
+      - name: Sign and attest release image
+        if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+        uses: ./.github/actions/sign-attest-image
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-slim
+          digest: ${{ steps.docker_build.outputs.digest }}
+          platforms: linux/amd64
 
   build_ee_slim:
     needs: [build_ee]
@@ -582,6 +644,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push publicly ee
+        id: docker_build
         uses: depot/build-push-action@v1
         with:
           context: .
@@ -593,6 +656,13 @@ jobs:
           labels: |
             ${{ steps.meta-ee-public.outputs.labels }}
             org.opencontainers.image.licenses=Windmill-Enterprise-License
+
+      - name: Sign and attest release image
+        if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+        uses: ./.github/actions/sign-attest-image
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-slim
+          digest: ${{ steps.docker_build.outputs.digest }}
 
   build_full:
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
@@ -626,6 +696,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push publicly
+        id: docker_build
         uses: depot/build-push-action@v1
         with:
           context: .
@@ -636,6 +707,13 @@ jobs:
             ${{ steps.meta-public.outputs.tags }}
           labels: |
             ${{ steps.meta-public.outputs.labels }}
+
+      - name: Sign and attest release image
+        if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+        uses: ./.github/actions/sign-attest-image
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-full
+          digest: ${{ steps.docker_build.outputs.digest }}
 
   build_ee_full:
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
@@ -669,6 +747,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push publicly ee
+        id: docker_build
         uses: depot/build-push-action@v1
         with:
           context: .
@@ -680,3 +759,10 @@ jobs:
           labels: |
             ${{ steps.meta-ee-public.outputs.labels }}
             org.opencontainers.image.licenses=Windmill-Enterprise-License
+
+      - name: Sign and attest release image
+        if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+        uses: ./.github/actions/sign-attest-image
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-full
+          digest: ${{ steps.docker_build.outputs.digest }}
