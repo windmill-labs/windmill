@@ -109,8 +109,10 @@ export const NOTE_COLORS: Record<NoteColor, NoteColorConfig> = {
 // strong colors directly on those elements — which would beat the note color the
 // wrapper only passes down by inheritance, and leave the render mismatched against
 // the textarea shown while editing. Pin every descendant back to the note color.
+// Arbitrary value, not `text-inherit`: this config replaces the color palette outright and
+// defines no `inherit` key, so the named utility would be silently generated as nothing.
 // (Kept as a literal: Tailwind's scanner reads class names verbatim from this file.)
-export const NOTE_TEXT_COLOR_OVERRIDE = '[&_*]:!text-inherit'
+export const NOTE_TEXT_COLOR_OVERRIDE = '[&_*]:!text-[inherit]'
 
 // Color swatch colors for the picker (solid colors for the palette dots)
 export const NOTE_COLOR_SWATCHES: Record<NoteColor, string> = {
