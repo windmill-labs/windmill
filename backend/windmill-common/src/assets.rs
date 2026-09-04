@@ -175,10 +175,12 @@ fn is_write_access(access: Option<AssetUsageAccessType>) -> bool {
 /// producers). Resource / datatable / volume reads stay explicit-`// on`:
 /// a config/lookup read cascading is more often surprising than wanted.
 fn is_auto_trigger_kind(kind: AssetKind) -> bool {
-    // `Dbt` is deliberately NOT here. dbt is the only thing that can produce a
-    // warehouse relation (`// materialize` takes DuckLake targets only) and a dbt
-    // run does not dispatch, so a derived `dbt://` edge could never fire — it
-    // would draw a cascade arrow into a script nothing can wake.
+    // `Dbt` is deliberately NOT here. A warehouse relation is usually built by
+    // the dbt project that reads it, and a dbt run does not dispatch, so deriving
+    // an edge from every `dbt://` read would draw cascade arrows that mostly never
+    // fire. The relations a native `// materialize manual dbt://…` script writes
+    // do wake subscribers, but only through an explicit `// on`, which is where
+    // the author states that this particular relation has such a producer.
     matches!(kind, AssetKind::Ducklake | AssetKind::S3Object)
 }
 
@@ -233,6 +235,104 @@ pub fn derive_pipeline_asset_trigger_refs(
         }
     }
     out
+}
+
+/// A dbt script that builds the `dbt://` relation at `asset_path`, when dbt is
+/// its ONLY producer.
+///
+/// That is the one shape in which subscribing to a warehouse relation can never
+/// be woken: a dbt run records the models it built and does not dispatch
+/// (`asset_dispatch` returns early for `ScriptLang::Dbt`), while a script that
+/// declares `// materialize manual dbt://…` fans out on the ordinary path.
+///
+/// `None` covers both "some non-dbt script materializes it" and "nothing
+/// produces it yet" — the second is the ordinary deploy-order case, identical to
+/// every other asset kind, not a dormant edge.
+///
+/// **Give it the workspace pool, not an RLS-scoped transaction.** `script`
+/// carries RLS while `asset` does not, so a scoped executor hides producers, and
+/// the hidden ones fail in the harmful direction: a native producer the deployer
+/// cannot read leaves a dbt-only set behind and refuses a subscription that would
+/// have fired. What it discloses in exchange is the path of a dbt script building
+/// a relation the caller already named, which the workspace asset graph hands out
+/// for every `dbt://` node anyway (the source that script wrote stays gated).
+/// Callers must therefore already be scoped to `workspace_id`.
+///
+/// Reads committed rows only, so a caller inside a deploy transaction does not
+/// see its own not-yet-committed writes: a script subscribing to a relation it
+/// also materializes is left to the dispatcher's self-loop skip.
+pub async fn sole_dbt_producer<'e>(
+    executor: impl PgExecutor<'e>,
+    workspace_id: &str,
+    asset_path: &str,
+) -> error::Result<Option<String>> {
+    use crate::scripts::ScriptLang;
+    let producers = sqlx::query!(
+        r#"SELECT s.path AS "path!", s.language AS "language!: ScriptLang"
+             FROM asset a
+             JOIN script s ON s.workspace_id = a.workspace_id AND s.path = a.usage_path
+                          AND s.archived = false AND s.deleted = false
+            WHERE a.workspace_id = $1 AND a.kind = 'dbt' AND a.path = $2
+              AND a.usage_kind = 'script' AND a.usage_access_type IN ('w', 'rw')"#,
+        workspace_id,
+        asset_path
+    )
+    .fetch_all(executor)
+    .await?;
+    if producers
+        .iter()
+        .any(|p| !matches!(p.language, ScriptLang::Dbt))
+    {
+        return Ok(None);
+    }
+    Ok(producers.into_iter().next().map(|p| p.path))
+}
+
+/// The set form of [`sole_dbt_producer`], for asking about many relations at
+/// once: every `// on dbt://<relation>` edge among `relations` that no non-dbt
+/// script writes, rendered as `dbt://<relation> → <subscriber path>`.
+///
+/// A dbt deploy asks this about the relations it just ingested, because that
+/// ingest is what can retroactively leave a subscription accepted earlier — when
+/// nothing produced the relation — with dbt as its only producer. Kept beside its
+/// singular sibling and phrased against the same predicate: two spellings of "is
+/// dbt the sole producer" that drift apart would silence the warning without
+/// anything failing.
+///
+/// Same disclosure and executor contract as [`sole_dbt_producer`]: workspace
+/// pool, caller already scoped to `workspace_id`.
+pub async fn dormant_dbt_subscriptions<'e>(
+    executor: impl PgExecutor<'e>,
+    workspace_id: &str,
+    relations: &[String],
+) -> error::Result<Vec<String>> {
+    if relations.is_empty() {
+        return Ok(vec![]);
+    }
+    let refs = relations
+        .iter()
+        .map(|r| format!("dbt://{r}"))
+        .collect::<Vec<_>>();
+    Ok(sqlx::query_scalar!(
+        r#"SELECT DISTINCT st.trigger_ref || ' → ' || st.runnable_path AS "edge!"
+             FROM script_trigger st
+            WHERE st.workspace_id = $1 AND st.trigger_kind = 'asset'
+              AND st.trigger_ref = ANY($2)
+              AND NOT EXISTS (
+                    SELECT 1 FROM asset a
+                      JOIN script s ON s.workspace_id = a.workspace_id AND s.path = a.usage_path
+                                   AND s.archived = false AND s.deleted = false
+                                   AND s.language <> 'dbt'
+                     WHERE a.workspace_id = st.workspace_id AND a.kind = 'dbt'
+                       AND 'dbt://' || a.path = st.trigger_ref
+                       AND a.usage_kind = 'script'
+                       AND a.usage_access_type IN ('w', 'rw'))
+            ORDER BY 1"#,
+        workspace_id,
+        &refs
+    )
+    .fetch_all(executor)
+    .await?)
 }
 
 /// Clear and reinsert the full static-asset usage set of a script in one tx,

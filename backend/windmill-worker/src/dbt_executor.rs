@@ -682,6 +682,7 @@ pub(crate) async fn dbt_dep(
                 &conn,
             )
             .await;
+            warn_dormant_subscribers(db, w_id, job_id, &ingested, &conn).await;
         }
         !published
     } else {
@@ -3242,7 +3243,7 @@ enum GraphPublisher {
 /// Replace this script's graph, unless a newer version of it has been deployed.
 ///
 /// Write one ingest: the sidecar rows and the `asset` usages the manifest
-/// implies. No subscriptions — a `dbt://` one could never fire.
+/// implies. No subscriptions — a dbt project is not woken by the cascade.
 ///
 /// Returns whether this job was still the one entitled to the path-keyed half —
 /// false once a newer version has superseded it, or once the version is gone.
@@ -3333,9 +3334,10 @@ async fn persist_ingest(
         &ingested.assets,
     )
     .await?;
-    // A `dbt://` subscription can never fire, so none are derived from the
-    // manifest. The delete stays to clear what earlier versions wrote, which would
-    // otherwise keep drawing cascade arrows that wake nothing.
+    // A dbt project is not woken by the asset cascade (refused at deploy), so
+    // none are derived from the manifest either. The delete stays to clear what
+    // earlier versions wrote, which would otherwise keep drawing cascade arrows
+    // that wake nothing.
     sqlx::query!(
         "DELETE FROM script_trigger
           WHERE workspace_id = $1 AND runnable_kind = 'script' AND runnable_path = $2
@@ -3347,6 +3349,52 @@ async fn persist_ingest(
     .await?;
     tx.commit().await?;
     Ok(true)
+}
+
+/// Log the `// on dbt://…` subscriptions this project's relations leave dormant.
+///
+/// Subscribing to a relation dbt already owns is refused at the subscriber's
+/// deploy, but one deployed while nothing produced that relation is accepted —
+/// as it is for every other asset kind — and this ingest is what can afterwards
+/// make dbt its only producer. A dbt run does not dispatch, so such an edge is
+/// drawn on the canvas and never fires; the deploy log is where that ordering is
+/// visible.
+async fn warn_dormant_subscribers(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    w_id: &str,
+    job_id: &Uuid,
+    ingested: &windmill_common::dbt_manifest::IngestedManifest,
+    conn: &Connection,
+) {
+    use windmill_common::assets::AssetUsageAccessType;
+    let relations: Vec<String> = ingested
+        .assets
+        .iter()
+        .filter(|a| {
+            matches!(
+                a.access_type.or(a.alt_access_type),
+                Some(AssetUsageAccessType::W) | Some(AssetUsageAccessType::RW)
+            )
+        })
+        .map(|a| a.path.clone())
+        .collect();
+    match windmill_common::assets::dormant_dbt_subscriptions(db, w_id, &relations).await {
+        Ok(edges) if !edges.is_empty() => {
+            append_logs(
+                job_id,
+                w_id,
+                format!(
+                    "\nThese subscriptions will not fire — a dbt run does not trigger downstream \
+                     runs, and nothing else writes their relation:\n  {}\n",
+                    edges.join("\n  ")
+                ),
+                conn,
+            )
+            .await;
+        }
+        Ok(_) => {}
+        Err(e) => tracing::warn!("listing dormant `dbt://` subscribers failed: {e:#}"),
+    }
 }
 
 /// Serialize publishers for one script path and confirm this job's version is

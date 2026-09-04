@@ -288,11 +288,13 @@ pub struct RetrySpec {
 }
 
 // `// materialize [manual] <asset> [append] [key=<col>] [history] [track=<c1,c2>]`
-// — declares that this script produces a *managed* materialization of `<asset>`
-// (a `ducklake://` table). By default the runtime generates the write DDL around
+// — declares that this script produces `<asset>`. A `ducklake://` table is
+// materialized *managed* by default: the runtime generates the write DDL around
 // the script's single trailing `SELECT` and owns idempotency, partition-state
 // and snapshot capture. `manual` is the escape hatch: the script writes its own
-// DDL and the runtime only records state (track-only). The reconciliation
+// DDL and the runtime only records state (track-only) — and it is the only mode a
+// `dbt://` warehouse relation has, since nothing generates warehouse DDL (deploy
+// enforces that; see docs/dbt-runtime.md). The reconciliation
 // strategy options apply to managed mode: none → DELETE-by-partition + INSERT
 // (replace); `key=<col>` → MERGE (dedup within slice, SCD type 1); `append` →
 // INSERT-only. `append` wins if both are given (deploy-time warning).

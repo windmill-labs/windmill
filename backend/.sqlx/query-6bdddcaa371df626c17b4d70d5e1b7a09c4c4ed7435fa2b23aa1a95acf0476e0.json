@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.path AS \"path!\", s.language AS \"language!: ScriptLang\"\n             FROM asset a\n             JOIN script s ON s.workspace_id = a.workspace_id AND s.path = a.usage_path\n                          AND s.archived = false AND s.deleted = false\n            WHERE a.workspace_id = $1 AND a.kind = 'dbt' AND a.path = $2\n              AND a.usage_kind = 'script' AND a.usage_access_type IN ('w', 'rw')",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "language!: ScriptLang",
+        "type_info": {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb",
+                "nu",
+                "java",
+                "duckdb",
+                "ruby",
+                "rlang",
+                "dbt"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "6bdddcaa371df626c17b4d70d5e1b7a09c4c4ed7435fa2b23aa1a95acf0476e0"
+}
