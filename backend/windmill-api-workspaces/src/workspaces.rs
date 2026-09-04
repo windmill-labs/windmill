@@ -3923,10 +3923,10 @@ async fn edit_git_sync_config(
 
     // The whole-config save only writes the DB below; the managed GitHub webhooks
     // are reconciled after the commit is durable (like the per-repository endpoint):
-    // `post_commit` carries the saved repos to reconcile, the hooks of repos this
-    // save removed, and the paths of those repos, whose credentials go with them.
+    // `post_commit` carries the saved repos to reconcile + the hooks of repos this
+    // save removed, to delete.
     #[cfg(all(feature = "enterprise", feature = "private"))]
-    let post_commit: Option<(WorkspaceGitSyncSettings, Vec<(String, i64)>, Vec<String>)>;
+    let post_commit: Option<(WorkspaceGitSyncSettings, Vec<(String, i64)>)>;
 
     if let Some(mut git_sync_settings) = new_config.git_sync_settings {
         // Client-supplied server-owned auto-pull state is never trusted: strip it up
@@ -4028,27 +4028,6 @@ async fn edit_git_sync_config(
                     .collect()
             })
             .unwrap_or_default();
-        // Repos this save drops entirely: the workspace no longer syncs them, so the
-        // credential it holds for each goes with them. A separate list from the
-        // webhooks above, which only covers repos that had one — otherwise a dropped
-        // repo that never had a webhook would keep its token, and re-adding the same
-        // path and URL later would silently authenticate with it.
-        #[cfg(all(feature = "enterprise", feature = "private"))]
-        let removed_repos: Vec<String> = existing
-            .as_ref()
-            .map(|e| {
-                e.repositories
-                    .iter()
-                    .filter(|old| {
-                        !git_sync_settings
-                            .repositories
-                            .iter()
-                            .any(|n| n.git_repo_resource_path == old.git_repo_resource_path)
-                    })
-                    .map(|old| old.git_repo_resource_path.clone())
-                    .collect()
-            })
-            .unwrap_or_default();
         if let Some(existing) = &existing {
             for repo in git_sync_settings.repositories.iter_mut() {
                 let Some(old) = existing
@@ -4087,7 +4066,7 @@ async fn edit_git_sync_config(
         .await?;
         #[cfg(all(feature = "enterprise", feature = "private"))]
         {
-            post_commit = Some((git_sync_settings, removed_webhooks, removed_repos));
+            post_commit = Some((git_sync_settings, removed_webhooks));
         }
     } else {
         // Clearing the whole config removes every repo — delete all their webhooks.
@@ -4118,19 +4097,7 @@ async fn edit_git_sync_config(
                         .collect()
                 })
                 .unwrap_or_default();
-            let removed_repos: Vec<String> = existing
-                .map(|e| {
-                    e.repositories
-                        .iter()
-                        .map(|r| r.git_repo_resource_path.clone())
-                        .collect()
-                })
-                .unwrap_or_default();
-            post_commit = Some((
-                WorkspaceGitSyncSettings::default(),
-                removed_webhooks,
-                removed_repos,
-            ));
+            post_commit = Some((WorkspaceGitSyncSettings::default(), removed_webhooks));
         }
         sqlx::query!(
             "UPDATE workspace_settings SET git_sync = NULL WHERE workspace_id = $1",
@@ -4146,7 +4113,7 @@ async fn edit_git_sync_config(
     // and delete the webhooks of repos this save removed. Best-effort — a failure
     // leaves polling on.
     #[cfg(all(feature = "enterprise", feature = "private"))]
-    if let Some((mut settings, removed_webhooks, removed_repos)) = post_commit {
+    if let Some((mut settings, removed_webhooks)) = post_commit {
         for repo in settings.repositories.iter_mut() {
             // `sync_repo_webhook` writes back the webhook fields it changes itself:
             // the remote hook and the record of it have to move together, so
@@ -4177,10 +4144,6 @@ async fn edit_git_sync_config(
                     windmill_common::git_sync_ee::delete_repo_webhook(&db, &w_id, &url, hook_id)
                         .await;
             }
-        }
-        // After the webhook deletions above, which authenticate with these credentials.
-        for path in removed_repos {
-            let _ = windmill_common::git_sync_ee::delete_git_credential(&db, &w_id, &path).await;
         }
     }
 
@@ -4552,15 +4515,9 @@ async fn delete_git_sync_repository(
         }
     }
 
-    // The workspace no longer syncs this repository, so stop holding a token for
-    // it. After the webhook deletion above, which authenticates with it.
-    #[cfg(all(feature = "enterprise", feature = "private"))]
-    let _ = windmill_common::git_sync_ee::delete_git_credential(
-        &db,
-        &w_id,
-        &request.git_repo_resource_path,
-    )
-    .await;
+    // The stored credential is deliberately left alone: it belongs to the git
+    // repository resource, which this endpoint does not delete, and the resource
+    // still authenticates with it for connection tests and commit lookups.
 
     // Trigger git sync for repository deletion
     handle_deployment_metadata(
