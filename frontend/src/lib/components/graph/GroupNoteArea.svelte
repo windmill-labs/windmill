@@ -133,7 +133,7 @@
 				ondblclick={editMode ? stopPropagation(preventDefault(handleDoubleClick)) : undefined}
 				onpointerdown={editMode ? stopPropagation(() => {}) : undefined}
 			>
-				<GfmMarkdown md={note} noPadding />
+				<GfmMarkdown md={note} prose="xs" noPadding />
 			</div>
 		{:else}
 			<!-- svelte-ignore a11y_no_static_element_interactions -->

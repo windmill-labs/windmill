@@ -299,7 +299,7 @@
 							NOTE_TEXT_COLOR_OVERRIDE
 						)}
 					>
-						<GfmMarkdown md={textForDisplay} prose="sm" noPadding />
+						<GfmMarkdown md={textForDisplay} noPadding />
 					</div>
 				{:else}
 					<div class={twMerge('text-xs italic opacity-60', colorConfig.text)}>

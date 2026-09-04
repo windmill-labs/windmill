@@ -216,10 +216,9 @@
 		list-style-type: '- ';
 	}
 
-	/* The list markers, horizontal rules and blockquote bars otherwise fall
-	   through to Tailwind Typography's default bullet/border colors, which are
-	   nearly invisible on dark backgrounds (e.g. the AI chat). Use theme-aware
-	   tokens so they stay readable in both light and dark mode. */
+	/* List markers, horizontal rules and blockquote bars take the tertiary/light
+	   tokens the typography config maps them to, which is too faint to read on
+	   the denser markdown surfaces (e.g. the AI chat). Step them up one. */
 	.prose :is(ul, ol) > li::marker {
 		color: rgb(var(--color-text-secondary));
 	}

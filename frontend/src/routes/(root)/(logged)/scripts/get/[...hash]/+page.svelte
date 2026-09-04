@@ -888,7 +888,6 @@
 								<div class="p-4 rounded-md bg-surface-secondary">
 									<GfmMarkdown
 										md={defaultIfEmptyString(script?.description, 'No description')}
-										prose="sm"
 										noPadding
 									/>
 								</div>

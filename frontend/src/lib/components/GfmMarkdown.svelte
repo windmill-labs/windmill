@@ -10,7 +10,7 @@
 		prose?: MarkdownProseSize
 	}
 
-	let { md, noPadding, prose = 'xs' }: Props = $props()
+	let { md, noPadding, prose = 'sm' }: Props = $props()
 
 	// Rendering markdown turns `![](url)` into a real `<img>`, i.e. a request. On the
 	// public replay page the source is a recording from an arbitrary origin and the

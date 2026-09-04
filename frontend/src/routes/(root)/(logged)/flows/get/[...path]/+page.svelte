@@ -666,7 +666,6 @@
 							<div class="p-4 rounded-md bg-surface-secondary">
 								<GfmMarkdown
 									md={defaultIfEmptyString(flow?.description, 'No description')}
-									prose="sm"
 									noPadding
 								/>
 							</div>
