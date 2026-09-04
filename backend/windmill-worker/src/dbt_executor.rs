@@ -1544,12 +1544,10 @@ struct WrittenProfile {
 /// warehouse is the ergonomic one, the project's own file is what makes an
 /// existing repo run unchanged.
 ///
-/// A rendered file names its credentials through `env_var()` and carries none of
-/// them ([`SECRET_ENV_PREFIX`]). A project's own file is written by the same
-/// author as the macros that would read it, so it is passed through exactly as
-/// it stands — rewriting a file dbt is about to read as a template, with
-/// `env_var()` calls and anchors of its own, would break projects to hide a
-/// credential from nobody.
+/// A rendered file names its credentials through `env_var()` rather than
+/// carrying them ([`SECRET_ENV_PREFIX`]). A project's own file is passed through
+/// exactly as it stands: it is written by the same author as the macros that
+/// would read it, so there is nobody to hide it from.
 async fn write_profiles(
     descriptor: &DbtDescriptor,
     project_dir: &Path,
@@ -1773,11 +1771,10 @@ async fn resolve_warehouse(
 
 /// Identifies the connection a rendered profile describes, for run identity.
 ///
-/// The rendered text names the credentials rather than carrying them, so `env`
-/// is hashed alongside it: on the text alone, a resource repointed at another
-/// warehouse with the same host and database names — a different account, a
-/// rotated password — would present the identity a retry saved its failures
-/// against.
+/// The text names the credentials rather than carrying them, so `env` is hashed
+/// alongside it: on the text alone, a resource repointed at a warehouse with the
+/// same host and database names would present the identity a retry saved its
+/// failures against.
 ///
 /// Three things belong to the ATTEMPT rather than the connection, and hashing
 /// any of them as-is makes a retry reject its own predecessor — it compares
@@ -1787,9 +1784,8 @@ async fn resolve_warehouse(
 ///   (`sslrootcert`). The certificate is part of the connection, so it is
 ///   hashed in place of its path.
 /// * the job's own token, where the warehouse resource interpolates `$WM_TOKEN`
-///   (a warehouse reached through an OIDC or on-behalf flow does). Every
-///   attempt is a new job with a new token, and it arrives as a credential, so
-///   both halves are normalized.
+///   (a warehouse reached through an OIDC or on-behalf flow does). It arrives as
+///   a credential, so both halves are normalized.
 /// * the secret variable names, a fresh nonce per render.
 fn profile_identity_digest(
     yaml: &str,
@@ -5067,6 +5063,25 @@ mod tests {
         );
         assert_ne!(first, repointed);
         assert_ne!(first, recerted);
+    }
+
+    // The reservation is what keeps a caller-supplied environment off a name a
+    // rendered profile resolves a credential through, and it must stay narrower
+    // than dbt's own prefix, which a project uses for its package tokens.
+    #[test]
+    fn only_windmills_own_secret_namespace_is_reserved() {
+        let reject = |k: &str| {
+            reject_reserved_env([&k.to_string()], "the descriptor's `env`")
+                .expect_err(&format!("`{k}` must be refused"))
+                .to_string()
+        };
+        assert!(reject("DBT_ENV_SECRET_WM_ANYTHING").contains("cannot be set"));
+        assert!(reject("DBT_TARGET_PATH").contains("cannot be overridden"));
+        reject_reserved_env(
+            [&"DBT_ENV_SECRET_GITHUB_TOKEN".to_string()],
+            "the descriptor's `env`",
+        )
+        .expect("a project's own package token is not Windmill's namespace");
     }
 
     // Two things about a rendered profile belong to the attempt: the job's own

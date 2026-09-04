@@ -2,11 +2,10 @@
 //! adapter package each warehouse needs.
 //!
 //! Only the fields dbt actually reads are emitted; anything the resource
-//! carries for other runtimes is ignored rather than guessed at. Credentials
-//! are NOT among them: they leave through [`RenderedProfile::env`] and the file
-//! refers to them by `env_var()`, so the project's own code — which runs beside
-//! this file, with a warehouse the script's author may hold no grant on — never
-//! has the credential within reach. See [`SECRET_ENV_PREFIX`].
+//! carries for other runtimes is ignored rather than guessed at. The
+//! credentials among them are named rather than written: the file refers to
+//! each by `env_var()` and the values leave through [`RenderedProfile::env`]
+//! (docs/dbt-runtime.md, decision 8).
 
 use serde_json::Value;
 use windmill_common::error::{self, Error};
@@ -16,32 +15,16 @@ use windmill_common::error::{self, Error};
 /// driver unchanged.
 pub const ROOT_CERT_FILENAME: &str = "server-ca.pem";
 
-/// Windmill's namespace inside dbt's own secret-environment space.
-///
-/// The `DBT_ENV_SECRET` prefix is dbt's, and it is the whole mechanism: a
-/// variable named with it resolves in `profiles.yml` and `packages.yml` and
-/// NOWHERE else — a model, a macro or a `dbt run-operation` calling `env_var()`
-/// on one is refused outright — and its value is replaced with `*****` wherever
-/// it appears in dbt's output, which Windmill streams into the job log. A
-/// plainly named variable would hand the credential straight back through
-/// `env_var()` and be worth nothing.
-///
-/// Narrower than dbt's prefix itself, which a project legitimately uses for its
-/// own package tokens, so only Windmill's own namespace is closed off to a
-/// caller-supplied environment (`reject_reserved_env`).
+/// Windmill's namespace inside dbt's own secret-environment space, and narrower
+/// than it so a project's own package tokens are unaffected. A variable named
+/// with dbt's `DBT_ENV_SECRET` prefix resolves in `profiles.yml`/`packages.yml`
+/// and nowhere else; that is the mechanism (docs/dbt-runtime.md, decision 8).
 pub const SECRET_ENV_PREFIX: &str = "DBT_ENV_SECRET_WM_";
 
 /// Key names whose value is a credential rather than a coordinate, matched as a
-/// case-insensitive substring so `client_secret`, `aws_secret_access_key` and
-/// `private_key_passphrase` are covered without enumerating every adapter's
-/// spelling — a `dbt_profile` block is written for an adapter Windmill may know
-/// nothing about (decision 24).
-///
-/// Deliberately narrow. dbt scrubs a secret variable's VALUE from every line it
-/// prints, so routing a coordinate through one is not a harmless excess of
-/// caution: a `user` of `postgres` turns `Registered adapter: postgres=1.11.0`
-/// into `Registered adapter: *****=1.11.0`, and a `schema` of `public` would
-/// redact half the run.
+/// case-insensitive substring with `-` folded to `_`. Deliberately narrow: dbt
+/// redacts a secret's VALUE from every line it prints, so a coordinate routed
+/// through one redacts the run (docs/dbt-runtime.md, decision 8).
 const CREDENTIAL_KEY_MARKERS: &[&str] = &[
     "password",
     "passwd",
@@ -54,14 +37,11 @@ const CREDENTIAL_KEY_MARKERS: &[&str] = &[
     "apikey",
     "access_key",
     // The whole word, not `auth`: several adapters spell an `authenticator`
-    // naming a METHOD (`oauth`, `externalbrowser`), and redacting `oauth` from
-    // every line of a run is the failure above.
+    // naming a METHOD (`oauth`), which redaction would blank out of the run.
     "authorization",
 ];
 
 fn is_credential_key(key: &str) -> bool {
-    // Hyphens folded to underscores: a block's keys reach adapters that spell
-    // them either way, and an `http_headers` map spells them `x-api-key`.
     let key = key.to_ascii_lowercase().replace('-', "_");
     CREDENTIAL_KEY_MARKERS.iter().any(|m| key.contains(m))
 }
@@ -69,20 +49,32 @@ fn is_credential_key(key: &str) -> bool {
 /// The credentials a rendered profile refers to instead of carrying, collected
 /// as it renders.
 struct ProfileSecrets {
-    /// Per-render, so the variable names cannot be predicted. `packages.yml` is
-    /// rendered under the same secret context as `profiles.yml` on every dbt
-    /// invocation, so a project that could NAME one of these variables would
-    /// interpolate it into a `git:` URL and post the credential to a host of its
-    /// choosing. dbt's Jinja is sandboxed and offers no way to enumerate the
-    /// environment, so a name it cannot guess is what bounds that.
+    /// Fresh per render, so a project cannot NAME one of these variables:
+    /// `packages.yml` renders under the same secret context on every dbt
+    /// invocation and would carry the value out in a `git:` URL.
     nonce: String,
+    /// Whether a value that is itself a template belongs to dbt rather than
+    /// standing in for a credential. True only for a `dbt_profile` block.
+    dbt_renders_templates: bool,
     vars: Vec<(String, String)>,
 }
 
 impl ProfileSecrets {
-    fn new() -> Self {
+    /// For a Windmill connection resource, whose values arrive fully resolved.
+    fn for_resource() -> Self {
+        Self::new(false)
+    }
+
+    /// For a `dbt_profile` block, pasted from a working `profiles.yml` and
+    /// rendered by dbt as the template it is.
+    fn for_block() -> Self {
+        Self::new(true)
+    }
+
+    fn new(dbt_renders_templates: bool) -> Self {
         ProfileSecrets {
             nonce: uuid::Uuid::new_v4().as_simple().to_string().to_uppercase(),
+            dbt_renders_templates,
             vars: Vec::new(),
         }
     }
@@ -105,26 +97,21 @@ impl ProfileSecrets {
     /// A value whose classification the caller already knows, from its own key
     /// or an enclosing one.
     fn leaf(&mut self, secret: bool, value: &str) -> ProfileValue {
-        if secret && Self::hideable(value) {
+        if secret && self.hideable(value) {
             self.hide(value)
         } else {
             quoted(value)
         }
     }
 
-    /// Whether standing in for this value is safe.
-    ///
-    /// An EMPTY value never is: dbt redacts by substring, and an empty one
-    /// matches between every pair of characters in the log.
-    ///
-    /// Neither is a Jinja expression, which NAMES a credential rather than being
-    /// one — a `dbt_profile` block is pasted from a working `profiles.yml`,
-    /// where `password: "{{ env_var('PGPASSWORD') }}"` is the ordinary shape,
-    /// resolved against the descriptor's `env`. dbt renders a profile value once
-    /// and does not re-render what `env_var()` returns, so standing in for that
-    /// text would hand the adapter the template instead of the password.
-    fn hideable(value: &str) -> bool {
-        !value.is_empty() && !value.contains("{{") && !value.contains("{%")
+    /// Whether standing in for this value is safe. An EMPTY one never is: dbt
+    /// redacts by substring, and empty matches between every pair of characters
+    /// in the log. Nor is a template where dbt renders one — it names a
+    /// credential rather than being one, and dbt does not re-render what
+    /// `env_var()` returns, so the adapter would receive the template text.
+    fn hideable(&self, value: &str) -> bool {
+        !value.is_empty()
+            && !(self.dbt_renders_templates && (value.contains("{{") || value.contains("{%")))
     }
 }
 
@@ -629,9 +616,8 @@ pub fn render_profile(
     // Every value taken from the RESOURCE goes through `secrets.field`, so a
     // field added to an arm later is covered by the credential rule instead of
     // having to remember it. What Windmill or the descriptor authors — the
-    // adapter's `type`, the certificate path, `method`, `schema` — is its own
-    // text and stays inline.
-    let mut secrets = ProfileSecrets::new();
+    // adapter's `type`, the certificate path, `method`, `schema` — stays inline.
+    let mut secrets = ProfileSecrets::for_resource();
     let mut out: Vec<(String, ProfileValue)> = vec![("type".into(), quoted(adapter.dbt_type()))];
     let mut schema = schema_override.map(|x| x.to_string());
     let database;
@@ -866,7 +852,7 @@ pub fn render_dbt_profile(
     profiles_dir: &std::path::Path,
 ) -> error::Result<RenderedProfile> {
     let (database_key, schema_key) = adapter.target_identity_keys();
-    let mut secrets = ProfileSecrets::new();
+    let mut secrets = ProfileSecrets::for_block();
     let root_certificate_pem = block
         .get("root_certificate_pem")
         .and_then(|v| v.as_str())
@@ -991,6 +977,13 @@ fn emit_value(
             }
         }
         Value::String(s) => out.push_str(&format!(" {}\n", secrets.leaf(secret, s).render())),
+        // A number or a bool under a credential-named key is credential material
+        // as much as a string is. It reaches the adapter as text, which is what
+        // `env_var()` yields for every credential that goes this way.
+        Value::Number(_) | Value::Bool(_) if secret => out.push_str(&format!(
+            " {}\n",
+            secrets.leaf(true, &yaml_value(v)).render()
+        )),
         _ => out.push_str(&format!(" {}\n", yaml_value(v))),
     }
 }
@@ -1562,10 +1555,29 @@ mod tests {
         );
         assert_eq!(target["host"].as_str(), Some("db.internal"));
         assert_eq!(target["user"].as_str(), Some("u"));
-        // `packages.yml` renders under the same secret context as `profiles.yml`
-        // on every dbt invocation, so a project that could name this variable
-        // would interpolate it into a `git:` URL. The name is a fresh nonce.
+        // The name a project must not be able to guess: a fresh nonce.
         assert_ne!(name, &render().env[0].0);
+
+        // A resource's values arrive resolved, so `{{` in one is a literal and
+        // the file must not keep it: only a `dbt_profile` block hands dbt a
+        // template to render.
+        let templated = json!({"host": "h", "dbname": "d", "password": "{{ a }}"});
+        let p = render_profile(
+            &KnownAdapter::Postgres.into(),
+            &templated,
+            "wm",
+            "dev",
+            None,
+            None,
+            std::path::Path::new("/tmp/p"),
+        )
+        .unwrap();
+        assert_eq!(
+            p.env.iter().map(|(_, v)| v.as_str()).collect::<Vec<_>>(),
+            vec!["{{ a }}"],
+            "{}",
+            p.yaml
+        );
     }
 
     // A `dbt_profile` block is written for an adapter Windmill may know nothing
@@ -1574,7 +1586,7 @@ mod tests {
     #[test]
     fn a_dbt_profile_hides_its_credential_keys() {
         let r = json!({"type": "trino", "host": "trino.internal", "schema": "analytics",
-                       "user": "u", "password": "pw",
+                       "user": "u", "password": "pw", "session_token": 4242,
                        "http_headers": {"x-api-key": "k", "X-Trace": "on"},
                        "oauth_credentials": {"client": "c"},
                        "keyfile_json": {"project_id": "proj", "private_key": "pem"}});
@@ -1591,8 +1603,9 @@ mod tests {
         let mut hidden: Vec<&str> = p.env.iter().map(|(_, v)| v.as_str()).collect();
         hidden.sort();
         // `client` for the enclosing `oauth_credentials`; `X-Trace` names nothing
-        // and its enclosing key names nothing either.
-        assert_eq!(hidden, vec!["c", "k", "pem", "pw"], "{}", p.yaml);
+        // and its enclosing key names nothing either. `4242` is credential
+        // material whatever its JSON type, and reaches the adapter as text.
+        assert_eq!(hidden, vec!["4242", "c", "k", "pem", "pw"], "{}", p.yaml);
         let parsed: serde_yml::Value = serde_yml::from_str(&p.yaml).unwrap();
         let target = &parsed["wm"]["outputs"]["prod"];
         assert_eq!(target["host"].as_str(), Some("trino.internal"));

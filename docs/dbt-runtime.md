@@ -378,24 +378,37 @@ adapter Windmill may know nothing about (decision 24), so there the rule is by
 key name — `password`, `token`, `secret`, `private_key`, `passphrase`,
 `credential`, `api_key`, `access_key`, `authorization`, matched as a substring
 with `-` folded to `_`, so `client_secret` and an `http_headers` `x-api-key` are
-covered — and everything nested under such a key goes with it, since an
-`oauth_credentials` mapping spells its own keys and there is no list to check
-them against. `authorization` rather than `auth`, because several adapters spell
-an `authenticator` naming a METHOD and redacting `oauth` from a whole run is the
-failure above.
+covered — and everything nested under such a key goes with it, whatever it is
+called and whatever its JSON type, since an `oauth_credentials` mapping spells
+its own keys and there is no list to check them against. `authorization` rather
+than `auth`, because several adapters spell an `authenticator` naming a METHOD
+and redacting `oauth` from a whole run is the failure above.
 
 That rule is not exhaustive over an open adapter set, and it is not claimed to
 be: a key nobody recognized stays exactly where it already was, inline. The
 guarantee is the translated path; the block path is a large reduction whose
 boundary is a list one line long to extend.
 
-**A value that is already an `env_var()` expression stays inline.** A
-`dbt_profile` block is pasted from a working `profiles.yml`, where
-`password: "{{ env_var('PGPASSWORD') }}"` is the ordinary shape, resolved against
-the descriptor's `env`. dbt renders a profile value ONCE and does not re-render
-what `env_var()` returns, so standing in for that text would hand the adapter the
-template instead of the password — and there is nothing to hide either way, since
-such a value names a credential rather than being one.
+**In a `dbt_profile` block only, a value that is already an `env_var()`
+expression stays inline.** Such a block is pasted from a working `profiles.yml`,
+where `password: "{{ env_var('PGPASSWORD') }}"` is the ordinary shape, resolved
+against the descriptor's `env`. dbt renders a profile value ONCE and does not
+re-render what `env_var()` returns, so standing in for that text would hand the
+adapter the template instead of the password — and there is nothing to hide
+either way, since such a value names a credential rather than being one. A
+translated resource's values arrive fully resolved, so `{{` in one is a literal
+and gets no exemption; the guarantee there stays unconditional.
+
+**What the redaction costs, and where it stops.** dbt redacts by VALUE, so a
+credential that is also a substring of one of the run's own identifiers is
+blanked out of dbt's log wherever it appears — a warehouse password of `raw`
+against a `raw` schema would show `*****` in the job log and in the live
+per-model status, which is read from the JSON log stream. It stops there:
+`run_results.json` and `manifest.json` are artifacts rather than log events and
+are NOT redacted, so the manifest ingest, the asset graph and the
+materialization records carry true relation names either way. That bound is why
+a credential is hidden regardless of what it happens to spell: the alternative
+would be declining to protect exactly the weakest ones.
 
 **The names are a fresh nonce per render.** `packages.yml` is rendered under the
 same secret context as `profiles.yml`, on every dbt invocation and not only
