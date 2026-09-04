@@ -6,12 +6,11 @@
 	interface Props {
 		md: string
 		noPadding?: boolean
-		/** Shared prose stack to render with. Omitted keeps the legacy `prose-xs`,
-		 * which the flow-graph notes are laid out against. */
+		/** Shared prose stack to render with. */
 		prose?: MarkdownProseSize
 	}
 
-	let { md, noPadding, prose }: Props = $props()
+	let { md, noPadding, prose = 'xs' }: Props = $props()
 
 	// Rendering markdown turns `![](url)` into a real `<img>`, i.e. a request. On the
 	// public replay page the source is a recording from an arbitrary origin and the
@@ -21,7 +20,7 @@
 	let asPlainText = $derived(isOfflineReplay())
 </script>
 
-<div class="{prose ? markdownProse[prose] : '!prose-xs'} {noPadding ? '' : 'pgap'}">
+<div class="{markdownProse[prose]} {noPadding ? '' : 'pgap'}">
 	{#if asPlainText}
 		<p class="whitespace-pre-wrap">{md}</p>
 	{:else}

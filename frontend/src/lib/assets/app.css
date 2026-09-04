@@ -209,33 +209,25 @@
 			U+1fac6, U+1fae0-1fae6, U+1fae8-1faea, U+1faef-1faf8;
 	}
 
-	.prose-xs ul {
-		margin-top: 0.5rem;
-		list-style-type: '- ';
-		padding-left: 1.5rem;
-	}
-
+	/* Bullets read as a dash rather than a disc. Only the glyph is overridden:
+	   indentation and vertical rhythm stay with Tailwind Typography so ordered
+	   and unordered lists line up with each other. */
 	.prose ul {
-		margin-top: 1.5rem;
 		list-style-type: '- ';
-		padding-left: 3rem;
 	}
 
-	/* The '- ' list markers, horizontal rules and blockquote bars otherwise
-	   fall through to Tailwind Typography's default bullet/border colors, which
-	   are nearly invisible on dark backgrounds (e.g. the AI chat). Use
-	   theme-aware tokens so they stay readable in both light and dark mode. */
-	.prose-xs ul > li::marker,
-	.prose ul > li::marker {
+	/* The list markers, horizontal rules and blockquote bars otherwise fall
+	   through to Tailwind Typography's default bullet/border colors, which are
+	   nearly invisible on dark backgrounds (e.g. the AI chat). Use theme-aware
+	   tokens so they stay readable in both light and dark mode. */
+	.prose :is(ul, ol) > li::marker {
 		color: rgb(var(--color-text-secondary));
 	}
 
-	.prose-xs hr,
 	.prose hr {
 		border-top-color: rgb(var(--color-border-normal));
 	}
 
-	.prose-xs blockquote,
 	.prose blockquote {
 		border-left-color: rgb(var(--color-border-normal));
 	}

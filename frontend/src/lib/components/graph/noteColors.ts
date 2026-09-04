@@ -105,6 +105,13 @@ export const NOTE_COLORS: Record<NoteColor, NoteColorConfig> = {
 	}
 }
 
+// A note renders its text as markdown, and the prose stack sets body, heading and
+// strong colors directly on those elements — which would beat the note color the
+// wrapper only passes down by inheritance, and leave the render mismatched against
+// the textarea shown while editing. Pin every descendant back to the note color.
+// (Kept as a literal: Tailwind's scanner reads class names verbatim from this file.)
+export const NOTE_TEXT_COLOR_OVERRIDE = '[&_*]:!text-inherit'
+
 // Color swatch colors for the picker (solid colors for the palette dots)
 export const NOTE_COLOR_SWATCHES: Record<NoteColor, string> = {
 	[NoteColor.YELLOW]: 'bg-yellow-400',

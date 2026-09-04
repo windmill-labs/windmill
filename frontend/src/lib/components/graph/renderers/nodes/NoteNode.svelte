@@ -8,6 +8,7 @@
 	import {
 		NoteColor,
 		NOTE_COLORS,
+		NOTE_TEXT_COLOR_OVERRIDE,
 		DEFAULT_NOTE_COLOR,
 		MIN_NOTE_WIDTH,
 		MIN_NOTE_HEIGHT
@@ -294,10 +295,11 @@
 					<div
 						class={twMerge(
 							'w-full text-xs rounded-md break-words overflow-hidden',
-							colorConfig.text
+							colorConfig.text,
+							NOTE_TEXT_COLOR_OVERRIDE
 						)}
 					>
-						<GfmMarkdown md={textForDisplay} noPadding />
+						<GfmMarkdown md={textForDisplay} prose="sm" noPadding />
 					</div>
 				{:else}
 					<div class={twMerge('text-xs italic opacity-60', colorConfig.text)}>
