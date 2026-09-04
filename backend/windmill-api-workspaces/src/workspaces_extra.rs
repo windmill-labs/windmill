@@ -1119,6 +1119,8 @@ pub(crate) async fn delete_workspace(
     .execute(&mut *tx)
     .await?;
 
+    // Unlike the rest of this list, this also moves an instance-wide figure: the guest
+    // allowance and the seats past it are counted over every workspace's rows.
     sqlx::query("DELETE FROM guest_activity WHERE workspace_id = $1")
         .bind(&w_id)
         .execute(&mut *tx)

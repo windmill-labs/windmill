@@ -94,6 +94,17 @@ async fn the_allowance_caps_strangers_and_meters_an_enterprise_plan(
     mint(&db, "g1@example.com")
         .await
         .expect("a guest already in the window is let back in");
+    let recorded: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM guest_activity
+                       WHERE email = 'g1@example.com' AND workspace_id = 'test-workspace'
+                         AND day = CURRENT_DATE AND last_seen_at > now() - interval '1 minute')",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert!(
+        recorded,
+        "the mint writes the guest_activity row the allowance is counted on"
+    );
 
     let list: serde_json::Value = authed(
         client().get(format!(
