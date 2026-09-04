@@ -74,7 +74,7 @@
 	// What the picked role can reach, which is not what the data table holds.
 	const access = createDatatableAccessResource(
 		() => selectedDatatable,
-		() => (showRolePicker ? effectiveRole : undefined),
+		() => accessRole,
 		() => opWs
 	)
 	const roles = createRolesResource(
@@ -122,15 +122,22 @@
 	})
 
 	const availableDatatables = $derived(datatables.current)
-	// Read like the role list: only once it answers for the data table selected.
-	// At mount it is the initial value, and during a switch it is the previous
-	// table's — neither says anything about this one.
-	const loadedAccess = $derived(
-		access.current.datatable === selectedDatatable
-			? access.current
-			: { datatable: selectedDatatable, schemas: [], canCreateSchema: false }
+	// The role the access question is asked as. Until the role list settles this
+	// is `undefined`, which the server reads as the data table's configured
+	// default — a different question, and one whose answer says nothing about what
+	// the role finally selected may create.
+	const accessRole = $derived(showRolePicker ? effectiveRole : undefined)
+	// Read like the role list: only once it answers for what is selected now. At
+	// mount it is the initial value, during a switch the previous data table's,
+	// and in between the same data table asked as another role.
+	const accessSettled = $derived(
+		access.current.datatable === selectedDatatable && access.current.role === accessRole
 	)
-	const accessSettled = $derived(access.current.datatable === selectedDatatable)
+	const loadedAccess = $derived(
+		accessSettled
+			? access.current
+			: { datatable: selectedDatatable, role: accessRole, schemas: [], canCreateSchema: false }
+	)
 	const availableSchemas = $derived(loadedAccess.schemas)
 	const canCreateSchema = $derived(loadedAccess.canCreateSchema)
 
@@ -512,7 +519,10 @@
 					variant="default"
 					size="sm"
 					on:click={() => start(false)}
-					disabled={!templates[selectedTemplateIndex] || newSchemaAlreadyExists || !rolesSettled}
+					disabled={!templates[selectedTemplateIndex] ||
+						newSchemaAlreadyExists ||
+						!rolesSettled ||
+						!accessSettled}
 				>
 					{$copilotInfo.workspaceDisabled ? 'Start' : 'Start without AI'}
 				</Button>
@@ -521,6 +531,7 @@
 						variant="accent"
 						on:click={() => start(true)}
 						disabled={!rolesSettled ||
+							!accessSettled ||
 							!templates[selectedTemplateIndex] ||
 							!initialPrompt.trim() ||
 							newSchemaAlreadyExists}

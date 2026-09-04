@@ -90,15 +90,18 @@ export function createDatatableAccessResource(
 	return resource(
 		() => [getDatatable() ?? '', getRole() ?? '', getWorkspace() ?? ''] as const,
 		async ([datatable, role, workspace]): Promise<{
-			/** What this answers for: until it matches the selection, the schemas and
-			 * the right to create one are the previous data table's, and at mount
-			 * they are the initial value rather than an answer at all. */
+			/** What this answers for — both halves of it. Until they match the
+			 * selection, the schemas and the right to create one belong to another
+			 * data table or to another role, and at mount they are the initial value
+			 * rather than an answer at all. What a role may create in is exactly the
+			 * question, so an answer computed as a different one settles nothing. */
 			datatable: string | undefined
+			role: string | undefined
 			schemas: string[]
 			canCreateSchema: boolean
 		}> => {
-			if (!datatable || !workspace)
-				return { datatable: datatable || undefined, schemas: [], canCreateSchema: false }
+			const asked = { datatable: datatable || undefined, role: role || undefined }
+			if (!datatable || !workspace) return { ...asked, schemas: [], canCreateSchema: false }
 			try {
 				const tables = await WorkspaceService.listDataTableTables({
 					workspace,
@@ -107,16 +110,16 @@ export function createDatatableAccessResource(
 				})
 				const entry = tables.find((t) => t.datatable_name === datatable)
 				return {
-					datatable,
+					...asked,
 					schemas: Object.keys(entry?.schemas ?? {}).sort(),
 					canCreateSchema: !!entry?.can_create_schema
 				}
 			} catch (e) {
 				console.error('Failed to load datatable access:', e)
-				return { datatable, schemas: [], canCreateSchema: false }
+				return { ...asked, schemas: [], canCreateSchema: false }
 			}
 		},
-		{ initialValue: { datatable: undefined, schemas: [], canCreateSchema: false } }
+		{ initialValue: { datatable: undefined, role: undefined, schemas: [], canCreateSchema: false } }
 	)
 }
 
