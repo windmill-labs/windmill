@@ -298,15 +298,18 @@ pub async fn sole_dbt_producer<'e>(
 }
 
 /// The set form of [`sole_dbt_producer`], for asking about many relations at
-/// once: every `// on dbt://<relation>` edge among `relations` that no non-dbt
-/// script writes, rendered as `dbt://<relation> → <subscriber path>`.
+/// once: every `// on dbt://<relation>` edge among `relations` whose producers
+/// are all dbt scripts, rendered as `dbt://<relation> → <subscriber path>`.
 ///
 /// A dbt deploy asks this about the relations it just ingested, because that
 /// ingest is what can retroactively leave a subscription accepted earlier — when
-/// nothing produced the relation — with dbt as its only producer. Kept beside its
-/// singular sibling and phrased against the same predicate: two spellings of "is
-/// dbt the sole producer" that drift apart would silence the warning without
-/// anything failing.
+/// nothing produced the relation — with dbt as its only producer.
+///
+/// Spells the predicate the same way its singular sibling does, per subscriber:
+/// the producer set excludes the subscriber's own path (a script never wakes
+/// itself) and has to be non-empty (nothing produces it yet is deploy order, not
+/// a dormant edge). Two "is dbt the sole producer" rules that drifted apart would
+/// silence this warning with nothing failing.
 ///
 /// Same disclosure and executor contract as [`sole_dbt_producer`]: workspace
 /// pool, caller already scoped to `workspace_id`.
@@ -323,19 +326,27 @@ pub async fn dormant_dbt_subscriptions<'e>(
         .map(|r| format!("dbt://{r}"))
         .collect::<Vec<_>>();
     Ok(sqlx::query_scalar!(
-        r#"SELECT DISTINCT st.trigger_ref || ' → ' || st.runnable_path AS "edge!"
+        r#"WITH producer AS (
+             SELECT 'dbt://' || a.path AS trigger_ref, a.usage_path, s.language
+               FROM asset a
+               JOIN script s ON s.workspace_id = a.workspace_id AND s.path = a.usage_path
+                            AND s.archived = false AND s.deleted = false
+              WHERE a.workspace_id = $1 AND a.kind = 'dbt'
+                AND a.usage_kind = 'script' AND a.usage_access_type IN ('w', 'rw')
+                AND 'dbt://' || a.path = ANY($2)
+           )
+           SELECT DISTINCT st.trigger_ref || ' → ' || st.runnable_path AS "edge!"
              FROM script_trigger st
             WHERE st.workspace_id = $1 AND st.trigger_kind = 'asset'
               AND st.trigger_ref = ANY($2)
-              AND NOT EXISTS (
-                    SELECT 1 FROM asset a
-                      JOIN script s ON s.workspace_id = a.workspace_id AND s.path = a.usage_path
-                                   AND s.archived = false AND s.deleted = false
-                                   AND s.language <> 'dbt'
-                     WHERE a.workspace_id = st.workspace_id AND a.kind = 'dbt'
-                       AND 'dbt://' || a.path = st.trigger_ref
-                       AND a.usage_kind = 'script'
-                       AND a.usage_access_type IN ('w', 'rw'))
+              AND EXISTS (SELECT 1 FROM producer p
+                           WHERE p.trigger_ref = st.trigger_ref
+                             AND p.usage_path <> st.runnable_path
+                             AND p.language = 'dbt')
+              AND NOT EXISTS (SELECT 1 FROM producer p
+                               WHERE p.trigger_ref = st.trigger_ref
+                                 AND p.usage_path <> st.runnable_path
+                                 AND p.language <> 'dbt')
             ORDER BY 1"#,
         workspace_id,
         &refs

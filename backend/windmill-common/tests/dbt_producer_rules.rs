@@ -147,3 +147,30 @@ async fn the_set_form_agrees_with_the_singular_one(db: Pool<Postgres>) {
         "a native producer wakes it, so the edge is live"
     );
 }
+
+/// The two ways the set form could stop meaning what the singular one means: a
+/// relation nothing produces is deploy order rather than a dormant edge, and a
+/// subscriber's own write is not a producer that can wake it — the dispatcher
+/// skips self-loops, so that edge is dormant and has to be named.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn the_set_form_matches_on_the_edge_cases_too(db: Pool<Postgres>) {
+    let relations = vec![RELATION.to_string()];
+    plant_subscriber(&db, SUBSCRIBER).await;
+    assert!(
+        dormant_dbt_subscriptions(&db, WS, &relations)
+            .await
+            .unwrap()
+            .is_empty(),
+        "nothing produces it yet, so nothing is dormant"
+    );
+
+    plant_producer(&db, "u/test-user/project", "dbt", 1).await;
+    plant_producer(&db, SUBSCRIBER, "postgresql", 2).await;
+    assert_eq!(
+        dormant_dbt_subscriptions(&db, WS, &relations)
+            .await
+            .unwrap(),
+        vec![format!("dbt://{RELATION} → {SUBSCRIBER}")],
+        "the subscriber's own write cannot wake it, so dbt is still the sole producer"
+    );
+}

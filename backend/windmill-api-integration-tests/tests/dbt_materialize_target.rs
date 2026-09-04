@@ -1,0 +1,135 @@
+use serde_json::json;
+use sqlx::{Pool, Postgres};
+
+use windmill_test_utils::*;
+
+fn client() -> reqwest::Client {
+    reqwest::Client::new()
+}
+
+fn authed(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+    builder.header("Authorization", "Bearer SECRET_TOKEN")
+}
+
+async fn deploy(port: u16, path: &str, content: &str) -> reqwest::Response {
+    authed(client().post(format!(
+        "http://localhost:{port}/api/w/test-workspace/scripts/create"
+    )))
+    .json(&json!({
+        "path": path,
+        "summary": "",
+        "description": "",
+        "content": content,
+        "language": "deno",
+        "schema": { "type": "object", "properties": {}, "required": [] }
+    }))
+    .send()
+    .await
+    .unwrap()
+}
+
+/// A `dbt://` relation is one graph node only while every side spells it the same
+/// way, and three sides derive that spelling independently: the `// materialize`
+/// target becomes an `asset.path`, a `// on` ref becomes a `script_trigger`, and
+/// the deploy-time refusal joins the two. The unit tests on `sole_dbt_producer`
+/// prove the predicate; only a deploy proves the handler feeds it the key the
+/// table actually holds — so a canonicalization that drifted on one side would
+/// pass those and split the node here.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_dbt_materialize_target_deploy_contract(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    sqlx::query!(
+        r#"UPDATE workspace_settings
+              SET dbt_warehouses = '{"main": {"resource_path": "u/test-user/wh"}}'::jsonb
+            WHERE workspace_id = 'test-workspace'"#
+    )
+    .execute(&db)
+    .await?;
+
+    // Nothing generates warehouse DDL, so a managed target is refused rather than
+    // degraded into the track-only mode it would silently become.
+    let resp = deploy(
+        port,
+        "u/test-user/managed",
+        "// materialize dbt://main/analytics/orders\nexport async function main() {}",
+    )
+    .await;
+    assert_eq!(resp.status(), 400);
+    assert!(resp.text().await?.contains("must be `manual`"));
+
+    // The warehouse segment is the identity a dbt model keys on; a name the
+    // workspace does not configure strands the write on an unreachable node.
+    let resp = deploy(
+        port,
+        "u/test-user/unknown_wh",
+        "// materialize manual dbt://nope/analytics/orders\nexport async function main() {}",
+    )
+    .await;
+    assert_eq!(resp.status(), 400);
+    assert!(resp.text().await?.contains("does not configure"));
+
+    // Any language may declare the write — the DuckLake write engine is DuckDB's,
+    // this declaration is not — and the target is canonicalized on the way into
+    // `asset`, so a hand-written mixed-case spelling lands on the model's key.
+    let resp = deploy(
+        port,
+        "u/test-user/ingest",
+        "// materialize manual dbt://main/ANALYTICS/Orders\nexport async function main() {}",
+    )
+    .await;
+    assert_eq!(resp.status(), 201);
+    let write = sqlx::query_scalar!(
+        "SELECT path FROM asset WHERE workspace_id = 'test-workspace' AND kind = 'dbt' \
+           AND usage_path = 'u/test-user/ingest' AND usage_access_type = 'w'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(write, "main/analytics/orders");
+
+    // That producer is native, so subscribing to what it writes is accepted — and
+    // the `// on` ref has to canonicalize identically, or the row it stores names
+    // a relation nothing produces.
+    let resp = deploy(
+        port,
+        "u/test-user/consumer",
+        "// on dbt://main/\"Analytics\"/\"Orders\"\nexport async function main() {}",
+    )
+    .await;
+    assert_eq!(resp.status(), 201);
+    let trigger_ref = sqlx::query_scalar!(
+        "SELECT trigger_ref FROM script_trigger WHERE workspace_id = 'test-workspace' \
+           AND runnable_path = 'u/test-user/consumer' AND trigger_kind = 'asset'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(trigger_ref, "dbt://main/analytics/orders");
+
+    // With dbt as the only producer the same subscription can never be woken — a
+    // dbt run does not dispatch — so the deploy refuses it and names the project.
+    sqlx::query!(
+        "INSERT INTO script (workspace_id, hash, path, summary, description, content, created_by,
+                             language)
+         VALUES ('test-workspace', 1, 'u/test-user/project', '', '', '', 'test-user', 'dbt')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind)
+         VALUES ('test-workspace', 'main/analytics/marts', 'dbt', 'w', 'u/test-user/project',
+                 'script')"
+    )
+    .execute(&db)
+    .await?;
+    let resp = deploy(
+        port,
+        "u/test-user/mart_consumer",
+        "// on dbt://main/analytics/MARTS\nexport async function main() {}",
+    )
+    .await;
+    assert_eq!(resp.status(), 400);
+    assert!(resp.text().await?.contains("u/test-user/project"));
+
+    Ok(())
+}

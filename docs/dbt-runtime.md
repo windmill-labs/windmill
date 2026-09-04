@@ -711,9 +711,11 @@ A `# on dbt://<relation>` subscription is therefore refused at deploy in exactly
 one shape: when every script that writes that relation is a dbt one. Nothing
 produces it yet is NOT that shape — a subscriber may be deployed before its
 producer, as for every other asset kind, and refusing there would break
-deploy-order-independent syncs. A dbt script may not subscribe at all: its graph
-ingest clears its own `dbt://` trigger rows, so accepting one would deploy an edge
-the dependency job then silently removes.
+deploy-order-independent syncs. A dbt script may neither subscribe nor declare a
+`// materialize`: its graph ingest republishes that path's trigger and asset rows
+wholesale, so either annotation would deploy something the dependency job then
+silently removes — while the declared write would still stamp the relation on
+every run.
 
 The producer set is read as it stands committed, minus the deploying script's own
 rows — those describe the version being replaced, so a script dropping its
@@ -721,11 +723,14 @@ rows — those describe the version being replaced, so a script dropping its
 producer that wakes it, which it could not be anyway (the dispatcher skips
 self-loops).
 
-What that leaves is a subscription accepted while it was live and later orphaned:
-a dbt project deployed afterwards that claims the relation, or a native producer
-that stops writing it. A dbt deploy names those edges in its own log rather than
-leaving them silently dormant — the same "an edge that can never fire is worse
-than saying so" the refusal is for, at the only other point where it is knowable.
+What that leaves is a subscription accepted while it was live and later orphaned.
+A dbt project deployed afterwards that claims the relation names those edges in
+its own log rather than leaving them silently dormant — the same "an edge that can
+never fire is worse than saying so" the refusal is for, at the other point where
+it is knowable. The remaining case, a native producer that drops its
+`// materialize` and leaves dbt alone on the relation, is reported nowhere: the
+deploy that causes it does not touch the subscriber, and the canvas is where it
+shows.
 
 A plain READ still renders the consumer beside the model, which is what makes
 the lineage one graph — but it is written in the script's own code, not in a

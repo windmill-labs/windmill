@@ -1582,6 +1582,18 @@ async fn create_script_internal<'c>(
     // a `manual` script owns its DDL and skips them.
     if let Some(m) = pipeline_annotations.materialize.as_ref() {
         use windmill_parser::asset_parser::AssetKind as PAssetKind;
+        // The producer half of the rule the trigger loop below applies to `// on`:
+        // a dbt project's writes come from its manifest, and the graph ingest
+        // republishes this path's asset rows wholesale, so a declared one would be
+        // wiped by the very deploy that accepted it while its runs kept stamping
+        // the relation.
+        if ns.language == ScriptLang::Dbt {
+            return Err(Error::BadRequest(
+                "a dbt script cannot declare `// materialize`: what a project builds is read \
+                 from its manifest and published by the graph ingest, not annotated."
+                    .to_string(),
+            ));
+        }
         match m.target_kind {
             PAssetKind::Ducklake => {
                 if ns.language != ScriptLang::DuckDb {
@@ -2441,8 +2453,7 @@ async fn create_script_internal<'c>(
                 )));
             }
             if let Some(dbt_owner) =
-                windmill_common::assets::sole_dbt_producer(&db, &w_id, relation, &ns.path)
-                    .await?
+                windmill_common::assets::sole_dbt_producer(&db, &w_id, relation, &ns.path).await?
             {
                 return Err(Error::BadRequest(format!(
                     "`{trigger_ref}` cannot be subscribed to: it is built by the dbt project at \
