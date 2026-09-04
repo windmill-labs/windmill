@@ -323,7 +323,9 @@
 		current.path = npath
 	}
 
-	export async function save(): Promise<void> {
+	/** Whether the write landed. It toasts its own failure, so most callers ignore this;
+	 * one that follows the save with bookkeeping of its own has to know not to. */
+	export async function save(): Promise<boolean> {
 		const dirty = dirtyWorkspaces
 		try {
 			for (const ws of dirty) {
@@ -371,8 +373,10 @@
 				dirty.length > 1 ? `Saved resource in ${dirty.length} workspaces` : `Saved resource`
 			)
 			dispatch('refresh', current?.path ?? path)
+			return true
 		} catch (err) {
 			sendUserToast(`Could not save resource: ${err.body ?? err.message}`, true)
+			return false
 		}
 	}
 </script>
