@@ -8,9 +8,11 @@
 //! Two things this module is deliberate about:
 //!
 //! * **Asset identity is the physical relation.** A model becomes
-//!   `dbt://<warehouse>/<schema>/<name>`: the scheme names dbt, which is the
-//!   only thing that creates one, but the PATH is the relation and never dbt's
-//!   own `unique_id`. Two projects meet at a handoff — one materializes a mart,
+//!   `dbt://<warehouse>/<schema>/<name>`: the scheme names the namespace dbt
+//!   made — it is the only thing that DERIVES one, while any other language can
+//!   declare a write to one (decision 25) — but the PATH is the relation and
+//!   never dbt's own `unique_id`. Two projects meet at a handoff — one
+//!   materializes a mart,
 //!   the next declares it a `source` — where `model.a.orders` and
 //!   `source.b.analytics.orders` differ but the relation does not, so keying on
 //!   the node id would leave each project an island; a native script reading the
