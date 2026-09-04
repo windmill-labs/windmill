@@ -139,6 +139,23 @@ describe('pruneMeaninglessDrafts', () => {
 		expect(discardDraft).not.toHaveBeenCalled()
 	})
 
+	it('does not count, or seal the pass on, a delete the syncer failed to send', async () => {
+		listDrafts.mockResolvedValue([row()])
+		getDraftDiffValues.mockResolvedValue(diff())
+		// The discard's own POST is what fails, so the state flips during it.
+		discardDraft.mockImplementation(async () => {
+			syncState = 'failed'
+			return { success: true }
+		})
+		await pruneMeaninglessDrafts('main', 'me@x.dev')
+		expect(sendUserToast).not.toHaveBeenCalled()
+		discardDraft.mockResolvedValue({ success: true })
+		// Sentinel unwritten, so the next mount retries the draft left behind.
+		syncState = 'none'
+		await pruneMeaninglessDrafts('main', 'me@x.dev')
+		expect(discardedPaths()).toEqual(['u/me/r', 'u/me/r'])
+	})
+
 	it('runs once per workspace and user', async () => {
 		listDrafts.mockResolvedValue([row()])
 		getDraftDiffValues.mockResolvedValue(diff())

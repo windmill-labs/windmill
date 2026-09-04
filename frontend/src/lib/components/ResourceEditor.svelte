@@ -128,8 +128,12 @@
 		}
 	}
 
+	// Input that arrives before this workspace's handle exists cannot be an edit
+	// to its form — the form is not on screen yet — but it would open the gate,
+	// and the gating effect would then un-suspend the moment the fetch lands,
+	// in time for the schema's materialized values to POST as a draft.
 	onUserInput(() => {
-		if (selected) userEdited[selected] = true
+		if (selected && selected in states) userEdited[selected] = true
 	})
 
 	$effect(() => {

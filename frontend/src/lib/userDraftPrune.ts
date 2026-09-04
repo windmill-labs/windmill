@@ -124,6 +124,7 @@ export async function pruneMeaninglessDrafts(workspace: string, userKey: string)
 		})
 
 		let discarded = 0
+		let failed = 0
 		for (const c of empty) {
 			// Re-check: the reads above took a while, and the user may have opened
 			// this item in the meantime.
@@ -131,19 +132,24 @@ export async function pruneMeaninglessDrafts(workspace: string, userKey: string)
 			const q = { workspace, itemKind: c.kind, path: c.path }
 			UserDraftDbSyncer.recordRemoteSync(q, c.createdAt)
 			const res = await discardDraft(c.kind, c.path, workspace, false, c.legacy, false)
-			// A refused delete surfaces as a conflict, not an error: the row moved
-			// past the baseline, so it is no longer the draft we judged empty.
-			if (res.success && !UserDraftDbSyncer.getConflict(q).conflict) discarded++
+			// Neither outcome throws: the syncer swallows an HTTP failure into its
+			// per-key state, and a delete refused for a moved row comes back as a
+			// conflict. So `success` alone says nothing about whether the row went.
+			if (!res.success || UserDraftDbSyncer.getState(q).state === 'failed') failed++
+			else if (!UserDraftDbSyncer.getConflict(q).conflict) discarded++
 		}
 		if (discarded > 0) {
 			invalidateWorkspaceDrafts(workspace)
 			sendUserToast(`Cleared ${discarded} draft${discarded > 1 ? 's' : ''} that carried no changes`)
 		}
-		// Only after a completed pass: a run that threw retries on the next mount.
-		try {
-			localStorage.setItem(sentinel, new Date().toISOString())
-		} catch {
-			// Nothing to do — the pass is idempotent, it just runs again.
+		// Only once every deletion this pass attempted actually landed. A draft
+		// left behind by a failed delete would otherwise never be revisited.
+		if (failed === 0) {
+			try {
+				localStorage.setItem(sentinel, new Date().toISOString())
+			} catch {
+				// Nothing to do — the pass is idempotent, it just runs again.
+			}
 		}
 	} catch {
 		// Fire-and-forget from the layout: a workspace whose draft list can't be
