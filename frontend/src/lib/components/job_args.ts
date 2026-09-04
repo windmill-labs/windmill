@@ -50,9 +50,10 @@ export const resetKeysToast = (resetKeys: string[]): string =>
 const SCALAR_TYPES = new Set(['string', 'number', 'integer', 'boolean'])
 
 /**
- * Declares an array even though its `type` says `object`, and the only slot where a
- * mismatch is worse than unreadable: `MultiSelect` maps over the value as it renders,
- * so anything else throws and takes the whole form down — Cancel with it.
+ * Declares an array even though its `type` says `object`, and a mismatch here throws
+ * rather than merely reading wrong: `MultiSelect` maps over the value as it renders, so
+ * anything else takes the whole form down — Cancel with it, and a reference included,
+ * since the widget draws before anything resolves.
  */
 const declaresDynMultiselect = (prop: any) =>
 	typeof prop?.format === 'string' && prop.format.startsWith('dynmultiselect-')
@@ -125,7 +126,11 @@ export function coerceArgsToSchema(
 	const kept: Record<string, any> = Object.create(null)
 	for (const [key, value] of Object.entries(args ?? {})) {
 		const prop = Object.hasOwn(properties, key) ? properties[key] : undefined
-		if (prop === undefined || value == null || isReference(value)) {
+		if (
+			prop === undefined ||
+			value == null ||
+			(isReference(value) && !declaresDynMultiselect(prop))
+		) {
 			kept[key] = value
 			continue
 		}
