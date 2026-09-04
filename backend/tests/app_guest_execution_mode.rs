@@ -591,6 +591,55 @@ async fn guests_mode_needs_a_scopable_path(db: Pool<Postgres>) -> anyhow::Result
         resp.text().await?
     );
 
+    // Set on update: an app that already sits on such a path cannot be switched.
+    let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
+        .json(&json!({
+            "path": "u/test-user/x:y",
+            "summary": "App",
+            "value": {},
+            "policy": { "execution_mode": "publisher", "triggerables_v2": {} }
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    let resp = authed(
+        client().post(format!("{ws}/apps/update/u/test-user/x:y")),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({ "policy": { "execution_mode": "guest", "triggerables_v2": {} } }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 400, "switched to Guests on a `:` path");
+
+    Ok(())
+}
+
+/// Renaming a workspace copies its settings; the guest switch must travel with them,
+/// or the rename silently shuts every guest app of the workspace.
+#[sqlx::test(fixtures("base"))]
+async fn a_workspace_rename_keeps_the_guest_switch(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    enable_guests(port, "test-workspace").await?;
+    let resp = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/test-workspace/workspaces/change_workspace_id"
+        )),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({ "new_id": "test-workspace-2", "new_name": "Test workspace 2" }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let enabled: bool = sqlx::query_scalar(
+        "SELECT guest_access_enabled FROM workspace_settings WHERE workspace_id = 'test-workspace-2'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert!(enabled, "the guest switch travels with the workspace");
+
     Ok(())
 }
 

@@ -336,7 +336,8 @@ fn deployment_rule_for_mode(mode: ExecutionMode) -> Option<ProtectionRuleKind> {
 fn refuse_unscopable_guest_app(path: &str, mode: ExecutionMode) -> Result<()> {
     if matches!(mode, ExecutionMode::Guest) && !windmill_common::auth::is_scope_literal_path(path) {
         return Err(Error::BadRequest(format!(
-            "app {path} cannot be set to Guests: `:`, `,` and `*` in a path cannot be scoped"
+            "app {path} cannot be set to Guests: a path with `:`, `,` or `*`, or a leading `/`, \
+             cannot be scoped"
         )));
     }
     Ok(())
@@ -3355,24 +3356,6 @@ async fn update_app_internal<'a>(
     // the token's write scope, not just the source path.
     if let Some(npath) = ns.path.as_deref() {
         check_scopes(&authed, || format!("apps:write:{}", npath))?;
-        // The destination is what a guest session would be scoped to; a rename that
-        // carries no policy keeps the deployed mode.
-        let mode = match ns.policy.as_ref().and_then(|p| p.stated_execution_mode()) {
-            Some(mode) => mode,
-            None => sqlx::query_scalar::<_, Option<String>>(
-                "SELECT policy->>'execution_mode' FROM app WHERE workspace_id = $1 AND path = $2",
-            )
-            .bind(w_id)
-            .bind(path)
-            .fetch_optional(&db)
-            .await?
-            .flatten()
-            .and_then(|m| {
-                serde_json::from_value::<ExecutionMode>(serde_json::Value::String(m)).ok()
-            })
-            .unwrap_or_default(),
-        };
-        refuse_unscopable_guest_app(npath, mode)?;
     }
 
     if raw_app {
@@ -3444,6 +3427,28 @@ async fn update_app_internal<'a>(
         if let Some(npath) = &ns.path {
             if npath != path {
                 require_owner_of_path(&authed, path)?;
+
+                // The destination is what a guest session would be scoped to. A rename
+                // that carries no policy keeps the deployed mode, read under the row
+                // lock so a policy update landing alongside cannot slip a guest app
+                // onto a path it cannot be scoped to.
+                let mode = match ns.policy.as_ref().and_then(|p| p.stated_execution_mode()) {
+                    Some(mode) => mode,
+                    None => sqlx::query_scalar::<_, Option<String>>(
+                        "SELECT policy->>'execution_mode' FROM app
+                         WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
+                    )
+                    .bind(path)
+                    .bind(w_id)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .flatten()
+                    .and_then(|m| {
+                        serde_json::from_value::<ExecutionMode>(serde_json::Value::String(m)).ok()
+                    })
+                    .unwrap_or_default(),
+                };
+                refuse_unscopable_guest_app(npath, mode)?;
 
                 let exists = sqlx::query_scalar!(
                     "SELECT EXISTS(SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2)",

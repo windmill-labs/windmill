@@ -2948,7 +2948,8 @@ lazy_static::lazy_static! {
 fn guest_session_scopes(app_path: &str) -> Result<Vec<String>> {
     if !windmill_common::auth::is_scope_literal_path(app_path) {
         return Err(Error::BadRequest(format!(
-            "app path {app_path} cannot be scoped: `:`, `,` and `*` are reserved in scopes"
+            "app path {app_path} cannot be scoped: `:`, `,` and `*` are reserved in scopes, \
+             and a leading `/` never matches a route"
         )));
     }
     Ok(vec![
