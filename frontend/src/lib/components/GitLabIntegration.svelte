@@ -127,19 +127,13 @@
 					<div class="flex flex-col gap-y-1">
 						<div class="text-xs font-semibold text-emphasis">Project access token</div>
 						<div class="text-xs font-normal text-secondary">
-							Create it on the project you are syncing, with the api scope and at least the
-							Developer role. Maintainer also lets Windmill manage the webhook and merge requests.
-							Its name becomes the author of the commits and merge requests Windmill creates.
-						</div>
-						<div class="text-xs font-normal text-secondary">
-							Use a separate token per repository. A group token works and covers every project in
-							the group, but renewal updates one repository at a time, so the others keep the
-							replaced token.
+							Create it on the project you are syncing, with the <code>api</code> scope and the
+							<code>Maintainer</code> role.
 						</div>
 						<TextInput bind:value={token} size="sm" inputProps={{ type: 'password' }} />
 						<div class="text-2xs font-normal text-hint">
-							Windmill keeps it for this repository and hands it to this workspace's sync jobs.
-							Forks read this one copy instead of storing their own, so renewal reaches them all.
+							Use one token per project. A group token covers every project in the group, but
+							renewal replaces it for one project at a time.
 						</div>
 					</div>
 					<div class="flex flex-col gap-y-1">
@@ -174,9 +168,6 @@
 								bind:value={selectedProject}
 								clearable={false}
 							/>
-						</div>
-						<div class="text-2xs font-normal text-hint">
-							The token is stored when you save the resource, under whatever path you save it at.
 						</div>
 						<div class="flex justify-end">
 							<Button
