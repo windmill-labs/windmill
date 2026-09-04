@@ -50,7 +50,11 @@
 	import { Alert } from '$lib/components/common'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import { logHubScriptPick } from '$lib/utils/featureUsage'
-	import { byPopularity, localResourceTypeCounts } from '$lib/components/pickerPopularity'
+	import {
+		alphabetical,
+		byPopularity,
+		localResourceTypeCounts
+	} from '$lib/components/pickerPopularity'
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 
@@ -95,7 +99,7 @@
 	}: Props = $props()
 
 	let allApps: string[] = $state([])
-	let popularity: (a: string, b: string) => number = $state(() => 0)
+	let popularity: (a: string, b: string) => number = $state(alphabetical)
 	$effect(() => {
 		if (filter.length > 0) {
 			apps = Array.from(new Set(items?.map((x) => x.app) ?? [])).sort(popularity)

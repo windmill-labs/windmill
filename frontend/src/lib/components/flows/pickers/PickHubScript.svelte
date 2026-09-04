@@ -10,7 +10,11 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { disableHubStore, workspaceStore } from '$lib/stores'
 	import { logHubScriptPick } from '$lib/utils/featureUsage'
-	import { byPopularity, localResourceTypeCounts } from '$lib/components/pickerPopularity'
+	import {
+		alphabetical,
+		byPopularity,
+		localResourceTypeCounts
+	} from '$lib/components/pickerPopularity'
 
 	interface Props {
 		kind?: HubScriptKind & string
@@ -47,7 +51,7 @@
 	}[] = $state([])
 
 	let allApps: string[] = $state([])
-	let popularity: (a: string, b: string) => number = $state(() => 0)
+	let popularity: (a: string, b: string) => number = $state(alphabetical)
 	let apps: string[] = $derived.by(() =>
 		filter.length > 0
 			? Array.from(new Set(items?.map((x) => x.app) ?? [])).sort(popularity)

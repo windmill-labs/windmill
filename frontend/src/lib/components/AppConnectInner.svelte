@@ -42,6 +42,7 @@
 	import { sameTopDomainOrigin } from '$lib/cookies'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
 	import {
+		alphabetical,
 		byPopularity,
 		hubResourceTypePicks,
 		localResourceTypeCounts,
@@ -390,7 +391,7 @@
 	 * has resources of. Both signals are fetched, so the rows render in the order the lists
 	 * arrived in and re-sort when this lands.
 	 */
-	let popularity: (a: string, b: string) => number = $state(() => 0)
+	let popularity: (a: string, b: string) => number = $state(alphabetical)
 
 	async function loadPopularity() {
 		if (!effectiveWorkspace) return

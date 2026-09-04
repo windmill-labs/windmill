@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { byPopularity } from './pickerPopularity'
+import { alphabetical, byPopularity } from './pickerPopularity'
 
 const order = (names: string[], hub: Record<string, number>, local: Record<string, number> = {}) =>
 	[...names].sort(byPopularity(hub, local))
@@ -26,5 +26,11 @@ describe('byPopularity', () => {
 			'ably',
 			'github'
 		])
+	})
+
+	// The lists render before either signal lands, and one of them arrives in a server-side
+	// HashMap's iteration order, so the resting comparator has to sort rather than no-op.
+	it('leaves an alphabetical order with no signal at all', () => {
+		expect(['stripe', 'ably', 'github'].sort(alphabetical)).toEqual(['ably', 'github', 'stripe'])
 	})
 })

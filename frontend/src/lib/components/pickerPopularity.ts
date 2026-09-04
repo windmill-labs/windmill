@@ -1,4 +1,6 @@
+import { get } from 'svelte/store'
 import { ResourceService } from '$lib/gen'
+import { disableHubStore } from '$lib/stores'
 import { createCache } from '$lib/utils'
 import { isCustomResourceTypeName } from './resourceTypeDisplay'
 
@@ -39,8 +41,13 @@ const localCountsCached = createCache(
 	{ invalidateMs: CACHE_MS }
 )
 
-/** What the hub sees people pick, per resource type. Empty on a hub that counts nothing. */
+/**
+ * What the hub sees people pick, per resource type. Empty on a hub that counts nothing,
+ * and on an instance that has switched the hub off — a closed environment must not spend a
+ * request on hub.windmill.dev just to order a list.
+ */
 export function hubResourceTypePicks(workspace: string): Promise<PopularityCounts> {
+	if (get(disableHubStore)) return Promise.resolve({})
 	return hubPicksCached({ workspace })
 }
 
@@ -59,6 +66,7 @@ export function localResourceTypeCounts(workspace: string): Promise<PopularityCo
  * saved a resource. Workspace-made types exist on no hub, so they are not reported.
  */
 export function recordHubResourceTypePick(workspace: string, resourceType: string): void {
+	if (get(disableHubStore)) return
 	if (!resourceType || isCustomResourceTypeName(resourceType)) return
 	ResourceService.pickHubResourceType({ workspace, name: resourceType }).catch(() => {})
 }
@@ -78,3 +86,13 @@ export function byPopularity(
 	return (a, b) =>
 		(hub[b] ?? 0) - (hub[a] ?? 0) || (local[b] ?? 0) - (local[a] ?? 0) || a.localeCompare(b)
 }
+
+/**
+ * The ordering to hold before either signal has landed: the alphabetical floor, which is
+ * what `byPopularity` degrades to anyway.
+ *
+ * A list has to be sorted by *something* from its first paint — one source of these names
+ * is a `HashMap` on the server, so leaving them unsorted means hash order, which differs
+ * between processes.
+ */
+export const alphabetical = byPopularity({}, {})

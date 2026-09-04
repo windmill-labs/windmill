@@ -8449,7 +8449,7 @@ paths:
                     - picks
 
   /w/{workspace}/resources/type/hub/pick/{name}:
-    get:
+    post:
       summary: record a hub resource type pick
       operationId: pickHubResourceType
       tags:

@@ -91,7 +91,7 @@ pub fn workspaced_service() -> Router {
         .route("/type/listnames", get(list_resource_types_names))
         .route("/type/resource_counts", get(list_resource_counts_by_type))
         .route("/type/hub/picked", get(list_hub_picked_resource_types))
-        .route("/type/hub/pick/{name}", get(pick_hub_resource_type))
+        .route("/type/hub/pick/{name}", post(pick_hub_resource_type))
         .route("/type/get/{name}", get(get_resource_type))
         .route("/type/exists/{name}", get(exists_resource_type))
         .route("/type/update/{name}", post(update_resource_type))
@@ -2693,10 +2693,17 @@ struct PickHubResourceTypeResult {
 /// Never fails the caller: a hub predating the route, an unreachable one, and a type that
 /// is local-only all mean the same thing — not counted — and the request that reaches here
 /// has already saved the user's resource.
+///
+/// POST, and scoped as a write, because it changes state on the hub under the instance's
+/// own credentials. The sibling `/type/*` routes are metadata reads that a `resources:run`
+/// app-embed token may make, and both the method and this check keep such a token — which
+/// is untrusted app JavaScript — from driving hub counters through us.
 async fn pick_hub_resource_type(
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((_w_id, name)): Path<(String, String)>,
 ) -> JsonResult<PickHubResourceTypeResult> {
+    check_scopes(&authed, || "resources:write".to_string())?;
     let hub_base_url = (**windmill_common::HUB_BASE_URL.load()).clone();
     let success = async {
         let id = hub_resource_type_ids(&db, &hub_base_url)
@@ -2734,6 +2741,29 @@ struct HubResourceTypePicks {
 #[derive(Deserialize)]
 struct HubPickedResourceTypes {
     resource_types: Vec<HubResourceTypePicks>,
+}
+
+#[cfg(test)]
+mod hub_picks_tests {
+    use super::HubPickedResourceTypes;
+
+    /// The hub counts picks in a bigint, which postgres.js serialises as a string. Typing
+    /// the field as a plain i64 fails the whole response, and the ranking silently empties.
+    #[test]
+    fn picks_decode_from_a_string_or_a_number() {
+        let parsed: HubPickedResourceTypes = serde_json::from_str(
+            r#"{"resource_types":[{"name":"slack","picks":"42"},{"name":"github","picks":7}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            parsed
+                .resource_types
+                .iter()
+                .map(|rt| (rt.name.as_str(), rt.picks))
+                .collect::<Vec<_>>(),
+            vec![("slack", 42), ("github", 7)]
+        );
+    }
 }
 
 /// The hub's own popularity ranking for resource types. Empty rather than an error when
