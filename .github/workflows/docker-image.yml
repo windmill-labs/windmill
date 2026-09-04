@@ -388,7 +388,7 @@ jobs:
         run: |
           cosign verify \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-            --certificate-identity "https://github.com/windmill-labs/windmill/.github/workflows/docker-image.yml@${{ github.ref }}" \
+            --certificate-identity "https://github.com/windmill-labs/windmill/.github/workflows/docker-image.yml@${GITHUB_REF}" \
             "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${GITHUB_REF_NAME#v}"
 
   tag_latest_ee:
@@ -424,7 +424,7 @@ jobs:
         run: |
           cosign verify \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-            --certificate-identity "https://github.com/windmill-labs/windmill/.github/workflows/docker-image.yml@${{ github.ref }}" \
+            --certificate-identity "https://github.com/windmill-labs/windmill/.github/workflows/docker-image.yml@${GITHUB_REF}" \
             "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${GITHUB_REF_NAME#v}"
 
   verify_ee_image_vulnerabilities:

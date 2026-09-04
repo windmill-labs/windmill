@@ -17,6 +17,9 @@ permissions:
 
 jobs:
   publish_cli:
+    # a tag-targeted dispatch would republish the release tags unsigned,
+    # un-verifying the release; to republish a release, re-push its tag
+    if: github.event_name == 'push' || !startsWith(github.ref, 'refs/tags/')
     runs-on: ubicloud
     steps:
       - uses: actions/checkout@v4
