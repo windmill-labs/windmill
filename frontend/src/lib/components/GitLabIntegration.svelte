@@ -90,6 +90,11 @@
 			...args,
 			url,
 			is_github_app: false,
+			// The URL carries no credential, so without this the resource is
+			// indistinguishable from a public remote: it is what tells the rest of
+			// the UI the token is Windmill's to keep and renew, and which host it
+			// belongs to.
+			managed_credential: 'gitlab',
 			branch: args.branch || chosen.default_branch || undefined
 		})
 		token = ''
@@ -169,6 +174,10 @@
 								clearable={false}
 							/>
 						</div>
+						<Alert type="info" title="Windmill manages this token" size="xs">
+							It is stored when you save the resource, kept out of the repository URL, and renewed
+							before it expires. Forks of this workspace use it without storing their own copy.
+						</Alert>
 						<div class="flex justify-end">
 							<Button
 								variant="accent"

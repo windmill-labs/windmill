@@ -151,12 +151,19 @@
 	let loadingResourceInfo = $state(false)
 	// Only GitHub App-backed repos can register webhooks; PAT repos poll only.
 	let isGithubApp = $state(false)
+	/** The host named by the resource's `managed_credential`, when Windmill holds
+	 * the repository's token rather than it being written into the URL. */
+	let managedCredential = $state<string | undefined>(undefined)
 	// Whether Windmill itself holds a credential for the repository, which is
 	// what the managed features (webhooks, pull requests, commit checks) need.
-	// A GitHub App installation qualifies, and so does a pasted GitLab token the
-	// server has introspected and found healthy.
+	// A GitHub App installation qualifies, and so does a token the server keeps.
+	//
+	// The resource has to answer this, not just the recorded credential status:
+	// that status is written when the repository is saved, and the defaults below
+	// only apply to a connection that has not been saved yet, so relying on it
+	// alone left every managed control hidden while a repository was being set up.
 	let hasManagedCredential = $derived(
-		isGithubApp || (repo?.credential != null && !repo.credential.error)
+		isGithubApp || managedCredential != null || (repo?.credential != null && !repo.credential.error)
 	)
 
 	const MS_PER_DAY = 86_400_000
@@ -259,6 +266,7 @@
 				// Clear stale app state up front so a resource change or a failed
 				// fetch can't leave webhook/fork controls showing for the wrong repo.
 				isGithubApp = false
+				managedCredential = undefined
 				try {
 					const resource = await ResourceService.getResource({
 						workspace: $workspaceStore,
@@ -269,6 +277,7 @@
 						// Extract git URL from resource value
 						const value = resource.value as Record<string, any>
 						isGithubApp = value?.is_github_app === true
+						managedCredential = value?.managed_credential ?? undefined
 						// A newly added sync connection defaults to pulling from Git only
 						// when the repository is app-backed (instant webhook delivery).
 						// Polling is opt-in for token repositories, and fork/dev workspaces
@@ -364,6 +373,7 @@
 			} else {
 				resourceInfo = null
 				isGithubApp = false
+				managedCredential = undefined
 			}
 		}
 

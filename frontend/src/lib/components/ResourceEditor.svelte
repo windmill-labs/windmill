@@ -410,6 +410,15 @@
 			</Alert>
 		{/if}
 
+		{#if current?.args?.managed_credential}
+			<Alert type="info" title="Windmill holds this repository's access token">
+				The URL below carries no credential. Windmill renews the token before it expires and hands
+				it to this workspace's sync jobs, and forks of this workspace use it without storing their
+				own copy. To replace it, pick the project again with the
+				{current.args.managed_credential === 'gitlab' ? 'GitLab' : 'git'} button below.
+			</Alert>
+		{/if}
+
 		{#if current}
 			{#key current}
 				<ResourceForm
