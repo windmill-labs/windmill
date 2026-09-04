@@ -187,6 +187,13 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
+    info!("Updating guest_activity table");
+    sqlx::query("UPDATE guest_activity SET workspace_id = $1 WHERE workspace_id = $2")
+        .bind(&rw.new_id)
+        .bind(&old_id)
+        .execute(&mut *tx)
+        .await?;
+
     info!("Updating workspace_invite table");
     sqlx::query!(
         "UPDATE workspace_invite SET workspace_id = $1 WHERE workspace_id = $2",
@@ -1111,6 +1118,11 @@ pub(crate) async fn delete_workspace(
     )
     .execute(&mut *tx)
     .await?;
+
+    sqlx::query("DELETE FROM guest_activity WHERE workspace_id = $1")
+        .bind(&w_id)
+        .execute(&mut *tx)
+        .await?;
 
     sqlx::query!("DELETE FROM token WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)

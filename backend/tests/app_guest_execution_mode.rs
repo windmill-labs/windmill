@@ -623,6 +623,12 @@ async fn a_workspace_rename_keeps_the_guest_switch(db: Pool<Postgres>) -> anyhow
     let port = server.addr.port();
 
     enable_guests(port, "test-workspace").await?;
+    sqlx::query(
+        "INSERT INTO guest_activity (email, workspace_id, day)
+         VALUES ('guest@example.com', 'test-workspace', CURRENT_DATE)",
+    )
+    .execute(&db)
+    .await?;
     let resp = authed(
         client().post(format!(
             "http://localhost:{port}/api/w/test-workspace/workspaces/change_workspace_id"
@@ -639,6 +645,13 @@ async fn a_workspace_rename_keeps_the_guest_switch(db: Pool<Postgres>) -> anyhow
     .fetch_one(&db)
     .await?;
     assert!(enabled, "the guest switch travels with the workspace");
+    let moved: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM guest_activity WHERE workspace_id = 'test-workspace-2')
+            AND NOT EXISTS(SELECT 1 FROM guest_activity WHERE workspace_id = 'test-workspace')",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert!(moved, "the guests seen in the workspace follow its new id");
 
     Ok(())
 }
