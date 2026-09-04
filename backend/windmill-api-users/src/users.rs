@@ -2945,8 +2945,23 @@ lazy_static::lazy_static! {
 ///
 /// The `guest` sentinel here only narrows. What makes the session a guest at all is the
 /// server-minted label ([`windmill_common::auth::GUEST_SESSION_LABEL`]).
-fn guest_session_scopes(app_path: &str) -> Vec<String> {
-    vec![
+pub fn guest_session_scopes(app_path: &str) -> Result<Vec<String>> {
+    // The path is spliced into a scope, whose parser reads `,` as a resource separator
+    // and `*` as a wildcard: a path carrying either would name more than one app.
+    let canonical = app_path.split('/').count() >= 3
+        && app_path.split('/').all(|seg| {
+            !seg.is_empty()
+                && seg
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "_-.".contains(c))
+        });
+    if !canonical {
+        return Err(Error::BadRequest(format!(
+            "app path {app_path} cannot be scoped: only letters, digits, `_`, `-` and `.` \
+             in `/`-separated segments"
+        )));
+    }
+    Ok(vec![
         windmill_api_auth::scopes::GUEST_SENTINEL.to_string(),
         "jobs:read".to_string(),
         "resources:run".to_string(),
@@ -2954,7 +2969,7 @@ fn guest_session_scopes(app_path: &str) -> Vec<String> {
         "folders:read".to_string(),
         format!("apps:read:{app_path}"),
         format!("apps:run:{app_path}"),
-    ]
+    ])
 }
 
 /// Mint a browser session for someone the identity provider authenticated who is a
@@ -2988,7 +3003,7 @@ pub async fn create_guest_session_token<'c>(
     } else {
         Some(&token)
     };
-    let scopes = guest_session_scopes(app_path);
+    let scopes = guest_session_scopes(app_path)?;
 
     // No account at all (see `ExecutionMode::Guest`): a deactivated `password` row
     // counts, since the sign-in path's own lookup filters on `disabled = false` and a

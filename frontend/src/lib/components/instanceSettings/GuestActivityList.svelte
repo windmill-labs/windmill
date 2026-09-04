@@ -14,8 +14,9 @@
 		hasMore: boolean
 		loading: boolean
 		onLoadMore: () => void
-		/** The instance switch was written; the caller re-reads usage. */
-		onInstanceSwitch: () => void
+		/** The instance switch was written; the caller re-reads usage and resolves once
+		 * the toggle may show the stored value again. */
+		onInstanceSwitch: () => Promise<void>
 	}
 
 	let { usage, guests, hasMore, loading, onLoadMore, onInstanceSwitch }: Props = $props()
@@ -39,8 +40,8 @@
 		} catch (e) {
 			sendUserToast(`Could not change the instance guest switch: ${e}`, true)
 		}
+		await onInstanceSwitch()
 		switchPending = false
-		onInstanceSwitch()
 	}
 	// A capped instance refuses the next stranger as soon as the allowance is used up.
 	let pastAllowance = $derived(

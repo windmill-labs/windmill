@@ -454,6 +454,36 @@ async fn guest_cannot_run_another_guest_app(db: Pool<Postgres>) -> anyhow::Resul
     Ok(())
 }
 
+/// The app path is spliced into the session's scopes, whose parser splits resources on
+/// `,` and reads `*` as a wildcard: a path carrying either would scope the guest to more
+/// than the one app it was let in for, so the mint refuses it before anything else.
+#[sqlx::test(fixtures("base"))]
+async fn a_scope_metacharacter_in_the_app_path_is_refused(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    for path in [
+        "u/test-user/entry,u/test-user/hidden",
+        "u/test-user/*",
+        "u/test-user/a b",
+    ] {
+        let mut tx = db.begin().await?;
+        let minted = windmill_api_users::users::create_guest_session_token(
+            "guest@example.com",
+            "test-workspace",
+            path,
+            &mut tx,
+            tower_cookies::Cookies::default(),
+        )
+        .await;
+        assert!(
+            matches!(minted, Err(windmill_common::error::Error::BadRequest(ref m)) if m.contains("cannot be scoped")),
+            "{path}: {minted:?}"
+        );
+    }
+    Ok(())
+}
+
 /// The superadmin switch sits above every workspace's: off, no guest session stands and
 /// no app discovers as open, whatever the workspace and the app say.
 #[sqlx::test(fixtures("base"))]
@@ -494,12 +524,20 @@ async fn the_instance_switch_closes_every_workspace(db: Pool<Postgres>) -> anyho
     let resp = authed(client().get(format!("{ws}/users/whoami")), GUEST_TOKEN)
         .send()
         .await?;
-    assert_eq!(resp.status(), 401, "the instance switch closes an issued session");
+    assert_eq!(
+        resp.status(),
+        401,
+        "the instance switch closes an issued session"
+    );
     let resp = client()
         .get(format!("{ws}/apps_u/guest_entry/{secret}"))
         .send()
         .await?;
-    assert_eq!(resp.status(), 404, "and nothing discovers as open to guests");
+    assert_eq!(
+        resp.status(),
+        404,
+        "and nothing discovers as open to guests"
+    );
 
     set_instance_switch(false).await?.error_for_status()?;
     let resp = authed(client().get(format!("{ws}/users/whoami")), GUEST_TOKEN)
