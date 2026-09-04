@@ -70,6 +70,21 @@ async fn test_dbt_materialize_target_deploy_contract(db: Pool<Postgres>) -> anyh
     assert_eq!(resp.status(), 400);
     assert!(resp.text().await?.contains("does not configure"));
 
+    // Only the DuckDB executor runs `// data_test` probes, and it runs them around
+    // a managed write — so a declarer in another language would deploy green with
+    // its assertions silently never executed.
+    let resp = deploy(
+        port,
+        "u/test-user/tested",
+        "// materialize manual dbt://main/analytics/orders\n// data_test not_null id\nexport async function main() {}",
+    )
+    .await;
+    assert_eq!(resp.status(), 400);
+    assert!(resp
+        .text()
+        .await?
+        .contains("`// data_test` is not supported"));
+
     // Any language may declare the write — the DuckLake write engine is DuckDB's,
     // this declaration is not — and the target is canonicalized on the way into
     // `asset`, so a hand-written mixed-case spelling lands on the model's key.

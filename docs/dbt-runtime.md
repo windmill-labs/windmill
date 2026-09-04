@@ -696,7 +696,12 @@ recording happens in the generic job path
 (`record_declared_warehouse_write`) rather than in an executor, for the same
 reason. Identity is unchanged — the physical relation — so the ingestion script
 and the dbt model reading it are one node, and a `source` declared on the relation
-puts the whole thing on one lineage. The `<warehouse>` segment is resolved at
+puts the whole thing on one lineage. `// data_test` is refused beside it: those
+checks are probes the DuckDB executor splices around a managed write, so on a
+warehouse relation — which the script writes itself, from any language — nothing
+would run them, and a declarer would deploy green with its assertions silently
+skipped. Assert on the relation with a dbt test in the project that reads it.
+The `<warehouse>` segment is resolved at
 deploy for the same reason a descriptor's `profile.warehouse` is: a name no
 warehouse answers to is not a namespace, it strands the write on a node nothing
 else reaches.

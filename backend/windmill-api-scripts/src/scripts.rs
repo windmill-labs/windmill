@@ -1614,6 +1614,21 @@ async fn create_script_internal<'c>(
                 }
             }
             PAssetKind::Dbt => {
+                // `// data_test` runs as verifier probes the DuckDB executor
+                // splices around a MANAGED write. Nothing generates a warehouse
+                // write, so nothing would run them — and unlike the DuckLake
+                // `manual` case, which at least fails loudly in that executor, a
+                // declarer in another language would deploy green with its
+                // data-quality assertions silently never executed.
+                if !pipeline_annotations.data_tests.is_empty() {
+                    return Err(Error::BadRequest(
+                        "`// data_test` is not supported with a `dbt://` target: the checks run \
+                         against a managed materialization, and a warehouse relation is \
+                         written by the script itself. Assert on the relation with a dbt \
+                         test in the project that reads it."
+                            .to_string(),
+                    ));
+                }
                 if !m.manual {
                     return Err(Error::BadRequest(
                         "`// materialize dbt://…` must be `manual`: Windmill generates no \
