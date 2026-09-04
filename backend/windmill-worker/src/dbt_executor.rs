@@ -24,7 +24,7 @@ use windmill_common::materialization::{
 };
 use windmill_common::worker::{to_raw_value, write_file, Connection};
 use windmill_parser_yaml::{
-    parse_dbt_descriptor, DbtDescriptor, DbtTestBehavior, DBT_COMMANDS, DBT_COMMAND_ARG,
+    parse_dbt_descriptor, DbtDescriptor, DbtEngine, DbtTestBehavior, DBT_COMMANDS, DBT_COMMAND_ARG,
     DBT_COMMAND_LABEL, DBT_DEFAULT_WAREHOUSE,
 };
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
@@ -37,6 +37,7 @@ use crate::dbt_engine::{provision_engine, ProvisionedEngine, DBT_CACHE_DIR};
 use crate::dbt_profiles::{
     ensure_adapter_licensed, render_dbt_profile, render_profile, DbtAdapter, KnownAdapter,
 };
+use crate::dbt_state::{prepare_deferral, write_state_dir, Deferral, StateManifest, STATE_DIR};
 use crate::handle_child::{
     get_mem_peak, handle_child, run_future_with_polling_update_job_poller, JobCtx, JobDeadline,
 };
@@ -121,6 +122,12 @@ pub struct DbtRunResult {
     /// the same project — cannot get them from the job.
     #[serde(skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub invocation_args: std::collections::HashMap<String, Box<RawValue>>,
+    /// The run whose stored state this one resolved its unbuilt `ref()`s
+    /// through, absent when it deferred to none. What a deferring run built
+    /// against is otherwise unrecoverable: the state is replaced by the next
+    /// successful run of that environment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deferred_to: Option<Uuid>,
 }
 
 #[derive(Serialize, Debug, Default)]
@@ -189,7 +196,13 @@ pub(crate) async fn handle_dbt_job(
     // result publishes, and both describe an invocation of this script, not one
     // executor's view of it.
     let raw_args = job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default();
-    let inv = Invocation { args: args.clone(), raw_args, envs: envs.clone(), strict: true };
+    let inv = Invocation {
+        args: args.clone(),
+        raw_args,
+        envs: envs.clone(),
+        deferral: None,
+        strict: true,
+    };
     // One wall clock for the whole job. A dbt job is a sequence of
     // subprocesses — provision, deps, parse, ls, build, then the
     // `after_all` tests — and each would otherwise resolve the job's full
@@ -364,6 +377,44 @@ pub(crate) async fn handle_dbt_job(
         inv
     };
 
+    // Read AFTER the retry restore, so a retry defers exactly as the run it
+    // resumes did: a retry's own arguments are the command block alone, and the
+    // relations its unbuilt `ref()`s resolve to must not depend on that.
+    let defer = arg_bool(&inv.args, "defer")?.unwrap_or(descriptor.defer);
+    let inv = if defer && !windmill_parser_yaml::dbt::is_read_only_command(&command) {
+        // Refused before anything runs. `dbt retry` reads the run it resumes
+        // from `--state`, the flag a deferral needs, so an engine without
+        // `--defer-state` can be given one or the other: told to defer, it
+        // resumes the stored state's own (successful) results and rebuilds
+        // nothing, and left alone it rebuilds the failed nodes with every
+        // `ref()` resolving into the schema THIS run writes — which for the
+        // narrowed run a deferral exists to serve is not where those models go.
+        if command == "retry" && !prepared.engine.engine.has_defer_state_flag() {
+            return Err(Error::BadRequest(format!(
+                "`{}` cannot resume a run that deferred: `dbt retry` takes the run it resumes \
+                 from `--state`, which is also where a deferral reads its manifest, and this \
+                 engine has no `--defer-state` to tell the two apart. Run the script again \
+                 instead of resuming it, or move the project to dbt-core-1x",
+                prepared.engine.engine.as_str()
+            )));
+        }
+        let deferral =
+            prepare_deferral(&prepared, &job.workspace_id, &job.id, job_dir, conn, client).await?;
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!(
+                "\nDeferring unbuilt refs to the dbt state published by run {}\n",
+                deferral.published_by
+            ),
+            conn,
+        )
+        .await;
+        Invocation { deferral: Some(deferral), ..inv }
+    } else {
+        inv
+    };
+
     // Ingested BEFORE the build, from a `dbt parse` with this run's vars, so the
     // models shown are the ones about to be built. Rows are keyed by path, version
     // AND job so no two runs collide; the path-keyed `asset` usage belongs to one
@@ -428,9 +479,28 @@ pub(crate) async fn handle_dbt_job(
     // previous attempt's `run_results.json` is still in the job directory. Never on
     // an agent worker, which cannot read `v2_job_queue` — the wait below would be
     // uninterruptible, so a cancelled job would hold its slot and then start dbt.
+    // And never where the engine cannot be told to defer on a `retry`: the
+    // rebuild would resolve this run's unbuilt refs into the schema it writes
+    // into, so the nodes it "recovered" would read from the wrong relations.
+    // Said out loud below rather than silently skipped.
+    let retry_would_lose_the_deferral =
+        inv.deferral.is_some() && !prepared.engine.engine.has_defer_state_flag();
     let node_retry = descriptor
         .retry_failed_nodes
-        .filter(|_| matches!(conn, Connection::Sql(_)));
+        .filter(|_| matches!(conn, Connection::Sql(_)))
+        .filter(|_| !retry_would_lose_the_deferral);
+    if descriptor.retry_failed_nodes.is_some() && retry_would_lose_the_deferral {
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!(
+                "\nSkipping the automatic node retry: `{}` cannot defer on a `dbt retry`\n",
+                prepared.engine.engine.as_str()
+            ),
+            conn,
+        )
+        .await;
+    }
     let mut retries_left = node_retry.map(|p| p.attempts()).unwrap_or(0);
     if let Some(policy) = node_retry.filter(|_| run.is_err()) {
         retry_failed_nodes(
@@ -518,6 +588,30 @@ pub(crate) async fn handle_dbt_job(
     .await
     {
         tracing::warn!("dbt: could not save retry state for job {}: {e:#}", job.id);
+    }
+    // What a later run defers to, published by the runs whose relations are the
+    // SCRIPT's — the same condition that decides whether a run's graph becomes
+    // what the script owns, and for the same reason: an invocation that scoped
+    // its own models has no standing to say where this project's relations live.
+    // Success is the other half, because a relation a deferral resolves to has
+    // to exist. A `retry` is excluded: its `run_results.json` names only the
+    // nodes it redid, so publishing it would leave the environment claiming a
+    // run of a handful of models.
+    if run.is_ok() && command == "build" && prepared.graph_refresh.publishes_ownership() {
+        // Losing it costs the next deferral, not the run that just finished —
+        // but silently, so the one actionable case (an artifact too large for
+        // the database on a workspace with no object storage) says so.
+        if let Err(e) =
+            crate::dbt_state::publish(&prepared, &job.workspace_id, &job.id, conn, client).await
+        {
+            append_logs(
+                &job.id,
+                &job.workspace_id,
+                format!("\nCould not publish this run as the environment's dbt state: {e}\n"),
+                conn,
+            )
+            .await;
+        }
     }
     let reconciled = reconcile_materializations(&prepared, &results, job, conn, client).await;
     terminalize_running_relations(job, &reconciled, conn).await;
@@ -931,7 +1025,7 @@ impl PreparedProject {
     /// Where this run's relations live: the resolved schema and database. Drift
     /// here since the deploy means the stored graph names relations that no
     /// longer exist.
-    fn relation_root(&self) -> String {
+    pub(crate) fn relation_root(&self) -> String {
         format!(
             "{}|{}",
             self.default_schema.as_deref().unwrap_or(""),
@@ -2191,6 +2285,29 @@ async fn retry_failed_nodes(
     }
 }
 
+/// The flags that point a deferring invocation at its state directory.
+///
+/// `--state` is where a deferred `ref()` resolves through — except on a `retry`,
+/// which reads the run it RESUMES from that same flag: handed the deferral's
+/// directory, dbt resumes the successful run stored there and rebuilds nothing.
+/// dbt-core 1.x has `--defer-state` for exactly this split; the Rust engines do
+/// not, and a run that defers is refused a retry there rather than rebuilt with
+/// its refs resolving into the schema it writes into (`handle_dbt_job`), which
+/// is why the last arm never fires in practice.
+///
+/// The directory is relative because dbt records the invocation's flags into
+/// `run_results.json`: an absolute path would name the job directory of the run
+/// being resumed, gone by the time anything reads it back.
+fn defer_flags(command: &str, engine: DbtEngine) -> &'static [&'static str] {
+    match command {
+        // `--defer` itself is restored with the rest of the resumed
+        // invocation's arguments and cannot be set from here.
+        "retry" if engine.has_defer_state_flag() => &["--defer-state", STATE_DIR],
+        "retry" => &[],
+        _ => &["--defer", "--state", STATE_DIR],
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_dbt(
     p: &PreparedProject,
@@ -2211,6 +2328,10 @@ async fn run_dbt(
         .arg(&log_dir)
         .args(["--log-format-file", "json"])
         .args(["--log-level-file", p.engine.engine.progress_log_level()]);
+
+    if inv.deferral.is_some() {
+        cmd.args(defer_flags(command, p.engine.engine));
+    }
 
     if with_selection && command != "retry" {
         add_selection(&mut cmd, descriptor, inv)?;
@@ -2956,6 +3077,7 @@ fn build_result(
         totals,
         nodes,
         invocation_args: inv.raw_args.clone(),
+        deferred_to: inv.deferral.as_ref().map(|d| d.published_by),
     }
 }
 
@@ -3761,7 +3883,7 @@ async fn save_run_state(
     if let Connection::Sql(db) = conn {
         {
             // Only while a live dbt version stays at this path — the test
-            // `clear_dbt_run_state_if_path_retired` retires state by, plus the
+            // `clear_dbt_script_state_if_path_retired` retires state by, plus the
             // language, since a rename leaves the old path archived rather than
             // deleted and a path can come back as another language. A job already
             // running finishes after those move or clear the row: writing then
@@ -3923,6 +4045,12 @@ pub struct Invocation {
     /// what it pointed at must not.
     pub raw_args: HashMap<String, Box<RawValue>>,
     pub envs: HashMap<String, String>,
+    /// The stored dbt state this invocation resolves an unbuilt `ref()` through,
+    /// materialised into the job directory. Carried here rather than passed to
+    /// each phase: the model phase, the `after_all` tests and every in-job node
+    /// retry must all resolve a `ref()` the same way, or the tests assert against
+    /// relations the models never read.
+    pub deferral: Option<Deferral>,
     /// A run must fail on a `{{ }}` placeholder it cannot fill; a deploy, which
     /// has no arguments at all, tolerates them. Declared rather than inferred
     /// from the argument count: a run submitted with `{}` is still a run, and
@@ -4075,11 +4203,12 @@ async fn restore_from_db(
     if !has_retryable_node(&row.run_results) {
         return Err(nothing_to_retry());
     }
-    let target = p.project_dir.join(ARTIFACTS_DIR);
-    tokio::fs::create_dir_all(&target).await.ok();
-    tokio::fs::write(target.join("run_results.json"), &row.run_results)
-        .await
-        .map_err(|e| Error::internal_err(format!("restoring run_results.json: {e}")))?;
+    write_state_dir(
+        &p.project_dir.join(ARTIFACTS_DIR),
+        Some(&row.run_results),
+        StateManifest::None,
+    )
+    .await?;
     // No manifest came with the row, so one has to be re-derived — but not here:
     // these arguments are as SUBMITTED, and a `$var:` in them shapes the graph
     // only once resolved. The caller resolves, then parses.
@@ -4311,20 +4440,16 @@ async fn restore_run_state(
         return Err(different_project());
     }
     let saved_args_digest = saved_args_digest.map(str::to_string);
-    let target = p.project_dir.join(ARTIFACTS_DIR);
-    tokio::fs::create_dir_all(&target).await.ok();
-    // From the bytes already read, not by copying the file again: a burst of saves
-    // can prune this generation mid-restore, and a `dbt retry` whose
+    // The results go from the bytes already read, not by copying the file again: a
+    // burst of saves can prune this generation mid-restore, and a `dbt retry` whose
     // `run_results.json` went missing rebuilds nothing and reports success. The
     // manifest has no such copy, so a failure there falls back to a `dbt parse`.
-    tokio::fs::write(target.join("run_results.json"), &saved_results)
-        .await
-        .map_err(|e| {
-            Error::internal_err(format!("could not restore the previous run's results: {e}"))
-        })?;
-    let needs_parse = tokio::fs::copy(snapshot.join("manifest.json"), target.join("manifest.json"))
-        .await
-        .is_err();
+    let needs_parse = !write_state_dir(
+        &p.project_dir.join(ARTIFACTS_DIR),
+        Some(&saved_results),
+        StateManifest::CopyOf(snapshot.join("manifest.json")),
+    )
+    .await?;
     // The generation was chosen from a row read before the file work above. A run
     // finishing in that window publishes a newer one, and resuming the superseded
     // generation redoes nodes it has already rebuilt — appending to an incremental
@@ -5764,6 +5889,28 @@ mod tests {
             state_dir("ws", "f/a/one", "u/alice"),
             state_dir("ws", "f/a/one", "u/bob")
         );
+    }
+
+    // The one flag choice that is silently wrong rather than loudly wrong: a
+    // `retry` handed `--state` resumes the SUCCESSFUL run stored there and
+    // rebuilds nothing, reporting a green retry of a failed run.
+    #[test]
+    fn a_retry_is_never_handed_the_deferral_as_its_state() {
+        assert_eq!(
+            defer_flags("build", DbtEngine::DbtCore1x),
+            ["--defer", "--state", crate::dbt_state::STATE_DIR]
+        );
+        assert_eq!(
+            defer_flags("test", DbtEngine::Fusion),
+            ["--defer", "--state", crate::dbt_state::STATE_DIR]
+        );
+        assert_eq!(
+            defer_flags("retry", DbtEngine::DbtCore1x),
+            ["--defer-state", crate::dbt_state::STATE_DIR]
+        );
+        for engine in [DbtEngine::DbtCore2x, DbtEngine::Fusion] {
+            assert!(defer_flags("retry", engine).is_empty());
+        }
     }
 
     #[test]

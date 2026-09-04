@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT job_id, manifest, manifest_key, run_results, run_results_key\n           FROM dbt_environment_state\n          WHERE workspace_id = $1 AND script_path = $2 AND environment = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "manifest",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "manifest_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "run_results",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "run_results_key",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "d8b7241518ce0822288fb123b48205427cc50af031a84d334f65f870d86302ac"
+}

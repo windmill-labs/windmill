@@ -35,7 +35,7 @@ the dominant way dbt is orchestrated today.
 | 10 | Private repo auth | Not applicable: the project is synced, not fetched |
 | 11 | Asset kind | `dbt://<warehouse>/<schema>/<name>` — keyed on the relation, not on dbt's node id. See below |
 | 12 | Graph refresh | Deploy-time, re-ingested per run only when the descriptor is dynamic, plus an explicit `parse` of the editor's buffer. See below |
-| 13 | Manifest storage | Sidecar table for nodes/edges. Full manifest **not** stored — see below |
+| 13 | Manifest storage | Sidecar table for nodes/edges; the whole manifest is kept once per environment, for deferral — see below |
 | 14 | Metadata depth | Tests, strategy, tags, freshness, column descriptions. Column **lineage** is not in the manifest — see below |
 | 15 | Node rendering | Asset nodes per model plus one runnable node for the script |
 | 16 | Progress | Live, from the JSON event stream |
@@ -47,6 +47,7 @@ the dominant way dbt is orchestrated today.
 | 22 | Naming | Match Cosmos field names; importer deferred |
 | 23 | Descriptor | `wm_dbt.yaml` inside the project, OPTIONAL. See below |
 | 24 | Warehouse | Configured on the workspace by name, `main` by default. See below |
+| 25 | Deferral | A durable state per environment, published by the runs whose relations are the script's; `defer` is a per-run toggle. See below |
 
 ## Decision 1: engine toggle, and why the shipped default is not Fusion yet
 
@@ -1143,13 +1144,164 @@ block, since that is what `dbt_run_state` saves and `invocation_args` publishes.
    without failing. Overriding this would make the same project behave differently
    on Windmill than locally, breaking the core promise.
 
+## Durable state per environment, and what defers to it
+
+`dbt --defer --state <dir>` resolves a `ref()` the run does not build to the
+relation the manifest in `<dir>` names, instead of to the schema this run writes
+into. That is what lets one model be rebuilt into a scratch schema without
+rebuilding everything above it, and it needs a manifest of the environment the
+project actually lives in.
+
+Nothing that already existed could supply one. `dbt_run_state` answers a
+different question — it holds the LAST run whatever its outcome, keyed by the
+principal, so `dbt retry` can resume its failures — and the worker-local
+generations behind it are a cache: the next run of a project usually lands on a
+worker holding neither artifact. So the state is its own table,
+`dbt_environment_state`, one row per (workspace, script path, environment),
+holding `manifest.json` and `run_results.json` from the last SUCCESSFUL run.
+Success is half of the contract: a relation a later run defers to has to exist.
+
+### The environment is the warehouse, the target and where they resolve to
+
+`<warehouse>|<target>|<schema>|<database>` — the workspace warehouse's name and
+the descriptor's `profile.target`, plus the database and schema that target
+resolves to, which is the same `relation_root` the graph's drift check reads.
+
+The last two are in the key because deferring is resolving a relation NAME. A
+warehouse repointed at another database, or a `profile.schema` moved by a
+redeploy, keeps the first two while putting every relation somewhere else, and a
+manifest is a list of relation names — there is no other way to notice. Keyed on
+the first two alone, such a move would hand the next deferring run the names of
+relations that are no longer there. Keyed on all four, it reads as an
+environment nothing has published yet, which is what it is.
+
+What the key deliberately does NOT carry is the resolved connection. That is the
+`profile_digest` a retry is held to, and it moves when a password is rotated,
+which moves no relation; a warehouse pointing somewhere else entirely is
+decision 11's accepted limitation, spelled the same way here as everywhere else.
+
+Today one script has one environment, because a descriptor fixes both the
+warehouse and the target and a run cannot override either. The key is what makes
+the *later* item — fork and preview environments — an addition rather than a
+migration, and what makes a profile move detectable now.
+
+### Which runs publish it
+
+A successful `build` whose graph becomes what the script owns
+(`GraphRefresh::publishes_ownership`), which is the same condition and the same
+reason: an invocation that scoped its own model set — a `vars` or
+`select` override, or a descriptor dynamic by construction — describes where the
+CALLER put those relations, not where this project's models live. Publishing it
+would point every later deferral at one caller's scratch schema. It is also what
+makes the ordinary flow work without a second concept: a run that defers is by
+construction a narrowed or re-varred one, so it reads the state and does not
+replace it, while the plain nightly run publishes.
+
+A `retry` publishes nothing. Its `run_results.json` names only the nodes it
+redid, so the environment would come to claim a run of a handful of models. The
+environment's state is therefore the last full successful build, exactly as dbt
+Cloud's "last successful run" is, and a run recovered by a retry leaves it at
+the previous one.
+
+Under `test_behavior: after_all` the stored `run_results.json` is the test
+phase's, because that is what the second invocation leaves in the target
+directory — the same artifact a local `dbt run && dbt test` leaves behind.
+
+### Where the blob goes
+
+`run_results.json` is small; `manifest.json` is not, and grows with the project
+(535 KB on a two-model fixture). Each takes the same two homes: inline in the row
+under `DBT_STATE_INLINE_MAX_BYTES` (8 MiB), and the workspace's object storage
+above it, with the row keeping the key. Inline is what makes the feature work on
+a workspace that has configured no storage at all; the ceiling is what stops one
+project's manifest from becoming a multi-megabyte row rewritten by every run. A
+project past the ceiling with no storage configured is told so, in the job log,
+naming the setting and the variable — the run itself still succeeds, since
+losing the state costs the next deferral rather than the build that just ran.
+
+The object key is derived from the path and the environment
+(`wmill_dbt_state/<workspace>/<digest>/<artifact>`), so a republish overwrites in
+place and the store holds one object per artifact per environment however many
+times the project runs. A blob whose row is gone — the script was deleted, or the
+project grew past the ceiling and then shrank back under it — stays in the
+bucket, as a script bundle does; the key is derived rather than random precisely
+so the project coming back reuses it instead of accumulating a second one.
+
+### Retention
+
+None, deliberately, and this is where it differs from the graph tables next
+door. Those are pruned by age by the dbt runs themselves because their reader is
+a transient run page. This one holds a single row per script per environment,
+replaced in place, so it does not grow with runs — and its reader is every later
+run of that script, so a project that runs monthly must still find last month's
+state. It goes with the script instead: a rename moves it, and a path no live dbt
+version occupies any more clears it, alongside `dbt_run_state`
+(`move_dbt_script_state`, `clear_dbt_script_state`,
+`clear_dbt_script_state_if_path_retired`).
+
+### Asking for it
+
+`defer` is a field on the `build` command block, defaulting to the descriptor's
+own `defer:`. A per-run toggle rather than a descriptor-only setting, because the
+run that publishes an environment's state and the run that defers to it are two
+invocations of ONE script (decision 6: N scripts means N projects): a project
+that could only defer by descriptor could never populate the state it reads.
+
+A run that asks to defer with nothing published is refused, naming the
+environment and saying that one run without `defer` publishes it. The
+alternative — running without deferral — fails deep inside dbt with a
+relation-not-found the caller has no way to connect back to a missing state.
+An agent worker is refused the same way and for a reason it can act on: it
+reaches the database only through the API, which does not expose this table.
+
+The result carries `deferred_to`, the run whose state was used. Without it what
+a deferring run built against is unrecoverable, since the next successful run of
+that environment replaces the state.
+
+### `--state` is also a retry's own argument, and that is a trap
+
+`dbt retry` reads the run it RESUMES from `--state`. Handed the deferral's
+directory it resumes the successful run stored there, finds nothing failed, and
+reports a green retry having rebuilt nothing — silently, on dbt-core 1.x, which
+warns and exits 0.
+
+dbt-core 1.x has `--defer-state`, the deferral-only half of the pair, so a retry
+there passes that and leaves `--state` alone. The Rust engines do not have it,
+and a run that deferred is refused a retry on them, before the build: the
+alternative is rebuilding the failed nodes with every `ref()` resolving into the
+schema this run writes into, which for the narrowed run a deferral exists to
+serve means writing them somewhere they do not belong. The automatic in-job node
+retry is dropped for the same reason and says so in the log.
+
+The state directory is passed RELATIVE (`wm_dbt_state`, beside `wm_target` in the
+job directory). dbt records the invocation's flags into `run_results.json` and a
+later `dbt retry` restores them, so an absolute path would name the job directory
+of the run being resumed, which is gone by then. Relative, it resolves against
+the project root — whichever job directory the retry landed in.
+
+Two engine facts found while wiring this up, both worth knowing before filing a
+bug against the feature. `dbt retry` on dbt-core 2.x restores **neither** the
+resumed invocation's `--vars` nor its deferral: it re-parses with the current
+(empty) ones, so a retry of a run that overrode `vars` rebuilds into the
+descriptor's schema rather than the run's. That is independent of deferral and
+predates it; the refusal above stops the deferring case from being the way it is
+discovered. And neither Rust engine reached dbt's own service-backed State
+(`--manage-state`) on any run measured here, so no flag is passed to disable it.
+
+Because `select` reaches dbt verbatim, a deferring run also has a `--state`
+directory for `result:` selectors, which is why `run_results.json` is stored
+beside the manifest rather than the manifest alone.
+
 ## Two decisions the implementation narrowed
 
-**Decision 13 — no S3 copy of the manifest.** The sidecar holds every field the
-graph renders; nothing reads a stored `manifest.json`, so writing one to S3
-would be an unread copy of data that is already reproducible by redeploying (or,
-for a dynamic descriptor, by the next run). Worth adding the day something needs the
-parts the sidecar drops — compiled SQL, macro definitions — and not before.
+**Decision 13 — the manifest is stored once per environment, not per version.**
+The sidecar holds every field the graph renders, so a copy of `manifest.json`
+bought the graph nothing: it is reproducible by redeploying, or for a dynamic
+descriptor by the next run. Deferral is the reader that changed that — it
+resolves an unbuilt `ref()` through a manifest, and one on worker-local disk
+answers for a machine's history rather than for the environment. So exactly one
+manifest is kept per (script, environment), replaced by each successful run,
+rather than one per version (see "Durable state per environment" above).
 
 **Decision 14 — column lineage is not available.** The decision assumed
 `manifest.json` carries column-to-column edges; it does not, in either core
@@ -1195,7 +1347,8 @@ render through the existing `RunnableNode.svelte` / `AssetNode.svelte` /
 on the canvas mid-run. `record_materialization` per model. Profile and select
 pickers in the editor. Per-model failure triage in the run view.
 
-**Phase 4 (not in this PR).** `--defer` and `state:modified`. Partition and
+**Phase 4 (not in this PR).** `state:modified` and slim CI, and the fork and
+preview environments a deferral would name instead of its own. Partition and
 backfill integration so `BackfillRangeDialog.svelte` works on dbt models.
 `wmill dbt import <dag.py>` reading `DbtDag(...)` kwargs.
 
@@ -1227,6 +1380,10 @@ Against a real dbt project (jaffle_shop shape) and the local Postgres:
    own `profiles.yml` with env-var injection.
 10. **Caching**: a second run reuses the cached `dbt_packages/` with no network
     fetch.
+11. **Deferral**: a full run publishes the environment's state; a second run
+    that builds one downstream model into another schema resolves its unbuilt
+    `ref()` to the relation the state names, where the same run without `defer`
+    fails with relation-not-found.
 
 Keep only tests that pin behavior a future change could break. Per AGENTS.md,
 delete development scaffolding before marking the PR ready.

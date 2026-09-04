@@ -7,7 +7,8 @@
 
 use sqlx::{Pool, Postgres};
 use windmill_common::dbt_manifest::{
-    clear_dbt_editor_graphs, clear_dbt_manifest_version, prune_dbt_run_graphs,
+    clear_dbt_editor_graphs, clear_dbt_manifest_version, clear_dbt_script_state,
+    clear_dbt_script_state_if_path_retired, move_dbt_script_state, prune_dbt_run_graphs,
     replace_dbt_editor_graph, replace_dbt_manifest, IngestedManifest, IngestedNode,
     DBT_EDITOR_GRAPHS_KEPT, DEPLOYED_GRAPH, DEPLOYED_GRAPH_VERSIONS_KEPT,
 };
@@ -546,6 +547,63 @@ async fn editor_markers(db: &Pool<Postgres>) -> i64 {
           WHERE workspace_id = $1 AND script_path = $2 AND script_hash IS NULL",
         WS,
         PATH
+    )
+    .fetch_one(db)
+    .await
+    .unwrap()
+    .unwrap_or(0)
+}
+
+/// A deferral resolves a `ref()` through the manifest of the last successful run
+/// at this path, so that state has to follow the script the way the retry state
+/// does: a rename must not strand it, and a path a dbt script has left must not
+/// hand its manifest to whatever is created there next.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn environment_state_follows_the_script(db: Pool<Postgres>) {
+    const MOVED: &str = "f/test/renamed";
+    deploy_script(&db, 1).await;
+    publish_environment_state(&db, PATH).await;
+
+    let mut tx = db.begin().await.unwrap();
+    move_dbt_script_state(&mut tx, WS, PATH, MOVED).await.unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(environment_states(&db, PATH).await, 0);
+    assert_eq!(environment_states(&db, MOVED).await, 1);
+
+    // Still live at the old path as far as `script` is concerned, so a clear
+    // conditioned on retirement leaves it be.
+    let mut tx = db.begin().await.unwrap();
+    clear_dbt_script_state_if_path_retired(&mut tx, WS, PATH)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(environment_states(&db, MOVED).await, 1);
+
+    let mut tx = db.begin().await.unwrap();
+    clear_dbt_script_state(&mut tx, WS, MOVED).await.unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(environment_states(&db, MOVED).await, 0);
+}
+
+async fn publish_environment_state(db: &Pool<Postgres>, path: &str) {
+    sqlx::query!(
+        "INSERT INTO dbt_environment_state (workspace_id, script_path, environment, job_id,
+                                            manifest)
+         VALUES ($1, $2, 'main||analytics|wh', $3, '{}')",
+        WS,
+        path,
+        uuid::Uuid::from_u128(9),
+    )
+    .execute(db)
+    .await
+    .unwrap();
+}
+
+async fn environment_states(db: &Pool<Postgres>, path: &str) -> i64 {
+    sqlx::query_scalar!(
+        "SELECT count(*) FROM dbt_environment_state WHERE workspace_id = $1 AND script_path = $2",
+        WS,
+        path
     )
     .fetch_one(db)
     .await
