@@ -53,7 +53,7 @@
 
 <Popover
 	floatingConfig={{ strategy: 'fixed', placement: 'left-end' }}
-	contentClasses="flex flex-col pt-9"
+	contentClasses="pt-9"
 	closeButton
 >
 	{#snippet trigger()}
@@ -65,7 +65,7 @@
 		<!-- The scroll sits here rather than on the popover box, which is what the close button
 		     is positioned against — box-level overflow scrolls that button out of reach. The
 		     box's `pt-9` clears the button's 34px, so the scrollbar starts below it. -->
-		<div class="flex flex-col gap-8 max-w-sm p-4 pt-0 min-h-0 max-h-[70vh] overflow-y-auto">
+		<div class="flex flex-col gap-8 max-w-sm p-4 pt-0 max-h-[70vh] overflow-y-auto">
 			<ChangeInstanceEmailInner
 				{email}
 				{username}
