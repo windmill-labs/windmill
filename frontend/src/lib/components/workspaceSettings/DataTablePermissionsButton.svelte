@@ -381,7 +381,7 @@
 		{#snippet actions()}
 			<Button
 				variant="accent"
-				unifiedSize="xs"
+				unifiedSize="md"
 				disabled={!hasUnsavedChanges || loading || !!loadError || !!nameError}
 				loading={saving}
 				on:click={requestPreview}
