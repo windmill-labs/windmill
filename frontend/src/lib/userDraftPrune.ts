@@ -14,12 +14,23 @@
  * Anything that can't be established is left alone — a `draft_only` item (no
  * deployed counterpart, so discarding would destroy the item itself), a kind
  * with no diff support, a failed fetch.
+ *
+ * Deleting is the dangerous half, and the equality behind it is always stale:
+ * it was read one round trip ago, and every candidate is read before any is
+ * deleted. Two guards keep that from eating work. Anything this tab is
+ * currently writing is skipped outright — a discard POSTs immediately, which
+ * cancels the autosave the user's keystrokes have queued. And the delete
+ * itself is a compare-and-delete: the listing's timestamp is seeded as the
+ * `last_sync` baseline, so the backend refuses it if the row moved since,
+ * whoever moved it. Without the seed a freshly loaded tab has no baseline and
+ * the delete is unconditional.
  */
 
 import { DraftService } from './gen'
 import type { UserDraftItemKind } from './gen'
 import { sendUserToast } from './toast'
-import { draftValuesEqual } from './userDraft.svelte'
+import { UserDraft, draftValuesEqual } from './userDraft.svelte'
+import { UserDraftDbSyncer } from './userDraftDbSyncer.svelte'
 import { discardDraft, getDraftDiffValues } from './utils_draft_deploy'
 import { invalidateWorkspaceDrafts } from './workspaceDrafts.svelte'
 
@@ -36,6 +47,14 @@ type Candidate = {
 	kind: UserDraftItemKind
 	path: string
 	legacy: boolean
+	/** The row's `created_at` as listed — the baseline the delete is conditioned on. */
+	createdAt: string
+}
+
+/** Is this tab holding or writing this draft right now? */
+function busyLocally(workspace: string, kind: UserDraftItemKind, path: string): boolean {
+	if (UserDraft.has(kind, path, { workspace })) return true
+	return UserDraftDbSyncer.getState({ workspace, itemKind: kind, path }).state !== 'none'
 }
 
 async function carriesNoChanges(workspace: string, { kind, path }: Candidate): Promise<boolean> {
@@ -91,7 +110,13 @@ export async function pruneMeaninglessDrafts(workspace: string, userKey: string)
 			// `draft_only` rows ARE the item; `mine` / `can_write` are the same
 			// gate the discard endpoint enforces, so anything else would 403.
 			.filter((r) => !r.draft_only && r.mine && r.can_write)
-			.map((r) => ({ kind: r.kind, path: r.path, legacy: r.legacy_draft }))
+			.filter((r) => !busyLocally(workspace, r.kind, r.path))
+			.map((r) => ({
+				kind: r.kind,
+				path: r.path,
+				legacy: r.legacy_draft,
+				createdAt: r.created_at
+			}))
 
 		const empty: Candidate[] = []
 		await mapWithLimit(candidates, CONCURRENCY, async (c) => {
@@ -100,8 +125,15 @@ export async function pruneMeaninglessDrafts(workspace: string, userKey: string)
 
 		let discarded = 0
 		for (const c of empty) {
+			// Re-check: the reads above took a while, and the user may have opened
+			// this item in the meantime.
+			if (busyLocally(workspace, c.kind, c.path)) continue
+			const q = { workspace, itemKind: c.kind, path: c.path }
+			UserDraftDbSyncer.recordRemoteSync(q, c.createdAt)
 			const res = await discardDraft(c.kind, c.path, workspace, false, c.legacy, false)
-			if (res.success) discarded++
+			// A refused delete surfaces as a conflict, not an error: the row moved
+			// past the baseline, so it is no longer the draft we judged empty.
+			if (res.success && !UserDraftDbSyncer.getConflict(q).conflict) discarded++
 		}
 		if (discarded > 0) {
 			invalidateWorkspaceDrafts(workspace)

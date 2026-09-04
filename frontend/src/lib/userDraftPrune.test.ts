@@ -15,8 +15,34 @@ vi.mock('./utils_draft_deploy', () => ({
 	discardDraft: (...a: unknown[]) => discardDraft(...(a as []))
 }))
 vi.mock('./workspaceDrafts.svelte', () => ({ invalidateWorkspaceDrafts: vi.fn() }))
-vi.mock('./toast', () => ({ sendUserToast: vi.fn() }))
-vi.mock('./userDraftDbSyncer.svelte', () => ({ UserDraftDbSyncer: { save: vi.fn() } }))
+const sendUserToast = vi.fn()
+vi.mock('./toast', () => ({ sendUserToast: (...a: unknown[]) => sendUserToast(...(a as [])) }))
+
+let syncState = 'none'
+let conflict: unknown = undefined
+const recordRemoteSync = vi.fn()
+vi.mock('./userDraftDbSyncer.svelte', () => ({
+	UserDraftDbSyncer: {
+		save: vi.fn(),
+		recordRemoteSync: (...a: unknown[]) => recordRemoteSync(...(a as [])),
+		getState: () => ({
+			get state() {
+				return syncState
+			}
+		}),
+		getConflict: () => ({
+			get conflict() {
+				return conflict
+			}
+		})
+	}
+}))
+
+let liveDraft = false
+vi.mock('./userDraft.svelte', async (orig) => ({
+	...(await orig<Record<string, unknown>>()),
+	UserDraft: { has: () => liveDraft }
+}))
 
 import { pruneMeaninglessDrafts } from './userDraftPrune'
 
@@ -27,7 +53,7 @@ const row = (over: Record<string, unknown> = {}) => ({
 	legacy_draft: false,
 	mine: true,
 	can_write: true,
-	created_at: '',
+	created_at: '2026-01-01T00:00:00Z',
 	...over
 })
 const diff = (over: Record<string, unknown> = {}) => ({
@@ -43,6 +69,9 @@ beforeEach(() => {
 	localStorage.clear()
 	vi.clearAllMocks()
 	discardDraft.mockResolvedValue({ success: true })
+	syncState = 'none'
+	conflict = undefined
+	liveDraft = false
 })
 
 describe('pruneMeaninglessDrafts', () => {
@@ -77,6 +106,35 @@ describe('pruneMeaninglessDrafts', () => {
 	it('leaves a draft alone when its diff cannot be fetched', async () => {
 		listDrafts.mockResolvedValue([row()])
 		getDraftDiffValues.mockRejectedValue(new Error('boom'))
+		await pruneMeaninglessDrafts('main', 'me@x.dev')
+		expect(discardDraft).not.toHaveBeenCalled()
+	})
+
+	it('conditions the delete on the timestamp it judged, so a row that moved is spared', async () => {
+		listDrafts.mockResolvedValue([row()])
+		getDraftDiffValues.mockResolvedValue(diff())
+		conflict = { serverTimestamp: '2026-01-02T00:00:00Z', localLastSync: null }
+		await pruneMeaninglessDrafts('main', 'me@x.dev')
+		expect(recordRemoteSync).toHaveBeenCalledWith(
+			{ workspace: 'main', itemKind: 'resource', path: 'u/me/r' },
+			'2026-01-01T00:00:00Z'
+		)
+		// The discard was attempted but refused, so nothing is reported as cleared.
+		expect(sendUserToast).not.toHaveBeenCalled()
+	})
+
+	it('leaves alone a draft this tab is editing', async () => {
+		liveDraft = true
+		listDrafts.mockResolvedValue([row()])
+		getDraftDiffValues.mockResolvedValue(diff())
+		await pruneMeaninglessDrafts('main', 'me@x.dev')
+		expect(discardDraft).not.toHaveBeenCalled()
+	})
+
+	it('leaves alone a draft with a write queued or in flight', async () => {
+		syncState = 'pending'
+		listDrafts.mockResolvedValue([row()])
+		getDraftDiffValues.mockResolvedValue(diff())
 		await pruneMeaninglessDrafts('main', 'me@x.dev')
 		expect(discardDraft).not.toHaveBeenCalled()
 	})
