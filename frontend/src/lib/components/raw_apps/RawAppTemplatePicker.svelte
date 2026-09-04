@@ -114,7 +114,11 @@
 	// does there is no role to save: `undefined` resolves server-side to the data
 	// table's configured default, which is not filtered by what this caller may
 	// use, so starting then can hand the app a role its queries are refused.
-	const rolesSettled = $derived(roles.current.datatable === selectedDatatable)
+	// `undefined === undefined` is not an answer: before auto-select lands there is
+	// no data table to have asked about, and the initial value stamps nothing.
+	const rolesSettled = $derived(
+		selectedDatatable !== undefined && roles.current.datatable === selectedDatatable
+	)
 	let rolesPickedOn = $state<string | undefined>(undefined)
 	$effect(() => {
 		const loaded = roles.current
@@ -143,8 +147,15 @@
 	// Read like the role list: only once it answers for what is selected now. At
 	// mount it is the initial value, during a switch the previous data table's,
 	// and in between the same data table asked as another role.
+	// Settled means: about this data table, asked as the role this app will run as,
+	// and that role is itself settled — until the role list lands `accessRole` is
+	// `undefined`, which the server answers as the data table's configured default
+	// and which says nothing about the role finally selected.
 	const accessSettled = $derived(
-		access.current.datatable === selectedDatatable && access.current.role === accessRole
+		rolesSettled &&
+			selectedDatatable !== undefined &&
+			access.current.datatable === selectedDatatable &&
+			access.current.role === accessRole
 	)
 	const loadedAccess = $derived(
 		accessSettled
