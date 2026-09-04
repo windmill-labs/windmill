@@ -1,10 +1,12 @@
-//! A fork qualifies for the managed git features through its parent's credential.
+//! A fork reaches the git credential and status held above it in its fork chain.
 //!
-//! Fork creation copies the parent's git-sync repositories but drops the recorded
-//! credential, which is server-owned per-workspace state. Without the parent
-//! fallback a fresh fork stops qualifying, and every deploy until the next
-//! credential pass pushes its branch and opens no PR — silently, because nothing
-//! about a skipped PR surfaces anywhere.
+//! Fork creation copies the parent's git-sync repositories but neither the
+//! recorded credential status nor the credential itself, both of which are
+//! server-owned per-workspace state. Without the fallback a fresh fork stops
+//! qualifying, and every deploy until the next credential pass pushes its branch
+//! and opens no PR — silently, because nothing about a skipped PR surfaces
+//! anywhere. Chains nest (a fork of a dev workspace, a fork of that), so the
+//! depth-2 cases here are what keep the lookup from regressing to the parent.
 #![cfg(all(feature = "enterprise", feature = "private"))]
 
 use sqlx::{Pool, Postgres};
@@ -16,7 +18,9 @@ const REPO: &str = "$res:u/admin/repo";
 const URL: &str = "https://gitlab.com/grp/proj.git";
 
 #[sqlx::test(fixtures("git_sync_fork_credential"))]
-async fn fork_qualifies_through_its_parents_credential(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn a_fork_qualifies_through_the_nearest_ancestors_credential(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
     assert!(
         repo_supports_managed_git_features(&db, "parent-ws", REPO).await,
         "the workspace holding the credential qualifies"
@@ -24,6 +28,10 @@ async fn fork_qualifies_through_its_parents_credential(db: Pool<Postgres>) -> an
     assert!(
         repo_supports_managed_git_features(&db, "fork-ws", REPO).await,
         "a fork with no credential of its own qualifies through its parent"
+    );
+    assert!(
+        repo_supports_managed_git_features(&db, "deep-fork-ws", REPO).await,
+        "a fork of a fork qualifies through the root, two levels up"
     );
     assert!(
         !repo_supports_managed_git_features(&db, "errored-fork-ws", REPO).await,
@@ -44,7 +52,7 @@ async fn fork_qualifies_through_its_parents_credential(db: Pool<Postgres>) -> an
 /// the binding is what stops a rewritten resource URL from carrying the token to
 /// a host of the writer's choosing.
 #[sqlx::test(fixtures("git_sync_fork_credential"))]
-async fn a_fork_reads_its_parents_credential_for_the_bound_repository_only(
+async fn a_fork_reads_an_ancestors_credential_for_the_bound_repository_only(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     set_git_credential(&db, "parent-ws", REPO, URL, "glpat-secret").await?;
@@ -62,6 +70,13 @@ async fn a_fork_reads_its_parents_credential_for_the_bound_repository_only(
             .as_deref(),
         Some("glpat-secret"),
         "a fork stores none of its own and resolves the parent's"
+    );
+    assert_eq!(
+        git_credential_for_url(&db, "deep-fork-ws", REPO, URL)
+            .await?
+            .as_deref(),
+        Some("glpat-secret"),
+        "a fork of a fork resolves the root's, two levels up"
     );
     assert_eq!(
         git_credential_for_url(&db, "fork-ws", REPO, "https://evil.example/grp/proj.git").await?,
