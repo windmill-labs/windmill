@@ -14,10 +14,6 @@ export const forbiddenIds: string[] = [
 	'in',
 	'failure',
 	'preprocessor',
-	// The agent editor's synthetic root module, the same way `failure` and `preprocessor` are the
-	// flow editor's: it indexes the root and every tool by id in one map, so a tool taking this id
-	// would sit in the root's slot and lose its own schema and test state.
-	'agent',
 	'as',
 	'Input',
 	'Result',

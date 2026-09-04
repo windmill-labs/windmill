@@ -173,9 +173,16 @@
 <svelte:window onkeydowncapture={onKeyDown} />
 
 <!-- The heading names the level you are on; where it sits within the dialog goes under it. -->
-{#snippet heading(label: string, badge?: import('svelte').Snippet)}
-	<h3 class="text-emphasis text-lg font-semibold leading-7 flex items-center gap-1 min-w-0">
-		<span class="truncate">{label}</span>
+<!-- `oneLine` for a level of the trail, which shares its row with the way back and the actions.
+     The dialog's own title wraps instead, as it did before there was a trail: it is the whole row,
+     and titles carrying a path or a sentence are long by nature. -->
+{#snippet heading(label: string, badge: import('svelte').Snippet | undefined, oneLine: boolean)}
+	<h3
+		class="text-emphasis text-lg font-semibold leading-7 flex items-center gap-1 {oneLine
+			? 'min-w-0'
+			: ''}"
+	>
+		<span class={oneLine ? 'truncate' : ''}>{label}</span>
 		{@render badge?.()}
 	</h3>
 {/snippet}
@@ -256,7 +263,7 @@
 														/>
 													{/if}
 													<div class="flex flex-col min-w-0">
-														{@render heading(current.label, levelBadge)}
+														{@render heading(current.label, levelBadge, true)}
 														<!-- The way back in full: the control above carries one level of it. -->
 														<nav
 															aria-label="Breadcrumb"
@@ -279,7 +286,9 @@
 																		<span class="truncate">{segment.label}</span>
 																	</Button>
 																{:else}
-																	<span class="truncate" in:fade={{ duration: 150 }}>{segment.label}</span>
+																	<span class="truncate" in:fade={{ duration: 150 }}
+																		>{segment.label}</span
+																	>
 																{/if}
 																{#if i === 0}
 																	{@render titleBadge?.()}
@@ -289,7 +298,7 @@
 													</div>
 												</div>
 											{:else}
-												{@render heading(title, titleBadge)}
+												{@render heading(title, titleBadge, false)}
 											{/if}
 											{@render settings?.()}
 										</div>

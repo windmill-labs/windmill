@@ -8,6 +8,7 @@
 	import type { FlowInput } from '$lib/components/flows/types'
 	import type { FlowEditorContext, FlowInputEditorState, FlowPanelDetachContext } from '../types'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
+	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import { initFlowState, type FlowState } from '../flowState'
 	import { insertAgentTool } from '../flowStateUtils.svelte'
 	import { initHistory } from '$lib/history.svelte'
@@ -54,8 +55,11 @@
 	}: Props = $props()
 
 	/** The one module the editor edits. Standalone (no `agent` key) so `initFlowState` loads a
-	 *  schema per tool — the linked branch deliberately loads none. */
-	const AGENT_ID = 'agent'
+	 *  schema per tool — the linked branch deliberately loads none.
+	 *  The root and its tools share one flow-state map, so this id must be one no tool can carry:
+	 *  the leading underscore is rejected by the id editor's pattern and never generated, which a
+	 *  plain word is not — an agent saved with a tool named after it would lose its schema. */
+	const AGENT_ID = '__agent_root'
 
 	const draft = useAgentDraft({ path: () => path, workspace: () => workspace })
 
@@ -156,6 +160,16 @@
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
 		pickablePropertiesFiltered: writable(undefined),
 		inModalPanel: () => true
+	})
+
+	// Its own, empty, rather than the flow's: the copilot addresses fields by name alone, and this
+	// editor is a descendant of the flow it was opened from, so a step input it fills would also
+	// land in a field of the agent that happens to share the name.
+	setContext<FlowCopilotContext>('FlowCopilotContext', {
+		shouldUpdatePropertyType: writable({}),
+		stepInputsLoading: writable(false),
+		generatedExprs: writable({}),
+		exprsToSet: writable({})
 	})
 
 	let agentModule = $derived(flowStore.val.value.modules?.[0])

@@ -138,9 +138,26 @@ export function flowLocalAgentSchema(schema: any): any {
 
 /** Read off the form's own registry, so a linked agent's summary cannot name a field differently
  *  from the form that edits it. */
-const AGENT_BRAIN_LABELS: Record<string, string> = Object.fromEntries(
+export const AGENT_BRAIN_LABELS: Record<string, string> = Object.fromEntries(
 	AGENT_FIELDS.map((f) => [f.key, f.label])
 )
+
+/**
+ * Brain keys set to an input transform rather than to a value, which a saved agent's plain JSON
+ * cannot hold. The tag is what identifies one, and it covers the whole `InputTransform` union:
+ * testing for a payload key instead would miss `{"type":"ai"}`, which carries none. No brain value
+ * tags itself that way — an output schema's `type` names a JSON type, a memory config uses `kind`.
+ */
+export function transformValuedBrainKeys(args: Record<string, any> | undefined): string[] {
+	return AGENT_BRAIN_KEYS.filter((key) => {
+		const v = args?.[key]
+		return (
+			v !== null &&
+			typeof v === 'object' &&
+			(v.type === 'javascript' || v.type === 'ai' || v.type === 'static')
+		)
+	})
+}
 
 /** Flatten a saved agent's brain config into human-readable label/value rows for a read-only
  * display on a linked step. Only set fields are returned, in the canonical brain-key order. */

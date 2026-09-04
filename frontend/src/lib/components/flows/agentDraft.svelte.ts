@@ -8,7 +8,12 @@ import { userStore } from '$lib/stores'
 import { getUserExt } from '$lib/user'
 import { useTriggerDraftSync, type TriggerDraftSync } from '../triggers/useTriggerDraftSync.svelte'
 import { logReusableAgentUsage } from './agentTelemetry'
-import { AGENT_BRAIN_KEYS, agentEditorRefusal, type AIAgentConfig } from './agentResourceUtils'
+import {
+	AGENT_BRAIN_LABELS,
+	agentEditorRefusal,
+	transformValuedBrainKeys,
+	type AIAgentConfig
+} from './agentResourceUtils'
 // Lives here rather than beside the other config helpers: `agentResourceUtils` is a leaf, and
 // importing tool-name validation into it would cycle back through `flowInfers` and pull the whole
 // editor into every module that reads a brain key.
@@ -33,6 +38,12 @@ function agentConfigRunError(args: Record<string, any> | undefined): string | un
 	// Only a flowmodule tool's summary is a callable name: the worker never reads an mcp or
 	// websearch summary, so a blank one there is not an error and must not count as a sibling.
 	// Same filter as `collectInvalidAgentToolNames`, which is the rule the graph enforces.
+	// JSON-edited, so `tools` can be any shape. Reported rather than iterated: the worker reads it
+	// as a list, and a bare `.filter` here would throw past the caller's error handling. `null` is
+	// how the API spells "unset", so it passes as the empty list every other reader takes it for.
+	if (args?.tools != null && !Array.isArray(args.tools)) {
+		return 'Tools must be a list. Fix it in the resource editor before deploying.'
+	}
 	const tools = (args?.tools ?? []) as Record<string, any>[]
 	const named = tools.filter(
 		(t) => t?.value?.tool_type !== 'mcp' && t?.value?.tool_type !== 'websearch'
@@ -226,19 +237,14 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		const ws = opts.workspace()
 		const s = state
 		if (!ws || !s) return false
-		// A saved agent's config is plain JSON, so a brain field holding a transform rather than a
-		// value cannot be written. The editor offers only static values, but one can arrive from a
-		// step that was forked before this existed, or from the generic resource editor — say so
-		// rather than dropping it on the floor.
-		const nonStatic = AGENT_BRAIN_KEYS.filter((key) => {
-			const v = (s.args as Record<string, unknown>)[key]
-			return (
-				v !== null && typeof v === 'object' && 'type' in (v as object) && 'expr' in (v as object)
-			)
-		})
-		if (nonStatic.length > 0) {
+		// The editor offers only values, but a transform can arrive from a step that was forked
+		// before this existed, or from the generic resource editor: say so rather than writing it.
+		const transformValued = transformValuedBrainKeys(s.args)
+		if (transformValued.length > 0) {
+			const fields = transformValued.map((key) => AGENT_BRAIN_LABELS[key] ?? key)
+			const many = fields.length > 1
 			sendUserToast(
-				`${nonStatic.join(', ')} hold an expression, which a saved agent cannot store. Replace them with values before deploying.`,
+				`${fields.join(', ')} ${many ? 'are' : 'is'} set to an expression or an AI-filled value, which a saved agent cannot store. Replace ${many ? 'them' : 'it'} with a plain value before deploying.`,
 				true
 			)
 			return false

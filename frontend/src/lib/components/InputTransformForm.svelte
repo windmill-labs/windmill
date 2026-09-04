@@ -86,11 +86,10 @@
 		/** Hide the connect button, for a surface with nothing to connect to. Distinct from
 		 *  `noDynamicToggle`, which a field forced to an expression also sets. */
 		noConnect?: boolean
-		/** Drop the expression option, for a surface whose values have to stand on their own. The
+		/** Drop the expression option, and every affordance that writes one: an expression reaching
+		 *  such a field is stored and deployed like any other, whichever control put it there. The
 		 *  rest of the switch stays, so a field can still be AI-filled or static. A field already
-		 *  holding an expression keeps the option, or it could not be switched off it.
-		 *  Every affordance that would write one is off with it: an expression reaching such a
-		 *  field is stored and deployed like any other, whichever control put it there. */
+		 *  holding an expression keeps the option, or it could not be switched off it. */
 		noJavascript?: boolean
 		/** Replaces the default StepInputGen, for a field with its own AI helper. That
 		 *  helper drives `suggestion` (its ghost text) and `aiOnKeyUp` (Tab to accept),
@@ -303,7 +302,12 @@
 
 	let codeInjectionDetected = $state(false)
 
-	function checkCodeInjection(rawValue: string) {
+	// A static value is whatever JSON the field holds, so it need not be a string, and the caller
+	// runs inside an effect: throwing here would take the whole form down rather than one field.
+	function checkCodeInjection(rawValue: unknown): { word: string; value: string }[] | undefined {
+		if (typeof rawValue !== 'string') {
+			return undefined
+		}
 		if (!arg || !rawValue || rawValue.length < 3 || !dynamicTemplateRegexPairs) {
 			return undefined
 		}

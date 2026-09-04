@@ -205,15 +205,16 @@
 		untrack(() => rememberOpenFields(visibilityKey, keys))
 	})
 
-	// Only on the switch into image mode, never on load. `temperature` really is forwarded to an
-	// image request, so a value left behind here would change the run rather than sit unread.
+	// Text-only fields go off screen under image output, so their rows stop answering for
+	// themselves: a stale validation error would hold the form invalid with nothing to fix. The
+	// values stay — an agent switched to image and back keeps what it was configured with, and
+	// `temperature` is forwarded either way.
 	let wasImageOutput = untrack(() => imageOutput)
 	$effect(() => {
 		const isImage = imageOutput
 		untrack(() => {
 			if (isImage && !wasImageOutput) {
 				for (const key of AGENT_TEXT_ONLY_KEYS) {
-					if (args?.[key]) args[key] = { type: 'static', value: undefined }
 					visible.delete(key)
 					delete inputCheck[key]
 				}

@@ -270,8 +270,10 @@
 		const savedSnapshot = discardedOnLinkSnapshot()
 		// If the step is replaced while the requests below are in flight (undo, a session-draft sync),
 		// the resource is still written but the step must not be relinked and emptied. The tools array
-		// this save started from is what identifies it.
+		// this save started from is what identifies it, and its link answers for the case where a
+		// step keeps that array yet is pointed at an agent of its own meanwhile.
 		const forkMarker = tools
+		const startedUnlinkedFrom = agent
 		const exists = await ResourceService.existsResource({ workspace: ws!, path })
 		if (exists) {
 			// The drawer's path check is debounced, so a fast save can reach here with an unrelated
@@ -301,7 +303,7 @@
 		// The write minted a version, and nothing else the fetch keys on has to change for it to be
 		// the one the card should now be naming.
 		markAgentWritten(ws, path)
-		if (tools !== forkMarker) {
+		if (tools !== forkMarker || agent !== startedUnlinkedFrom) {
 			// The resource is written either way; say so, or the drawer just closes with no outcome.
 			sendUserToast(
 				`Saved ${path}, but the step changed while saving, so it was not linked to the agent`,

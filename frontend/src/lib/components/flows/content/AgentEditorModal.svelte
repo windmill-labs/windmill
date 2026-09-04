@@ -3,6 +3,7 @@
 	import { onDestroy, untrack } from 'svelte'
 	import { resource } from 'runed'
 	import Modal, { type ModalTrailSegment } from '$lib/components/common/modal/Modal.svelte'
+	import PagedContent from '$lib/components/common/modal/PagedContent.svelte'
 	import { Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import ResourceVersionHistory from '$lib/components/ResourceVersionHistory.svelte'
@@ -212,14 +213,14 @@
 		     way out has to reach it. The close button and the backdrop only set `open`, and a
 		     dialog left closed over a target still set could never be opened again.
 
-		     `paginated` only under evals: that pane lays its levels over each other with
-		     `PagedContent`, while the agent form is one page and wants the ordinary spacing. -->
+		     `paginated` throughout: the body is one strip of pages (the agent form, then evals), so
+		     the header keeps its height and only the pages move. -->
 		<Modal
 			bind:open={() => true, (open) => !open && close()}
 			kind="X"
 			fillHeight
 			enterConfirms={false}
-			paginated={inEvals}
+			paginated
 			title={target.path}
 			{trail}
 			{description}
@@ -304,32 +305,44 @@
 						title="Deployed <> Unsaved agent changes"
 					/>
 				</div>
-				<div class="flex-1 min-h-0">
-					<!-- The host stays mounted under the evals level: it holds the draft the header's
-					     banner and Deploy act on, and the config a draft run is offered on. -->
-					<div class="h-full min-h-0 {inEvals ? 'hidden' : ''}">
-						<AgentEditorHost
-							bind:this={host}
-							path={target.path}
-							workspace={ws}
-							{enableAi}
-							toolId={target.toolId}
-							onSelectTool={(id) => showAgentEditorTool(id)}
-							{onSaved}
-						/>
-					</div>
-					{#if inEvals}
-						<EvalsPane
-							agentPath={target.path}
-							opWorkspace={ws}
-							editedConfig={draft?.sync.hasDraft ? editedConfig : undefined}
-							bind:location={evalsLocation}
-						/>
-					{/if}
-				</div>
+				<!-- Two pages of one strip, so opening evals slides in from the right the way its own
+				     levels do. No `onNavigate`: the arrow keys belong to whichever pane is on screen,
+				     and evals answers them for its own levels. -->
+				<PagedContent
+					class="flex-1 min-h-0"
+					current={inEvals ? 'evals' : 'agent'}
+					pages={[
+						{ key: 'agent', content: agentPage },
+						{ key: 'evals', content: evalsPage }
+					]}
+				/>
 			</div>
 		</Modal>
 	{/key}
+
+	<!-- Mounted under the evals level too: it holds the draft the header's banner and Deploy act on,
+	     and the config a draft run is offered on. -->
+	{#snippet agentPage()}
+		<AgentEditorHost
+			bind:this={host}
+			path={target.path}
+			workspace={ws}
+			{enableAi}
+			toolId={target.toolId}
+			onSelectTool={(id) => showAgentEditorTool(id)}
+			{onSaved}
+		/>
+	{/snippet}
+
+	{#snippet evalsPage()}
+		<EvalsPane
+			agentPath={target.path}
+			opWorkspace={ws}
+			editedConfig={draft?.sync.hasDraft ? editedConfig : undefined}
+			bind:location={evalsLocation}
+			active={inEvals}
+		/>
+	{/snippet}
 
 	<Drawer bind:this={versionDrawer} size="1200px">
 		<DrawerContent title="Version history" on:close={() => versionDrawer?.closeDrawer()} noPadding>

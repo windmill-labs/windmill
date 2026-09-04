@@ -7,8 +7,33 @@ import {
 	inputTransformsToAgentConfig,
 	nonStaticBrainKeys,
 	summarizeAgentBrain,
-	toolInputOverrides
+	toolInputOverrides,
+	transformValuedBrainKeys
 } from './agentResourceUtils'
+
+describe('transformValuedBrainKeys', () => {
+	// The tag is the whole test: `{type:'ai'}` carries no payload key to look for.
+	it('flags every transform variant, whatever it carries', () => {
+		expect(
+			transformValuedBrainKeys({
+				system_prompt: { type: 'ai' },
+				temperature: { type: 'javascript', expr: 'flow_input.t' },
+				max_iterations: { type: 'static', value: 3 }
+			})
+		).toEqual(['system_prompt', 'temperature', 'max_iterations'])
+	})
+
+	it('leaves the brain values that are legitimately objects', () => {
+		expect(
+			transformValuedBrainKeys({
+				output_schema: { type: 'object', properties: {} },
+				memory: { kind: 'auto', context_length: 20 },
+				provider: { kind: 'openai', model: 'gpt-4o' },
+				system_prompt: 'hi'
+			})
+		).toEqual([])
+	})
+})
 
 describe('agentEditorRefusal', () => {
 	it('opens an agent', () => {

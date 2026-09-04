@@ -40,10 +40,20 @@
 	<!-- FlowModule tool - use existing FlowModuleComponent -->
 	<!-- Bound, not passed: "Save to workspace" and "Fork" replace the module wholesale, and an
 	     unbound prop would leave that replacement inside the component while the tool this drawer
-	     belongs to keeps the original — which is then what a deploy writes. -->
+	     belongs to keeps the original — which is then what a deploy writes. Merged rather than
+	     taken whole: those replacements build a plain step, so assigning one would drop the fields
+	     only a tool has, and `summary` is the name the model calls it by. -->
 	<FlowModuleComponent
 		{noEditor}
-		bind:flowModule={() => tool as FlowModule, (v) => (tool = v as unknown as AgentTool)}
+		bind:flowModule={
+			() => tool as FlowModule,
+			(v) =>
+				(tool = {
+					...tool,
+					...v,
+					value: { tool_type: tool.value?.tool_type, ...v.value }
+				} as unknown as AgentTool)
+		}
 		{parentModule}
 		{previousModule}
 		failureModule={false}

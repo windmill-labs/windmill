@@ -33,8 +33,9 @@
 		datatableAsPgResource?: boolean
 		workspace?: string | undefined
 		disableChatOffset?: boolean
-		/** Fires only when a resource is actually picked, with the type it carries. Unlike an effect
-		 *  on `valueType`, it cannot fire for the value the picker was opened on. */
+		/** Fires when this picker sets a resource, with the type it carries, and with `undefined` on
+		 *  clear. Unlike an effect on `valueType` it never fires for the value the picker was opened
+		 *  on, but `selectFirst` choosing the only candidate during a load does count as setting one. */
 		onValueChange?: (path: string | undefined, type: string | undefined) => void
 	}
 

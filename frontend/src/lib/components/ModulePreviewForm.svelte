@@ -50,8 +50,10 @@
 	 *  field registry doesn't know is kept, so a new one is never silently dropped. A run input is
 	 *  kept whatever the step holds: this form has no add-field control, so hiding one would leave
 	 *  no way at all to supply it. */
+	let schemaKeys = $derived(Object.keys(schema?.properties ?? {}))
+
 	let visibleKeys = $derived.by(() => {
-		const all = Object.keys(schema?.properties ?? {})
+		const all = schemaKeys
 		if ((mod.value as { type?: string })?.type !== 'aiagent') return all
 		const transforms = (mod.value as { input_transforms?: Record<string, unknown> })
 			?.input_transforms
@@ -65,7 +67,11 @@
 		let lkeys = visibleKeys
 		if (schema?.properties && JSON.stringify(lkeys) != JSON.stringify(keys)) {
 			keys = lkeys
-			untrack(() => stepsInputArgs?.removeExtraKey(mod.id, keys))
+			// Pruned against the schema rather than against what is shown. What a run was given for a
+			// field lives only here, so dropping it when the field merely stops being displayed would
+			// discard it: an agent hides the settings its step leaves unset, and clearing one in the
+			// Inputs tab hides it.
+			untrack(() => stepsInputArgs?.removeExtraKey(mod.id, schemaKeys))
 		}
 	})
 

@@ -77,8 +77,11 @@
 	import autosize from '$lib/autosize'
 	import EditableSchemaWrapper from '$lib/components/schema/EditableSchemaWrapper.svelte'
 	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
-	import AgentEditorModal from '$lib/components/flows/content/AgentEditorModal.svelte'
-	import { closeAgentEditor, openAgentEditor } from '$lib/components/flows/agentEditorStore.svelte'
+	import {
+		agentEditorTarget,
+		closeAgentEditor,
+		openAgentEditor
+	} from '$lib/components/flows/agentEditorStore.svelte'
 	import { copilotInfo } from '$lib/aiStore'
 	import { setPageDrawerAnchor } from '$lib/components/sessions/pageDrawerSession'
 	import { RESOURCES_PATH } from '$lib/components/sessions/previewPaths'
@@ -688,8 +691,14 @@
 			try {
 				resourceType = (await ResourceService.getResource({ workspace: $workspaceStore!, path }))
 					.resource_type
-			} catch {
-				// Gone, or not readable. The generic editor reports that better than we can here.
+			} catch (err) {
+				if (handledHash !== openingFor) return
+				// Opening the generic form on an unknown type is the very thing this avoids, so a
+				// failed lookup opens nothing at all. The hash stays claimed: the effect above reads
+				// it, so releasing it here would re-enter this lookup and toast on a loop. Clicking
+				// the row is the way to try again.
+				sendUserToast(`Could not open ${path}: ${err}`, true)
+				return
 			}
 			if (handledHash !== openingFor) return
 		}
@@ -1550,4 +1559,10 @@
 
 <!-- Same capabilities as from a flow step: the editor is the same one, so which surface opened it
      must not decide whether its tools can be written with the copilot. -->
-<AgentEditorModal enableAi={$copilotInfo.enabled} owns={(t) => t.host === undefined} />
+<!-- Imported only once an agent is opened: the editor pulls in the flow editor, which is most of
+     this route's JavaScript and none of what the resources table needs. -->
+{#if agentEditorTarget()}
+	{#await import('$lib/components/flows/content/AgentEditorModal.svelte') then { default: AgentEditorModal }}
+		<AgentEditorModal enableAi={$copilotInfo.enabled} owns={(t) => t.host === undefined} />
+	{/await}
+{/if}

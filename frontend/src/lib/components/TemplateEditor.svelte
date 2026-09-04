@@ -422,6 +422,10 @@
 		minRows ? minRows * Math.round(1.5 * effectiveFontSize) + yPadding * 2 : 0
 	)
 
+	/** Whether the live model is empty, for the placeholder. Tracked apart from `code`, which the
+	 *  editor only writes back on a debounce. */
+	let editorEmpty = $state(true)
+
 	if (typeof code != 'string') {
 		code = ''
 	}
@@ -538,6 +542,9 @@
 		}
 
 		editor.onDidChangeModelContent((event) => {
+			// Undebounced, unlike `code`: the placeholder sits over the editor, so waiting would leave
+			// it covering the first characters typed into an empty field.
+			editorEmpty = (editor?.getModel()?.getValue() ?? '') === ''
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
 				updateCode()
@@ -736,7 +743,7 @@
 		style="height: {Math.max(18, minHeightPx)}px;"
 		class="template nonmain-editor rounded-md overflow-clip {!editor ? 'hidden' : ''}"
 	></div>
-	{#if placeholder && !code}
+	{#if placeholder && !code && (!editor || editorEmpty)}
 		<div
 			class="absolute inset-0 px-2 pointer-events-none whitespace-pre-wrap text-hint font-mono"
 			style="font-size: {effectiveFontSize}px; line-height: {Math.round(
