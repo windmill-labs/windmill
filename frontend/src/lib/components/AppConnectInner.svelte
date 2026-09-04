@@ -1389,6 +1389,7 @@
 						{resourceType}
 						{resourceTypeInfo}
 						resourcePath={path}
+						workspace={effectiveWorkspace}
 						bind:args
 						bind:isValid
 						onSynced={getResourceTypeInfo}

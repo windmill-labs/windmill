@@ -54,15 +54,26 @@ group.
 
 In the resource form for a `git_repository` resource, use the **GitLab** button:
 paste the instance URL and the token, pick a project from the list, and Windmill
-stores the whole remote URL, credential included, in a **secret variable** and
-points the resource at it (`"url": "$var:u/you/gitlab_host_group_project_url"`).
-It refuses to write over a variable already holding a different repository, so a
-path collision cannot silently repoint an existing resource.
+keeps the token for you. The resource itself gets the plain remote URL
+(`"url": "https://gitlab.com/group/project.git"`), with no credential in it.
 
-Renewal rewrites whichever of the two holds the URL, so a URL pasted straight
-into the resource is renewed as well. The variable is still the better place for
-it: the credential stays out of the resource, and everything else that references
-the variable keeps working when the token changes. What cannot be renewed is a
+The token is stored encrypted on the workspace, keyed by the resource's path, and
+recorded against the repository it was issued for. Nothing reads it back out over
+the API: the server attaches it when it talks to GitLab, and a sync job receives
+it only against its own job token. Because it is bound to one repository,
+repointing the resource's `url` at somewhere else does not carry the token along;
+a repository that genuinely moved needs its token entered again.
+
+Give the resource its final path before picking a project. The token is filed
+under that path, so renaming afterwards leaves it behind.
+
+Forks of the workspace read this one copy rather than getting their own, so
+renewal reaches all of them at once and no fork holds a credential a fork admin
+could read.
+
+A URL with the token written into it keeps working, whether it sits in the
+resource or in a secret variable the resource points at (`"url": "$var:..."`),
+and renewal rewrites whichever of the two holds it. What cannot be renewed is a
 variable held in an external secret backend, which Windmill can read but does not
 own the write to; that is reported on the repository.
 
@@ -71,9 +82,13 @@ own the write to; that is reported on the repository.
 Windmill reads `expires_at` from the token itself and shows it on the repository
 in the workspace's git sync settings. Within three weeks of expiry it rotates the
 token through GitLab's own `POST /personal_access_tokens/self/rotate`, writes the
-replacement back to the variable, and verifies it. Only the token can rotate
-itself, so a token without `api` (or `self_rotate`) is a permanent warning rather
-than something Windmill can fix.
+replacement back where the credential is stored, and verifies it. Only the token
+can rotate itself, so a token without `api` (or `self_rotate`) is a permanent
+warning rather than something Windmill can fix.
+
+Only the workspace that stores a credential rotates it. A fork reading its
+parent's shows the same expiry but is not itself rotatable, so one rotation
+serves the whole family instead of each fork racing to renew its own copy.
 
 Rotation is deliberately never retried. GitLab revokes the old token the instant
 it issues the replacement, and presenting an already-rotated token to `/rotate`

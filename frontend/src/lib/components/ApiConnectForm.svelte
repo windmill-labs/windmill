@@ -30,8 +30,12 @@
 		linkedSecretCandidates?: string[] | undefined
 		description?: string | undefined
 		/** Path the resource is being saved at, passed through to the GitLab picker
-		 * so the credential variable it creates takes the resource's own path. */
+		 * so the credential it stores is keyed by the resource's own path. */
 		resourcePath?: string
+		/** Workspace the resource is being saved into, which is not always the one
+		 * being navigated. The GitLab picker has to store the credential where the
+		 * resource will look for it. */
+		workspace?: string
 		onSynced?: () => void
 	}
 
@@ -44,6 +48,7 @@
 		linkedSecretCandidates = undefined,
 		description = $bindable(undefined),
 		resourcePath = undefined,
+		workspace = undefined,
 		onSynced = undefined
 	}: Props = $props()
 
@@ -260,6 +265,7 @@
 			{resourceType}
 			{args}
 			{resourcePath}
+			{workspace}
 			onArgsUpdate={(newArgs) => {
 				args = newArgs
 				rawCode = JSON.stringify(args, null, 2)
