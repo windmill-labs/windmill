@@ -115,9 +115,10 @@
 	</div>
 {:else}
 	<div class="flex flex-col border rounded-md divide-y overflow-hidden">
-		<!-- Keyed by index as well as id: the list is JSON-authored, so two entries can share an id
-		     or carry none at all, and a duplicate key is a render-time throw. -->
-		{#each tools as tool, i (tool?.id ?? i)}
+		<!-- Keyed by position, not id: the list is JSON-authored, so two entries can carry the same
+		     id or none, and a duplicate key throws during render. The rows hold no state of their
+		     own, so position is identity enough here. -->
+		{#each tools as tool, i (i)}
 			{@const kind = toolKind(tool)}
 			{@const error = nameError(tool)}
 			<!-- The delete sits beside the row rather than inside it: the row is itself a button, and
