@@ -402,13 +402,21 @@ and gets no exemption; the guarantee there stays unconditional.
 **What the redaction costs, and where it stops.** dbt redacts by VALUE, so a
 credential that is also a substring of one of the run's own identifiers is
 blanked out of dbt's log wherever it appears — a warehouse password of `raw`
-against a `raw` schema would show `*****` in the job log and in the live
-per-model status, which is read from the JSON log stream. It stops there:
+against a `raw` schema shows `*****` in the job log. It stops at the log:
 `run_results.json` and `manifest.json` are artifacts rather than log events and
 are NOT redacted, so the manifest ingest, the asset graph and the
-materialization records carry true relation names either way. That bound is why
-a credential is hidden regardless of what it happens to spell: the alternative
-would be declining to protect exactly the weakest ones.
+materialization records carry true relation names either way.
+
+Live per-model status is the one thing that reads the log stream, and a redacted
+relation there is DROPPED rather than recorded (`parse_node_event`). A path with
+`*****` in it names no relation, and recording one strands a row nothing clears:
+the end-of-run reconciliation restates the true path from `run_results.json`, and
+only settles rows still `running`. Such a node fills in at the end of the run
+like a `dbt-core-2x` one, rather than animating during it.
+
+That bound is why a credential is hidden regardless of what it happens to spell.
+The alternative — a length floor, or refusing to hide a value that collides with
+a coordinate — declines to protect exactly the weakest credentials.
 
 **The names are a fresh nonce per render.** `packages.yml` is rendered under the
 same secret context as `profiles.yml`, on every dbt invocation and not only

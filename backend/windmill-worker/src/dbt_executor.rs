@@ -2502,6 +2502,19 @@ fn parse_node_event(
     {
         return None;
     }
+    // dbt redacts a secret's VALUE from its log events, so a credential that is
+    // also a substring of a relation's own name arrives here as `*****`. That
+    // names no relation, and recording it strands a row nothing clears: the
+    // end-of-run reconciliation restates the true path from `run_results.json`,
+    // which is not redacted, and only settles rows still `running`. The node's
+    // outcome comes from that pass instead; it loses live status, not its record.
+    const REDACTED: &str = "*****";
+    if schema.contains(REDACTED)
+        || alias.contains(REDACTED)
+        || database.is_some_and(|d| d.contains(REDACTED))
+    {
+        return None;
+    }
     let status = match classify_status(info.get("node_status")?.as_str()?) {
         DbtNodeOutcome::Started => MaterializationStatus::Running,
         DbtNodeOutcome::Passed => MaterializationStatus::Materialized,
@@ -5871,5 +5884,14 @@ mod tests {
             "node_relation":{"alias":"c","schema":"a","relation_name":"\"w\".\"a\".\"c\""}}},
             "info":{"name":"LogModelResult","msg":"skip"}}"#;
         assert!(parse_node_event(s, "f/prod/wh", Some("wh")).is_none());
+        // dbt redacts a secret's VALUE from its events, so a warehouse password
+        // that is also a schema name arrives redacted. Recorded, that path would
+        // outlive the run: the end-of-run pass restates the true one from
+        // `run_results.json` and only settles rows still `running`.
+        let r = r#"{"data":{"node_info":{"node_status":"success",
+            "node_relation":{"alias":"c","schema":"*****","database":"w",
+            "relation_name":"\"w\".\"*****\".\"c\""}}},
+            "info":{"name":"LogModelResult","msg":"ok"}}"#;
+        assert!(parse_node_event(r, "f/prod/wh", Some("wh")).is_none());
     }
 }

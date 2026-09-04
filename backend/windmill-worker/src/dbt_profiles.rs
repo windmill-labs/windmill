@@ -977,10 +977,14 @@ fn emit_value(
             }
         }
         Value::String(s) => out.push_str(&format!(" {}\n", secrets.leaf(secret, s).render())),
-        // A number or a bool under a credential-named key is credential material
-        // as much as a string is. It reaches the adapter as text, which is what
-        // `env_var()` yields for every credential that goes this way.
-        Value::Number(_) | Value::Bool(_) if secret => out.push_str(&format!(
+        // A number under a credential-named key is credential material as much as
+        // a string is, and reaches the adapter as text — what `env_var()` yields
+        // for every credential that goes this way. NOT a bool: one is a mode
+        // rather than a credential (dbt-snowflake's
+        // `client_store_temporary_credential` matches `credential` and is one),
+        // and registering `true` as a secret redacts a substring of nearly every
+        // event dbt emits.
+        Value::Number(_) if secret => out.push_str(&format!(
             " {}\n",
             secrets.leaf(true, &yaml_value(v)).render()
         )),
@@ -1587,6 +1591,7 @@ mod tests {
     fn a_dbt_profile_hides_its_credential_keys() {
         let r = json!({"type": "trino", "host": "trino.internal", "schema": "analytics",
                        "user": "u", "password": "pw", "session_token": 4242,
+                       "client_store_temporary_credential": true,
                        "http_headers": {"x-api-key": "k", "X-Trace": "on"},
                        "oauth_credentials": {"client": "c"},
                        "keyfile_json": {"project_id": "proj", "private_key": "pem"}});
@@ -1612,6 +1617,12 @@ mod tests {
         assert_eq!(target["user"].as_str(), Some("u"));
         assert_eq!(target["http_headers"]["X-Trace"].as_str(), Some("on"));
         assert_eq!(target["keyfile_json"]["project_id"].as_str(), Some("proj"));
+        // A bool under a marker key is a MODE: registering `true` as a secret
+        // would redact a substring of nearly every event dbt emits.
+        assert_eq!(
+            target["client_store_temporary_credential"].as_bool(),
+            Some(true)
+        );
         assert_eq!(p.schema.as_deref(), Some("analytics"));
     }
 
