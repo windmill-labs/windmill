@@ -49,7 +49,7 @@ import {
 	type FrameworkKey
 } from '$lib/components/raw_apps/templates'
 import {
-	conformArgsToSchema,
+	coerceArgsToSchema,
 	redactFileArgs,
 	redactSecretArgs,
 	stripFileArgs,
@@ -5589,13 +5589,13 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	}
 
 	const schema = spec.schema
-	const conformed = conformArgsToSchema(normalizeTestRunArgs(spec.proposed), schema)
+	const coerced = coerceArgsToSchema(normalizeTestRunArgs(spec.proposed), schema)
 	// A secret the model picked is not consent, whatever it holds: a literal is a value
 	// the user never chose, a reference names something the card cannot show them. Files
 	// go the same way — prefilled bytes are bytes the stored transcript then carries.
 	const strippedKeys: string[] = []
 	const proposed = stripFileArgs(
-		stripSecretArgs(conformed.args, schema as any, strippedKeys),
+		stripSecretArgs(coerced.args, schema as any, strippedKeys),
 		schema as any,
 		strippedKeys
 	)
@@ -5619,9 +5619,8 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		schema: autoAccepted ? undefined : schema,
 		submitted: autoAccepted || undefined,
 		args: proposed,
-		droppedKeys: conformed.dropped.undeclared.length ? conformed.dropped.undeclared : undefined,
-		unshowableKeys: conformed.dropped.unshowable.length ? conformed.dropped.unshowable : undefined,
-		resetKeys: conformed.resetKeys.length ? conformed.resetKeys : undefined,
+		clearedKeys: coerced.clearedKeys.length ? coerced.clearedKeys : undefined,
+		resetKeys: coerced.resetKeys.length ? coerced.resetKeys : undefined,
 		strippedKeys: strippedKeys.length ? strippedKeys : undefined
 	}
 
@@ -5700,16 +5699,14 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	})
 
 	const schemaNoun = `${spec.schemaNoun} schema`
-	const dropped = conformed.dropped.undeclared.length
-		? `\nThe ${schemaNoun} declares no ${conformed.dropped.undeclared.join(', ')}, so the form never offered ${conformed.dropped.undeclared.length > 1 ? 'them' : 'it'} and the run did not carry ${conformed.dropped.undeclared.length > 1 ? 'them' : 'it'}.`
+	// Only what the form could make no reading of: a wrong-typed value it can read is
+	// converted silently, since the field then shows what the run carries and there is
+	// nothing to report.
+	const cleared = coerced.clearedKeys.length
+		? `\nThe ${schemaNoun} declares ${coerced.clearedKeys.join(', ')}, but you sent ${coerced.clearedKeys.length > 1 ? 'them in shapes' : 'it in a shape'} with no reading in the declared ${coerced.clearedKeys.length > 1 ? 'types' : 'type'}, so the ${coerced.clearedKeys.length > 1 ? 'fields opened' : 'field opened'} empty and the run did not carry ${coerced.clearedKeys.length > 1 ? 'them' : 'it'}. Re-read the input schema and match ${coerced.clearedKeys.length > 1 ? 'their declared types' : 'its declared type'}.`
 		: ''
-	// Told apart from `dropped`, or the model reads "no such argument" and stops sending
-	// one the script does have, instead of sending it in the shape the schema asks for.
-	const unshowable = conformed.dropped.unshowable.length
-		? `\nThe ${schemaNoun} does declare ${conformed.dropped.unshowable.join(', ')}, but you sent ${conformed.dropped.unshowable.length > 1 ? 'them in shapes' : 'it in a shape'} the form has no field for, so the run did not carry ${conformed.dropped.unshowable.length > 1 ? 'them' : 'it'}. Re-read the input schema and match ${conformed.dropped.unshowable.length > 1 ? 'their declared types' : 'its declared type'}.`
-		: ''
-	const reset = conformed.resetKeys.length
-		? `\nThe ${schemaNoun} disables ${conformed.resetKeys.join(', ')}, so the form held ${conformed.resetKeys.length > 1 ? 'their defaults' : 'its default'} rather than the proposed ${conformed.resetKeys.length > 1 ? 'values' : 'value'}. Do not propose ${conformed.resetKeys.length > 1 ? 'them' : 'it'} again.`
+	const reset = coerced.resetKeys.length
+		? `\nThe ${schemaNoun} disables ${coerced.resetKeys.join(', ')}, so the form held ${coerced.resetKeys.length > 1 ? 'their defaults' : 'its default'} rather than the proposed ${coerced.resetKeys.length > 1 ? 'values' : 'value'}. Do not propose ${coerced.resetKeys.length > 1 ? 'them' : 'it'} again.`
 		: ''
 	// Otherwise an emptied field reads as the user having deleted it, and the next call
 	// proposes the same secret again.
@@ -5730,7 +5727,7 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	const ran = deepEqual(redacted, proposed)
 		? 'Ran with the arguments the form opened with, unedited.'
 		: `Ran with arguments: ${shown}`
-	return `${ran}${dropped}${unshowable}${reset}${stripped}\n${outcome}`
+	return `${ran}${cleared}${reset}${stripped}\n${outcome}`
 }
 
 async function runDeployedScript(

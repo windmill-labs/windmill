@@ -191,16 +191,10 @@
 			layout === 'pane' ? 'pl-9' : ''
 		)}
 	>
-		{#if runForm.droppedKeys?.length}
+		{#if runForm.clearedKeys?.length}
 			<p class="text-2xs text-secondary">
-				Not an input of this script, so it will not be sent:
-				<span class="font-mono">{runForm.droppedKeys.join(', ')}</span>
-			</p>
-		{/if}
-		{#if runForm.unshowableKeys?.length}
-			<p class="text-2xs text-secondary">
-				Sent in a shape this form has no field for, so it opened empty:
-				<span class="font-mono">{runForm.unshowableKeys.join(', ')}</span>
+				Sent in a shape this field has no reading of, so it opened empty:
+				<span class="font-mono">{runForm.clearedKeys.join(', ')}</span>
 			</p>
 		{/if}
 		{#if runForm.resetKeys?.length}
