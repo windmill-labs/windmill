@@ -68,8 +68,15 @@ Give the resource its final path before picking a project. The token is filed
 under that path, so renaming afterwards leaves it behind.
 
 Forks of the workspace read this one copy rather than getting their own, so
-renewal reaches all of them at once and no fork holds a credential a fork admin
-could read.
+renewal reaches all of them at once and the token is not duplicated into every
+descendant workspace.
+
+Treat workspace admin as equivalent to holding the token. An admin of the
+workspace, or of any fork below it, can point a repository at a sync script they
+wrote and have that job request the credential, exactly as they can for a GitHub
+App installation token. Storing it this way keeps it out of the variables API and
+out of every fork's own storage; it is not a boundary against the admins of those
+workspaces.
 
 A URL with the token written into it keeps working, whether it sits in the
 resource or in a secret variable the resource points at (`"url": "$var:..."`),

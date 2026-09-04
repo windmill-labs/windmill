@@ -16,9 +16,9 @@
 		 * one being navigated: the credential has to land where the resource will
 		 * look for it. */
 		workspace?: string
-		/** Path the resource is being saved at. The stored credential is keyed by
-		 * it, so the picker cannot run before the resource has a path. */
-		resourcePath?: string
+		/** The picked project's token, handed over for the form to store once the
+		 * resource is saved and its path is final. */
+		onCredentialSelected?: (credential: { token: string; repoUrl: string }) => void
 		onArgsUpdate?: (args: Record<string, any>) => void
 	}
 
@@ -26,7 +26,7 @@
 		resourceType,
 		args = {},
 		workspace = undefined,
-		resourcePath = undefined,
+		onCredentialSelected,
 		onArgsUpdate
 	}: Props = $props()
 
@@ -38,7 +38,6 @@
 	let projects: GitlabProject[] = $state([])
 	let selectedProject: string | undefined = $state(undefined)
 	let loading = $state(false)
-	let applying = $state(false)
 	let listError: string | undefined = $state(undefined)
 
 	// Shown alongside the GitHub App button and on the same terms, so the two
@@ -55,7 +54,6 @@
 	let enabled = $derived(!!$enterpriseLicense)
 
 	let project = $derived(projects.find((p) => p.path_with_namespace === selectedProject))
-	let hasPath = $derived(!!resourcePath && resourcePath !== '')
 
 	async function listProjects() {
 		if (!ws) return
@@ -79,37 +77,26 @@
 		}
 	}
 
-	async function apply(close: (_: any) => void) {
-		if (!ws || !project || !token || !resourcePath) return
-		// Everything this writes is read once, here, before the first await. The
-		// selector stays live while the request is in flight, so re-reading it
-		// later could store one project's token against another's URL.
-		const workspace = ws
+	function apply(close: (_: any) => void) {
+		if (!project || !token) return
 		const chosen = project
-		const repoPath = resourcePath
 		const url = chosen.http_url_to_repo
-		applying = true
-		try {
-			await GitSyncService.setGitCredential({
-				workspace,
-				requestBody: { repo_path: repoPath, repo_url: url, token }
-			})
-			onArgsUpdate?.({
-				...args,
-				url,
-				is_github_app: false,
-				branch: args.branch || chosen.default_branch || undefined
-			})
-			token = ''
-			projects = []
-			selectedProject = undefined
-			sendUserToast(`Windmill stored the token for ${chosen.path_with_namespace}`)
-			close(null)
-		} catch (err) {
-			sendUserToast(`Could not store the token: ${err?.body ?? err?.message}`, true)
-		} finally {
-			applying = false
-		}
+		// Handed to the form instead of stored now. The credential is filed under
+		// the resource's path, which is not settled until the resource is saved,
+		// and writing here would outlive an edit the user then cancels: picking a
+		// different project and backing out would have replaced a working token.
+		onCredentialSelected?.({ token, repoUrl: url })
+		onArgsUpdate?.({
+			...args,
+			url,
+			is_github_app: false,
+			branch: args.branch || chosen.default_branch || undefined
+		})
+		token = ''
+		projects = []
+		selectedProject = undefined
+		sendUserToast(`${chosen.path_with_namespace} selected. Its token is stored when you save.`)
+		close(null)
 	}
 </script>
 
@@ -151,8 +138,8 @@
 						</div>
 						<TextInput bind:value={token} size="sm" inputProps={{ type: 'password' }} />
 						<div class="text-2xs font-normal text-hint">
-							Windmill keeps it for this repository and hands it only to this workspace's sync jobs.
-							Forks of this workspace use it without holding a copy.
+							Windmill keeps it for this repository and hands it to this workspace's sync jobs.
+							Forks read this one copy instead of storing their own, so renewal reaches them all.
 						</div>
 					</div>
 					<div class="flex flex-col gap-y-1">
@@ -186,29 +173,17 @@
 								}))}
 								bind:value={selectedProject}
 								clearable={false}
-								disabled={applying}
 							/>
 						</div>
-						{#if hasPath}
-							<div class="text-2xs font-normal text-hint">
-								Stored for the resource at {resourcePath}. Give the resource its final path before
-								applying, so the token stays with it.
-							</div>
-						{:else}
-							<Alert type="warning" title="The resource needs a path first" size="xs">
-								The token is kept against the resource's path. Name the resource, then pick the
-								project.
-							</Alert>
-						{/if}
+						<div class="text-2xs font-normal text-hint">
+							The token is stored when you save the resource, under whatever path you save it at.
+						</div>
 						<div class="flex justify-end">
 							<Button
 								variant="accent"
 								unifiedSize="sm"
-								disabled={!project || !token || !hasPath || applying}
-								startIcon={{
-									icon: applying ? Loader2 : GitBranch,
-									classes: applying ? 'animate-spin' : ''
-								}}
+								disabled={!project || !token}
+								startIcon={{ icon: GitBranch }}
 								onclick={() => apply(close)}
 							>
 								Use this project

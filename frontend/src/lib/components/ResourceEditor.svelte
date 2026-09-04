@@ -1,6 +1,12 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { ResourceService, WorkspaceService, type Resource, type ResourceType } from '$lib/gen'
+	import {
+		GitSyncService,
+		ResourceService,
+		WorkspaceService,
+		type Resource,
+		type ResourceType
+	} from '$lib/gen'
 	import { canWrite } from '$lib/utils'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -320,6 +326,8 @@
 		current.path = npath
 	}
 
+	let pendingGitCredential: { token: string; repoUrl: string } | undefined = $state(undefined)
+
 	export async function save(): Promise<void> {
 		const dirty = dirtyWorkspaces
 		try {
@@ -363,7 +371,20 @@
 				// Path now exists server-side — drop the autocomplete cache so
 				// it shows up immediately instead of after the 60s TTL.
 				invalidateWorkspacePaths(ws)
+				// Only now is the path the credential is filed under settled, so a
+				// cancelled edit leaves the repository's existing token alone.
+				if (pendingGitCredential) {
+					await GitSyncService.setGitCredential({
+						workspace: ws,
+						requestBody: {
+							repo_path: s.path,
+							repo_url: pendingGitCredential.repoUrl,
+							token: pendingGitCredential.token
+						}
+					})
+				}
 			}
+			pendingGitCredential = undefined
 			sendUserToast(
 				dirty.length > 1 ? `Saved resource in ${dirty.length} workspaces` : `Saved resource`
 			)
@@ -404,6 +425,7 @@
 					{resourceToEdit}
 					onLoadResourceType={() => resourceTypeResource.refetch()}
 					workspace={selected}
+					onCredentialSelected={(c) => (pendingGitCredential = c)}
 				/>
 			{/key}
 		{/if}

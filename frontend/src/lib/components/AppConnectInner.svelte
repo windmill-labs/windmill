@@ -12,6 +12,7 @@
 		sortResourceTypesByMatch
 	} from './resourceTypeDisplay'
 	import {
+		GitSyncService,
 		OauthService,
 		ResourceService,
 		WorkspaceService,
@@ -75,6 +76,7 @@
 	}: Props = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
+	let pendingGitCredential: { token: string; repoUrl: string } | undefined = $state(undefined)
 
 	let isValid = $state(true)
 
@@ -952,6 +954,19 @@
 					}
 				})
 			}
+			// After the resource exists, so the path the credential is filed under is
+			// the one that was actually saved and a cancelled form writes nothing.
+			if (pendingGitCredential) {
+				await GitSyncService.setGitCredential({
+					workspace: effectiveWorkspace,
+					requestBody: {
+						repo_path: path,
+						repo_url: pendingGitCredential.repoUrl,
+						token: pendingGitCredential.token
+					}
+				})
+				pendingGitCredential = undefined
+			}
 			dispatch('refresh', path)
 			dispatch('close')
 			sendUserToast(
@@ -1388,8 +1403,16 @@
 						{linkedSecretCandidates}
 						{resourceType}
 						{resourceTypeInfo}
-						resourcePath={path}
 						workspace={effectiveWorkspace}
+						onCredentialSelected={(c) => {
+							pendingGitCredential = c
+							// `forceSecretValue` files a git_repository's `url` in a secret
+							// variable, for the URLs that carry a token in them. The picker's
+							// does not — the token is stored separately — so that variable
+							// would hold nothing secret and add a second place to keep in
+							// step with the resource.
+							linkedSecrets = linkedSecrets.filter((f) => f !== 'url')
+						}}
 						bind:args
 						bind:isValid
 						onSynced={getResourceTypeInfo}
