@@ -1072,12 +1072,18 @@
 							model identifiers, the names of public hub scripts used, the languages debug sessions
 							are started for, whether AI chat skills are turned on or off and how often one is
 							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
-							membership, and the plan tier and quota shown when the execution meter is opened, last
-							30 days)</li
+							membership, the plan tier and quota shown when the execution meter is opened, whether
+							sandbox isolation is turned on or off for low-code and raw apps, whether a step's
+							workspace script is opened and saved from inside the flow editor, and how data tables
+							are set up and used (which database kind is picked, how far the setup wizard gets,
+							which choice the schema-change prompt is answered with, and whether migrations are
+							opted into, written, run or rolled back), last 30 days)</li
 						>
 						<li
-							>feature adoption (counts of which flow, script, trigger and worker features your
-							deployed items use)</li
+							>feature adoption (counts of which flow, script, trigger, worker and data table
+							features your deployed items use, including how many apps run sandboxed, how many data
+							tables are configured per database kind, how many migrations they carry, and how many
+							scripts, flows and jobs read or write a data table)</li
 						>
 						<li
 							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
@@ -1127,12 +1133,18 @@
 							model identifiers, the names of public hub scripts used, the languages debug sessions
 							are started for, whether AI chat skills are turned on or off and how often one is
 							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
-							membership, and the plan tier and quota shown when the execution meter is opened, last
-							30 days)</li
+							membership, the plan tier and quota shown when the execution meter is opened, whether
+							sandbox isolation is turned on or off for low-code and raw apps, whether a step's
+							workspace script is opened and saved from inside the flow editor, and how data tables
+							are set up and used (which database kind is picked, how far the setup wizard gets,
+							which choice the schema-change prompt is answered with, and whether migrations are
+							opted into, written, run or rolled back), last 30 days)</li
 						>
 						<li
-							>feature adoption (counts of which flow, script, trigger and worker features your
-							deployed items use)</li
+							>feature adoption (counts of which flow, script, trigger, worker and data table
+							features your deployed items use, including how many apps run sandboxed, how many data
+							tables are configured per database kind, how many migrations they carry, and how many
+							scripts, flows and jobs read or write a data table)</li
 						>
 						<li
 							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code

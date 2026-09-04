@@ -4,9 +4,10 @@
 anonymous usage-stats payload. It answers "does anyone use this, and which variant do they pick"
 without any identifying data leaving the instance.
 
-It currently carries 32 registered actions across fifteen features (`ai_session`, `ai_chat`,
-`ai_fix`, `ai_agent`, `ai_agent_eval`, `flow_editor`, `flow_run`, `flow_step`, `run_form`,
-`debugger`, `trigger`, `command_script`, `hub_script`, `usage_meter`, `sso_groups_claim`). Nearly all of the
+It currently carries 41 registered actions across seventeen features (`ai_session`, `ai_chat`,
+`ai_fix`, `ai_agent`, `ai_agent_eval`, `app_sandbox`, `datatable`, `flow_editor`, `flow_run`,
+`flow_step`, `run_form`, `debugger`, `trigger`, `command_script`, `hub_script`, `usage_meter`,
+`sso_groups_claim`). Nearly all of the
 product is uninstrumented, so new user-facing work is the opportunity to change that.
 
 ## When to instrument

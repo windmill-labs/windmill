@@ -25,6 +25,7 @@
 	import { sendUserToast, type Item } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 	import { getToolNameError } from '$lib/components/flows/agentToolUtils'
+	import { logStepScriptEdit } from '$lib/components/flows/stepScriptEditTelemetry'
 	import autosize from '$lib/autosize'
 
 	interface Props {
@@ -104,7 +105,11 @@
 					if (flowModuleValue?.type !== 'script') return
 					const hash =
 						flowModuleValue.hash ?? (await getLatestHashForScript(flowModuleValue.path, opWs))
+					logStepScriptEdit('opened')
+					// The drawer only runs this callback once a new version is deployed, so it is
+					// what separates opening the editor from actually editing the script here.
 					$scriptEditorDrawer?.openDrawer(hash, () => {
+						logStepScriptEdit('saved')
 						dispatch('reload')
 						sendUserToast('Script has been updated')
 					})

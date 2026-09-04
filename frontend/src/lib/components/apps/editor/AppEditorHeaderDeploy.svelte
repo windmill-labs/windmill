@@ -22,6 +22,7 @@
 	} from '$lib/components/OnBehalfOfSelector.svelte'
 	import { canUserBypassRuleKind, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
 	import { FRONTEND_SDK_SCOPES } from '$lib/components/raw_apps/sdkScopes'
+	import { logAppSandboxToggle } from './appSandboxTelemetry'
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
 
@@ -300,6 +301,7 @@
 		checked={policy.sandbox == true}
 		on:change={(e) => {
 			policy.sandbox = e.detail || undefined
+			logAppSandboxToggle(rawApp ? 'raw' : 'low_code', e.detail)
 			// Frontend API access exists only for a sandboxed app, so turning
 			// isolation off drops the declared scopes with it rather than leaving
 			// them set but inert.

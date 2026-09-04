@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT usage_kind::text AS \"kind!\", COUNT(*)::BIGINT AS \"count!\"\n           FROM asset\n           WHERE kind = 'datatable'\n             AND (usage_kind <> 'job' OR created_at > now() - interval '30 days')\n           GROUP BY 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "kind!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "c2eca1ac257d9daeefaadb4ae853d0db3f649844ba3851fe29fc3eb9e5cad4ec"
+}
