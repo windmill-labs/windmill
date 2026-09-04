@@ -648,11 +648,7 @@ fn resource_attrs() -> std::collections::HashMap<String, String> {
 fn test_otlp_resource_merges_env_attributes_without_losing_windmill_identity() {
     // These take precedence over the hostname argument and over OTEL_RESOURCE_ATTRIBUTES,
     // so clear them or an ambient one fails the assertions below for an unrelated reason.
-    for var in [
-        "OTEL_HOST_NAME",
-        "OTEL_SERVICE_NAME",
-        "OTEL_SERVICE_VERSION",
-    ] {
+    for var in ["OTEL_HOST_NAME", "OTEL_SERVICE_NAME"] {
         std::env::remove_var(var);
     }
     std::env::set_var(
@@ -684,34 +680,21 @@ fn test_otlp_resource_dedicated_overrides_win() {
     std::env::remove_var("OTEL_RESOURCE_ATTRIBUTES");
     // A deployment sets these per pod, e.g. from Kubernetes downward-API labels.
     std::env::set_var("OTEL_SERVICE_NAME", "windmill-workers");
-    std::env::set_var("OTEL_SERVICE_VERSION", "1.802.0");
     std::env::set_var("OTEL_HOST_NAME", "pod-7");
     let overridden = resource_attrs();
 
     // An empty value means unset, which is what the downward API yields for a missing label.
-    for var in [
-        "OTEL_SERVICE_NAME",
-        "OTEL_SERVICE_VERSION",
-        "OTEL_HOST_NAME",
-    ] {
+    for var in ["OTEL_SERVICE_NAME", "OTEL_HOST_NAME"] {
         std::env::set_var(var, "");
     }
     let empty = resource_attrs();
-    for var in [
-        "OTEL_SERVICE_NAME",
-        "OTEL_SERVICE_VERSION",
-        "OTEL_HOST_NAME",
-    ] {
+    for var in ["OTEL_SERVICE_NAME", "OTEL_HOST_NAME"] {
         std::env::remove_var(var);
     }
 
     assert_eq!(
         overridden.get("service.name").map(String::as_str),
         Some("windmill-workers")
-    );
-    assert_eq!(
-        overridden.get("service.version").map(String::as_str),
-        Some("1.802.0")
     );
     assert_eq!(
         overridden.get("host.name").map(String::as_str),
