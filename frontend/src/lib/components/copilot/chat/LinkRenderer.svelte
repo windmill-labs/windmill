@@ -3,7 +3,7 @@
 	import { ExternalLink, PanelRight } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
-	import { newTabModifier } from '$lib/utils/newTabModifier.svelte'
+	import { newTabModifier, trackNewTabModifier } from '$lib/attachments/newTabModifier.svelte'
 	import {
 		hasToolDisplayActionHandler,
 		runToolDisplayAction
@@ -68,7 +68,7 @@
 
 {#if href}
 	{#if wmKind}
-		<span class="group inline-flex items-baseline">
+		<span class="group inline-flex items-baseline" {@attach trackNewTabModifier}>
 			<a
 				{href}
 				target={previewAction ? undefined : '_blank'}
