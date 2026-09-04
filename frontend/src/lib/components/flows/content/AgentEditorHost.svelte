@@ -55,10 +55,9 @@
 	}: Props = $props()
 
 	/** The one module the editor edits. Standalone (no `agent` key) so `initFlowState` loads a
-	 *  schema per tool — the linked branch deliberately loads none.
-	 *  The root and its tools share one flow-state map, so this id must be one no tool can carry:
-	 *  the leading underscore is rejected by the id editor's pattern and never generated, which a
-	 *  plain word is not — an agent saved with a tool named after it would lose its schema. */
+	 *  schema per tool — the linked branch deliberately loads none. Reserved in `forbiddenIds`:
+	 *  the root shares a flow-state map with the tools, so a tool of this id would lose its
+	 *  schema to the root's. */
 	const AGENT_ID = '__agent_root'
 
 	const draft = useAgentDraft({ path: () => path, workspace: () => workspace })

@@ -144,9 +144,8 @@ export const AGENT_BRAIN_LABELS: Record<string, string> = Object.fromEntries(
 
 /**
  * Brain keys set to an input transform rather than to a value, which a saved agent's plain JSON
- * cannot hold. The tag is what identifies one, and it covers the whole `InputTransform` union:
- * testing for a payload key instead would miss `{"type":"ai"}`, which carries none. No brain value
- * tags itself that way — an output schema's `type` names a JSON type, a memory config uses `kind`.
+ * cannot hold. Matched on the tag so the whole `InputTransform` union is covered: a payload-key
+ * test would miss `{"type":"ai"}`, which carries none.
  */
 export function transformValuedBrainKeys(args: Record<string, any> | undefined): string[] {
 	return AGENT_BRAIN_KEYS.filter((key) => {

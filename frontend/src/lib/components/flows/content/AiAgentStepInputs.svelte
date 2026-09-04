@@ -205,18 +205,16 @@
 		untrack(() => rememberOpenFields(visibilityKey, keys))
 	})
 
-	// Text-only fields go off screen under image output, so their rows stop answering for
-	// themselves: a stale validation error would hold the form invalid with nothing to fix. The
-	// values stay — an agent switched to image and back keeps what it was configured with, and
-	// `temperature` is forwarded either way.
+	// Cleared, not just hidden: the worker forwards `temperature` whatever the output type, so a
+	// value left behind here would keep applying with nothing on screen to explain it. This is what
+	// the schema form does with the same fields on a flow step, where they carry a `showExpr`.
 	let wasImageOutput = untrack(() => imageOutput)
 	$effect(() => {
 		const isImage = imageOutput
 		untrack(() => {
 			if (isImage && !wasImageOutput) {
 				for (const key of AGENT_TEXT_ONLY_KEYS) {
-					visible.delete(key)
-					delete inputCheck[key]
+					clearField(key)
 				}
 			}
 			wasImageOutput = isImage
@@ -245,17 +243,21 @@
 		visible.add(spec.key)
 	}
 
-	function removeField(spec: AgentFieldSpec) {
-		visible.delete(spec.key)
+	function clearField(key: string) {
+		visible.delete(key)
 		if (args) {
 			// Back to exactly what `flowInfers` seeds, so removing a field leaves no diff behind.
 			// Never `delete args[key]`: the key returns on the next load, and the CLI linter requires
 			// `user_message` to be present.
-			args[spec.key] = { type: 'static', value: undefined }
+			args[key] = { type: 'static', value: undefined }
 		}
 		// InputTransformSchemaForm leaks these on unmount, which would pin `isValid` false forever
 		// once hiding a row is routine.
-		delete inputCheck[spec.key]
+		delete inputCheck[key]
+	}
+
+	function removeField(spec: AgentFieldSpec) {
+		clearField(spec.key)
 	}
 
 	let emptyArgNames = $derived(
