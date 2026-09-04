@@ -706,6 +706,7 @@ fn test_otlp_resource_dedicated_overrides_win() {
     ] {
         std::env::remove_var(var);
     }
+    let unset = resource_attrs();
 
     assert_eq!(
         overridden.get("service.name").map(String::as_str),
@@ -727,5 +728,16 @@ fn test_otlp_resource_dedicated_overrides_win() {
     assert_eq!(
         empty.get("host.name").map(String::as_str),
         Some("fallback-host")
+    );
+
+    // With nothing set at all — the default deployment — SdkProvidedResourceDetector still
+    // contributes service.name = "unknown_service". Ours has to overwrite it.
+    assert_eq!(
+        unset.get("service.name").map(String::as_str),
+        Some("windmill-worker")
+    );
+    assert_eq!(
+        unset.get("service.version").map(String::as_str),
+        Some(windmill_common::utils::GIT_VERSION)
     );
 }
