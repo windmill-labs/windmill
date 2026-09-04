@@ -1265,6 +1265,10 @@ def _format_py_params(node: ast.FunctionDef, skip_self: bool = False) -> str:
         if args.vararg.annotation:
             vararg_str += f": {ast.unparse(args.vararg.annotation)}"
         params.append(vararg_str)
+    elif args.kwonlyargs:
+        # The bare separator is part of the signature: without it the advertised
+        # call is positional, and an agent following it gets a TypeError.
+        params.append('*')
 
     for i, arg in enumerate(args.kwonlyargs):
         param_str = arg.arg

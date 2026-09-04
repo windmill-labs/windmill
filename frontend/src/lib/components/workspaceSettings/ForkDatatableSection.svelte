@@ -58,10 +58,13 @@
 							workspace: ws,
 							datatableName: dt.name
 						})
-						return { ...dt, permissioned: roles.enabled }
+						return { ...dt, permissioned: roles.enabled as boolean | undefined }
 					} catch (e) {
+						// Not `false`: what the fork does with this data table is decided by
+						// the config, and saying "kept" for one the backend will drop loses
+						// it silently.
 						console.error('Failed to read datatable permissions:', e)
-						return { ...dt, permissioned: false }
+						return { ...dt, permissioned: undefined }
 					}
 				})
 			)
@@ -213,7 +216,12 @@
 						items={[
 							{
 								value: 'keep_original',
-								label: dt.permissioned ? 'Not shared (permissions enabled)' : 'Keep original'
+								label:
+									dt.permissioned === undefined
+										? 'Keep original (permissions unknown)'
+										: dt.permissioned
+											? 'Not shared (permissions enabled)'
+											: 'Keep original'
 							},
 							{ value: 'schema_only', label: 'Clone schema only' },
 							...(!isCloudHosted() && $userStore?.is_admin

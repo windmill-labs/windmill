@@ -57,12 +57,17 @@ export function createRolesResource(
 			 * there is nothing to pick — which is not the same as a permissioned one
 			 * this caller may run as nothing on. */
 			permissioned: boolean
+			/** The lookup itself failed, so neither of the above is an answer: an
+			 * empty `roles` here means nothing was learned, not that there is
+			 * nothing to pick. */
+			failed: boolean
 			roles: string[]
 			defaultRole: string
 		}> => {
 			const empty = {
 				datatable: datatableName || undefined,
 				permissioned: false,
+				failed: false,
 				roles: [],
 				defaultRole: ADMIN_DATATABLE_ROLE
 			}
@@ -77,13 +82,14 @@ export function createRolesResource(
 				}
 			} catch (e) {
 				console.error('Failed to load datatable roles:', e)
-				return empty
+				return { ...empty, failed: true }
 			}
 		},
 		{
 			initialValue: {
 				datatable: undefined,
 				permissioned: false,
+				failed: false,
 				roles: [],
 				defaultRole: ADMIN_DATATABLE_ROLE
 			}

@@ -3052,7 +3052,7 @@ Import: \`import wmill\`
 # 
 # Example:
 #     wmill.datatable("main", role="operator")
-def datatable(name: str = 'main', role: Optional[str] = None) -> DataTableClient
+def datatable(name: str = 'main', *, role: Optional[str] = None) -> DataTableClient
 
 # Client for executing SQL queries against Windmill DataTables.
 class DataTableClient:

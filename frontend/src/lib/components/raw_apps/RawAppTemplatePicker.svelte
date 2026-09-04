@@ -141,10 +141,14 @@
 			roles.current.permissioned &&
 			loadedRoles.length === 0
 	)
+	// A lookup that failed is not an answer that there is nothing to pick, and an
+	// app naming this data table would be created against whatever the default
+	// turns out to be.
+	const rolesUnknown = $derived(rolesSettled && roles.current.failed)
 	// Only the app that will name the data table is refused: with table creation
 	// off nothing saves it, and an app that does not touch it is not this caller's
 	// problem to be stopped over.
-	const blockedByRole = $derived(noUsableRole && tableCreationEnabled)
+	const blockedByRole = $derived((noUsableRole || rolesUnknown) && tableCreationEnabled)
 	const accessSettled = $derived(
 		hasNoDatatables ||
 			(rolesSettled &&
@@ -361,9 +365,9 @@
 												size="sm"
 												class="w-40"
 											/>
-											{#if noUsableRole}
+											{#if noUsableRole || rolesUnknown}
 												<span class="text-xs text-red-600 dark:text-red-400">
-													no role you can use
+													{rolesUnknown ? 'could not read its roles' : 'no role you can use'}
 												</span>
 											{/if}
 											{#if showRolePicker}
