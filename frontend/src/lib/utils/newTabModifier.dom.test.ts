@@ -43,6 +43,22 @@ describe('newTabModifier', () => {
 		expect(newTabModifier.held).toBe(false)
 	})
 
+	// Editors and menus stop keydown propagation to keep their own shortcuts, so a bubble-phase
+	// listener would go blind whenever focus sits in one.
+	it('sees a keydown that a focused element stops from propagating', () => {
+		onPlatform(LINUX)
+		const input = document.createElement('input')
+		input.addEventListener('keydown', (e) => e.stopPropagation())
+		document.body.append(input)
+
+		input.dispatchEvent(
+			new KeyboardEvent('keydown', { key: 'Control', ctrlKey: true, bubbles: true })
+		)
+		expect(newTabModifier.held).toBe(true)
+
+		input.remove()
+	})
+
 	it('clears on blur, since the keyup lands elsewhere', () => {
 		onPlatform(LINUX)
 		key('keydown', { key: 'Control', ctrlKey: true })
