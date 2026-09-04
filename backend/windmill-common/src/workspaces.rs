@@ -1398,6 +1398,23 @@ pub fn datatable_database_identity(resolved: &serde_json::Value) -> String {
     hex::encode(hasher.finalize())
 }
 
+/// Whether a resolution has to prove the data table still points where its roles
+/// live.
+///
+/// Every role of a permissioned data table, `admin` included: it has no login to
+/// swap in — it is the data table's own connection — but following that
+/// connection to another database is what the record exists to stop, so the
+/// question cannot be gated on there being credentials to override.
+///
+/// `Unchecked` is exempt because it is not a caller with an identity to answer
+/// for: it is the machinery that repairs a data table (role DDL, migrations,
+/// fork snapshots) and would otherwise be unable to repair a moved one, plus the
+/// admin diagnostic and the postgres trigger's replication connection, which
+/// reach the data table's own connection the way they did before roles existed.
+fn resolution_proves_database_identity(internal: bool, datatable: &DataTable) -> bool {
+    !internal && datatable.permissions.as_ref().is_some_and(|p| p.enabled)
+}
+
 /// Refuse a role whose data table no longer resolves to the database that role
 /// was created in.
 ///
@@ -1809,9 +1826,6 @@ async fn get_datatable_resource_inner(
         .ok_or_else(|| datatable_not_found_error(name, datatables.as_ref()))?;
     let datatable = serde_json::from_value::<DataTable>(datatable.clone())?;
 
-    // The internal machinery — role DDL, migration bookkeeping, fork snapshots —
-    // resolves as admin to repair a data table, including one that has moved, so
-    // the check below is for callers that have an identity to answer for.
     let internal = matches!(access, DatatableAccess::Unchecked);
     let role_override = resolve_datatable_role(db, w_id, name, &datatable, role, access).await?;
 
@@ -1843,12 +1857,7 @@ async fn get_datatable_resource_inner(
             })?
         };
 
-    // Every role of a permissioned data table, `admin` included: it has no login
-    // to swap in — it is the data table's own connection — but following that
-    // connection to another database is the thing the record exists to stop, and
-    // a caller granted `admin` would otherwise be handed whatever the resource
-    // now points at.
-    if !internal && datatable.permissions.as_ref().is_some_and(|p| p.enabled) {
+    if resolution_proves_database_identity(internal, &datatable) {
         ensure_datatable_database_unchanged(name, &datatable, &db_resource)?;
     }
 
@@ -3223,26 +3232,28 @@ mod tests {
         assert!(entry.pg_rolename.is_none());
     }
 
-    /// The roles of a data table live in one database, so a config that points
-    /// somewhere else must not be able to use them there.
-    /// `admin` has no login of its own — it is the data table's own connection —
-    /// so the check that a data table still points where its roles live is not
-    /// something the presence of an override can gate.
+    /// Which resolutions have to prove it — the question the presence of a login
+    /// to swap in cannot answer, since `admin` has none and still resolves through
+    /// the data table's own connection.
     #[test]
-    fn admin_is_refused_there_too() {
-        let resolved = |host: &str| {
-            serde_json::json!({ "host": host, "port": 5432, "dbname": "app", "user": "owner" })
-        };
-        let mut dt = permissioned(&[(ADMIN_DATATABLE_ROLE, &["u/alice"]), ("analyst", &[])]);
-        dt.database.resource_type = DataTableCatalogResourceType::Postgresql;
-        dt.permissions.as_mut().unwrap().database_identity =
-            Some(datatable_database_identity(&resolved("db.internal")));
+    fn every_identified_caller_of_a_permissioned_data_table_proves_it() {
+        let permissioned_dt =
+            permissioned(&[(ADMIN_DATATABLE_ROLE, &["u/alice"]), ("analyst", &[])]);
+        let mut unpermissioned =
+            permissioned(&[(ADMIN_DATATABLE_ROLE, &["u/alice"]), ("analyst", &[])]);
+        unpermissioned.permissions.as_mut().unwrap().enabled = false;
 
-        // The role a caller lands on says nothing about which database answered.
-        assert!(ensure_datatable_database_unchanged("main", &dt, &resolved("elsewhere")).is_err());
-        ensure_datatable_database_unchanged("main", &dt, &resolved("db.internal")).unwrap();
+        // Whatever role the caller lands on, including the one with no login.
+        assert!(resolution_proves_database_identity(false, &permissioned_dt));
+        // The machinery that repairs a data table resolves as admin to do it, and
+        // a moved one is exactly what it is repairing.
+        assert!(!resolution_proves_database_identity(true, &permissioned_dt));
+        // Nothing was created anywhere, so there is nothing to have moved away from.
+        assert!(!resolution_proves_database_identity(false, &unpermissioned));
     }
 
+    /// The roles of a data table live in one database, so a config that points
+    /// somewhere else must not be able to use them there.
     #[test]
     fn a_role_is_refused_once_its_data_table_points_at_another_database() {
         let resolved = |host: &str, password: &str| {
