@@ -66,6 +66,9 @@
 		/** Rendered against the dialog's own name, before any level below it: what it marks is the
 		 * dialog rather than wherever in it you have navigated to. */
 		titleBadge?: import('svelte').Snippet
+		/** Puts the badge ahead of the title, for a badge that identifies the subject rather than
+		 * qualifying it — an id reads before the name it belongs to, a "Beta" tag reads after. */
+		titleBadgeFirst?: boolean
 		settings?: import('svelte').Snippet
 		children?: import('svelte').Snippet
 		actions?: import('svelte').Snippet
@@ -85,6 +88,7 @@
 		enterConfirms = true,
 		minZIndex: minZIndexProp = undefined,
 		titleBadge,
+		titleBadgeFirst = false,
 		settings,
 		children: children_render,
 		actions
@@ -288,14 +292,26 @@
 												{@render settings?.()}
 											</div>
 										{:else}
-											<div class="flex flex-row items-center justify-between">
+											<!-- pr-8 under `kind="X"`: the close button is absolutely positioned, so a long
+											     title or anything in `settings` would otherwise run under it. -->
+											<div
+												class="flex flex-row items-center justify-between gap-2 min-w-0 {kind ===
+												'X'
+													? 'pr-8'
+													: ''}"
+											>
 												<h3
 													class="text-emphasis text-lg font-semibold {titleBadge
-														? 'flex items-center gap-1'
+														? 'flex items-center gap-1.5 min-w-0'
 														: ''}"
 												>
-													{title}
-													{@render titleBadge?.()}
+													{#if titleBadgeFirst}
+														{@render titleBadge?.()}
+														<span class="truncate">{title}</span>
+													{:else}
+														{title}
+														{@render titleBadge?.()}
+													{/if}
 												</h3>
 												{@render settings?.()}
 											</div>

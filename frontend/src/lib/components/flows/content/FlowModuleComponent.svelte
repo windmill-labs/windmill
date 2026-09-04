@@ -1077,7 +1077,7 @@
 							{/if}
 						{:else if flowModule.value.type === 'flow'}
 							{#key forceReload}
-								<FlowPathViewer path={flowModule.value.path} />
+								<FlowPathViewer noSide path={flowModule.value.path} />
 							{/key}
 						{/if}
 					{/snippet}

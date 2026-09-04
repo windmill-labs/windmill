@@ -10,7 +10,7 @@
 		type UserAppInput,
 		type CtxAppInput
 	} from '../apps/inputType'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import RawAppInlineScriptEditor from './RawAppInlineScriptEditor.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Tabs from '../common/tabs/Tabs.svelte'
@@ -75,7 +75,7 @@
 					}
 	}
 
-	let selectedTab = $state('test')
+	let selectedTab = $state(isRunnableByPath(runnable) ? 'view' : 'test')
 	let args = $state({})
 	let hubFlowPreview: OpenFlow | undefined = $state(undefined)
 
@@ -122,6 +122,16 @@
 	$effect(() => {
 		if (debugMode) {
 			selectedTab = 'test'
+		}
+	})
+
+	// 'view' only exists in the runnable-by-path layout: land on it there, leave it otherwise
+	let isByPath = $derived(isRunnableByPath(runnable))
+	$effect(() => {
+		if (isByPath) {
+			untrack(() => (selectedTab = 'view'))
+		} else if (untrack(() => selectedTab) == 'view') {
+			untrack(() => (selectedTab = 'test'))
 		}
 	})
 
@@ -199,41 +209,188 @@
 	bind:job={testJob}
 />
 
-{#if isRunnableByPath(runnable) || (isRunnableByName(runnable) && runnable.inlineScript)}
+{#snippet inputsPanel()}
+	{#if runnable?.fields}
+		<div class="w-full flex flex-col gap-4 p-2">
+			{#each Object.keys(runnable.fields) as k}
+				{@const meta = runnable.fields[k]}
+				<RawAppInputsSpecEditor
+					key={k}
+					bind:componentInput={runnable.fields[k]}
+					{id}
+					shouldCapitalize
+					fieldType={meta?.['fieldType']}
+					subFieldType={meta?.['subFieldType']}
+					format={meta?.['format']}
+					selectOptions={meta?.['selectOptions']}
+					tooltip={meta?.['tooltip']}
+					placeholder={meta?.['placeholder']}
+					customTitle={meta?.['customTitle']}
+					loading={meta?.['loading']}
+					documentationLink={meta?.['documentationLink']}
+					allowTypeChange={meta?.['allowTypeChange']}
+					displayType
+				/>
+			{/each}
+		</div>
+	{:else}
+		<div class="text-primary text-xs">No inputs</div>
+	{/if}
+{/snippet}
+
+{#snippet testPanel()}
+	{#if debugMode && isDebuggableScript}
+		<div transition:slide={{ duration: 200 }}>
+			<DebugToolbar
+				connected={$debugState.connected}
+				running={$debugState.running}
+				stopped={$debugState.stopped}
+				breakpointCount={editorDebugState.debugBreakpoints?.size ?? 0}
+				onStart={() => inlineScriptEditor?.startDebugging() ?? Promise.resolve()}
+				onStop={() => inlineScriptEditor?.stopDebugging() ?? Promise.resolve()}
+				onContinue={() => inlineScriptEditor?.continueExecution() ?? Promise.resolve()}
+				onStepOver={() => inlineScriptEditor?.stepOver() ?? Promise.resolve()}
+				onStepIn={() => inlineScriptEditor?.stepIn() ?? Promise.resolve()}
+				onStepOut={() => inlineScriptEditor?.stepOut() ?? Promise.resolve()}
+				onClearBreakpoints={() => inlineScriptEditor?.clearAllBreakpoints()}
+				onExitDebug={() => inlineScriptEditor?.toggleDebugMode()}
+			/>
+		</div>
+	{/if}
+	<SplitPanesWrapper>
+		<Splitpanes horizontal class="grow">
+			<Pane size={50}>
+				<div class="px-2 py-3 h-full overflow-auto">
+					<div class="mx-auto w-fit">
+						<RunButton
+							isLoading={testIsLoading}
+							onRun={testPreview}
+							onCancel={async () => {
+								if (jobLoader) {
+									await jobLoader.cancelJob()
+								}
+							}}
+							size="md"
+						/>
+					</div>
+					<SchemaForm
+						on:keydownCmdEnter={testPreview}
+						workspace={opWs}
+						disabledArgs={Object.entries(runnable?.fields ?? {})
+							.filter(([_, v]) => v.type == 'static')
+							.map(([k]) => k)}
+						schema={runnable ? getSchema(runnable) : {}}
+						bind:args
+					/>
+				</div>
+			</Pane>
+			<Pane size={50}>
+				{#if showDebugPanel || hasDebugResult}
+					<Splitpanes horizontal class="h-full">
+						<Pane size={50} minSize={15}>
+							<Splitpanes horizontal class="h-full">
+								<Pane size={50} minSize={10}>
+									<LogViewer
+										small
+										content={$debugState.logs}
+										isLoading={$debugState.running && !$debugState.stopped}
+										tag={undefined}
+									/>
+								</Pane>
+								<Pane size={50} minSize={10}>
+									{#if hasDebugResult}
+										<div class="h-full p-2 overflow-auto">
+											<DisplayResult
+												result={$debugState.result}
+												language={runnable?.inlineScript?.language}
+											/>
+										</div>
+									{:else}
+										<div class="h-full flex items-center justify-center text-sm text-tertiary">
+											{#if $debugState.running && !$debugState.stopped}
+												Running...
+											{:else if $debugState.stopped}
+												Paused at breakpoint
+											{:else}
+												Waiting for debug session
+											{/if}
+										</div>
+									{/if}
+								</Pane>
+							</Splitpanes>
+						</Pane>
+						<Pane size={50} minSize={15}>
+							<DebugPanel
+								stackFrames={$debugState.stackFrames}
+								scopes={$debugState.scopes}
+								variables={$debugState.variables}
+								client={dapClient}
+								bind:selectedFrameId={selectedDebugFrameId}
+							/>
+						</Pane>
+					</Splitpanes>
+				{:else if debugMode && isDebuggableScript}
+					<div class="h-full flex items-center justify-center text-sm text-tertiary">
+						Click "Debug" in the toolbar to start debugging
+					</div>
+				{:else}
+					<RunnableJobPanelInner frontendJob={false} {testJob} {testIsLoading} />
+				{/if}
+			</Pane>
+		</Splitpanes>
+	</SplitPanesWrapper>
+{/snippet}
+
+{#if isRunnableByPath(runnable)}
+	<div class="h-full w-full flex flex-col min-h-0">
+		<Tabs bind:selected={selectedTab}>
+			<Tab value="view" label={runnable.runType == 'flow' ? 'Flow' : 'Script'} />
+			<Tab value="test" label="Test" />
+			<Tab value="inputs" label="Inputs" />
+			{#snippet content()}
+				<div class="grow min-h-0 flex flex-col">
+					{#if selectedTab == 'inputs'}
+						{@render inputsPanel()}
+					{:else if selectedTab == 'test'}
+						{@render testPanel()}
+					{:else if isRunnableByPath(runnable)}
+						<InlineScriptRunnableByPath
+							rawApps
+							bind:runnable
+							bind:fields={runnable.fields}
+							bind:hubFlowPreview
+							on:fork={(e) => fork(e.detail)}
+							on:delete
+							{id}
+							isLoading={testIsLoading}
+							onRun={testPreview}
+							onCancel={async () => {
+								if (jobLoader) {
+									await jobLoader.cancelJob()
+								}
+							}}
+						/>
+					{/if}
+				</div>
+			{/snippet}
+		</Tabs>
+	</div>
+{:else if isRunnableByName(runnable) && runnable.inlineScript}
 	<Splitpanes>
 		<Pane size={55}>
-			{#if isRunnableByName(runnable)}
-				<RawAppInlineScriptEditor
-					bind:this={inlineScriptEditor}
-					on:createScriptFromInlineScript={() => dispatch('createScriptFromInlineScript', runnable)}
-					{id}
-					bind:inlineScript={runnable.inlineScript}
-					bind:name={runnable.name}
-					bind:fields={runnable.fields}
-					bind:delete_after_secs={runnable.delete_after_secs}
-					onRun={testPreview}
-					on:delete
-					path={appPath}
-					{onSelectionChange}
-				/>
-			{:else if isRunnableByPath(runnable)}
-				<InlineScriptRunnableByPath
-					rawApps
-					bind:runnable
-					bind:fields={runnable.fields}
-					bind:hubFlowPreview
-					on:fork={(e) => fork(e.detail)}
-					on:delete
-					{id}
-					isLoading={testIsLoading}
-					onRun={testPreview}
-					onCancel={async () => {
-						if (jobLoader) {
-							await jobLoader.cancelJob()
-						}
-					}}
-				/>
-			{/if}
+			<RawAppInlineScriptEditor
+				bind:this={inlineScriptEditor}
+				on:createScriptFromInlineScript={() => dispatch('createScriptFromInlineScript', runnable)}
+				{id}
+				bind:inlineScript={runnable.inlineScript}
+				bind:name={runnable.name}
+				bind:fields={runnable.fields}
+				bind:delete_after_secs={runnable.delete_after_secs}
+				onRun={testPreview}
+				on:delete
+				path={appPath}
+				{onSelectionChange}
+			/>
 		</Pane>
 		<Pane size={45}>
 			<Tabs bind:selected={selectedTab}>
@@ -241,135 +398,9 @@
 				<Tab value="inputs" label="Inputs" />
 				{#snippet content()}
 					{#if selectedTab == 'inputs'}
-						{#if runnable?.fields}
-							<div class="w-full flex flex-col gap-4 p-2">
-								{#each Object.keys(runnable.fields) as k}
-									{@const meta = runnable.fields[k]}
-									<RawAppInputsSpecEditor
-										key={k}
-										bind:componentInput={runnable.fields[k]}
-										{id}
-										shouldCapitalize
-										fieldType={meta?.['fieldType']}
-										subFieldType={meta?.['subFieldType']}
-										format={meta?.['format']}
-										selectOptions={meta?.['selectOptions']}
-										tooltip={meta?.['tooltip']}
-										placeholder={meta?.['placeholder']}
-										customTitle={meta?.['customTitle']}
-										loading={meta?.['loading']}
-										documentationLink={meta?.['documentationLink']}
-										allowTypeChange={meta?.['allowTypeChange']}
-										displayType
-									/>
-								{/each}
-							</div>
-						{:else}
-							<div class="text-primary text-xs">No inputs</div>
-						{/if}
-					{:else if selectedTab == 'test'}
-						{#if debugMode && isDebuggableScript}
-							<div transition:slide={{ duration: 200 }}>
-								<DebugToolbar
-									connected={$debugState.connected}
-									running={$debugState.running}
-									stopped={$debugState.stopped}
-									breakpointCount={editorDebugState.debugBreakpoints?.size ?? 0}
-									onStart={() => inlineScriptEditor?.startDebugging() ?? Promise.resolve()}
-									onStop={() => inlineScriptEditor?.stopDebugging() ?? Promise.resolve()}
-									onContinue={() => inlineScriptEditor?.continueExecution() ?? Promise.resolve()}
-									onStepOver={() => inlineScriptEditor?.stepOver() ?? Promise.resolve()}
-									onStepIn={() => inlineScriptEditor?.stepIn() ?? Promise.resolve()}
-									onStepOut={() => inlineScriptEditor?.stepOut() ?? Promise.resolve()}
-									onClearBreakpoints={() => inlineScriptEditor?.clearAllBreakpoints()}
-									onExitDebug={() => inlineScriptEditor?.toggleDebugMode()}
-								/>
-							</div>
-						{/if}
-						<SplitPanesWrapper>
-							<Splitpanes horizontal class="grow">
-								<Pane size={50}>
-									<div class="px-2 py-3 h-full overflow-auto">
-										<div class="mx-auto w-fit">
-											<RunButton
-												isLoading={testIsLoading}
-												onRun={testPreview}
-												onCancel={async () => {
-													if (jobLoader) {
-														await jobLoader.cancelJob()
-													}
-												}}
-												size="md"
-											/>
-										</div>
-										<SchemaForm
-											on:keydownCmdEnter={testPreview}
-											workspace={opWs}
-											disabledArgs={Object.entries(runnable?.fields ?? {})
-												.filter(([_, v]) => v.type == 'static')
-												.map(([k]) => k)}
-											schema={runnable ? getSchema(runnable) : {}}
-											bind:args
-										/>
-									</div>
-								</Pane>
-								<Pane size={50}>
-									{#if showDebugPanel || hasDebugResult}
-										<Splitpanes horizontal class="h-full">
-											<Pane size={50} minSize={15}>
-												<Splitpanes horizontal class="h-full">
-													<Pane size={50} minSize={10}>
-														<LogViewer
-															small
-															content={$debugState.logs}
-															isLoading={$debugState.running && !$debugState.stopped}
-															tag={undefined}
-														/>
-													</Pane>
-													<Pane size={50} minSize={10}>
-														{#if hasDebugResult}
-															<div class="h-full p-2 overflow-auto">
-																<DisplayResult
-																	result={$debugState.result}
-																	language={runnable?.inlineScript?.language}
-																/>
-															</div>
-														{:else}
-															<div
-																class="h-full flex items-center justify-center text-sm text-tertiary"
-															>
-																{#if $debugState.running && !$debugState.stopped}
-																	Running...
-																{:else if $debugState.stopped}
-																	Paused at breakpoint
-																{:else}
-																	Waiting for debug session
-																{/if}
-															</div>
-														{/if}
-													</Pane>
-												</Splitpanes>
-											</Pane>
-											<Pane size={50} minSize={15}>
-												<DebugPanel
-													stackFrames={$debugState.stackFrames}
-													scopes={$debugState.scopes}
-													variables={$debugState.variables}
-													client={dapClient}
-													bind:selectedFrameId={selectedDebugFrameId}
-												/>
-											</Pane>
-										</Splitpanes>
-									{:else if debugMode && isDebuggableScript}
-										<div class="h-full flex items-center justify-center text-sm text-tertiary">
-											Click "Debug" in the toolbar to start debugging
-										</div>
-									{:else}
-										<RunnableJobPanelInner frontendJob={false} {testJob} {testIsLoading} />
-									{/if}
-								</Pane>
-							</Splitpanes>
-						</SplitPanesWrapper>
+						{@render inputsPanel()}
+					{:else}
+						{@render testPanel()}
 					{/if}
 				{/snippet}
 			</Tabs>

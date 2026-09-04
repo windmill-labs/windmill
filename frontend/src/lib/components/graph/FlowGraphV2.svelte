@@ -1524,6 +1524,10 @@
 		   sets a light `border-color` on every element, so whenever that base rule does not
 		   make it into the bundle alongside this one the bar draws a white outline. */
 		@apply overflow-hidden rounded-md border border-border-light;
+		/* The bar carries the opaque surface, not just the buttons: `surface-hover` is a
+		   translucent token, so a hovered button that only swaps its own background would
+		   composite that tint straight onto the graph. */
+		@apply bg-surface;
 		box-shadow: none;
 	}
 	:global(.wm-flow-controls .svelte-flow__controls-button) {
