@@ -587,22 +587,28 @@ async fn drop_roles_the_config_no_longer_names(
             .collect();
         attempted.sort();
         attempted.dedup();
-        // The settings row is held for as long as these run, and they run on a
-        // database this workspace does not control — a lock held there, or a role
-        // with a great deal to reassign, would otherwise stall every save of every
-        // data table in the workspace behind it.
-        client
-            .batch_execute("SET statement_timeout = '60s'")
-            .await
-            .map_err(|e| {
-                Error::internal_err(format!(
-                    "Failed to bound the role changes: {}",
-                    pg_error_message(&e)
-                ))
-            })?;
-        // Named here rather than by the caller: which of them were skipped because
-        // the config names them again is only known under the lock above.
-        run_statements(client, &to_run).await.map_err(|e| {
+        let ran = async {
+            // The settings row is held for as long as these run, and they run on a
+            // database this workspace does not control — a lock held there, or a
+            // role with a great deal to reassign, would otherwise stall every save
+            // of every data table in the workspace behind it.
+            client
+                .batch_execute("SET statement_timeout = '60s'")
+                .await
+                .map_err(|e| {
+                    Error::internal_err(format!(
+                        "Failed to bound the role changes: {}",
+                        pg_error_message(&e)
+                    ))
+                })?;
+            run_statements(client, &to_run).await
+        }
+        .await;
+        // Named here rather than by the caller, and on every way out: which of
+        // them were skipped because the config names them again is only known
+        // under the lock above, and whatever failed, the config that stopped
+        // naming these has committed and nothing comes back for them.
+        ran.map_err(|e| {
             Error::ExecutionErr(format!("{e}. Roles left behind: {}", attempted.join(", ")))
         })?;
     }

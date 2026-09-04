@@ -90,10 +90,15 @@ export function createDatatableAccessResource(
 	return resource(
 		() => [getDatatable() ?? '', getRole() ?? '', getWorkspace() ?? ''] as const,
 		async ([datatable, role, workspace]): Promise<{
+			/** What this answers for: until it matches the selection, the schemas and
+			 * the right to create one are the previous data table's, and at mount
+			 * they are the initial value rather than an answer at all. */
+			datatable: string | undefined
 			schemas: string[]
 			canCreateSchema: boolean
 		}> => {
-			if (!datatable || !workspace) return { schemas: [], canCreateSchema: false }
+			if (!datatable || !workspace)
+				return { datatable: datatable || undefined, schemas: [], canCreateSchema: false }
 			try {
 				const tables = await WorkspaceService.listDataTableTables({
 					workspace,
@@ -102,15 +107,16 @@ export function createDatatableAccessResource(
 				})
 				const entry = tables.find((t) => t.datatable_name === datatable)
 				return {
+					datatable,
 					schemas: Object.keys(entry?.schemas ?? {}).sort(),
 					canCreateSchema: !!entry?.can_create_schema
 				}
 			} catch (e) {
 				console.error('Failed to load datatable access:', e)
-				return { schemas: [], canCreateSchema: false }
+				return { datatable, schemas: [], canCreateSchema: false }
 			}
 		},
-		{ initialValue: { schemas: [], canCreateSchema: false } }
+		{ initialValue: { datatable: undefined, schemas: [], canCreateSchema: false } }
 	)
 }
 

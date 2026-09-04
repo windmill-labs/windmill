@@ -100,6 +100,11 @@
 	// defaults to is what the app gets without saying anything. Two data tables
 	// can both define an `analyst` that means something different, so the name
 	// surviving the switch is not the role surviving it.
+	// Whether the role list in hand answers for the data table selected. Until it
+	// does there is no role to save: `undefined` resolves server-side to the data
+	// table's configured default, which is not filtered by what this caller may
+	// use, so starting then can hand the app a role its queries are refused.
+	const rolesSettled = $derived(roles.current.datatable === selectedDatatable)
 	let rolesPickedOn = $state<string | undefined>(undefined)
 	$effect(() => {
 		const loaded = roles.current
@@ -117,13 +122,23 @@
 	})
 
 	const availableDatatables = $derived(datatables.current)
-	const availableSchemas = $derived(access.current.schemas)
-	const canCreateSchema = $derived(access.current.canCreateSchema)
+	// Read like the role list: only once it answers for the data table selected.
+	// At mount it is the initial value, and during a switch it is the previous
+	// table's — neither says anything about this one.
+	const loadedAccess = $derived(
+		access.current.datatable === selectedDatatable
+			? access.current
+			: { datatable: selectedDatatable, schemas: [], canCreateSchema: false }
+	)
+	const accessSettled = $derived(access.current.datatable === selectedDatatable)
+	const availableSchemas = $derived(loadedAccess.schemas)
+	const canCreateSchema = $derived(loadedAccess.canCreateSchema)
 
-	// A role that cannot create schemas has nothing to name, so the mode goes
-	// back to the one every role has.
+	// A role that cannot create schemas has nothing to name, so the mode goes back
+	// to the one every role has — once that is an answer rather than the absence
+	// of one, since nothing puts `new` back afterwards.
 	$effect(() => {
-		if (schemaMode === 'new' && !canCreateSchema) schemaMode = 'none'
+		if (accessSettled && schemaMode === 'new' && !canCreateSchema) schemaMode = 'none'
 	})
 
 	let hasAutoSelected = false
@@ -497,7 +512,7 @@
 					variant="default"
 					size="sm"
 					on:click={() => start(false)}
-					disabled={!templates[selectedTemplateIndex] || newSchemaAlreadyExists}
+					disabled={!templates[selectedTemplateIndex] || newSchemaAlreadyExists || !rolesSettled}
 				>
 					{$copilotInfo.workspaceDisabled ? 'Start' : 'Start without AI'}
 				</Button>
@@ -505,7 +520,8 @@
 					<Button
 						variant="accent"
 						on:click={() => start(true)}
-						disabled={!templates[selectedTemplateIndex] ||
+						disabled={!rolesSettled ||
+							!templates[selectedTemplateIndex] ||
 							!initialPrompt.trim() ||
 							newSchemaAlreadyExists}
 						startIcon={{ icon: Sparkles }}
