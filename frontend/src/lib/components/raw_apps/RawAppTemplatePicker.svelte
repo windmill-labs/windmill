@@ -248,7 +248,10 @@
 	async function start(withPrompt: boolean) {
 		const template = templates[selectedTemplateIndex]
 
-		if (schemaMode === 'new' && newSchemaName && selectedDatatable && opWs) {
+		// Only for an app that keeps the data table: with creation off nothing names
+		// it, so making a schema in it is work the app will never refer to — and on
+		// a database that could not be read, a failure the user cannot act on.
+		if (tableCreationEnabled && schemaMode === 'new' && newSchemaName && selectedDatatable && opWs) {
 			try {
 				const { dbSchemaOpsWithPreviewScripts } = await import('$lib/components/dbOps')
 				const dbOps = dbSchemaOpsWithPreviewScripts({
@@ -379,9 +382,13 @@
 												size="sm"
 												class="w-40"
 											/>
-											{#if noUsableRole || rolesUnknown}
+											{#if noUsableRole || rolesUnknown || accessUnknown}
 												<span class="text-xs text-red-600 dark:text-red-400">
-													{rolesUnknown ? 'could not read its roles' : 'no role you can use'}
+													{rolesUnknown
+														? 'could not read its roles'
+														: accessUnknown
+															? 'could not reach it'
+															: 'no role you can use'}
 												</span>
 											{/if}
 											{#if showRolePicker}

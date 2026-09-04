@@ -198,47 +198,9 @@ def extract_py_functions(content: str) -> list[dict]:
         if '.. deprecated::' in docstring:
             return
 
-        # Build parameter list
-        params = []
-        args = node.args
-
-        # Handle regular args
-        num_defaults = len(args.defaults)
-        num_args = len(args.args)
-
-        for i, arg in enumerate(args.args):
-            if arg.arg == 'self':
-                continue
-            param_str = arg.arg
-            if arg.annotation:
-                param_str += f": {ast.unparse(arg.annotation)}"
-            # Check if has default
-            default_idx = i - (num_args - num_defaults)
-            if default_idx >= 0:
-                default = args.defaults[default_idx]
-                param_str += f" = {ast.unparse(default)}"
-            params.append(param_str)
-
-        # Handle *args
-        if args.vararg:
-            params.append(f"*{args.vararg.arg}")
-        elif args.kwonlyargs:
-            # The bare separator is part of the signature: without it the advertised
-            # call is positional, and an agent following it gets a TypeError.
-            params.append('*')
-
-        # Handle keyword-only args
-        for i, arg in enumerate(args.kwonlyargs):
-            param_str = arg.arg
-            if arg.annotation:
-                param_str += f": {ast.unparse(arg.annotation)}"
-            if args.kw_defaults[i]:
-                param_str += f" = {ast.unparse(args.kw_defaults[i])}"
-            params.append(param_str)
-
-        # Handle **kwargs
-        if args.kwarg:
-            params.append(f"**{args.kwarg.arg}")
+        # One renderer for Python signatures — see `_format_py_params`, which also
+        # keeps the bare `*`, the positional-only `/` and annotated varargs.
+        params_str = _format_py_params(node, skip_self=True)
 
         # Get return type
         return_type = ''
@@ -248,7 +210,7 @@ def extract_py_functions(content: str) -> list[dict]:
         seen_names.add(node.name)
         functions.append({
             'name': node.name,
-            'params': ', '.join(params),
+            'params': params_str,
             'return_type': return_type,
             'docstring': docstring,
             'async': isinstance(node, ast.AsyncFunctionDef)
