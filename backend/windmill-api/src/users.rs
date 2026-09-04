@@ -265,6 +265,47 @@ async fn update_username_in_workpsace<'c>(
     new_username: &str,
     w_id: &str,
 ) -> error::Result<()> {
+    // Before anything else in the transaction — see
+    // `lock_workspace_settings_unchecked`. `rename_user` walks memberships in
+    // `workspace_id` order, so a rename spanning workspaces takes their rows in
+    // that order too.
+    let datatable_settings =
+        windmill_common::workspaces::lock_workspace_settings_unchecked(tx, w_id).await?;
+
+    // ---- instance and workspace users ----
+
+    // Scoped to this workspace, like everything else here: `usr` and
+    // `usr_to_group` rows of another workspace answer to that workspace's own
+    // settings row.
+    sqlx::query!(
+        "UPDATE usr SET username = $1 WHERE email = $2 AND workspace_id = $3",
+        new_username,
+        email,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE usr_to_group SET usr = $1 WHERE usr = $2 AND workspace_id = $3",
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // ---- group_ ----
+
+    sqlx::query!(
+        "UPDATE group_ SET extra_perms = extra_perms - ('u/' || $2) || jsonb_build_object(('u/' || $1), extra_perms->('u/' || $2)) WHERE extra_perms ? ('u/' || $2) AND workspace_id = $3",
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
     // ---- v2_job ----
     sqlx::query!(
         r#"UPDATE v2_job SET runnable_path = REGEXP_REPLACE(runnable_path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE runnable_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
@@ -848,13 +889,6 @@ async fn update_username_in_workpsace<'c>(
     // executor compares it against the caller's name. Left behind, the rename
     // takes the role away from the user it followed and hands it to whoever
     // takes the old name next.
-    let datatable_settings = sqlx::query_scalar!(
-        "SELECT datatable FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
-        w_id
-    )
-    .fetch_optional(&mut **tx)
-    .await?
-    .flatten();
     if let Some(mut settings) = datatable_settings {
         let mut renamed = windmill_common::workspaces::rename_datatable_tenant(
             &mut settings,
@@ -879,40 +913,6 @@ async fn update_username_in_workpsace<'c>(
             .await?;
         }
     }
-
-    // ---- group_ and workspace users ----
-
-    // Last, after the settings row above, and scoped to this workspace like
-    // everything else here: every path that frees or renames a principal takes
-    // `workspace_settings` before `group_`, `usr` and `usr_to_group`, and
-    // reaching into another workspace's rows would hold this one's settings row
-    // while waiting on a principal that workspace's own settings row guards.
-    sqlx::query!(
-        "UPDATE group_ SET extra_perms = extra_perms - ('u/' || $2) || jsonb_build_object(('u/' || $1), extra_perms->('u/' || $2)) WHERE extra_perms ? ('u/' || $2) AND workspace_id = $3",
-        new_username,
-        old_username,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
-
-    sqlx::query!(
-        "UPDATE usr SET username = $1 WHERE email = $2 AND workspace_id = $3",
-        new_username,
-        email,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
-
-    sqlx::query!(
-        "UPDATE usr_to_group SET usr = $1 WHERE usr = $2 AND workspace_id = $3",
-        new_username,
-        old_username,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
 
     Ok(())
 }

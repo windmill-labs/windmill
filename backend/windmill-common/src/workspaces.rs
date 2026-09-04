@@ -1152,11 +1152,20 @@ pub fn remove_datatable_tenant(datatable: &mut serde_json::Value, tenant: &str) 
 /// Take the workspace's settings row, and read the data table config under it,
 /// for the length of the caller's transaction.
 ///
-/// Everything that reads that config, decides something from it and writes it
-/// back holds this first: a role save, an ACL change, the settings form, and the
-/// principal cleanups below. Without it each of them can persist a block it
-/// computed before another one committed — a save that planned with `g/devs`
-/// puts the tenant back after the group's deletion took it away.
+/// This row is the one lock over everything a data table's permissions depend
+/// on: the config itself, and the users, groups and folders its roles name as
+/// tenants. Every path that touches either — a role save, an ACL change, the
+/// settings form, a rename, a deletion — takes it, which is what stops one of
+/// them persisting a block it computed before another committed: a save that
+/// planned with `g/devs` would otherwise put the tenant back after the group's
+/// deletion took it away.
+///
+/// **Take it before the transaction locks anything else.** One lock, always
+/// acquired first, cannot deadlock; a caller that writes `usr` or `group_` and
+/// then reaches for this one holds two in an order some other path holds the
+/// other way round. A transaction spanning workspaces takes them in
+/// `workspace_id` order, for the same reason. That is the whole ordering rule:
+/// what a handler writes after taking it, and in what order, does not matter.
 ///
 /// Authorization: performs none, for any workspace it is handed. What it returns
 /// is the config as stored, generated role passwords included, so callers MUST
@@ -1181,10 +1190,7 @@ pub async fn lock_workspace_settings_unchecked(
 ///
 /// The tenant and the principal have to go in the same transaction: between the
 /// two the name is free while a role still names it, and taking it is enough to
-/// inherit the role. Call this *before* deleting the principal's own row: this
-/// takes the workspace settings row, so a caller that deleted first would hold
-/// two rows in the opposite order to every other caller, and two of them at once
-/// would deadlock.
+/// inherit the role.
 ///
 /// Authorization: performs none. Callers MUST have already authorized the
 /// removal of the principal itself — the rules differ per caller (a workspace

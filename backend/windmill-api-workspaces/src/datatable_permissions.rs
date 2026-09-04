@@ -116,13 +116,14 @@ pub struct DatatablePermissionsPreview {
 pub(crate) struct PlannedStatement {
     pub(crate) sql: String,
     pub(crate) display: String,
-    /// Whether this one waits for the config it belongs to to commit.
+    /// The Postgres role this statement is part of destroying, if any.
     ///
     /// Creating a role before the config names it leaves at worst a role the
     /// next save adopts, so those run inside the request. Dropping one is not
-    /// reversible — `DROP OWNED` discards every grant it accumulated — so a save
-    /// that fails after the drop would have destroyed what it then rolls back.
-    pub(crate) deferred: bool,
+    /// reversible — `DROP OWNED` discards every grant it accumulated — so these
+    /// wait for the config that stops naming the role to commit, and are then
+    /// checked against it one role at a time.
+    pub(crate) drops_role: Option<String>,
 }
 
 impl PlannedStatement {
@@ -132,7 +133,7 @@ impl PlannedStatement {
         allow(dead_code)
     )]
     pub(crate) fn plain(sql: String) -> Self {
-        Self { display: sql.clone(), sql, deferred: false }
+        Self { display: sql.clone(), sql, drops_role: None }
     }
 }
 
@@ -516,25 +517,54 @@ pub(crate) async fn plan_drop_of_deleted_datatable(
     }
 }
 
-/// Run statements the config had to commit before, against the data table's
-/// database, once it has.
+/// The Postgres logins the workspace's config currently names.
+fn pg_rolenames_in_use(settings: Option<&serde_json::Value>) -> HashSet<String> {
+    settings
+        .and_then(|s| s.get("datatables"))
+        .and_then(|d| d.as_object())
+        .map(|datatables| {
+            datatables
+                .values()
+                .filter_map(|dt| dt.pointer("/permissions/roles")?.as_object())
+                .flat_map(|roles| roles.values())
+                .filter_map(|role| role.get("pg_rolename")?.as_str())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Destroy the roles a committed config stopped naming.
 ///
-/// `still_wanted` is asked under the settings row, and that row is held through
-/// the statements — which is the lock every save of a data table in this
-/// workspace takes first, so nothing can adopt or depend on a role between the
-/// question and the answer. Returns whether they ran.
-async fn run_after_commit(
+/// Asked under the settings row, one role at a time: a role the config names
+/// again — a data table recreated under the same name, or a save that put the
+/// role back — is left alone, and one it does not name is dropped whatever else
+/// has changed in the meantime. Nobody else can be planning against these
+/// between the question and the answer, since that row is what every save takes
+/// first.
+///
+/// Best-effort: a role outliving its config is recoverable, dropping one a live
+/// data table depends on is not.
+async fn drop_roles_the_config_no_longer_names(
     db: &DB,
     w_id: &str,
     client: &mut tokio_postgres::Client,
     statements: &[&PlannedStatement],
-    still_wanted: impl FnOnce(Option<&serde_json::Value>) -> bool,
-) -> Result<bool> {
+) -> Result<()> {
     let mut tx = db.begin().await?;
     let settings =
         windmill_common::workspaces::lock_workspace_settings_unchecked(&mut tx, w_id).await?;
-    let wanted = still_wanted(settings.as_ref());
-    if wanted {
+    let in_use = pg_rolenames_in_use(settings.as_ref());
+    let to_run: Vec<&PlannedStatement> = statements
+        .iter()
+        .filter(|s| {
+            s.drops_role
+                .as_ref()
+                .is_none_or(|role| !in_use.contains(role))
+        })
+        .copied()
+        .collect();
+    if !to_run.is_empty() {
         // The settings row is held for as long as these run, and they run on a
         // database this workspace does not control — a lock held there, or a role
         // with a great deal to reassign, would otherwise stall every save of every
@@ -548,28 +578,14 @@ async fn run_after_commit(
                     pg_error_message(&e)
                 ))
             })?;
-        run_statements(client, statements).await?;
+        run_statements(client, &to_run).await?;
     }
     tx.commit().await?;
-    Ok(wanted)
+    Ok(())
 }
 
-fn datatable_is_configured(settings: Option<&serde_json::Value>, datatable_name: &str) -> bool {
-    settings
-        .and_then(|s| s.get("datatables"))
-        .and_then(|d| d.get(datatable_name))
-        .is_some_and(|v| !v.is_null())
-}
-
-/// Run a planned drop, unless the data table came back.
-///
-/// A role name is generated from `(workspace, data table, role)`, so a data
-/// table recreated under the same name generates the same names — and its save
-/// adopts the very roles this plan plans to drop, since they are still granted
-/// to the same admin login.
-///
-/// Best-effort: roles outliving their data table are recoverable, dropping the
-/// ones a live data table depends on is not.
+/// Drop the roles of a data table that was deleted, once the config saying so
+/// has committed.
 pub(crate) async fn run_planned_drop(
     db: &DB,
     w_id: &str,
@@ -577,19 +593,11 @@ pub(crate) async fn run_planned_drop(
     (mut client, plan): PlannedRoleDrop,
 ) {
     let statements: Vec<&PlannedStatement> = plan.statements.iter().collect();
-    match run_after_commit(db, w_id, &mut client, &statements, |settings| {
-        !datatable_is_configured(settings, datatable_name)
-    })
-    .await
+    if let Err(e) = drop_roles_the_config_no_longer_names(db, w_id, &mut client, &statements).await
     {
-        Ok(false) => tracing::info!(
-            "Data table {datatable_name} in {w_id} was recreated before its old Postgres roles \
-             were dropped; leaving them to the data table that now holds them"
-        ),
-        Ok(true) => {}
-        Err(e) => tracing::error!(
+        tracing::error!(
             "Could not drop the Postgres roles of deleted data table {datatable_name} in {w_id}: {e:#}"
-        ),
+        );
     }
 }
 
@@ -753,9 +761,21 @@ async fn set_datatable_permissions(
     // failure after this point leaves roles the config does not know about, which
     // the next plan adopts (it reads `pg_roles`), whereas the reverse order would
     // leave the config naming roles that were never created. Dropping one has no
-    // such way back, so those wait below.
-    let (deferred, immediate): (Vec<&PlannedStatement>, Vec<&PlannedStatement>) =
-        plan.statements.iter().partition(|s| s.deferred);
+    // such way back, so those wait below — except where this save gives the freed
+    // name to another role, which only works in one order.
+    let keeps_the_name = |statement: &PlannedStatement| {
+        statement.drops_role.as_ref().is_some_and(|dropped| {
+            plan.permissions
+                .roles
+                .values()
+                .filter_map(|r| r.pg_rolename.as_ref())
+                .any(|kept| kept == dropped)
+        })
+    };
+    let (deferred, immediate): (Vec<&PlannedStatement>, Vec<&PlannedStatement>) = plan
+        .statements
+        .iter()
+        .partition(|s| s.drops_role.is_some() && !keeps_the_name(s));
     run_statements(&mut client, &immediate).await?;
 
     let permissions = serde_json::to_value(&plan.permissions)
@@ -799,23 +819,16 @@ async fn set_datatable_permissions(
 
     tx.commit().await?;
 
-    // What the config no longer names, now that it says so. Skipped when another
-    // save has landed since: its own plan was built against `pg_roles` as they
-    // are, so these roles are its to keep or drop.
+    // What the config no longer names, now that it says so.
     if !deferred.is_empty() {
-        let ours = permissions.clone();
-        run_after_commit(&db, &w_id, &mut client, &deferred, |settings| {
-            settings
-                .and_then(|s| s.pointer(&format!("/datatables/{datatable_name}/permissions")))
-                .is_some_and(|current| *current == ours)
-        })
-        .await
-        .map_err(|e| {
-            Error::ExecutionErr(format!(
-                "Permissions of data table {datatable_name} were saved, but removing the roles \
-                 they no longer name failed: {e}. Save them again to retry."
-            ))
-        })?;
+        drop_roles_the_config_no_longer_names(&db, &w_id, &mut client, &deferred)
+            .await
+            .map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "Permissions of data table {datatable_name} were saved, but removing the roles \
+                     they no longer name failed: {e}. Save them again to retry."
+                ))
+            })?;
     }
 
     Ok(format!(

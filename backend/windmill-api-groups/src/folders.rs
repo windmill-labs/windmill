@@ -800,6 +800,16 @@ async fn delete_folder(
 
     not_found_if_none(get_folderopt(&mut tx, &w_id, &name).await?, "Folder", &name)?;
 
+    // A data table role names its tenants by principal, so the name is free
+    // after this — and recreating a folder with it would inherit every role the
+    // old one could run as.
+    windmill_common::workspaces::remove_datatable_tenant_in_workspace_unchecked(
+        &w_id,
+        &format!("f/{name}"),
+        &mut tx,
+    )
+    .await?;
+
     let del = sqlx::query_scalar!(
         "DELETE FROM folder WHERE name = $1 AND workspace_id = $2 RETURNING 1",
         name,
@@ -815,16 +825,6 @@ async fn delete_folder(
             name
         )));
     }
-
-    // A data table role names its tenants by principal, so the name is free
-    // after this — and recreating a folder with it would inherit every role the
-    // old one could run as.
-    windmill_common::workspaces::remove_datatable_tenant_in_workspace_unchecked(
-        &w_id,
-        &format!("f/{name}"),
-        &mut tx,
-    )
-    .await?;
 
     audit_log(
         &mut *tx,
