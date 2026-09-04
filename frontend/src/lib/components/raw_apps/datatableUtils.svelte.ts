@@ -120,10 +120,15 @@ export function createDatatableAccessResource(
 			 * question, so an answer computed as a different one settles nothing. */
 			datatable: string | undefined
 			role: string | undefined
+			/** The lookup did not answer — the request failed, or the backend kept the
+			 * entry with an error because it could not reach that database. An empty
+			 * `schemas` then means nothing was learned, and `canCreateSchema: false`
+			 * is the absence of an answer rather than a refusal by the role. */
+			failed: boolean
 			schemas: string[]
 			canCreateSchema: boolean
 		}> => {
-			const asked = { datatable: datatable || undefined, role: role || undefined }
+			const asked = { datatable: datatable || undefined, role: role || undefined, failed: false }
 			if (!datatable || !workspace) return { ...asked, schemas: [], canCreateSchema: false }
 			try {
 				const tables = await WorkspaceService.listDataTableTables({
@@ -134,15 +139,24 @@ export function createDatatableAccessResource(
 				const entry = tables.find((t) => t.datatable_name === datatable)
 				return {
 					...asked,
+					failed: entry === undefined || entry.error !== undefined,
 					schemas: Object.keys(entry?.schemas ?? {}).sort(),
 					canCreateSchema: !!entry?.can_create_schema
 				}
 			} catch (e) {
 				console.error('Failed to load datatable access:', e)
-				return { ...asked, schemas: [], canCreateSchema: false }
+				return { ...asked, failed: true, schemas: [], canCreateSchema: false }
 			}
 		},
-		{ initialValue: { datatable: undefined, role: undefined, schemas: [], canCreateSchema: false } }
+		{
+			initialValue: {
+				datatable: undefined,
+				role: undefined,
+				failed: false,
+				schemas: [],
+				canCreateSchema: false
+			}
+		}
 	)
 }
 

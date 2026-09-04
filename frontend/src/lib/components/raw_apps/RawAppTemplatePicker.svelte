@@ -145,10 +145,6 @@
 	// app naming this data table would be created against whatever the default
 	// turns out to be.
 	const rolesUnknown = $derived(rolesSettled && roles.current.failed)
-	// Only the app that will name the data table is refused: with table creation
-	// off nothing saves it, and an app that does not touch it is not this caller's
-	// problem to be stopped over.
-	const blockedByRole = $derived((noUsableRole || rolesUnknown) && tableCreationEnabled)
 	const accessSettled = $derived(
 		hasNoDatatables ||
 			(rolesSettled &&
@@ -159,16 +155,34 @@
 	const loadedAccess = $derived(
 		accessSettled
 			? access.current
-			: { datatable: selectedDatatable, role: accessRole, schemas: [], canCreateSchema: false }
+			: {
+					datatable: selectedDatatable,
+					role: accessRole,
+					failed: false,
+					schemas: [],
+					canCreateSchema: false
+				}
 	)
+	// Nothing was learned about what this role may do here — the request failed, or
+	// the backend could not reach that database. `canCreateSchema: false` is then
+	// the absence of an answer, not a refusal to act on.
+	const accessUnknown = $derived(accessSettled && loadedAccess.failed)
 	const availableSchemas = $derived(loadedAccess.schemas)
 	const canCreateSchema = $derived(loadedAccess.canCreateSchema)
+
+	// Only the app that will name the data table is refused: with table creation
+	// off nothing saves it, and an app that does not touch it is not this caller's
+	// problem to be stopped over.
+	const blockedByRole = $derived(
+		(noUsableRole || rolesUnknown || accessUnknown) && tableCreationEnabled
+	)
 
 	// A role that cannot create schemas has nothing to name, so the mode goes back
 	// to the one every role has — once that is an answer rather than the absence
 	// of one, since nothing puts `new` back afterwards.
 	$effect(() => {
-		if (accessSettled && schemaMode === 'new' && !canCreateSchema) schemaMode = 'none'
+		if (accessSettled && !accessUnknown && schemaMode === 'new' && !canCreateSchema)
+			schemaMode = 'none'
 	})
 
 	let hasAutoSelected = false
@@ -401,7 +415,9 @@
 															disabled={!canCreateSchema}
 															tooltip={canCreateSchema
 																? undefined
-																: `${effectiveRole ?? 'This role'} cannot create schemas in ${selectedDatatable}`}
+																: accessUnknown
+																	? `Could not read what may be created in ${selectedDatatable}`
+																	: `${effectiveRole ?? 'This role'} cannot create schemas in ${selectedDatatable}`}
 															{item}
 															size="sm"
 														/>
