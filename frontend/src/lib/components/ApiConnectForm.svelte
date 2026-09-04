@@ -12,6 +12,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import { untrack } from 'svelte'
 	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
+	import GitLabIntegration from './GitLabIntegration.svelte'
 	import BedrockCredentialsCheck from './BedrockCredentialsCheck.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import ResourceGen from './copilot/ResourceGen.svelte'
@@ -28,6 +29,9 @@
 		isValid?: boolean
 		linkedSecretCandidates?: string[] | undefined
 		description?: string | undefined
+		/** Path the resource is being saved at, passed through to the GitLab picker
+		 * so the credential variable it creates takes the resource's own path. */
+		resourcePath?: string
 		onSynced?: () => void
 	}
 
@@ -39,6 +43,7 @@
 		isValid = $bindable(true),
 		linkedSecretCandidates = undefined,
 		description = $bindable(undefined),
+		resourcePath = undefined,
 		onSynced = undefined
 	}: Props = $props()
 
@@ -248,6 +253,18 @@
 				rawCodeEditor?.setCode(rawCode)
 			}}
 			onDescriptionUpdate={(newDescription) => (description = newDescription)}
+		/>
+		<!-- Last in a `flex-row-reverse` row, so it lands beside the GitHub App
+		button without splitting it from its own refresh control. -->
+		<GitLabIntegration
+			{resourceType}
+			{args}
+			{resourcePath}
+			onArgsUpdate={(newArgs) => {
+				args = newArgs
+				rawCode = JSON.stringify(args, null, 2)
+				rawCodeEditor?.setCode(rawCode)
+			}}
 		/>
 	</div>
 	{#if resourceType?.includes('bedrock') && !isCloudHosted()}

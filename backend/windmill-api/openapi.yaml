@@ -2713,7 +2713,7 @@ paths:
 
   /w/{workspace}/github_app/token:
     post:
-      summary: get github app token
+      summary: get the git credential for a git-sync job (GitHub App token, or the credential stored for the repository)
       operationId: getGithubAppToken
       tags:
         - workspace
@@ -2733,7 +2733,7 @@ paths:
                 - job_token
       responses:
         "200":
-          description: github app token
+          description: git credential
           content:
             application/json:
               schema:
@@ -2918,6 +2918,51 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/GitlabProject"
+
+  /w/{workspace}/git_sync/credential:
+    post:
+      tags:
+        - Git Sync
+      summary: Store the credential for a git repository
+      description: >-
+        Stores the access token a git repository authenticates with, so it does
+        not have to be written into the repository URL or a workspace variable.
+        The token is write-only: it is served only to a git-sync job that
+        presents its own job token, and a fork of this workspace reads this
+        copy instead of holding one of its own. Requires workspace admin.
+      operationId: setGitCredential
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                repo_path:
+                  type: string
+                  description: Path of the git repository resource the credential authenticates
+                repo_url:
+                  type: string
+                  description: >-
+                    The repository the credential is for. The token is only used
+                    against this repository, so repointing the resource elsewhere
+                    cannot carry it along.
+                token:
+                  type: string
+                  description: The access token, as pasted
+              required:
+                - repo_path
+                - repo_url
+                - token
+      responses:
+        "200":
+          description: the credential was stored
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/github_app/ghes_installation_callback:
     post:

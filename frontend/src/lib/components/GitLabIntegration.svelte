@@ -1,25 +1,34 @@
 <script lang="ts">
 	import { workspaceStore, userStore, enterpriseLicense } from '$lib/stores'
-	import { GitSyncService, VariableService, type GitlabProject } from '$lib/gen'
+	import { GitSyncService, type GitlabProject } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
 	import { Alert } from './common'
 	import TextInput from './text_input/TextInput.svelte'
 	import Select from './select/Select.svelte'
-	import { GitBranch, Loader2 } from 'lucide-svelte'
+	import { GitBranch, Gitlab, Loader2 } from 'lucide-svelte'
 
 	interface Props {
 		resourceType: string
 		args?: Record<string, any>
 		/** The workspace the resource is being edited in, which is not always the
-		 * one being navigated: the variable has to land where the resource will
+		 * one being navigated: the credential has to land where the resource will
 		 * look for it. */
 		workspace?: string
+		/** Path the resource is being saved at. The stored credential is keyed by
+		 * it, so the picker cannot run before the resource has a path. */
+		resourcePath?: string
 		onArgsUpdate?: (args: Record<string, any>) => void
 	}
 
-	let { resourceType, args = {}, workspace = undefined, onArgsUpdate }: Props = $props()
+	let {
+		resourceType,
+		args = {},
+		workspace = undefined,
+		resourcePath = undefined,
+		onArgsUpdate
+	}: Props = $props()
 
 	let ws = $derived(workspace ?? $workspaceStore)
 
@@ -28,104 +37,25 @@
 	let search = $state('')
 	let projects: GitlabProject[] = $state([])
 	let selectedProject: string | undefined = $state(undefined)
-	let variablePath = $state('')
 	let loading = $state(false)
 	let applying = $state(false)
 	let listError: string | undefined = $state(undefined)
 
-	// The project listing is served by an enterprise-only route, so on a build
-	// without it the button would open a form whose first request 404s.
+	// Shown alongside the GitHub App button and on the same terms, so the two
+	// read as one choice rather than one option and one absence.
 	let show = $derived(
 		resourceType === 'git_repository' &&
 			!!ws &&
-			!!$enterpriseLicense &&
 			($userStore?.is_admin || $userStore?.is_super_admin)
 	)
+	// The project listing is served by an enterprise-only route, so on a build
+	// without it the form's first request would 404. The button still shows,
+	// disabled and labelled, because a missing button reads as "GitLab is not
+	// supported" rather than "this needs a licence".
+	let enabled = $derived(!!$enterpriseLicense)
 
 	let project = $derived(projects.find((p) => p.path_with_namespace === selectedProject))
-
-	// A path the user has not overridden tracks the selected project, so picking a
-	// different one does not silently overwrite the first project's variable. The
-	// host is part of it because the same project path exists on more than one
-	// GitLab, and separators collapse, so `grp/a-b` and `grp/a_b` would otherwise
-	// land on one name.
-	function slug(value: string): string {
-		return value
-			.replace(/[^a-zA-Z0-9]+/g, '_')
-			.replace(/^_+|_+$/g, '')
-			.toLowerCase()
-	}
-	let suggestedVariablePath = $derived(
-		project
-			? `u/${$userStore?.username ?? 'admin'}/gitlab_${slug(
-					new URL(project.http_url_to_repo).host
-				)}_${slug(project.path_with_namespace)}_url`
-			: ''
-	)
-	let variablePathTouched = $state(false)
-	$effect(() => {
-		if (!variablePathTouched) {
-			variablePath = suggestedVariablePath
-		}
-	})
-
-	// Host and path of a git remote, lowercased with `.git` dropped: the same
-	// identity the backend compares, so "is this the same repository?" gets one
-	// answer on both sides.
-	function repoIdentity(url: string): string | undefined {
-		try {
-			const u = new URL(url.trim())
-			const path = u.pathname
-				.toLowerCase()
-				.replace(/^\/+|\/+$/g, '')
-				.replace(/\.git$/, '')
-			return path ? `${u.host.toLowerCase()}/${path}` : undefined
-		} catch {
-			return undefined
-		}
-	}
-
-	// What already lives at this path decides whether applying is safe. A
-	// suggested path can collide with another project's, and the field is free
-	// text, so the name alone proves nothing: only the repository the stored
-	// value points at does.
-	// `checking` exists so a path that has just changed is never treated as the
-	// previous path's verdict: the answer is asynchronous, and applying against a
-	// stale one is how an occupied variable gets overwritten anyway.
-	type Occupant = 'checking' | 'free' | 'same-repo' | 'other'
-	let occupant: Occupant = $state('free')
-	$effect(() => {
-		const path = variablePath
-		const workspace = ws
-		const target = project ? repoIdentity(project.http_url_to_repo) : undefined
-		if (!workspace || !path || !target) {
-			occupant = 'free'
-			return
-		}
-		occupant = 'checking'
-		let cancelled = false
-		VariableService.existsVariable({ workspace, path })
-			.then(async (exists) => {
-				if (cancelled) return
-				if (!exists) {
-					occupant = 'free'
-					return
-				}
-				// Reading it decrypts a secret, which is why this is admin-only.
-				const current = await VariableService.getVariableValue({ workspace, path }).catch(
-					() => undefined
-				)
-				if (cancelled) return
-				// Unreadable counts as occupied: it is someone else's until proven otherwise.
-				occupant = current && repoIdentity(current) === target ? 'same-repo' : 'other'
-			})
-			.catch(() => {
-				if (!cancelled) occupant = 'other'
-			})
-		return () => {
-			cancelled = true
-		}
-	})
+	let hasPath = $derived(!!resourcePath && resourcePath !== '')
 
 	async function listProjects() {
 		if (!ws) return
@@ -149,81 +79,34 @@
 		}
 	}
 
-	// The credential travels in the remote URL, and the whole URL lives in one
-	// secret variable: that is the shape Windmill can rewrite when it renews the
-	// token, and it keeps the credential out of the resource itself.
-	function repositoryUrl(p: GitlabProject): string {
-		const url = new URL(p.http_url_to_repo)
-		url.username = 'oauth2'
-		url.password = token
-		return url.toString()
-	}
-
 	async function apply(close: (_: any) => void) {
-		// The token is cleared once stored, and re-applying without one would
-		// overwrite the stored credential with an empty password.
-		const pathIsWritable = occupant === 'free' || occupant === 'same-repo'
-		if (!ws || !project || !token || !pathIsWritable) return
+		if (!ws || !project || !token || !resourcePath) return
 		// Everything this writes is read once, here, before the first await. The
-		// selector and the path field stay live while the requests are in flight,
-		// so re-reading them later could store one project's URL under another's
-		// path, or set the wrong default branch.
+		// selector stays live while the request is in flight, so re-reading it
+		// later could store one project's token against another's URL.
 		const workspace = ws
 		const chosen = project
-		const path = variablePath
-		const value = repositoryUrl(chosen)
-		const target = repoIdentity(chosen.http_url_to_repo)
+		const repoPath = resourcePath
+		const url = chosen.http_url_to_repo
 		applying = true
 		try {
-			const exists = await VariableService.existsVariable({
+			await GitSyncService.setGitCredential({
 				workspace,
-				path
+				requestBody: { repo_path: repoPath, repo_url: url, token }
 			})
-			// Re-read rather than trust the state the button was enabled from: the
-			// path can change between the check and the click, and another writer
-			// can take the path in between. A path holding anything but this same
-			// repository is never written over — that would repoint every resource
-			// using it, silently, at this project.
-			if (exists) {
-				const current = await VariableService.getVariableValue({
-					workspace,
-					path
-				}).catch(() => undefined)
-				if (!current || !target || repoIdentity(current) !== target) {
-					occupant = 'other'
-					sendUserToast(`${path} holds something else. Choose another path.`, true)
-					return
-				}
-				await VariableService.updateVariable({
-					workspace,
-					path,
-					requestBody: { value, is_secret: true }
-				})
-			} else {
-				await VariableService.createVariable({
-					workspace,
-					requestBody: {
-						path,
-						value,
-						is_secret: true,
-						description: `Git remote for ${chosen.path_with_namespace}, including its GitLab token`
-					}
-				})
-			}
 			onArgsUpdate?.({
 				...args,
-				url: `$var:${path}`,
+				url,
 				is_github_app: false,
 				branch: args.branch || chosen.default_branch || undefined
 			})
 			token = ''
 			projects = []
 			selectedProject = undefined
-			variablePathTouched = false
-			sendUserToast(`Repository URL stored in the secret variable ${path}`)
+			sendUserToast(`Windmill stored the token for ${chosen.path_with_namespace}`)
 			close(null)
 		} catch (err) {
-			sendUserToast(`Could not store the repository URL: ${err?.body ?? err?.message}`, true)
+			sendUserToast(`Could not store the token: ${err?.body ?? err?.message}`, true)
 		} finally {
 			applying = false
 		}
@@ -233,11 +116,18 @@
 {#if show}
 	<Popover
 		documentationLink="https://www.windmill.dev/docs/integrations/git_repository"
+		disabled={!enabled}
 		contentClasses="overflow-auto"
 	>
 		{#snippet trigger()}
-			<Button variant="default" unifiedSize="xs" startIcon={{ icon: GitBranch }} nonCaptureEvent>
-				GitLab
+			<Button
+				variant="default"
+				unifiedSize="sm"
+				disabled={!enabled}
+				startIcon={{ icon: Gitlab }}
+				nonCaptureEvent
+			>
+				{enabled ? 'GitLab' : 'GitLab (ee only)'}
 			</Button>
 		{/snippet}
 		{#snippet content({ close })}
@@ -261,7 +151,8 @@
 						</div>
 						<TextInput bind:value={token} size="sm" inputProps={{ type: 'password' }} />
 						<div class="text-2xs font-normal text-hint">
-							Used to list projects now, then stored in a secret variable
+							Windmill keeps it for this repository and hands it only to this workspace's sync jobs.
+							Forks of this workspace use it without holding a copy.
 						</div>
 					</div>
 					<div class="flex flex-col gap-y-1">
@@ -298,42 +189,22 @@
 								disabled={applying}
 							/>
 						</div>
-						<div class="flex flex-col gap-y-1">
-							<div class="text-xs font-semibold text-emphasis">Secret variable</div>
-							<div class="text-xs font-normal text-secondary">
-								Where the repository URL and its token are kept. Windmill rewrites this variable
-								when it renews the token, so every consumer keeps working.
+						{#if hasPath}
+							<div class="text-2xs font-normal text-hint">
+								Stored for the resource at {resourcePath}. Give the resource its final path before
+								applying, so the token stays with it.
 							</div>
-							<TextInput
-								bind:value={variablePath}
-								size="sm"
-								inputProps={{
-									oninput: () => (variablePathTouched = true),
-									disabled: applying
-								}}
-							/>
-							{#if occupant === 'checking'}
-								<div class="text-2xs font-normal text-hint">Checking this path...</div>
-							{:else if occupant === 'other'}
-								<div class="text-2xs font-normal text-red-600 dark:text-red-400">
-									This variable already holds something else. Choose another path, or anything using
-									it would start pointing at this project.
-								</div>
-							{:else if occupant === 'same-repo'}
-								<div class="text-2xs font-normal text-hint">
-									This variable already points at this project, and its token will be replaced.
-								</div>
-							{/if}
-						</div>
+						{:else}
+							<Alert type="warning" title="The resource needs a path first" size="xs">
+								The token is kept against the resource's path. Name the resource, then pick the
+								project.
+							</Alert>
+						{/if}
 						<div class="flex justify-end">
 							<Button
 								variant="accent"
 								unifiedSize="sm"
-								disabled={!project ||
-									!variablePath ||
-									!token ||
-									!(occupant === 'free' || occupant === 'same-repo') ||
-									applying}
+								disabled={!project || !token || !hasPath || applying}
 								startIcon={{
 									icon: applying ? Loader2 : GitBranch,
 									classes: applying ? 'animate-spin' : ''

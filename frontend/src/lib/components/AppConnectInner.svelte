@@ -1388,6 +1388,7 @@
 						{linkedSecretCandidates}
 						{resourceType}
 						{resourceTypeInfo}
+						resourcePath={path}
 						bind:args
 						bind:isValid
 						onSynced={getResourceTypeInfo}

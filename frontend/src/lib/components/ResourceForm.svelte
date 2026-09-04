@@ -262,6 +262,7 @@
 				resourceType={resource_type}
 				{args}
 				workspace={ws}
+				resourcePath={path}
 				onArgsUpdate={(newArgs) => {
 					args = newArgs
 					// The raw editor is also what a workspace missing the resource type

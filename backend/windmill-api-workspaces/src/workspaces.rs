@@ -4514,6 +4514,16 @@ async fn delete_git_sync_repository(
         }
     }
 
+    // The workspace no longer syncs this repository, so stop holding a token for
+    // it. After the webhook deletion above, which authenticates with it.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    let _ = windmill_common::git_sync_ee::delete_git_credential(
+        &db,
+        &w_id,
+        &request.git_repo_resource_path,
+    )
+    .await;
+
     // Trigger git sync for repository deletion
     handle_deployment_metadata(
         &authed.email,

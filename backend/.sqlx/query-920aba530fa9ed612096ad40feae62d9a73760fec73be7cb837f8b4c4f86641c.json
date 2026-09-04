@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE workspace_settings\n                SET git_credentials = (\n                    SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)\n                    FROM jsonb_array_elements(git_credentials) AS elem\n                    WHERE elem->>'repo_path' NOT IN ($2, $3)\n                ) || jsonb_build_array($4::jsonb)\n                WHERE workspace_id = $1\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "920aba530fa9ed612096ad40feae62d9a73760fec73be7cb837f8b4c4f86641c"
+}
