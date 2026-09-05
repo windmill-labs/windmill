@@ -10,10 +10,14 @@ use windmill_test_utils::*;
 
 const W: &str = "test-workspace";
 
-/// Ceiling on any one wait below. Everything here settles in well under a second, so this only
-/// bounds a step that is stuck, and it has to stay clear of the 60s cap `in_test_worker` puts on
-/// the whole body: past that the harness reports a worker timeout instead of what was waited on.
-const WAIT_BUDGET: std::time::Duration = std::time::Duration::from_secs(20);
+/// Budget for one wait below, counted completions and drain together. Even against a cold cache
+/// these settle in a few seconds, so it only bounds a step that is stuck, and it stays under the
+/// 60s cap `in_test_worker` puts on the whole body so the panic names what was being waited on
+/// rather than surfacing as a worker timeout.
+const WAIT_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// How often the waits below re-check, and the floor on one turn of the drain loop.
+const POLL: std::time::Duration = std::time::Duration::from_millis(20);
 
 const A: &str = "def main():\n    return 'a'\n";
 const A_COMMENTED: &str = "# same dependencies, different content\ndef main():\n    return 'a'\n";
@@ -105,20 +109,17 @@ async fn wait_for_jobs(
     completed: &mut (impl futures::Stream<Item = uuid::Uuid> + Unpin),
     count: usize,
 ) {
+    let deadline = tokio::time::Instant::now() + WAIT_BUDGET;
     for i in 0..count {
-        tokio::time::timeout(WAIT_BUDGET, completed.next())
+        tokio::time::timeout_at(deadline, completed.next())
             .await
             .unwrap_or_else(|_| panic!("only {i} of {count} jobs completed"));
     }
     // Then let anything else that was queued run out, so a job the assertions say must not
     // exist would have shown up here. A dependency job queues its fan-out before it completes,
     // so an empty queue is a fixpoint rather than a lull.
-    let deadline = std::time::Instant::now() + WAIT_BUDGET;
     loop {
-        while let Ok(Some(_)) =
-            tokio::time::timeout(std::time::Duration::from_millis(20), completed.next()).await
-        {
-        }
+        while let Ok(Some(_)) = tokio::time::timeout(POLL, completed.next()).await {}
         let queued: i64 = sqlx::query_scalar("SELECT count(*) FROM v2_job_queue")
             .fetch_one(db)
             .await
@@ -127,9 +128,12 @@ async fn wait_for_jobs(
             return;
         }
         assert!(
-            std::time::Instant::now() < deadline,
+            tokio::time::Instant::now() < deadline,
             "the queue never emptied"
         );
+        // The stream ends instantly once it is closed, so this is what keeps the loop from
+        // spinning on the queue read until the deadline.
+        tokio::time::sleep(POLL).await;
     }
 }
 
@@ -293,7 +297,7 @@ async fn relock_waiting_on_a_deploy_requeues_for_its_successor(
                 .await
                 .unwrap();
                 if !waiting {
-                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    tokio::time::sleep(POLL).await;
                 }
             }
             assert!(waiting, "b's relock never reached the row lock");
