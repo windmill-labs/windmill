@@ -1,6 +1,6 @@
 //! The guest JWT contract: what a token minted by an embedding customer's own backend
-//! must carry to open one guest-mode app, and how it is verified against the key the
-//! workspace admin configured. Deliberately narrower than the external JWT scheme
+//! must carry to open one guest-mode app, and how it is verified against the workspace's
+//! configured key (or, off cloud, the instance issuer). Deliberately narrower than the external JWT scheme
 //! (`jwt_ext_`), whose claims can assert admin, groups and folders: a guest key can
 //! only ever mint guests, whatever the token says.
 
@@ -23,9 +23,10 @@ use crate::DB;
 /// would otherwise stay valid until it leaked.
 pub const MAX_LIFETIME_SECS: u64 = 24 * 60 * 60;
 
-/// Bearer prefix. Stateless: no `token` row. Verified against the workspace's key and
-/// resolved in the auth cache, whose entry is short-lived (not the token's full `exp`)
-/// so a rotated key revokes within minutes. See the arm in `windmill-api-auth`.
+/// Bearer prefix. Stateless: no `token` row. Verified against the workspace's key (or, off
+/// cloud, the instance issuer when the workspace set none) and resolved in the auth cache,
+/// whose entry is short-lived (not the token's full `exp`) so a rotated key revokes within
+/// minutes. See the arm in `windmill-api-auth`.
 pub const BEARER_PREFIX: &str = "jwt_guest_";
 
 const RSA_ALGORITHMS: [Algorithm; 6] = [
@@ -51,8 +52,9 @@ pub struct GuestJwtClaims {
     pub iat: Option<u64>,
 }
 
-/// The key a workspace verifies guest JWTs with. `None` when the workspace has not
-/// configured one: a guest JWT is then refused whatever it carries.
+/// How a guest JWT is verified: the workspace's configured key (a PEM public key or a JWKS
+/// URL), or, off cloud, the instance issuer (`JWT_EXT_JWKS_URL`) when the workspace set none —
+/// see `key_source`. When neither is set the JWT is refused whatever it carries.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GuestJwtKeySource {
     Pem(String),
@@ -304,10 +306,12 @@ const MAX_GUEST_PEM_LEN: usize = 8 * 1024;
 /// decoded and, if it verified, cached at its full size. A real JWT is well under this.
 pub const MAX_GUEST_JWT_LEN: usize = 8 * 1024;
 
-/// Fetch a JWKS, keeping only the keys usable here. The URL was set by a workspace
-/// admin, so it is validated against private ranges and the connect is pinned to the
-/// validated addresses; redirects are not followed for the same reason. The body is
-/// read with a cap so a hostile endpoint cannot exhaust memory.
+/// Fetch a JWKS, keeping only the keys usable here. A workspace-admin URL is validated
+/// against private ranges and the connect pinned to the validated addresses; redirects are
+/// not followed for the same reason. The instance issuer (`JWT_EXT_JWKS_URL`) is exempt from
+/// those restrictions — it is operator-configured and trusted (it also backs `jwt_ext_`), so a
+/// self-hosted internal (http/private) issuer that works for `jwt_ext_` works for guests too.
+/// The body is read with a cap so a hostile endpoint cannot exhaust memory.
 pub async fn fetch_jwks(url: &str) -> Result<HashMap<String, Jwk>> {
     use futures::StreamExt;
     if url.len() > MAX_JWKS_URL_LEN {
@@ -315,11 +319,16 @@ pub async fn fetch_jwks(url: &str) -> Result<HashMap<String, Jwk>> {
             "JWKS URL is longer than {MAX_JWKS_URL_LEN} bytes"
         )));
     }
-    let target = crate::ssrf::validate_guest_jwks_url(url)
-        .await
-        .map_err(|e| Error::BadRequest(format!("JWKS URL is not allowed: {e}")))?;
-    let client = target
-        .apply_dns_pinning(crate::utils::configure_client(reqwest::ClientBuilder::new()))
+    let builder = crate::utils::configure_client(reqwest::ClientBuilder::new());
+    let builder = if instance_ext_jwks_url().as_deref() == Some(url) {
+        builder
+    } else {
+        crate::ssrf::validate_guest_jwks_url(url)
+            .await
+            .map_err(|e| Error::BadRequest(format!("JWKS URL is not allowed: {e}")))?
+            .apply_dns_pinning(builder)
+    };
+    let client = builder
         .user_agent("windmill/beta")
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(5))
@@ -911,5 +920,31 @@ y9rTR828ADcaZ63Ej1oL4GcqmGhODxCLy1YKKcy0FHzChqPMV6g=\n\
             crate::ssrf::validate_guest_jwks_url("http://issuer.example.com/jwks.json").await,
             Err(crate::ssrf::SsrfValidationError::HttpsRequired)
         ));
+    }
+
+    #[tokio::test]
+    async fn the_instance_issuer_bypasses_the_https_and_private_restriction() {
+        let _env = TEST_ENV_LOCK.lock().await;
+        unsafe { std::env::remove_var("ALLOW_PRIVATE_GUEST_JWKS_URLS") };
+        // The instance issuer is operator-trusted (it also backs jwt_ext_), so an http/private
+        // URL is not refused for its scheme: it reaches the connect and fails there (dead port),
+        // not at validation. A different URL is not the instance issuer and is still refused.
+        let instance = "http://127.0.0.1:1/jwks.json";
+        unsafe { std::env::set_var("JWT_EXT_JWKS_URL", instance) };
+        let trusted = fetch_jwks(instance).await.err().unwrap().to_string();
+        let other = fetch_jwks("http://127.0.0.1:1/other.json")
+            .await
+            .err()
+            .unwrap()
+            .to_string();
+        unsafe { std::env::remove_var("JWT_EXT_JWKS_URL") };
+        assert!(
+            !trusted.contains("not allowed") && !trusted.contains("must use https"),
+            "instance issuer skips validation: {trusted}"
+        );
+        assert!(
+            other.contains("not allowed") || other.contains("https"),
+            "a non-instance http url is still refused: {other}"
+        );
     }
 }

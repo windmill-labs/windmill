@@ -12,10 +12,10 @@ use windmill_api_auth::{
 };
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
-use windmill_dep_map::lock_hash::record_lock_hashes_for_workspace;
 use windmill_common::usernames::{get_instance_username_or_create_pending, VALID_USERNAME};
 use windmill_common::webhook::WebhookShared;
 use windmill_common::{BASE_URL, DB};
+use windmill_dep_map::lock_hash::record_lock_hashes_for_workspace;
 
 use axum::{
     extract::{Extension, Path, Query},
@@ -4673,8 +4673,9 @@ async fn edit_guest_access(
 
 #[derive(Deserialize)]
 struct EditGuestJwtKey {
-    /// A PEM public key (RS or ES family), or a JWKS URL, at most one. Both empty
-    /// clears the key, after which the workspace mints no guest from a JWT.
+    /// A PEM public key (RS or ES family), or a JWKS URL, at most one. Both empty clears the
+    /// workspace key; verification then falls back to the instance issuer (`JWT_EXT_JWKS_URL`)
+    /// off cloud, or refuses the JWT if none is set. The off-switch is `guest_access_enabled`.
     public_key: Option<String>,
     jwks_url: Option<String>,
 }
