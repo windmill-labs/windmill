@@ -57,6 +57,11 @@
 	const dispatch = createEventDispatcher()
 
 	async function renameUser() {
+		// Renaming before the current usernames are known would apply a change whose scope
+		// the "Manual action required" warning could not have been shown for.
+		if (!usernameInfo) {
+			return
+		}
 		loading = true
 		try {
 			const automateUsernameCreation =
@@ -139,7 +144,7 @@
 				dispatch('close')
 			})
 		}}
-		disabled={email === undefined || !username}
+		disabled={email === undefined || !username || !usernameInfo}
 		{loading}
 	>
 		Confirm username change
