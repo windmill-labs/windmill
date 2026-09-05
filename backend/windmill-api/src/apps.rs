@@ -170,6 +170,7 @@ pub fn unauthed_service() -> Router {
         )
         .route("/load_csv_preview/{*path}", get(app_load_csv_preview))
         .route("/public_app/{secret}", get(get_public_app_by_secret))
+        .route("/guest_entry/{secret}", get(get_guest_entry))
         .route("/embed_token/{secret}", get(get_app_embed_token))
         .route("/public_resource/{*path}", get(get_public_resource))
         .route("/get_data/v/{*id}", get(get_raw_app_data))
@@ -288,12 +289,151 @@ pub type AllowUserResources = Vec<String>;
 #[serde(rename_all = "lowercase")]
 pub enum ExecutionMode {
     Anonymous,
+    /// Login required, workspace membership not: anyone the instance's identity
+    /// provider authenticates may open the app, and the runnables execute as the
+    /// publisher exactly as in [`ExecutionMode::Publisher`]. Such a viewer holds a
+    /// guest session: an identity with no account at all (no `password` row, no `usr`
+    /// row anywhere), which is what keeps it off every row-based seat counter; what a
+    /// guest costs instead is the allowance in `windmill_common::workspaces`. Honored
+    /// only where `workspace_settings.guest_access_enabled` is on, re-read at the auth
+    /// door on every guest request.
+    Guest,
     /// Default for a policy that omits `execution_mode`. It MUST stay a mode
     /// that requires an authenticated viewer: an omitted field must never be
     /// able to publish an app anonymously (publicly executable).
     #[default]
     Publisher,
     Viewer,
+}
+
+impl ExecutionMode {
+    /// The serialized form, matching this enum's `rename_all = "lowercase"`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ExecutionMode::Anonymous => "anonymous",
+            ExecutionMode::Guest => "guest",
+            ExecutionMode::Publisher => "publisher",
+            ExecutionMode::Viewer => "viewer",
+        }
+    }
+}
+
+/// The protection rule gating a *transition into* `mode`, if any. Anonymous and
+/// guest each widen who may open an app past the workspace's own members, so each
+/// carries its own rule; the two member-only modes are ungated.
+fn deployment_rule_for_mode(mode: ExecutionMode) -> Option<ProtectionRuleKind> {
+    match mode {
+        ExecutionMode::Anonymous => Some(ProtectionRuleKind::RestrictAnonymousAppDeployment),
+        ExecutionMode::Guest => Some(ProtectionRuleKind::RestrictGuestAppDeployment),
+        ExecutionMode::Publisher | ExecutionMode::Viewer => None,
+    }
+}
+
+/// A guest session is scoped to its app by path, so an app whose path the scope
+/// grammar cannot hold as one literal (`is_scope_literal_path`) can never admit a
+/// guest; refuse the mode at deploy time rather than advertise an app nobody enters.
+/// `path` is where the app ends up: on a rename, the destination.
+fn refuse_unscopable_guest_app(path: &str, mode: ExecutionMode) -> Result<()> {
+    if matches!(mode, ExecutionMode::Guest) && !windmill_common::auth::is_scope_literal_path(path) {
+        return Err(Error::BadRequest(format!(
+            "app {path} cannot be set to Guests: a path with `:`, `,` or `*`, or a leading `/`, \
+             cannot be scoped"
+        )));
+    }
+    Ok(())
+}
+
+/// Gate a viewer on the app's `execution_mode`, as far as can be decided without an
+/// ACL probe. `Ok(true)` means already authorized — anonymous admits anyone, guest
+/// admits anyone signed in; `Ok(false)` means the caller is a member and still owes
+/// the read-access check its caller performs.
+///
+/// A guest is authorized by its token's scope and never by an ACL probe: it holds no
+/// `usr` row, so RLS finds nothing for it and every guest would read as having no
+/// access. That scope is also what keeps a guest session to the one app it was minted
+/// for, even though the mode itself admits anyone signed in. The workspace's guest
+/// switch is not checked here: `AuthCache` enforces it for every guest request.
+pub fn authorize_non_member_viewer(
+    mode: ExecutionMode,
+    app_path: &str,
+    opt_authed: &Option<ApiAuthed>,
+) -> Result<bool> {
+    if matches!(mode, ExecutionMode::Anonymous) {
+        return Ok(true);
+    }
+    let Some(authed) = opt_authed.as_ref() else {
+        return Err(Error::NotAuthorized(
+            "App visibility does not allow public access and you are not logged in".to_string(),
+        ));
+    };
+    let is_guest = windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref());
+    if matches!(mode, ExecutionMode::Guest) {
+        if is_guest {
+            check_scopes(authed, || format!("apps:read:{}", app_path))?;
+        }
+        return Ok(true);
+    }
+    if is_guest {
+        return Err(Error::PermissionDenied(format!(
+            "app {app_path} is not open to guests"
+        )));
+    }
+    Ok(false)
+}
+
+/// Confines a guest to its app once the app's mode is known; a no-op for every other
+/// caller. An anonymous app is open to anyone, so the guest stays the caller there,
+/// as itself: the run and the reads that follow it (job results, S3 provenance) must
+/// carry one identity. Anywhere else a mismatch is refused.
+fn guest_caller_for_mode(
+    opt_authed: Option<ApiAuthed>,
+    mode: ExecutionMode,
+    app_path: &str,
+) -> Result<Option<ApiAuthed>> {
+    let Some(authed) = opt_authed.as_ref() else {
+        return Ok(None);
+    };
+    if !windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref())
+        || matches!(mode, ExecutionMode::Anonymous)
+    {
+        return Ok(opt_authed);
+    }
+    check_scopes(authed, || format!("apps:run:{app_path}"))
+        .or_else(|_| check_scopes(authed, || format!("apps:read:{app_path}")))?;
+    Ok(opt_authed)
+}
+
+/// [`authorize_non_member_viewer`] plus the member read-access probe, for the
+/// entry points that address an app by id.
+async fn authorize_app_viewer(
+    mode: ExecutionMode,
+    app_path: &str,
+    app_id: i64,
+    w_id: &str,
+    user_db: &UserDB,
+    opt_authed: &Option<ApiAuthed>,
+) -> Result<()> {
+    if authorize_non_member_viewer(mode, app_path, opt_authed)? {
+        return Ok(());
+    }
+    let authed = opt_authed
+        .as_ref()
+        .ok_or_else(|| Error::internal_err("authorize_app_viewer: unauthenticated".to_string()))?;
+    let mut tx = user_db.clone().begin(authed).await?;
+    let is_visible = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM app WHERE id = $1 AND workspace_id = $2)",
+        app_id,
+        w_id
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    if !is_visible.unwrap_or(false) {
+        return Err(Error::NotAuthorized(
+            "App visibility does not allow public access and you are logged in but you have no read-access to that app".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -1218,29 +1358,15 @@ async fn get_public_app_by_secret(
 
     let policy = serde_json::from_str::<Policy>(app.policy.0.get()).map_err(to_anyhow)?;
 
-    if !matches!(policy.execution_mode(), ExecutionMode::Anonymous) {
-        if opt_authed.is_none() {
-            return Err(Error::NotAuthorized(
-                "App visibility does not allow public access and you are not logged in".to_string(),
-            ));
-        } else {
-            let authed = opt_authed.unwrap();
-            let mut tx = user_db.begin(&authed).await?;
-            let is_visible = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM app WHERE id = $1 AND workspace_id = $2)",
-                id,
-                &w_id
-            )
-            .fetch_one(&mut *tx)
-            .await?;
-            tx.commit().await?;
-            if !is_visible.unwrap_or(false) {
-                return Err(Error::NotAuthorized(
-                    "App visibility does not allow public access and you are logged in but you have no read-access to that app".to_string(),
-                ));
-            }
-        }
-    }
+    authorize_app_viewer(
+        policy.execution_mode(),
+        &app.path,
+        id,
+        &w_id,
+        &user_db,
+        &opt_authed,
+    )
+    .await?;
 
     // Compute bundle_secret for raw apps
     if app.raw_app {
@@ -1356,9 +1482,18 @@ async fn mint_raw_app_sdk_token(
     ensure_scopes_within_caller(authed, Some(scopes))?;
     let mut scopes = scopes.to_vec();
     scopes.push(windmill_api_auth::scopes::RAW_APP_SDK_SENTINEL.to_string());
-    let expiration = chrono::Utc::now() + chrono::Duration::hours(APP_EMBED_TOKEN_VALIDITY_HOURS);
+    let requested_exp =
+        chrono::Utc::now() + chrono::Duration::hours(APP_EMBED_TOKEN_VALIDITY_HOURS);
+    let (label, expiration) =
+        match guest_derived_token_constraints(db, authed, requested_exp).await? {
+            Some((label, exp)) => {
+                scopes.push(windmill_api_auth::scopes::GUEST_SENTINEL.to_string());
+                (label, exp)
+            }
+            None => (format!("sdk_app:{app_path}"), requested_exp),
+        };
     let token_config = NewToken::new(
-        Some(format!("sdk_app:{app_path}")),
+        Some(label),
         Some(expiration),
         None,
         Some(scopes),
@@ -1371,6 +1506,43 @@ async fn mint_raw_app_sdk_token(
     let token = create_token_internal(&mut *tx, db, authed, token_config).await?;
     tx.commit().await?;
     Ok((token, expiration))
+}
+
+/// Label and expiry a token minted *by* a guest session must carry, or `None` for a
+/// non-guest minter. The label is what lets it resolve; the caller pushes the `guest`
+/// sentinel so every guest control still applies; the expiry is capped at the parent's,
+/// since that expiry is a guest's only revocation short of logging out.
+async fn guest_derived_token_constraints(
+    db: &DB,
+    authed: &ApiAuthed,
+    requested: chrono::DateTime<chrono::Utc>,
+) -> Result<Option<(String, chrono::DateTime<chrono::Utc>)>> {
+    if !windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref()) {
+        return Ok(None);
+    }
+    // A guest JWT carries its own expiry and has no token row to look up; a signed-in
+    // guest session is a row found by prefix (MIN is the conservative side of a
+    // theoretical prefix collision). Either way the derived token caps on it, never on
+    // a fresh interval.
+    let parent_exp = if let Some(exp) = authed.credential_expiry {
+        exp
+    } else {
+        let parent: Option<Option<chrono::DateTime<chrono::Utc>>> = sqlx::query_scalar(
+            "SELECT MIN(expiration) FROM token WHERE token_prefix = $1 AND email = $2 AND label = $3",
+        )
+        .bind(authed.token_prefix.as_deref().unwrap_or(""))
+        .bind(&authed.email)
+        .bind(windmill_common::auth::GUEST_SESSION_LABEL)
+        .fetch_optional(db)
+        .await?;
+        parent.flatten().ok_or_else(|| {
+            Error::NotAuthorized("guest session not found or has no expiry".to_string())
+        })?
+    };
+    Ok(Some((
+        windmill_common::auth::GUEST_SESSION_LABEL.to_string(),
+        requested.min(parent_exp),
+    )))
 }
 
 /// Shared tail of the three embed-token endpoints: which credential the viewer
@@ -1400,7 +1572,22 @@ pub async fn build_embed_token_response(
         && opt_authed.is_some()
         && !policy.frontend_sdk_scopes.is_empty()
     {
-        Some(policy.frontend_sdk_scopes.clone())
+        // An SDK token runs as the viewer, and a guest's session is the ceiling on what
+        // it may delegate — the mint enforces that. Advertise only what a guest can
+        // actually be granted, so the consent prompt never promises a scope the mint
+        // would then refuse.
+        let declared = policy.frontend_sdk_scopes.clone();
+        let offered = match opt_authed {
+            Some(a) if windmill_api_auth::scopes::has_guest_sentinel(a.scopes.as_deref()) => {
+                let held = a.scopes.as_deref().unwrap_or_default();
+                declared
+                    .into_iter()
+                    .filter(|sc| held.iter().any(|h| h == sc))
+                    .collect::<Vec<_>>()
+            }
+            _ => declared,
+        };
+        (!offered.is_empty()).then_some(offered)
     } else {
         None
     };
@@ -1556,9 +1743,13 @@ pub async fn mint_app_embed_token(
                 "App embed tokens cannot mint or renew embed tokens".to_string(),
             ));
         }
-        let expiration =
+        let requested_exp =
             chrono::Utc::now() + chrono::Duration::hours(APP_EMBED_TOKEN_VALIDITY_HOURS);
-        let mut scopes: Vec<String> = APP_EMBED_SCOPES.iter().map(|s| s.to_string()).collect();
+        let mut scopes: Vec<String> = APP_EMBED_SCOPES
+            .iter()
+            .filter(|s| **s != windmill_api_auth::scopes::APP_EMBED_SENTINEL)
+            .map(|s| s.to_string())
+            .collect();
         // Path-scoped read so the app can fetch its OWN definition (apps/get/p,
         // which the in-workspace sandboxed viewer uses) — but no other app's. The
         // public viewer fetches via apps_u/public_app and doesn't rely on this.
@@ -1569,10 +1760,22 @@ pub async fn mint_app_embed_token(
         scopes.push(format!("apps:run:{app_path}"));
         // A scope-restricted caller token must not bootstrap a broader-scoped
         // embed token (`create_token_internal` deliberately does not check this
-        // itself). No-op for unscoped sessions — the normal embed flow.
+        // itself). Checked on the real scopes only: a sentinel is a one-part string
+        // that `ScopeDefinition::from_scope_string` rejects, so leaving it in the
+        // requested set makes this fail outright for any scoped caller — which a
+        // guest session is. `mint_raw_app_sdk_token` has the same shape.
         ensure_scopes_within_caller(authed, Some(&scopes))?;
+        scopes.push(windmill_api_auth::scopes::APP_EMBED_SENTINEL.to_string());
+        let (label, expiration) =
+            match guest_derived_token_constraints(db, authed, requested_exp).await? {
+                Some((label, exp)) => {
+                    scopes.push(windmill_api_auth::scopes::GUEST_SENTINEL.to_string());
+                    (label, exp)
+                }
+                None => (format!("embed_app:{app_path}"), requested_exp),
+            };
         let token_config = NewToken::new(
-            Some(format!("embed_app:{app_path}")),
+            Some(label),
             Some(expiration),
             None,
             Some(scopes),
@@ -1599,6 +1802,40 @@ pub async fn mint_app_embed_token(
         sdk_scopes: None,
         viewer_email: None,
     })
+}
+
+#[derive(Serialize)]
+pub struct GuestEntry {
+    /// The workspace and app path to name when starting a guest sign-in. The
+    /// workspace is redundant on the secret route and load-bearing on the custom-path
+    /// one, which may not carry it in its URL.
+    pub workspace_id: String,
+    pub app_path: String,
+}
+
+/// Whether the app behind this share secret admits guests, and under what path.
+///
+/// Unauthenticated on purpose: it is what a signed-out visitor reads to learn that
+/// signing in would get them in. It discloses only the app's path, to a caller who
+/// already holds the share secret — the secret is the capability here. A 404 when the
+/// app is not open to guests, so it says nothing about apps that are not.
+async fn get_guest_entry(
+    Extension(db): Extension<DB>,
+    Path((w_id, secret)): Path<(String, String)>,
+) -> JsonResult<GuestEntry> {
+    let id = get_id_from_secret(&db, &w_id, secret, None).await?;
+    let app = sqlx::query!(
+        "SELECT path FROM app WHERE id = $1 AND workspace_id = $2",
+        id,
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?;
+    let app = not_found_if_none(app, "App", id.to_string())?;
+    if !windmill_common::workspaces::guest_app_admits(&db, &w_id, &app.path).await? {
+        return Err(Error::NotFound("App is not open to guests".to_string()));
+    }
+    Ok(Json(GuestEntry { workspace_id: w_id, app_path: app.path }))
 }
 
 /// Issue an embed token for a public app addressed by its (secret) share id.
@@ -1646,29 +1883,18 @@ async fn get_app_embed_token(
 
     let authed_for_token = if policy.anonymous_execution {
         // Anonymous app: still mint a scoped token if the viewer happens to be
-        // logged in (so the app sees their identity), otherwise stay anonymous.
-        opt_authed
+        // logged in (so the app sees their identity), otherwise stay anonymous. A
+        // guest's session names another app and cannot contain this one's scopes,
+        // so it renders anonymously here rather than being refused.
+        opt_authed.filter(|a| !windmill_api_auth::scopes::has_guest_sentinel(a.scopes.as_deref()))
     } else {
-        let authed = opt_authed.ok_or_else(|| {
-            Error::NotAuthorized(
-                "App visibility does not allow public access and you are not logged in".to_string(),
-            )
-        })?;
-        let mut tx = user_db.begin(&authed).await?;
-        let is_visible = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM app WHERE id = $1 AND workspace_id = $2)",
-            id,
-            &w_id
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        if !is_visible.unwrap_or(false) {
-            return Err(Error::NotAuthorized(
-                "App visibility does not allow public access and you are logged in but you have no read-access to that app".to_string(),
-            ));
-        }
-        Some(authed)
+        let mode = if policy.guest_execution {
+            ExecutionMode::Guest
+        } else {
+            ExecutionMode::Publisher
+        };
+        authorize_app_viewer(mode, &app.path, id, &w_id, &user_db, &opt_authed).await?;
+        opt_authed
     };
 
     let resp = build_embed_token_response(
@@ -1694,6 +1920,9 @@ async fn get_app_embed_token(
 /// strictest access interpretation.
 pub struct EmbedPolicyView {
     pub anonymous_execution: bool,
+    /// Open to anyone the identity provider authenticates. Like
+    /// `anonymous_execution`, an unknown mode reads as `false` — the strict side.
+    pub guest_execution: bool,
     pub sandbox: bool,
     /// Raw apps: author-declared scopes for the frontend SDK token; empty when
     /// the app doesn't use the frontend SDK (non-string entries are ignored).
@@ -1704,6 +1933,7 @@ pub fn parse_embed_policy(policy_str: &str) -> Result<EmbedPolicyView> {
     let v: serde_json::Value = serde_json::from_str(policy_str).map_err(to_anyhow)?;
     Ok(EmbedPolicyView {
         anonymous_execution: v.get("execution_mode").and_then(|m| m.as_str()) == Some("anonymous"),
+        guest_execution: v.get("execution_mode").and_then(|m| m.as_str()) == Some("guest"),
         sandbox: v.get("sandbox").and_then(|b| b.as_bool()).unwrap_or(false),
         frontend_sdk_scopes: v
             .get("frontend_sdk_scopes")
@@ -2287,10 +2517,11 @@ async fn create_app_internal<'a>(
     // Pin the mode the app is created under, so the stored policy states one
     // even when the caller did not.
     app.policy.set_execution_mode(app.policy.execution_mode());
-    if matches!(app.policy.execution_mode(), ExecutionMode::Anonymous) {
+    refuse_unscopable_guest_app(&app.path, app.policy.execution_mode())?;
+    if let Some(rule) = deployment_rule_for_mode(app.policy.execution_mode()) {
         if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
             w_id,
-            &ProtectionRuleKind::RestrictAnonymousAppDeployment,
+            &rule,
             &authed.username,
             &authed.groups,
             authed.is_admin,
@@ -3201,6 +3432,28 @@ async fn update_app_internal<'a>(
             if npath != path {
                 require_owner_of_path(&authed, path)?;
 
+                // The destination is what a guest session would be scoped to. A rename
+                // that carries no policy keeps the deployed mode, read under the row
+                // lock so a policy update landing alongside cannot slip a guest app
+                // onto a path it cannot be scoped to.
+                let mode = match ns.policy.as_ref().and_then(|p| p.stated_execution_mode()) {
+                    Some(mode) => mode,
+                    None => sqlx::query_scalar::<_, Option<String>>(
+                        "SELECT policy->>'execution_mode' FROM app
+                         WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
+                    )
+                    .bind(path)
+                    .bind(w_id)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .flatten()
+                    .and_then(|m| {
+                        serde_json::from_value::<ExecutionMode>(serde_json::Value::String(m)).ok()
+                    })
+                    .unwrap_or_default(),
+                };
+                refuse_unscopable_guest_app(npath, mode)?;
+
                 let exists = sqlx::query_scalar!(
                     "SELECT EXISTS(SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2)",
                     npath,
@@ -3308,21 +3561,26 @@ async fn update_app_internal<'a>(
                         .unwrap_or_default(),
                 );
             }
-            if matches!(npolicy.execution_mode(), ExecutionMode::Anonymous) && !authed.is_admin {
-                // Restricted users may keep deploying an app that is already
-                // public, but flipping an app to anonymous (public) access is
-                // gated by the RestrictAnonymousAppDeployment protection rule.
-                // An unreadable deployed policy reads as not-anonymous, the
-                // strict direction.
-                let already_anonymous = deployed
+            refuse_unscopable_guest_app(
+                ns.path.as_deref().unwrap_or(path),
+                npolicy.execution_mode(),
+            )?;
+            if let Some(rule) =
+                deployment_rule_for_mode(npolicy.execution_mode()).filter(|_| !authed.is_admin)
+            {
+                // Restricted users may keep deploying an app that is already open
+                // to this audience, but widening one is gated by the matching
+                // protection rule. An unreadable deployed policy reads as not
+                // already-widened, the strict direction.
+                let already_in_mode = deployed
                     .as_ref()
                     .and_then(|p| p.get("execution_mode"))
                     .and_then(|m| m.as_str())
-                    == Some("anonymous");
-                if !already_anonymous {
+                    == Some(npolicy.execution_mode().as_str());
+                if !already_in_mode {
                     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
                         w_id,
-                        &ProtectionRuleKind::RestrictAnonymousAppDeployment,
+                        &rule,
                         &authed.username,
                         &authed.groups,
                         authed.is_admin,
@@ -3561,6 +3819,21 @@ async fn get_on_behalf_details_from_policy_and_authed(
     policy: &Policy,
     opt_authed: &Option<ApiAuthed>,
 ) -> Result<(String, String, String)> {
+    // A guest acts only through an app open to guests — or to everyone. A members-only
+    // mode means the policy changed after the session was issued. Decided here, in the
+    // one resolver every on-behalf path (runs, S3 reads, uploads) goes through.
+    if opt_authed
+        .as_ref()
+        .is_some_and(|a| windmill_api_auth::scopes::has_guest_sentinel(a.scopes.as_deref()))
+        && !matches!(
+            policy.execution_mode(),
+            ExecutionMode::Guest | ExecutionMode::Anonymous
+        )
+    {
+        return Err(Error::PermissionDenied(
+            "this app is not open to guests".to_string(),
+        ));
+    }
     let (username, permissioned_as, email) = match policy.execution_mode() {
         ExecutionMode::Anonymous => {
             let username = opt_authed
@@ -3570,7 +3843,9 @@ async fn get_on_behalf_details_from_policy_and_authed(
             let (permissioned_as, email) = get_on_behalf_of(&policy)?;
             (username, permissioned_as, email)
         }
-        ExecutionMode::Publisher => {
+        // Guest runs as the publisher exactly as Publisher does; the two differ only
+        // in who is let through the door, which is settled before we get here.
+        ExecutionMode::Publisher | ExecutionMode::Guest => {
             let username = opt_authed
                 .as_ref()
                 .map(|a| a.username.clone())
@@ -3655,8 +3930,12 @@ async fn execute_component(
     // Authorize before touching the payload: the route layer is resource-blind, so a
     // path-scoped caller (app embed token, or a picker-minted `apps:run|write:<path>`)
     // is confined to its own app only here. No-op for unscoped callers; anonymous ones
-    // are policy-gated below.
-    if let Some(authed) = opt_authed.as_ref() {
+    // are policy-gated below, and a guest's confinement waits for the app's mode
+    // (`guest_caller_for_mode`).
+    if let Some(authed) = opt_authed
+        .as_ref()
+        .filter(|a| !windmill_api_auth::scopes::has_guest_sentinel(a.scopes.as_deref()))
+    {
         check_scopes(authed, || format!("apps:run:{}", path))?;
     }
     // Only honor temp_script_refs for the inline-script preview path:
@@ -3873,14 +4152,24 @@ async fn execute_component(
         }
     };
 
-    // Check rate limit for anonymous (public) executions
-    if matches!(policy.execution_mode(), ExecutionMode::Anonymous) && opt_authed.is_none() {
+    // Rate limit for executions by callers the workspace does not know: anonymous
+    // viewers, and guests — on an instance whose provider accepts any consumer
+    // account, "anyone the IdP authenticates" is close to the anonymous population,
+    // and each run costs a job as the publisher.
+    let is_guest_caller = opt_authed
+        .as_ref()
+        .is_some_and(|a| windmill_api_auth::scopes::has_guest_sentinel(a.scopes.as_deref()));
+    if (matches!(policy.execution_mode(), ExecutionMode::Anonymous) && opt_authed.is_none())
+        || is_guest_caller
+    {
         if let Some(limit) = crate::workspaces::get_public_app_rate_limit(&db, &w_id).await? {
             if limit > 0 {
                 crate::public_app_rate_limit::check_and_increment(&w_id, limit)?;
             }
         }
     }
+
+    let opt_authed = guest_caller_for_mode(opt_authed, policy.execution_mode(), path)?;
 
     // Execution is publisher and an user is authenticated: check if the user is authorized to
     // execute the app.
@@ -4217,8 +4506,11 @@ async fn upload_s3_file_from_app(
     request: axum::extract::Request,
 ) -> JsonResult<AppUploadFileResponse> {
     // Same path confinement as `execute_component`: without it a token scoped to app A
-    // could drive app B's upload policy.
-    if let Some(authed) = opt_authed.as_ref() {
+    // could drive app B's upload policy. A guest's waits for the app's mode, below.
+    if let Some(authed) = opt_authed
+        .as_ref()
+        .filter(|a| !windmill_api_auth::scopes::has_guest_sentinel(a.scopes.as_deref()))
+    {
         check_scopes(authed, || format!("apps:run:{}", path.to_path()))?;
     }
     let policy = if let Some(file_key_regex) = query.force_viewer_file_key_regex {
@@ -4271,6 +4563,14 @@ async fn upload_s3_file_from_app(
             .map(|p| serde_json::from_value::<Policy>(p).map_err(to_anyhow))
             .transpose()?
     };
+    let opt_authed = guest_caller_for_mode(
+        opt_authed,
+        policy
+            .as_ref()
+            .map(Policy::execution_mode)
+            .unwrap_or_default(),
+        path.to_path(),
+    )?;
 
     let user_db = UserDB::new(db.clone());
 
@@ -4428,8 +4728,12 @@ async fn upload_s3_file_from_app(
         }
     } else {
         // backward compatibility (no policy)
-        // if no policy but logged in, use the user's auth to get the s3 resource
-        if let Some(authed) = opt_authed {
+        // if no policy but logged in, use the user's auth to get the s3 resource. A guest
+        // has no standing of its own to upload with, so without a policy it is refused
+        // exactly as an anonymous caller is.
+        if let Some(authed) = opt_authed
+            .filter(|a| !windmill_api_auth::scopes::has_guest_sentinel(a.scopes.as_deref()))
+        {
             let file_key = query
                 .file_key
                 .unwrap_or_else(|| get_random_file_name(query.file_extension));
@@ -4687,6 +4991,7 @@ async fn get_on_behalf_authed_from_app(
             })
     };
 
+    let opt_authed = guest_caller_for_mode(opt_authed.clone(), policy.execution_mode(), path)?;
     let (username, permissioned_as, email) =
         get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
 
@@ -4843,6 +5148,10 @@ fn check_app_s3_read_scope(opt_authed: &Option<ApiAuthed>, path: &str) -> Result
     let Some(authed) = opt_authed.as_ref() else {
         return Ok(());
     };
+    // A guest's confinement waits for the app's mode (`get_on_behalf_authed_from_app`).
+    if windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref()) {
+        return Ok(());
+    }
     check_scopes(authed, || format!("apps:run:{}", path))
         .or_else(|_| check_scopes(authed, || format!("apps:read:{}", path)))
 }

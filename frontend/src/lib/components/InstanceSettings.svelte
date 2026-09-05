@@ -1059,7 +1059,11 @@
 						<li>instance base URL</li>
 						<li>login type usage (login type, count)</li>
 						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
-						<li>user usage (author count, operator count)</li>
+						<li
+							>user usage (author count, operator count, the distinct guests of the last 30 days,
+							the seats they add past the free allowance, and the workspaces that allow
+							guests)</li
+						>
 						<li>superadmin email addresses</li>
 						<li>development instance status</li>
 					</ul>
@@ -1123,7 +1127,11 @@
 						<li>job usage (language, total duration, count)</li>
 						<li>login type usage (login type, count)</li>
 						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
-						<li>user usage (author count, operator count)</li>
+						<li
+							>user usage (author count, operator count, the distinct guests of the last 30 days,
+							the seats they add past the free allowance, and the workspaces that allow
+							guests)</li
+						>
 						<li>development instance status</li>
 						<li
 							>feature usage (counts of which product features are used, including AI provider and

@@ -43,6 +43,7 @@
 	let restrictDeployToDeployers = $state(hasRule('RestrictDeployToDeployers'))
 	let restrictAnonymousAppDeployment = $state(hasRule('RestrictAnonymousAppDeployment'))
 	let restrictPublicRunSharing = $state(hasRule('RestrictPublicRunSharing'))
+	let restrictGuestAppDeployment = $state(hasRule('RestrictGuestAppDeployment'))
 	let selectedGroups = $state<string[]>(
 		untrack(() => rule)?.bypass_groups?.map((g) => g.replace('g/', '')) ?? []
 	)
@@ -57,6 +58,7 @@
 	let initialRestrictDeployToDeployers = $state(hasRule('RestrictDeployToDeployers'))
 	let initialRestrictAnonymousAppDeployment = $state(hasRule('RestrictAnonymousAppDeployment'))
 	let initialRestrictPublicRunSharing = $state(hasRule('RestrictPublicRunSharing'))
+	let initialRestrictGuestAppDeployment = $state(hasRule('RestrictGuestAppDeployment'))
 	let initialSelectedGroups = $state<string[]>(
 		untrack(() => rule)?.bypass_groups
 			? untrack(() => rule)!.bypass_groups.map((g) => g.replace('g/', ''))
@@ -125,6 +127,7 @@
 					restrictDeployToDeployers ||
 					restrictAnonymousAppDeployment ||
 					restrictPublicRunSharing ||
+					restrictGuestAppDeployment ||
 					selectedGroups.length > 0 ||
 					selectedUsers.length > 0
 			: name !== initialName ||
@@ -133,6 +136,7 @@
 					restrictDeployToDeployers !== initialRestrictDeployToDeployers ||
 					restrictAnonymousAppDeployment !== initialRestrictAnonymousAppDeployment ||
 					restrictPublicRunSharing !== initialRestrictPublicRunSharing ||
+					restrictGuestAppDeployment !== initialRestrictGuestAppDeployment ||
 					JSON.stringify([...selectedGroups].sort()) !==
 						JSON.stringify([...initialSelectedGroups].sort()) ||
 					JSON.stringify([...selectedUsers].sort()) !==
@@ -176,7 +180,10 @@
 						...(restrictAnonymousAppDeployment
 							? ['RestrictAnonymousAppDeployment' as ProtectionRuleKind]
 							: []),
-						...(restrictPublicRunSharing ? ['RestrictPublicRunSharing' as ProtectionRuleKind] : [])
+						...(restrictPublicRunSharing ? ['RestrictPublicRunSharing' as ProtectionRuleKind] : []),
+						...(restrictGuestAppDeployment
+							? ['RestrictGuestAppDeployment' as ProtectionRuleKind]
+							: [])
 					],
 					bypass_groups: selectedGroups,
 					bypass_users: selectedUsers
@@ -209,7 +216,10 @@
 						...(restrictAnonymousAppDeployment
 							? ['RestrictAnonymousAppDeployment' as ProtectionRuleKind]
 							: []),
-						...(restrictPublicRunSharing ? ['RestrictPublicRunSharing' as ProtectionRuleKind] : [])
+						...(restrictPublicRunSharing ? ['RestrictPublicRunSharing' as ProtectionRuleKind] : []),
+						...(restrictGuestAppDeployment
+							? ['RestrictGuestAppDeployment' as ProtectionRuleKind]
+							: [])
 					],
 					bypass_groups: selectedGroups,
 					bypass_users: selectedUsers
@@ -225,6 +235,7 @@
 			initialRestrictDeployToDeployers = restrictDeployToDeployers
 			initialRestrictAnonymousAppDeployment = restrictAnonymousAppDeployment
 			initialRestrictPublicRunSharing = restrictPublicRunSharing
+			initialRestrictGuestAppDeployment = restrictGuestAppDeployment
 			initialSelectedGroups = clone(selectedGroups)
 			initialSelectedUsers = clone(selectedUsers)
 
@@ -376,6 +387,21 @@
 				<div class="text-xs text-secondary ml-6">
 					Only workspace admins and bypass users can make an app publicly accessible without login
 					(anonymous execution mode). Apps that are already public can still be redeployed.
+				</div>
+			</div>
+
+			<!-- Restrict guest app deployment -->
+			<div class="flex flex-col gap-2">
+				<Toggle
+					bind:checked={restrictGuestAppDeployment}
+					options={{
+						right: 'Restrict guest app access'
+					}}
+				/>
+				<div class="text-xs text-secondary ml-6">
+					Only workspace admins and bypass users can open an app to guests (anyone who signs in,
+					with no workspace membership and no seat). Apps that already admit guests can still be
+					redeployed.
 				</div>
 			</div>
 

@@ -147,7 +147,10 @@
 			} else {
 				if (
 					(!page.url.pathname.startsWith('/user/') || page.url.pathname.startsWith('/user/cli')) &&
-					!page.url.pathname.startsWith('/oauth/mcp_authorize') &&
+					// The MCP consent page carries its own workspace picker, so it is left to
+					// run without one. Nothing sets `$userStore` on this branch, which is why
+					// that page must stay outside the (logged) layout — see its `@(root)` name.
+					!page.url.pathname.startsWith(`${base}/oauth/mcp_authorize`) &&
 					// The hub import wizard asks for the destination itself, and may end in a
 					// workspace that does not exist yet — bouncing it to the picker would
 					// force the very choice it exists to make.
