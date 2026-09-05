@@ -9,7 +9,7 @@ import {
 	type PreviewTabsAdapter,
 	type PreviewTabsSnapshot
 } from './sessionPreviewTabs.svelte'
-import { artifactUrl, type PreviewTarget } from './previewRouter'
+import { artifactUrl, resolvePreviewTab, type PreviewTarget } from './previewRouter'
 import type { SessionPreviewTab } from './sessionState.svelte'
 import { base } from '$lib/base'
 
@@ -352,6 +352,34 @@ describe('SessionPreviewTabs.open', () => {
 	// A legacy app owns its own hash (the editor reads it as `context.hash`), so the
 	// observer records app state into `loc`. Reading that as a drawer anchor would
 	// retarget on reopen, and a same-document retarget forces a reload that discards
+	// Opening a row inside the list frame is the user asking to edit that entity. The
+	// frame's copy of the editor is a realm apart from the chat's writes, so the tab
+	// follows onto the hosted one, which shares the draft cell those writes land in.
+	it('follows the command onto the hosted editor when a row is opened inside the frame', () => {
+		const o = owner()
+		o.open({ type: 'page', href: '/resources', label: 'Resources' })
+		const id = o.tabs[0].id
+		o.observeLocation(id, '/resources#/resource/u/me/db')
+
+		expect(o.tabs[0].url).toBe('/resources#/resource/u/me/db')
+		expect(resolvePreviewTab(o.tabs[0].url)).toEqual({
+			kind: 'entity',
+			entityKind: 'resource',
+			path: 'u/me/db'
+		})
+	})
+
+	// Anchored the same way, but nothing hosts its editor yet: re-commanding would
+	// point the tab at a row the frame is already showing, for no gain.
+	it('leaves the command alone for an anchored page with no hosted editor', () => {
+		const o = owner()
+		o.open({ type: 'page', href: '/kafka_triggers', label: 'Kafka triggers' })
+		const id = o.tabs[0].id
+		o.observeLocation(id, '/kafka_triggers#f/team/ingest')
+
+		expect(o.tabs[0].url).toBe('/kafka_triggers')
+	})
+
 	// the state the user was looking at.
 	it('focuses a legacy app whose own hash changed instead of reloading it', () => {
 		const o = owner()

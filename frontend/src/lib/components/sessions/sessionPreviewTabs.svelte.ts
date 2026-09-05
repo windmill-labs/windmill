@@ -7,6 +7,7 @@ import {
 	canonicalizeObservedLoc,
 	describeLocation,
 	matchPreviewPage,
+	parseEntityEditorRoute,
 	showsView,
 	parseArtifactRoute,
 	parsePipelineRoute,
@@ -599,6 +600,14 @@ export class SessionPreviewTabs {
 		const observed = describeLocation(canonical)
 		if (commanded.anchor && !observed.anchor && commanded.identity === observed.identity) {
 			t.url = t.url.split('#')[0]
+		} else if (!commanded.anchor && observed.anchor && parseEntityEditorRoute(canonical)) {
+			// The mirror case, for the entities whose editor this panel hosts in
+			// process: a drawer opened on a row inside the frame is that entity's
+			// editor, and the frame's copy is a realm apart from the chat's writes —
+			// it can only be brought up to date by reloading the whole page under it.
+			// Following the command re-resolves the tab onto the hosted editor, which
+			// shares the draft cell the chat writes and so tracks it as the user reads.
+			t.url = canonical
 		}
 		this.#flush()
 	}
