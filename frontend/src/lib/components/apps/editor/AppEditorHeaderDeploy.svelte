@@ -547,7 +547,7 @@
 			{/if}
 		</div>
 
-		{#if policy.execution_mode == 'guest' && guestAccessEnabled && guestJwtBase}
+		{#if embedMode && policy.execution_mode == 'guest' && guestAccessEnabled && guestJwtBase}
 			<div class="mt-4 border-t pt-3 flex flex-col gap-2">
 				<div class="text-xs font-semibold text-emphasis">
 					Embed for your own authenticated users (guest JWT)
