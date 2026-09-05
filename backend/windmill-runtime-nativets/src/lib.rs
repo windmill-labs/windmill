@@ -793,6 +793,11 @@ pub async fn eval_fetch_timeout(
                 }
             }
             let w_id_for_tracing = w_id_for_tracing;
+            // nativets delivers logs in-process, so they never reach the masking in
+            // `handle_child::write_lines` and a `console.log` of `$WM_TOKEN` would be
+            // persisted verbatim. Mask here rather than in the detached task draining into
+            // `append_logs`: this loop normally runs while the job is still registered.
+            let mut masker = windmill_common::sensitive_log_masks::JobMasker::new(job_id);
             let handle = tokio::spawn(async move {
                 let mut result_stream = String::new();
                 let mut is_stream = false;
@@ -800,10 +805,20 @@ pub async fn eval_fetch_timeout(
                     use windmill_common::result_stream::extract_stream_from_logs;
                     use windmill_common::tracing_init::{OTEL_JOB_LOGS, OTEL_PREFIX};
 
+                    let stream = extract_stream_from_logs(&log.trim_end_matches("\n"));
+
+                    // A stream chunk is result data, not a log line — it never reaches
+                    // `job_logs`, and `merge_result_stream` can make it the job's result —
+                    // so it stays raw wherever it goes, here and in the mirror below.
+                    // Deliberately unlike `handle_child`, which streams the masked text.
+                    // Routed before masking because the notice is one-shot: spent on a chunk
+                    // no sink persists, a later redaction in `job_logs` would go unexplained.
+                    let logged = stream.is_none().then(|| masker.mask(&log).into_owned());
+
                     // Mirror `process_streaming_log_lines` (EE) + the OTEL_JOB_LOGS
                     // hook from handle_child.rs, neither of which runs for nativets
                     // since nativets delivers logs in-process via the log channel.
-                    for line in log.lines() {
+                    for line in logged.as_deref().unwrap_or(&log).lines() {
                         tracing::info!(
                             target: "windmill:job_log",
                             job_id = ?job_id,
@@ -817,7 +832,7 @@ pub async fn eval_fetch_timeout(
                         }
                     }
 
-                    if let Some(stream) = extract_stream_from_logs(&log.trim_end_matches("\n")) {
+                    if let Some(stream) = stream {
                         if !is_stream {
                             is_stream = true;
                             if let Some(ref f) = stream_notifier_update {
@@ -829,8 +844,8 @@ pub async fn eval_fetch_timeout(
                         if let Err(e) = result_stream_sender.send(stream) {
                             tracing::error!("failed to send result stream: {e}");
                         }
-                    } else {
-                        if let Err(e) = append_logs_sender.send(log) {
+                    } else if let Some(logged) = logged {
+                        if let Err(e) = append_logs_sender.send(logged) {
                             tracing::error!("failed to send log: {e}");
                         }
                     }
