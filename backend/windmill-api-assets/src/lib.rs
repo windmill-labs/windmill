@@ -1081,10 +1081,14 @@ pub async fn dbt_column_lineage_for(
                                   AND sc.hash = $3)
                       -- Otherwise the version deployed now: an older one's rows
                       -- outlive it in `dbt_node` until the sweep, and describe a
-                      -- project that is no longer what runs.
+                      -- project that is no longer what runs. `language` narrows
+                      -- it the way the graph's own resolution does, so a path
+                      -- that has since become a script of another kind draws and
+                      -- explains the same version rather than disagreeing.
                       ELSE n.script_hash = (
                              SELECT sc.hash FROM script sc
                               WHERE sc.workspace_id = $1 AND sc.path = n.script_path
+                                AND sc.language = 'dbt'
                                 AND sc.deleted = false AND sc.archived = false
                               ORDER BY sc.created_at DESC LIMIT 1)
                     END
