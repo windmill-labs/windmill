@@ -8,8 +8,13 @@
 	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
 	import { Loader2 } from 'lucide-svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { disableHubStore } from '$lib/stores'
+	import { disableHubStore, workspaceStore } from '$lib/stores'
 	import { logHubScriptPick } from '$lib/utils/featureUsage'
+	import {
+		alphabetical,
+		byPopularity,
+		localResourceTypeCounts
+	} from '$lib/components/pickerPopularity'
 
 	interface Props {
 		kind?: HubScriptKind & string
@@ -46,19 +51,24 @@
 	}[] = $state([])
 
 	let allApps: string[] = $state([])
+	let popularity: (a: string, b: string) => number = $state(alphabetical)
 	let apps: string[] = $derived.by(() =>
-		filter.length > 0 ? Array.from(new Set(items?.map((x) => x.app) ?? [])).sort() : allApps
+		filter.length > 0
+			? Array.from(new Set(items?.map((x) => x.app) ?? [])).sort(popularity)
+			: allApps
 	)
 
 	async function getAllApps(filterKind: typeof kind) {
 		if ($disableHubStore) return
 		try {
 			hubNotAvailable = false
-			allApps = (
-				await IntegrationService.listHubIntegrations({
-					kind: filterKind
-				})
-			).map((x) => x.name)
+			const integrations = await IntegrationService.listHubIntegrations({
+				kind: filterKind
+			})
+			const hubPicks = Object.fromEntries(integrations.map((x) => [x.name, x.picks ?? 0]))
+			const local = $workspaceStore ? await localResourceTypeCounts($workspaceStore) : {}
+			popularity = byPopularity(hubPicks, local)
+			allApps = integrations.map((x) => x.name).sort(popularity)
 		} catch (err) {
 			console.error('Hub is not available')
 			allApps = []
@@ -154,72 +164,73 @@
 {#if $disableHubStore}
 	<!-- Hub disabled, show nothing -->
 {:else}
-<div class="w-full flex items-center gap-2">
-	{@render children?.()}
-	<div class="relative w-full">
-		<TextInput
-			inputProps={{
-				placeholder: 'Search Hub Scripts'
-			}}
-			bind:value={filter}
-			class="grow !pr-9"
-			{size}
-		/>
-		{#if loading}
-			<Loader2 class="animate-spin text-gray-400 absolute right-2 top-1" />
-		{/if}
-	</div>
-</div>
-
-{#if hubNotAvailable}
-	<Alert type="warning" title="Hub not available">
-		Could not connect to the Windmill Hub. If you are in a closed environment, you can disable the Hub in the <a href="/#superadmin-settings?tab=private_hub">instance settings</a>.
-	</Alert>
-{:else if (items.length > 0 && apps.length > 0) || !loading}
-	<ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
-	{#if items.length == 0}
-		<NoItemFound />
-	{:else}
-		<ul class="divide-y border rounded-md bg-surface-tertiary">
-			{#each items as item (item.path)}
-				<li class="flex flex-row w-full">
-					<button
-						class="p-4 gap-4 flex flex-row grow hover:bg-surface-hover transition-all items-center"
-						onclick={() => handlePick(item)}
-					>
-						<div class="flex items-center gap-4">
-							<div class="flex justify-center items-center">
-								{#if item['app'] in APP_TO_ICON_COMPONENT}
-									{@const SvelteComponent = APP_TO_ICON_COMPONENT[item['app']]}
-									<SvelteComponent height={18} width={18} />
-								{/if}
-							</div>
-
-							<div class="w-full text-left">
-								<div class="text-emphasis flex-wrap text-xs font-semibold mb-1">
-									{item.summary ?? ''}
-								</div>
-								<div class="text-secondary text-2xs font-normal">
-									{item.path}
-								</div>
-							</div>
-						</div>
-						{#if kind !== 'script'}
-							<Badge color="gray" baseClass="border">{capitalize(kind)}</Badge>
-						{/if}
-					</button>
-				</li>
-			{/each}
-		</ul>
-	{/if}
-	{#if items.length == 20}
-		<div class="text-primary text-xs font-normal py-4">
-			There are more items than being displayed. Refine your search.
+	<div class="w-full flex items-center gap-2">
+		{@render children?.()}
+		<div class="relative w-full">
+			<TextInput
+				inputProps={{
+					placeholder: 'Search Hub Scripts'
+				}}
+				bind:value={filter}
+				class="grow !pr-9"
+				{size}
+			/>
+			{#if loading}
+				<Loader2 class="animate-spin text-gray-400 absolute right-2 top-1" />
+			{/if}
 		</div>
+	</div>
+
+	{#if hubNotAvailable}
+		<Alert type="warning" title="Hub not available">
+			Could not connect to the Windmill Hub. If you are in a closed environment, you can disable the
+			Hub in the <a href="/#superadmin-settings?tab=private_hub">instance settings</a>.
+		</Alert>
+	{:else if (items.length > 0 && apps.length > 0) || !loading}
+		<ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
+		{#if items.length == 0}
+			<NoItemFound />
+		{:else}
+			<ul class="divide-y border rounded-md bg-surface-tertiary">
+				{#each items as item (item.path)}
+					<li class="flex flex-row w-full">
+						<button
+							class="p-4 gap-4 flex flex-row grow hover:bg-surface-hover transition-all items-center"
+							onclick={() => handlePick(item)}
+						>
+							<div class="flex items-center gap-4">
+								<div class="flex justify-center items-center">
+									{#if item['app'] in APP_TO_ICON_COMPONENT}
+										{@const SvelteComponent = APP_TO_ICON_COMPONENT[item['app']]}
+										<SvelteComponent height={18} width={18} />
+									{/if}
+								</div>
+
+								<div class="w-full text-left">
+									<div class="text-emphasis flex-wrap text-xs font-semibold mb-1">
+										{item.summary ?? ''}
+									</div>
+									<div class="text-secondary text-2xs font-normal">
+										{item.path}
+									</div>
+								</div>
+							</div>
+							{#if kind !== 'script'}
+								<Badge color="gray" baseClass="border">{capitalize(kind)}</Badge>
+							{/if}
+						</button>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+		{#if items.length == 20}
+			<div class="text-primary text-xs font-normal py-4">
+				There are more items than being displayed. Refine your search.
+			</div>
+		{/if}
+	{:else}
+		{#each Array(10).fill(0) as _}
+			<Skeleton layout={[0.5, [4]]} />
+		{/each}
 	{/if}
-{:else}
-	{#each Array(10).fill(0) as _}
-		<Skeleton layout={[0.5, [4]]} />
-	{/each}
-{/if}
 {/if}

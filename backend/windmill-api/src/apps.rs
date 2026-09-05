@@ -5825,6 +5825,9 @@ mod embed_token_tests {
                 "GET",
             ),
             ("/api/w/test/resources/list_search", "GET"),
+            // The metadata allowlist matches `resources/type/` by prefix, so a route
+            // added under it that is not a read must be denied by its method.
+            ("/api/w/test/resources/type/hub/pick/slack", "POST"),
             // Workspace-wide job enumeration/export must NOT be reachable — an app
             // reads only jobs it launched, by id (blocked via the app_embed sentinel).
             ("/api/w/test/jobs/list", "GET"),

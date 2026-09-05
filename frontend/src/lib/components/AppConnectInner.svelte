@@ -41,6 +41,13 @@
 	import TextInput from './text_input/TextInput.svelte'
 	import { sameTopDomainOrigin } from '$lib/cookies'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
+	import {
+		alphabetical,
+		byPopularity,
+		hubResourceTypePicks,
+		localResourceTypeCounts,
+		recordHubResourceTypePick
+	} from './pickerPopularity'
 	import Label from './Label.svelte'
 	import ResourcePathHint from './ResourcePathHint.svelte'
 
@@ -332,6 +339,7 @@
 	export async function open(rt?: string) {
 		if (!rt) {
 			loadResourceTypes()
+			loadPopularity()
 		}
 		step = 1 //express && !manual ? 3 : 1
 		// The list is keyboard-driven from the search field, so it takes focus on open.
@@ -378,12 +386,28 @@
 		}
 	}
 
+	/**
+	 * Orders the browse list: what the hub sees people pick, then what this workspace already
+	 * has resources of. Both signals are fetched, so the rows render in the order the lists
+	 * arrived in and re-sort when this lands.
+	 */
+	let popularity: (a: string, b: string) => number = $state(alphabetical)
+
+	async function loadPopularity() {
+		if (!effectiveWorkspace) return
+		const [hub, local] = await Promise.all([
+			hubResourceTypePicks(effectiveWorkspace),
+			localResourceTypeCounts(effectiveWorkspace)
+		])
+		popularity = byPopularity(hub, local)
+	}
+
 	async function loadConnects() {
 		if (!connects) {
 			try {
-				const list = (await OauthService.listOauthConnects())
-					.filter((x) => x.name != 'supabase_wizard')
-					.sort((a, b) => a.name.localeCompare(b.name))
+				const list = (await OauthService.listOauthConnects()).filter(
+					(x) => x.name != 'supabase_wizard'
+				)
 				connects = list.map((x) => x.name)
 				connectsInfo = Object.fromEntries(list.map((x) => [x.name, x]))
 			} catch (e) {
@@ -466,19 +490,17 @@
 		// providers — so any of them can also be connected with the user's own
 		// credentials or manually, not only via the shared instance setup (same as
 		// the authorization-code behavior).
-		connectsManual = availableRts
-			.map(
-				(x) =>
-					({
-						key: x,
-						...(apiTokenApps[x] ?? {
-							instructions: '',
-							img: undefined,
-							linkedSecret: undefined
-						})
-					}) as { key: string; img?: string; instructions: string[] }
-			)
-			.sort((a, b) => a.key.localeCompare(b.key))
+		connectsManual = availableRts.map(
+			(x) =>
+				({
+					key: x,
+					...(apiTokenApps[x] ?? {
+						instructions: '',
+						img: undefined,
+						linkedSecret: undefined
+					})
+				}) as { key: string; img?: string; instructions: string[] }
+		)
 		const filteredNativeLanguages = filteredConnectsManual?.filter(
 			(o) => nativeLanguagesCategory?.includes(o[0]) ?? false
 		)
@@ -952,6 +974,10 @@
 					}
 				})
 			}
+			// Saving is what "picking a type" means to the hub: reaching step 2 is still
+			// browsing. Both branches above count, `filling` included — an imported stub is
+			// a type taken into the workspace just the same.
+			recordHubResourceTypePick(effectiveWorkspace, resourceType)
 			dispatch('refresh', path)
 			dispatch('close')
 			sendUserToast(
@@ -980,23 +1006,26 @@
 	let filteredConnects: { key: string }[] = $state([])
 	let filteredConnectsManual: { key: string; img?: string; instructions: string[] }[] = $state([])
 
-	// uFuzzy scores the name and the description as one string, so searching "google" ranks
-	// every type whose description mentions Google alongside the ones named after it. Re-sort
-	// on which field matched, keeping uFuzzy's order within a tier.
+	let searching = $derived(filter.trim() !== '')
+
+	// Searching, the query owns the order: uFuzzy scores the name and the description as one
+	// string, so "google" ranks every type whose description mentions Google alongside the
+	// ones named after it — re-sort on which field matched, keeping uFuzzy's order within a
+	// tier. Browsing, there is no query to rank against, so popularity orders the list.
 	const rank = (items: { key: string }[] | undefined) =>
 		items &&
-		sortResourceTypesByMatch(
-			items,
-			filter,
-			(x) => x.key,
-			(x) => resourceTypeDescriptions[x.key]
-		)
+		(searching
+			? sortResourceTypesByMatch(
+					items,
+					filter,
+					(x) => x.key,
+					(x) => resourceTypeDescriptions[x.key]
+				)
+			: [...items].sort((a, b) => popularity(a.key, b.key)))
 	let rankedConnects = $derived(rank(filteredConnects))
 	let rankedConnectsManual = $derived(
 		rank(filteredConnectsManual) as typeof filteredConnectsManual | undefined
 	)
-
-	let searching = $derived(filter.trim() !== '')
 
 	// Browsing, the "Others" list leads with the native database types. Searching, that
 	// grouping would outrank the search itself — `ms_sql_server` sorting under `mysql` on

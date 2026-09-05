@@ -8528,6 +8528,80 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/resources/type/resource_counts:
+    get:
+      summary: count the workspace's resources per resource type
+      operationId: listResourceCountsByType
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: resource count per resource_type
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    resource_type:
+                      type: string
+                    count:
+                      type: integer
+                  required:
+                    - resource_type
+                    - count
+
+  /w/{workspace}/resources/type/hub/picked:
+    get:
+      summary: list the hub's most picked resource types
+      operationId: listHubPickedResourceTypes
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: resource types ranked by hub picks, empty if the hub has no such ranking
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    picks:
+                      type: integer
+                  required:
+                    - name
+                    - picks
+
+  /w/{workspace}/resources/type/hub/pick/{name}:
+    post:
+      summary: record a hub resource type pick
+      operationId: pickHubResourceType
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: whether the hub recorded the pick
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required:
+                  - success
+
   /w/{workspace}/npm_proxy/config:
     get:
       summary: get npm proxy configuration
@@ -8777,6 +8851,9 @@ paths:
                   properties:
                     name:
                       type: string
+                    picks:
+                      description: how often the integration has been picked, absent on a hub that does not count picks
+                      type: integer
                   required:
                     - name
 
