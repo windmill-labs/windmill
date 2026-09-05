@@ -164,8 +164,7 @@ pub async fn suspend_wac_parent(
 /// Turn a cancel that landed mid-segment into the error the executor returns, so the job
 /// completes on this pass instead of parking. Setting the worker's `canceled_by` is what
 /// makes it land as `canceled` rather than `failure`: the row was cancelled after this
-/// worker pulled the job, so the in-memory copy still reads as uncancelled. The payload
-/// matches `canceled_job_to_result`, the shape every other cancel produces.
+/// worker pulled the job, so the in-memory copy still reads as uncancelled.
 ///
 /// The completion charges the segment that just ended, so callers must not also hand it to
 /// `end_wac_segment`.
@@ -173,14 +172,10 @@ pub(crate) fn wac_cancelled_mid_segment(
     cancel: CanceledBy,
     canceled_by: &mut Option<CanceledBy>,
 ) -> Error {
-    let reason = cancel.reason.as_deref().unwrap_or("no reason given");
-    let canceler = cancel.username.as_deref().unwrap_or("unknown");
-    let payload = windmill_common::worker::to_raw_value(&serde_json::json!({
-        "message": format!("Job canceled: {reason} by {canceler}"),
-        "name": "Canceled",
-        "reason": reason,
-        "canceler": canceler,
-    }));
+    let payload = windmill_common::worker::to_raw_value(&windmill_queue::canceled_result(
+        cancel.reason.as_deref(),
+        cancel.username.as_deref(),
+    ));
     *canceled_by = Some(cancel);
     Error::ExecutionRawError(payload)
 }
