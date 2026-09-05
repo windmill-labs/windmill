@@ -117,13 +117,10 @@ const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
 pub const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
-/// Every file exchanged with a job (script sources, args.json, checkpoint.json,
-/// result.json) is UTF-8 by construction, so the interpreter has to agree. A
-/// job env carries no locale, which on Linux already means UTF-8 (PEP 540);
-/// Windows has no such fallback and would pick the ANSI code page for `open()`
-/// and stdio. Applied last so it also wins over a whitelisted `PYTHONUTF8`:
-/// that protocol is not the user's to opt out of, and a script wanting another
-/// codec can pass `encoding=` itself.
+/// Every file exchanged with a job is UTF-8 by construction, so the interpreter
+/// must agree. A job env carries no locale: Linux then picks UTF-8 on its own
+/// (PEP 540), Windows picks the ANSI code page. Applied after the whitelisted
+/// envs so the protocol is not the user's to opt out of.
 pub const PYTHON_UTF8_ENVS: [(&str, &str); 1] = [("PYTHONUTF8", "1")];
 
 /// Render loader.py with the TEMP_SCRIPT_REFS placeholder substituted by a
