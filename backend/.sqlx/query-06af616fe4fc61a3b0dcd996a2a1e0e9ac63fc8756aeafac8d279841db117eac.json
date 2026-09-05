@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            (SELECT MIN(day) FROM guest_activity) AS since,\n            (SELECT COUNT(DISTINCT email) FROM guest_activity\n             WHERE day > CURRENT_DATE - 30)::INT AS \"guest_count!\",\n            (SELECT COUNT(DISTINCT email) FROM guest_activity\n             WHERE jwt_entry AND day > CURRENT_DATE - 30)::INT AS \"guest_jwt_count!\",\n            (SELECT COUNT(DISTINCT workspace_id) FROM guest_activity\n             WHERE day > CURRENT_DATE - 30)::INT AS \"guest_workspace_count!\",\n            (SELECT COUNT(*) FROM workspace_settings ws JOIN workspace w ON w.id = ws.workspace_id\n             WHERE ws.guest_access_enabled AND NOT w.deleted)::INT AS \"guest_enabled_workspace_count!\",\n            (SELECT COUNT(*) FROM workspace WHERE NOT deleted)::INT AS \"workspace_count!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "since",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 1,
+        "name": "guest_count!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "guest_jwt_count!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "guest_workspace_count!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "guest_enabled_workspace_count!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "workspace_count!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "06af616fe4fc61a3b0dcd996a2a1e0e9ac63fc8756aeafac8d279841db117eac"
+}

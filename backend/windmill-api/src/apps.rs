@@ -1520,20 +1520,24 @@ async fn guest_derived_token_constraints(
     if !windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref()) {
         return Ok(None);
     }
-    // The minter is known by prefix only; MIN over a (theoretical) prefix collision is
-    // the conservative side.
-    let parent: Option<Option<chrono::DateTime<chrono::Utc>>> = sqlx::query_scalar(
-        "SELECT MIN(expiration) FROM token WHERE token_prefix = $1 AND email = $2 AND label = $3",
-    )
-    .bind(authed.token_prefix.as_deref().unwrap_or(""))
-    .bind(&authed.email)
-    .bind(windmill_common::auth::GUEST_SESSION_LABEL)
-    .fetch_optional(db)
-    .await?;
-    let Some(parent_exp) = parent.flatten() else {
-        return Err(Error::NotAuthorized(
-            "guest session not found or has no expiry".to_string(),
-        ));
+    // A guest JWT carries its own expiry and has no token row to look up; a signed-in
+    // guest session is a row found by prefix (MIN is the conservative side of a
+    // theoretical prefix collision). Either way the derived token caps on it, never on
+    // a fresh interval.
+    let parent_exp = if let Some(exp) = authed.credential_expiry {
+        exp
+    } else {
+        let parent: Option<Option<chrono::DateTime<chrono::Utc>>> = sqlx::query_scalar(
+            "SELECT MIN(expiration) FROM token WHERE token_prefix = $1 AND email = $2 AND label = $3",
+        )
+        .bind(authed.token_prefix.as_deref().unwrap_or(""))
+        .bind(&authed.email)
+        .bind(windmill_common::auth::GUEST_SESSION_LABEL)
+        .fetch_optional(db)
+        .await?;
+        parent.flatten().ok_or_else(|| {
+            Error::NotAuthorized("guest session not found or has no expiry".to_string())
+        })?
     };
     Ok(Some((
         windmill_common::auth::GUEST_SESSION_LABEL.to_string(),

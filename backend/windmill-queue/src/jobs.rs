@@ -7308,13 +7308,17 @@ async fn check_workspace_queue_cap<'c>(
 //     Ok(())
 // }
 
-pub fn canceled_job_to_result(job: &MiniPulledJob) -> serde_json::Value {
-    let reason = job
-        .canceled_reason
-        .as_deref()
-        .unwrap_or_else(|| "no reason given");
-    let canceler = job.canceled_by.as_deref().unwrap_or_else(|| "unknown");
+/// The result payload a job cancelled anywhere carries. Callers that hold the cancel
+/// outside a `MiniPulledJob` — a row read after the pull, say — go through this rather
+/// than rebuilding the shape.
+pub fn canceled_result(reason: Option<&str>, canceler: Option<&str>) -> serde_json::Value {
+    let reason = reason.unwrap_or("no reason given");
+    let canceler = canceler.unwrap_or("unknown");
     serde_json::json!({"message": format!("Job canceled: {reason} by {canceler}"), "name": "Canceled", "reason": reason, "canceler": canceler})
+}
+
+pub fn canceled_job_to_result(job: &MiniPulledJob) -> serde_json::Value {
+    canceled_result(job.canceled_reason.as_deref(), job.canceled_by.as_deref())
 }
 
 /// Helper function to create a restarted module for branch/iteration restart
