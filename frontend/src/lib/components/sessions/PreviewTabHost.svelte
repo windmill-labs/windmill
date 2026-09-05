@@ -179,6 +179,16 @@
 			: undefined
 	)
 
+	// The item is gone (a draft-only one whose draft was discarded), so the tab has
+	// the same destination as `backToList` — but bound to this tab by id, not to
+	// whichever is active: a discard completes asynchronously, and by then the user
+	// may be looking at another tab, which must not be the one sent to the list.
+	const returnToList = $derived(
+		slot.kind === 'entity' && runtime
+			? () => runtime.previewTabs.retargetTabTo(tab.id, entityListHref(whereIs(tab)))
+			: undefined
+	)
+
 	// Follow a rename: the editor stays mounted and keeps editing the item, but the
 	// tab, its label, the chat's ACTIVE PREVIEW and the draft key all address it by
 	// path — so they have to move with it, or they name an item that no longer exists.
@@ -377,6 +387,7 @@
 						path={slot.path}
 						{workspaceId}
 						onBack={backToList}
+						onRemoved={returnToList}
 						onRenamed={retargetTo}
 					/>
 				{/await}
@@ -388,6 +399,7 @@
 						path={slot.path}
 						{workspaceId}
 						onBack={backToList}
+						onRemoved={returnToList}
 						onRenamed={retargetTo}
 					/>
 				{/await}
@@ -399,6 +411,7 @@
 						path={slot.path}
 						{workspaceId}
 						onBack={backToList}
+						onRemoved={returnToList}
 						onRenamed={retargetTo}
 					/>
 				{/await}

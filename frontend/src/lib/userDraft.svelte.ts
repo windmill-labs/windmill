@@ -130,11 +130,9 @@ const seedMisses = new Set<string>()
 // Cells whose last discard removed the item itself (see `takeDraftOnlyDiscard`).
 const draftOnlyDiscards = new Set<string>()
 
-// Both sets above are read by the tool-completion listener right after the write
-// that wrote them — but only while something is listening, and nothing is when the
-// user is not in a session. Capped so an unread marker cannot accumulate: the
-// oldest is dropped, since a marker is only ever meaningful to the action that
-// immediately follows it.
+// Nothing reads either set outside a session, so unread markers would accumulate.
+// Capped by dropping the oldest: a marker means something only to the action that
+// immediately follows the write that left it.
 const MAX_WRITE_MARKERS = 64
 function noteMarker(set: Set<string>, key: string): void {
 	set.add(key)

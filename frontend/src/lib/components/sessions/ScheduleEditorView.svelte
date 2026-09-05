@@ -9,6 +9,7 @@
 		path,
 		workspaceId,
 		onBack,
+		onRemoved,
 		onRenamed
 	}: {
 		/** The schedule this tab edits (the row its location deep-links). */
@@ -18,6 +19,10 @@
 		workspaceId: string
 		/** Back to the list this editor was reached through; the tab replaced it. */
 		onBack?: () => void
+		/** The item is gone — a draft-only one whose draft was discarded. Distinct from
+		 * `onBack`, which moves whichever tab is active: the discard awaits a reload of
+		 * the runnable, by which time the user may be looking at another tab. */
+		onRemoved?: () => void
 		/** The item was saved under a different path. The tab addresses it by path —
 		 * as do its label, the chat's ACTIVE PREVIEW and the draft key — so the tab
 		 * has to follow, or all four keep naming an item that no longer exists. */
@@ -64,7 +69,7 @@
 			bind:this={editor}
 			useDrawer={false}
 			showDraftBanner
-			onRemoved={onBack}
+			{onRemoved}
 			onUpdate={(saved: string | undefined) => {
 				generation++
 				// A draft-only schedule opens with its path editable (saving CREATEs),
