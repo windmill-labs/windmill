@@ -19,6 +19,7 @@ use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::client::AuthedClient;
 use windmill_common::error::{self, Error};
+use windmill_common::jobs::JobKind;
 use windmill_common::materialization::{
     record_materialization, MaterializationStatus, RecordMaterializationRequest,
 };
@@ -406,7 +407,8 @@ pub(crate) async fn handle_dbt_job(
             &job.id,
             &job.workspace_id,
             format!(
-                "\nDeferring unbuilt refs to the dbt state published by run {}\n",
+                "\nDeferring unbuilt refs to the dbt state published by run {}; this run \
+                 publishes none of its own\n",
                 deferral.published_by
             ),
             conn,
@@ -610,6 +612,11 @@ pub(crate) async fn handle_dbt_job(
     if run.is_ok()
         && command == "build"
         && inv.deferral.is_none()
+        // A run of the DEPLOYED version, by kind. A preview carries a
+        // caller-supplied `script_hash` into `runnable_id`
+        // (`run_preview_script`), so the version guard alone would let anyone who
+        // may run a job publish arbitrary content as a deployed script's state.
+        && job.kind == JobKind::Script
         && prepared.graph_refresh.publishes_ownership()
     {
         // Losing it costs the next deferral, not the run that just finished —
@@ -1016,6 +1023,11 @@ pub struct PreparedProject {
     /// `profiles.yml` default. Half of an environment's identity, since a
     /// `target.name` macro decides where a model is built.
     pub effective_target: Option<String>,
+    /// Whether a project-owned `profiles.yml` templates where its relations go,
+    /// in which case two renderings share one `relation_root` and an environment
+    /// cannot be told apart — so a deferral is refused rather than resolved
+    /// through another rendering's manifest.
+    pub templated_location: bool,
     /// The profile target's database. Nodes that override it qualify their
     /// `dbt://` schema segment so two databases cannot collapse onto one node.
     pub default_database: Option<String>,
@@ -1315,6 +1327,7 @@ pub(crate) async fn prepare_project(
         warehouse: profile.warehouse,
         target: descriptor.profile.target.clone(),
         effective_target: profile.target,
+        templated_location: profile.templated_location,
         descriptor_content: descriptor_content.to_string(),
         descriptor_env,
 
@@ -1647,6 +1660,8 @@ struct ResolvedProfile {
     /// `profiles.yml` default. Resolved because it is half of an environment's
     /// identity and a `target.name` macro can move every relation.
     target: Option<String>,
+    /// Whether a project-owned `profiles.yml` templates where its relations go.
+    templated_location: bool,
     digest: String,
 }
 
@@ -1748,6 +1763,7 @@ async fn write_profiles(
             database: target.database,
             schema: target.schema,
             target: Some(target.name),
+            templated_location: target.templated_location,
             digest: profile_digest,
         });
     }
@@ -1851,6 +1867,9 @@ async fn write_profiles(
         database: rendered.database,
         schema: rendered.schema,
         target: Some(target.to_string()),
+        // Rendered from a resource, so its location is whatever that resource
+        // says rather than something the run's environment decides.
+        templated_location: false,
         digest: profile_digest,
     })
 }
@@ -1993,16 +2012,23 @@ async fn adapter_from_profiles_yml(
     // identically to one on a workspace warehouse, which is what lets the two
     // meet on the same node when they are on the same relation.
     let (database_key, schema_key) = adapter.target_identity_keys();
-    let read = |k: &str| {
+    let raw = |k: &str| {
         out.get(k)
             .and_then(|v| v.as_str())
-            .map(|v| v.to_string())
-            .filter(|v| !v.is_empty() && !v.contains("{{"))
+            .filter(|v| !v.is_empty())
     };
+    let read = |k: &str| raw(k).filter(|v| !v.contains("{{")).map(|v| v.to_string());
     Ok(ProfileTarget {
         adapter,
         database: read(database_key),
         schema: read(schema_key),
+        // A TEMPLATED location reads as absent above, so two renderings of this
+        // file resolve to one `relation_root` and would share one environment.
+        // Distinguished from plainly absent, which is the adapter's default and
+        // does not move: only the templated case has to refuse a deferral.
+        templated_location: [database_key, schema_key]
+            .iter()
+            .any(|k| raw(k).is_some_and(|v| v.contains("{{"))),
         // The output actually chosen, which for a templated `target:` is the sole
         // one rather than the template text no output answers to.
         name: match (
@@ -2025,6 +2051,11 @@ struct ProfileTarget {
     schema: Option<String>,
     /// The output this resolved to, by name.
     name: String,
+    /// Whether its database or schema is a template rather than a literal. Both
+    /// read as absent, so this is the only thing that separates "the adapter's
+    /// default, which does not move" from "wherever this run's environment
+    /// renders it to".
+    templated_location: bool,
 }
 
 lazy_static::lazy_static! {

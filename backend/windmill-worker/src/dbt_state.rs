@@ -139,6 +139,7 @@ pub(crate) async fn publish(
     // publishers cannot collide on them and nothing here can overwrite an
     // artifact a committed row still names. A failure below has only its own
     // objects to drop.
+    let nonce = Uuid::new_v4();
     let (manifest, manifest_key) = store(
         manifest,
         "manifest.json",
@@ -146,6 +147,7 @@ pub(crate) async fn publish(
         &p.script_path,
         w_id,
         job_id,
+        &nonce,
     )
     .await?;
     let (run_results, run_results_key) = match run_results {
@@ -156,6 +158,7 @@ pub(crate) async fn publish(
             &p.script_path,
             w_id,
             job_id,
+            &nonce,
         )
         .await
         {
@@ -228,7 +231,11 @@ pub(crate) async fn publish(
         .fetch_optional(&mut *tx)
         .await?
         .map(|r| [r.manifest_key, r.run_results_key])
-        .unwrap_or_default();
+        .unwrap_or_default()
+        // Never a key this publication is about to commit. The keys carry a
+        // per-execution nonce so the two cannot coincide, and this is what says
+        // so rather than leaving it to be re-derived.
+        .map(|k| k.filter(|k| !mine.iter().flatten().any(|m| m == k)));
         sqlx::query!(
             "INSERT INTO dbt_environment_state (workspace_id, script_path, environment, job_id,
                                                 manifest, manifest_key, run_results,
@@ -391,15 +398,21 @@ fn publication_lock(w_id: &str, script_path: &str, environment: &str) -> i64 {
 /// is what says where an artifact is, so state that moves with a renamed script
 /// keeps naming objects under the old one. Digested because a Windmill path and a
 /// schema name may both carry characters an object key gives meaning to.
+///
+/// The `nonce` is per EXECUTION rather than per job, because zombie recovery
+/// re-runs a job under its own id: keyed on that alone, the second attempt would
+/// overwrite the objects the first attempt's committed row still names, and then
+/// read those same keys back as displaced and drop them.
 fn object_key(
     w_id: &str,
     script_path: &str,
     environment: &str,
     job_id: &Uuid,
+    nonce: &Uuid,
     artifact: &str,
 ) -> String {
     format!(
-        "wmill_dbt_state/{w_id}/{}/{job_id}/{artifact}",
+        "wmill_dbt_state/{w_id}/{}/{job_id}.{nonce}/{artifact}",
         digest(&format!("{script_path}|{environment}"))
     )
 }
@@ -414,11 +427,12 @@ async fn store(
     script_path: &str,
     w_id: &str,
     job_id: &Uuid,
+    nonce: &Uuid,
 ) -> error::Result<(Option<String>, Option<String>)> {
     if value.len() <= *DBT_STATE_INLINE_MAX_BYTES {
         return Ok((Some(value), None));
     }
-    let key = object_key(w_id, script_path, environment, job_id, artifact);
+    let key = object_key(w_id, script_path, environment, job_id, nonce, artifact);
     let size = value.len();
     if put_object(&key, value).await? {
         return Ok((None, Some(key)));
@@ -550,6 +564,20 @@ pub(crate) async fn prepare_deferral(
             "`defer` resolves a `ref()` through the state a previous run of this script \
              published, so it needs a deployed script; a preview run has no environment to have \
              published one"
+                .to_string(),
+        ));
+    }
+    // An environment is the warehouse, the target and where they RESOLVE to, and
+    // a `profiles.yml` that templates its schema or database resolves somewhere
+    // this runtime does not render. Two renderings would then share one
+    // environment, and a deferral after the value changed would resolve every
+    // unbuilt `ref()` through the previous location's manifest.
+    if p.templated_location {
+        return Err(Error::BadRequest(
+            "this project's `profiles.yml` selects its schema or database with a template, which \
+             dbt renders and Windmill does not — so two environments cannot be told apart and a \
+             deferral could resolve through the wrong one's manifest. Spell the target's schema \
+             and database literally, or set `profile.schema` in the descriptor"
                 .to_string(),
         ));
     }

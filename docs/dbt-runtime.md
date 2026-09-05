@@ -1276,7 +1276,10 @@ objects that are gone, so an orphan is the cheaper side to take.
 
 The path and the environment are only a prefix of that key. The row is what says
 where an artifact is, which is why state can travel with a renamed script and go
-on naming objects under the old path's digest.
+on naming objects under the old path's digest. The rest of the key is the job and
+a per-EXECUTION nonce — zombie recovery re-runs a job under its own id, so keyed
+on that alone a second attempt would overwrite the objects the first attempt's
+committed row still names, then read those keys back as displaced and drop them.
 
 Publishers of one environment serialize on `pg_advisory_xact_lock`, so only one
 of them settles the row and the objects it displaces at a time — an advisory lock
@@ -1303,6 +1306,11 @@ at a path this one was renamed away from, and this job's manifest would then
 become that project's deferral state. A preview names no version and so publishes
 nothing, which is right for a run of content that was never deployed.
 
+The job's KIND is checked beside it, because a preview carries a caller-supplied
+`script_hash` into `runnable_id` (`run_preview_script`): the version alone would
+let anyone who may run a job publish arbitrary content as a deployed script's
+state.
+
 That guard HOLDS the script row (`FOR SHARE`) for the rest of the publication, so
 a rename, archive or delete of the path either waits for it or is seen by it.
 Read unlocked, it leaves a window where the lifecycle clear finds no row to take,
@@ -1323,6 +1331,13 @@ own `defer:`. A per-run toggle rather than a descriptor-only setting, because th
 run that publishes an environment's state and the run that defers to it are two
 invocations of ONE script (decision 6: N scripts means N projects): a project
 that could only defer by descriptor could never populate the state it reads.
+
+A project whose own `profiles.yml` selects its schema or database with a
+template is refused a deferral outright: dbt renders those and Windmill does not,
+so two renderings resolve to one `relation_root`, and a deferral after the value
+changed would resolve every unbuilt `ref()` through the previous location's
+manifest. Plainly absent is different — that is the adapter's default, which does
+not move.
 
 A run that asks to defer with nothing published is refused, naming the
 environment and the runs that cannot publish one. The alternative — running
