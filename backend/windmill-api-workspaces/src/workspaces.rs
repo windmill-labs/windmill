@@ -325,7 +325,8 @@ pub struct WorkspaceSettings {
     pub guest_access_enabled: bool,
     /// The key a guest JWT is verified against: a PEM public key, or a JWKS URL, at most
     /// one (a DB CHECK enforces it). Public material, not a secret, so it is admin-
-    /// readable here. `None`/`None` means the workspace mints no guests from a JWT.
+    /// readable here. `None`/`None` falls back to the instance issuer (`JWT_EXT_JWKS_URL`)
+    /// off cloud, or accepts no JWT guest if none is set; `guest_access_enabled` is the switch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub guest_jwt_public_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

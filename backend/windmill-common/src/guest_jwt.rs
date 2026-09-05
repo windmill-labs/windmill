@@ -319,28 +319,28 @@ pub async fn fetch_jwks(url: &str) -> Result<HashMap<String, Jwk>> {
             "JWKS URL is longer than {MAX_JWKS_URL_LEN} bytes"
         )));
     }
-    let builder = crate::utils::configure_client(reqwest::ClientBuilder::new());
-    let builder = if instance_ext_jwks_url().as_deref() == Some(url) {
-        builder
+    let resp = if instance_ext_jwks_url().as_deref() == Some(url) {
+        // Operator-trusted issuer: fetch it with the same permissive client `jwt_ext_` uses
+        // (follows redirects, honors ACCEPT_INVALID_CERTS), so an issuer that works for
+        // `jwt_ext_` through a redirect or an approved self-signed cert works for guests too.
+        crate::utils::HTTP_CLIENT_PERMISSIVE.get(url).send().await
     } else {
-        crate::ssrf::validate_guest_jwks_url(url)
+        // Workspace-admin URL: validate (https + private ranges), pin the connect to the
+        // validated addresses, and do not follow redirects — all against SSRF.
+        let client = crate::ssrf::validate_guest_jwks_url(url)
             .await
             .map_err(|e| Error::BadRequest(format!("JWKS URL is not allowed: {e}")))?
-            .apply_dns_pinning(builder)
-    };
-    let client = builder
-        .user_agent("windmill/beta")
-        .redirect(reqwest::redirect::Policy::none())
-        .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(10))
-        .build()
-        .map_err(|e| Error::internal_err(format!("building JWKS client: {e}")))?;
-    let resp = client
-        .get(url)
-        .send()
-        .await
-        .and_then(|r| r.error_for_status())
-        .map_err(|e| Error::BadRequest(format!("could not fetch JWKS: {e}")))?;
+            .apply_dns_pinning(crate::utils::configure_client(reqwest::ClientBuilder::new()))
+            .user_agent("windmill/beta")
+            .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(10))
+            .build()
+            .map_err(|e| Error::internal_err(format!("building JWKS client: {e}")))?;
+        client.get(url).send().await
+    }
+    .and_then(|r| r.error_for_status())
+    .map_err(|e| Error::BadRequest(format!("could not fetch JWKS: {e}")))?;
     let mut stream = resp.bytes_stream();
     let mut body: Vec<u8> = Vec::new();
     while let Some(chunk) = stream.next().await {
