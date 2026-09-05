@@ -36,6 +36,7 @@ use crate::common::{start_child_process, OccupancyMetrics};
 use crate::dbt_engine::{provision_engine, ProvisionedEngine, DBT_CACHE_DIR};
 use crate::dbt_profiles::{
     ensure_adapter_licensed, render_dbt_profile, render_profile, DbtAdapter, KnownAdapter,
+    SECRET_ENV_PREFIX,
 };
 use crate::handle_child::{
     get_mem_peak, handle_child, run_future_with_polling_update_job_poller, JobCtx, JobDeadline,
@@ -1063,8 +1064,15 @@ pub(crate) async fn prepare_project(
         .chain(invocation_env.iter().map(|(k, v)| (k.clone(), v.clone())))
         .collect();
 
-    let (profiles_dir, warehouse, adapter, default_database, default_schema, profile_digest) =
-        write_profiles(descriptor, &project_dir, job_dir, client, &template_env).await?;
+    let WrittenProfile {
+        dir: profiles_dir,
+        warehouse,
+        adapter,
+        database: default_database,
+        schema: default_schema,
+        digest: profile_digest,
+        env: profile_env,
+    } = write_profiles(descriptor, &project_dir, job_dir, client, &template_env).await?;
     // The lockfile's version, when it pinned one for this same engine — a
     // descriptor edited to another engine invalidates the pin.
     let pinned_version = locks
@@ -1092,6 +1100,10 @@ pub(crate) async fn prepare_project(
     // Both engines write their profile-independent state under the project;
     // pinning it inside the job dir keeps a job from touching a shared $HOME.
     env.push(("HOME".to_string(), job_dir.to_string()));
+    // The credentials the rendered profile names but does not carry. Not in
+    // `descriptor_env`, which feeds run identity: `profile_digest` already
+    // accounts for them, and their names are a fresh nonce per job.
+    env.extend(profile_env);
 
     // The engines are provisioned per (version, adapter) under one cache root,
     // and mounting that root rather than the resolved engine directory keeps
@@ -1511,24 +1523,38 @@ async fn strip_git_remote(dir: &Path) -> std::io::Result<()> {
     tokio::fs::write(&config, out).await
 }
 
+/// What writing `profiles.yml` settles for the rest of the run.
+struct WrittenProfile {
+    dir: PathBuf,
+    /// The workspace warehouse's NAME, `None` when the project brings its own
+    /// file and names none.
+    warehouse: Option<String>,
+    adapter: DbtAdapter,
+    /// The target's database and schema, for spelling `dbt://` asset paths.
+    database: Option<String>,
+    schema: Option<String>,
+    digest: String,
+    /// The credentials the rendered file refers to through `env_var()`, for the
+    /// dbt process environment. Empty for a project-owned `profiles.yml`.
+    env: Vec<(String, String)>,
+}
+
 /// Write `profiles.yml`, either rendered from a Windmill resource or taken from
 /// the project itself. Both paths are supported (decision 8): the workspace
 /// warehouse is the ergonomic one, the project's own file is what makes an
 /// existing repo run unchanged.
+///
+/// A rendered file names its credentials through `env_var()` rather than
+/// carrying them ([`SECRET_ENV_PREFIX`]). A project's own file is passed through
+/// exactly as it stands: it is written by the same author as the macros that
+/// would read it, so there is nobody to hide it from.
 async fn write_profiles(
     descriptor: &DbtDescriptor,
     project_dir: &Path,
     job_dir: &str,
     client: &AuthedClient,
     template_env: &HashMap<String, String>,
-) -> error::Result<(
-    PathBuf,
-    Option<String>,
-    DbtAdapter,
-    Option<String>,
-    Option<String>,
-    String,
-)> {
+) -> error::Result<WrittenProfile> {
     // The workspace's warehouse, always: a descriptor names one by NAME or takes
     // `main`, and cannot name a resource at all. The NAME is what asset identity
     // keys on, so every project on one warehouse shares its nodes while the
@@ -1609,14 +1635,15 @@ async fn write_profiles(
             }
             None => None,
         };
-        return Ok((
+        return Ok(WrittenProfile {
             dir,
-            identity,
+            warehouse: identity,
             adapter,
-            target.database,
-            target.schema,
-            profile_digest,
-        ));
+            database: target.database,
+            schema: target.schema,
+            digest: profile_digest,
+            env: vec![],
+        });
     }
 
     use windmill_common::workspaces::DBT_PROFILE_RESOURCE_TYPE;
@@ -1710,15 +1737,17 @@ async fn write_profiles(
         &dir,
         rendered.root_certificate_pem.as_deref(),
         &client.token,
+        &rendered.env,
     );
-    Ok((
+    Ok(WrittenProfile {
         dir,
-        Some(warehouse.to_string()),
+        warehouse: Some(warehouse.to_string()),
         adapter,
-        rendered.database,
-        rendered.schema,
-        profile_digest,
-    ))
+        database: rendered.database,
+        schema: rendered.schema,
+        digest: profile_digest,
+        env: rendered.env,
+    })
 }
 
 /// Where a workspace warehouse name points: its resource path and, if the
@@ -1742,33 +1771,58 @@ async fn resolve_warehouse(
 
 /// Identifies the connection a rendered profile describes, for run identity.
 ///
-/// Two things in the rendered text belong to the ATTEMPT rather than the
-/// connection, and hashing either as-is makes a retry reject its own
-/// predecessor — it compares identities and finds a different one every time:
+/// The text names the credentials rather than carrying them, so `env` is hashed
+/// alongside it: on the text alone, a resource repointed at a warehouse with the
+/// same host and database names would present the identity a retry saved its
+/// failures against.
+///
+/// Three things belong to the ATTEMPT rather than the connection, and hashing
+/// any of them as-is makes a retry reject its own predecessor — it compares
+/// identities and finds a different one every time:
 ///
 /// * the per-job profiles dir, spelled out when a private CA is configured
 ///   (`sslrootcert`). The certificate is part of the connection, so it is
 ///   hashed in place of its path.
 /// * the job's own token, where the warehouse resource interpolates `$WM_TOKEN`
-///   (a warehouse reached through an OIDC or on-behalf flow does). Every
-///   attempt is a new job with a new token.
+///   (a warehouse reached through an OIDC or on-behalf flow does). It arrives as
+///   a credential, so both halves are normalized.
+/// * the secret variable names, a fresh nonce per render.
 fn profile_identity_digest(
     yaml: &str,
     profiles_dir: &Path,
     root_cert_pem: Option<&str>,
     job_token: &str,
+    env: &[(String, String)],
 ) -> String {
-    let normalized = yaml.replace(profiles_dir.to_str().unwrap_or_default(), "$PROFILES_DIR");
-    let normalized = if job_token.is_empty() {
-        normalized
-    } else {
-        normalized.replace(job_token, "$WM_TOKEN")
+    // Longest name first: `…_1` is a prefix of `…_10`, and rewriting the short
+    // one first leaves the long one half-replaced.
+    let mut names: Vec<(usize, &str)> = env
+        .iter()
+        .enumerate()
+        .map(|(i, (name, _))| (i, name.as_str()))
+        .collect();
+    names.sort_by_key(|(_, name)| std::cmp::Reverse(name.len()));
+    let anonymize = |s: &str| {
+        let mut s = s.replace(profiles_dir.to_str().unwrap_or_default(), "$PROFILES_DIR");
+        if !job_token.is_empty() {
+            s = s.replace(job_token, "$WM_TOKEN");
+        }
+        for (i, name) in &names {
+            s = s.replace(name, &format!("$SECRET_{i}"));
+        }
+        s
     };
-    digest(&format!(
-        "{}\n{}",
-        normalized,
-        root_cert_pem.unwrap_or_default()
-    ))
+    // `stable_digest` for its length prefixes: a credential carries newlines of
+    // its own (a private key is a PEM body), so a separator would let two
+    // different splits of the same bytes hash alike, and a retry would accept a
+    // saved run from the warehouse it was repointed away from.
+    let material: Vec<String> = std::iter::once(anonymize(yaml))
+        .chain(env.iter().map(|(_, value)| anonymize(value)))
+        .chain(std::iter::once(
+            root_cert_pem.unwrap_or_default().to_string(),
+        ))
+        .collect();
+    stable_digest(material.iter().map(String::as_str))
 }
 
 async fn adapter_from_profiles_yml(
@@ -2107,6 +2161,12 @@ fn reject_reserved_env<'a>(
                  where dbt writes the artifacts this runtime reads"
             )));
         }
+        if k.to_ascii_uppercase().starts_with(SECRET_ENV_PREFIX) {
+            return Err(Error::BadRequest(format!(
+                "`{SECRET_ENV_PREFIX}*` is where Windmill puts the warehouse credentials the \
+                 rendered profiles.yml refers to, so `{k}` cannot be set from {source}"
+            )));
+        }
     }
     Ok(())
 }
@@ -2440,6 +2500,17 @@ fn parse_node_event(
         .and_then(|r| r.as_str())
         .unwrap_or("")
         .is_empty()
+    {
+        return None;
+    }
+    // A credential that is also a substring of a relation's name arrives here
+    // redacted, and a `*****` path recorded now outlives the run: the end-of-run
+    // pass restates the true one from `run_results.json` and only settles rows
+    // still `running`. Dropped, the node loses live status but not its record.
+    const REDACTED: &str = "*****";
+    if schema.contains(REDACTED)
+        || alias.contains(REDACTED)
+        || database.is_some_and(|d| d.contains(REDACTED))
     {
         return None;
     }
@@ -4977,12 +5048,14 @@ mod tests {
             Path::new("/tmp/windmill/w/job-1/profiles"),
             Some("PEM"),
             "",
+            &[],
         );
         let retry = profile_identity_digest(
             &yaml("/tmp/windmill/w/job-2/profiles", "wh.internal"),
             Path::new("/tmp/windmill/w/job-2/profiles"),
             Some("PEM"),
             "",
+            &[],
         );
         assert_eq!(first, retry);
 
@@ -4991,34 +5064,77 @@ mod tests {
             Path::new("/tmp/windmill/w/job-2/profiles"),
             Some("PEM"),
             "",
+            &[],
         );
         let recerted = profile_identity_digest(
             &yaml("/tmp/windmill/w/job-2/profiles", "wh.internal"),
             Path::new("/tmp/windmill/w/job-2/profiles"),
             Some("OTHER PEM"),
             "",
+            &[],
         );
         assert_ne!(first, repointed);
         assert_ne!(first, recerted);
     }
 
-    // The warehouse's resource may interpolate `$WM_TOKEN`, so the rendered
-    // profile carries the ATTEMPT's token. A retry is a new job with a new one,
-    // and without normalizing it the saved run is never recognized as its own.
+    // The reservation is what keeps a caller-supplied environment off a name a
+    // rendered profile resolves a credential through, and it must stay narrower
+    // than dbt's own prefix, which a project uses for its package tokens.
     #[test]
-    fn profile_identity_ignores_the_attempts_token() {
-        let yaml = |tok: &str| format!("host: \"wh\"\npassword: \"{tok}\"\n");
+    fn only_windmills_own_secret_namespace_is_reserved() {
+        let reject = |k: &str| {
+            reject_reserved_env([&k.to_string()], "the descriptor's `env`")
+                .expect_err(&format!("`{k}` must be refused"))
+                .to_string()
+        };
+        assert!(reject("DBT_ENV_SECRET_WM_ANYTHING").contains("cannot be set"));
+        assert!(reject("DBT_TARGET_PATH").contains("cannot be overridden"));
+        reject_reserved_env(
+            [&"DBT_ENV_SECRET_GITHUB_TOKEN".to_string()],
+            "the descriptor's `env`",
+        )
+        .expect("a project's own package token is not Windmill's namespace");
+    }
+
+    // Two things about a rendered profile belong to the attempt: the job's own
+    // token, where the warehouse resource interpolates `$WM_TOKEN`, and the
+    // nonce the credential variables are named on, fresh per render. Neither may
+    // move the identity, or a retry never recognizes its own saved run — while
+    // the credentials, which reach the digest beside the text, still must.
+    #[test]
+    fn profile_identity_ignores_the_attempt_but_not_the_credential() {
         let dir = Path::new("/tmp/windmill/w/job-1/profiles");
+        let attempt = |nonce: &str, password: &str| {
+            let name = format!("DBT_ENV_SECRET_WM_{nonce}_1");
+            let yaml = format!("host: \"wh\"\npassword: \"{{{{ env_var('{name}') }}}}\"\n");
+            (yaml, vec![(name, password.to_string())])
+        };
+        let digest_of = |nonce: &str, password: &str, token: &str| {
+            let (yaml, env) = attempt(nonce, password);
+            profile_identity_digest(&yaml, dir, None, token, &env)
+        };
         assert_eq!(
-            profile_identity_digest(&yaml("tok-first"), dir, None, "tok-first"),
-            profile_identity_digest(&yaml("tok-retry"), dir, None, "tok-retry")
+            digest_of("AAAA", "tok-first", "tok-first"),
+            digest_of("BBBB", "tok-retry", "tok-retry")
         );
         // A password that is NOT the job's token is the connection, and changing
         // it must still read as a different warehouse.
         assert_ne!(
-            profile_identity_digest(&yaml("static-a"), dir, None, "tok-first"),
-            profile_identity_digest(&yaml("static-b"), dir, None, "tok-retry")
+            digest_of("AAAA", "static-a", "tok-first"),
+            digest_of("BBBB", "static-b", "tok-retry")
         );
+        // A credential carries newlines of its own — a private key is a PEM body
+        // — so two different splits of the same bytes must not hash alike.
+        let two = |a: &str, b: &str| {
+            profile_identity_digest(
+                "key: \"{{ env_var('K1') }}\"\npass: \"{{ env_var('K2') }}\"\n",
+                dir,
+                None,
+                "",
+                &[("K1".into(), a.into()), ("K2".into(), b.into())],
+            )
+        };
+        assert_ne!(two("a\nb", "c"), two("a", "b\nc"));
     }
 
     // The jail profile is protobuf text format, and the project path and the
@@ -5779,5 +5895,11 @@ mod tests {
             "node_relation":{"alias":"c","schema":"a","relation_name":"\"w\".\"a\".\"c\""}}},
             "info":{"name":"LogModelResult","msg":"skip"}}"#;
         assert!(parse_node_event(s, "f/prod/wh", Some("wh")).is_none());
+        // A warehouse password that is also a schema name arrives redacted.
+        let r = r#"{"data":{"node_info":{"node_status":"success",
+            "node_relation":{"alias":"c","schema":"*****","database":"w",
+            "relation_name":"\"w\".\"*****\".\"c\""}}},
+            "info":{"name":"LogModelResult","msg":"ok"}}"#;
+        assert!(parse_node_event(r, "f/prod/wh", Some("wh")).is_none());
     }
 }

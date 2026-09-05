@@ -28,9 +28,9 @@ async fn get_warehouse(
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<Json<DbtWarehouseConnection>> {
     // Scoped to a running DBT job, and the reason it must stay that way: the
-    // response carries the warehouse's credentials. A dbt job already holds them
-    // in its rendered `profiles.yml`, so serving them changes nothing for it —
-    // but every script job's token carries a job id too, and any other language
+    // response carries the warehouse's credentials. A dbt job connects with them
+    // and so already holds them, so serving them changes nothing for it — but
+    // every script job's token carries a job id too, and any other language
     // asking for them would be reading a credential it was never given.
     // In no-auth mode every request is the synthetic superadmin and carries no
     // job, so the scoping below has nothing to check. Refusing there would make
@@ -61,7 +61,11 @@ async fn get_warehouse(
                 ))
             })?;
             let resource_type = warehouse_resource_type(&db, &w_id, &resource_path).await?;
-            return Ok(Json(DbtWarehouseConnection { value, target, resource_type }));
+            return Ok(Json(DbtWarehouseConnection {
+                value,
+                target,
+                resource_type,
+            }));
         }
         return Err(Error::BadRequest(
             "this route resolves a dbt warehouse for a running job and needs a job token"
@@ -104,7 +108,11 @@ async fn get_warehouse(
         ))
     })?;
     let resource_type = warehouse_resource_type(&db, &w_id, &resource_path).await?;
-    Ok(Json(DbtWarehouseConnection { value, target, resource_type }))
+    Ok(Json(DbtWarehouseConnection {
+        value,
+        target,
+        resource_type,
+    }))
 }
 
 /// A warehouse resource's type, which decides whether its value is translated
@@ -118,7 +126,11 @@ async fn warehouse_resource_type(db: &DB, w_id: &str, path: &str) -> Result<Stri
     )
     .fetch_optional(db)
     .await?
-    .ok_or_else(|| Error::NotFound(format!("the dbt warehouse points at `{path}`, which does not exist")))
+    .ok_or_else(|| {
+        Error::NotFound(format!(
+            "the dbt warehouse points at `{path}`, which does not exist"
+        ))
+    })
 }
 
 /// A settled node's state, for a worker that cannot write the database.

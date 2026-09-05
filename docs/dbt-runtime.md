@@ -30,7 +30,7 @@ the dominant way dbt is orchestrated today.
 | 5 | Project storage | The project is the script's module bundle; nothing is cloned. See "Where the dbt project lives" |
 | 6 | Multiple run configs | Per-run `select` on one script; N scripts means N projects |
 | 7 | Run-time `select` | Descriptor default plus run-arg override |
-| 8 | Credentials | Workspace warehouses, plus `profiles.yml` passthrough. A descriptor never names a resource. See below |
+| 8 | Credentials | Workspace warehouses, plus `profiles.yml` passthrough. A descriptor never names a resource. A rendered profile names its credentials through `env_var()` rather than carrying them. See below |
 | 9 | Adapter mappings | postgres, redshift, mysql, snowflake, bigquery, databricks translate from their Windmill resource; **every** adapter dbt has is reachable from a `dbt_profile` resource, or the project's own `profiles.yml` |
 | 10 | Private repo auth | Not applicable: the project is synced, not fetched |
 | 11 | Asset kind | `dbt://<warehouse>/<schema>/<name>` — keyed on the relation, not on dbt's node id. See below |
@@ -333,13 +333,124 @@ namespace and still share nothing, which is the failure it exists to prevent.
 
 An agent worker cannot read the database, so it resolves the name through a
 job-scoped API route. That route returns the resolved connection, which is why it
-requires a job token: a running job already holds those credentials in its
-rendered `profiles.yml`, and a browsable route would hand them to anyone. The
+requires a job token: a running job already resolves those credentials, and a
+browsable route would hand them to anyone. The
 same worker posts its per-model outcomes to a second job-scoped route, since the
 live reporter tails a log straight into the database and cannot run there. An
 agent's run page therefore fills in when the run ends rather than during it.
 Both routes are posted with the JOB's token: an agent's own credential
 authenticates only against the agent surface.
+
+## Decision 8: a rendered profile names its credentials, it never carries them
+
+`profiles.yml` sits in the job directory, and the job directory is where the
+project's own code runs. The warehouse resource is resolved with no permission
+check on the runner precisely so the script's author does not need a grant on it
+(above), and a file holding it inline hands it back to anything the project can
+make dbt do.
+
+So a **rendered** profile emits `{{ env_var('DBT_ENV_SECRET_WM_<nonce>_<n>') }}`
+in place of each credential and the values go to the dbt process environment.
+Three properties come from dbt itself, and the prefix is what buys all three:
+a variable named with dbt's `DBT_ENV_SECRET` prefix resolves in `profiles.yml`
+and `packages.yml` and **nowhere else** — a model, a macro or a
+`dbt run-operation` calling `env_var()` on one is refused at parse time — and its
+value is replaced with `*****` wherever dbt prints it, which is what Windmill
+streams into the job log. A plainly named variable would be worth nothing: the
+project would read it back with one `env_var()`.
+
+Six things this had to get right, each of which quietly undoes it otherwise.
+
+**Only credentials go through a variable, and hiding everything is not the safer
+choice.** dbt redacts a secret's VALUE from every line it emits — the console
+log Windmill streams to the job, *and* the JSON event log Windmill parses for
+per-model status and relation names. Registering the string `public` as a secret
+does not merely make the log ugly: every relation whose name contains it is
+recorded as `*****`, so the run succeeds while the asset graph fills with
+nonsense. Measured, not feared — a `user` of `postgres` turns
+`Registered adapter: postgres=1.11.0` into `Registered adapter: *****=1.11.0`,
+and a schema registered as a secret vanishes from all 64 places it appears in the
+JSON log. Fail-closed is the wrong direction here.
+
+So: a translated resource knows exactly which of its fields are credentials,
+and there the file provably carries none. A `dbt_profile` block is written for an
+adapter Windmill may know nothing about (decision 24), so there the rule is by
+key name — `password`, `token`, `secret`, `private_key`, `passphrase`,
+`credential`, `api_key`, `access_key`, `authorization`, matched as a substring
+with `-` folded to `_`, so `client_secret` and an `http_headers` `x-api-key` are
+covered — and everything nested under such a key goes with it whatever it is
+called, since an `oauth_credentials` mapping spells its own keys and there is no
+list to check them against. A number under one goes too, reaching the adapter as
+text like every hidden value; a bool does not, because it is a mode rather than a
+credential (dbt-snowflake's `client_store_temporary_credential` matches
+`credential`) and registering `true` as a secret would redact a substring of
+nearly every event dbt emits. `authorization` rather
+than `auth`, because several adapters spell an `authenticator` naming a METHOD
+and redacting `oauth` from a whole run is the failure above.
+
+That rule is not exhaustive over an open adapter set, and it is not claimed to
+be: a key nobody recognized stays exactly where it already was, inline. The
+guarantee is the translated path; the block path is a large reduction whose
+boundary is a list one line long to extend.
+
+**In a `dbt_profile` block only, a value that is already an `env_var()`
+expression stays inline.** Such a block is pasted from a working `profiles.yml`,
+where `password: "{{ env_var('PGPASSWORD') }}"` is the ordinary shape, resolved
+against the descriptor's `env`. dbt renders a profile value ONCE and does not
+re-render what `env_var()` returns, so standing in for that text would hand the
+adapter the template instead of the password — and there is nothing to hide
+either way, since such a value names a credential rather than being one. A
+translated resource's values arrive fully resolved, so `{{` in one is a literal
+and gets no exemption; the guarantee there stays unconditional.
+
+**What the redaction costs, and where it stops.** dbt redacts by VALUE, so a
+credential that is also a substring of one of the run's own identifiers is
+blanked out of dbt's log wherever it appears — a warehouse password of `raw`
+against a `raw` schema shows `*****` in the job log. It stops at the log:
+`run_results.json` and `manifest.json` are artifacts rather than log events and
+are NOT redacted, so the manifest ingest, the asset graph and the
+materialization records carry true relation names either way.
+
+Live per-model status is the one thing that reads the log stream, and a redacted
+relation there is DROPPED rather than recorded (`parse_node_event`). A path with
+`*****` in it names no relation, and recording one strands a row nothing clears:
+the end-of-run reconciliation restates the true path from `run_results.json`, and
+only settles rows still `running`. Such a node fills in at the end of the run
+like a `dbt-core-2x` one, rather than animating during it.
+
+That bound is why a credential is hidden regardless of what it happens to spell.
+The alternative — a length floor, or refusing to hide a value that collides with
+a coordinate — declines to protect exactly the weakest credentials.
+
+**The names are a fresh nonce per render.** `packages.yml` is rendered under the
+same secret context as `profiles.yml`, on every dbt invocation and not only
+`dbt deps`, so a project that could NAME one of these variables would interpolate
+it into a `git:` URL and post the credential to a host of its choosing. dbt's
+Jinja is sandboxed and offers no way to enumerate the environment, so a name it
+cannot guess is what bounds that. `DBT_ENV_SECRET_WM_` is also refused in the
+descriptor's `env` and the script's environment variables, alongside the
+`DBT_*_PATH` keys, so nothing caller-supplied occupies one of these names —
+while a project's own `DBT_ENV_SECRET_*` package token, outside Windmill's
+namespace, still works.
+
+**Run identity covers what the text no longer states.** `profile_digest` is a
+one-way digest of the resolved connection, so the credential values are hashed
+beside the rendered text — on the text alone, a resource repointed at another
+warehouse with the same host and database names would present the identity a
+retry saved its failures against. The nonce is normalized out of both halves for
+the same reason the job's own token is: it belongs to the attempt.
+
+**A project's own `profiles.yml` is passed through untouched.** It is written by
+the same author as the macros that would read it, so there is no credential to
+hide from anyone; and it is a template dbt itself renders, with `env_var()` calls
+and anchors of its own, so rewriting it would break projects to no end. Its
+secrets reach it the documented way, through the descriptor's `env`.
+
+What this does not do is defend a project that can run arbitrary local code — a
+DuckDB target reaching `shellfs`, say. That reads `/proc/self/environ` as easily
+as it reads a file, and the sandbox (`is_sandboxing_enabled`) is what bounds it.
+The claim here is narrower and checkable: nothing dbt itself will do for a
+project yields the credential, and it is not lying in a file beside the code.
 
 ## Decision 23: the descriptor is optional, and lives inside the project
 
@@ -1027,8 +1138,9 @@ block, since that is what `dbt_run_state` saves and `invocation_args` publishes.
 
 1. Materialise the script's modules into the job directory, restore
    `dbt_packages/` from cache.
-2. Render `profiles.yml` from the resource, or use the project's own file with
-   Windmill secrets injected as env vars for `{{ env_var() }}`.
+2. Render `profiles.yml` from the resource, its credentials named through
+   `env_var()` and injected into the dbt environment (decision 8), or use the
+   project's own file with the descriptor's `env` injected the same way.
 3. `dbt build --log-format json` plus `select`/`exclude`/`vars`/`threads`.
 4. Stream events: each `NodeFinished` updates per-model status live and emits
    `RecordMaterializationRequest` (`windmill-common/src/materialization.rs:53`),
@@ -1224,7 +1336,9 @@ Against a real dbt project (jaffle_shop shape) and the local Postgres:
    from the run's own manifest, so a model that placeholder enables appears in
    the same run that builds it.
 9. **Both credential paths**: resource-rendered `profiles.yml`, and the project's
-   own `profiles.yml` with env-var injection.
+   own `profiles.yml` with env-var injection. The rendered one connects while
+   holding no credential of its own, and a model naming a
+   `DBT_ENV_SECRET_WM_*` variable is refused by dbt (decision 8).
 10. **Caching**: a second run reuses the cached `dbt_packages/` with no network
     fetch.
 

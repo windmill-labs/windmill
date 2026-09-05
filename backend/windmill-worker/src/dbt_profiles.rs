@@ -2,8 +2,10 @@
 //! adapter package each warehouse needs.
 //!
 //! Only the fields dbt actually reads are emitted; anything the resource
-//! carries for other runtimes is ignored rather than guessed at. Credentials
-//! are written into the job dir, which is torn down with the job.
+//! carries for other runtimes is ignored rather than guessed at. The
+//! credentials among them are named rather than written: the file refers to
+//! each by `env_var()` and the values leave through [`RenderedProfile::env`]
+//! (docs/dbt-runtime.md, decision 8).
 
 use serde_json::Value;
 use windmill_common::error::{self, Error};
@@ -12,6 +14,106 @@ use windmill_common::error::{self, Error};
 /// runs with the project as its working directory and hands the path to the
 /// driver unchanged.
 pub const ROOT_CERT_FILENAME: &str = "server-ca.pem";
+
+/// Windmill's namespace inside dbt's own secret-environment space, and narrower
+/// than it so a project's own package tokens are unaffected. A variable named
+/// with dbt's `DBT_ENV_SECRET` prefix resolves in `profiles.yml`/`packages.yml`
+/// and nowhere else; that is the mechanism (docs/dbt-runtime.md, decision 8).
+pub const SECRET_ENV_PREFIX: &str = "DBT_ENV_SECRET_WM_";
+
+/// Key names whose value is a credential rather than a coordinate, matched as a
+/// case-insensitive substring with `-` folded to `_`. Deliberately narrow: dbt
+/// redacts a secret's VALUE from every line it prints, so a coordinate routed
+/// through one redacts the run (docs/dbt-runtime.md, decision 8).
+const CREDENTIAL_KEY_MARKERS: &[&str] = &[
+    "password",
+    "passwd",
+    "passphrase",
+    "secret",
+    "token",
+    "credential",
+    "private_key",
+    "api_key",
+    "apikey",
+    "access_key",
+    // The whole word, not `auth`: several adapters spell an `authenticator`
+    // naming a METHOD (`oauth`), which redaction would blank out of the run.
+    "authorization",
+];
+
+fn is_credential_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase().replace('-', "_");
+    CREDENTIAL_KEY_MARKERS.iter().any(|m| key.contains(m))
+}
+
+/// The credentials a rendered profile refers to instead of carrying, collected
+/// as it renders.
+struct ProfileSecrets {
+    /// Fresh per render, so a project cannot NAME one of these variables:
+    /// `packages.yml` renders under the same secret context on every dbt
+    /// invocation and would carry the value out in a `git:` URL.
+    nonce: String,
+    /// Whether a value that is itself a template belongs to dbt rather than
+    /// standing in for a credential. True only for a `dbt_profile` block.
+    dbt_renders_templates: bool,
+    vars: Vec<(String, String)>,
+}
+
+impl ProfileSecrets {
+    /// For a Windmill connection resource, whose values arrive fully resolved.
+    fn for_resource() -> Self {
+        Self::new(false)
+    }
+
+    /// For a `dbt_profile` block, pasted from a working `profiles.yml` and
+    /// rendered by dbt as the template it is.
+    fn for_block() -> Self {
+        Self::new(true)
+    }
+
+    fn new(dbt_renders_templates: bool) -> Self {
+        ProfileSecrets {
+            nonce: uuid::Uuid::new_v4().as_simple().to_string().to_uppercase(),
+            dbt_renders_templates,
+            vars: Vec::new(),
+        }
+    }
+
+    /// The `env_var()` indirection standing in for `value`, which is recorded
+    /// for the caller to set in the dbt process environment.
+    fn hide(&mut self, value: &str) -> ProfileValue {
+        let name = format!("{SECRET_ENV_PREFIX}{}_{}", self.nonce, self.vars.len() + 1);
+        let reference = format!("{{{{ env_var('{name}') }}}}");
+        self.vars.push((name, value.to_string()));
+        ProfileValue::Str(reference)
+    }
+
+    /// One target key's value: hidden when the key names a credential, inline
+    /// otherwise.
+    fn field(&mut self, key: &str, value: &str) -> ProfileValue {
+        self.leaf(is_credential_key(key), value)
+    }
+
+    /// A value whose classification the caller already knows, from its own key
+    /// or an enclosing one.
+    fn leaf(&mut self, secret: bool, value: &str) -> ProfileValue {
+        if secret && self.hideable(value) {
+            self.hide(value)
+        } else {
+            quoted(value)
+        }
+    }
+
+    /// Whether standing in for this value is safe. An EMPTY one never is: dbt
+    /// redacts by substring, and empty matches between every pair of characters
+    /// in the log. Nor is a template where dbt renders one — it names a
+    /// credential rather than being one, and dbt does not re-render what
+    /// `env_var()` returns, so the adapter would receive the template text.
+    fn hideable(&self, value: &str) -> bool {
+        !value.is_empty()
+            && !(self.dbt_renders_templates && (value.contains("{{") || value.contains("{%")))
+    }
+}
 
 /// The per-adapter facts, so each adapter states them together and a new one
 /// cannot inherit another's by omission. `PG` is the base every arm spreads
@@ -475,6 +577,10 @@ pub struct RenderedProfile {
     /// file name `sslrootcert` already points at. Returned rather than written
     /// here so this stays a pure renderer.
     pub root_certificate_pem: Option<String>,
+    /// The credentials the profile refers to through `env_var()`, for the
+    /// caller to set in the dbt process environment. Every dbt phase needs
+    /// them: `profiles.yml` is rendered afresh on each invocation.
+    pub env: Vec<(String, String)>,
 }
 
 /// Render a single-target `profiles.yml` for `profile_name`/`target`.
@@ -507,6 +613,11 @@ pub fn render_profile(
         ))
     })?;
 
+    // Every value taken from the RESOURCE goes through `secrets.field`, so a
+    // field added to an arm later is covered by the credential rule instead of
+    // having to remember it. What Windmill or the descriptor authors — the
+    // adapter's `type`, the certificate path, `method`, `schema` — stays inline.
+    let mut secrets = ProfileSecrets::for_resource();
     let mut out: Vec<(String, ProfileValue)> = vec![("type".into(), quoted(adapter.dbt_type()))];
     let mut schema = schema_override.map(|x| x.to_string());
     let database;
@@ -529,23 +640,24 @@ pub fn render_profile(
                         adapter.dbt_type()
                     ))
                 })?;
-            out.push(("host".into(), quoted(&host)));
+            out.push(("host".into(), secrets.field("host", &host)));
             out.push((
                 "port".into(),
                 // dbt validates `port` against a JSON schema that demands an
                 // integer; a quoted scalar is rejected outright.
                 ProfileValue::Number(port_of(resource, adapter.default_port())?),
             ));
-            out.push((adapter.database_key().into(), quoted(&dbname)));
+            let database_key = adapter.database_key();
+            out.push((database_key.into(), secrets.field(database_key, &dbname)));
             database = Some(dbname.clone());
             if let Some(u) = s(resource, "user") {
-                out.push(("user".into(), quoted(&u)));
+                out.push(("user".into(), secrets.field("user", &u)));
             }
             if let Some(p) = s(resource, "password") {
-                out.push(("password".into(), quoted(&p)));
+                out.push(("password".into(), secrets.field("password", &p)));
             }
             if let Some(m) = s(resource, "sslmode") {
-                out.push(("sslmode".into(), quoted(&m)));
+                out.push(("sslmode".into(), secrets.field("sslmode", &m)));
             }
             // Under `verify-ca`/`verify-full` a resource's private CA is the
             // only way the connection can succeed; without it libpq looks for a
@@ -588,9 +700,9 @@ pub fn render_profile(
                 .ok_or_else(|| {
                     Error::BadRequest("snowflake resource has no `account_identifier`".to_string())
                 })?;
-            out.push(("account".into(), quoted(&account)));
+            out.push(("account".into(), secrets.field("account", &account)));
             if let Some(u) = s(resource, "username").or_else(|| s(resource, "user")) {
-                out.push(("user".into(), quoted(&u)));
+                out.push(("user".into(), secrets.field("user", &u)));
             }
             // Key-pair is Windmill's own snowflake resource shape; the
             // `snowflake_oauth` type carries a token instead, which dbt only
@@ -598,23 +710,26 @@ pub fn render_profile(
             // profile renders with no credential at all and cannot connect.
             if let Some(t) = s(resource, "token").or_else(|| s(resource, "access_token")) {
                 out.push(("authenticator".into(), quoted("oauth")));
-                out.push(("token".into(), quoted(&t)));
+                out.push(("token".into(), secrets.field("token", &t)));
             } else if let Some(k) = s(resource, "private_key") {
-                out.push(("private_key".into(), quoted(&k)));
+                out.push(("private_key".into(), secrets.field("private_key", &k)));
                 if let Some(pp) = s(resource, "private_key_passphrase") {
-                    out.push(("private_key_passphrase".into(), quoted(&pp)));
+                    out.push((
+                        "private_key_passphrase".into(),
+                        secrets.field("private_key_passphrase", &pp),
+                    ));
                 }
             } else if let Some(p) = s(resource, "password") {
-                out.push(("password".into(), quoted(&p)));
+                out.push(("password".into(), secrets.field("password", &p)));
             }
             for k in ["warehouse", "role"] {
                 if let Some(v) = s(resource, k) {
-                    out.push((k.into(), quoted(&v)));
+                    out.push((k.into(), secrets.field(k, &v)));
                 }
             }
             database = s(resource, "database");
             if let Some(d) = database.clone() {
-                out.push(("database".into(), quoted(&d)));
+                out.push(("database".into(), secrets.field("database", &d)));
             }
             schema = schema.or_else(|| s(resource, "schema"));
         }
@@ -626,7 +741,7 @@ pub fn render_profile(
             let project = s(resource, "project_id").ok_or_else(|| {
                 Error::BadRequest("bigquery resource has no `project_id`".to_string())
             })?;
-            out.push(("project".into(), quoted(&project)));
+            out.push(("project".into(), secrets.field("project", &project)));
             database = Some(project);
             // A service-account JSON has no dataset, so unless the resource was
             // extended with one the descriptor must supply it — dbt rejects a
@@ -652,16 +767,16 @@ pub fn render_profile(
                         "databricks resource has no `workspace_url`/`host`".to_string(),
                     )
                 })?;
-            out.push(("host".into(), quoted(&host)));
+            out.push(("host".into(), secrets.field("host", &host)));
             for (k, rk) in [("http_path", "http_path"), ("token", "token")] {
                 let v = s(resource, rk).ok_or_else(|| {
                     Error::BadRequest(format!("databricks resource has no `{rk}`"))
                 })?;
-                out.push((k.into(), quoted(&v)));
+                out.push((k.into(), secrets.field(k, &v)));
             }
             database = s(resource, "catalog");
             if let Some(c) = database.clone() {
-                out.push(("catalog".into(), quoted(&c)));
+                out.push(("catalog".into(), secrets.field("catalog", &c)));
             }
             schema = schema.or_else(|| s(resource, "schema"));
         }
@@ -703,7 +818,11 @@ pub fn render_profile(
             .ok_or_else(|| Error::BadRequest("bigquery resource is not an object".to_string()))?;
         for (k, v) in obj {
             if let Some(v) = v.as_str() {
-                yaml.push_str(&format!("        {}: {}\n", yaml_scalar(k), yaml_scalar(v)));
+                yaml.push_str(&format!(
+                    "        {}: {}\n",
+                    yaml_scalar(k),
+                    secrets.field(k, v).render()
+                ));
             }
         }
     }
@@ -715,6 +834,7 @@ pub fn render_profile(
         root_certificate_pem: matches!(adapter, KnownAdapter::Postgres)
             .then(|| s(resource, "root_certificate_pem"))
             .flatten(),
+        env: secrets.vars,
     })
 }
 
@@ -732,6 +852,7 @@ pub fn render_dbt_profile(
     profiles_dir: &std::path::Path,
 ) -> error::Result<RenderedProfile> {
     let (database_key, schema_key) = adapter.target_identity_keys();
+    let mut secrets = ProfileSecrets::for_block();
     let root_certificate_pem = block
         .get("root_certificate_pem")
         .and_then(|v| v.as_str())
@@ -762,7 +883,7 @@ pub fn render_dbt_profile(
         if (k == schema_key && schema_override.is_some()) || (k == "threads" && threads.is_some()) {
             continue;
         }
-        emit_entry(&mut yaml, 6, k, v);
+        emit_entry(&mut yaml, 6, k, v, false, &mut secrets);
     }
     if root_certificate_pem.is_some() {
         yaml.push_str(&format!(
@@ -789,21 +910,45 @@ pub fn render_dbt_profile(
             .or_else(|| str_key(schema_key)),
         database: str_key(database_key),
         root_certificate_pem,
+        env: secrets.vars,
     })
 }
 
 /// Emit one target key, nesting as deep as the value goes — an adapter's credential can be
 /// a mapping (bigquery's `keyfile_json`) or a list. Keys are quoted like values: one nothing
 /// here enumerates is as free-form as a password.
-fn emit_entry(out: &mut String, indent: usize, key: &str, v: &Value) {
+///
+/// `enclosing_secret` is what a key ABOVE this one decided. Everything under a key naming a
+/// credential is credential material, whatever it is called — an `oauth_credentials` mapping
+/// spells its own keys, and Windmill has no list to check them against.
+fn emit_entry(
+    out: &mut String,
+    indent: usize,
+    key: &str,
+    v: &Value,
+    enclosing_secret: bool,
+    secrets: &mut ProfileSecrets,
+) {
     out.push_str(&format!("{}{}:", " ".repeat(indent), yaml_scalar(key)));
-    emit_value(out, indent, v);
+    emit_value(
+        out,
+        indent,
+        v,
+        enclosing_secret || is_credential_key(key),
+        secrets,
+    );
 }
 
 /// The value half, after `key:`. An empty collection is emitted INLINE: a block with no
 /// children reads back as `null`, so `extensions: []` would reach the adapter as a missing
 /// value rather than the empty list dbt was handed.
-fn emit_value(out: &mut String, indent: usize, v: &Value) {
+fn emit_value(
+    out: &mut String,
+    indent: usize,
+    v: &Value,
+    secret: bool,
+    secrets: &mut ProfileSecrets,
+) {
     match v {
         Value::Object(m) => {
             // A null is an optional field the resource form left unset, and dbt validates
@@ -815,7 +960,7 @@ fn emit_value(out: &mut String, indent: usize, v: &Value) {
             }
             out.push('\n');
             for (k, v) in kept {
-                emit_entry(out, indent + 2, k, v);
+                emit_entry(out, indent + 2, k, v, secret, secrets);
             }
         }
         Value::Array(items) => {
@@ -828,9 +973,18 @@ fn emit_value(out: &mut String, indent: usize, v: &Value) {
             for item in items {
                 out.push_str(&pad);
                 out.push('-');
-                emit_value(out, indent + 2, item);
+                emit_value(out, indent + 2, item, secret, secrets);
             }
         }
+        Value::String(s) => out.push_str(&format!(" {}\n", secrets.leaf(secret, s).render())),
+        // A number is credential material as much as a string, and reaches the
+        // adapter as text like every other hidden value. NOT a bool: one is a
+        // mode (dbt-snowflake's `client_store_temporary_credential` matches
+        // `credential`), and `true` redacts a substring of nearly every event.
+        Value::Number(_) if secret => out.push_str(&format!(
+            " {}\n",
+            secrets.leaf(true, &yaml_value(v)).render()
+        )),
         _ => out.push_str(&format!(" {}\n", yaml_value(v))),
     }
 }
@@ -1034,8 +1188,8 @@ mod tests {
     // "whatever dbt supports" rests on.
     #[test]
     fn an_unknown_adapter_is_carried_by_name() {
-        let stated = DbtAdapter::stated_by_dbt_profile(&json!({"type": "trino", "host": "h"}))
-            .unwrap();
+        let stated =
+            DbtAdapter::stated_by_dbt_profile(&json!({"type": "trino", "host": "h"})).unwrap();
         assert_eq!(stated.dbt_type(), "trino");
         assert_eq!(stated.pip_package(), "dbt-trino");
         assert!(stated.known().is_none());
@@ -1104,7 +1258,12 @@ mod tests {
         let t = &y["wm"]["outputs"]["prod"];
         assert_eq!(t["extensions"], json!([]), "{}", p.yaml);
         assert_eq!(t["settings"], json!({}), "{}", p.yaml);
-        assert_eq!(t["attach"], json!([{"path": "raw.db", "read_only": true}]), "{}", p.yaml);
+        assert_eq!(
+            t["attach"],
+            json!([{"path": "raw.db", "read_only": true}]),
+            "{}",
+            p.yaml
+        );
         assert_eq!(t["matrix"], json!([["a", 1], []]), "{}", p.yaml);
         assert_eq!(t["plugins"], json!(["excel", "json"]), "{}", p.yaml);
     }
@@ -1222,7 +1381,10 @@ mod tests {
             "{}",
             p.yaml
         );
-        assert!(p.yaml.contains("      token: \"tok\"\n"));
+        assert_eq!(
+            p.env.iter().map(|(_, v)| v.as_str()).collect::<Vec<_>>(),
+            vec!["tok"]
+        );
     }
 
     // dbt rejects a BigQuery target with no dataset and a service-account JSON
@@ -1330,13 +1492,12 @@ mod tests {
         assert!(v.get("evil").is_none());
     }
 
-    // A credential is attacker-influenced text. Unquoted, a `\n` or `"` closes the
-    // scalar and the rest reads as further profile keys — a different `host`,
+    // A resource value is attacker-influenced text. Unquoted, a `\n` or `"` closes
+    // the scalar and the rest reads as further profile keys — a different `host`,
     // silently redirecting the run at another warehouse.
     #[test]
-    fn credentials_cannot_break_out_of_their_scalar() {
-        let r = json!({"host": "h", "dbname": "d",
-                       "password": "p\"\nhost: evil.example.com\n#"});
+    fn a_resource_value_cannot_break_out_of_its_scalar() {
+        let r = json!({"host": "h", "dbname": "d", "user": "u\"\nhost: evil.example.com\n#"});
         let p = render_profile(
             &KnownAdapter::Postgres.into(),
             &r,
@@ -1347,14 +1508,144 @@ mod tests {
             std::path::Path::new("/tmp/p"),
         )
         .unwrap();
-        assert!(p
-            .yaml
-            .contains(r#"password: "p\"\nhost: evil.example.com\n#""#));
+        assert!(p.yaml.contains(r#"user: "u\"\nhost: evil.example.com\n#""#));
         let parsed: serde_yml::Value = serde_yml::from_str(&p.yaml).unwrap();
         assert_eq!(
             parsed["wm"]["outputs"]["dev"]["host"].as_str(),
             Some("h"),
             "the injected host must not have won"
+        );
+    }
+
+    // The credential is what the project's own macros must not be able to reach,
+    // and the rendered file sits in a directory they read from. It leaves through
+    // the environment instead, where dbt refuses to resolve it outside
+    // `profiles.yml`, while the coordinates stay inline — dbt redacts a secret's
+    // VALUE everywhere it prints it, so a `user` of `postgres` would blank out
+    // half the run's log.
+    #[test]
+    fn a_credential_leaves_through_the_environment() {
+        // Metacharacters that would have to be escaped inline, and which the
+        // value must still survive intact.
+        let password = "p\"\nhost: evil.example.com\n#";
+        let r = json!({"host": "db.internal", "user": "u", "dbname": "wh", "password": password});
+        let render = || {
+            render_profile(
+                &KnownAdapter::Postgres.into(),
+                &r,
+                "wm",
+                "dev",
+                None,
+                None,
+                std::path::Path::new("/tmp/p"),
+            )
+            .unwrap()
+        };
+        let p = render();
+        assert!(!p.yaml.contains(password), "{}", p.yaml);
+        let [(name, value)] = &p.env[..] else {
+            panic!("one credential, got {:?}", p.env);
+        };
+        assert_eq!(value, password);
+        assert!(name.starts_with(SECRET_ENV_PREFIX), "{name}");
+        let parsed: serde_yml::Value = serde_yml::from_str(&p.yaml).unwrap();
+        let target = &parsed["wm"]["outputs"]["dev"];
+        assert_eq!(
+            target["password"].as_str(),
+            Some(format!("{{{{ env_var('{name}') }}}}").as_str())
+        );
+        assert_eq!(target["host"].as_str(), Some("db.internal"));
+        assert_eq!(target["user"].as_str(), Some("u"));
+        // The name a project must not be able to guess: a fresh nonce.
+        assert_ne!(name, &render().env[0].0);
+
+        // A resource's values arrive resolved, so `{{` in one is a literal and
+        // the file must not keep it: only a `dbt_profile` block hands dbt a
+        // template to render.
+        let templated = json!({"host": "h", "dbname": "d", "password": "{{ a }}"});
+        let p = render_profile(
+            &KnownAdapter::Postgres.into(),
+            &templated,
+            "wm",
+            "dev",
+            None,
+            None,
+            std::path::Path::new("/tmp/p"),
+        )
+        .unwrap();
+        assert_eq!(
+            p.env.iter().map(|(_, v)| v.as_str()).collect::<Vec<_>>(),
+            vec!["{{ a }}"],
+            "{}",
+            p.yaml
+        );
+    }
+
+    // A `dbt_profile` block is written for an adapter Windmill may know nothing
+    // about, so the credential is recognized by key name, and everything under
+    // such a key with it.
+    #[test]
+    fn a_dbt_profile_hides_its_credential_keys() {
+        let r = json!({"type": "trino", "host": "trino.internal", "schema": "analytics",
+                       "user": "u", "password": "pw", "session_token": 4242,
+                       "client_store_temporary_credential": true,
+                       "http_headers": {"x-api-key": "k", "X-Trace": "on"},
+                       "oauth_credentials": {"client": "c"},
+                       "keyfile_json": {"project_id": "proj", "private_key": "pem"}});
+        let p = render_dbt_profile(
+            &DbtAdapter::from_dbt_type("trino").unwrap(),
+            r.as_object().unwrap(),
+            "wm",
+            "prod",
+            None,
+            None,
+            std::path::Path::new("/tmp/p"),
+        )
+        .unwrap();
+        let mut hidden: Vec<&str> = p.env.iter().map(|(_, v)| v.as_str()).collect();
+        hidden.sort();
+        // `client` for the enclosing `oauth_credentials`; `X-Trace` names nothing
+        // and its enclosing key names nothing either. `4242` is credential
+        // material whatever its JSON type, and reaches the adapter as text.
+        assert_eq!(hidden, vec!["4242", "c", "k", "pem", "pw"], "{}", p.yaml);
+        let parsed: serde_yml::Value = serde_yml::from_str(&p.yaml).unwrap();
+        let target = &parsed["wm"]["outputs"]["prod"];
+        assert_eq!(target["host"].as_str(), Some("trino.internal"));
+        assert_eq!(target["user"].as_str(), Some("u"));
+        assert_eq!(target["http_headers"]["X-Trace"].as_str(), Some("on"));
+        assert_eq!(target["keyfile_json"]["project_id"].as_str(), Some("proj"));
+        // A bool under a marker key is a MODE: registering `true` as a secret
+        // would redact a substring of nearly every event dbt emits.
+        assert_eq!(
+            target["client_store_temporary_credential"].as_bool(),
+            Some(true)
+        );
+        assert_eq!(p.schema.as_deref(), Some("analytics"));
+    }
+
+    // The block is pasted from a working `profiles.yml`, where a credential is
+    // ordinarily an `env_var()` resolved against the descriptor's `env`. dbt
+    // renders a profile value once, so standing in for that expression would
+    // hand the adapter the template text instead of the password.
+    #[test]
+    fn a_dbt_profile_leaves_an_env_var_expression_for_dbt_to_render() {
+        let r = json!({"type": "clickhouse", "host": "ch.internal",
+                       "password": "{{ env_var('CH_PASSWORD') }}"});
+        let p = render_dbt_profile(
+            &KnownAdapter::Clickhouse.into(),
+            r.as_object().unwrap(),
+            "wm",
+            "prod",
+            None,
+            None,
+            std::path::Path::new("/tmp/p"),
+        )
+        .unwrap();
+        assert!(p.env.is_empty(), "{:?}", p.env);
+        let parsed: serde_yml::Value = serde_yml::from_str(&p.yaml).unwrap();
+        assert_eq!(
+            parsed["wm"]["outputs"]["prod"]["password"].as_str(),
+            Some("{{ env_var('CH_PASSWORD') }}")
         );
     }
 
