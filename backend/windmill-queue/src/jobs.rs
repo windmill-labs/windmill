@@ -2065,10 +2065,35 @@ fn apply_completed_job_cloud_usage(
     queued_job: &MiniCompletedJob,
     _duration: i64,
 ) {
-    if *CLOUD_HOSTED && !queued_job.is_flow() && _duration > 1000 {
+    if !queued_job.is_flow() {
+        meter_execution_seconds(
+            db,
+            &queued_job.workspace_id,
+            &queued_job.permissioned_as_email,
+            _duration,
+        );
+    }
+}
+
+/// Charge `_duration` of execution time to the cloud usage meters: the workspace's
+/// monthly row, plus the per-user row on non-premium plans.
+///
+/// The unit is one finished **segment**, not one job. A Workflow-as-Code parent parks on
+/// a sleep, an approval or its children and resumes with a fresh timer, so its compute
+/// arrives here as several calls; metering only the one at completion would drop
+/// everything it ran before its first park.
+///
+/// Fire-and-forget, like every other write to `usage`: billing must never hold up the
+/// job that produced it.
+///
+/// `w_id` and `email` are billed as given and authorize nothing on their own — take them
+/// from a job the caller already holds, never from request input.
+#[cfg(feature = "cloud")]
+pub fn meter_execution_seconds(db: &Pool<Postgres>, w_id: &str, email: &str, _duration: i64) {
+    if *CLOUD_HOSTED && _duration > 1000 {
         let db = db.clone();
-        let w_id = queued_job.workspace_id.clone();
-        let email = queued_job.permissioned_as_email.clone();
+        let w_id = w_id.to_string();
+        let email = email.to_string();
         let w_id2 = w_id.clone();
         let email2 = email.clone();
         tokio::task::spawn(async move {

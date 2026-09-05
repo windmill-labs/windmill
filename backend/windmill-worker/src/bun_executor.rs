@@ -2819,6 +2819,7 @@ pub async fn handle_wac_v2_output(
 
             // Step 1: Save checkpoint, suspend parent, and seed child checkpoints
             // in a single transaction — all BEFORE children become visible.
+            let segment_ms;
             {
                 let mut tx = db.begin().await?;
 
@@ -2871,24 +2872,16 @@ pub async fn handle_wac_v2_output(
                     })?;
                 }
 
-                // Suspend parent before children become visible.
-                // Keep running = true so the normal pull query ignores it.
-                // The suspended pull query picks it up when suspend reaches 0
-                // (it checks: suspend_until IS NOT NULL AND suspend <= 0).
-                let suspend_count = num_steps as i32;
-                sqlx::query!(
-                    "UPDATE v2_job_queue SET suspend = $2, suspend_until = now() + interval '14 day' WHERE id = $1",
-                    job.id,
-                    suspend_count,
+                // Suspend parent before children become visible, so a child that
+                // completes immediately finds a parked parent to decrement.
+                segment_ms = crate::wac_executor::suspend_wac_parent(
+                    &mut tx,
+                    &job.id,
+                    &job.workspace_id,
+                    num_steps as i32,
+                    14.0 * 24.0 * 3600.0,
                 )
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| {
-                    error::Error::internal_err(format!(
-                        "Failed to suspend WAC parent job {}: {e}",
-                        job.id
-                    ))
-                })?;
+                .await?;
 
                 tx.commit().await?;
             }
@@ -3167,10 +3160,17 @@ pub async fn handle_wac_v2_output(
                 .execute(db)
                 .await;
 
-                // Unsuspend parent so the error propagates instead of a 14-day hang
+                // Unsuspend parent so the error propagates instead of a 14-day hang.
+                // Unlike the other suspend exits this one completes the job for real, so
+                // it needs its segment start back — the in-memory copy is what the pull
+                // stamped, before the suspend cleared the column.
                 let _ = sqlx::query!(
-                    "UPDATE v2_job_queue SET suspend = 0, suspend_until = NULL WHERE id = $1",
+                    "UPDATE v2_job_queue
+                     SET suspend = 0, suspend_until = NULL,
+                         started_at = coalesce(started_at, $2, now())
+                     WHERE id = $1",
                     job.id,
+                    job.started_at,
                 )
                 .execute(db)
                 .await;
@@ -3183,6 +3183,7 @@ pub async fn handle_wac_v2_output(
                 "WAC v2 parent job suspended"
             );
 
+            crate::wac_executor::end_wac_segment(conn, job, segment_ms);
             Err(error::Error::WacSuspended(format!(
                 "WAC v2 job {} suspended waiting for {} child job(s)",
                 job.id, num_steps
@@ -3361,15 +3362,17 @@ pub async fn handle_wac_v2_output(
             }
 
             // Suspend parent with suspend=1 (waiting for 1 approval event)
-            sqlx::query!(
-                "UPDATE v2_job_queue SET suspend = 1, suspend_until = now() + make_interval(secs => $2) WHERE id = $1",
-                job.id,
+            let segment_ms = crate::wac_executor::suspend_wac_parent(
+                &mut tx,
+                &job.id,
+                &job.workspace_id,
+                1,
                 timeout_secs,
             )
-            .execute(&mut *tx)
             .await?;
 
             tx.commit().await?;
+            crate::wac_executor::end_wac_segment(conn, job, segment_ms);
 
             tracing::info!(
                 job_id = %job.id,
@@ -3453,18 +3456,19 @@ pub async fn handle_wac_v2_output(
                 })?;
             }
 
-            // Suspend parent — it will auto-resume when suspend_until passes.
             // Use suspend=1 (not 0) so the suspended pull query only picks it up
             // when `suspend_until <= now()`, not via `suspend <= 0`.
-            sqlx::query!(
-                "UPDATE v2_job_queue SET suspend = 1, suspend_until = now() + make_interval(secs => $2) WHERE id = $1",
-                job.id,
+            let segment_ms = crate::wac_executor::suspend_wac_parent(
+                &mut tx,
+                &job.id,
+                &job.workspace_id,
+                1,
                 sleep_secs,
             )
-            .execute(&mut *tx)
             .await?;
 
             tx.commit().await?;
+            crate::wac_executor::end_wac_segment(conn, job, segment_ms);
 
             tracing::info!(
                 job_id = %job.id,
@@ -3514,19 +3518,25 @@ pub async fn handle_wac_v2_output(
             // Reset running=false so the job is immediately eligible for pickup.
             // Unlike dispatch (which sets suspend>0), inline checkpoints don't suspend —
             // the job should be re-run right away to continue past the cached step.
-            sqlx::query!(
-                "UPDATE v2_job_queue SET running = false, started_at = null WHERE id = $1",
+            // `prev` holds the pre-update row: RETURNING would see the cleared column.
+            let segment_ms = sqlx::query_scalar!(
+                "WITH prev AS (SELECT started_at FROM v2_job_queue WHERE id = $1)
+                 UPDATE v2_job_queue q SET running = false, started_at = null
+                 FROM prev WHERE q.id = $1
+                 RETURNING (extract(epoch FROM now() - prev.started_at) * 1000)::bigint",
                 job.id,
             )
-            .execute(&mut *tx)
+            .fetch_optional(&mut *tx)
             .await
             .map_err(|e| {
                 error::Error::internal_err(format!(
                     "Failed to reset running state for inline checkpoint: {e}"
                 ))
-            })?;
+            })?
+            .flatten();
 
             tx.commit().await?;
+            crate::wac_executor::end_wac_segment(conn, job, segment_ms);
 
             Err(error::Error::WacSuspended(format!(
                 "WAC v2 job {} inline checkpoint for step {}",

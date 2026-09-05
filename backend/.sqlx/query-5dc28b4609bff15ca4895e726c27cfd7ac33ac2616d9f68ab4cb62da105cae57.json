@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH prev AS (\n            SELECT started_at FROM v2_job_queue WHERE id = $1 AND workspace_id = $2\n         )\n         UPDATE v2_job_queue q\n         SET suspend = $3, suspend_until = now() + make_interval(secs => $4), started_at = null\n         FROM prev\n         WHERE q.id = $1 AND q.workspace_id = $2\n         RETURNING (extract(epoch FROM now() - prev.started_at) * 1000)::bigint",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "int8",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int4",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "5dc28b4609bff15ca4895e726c27cfd7ac33ac2616d9f68ab4cb62da105cae57"
+}

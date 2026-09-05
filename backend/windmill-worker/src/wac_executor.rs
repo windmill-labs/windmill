@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::Value;
+use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use windmill_common::error::{self, Error};
@@ -83,6 +84,81 @@ pub struct WacStepDispatch {
 
 fn default_dispatch_type() -> String {
     "inline".to_string()
+}
+
+/// Park a WAC v2 parent in the queue until `suspend` reaches 0 or `suspend_secs`
+/// elapses, whichever comes first. `running` stays true so the normal pull query
+/// skips the row; only the suspended pull query takes it back. The `id`/`workspace_id`
+/// pair is a consistency check, not an authorization one — callers must already hold
+/// the job (every one of them passes a job its own worker pulled).
+///
+/// `started_at` is cleared because the parent holds no worker while parked. The pull
+/// re-stamps it (`started_at = coalesce(started_at, now())`), and every path that
+/// completes a job without a worker-measured duration — a cancel, the child-failure
+/// handler — falls back to `now() - started_at`. Left pointing at the first segment,
+/// that fallback reports the whole sleep or approval wait as execution time.
+///
+/// Returns the segment that just ended, in milliseconds, for the caller to hand to
+/// `end_wac_segment`.
+pub async fn suspend_wac_parent(
+    tx: &mut Transaction<'_, Postgres>,
+    job_id: &Uuid,
+    w_id: &str,
+    suspend: i32,
+    suspend_secs: f64,
+) -> error::Result<Option<i64>> {
+    // `prev` holds the pre-update row: RETURNING sees the new one, where `started_at`
+    // has already been cleared.
+    let parked = sqlx::query_scalar!(
+        "WITH prev AS (
+            SELECT started_at FROM v2_job_queue WHERE id = $1 AND workspace_id = $2
+         )
+         UPDATE v2_job_queue q
+         SET suspend = $3, suspend_until = now() + make_interval(secs => $4), started_at = null
+         FROM prev
+         WHERE q.id = $1 AND q.workspace_id = $2
+         RETURNING (extract(epoch FROM now() - prev.started_at) * 1000)::bigint",
+        job_id,
+        w_id,
+        suspend,
+        suspend_secs,
+    )
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| Error::internal_err(format!("Failed to suspend WAC parent job {job_id}: {e}")))?;
+
+    // Silently parking nothing is unrecoverable on the dispatch arm: the children are
+    // pushed right after and decrement a `suspend` that was never set, so the parent
+    // sits out its whole suspend window instead of resuming.
+    match parked {
+        Some(segment_ms) => Ok(segment_ms),
+        None => Err(Error::internal_err(format!(
+            "WAC parent job {job_id} not in the queue of workspace {w_id} to suspend"
+        ))),
+    }
+}
+
+/// Charge the execution segment a WAC parent just finished. Segments are metered as they
+/// end rather than summed at completion, so a workflow that sleeps for days is billed for
+/// the compute it used, when it used it — and the final segment is charged by the ordinary
+/// completion path.
+///
+/// Call this only where the parent really parks. On a rollback that goes on to complete
+/// the job, the completion charges the same segment and it would be billed twice.
+pub(crate) fn end_wac_segment(
+    _conn: &windmill_common::worker::Connection,
+    _job: &windmill_queue::MiniPulledJob,
+    _segment_ms: Option<i64>,
+) {
+    #[cfg(feature = "cloud")]
+    if let (windmill_common::worker::Connection::Sql(db), Some(segment_ms)) = (_conn, _segment_ms) {
+        windmill_queue::meter_execution_seconds(
+            db,
+            &_job.workspace_id,
+            &_job.permissioned_as_email,
+            segment_ms,
+        );
+    }
 }
 
 /// Parse the WAC result from result.json content.
