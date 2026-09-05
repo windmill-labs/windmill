@@ -1023,10 +1023,11 @@ pub struct PreparedProject {
     /// `profiles.yml` default. Half of an environment's identity, since a
     /// `target.name` macro decides where a model is built.
     pub effective_target: Option<String>,
-    /// Whether a project-owned `profiles.yml` templates where its relations go,
-    /// in which case two renderings share one `relation_root` and an environment
-    /// cannot be told apart — so a deferral is refused rather than resolved
-    /// through another rendering's manifest.
+    /// Whether the profile templates where its relations go — a project-owned
+    /// `profiles.yml`, a `dbt_profile` resource's block, or `profile.schema`,
+    /// all of which reach dbt as written. Two renderings then share one
+    /// `relation_root` and an environment cannot be told apart, so such a
+    /// project neither publishes state nor defers to any.
     pub templated_location: bool,
     /// The profile target's database. Nodes that override it qualify their
     /// `dbt://` schema segment so two databases cannot collapse onto one node.
@@ -1870,7 +1871,7 @@ async fn write_profiles(
         // runtime does not, exactly as a project-owned file can.
         templated_location: [rendered.database.as_deref(), rendered.schema.as_deref()]
             .iter()
-            .any(|v| v.is_some_and(|v| v.contains("{{"))),
+            .any(|v| v.is_some_and(is_jinja)),
         database: rendered.database,
         schema: rendered.schema,
         target: Some(target.to_string()),
@@ -2032,7 +2033,7 @@ async fn adapter_from_profiles_yml(
         // does not move: only the templated case has to refuse a deferral.
         templated_location: [database_key, schema_key]
             .iter()
-            .any(|k| raw(k).is_some_and(|v| v.contains("{{"))),
+            .any(|k| raw(k).is_some_and(is_jinja)),
         // The output actually chosen, which for a templated `target:` is the sole
         // one rather than the template text no output answers to.
         name: match (
@@ -2043,6 +2044,16 @@ async fn adapter_from_profiles_yml(
             _ => target.to_string(),
         },
     })
+}
+
+/// Whether dbt would RENDER this value rather than take it literally.
+///
+/// Both delimiters, because dbt renders a profile through Jinja: `{{ … }}`
+/// substitutes and `{% … %}` branches, and a schema spelled
+/// `{% if env_var('ENV') == 'prod' %}analytics{% else %}dev{% endif %}` moves
+/// every relation exactly as an `env_var()` does.
+fn is_jinja(v: &str) -> bool {
+    v.contains("{{") || v.contains("{%")
 }
 
 /// What a project-owned `profiles.yml` target says, for the two things Windmill
@@ -5988,6 +5999,20 @@ mod tests {
             state_dir("ws", "f/a/one", "u/alice"),
             state_dir("ws", "f/a/one", "u/bob")
         );
+    }
+
+    // A profile whose location dbt renders cannot be told apart from another
+    // rendering of itself, so it neither publishes state nor defers. Both
+    // delimiters count: a conditional block moves a schema exactly as an
+    // `env_var()` substitution does.
+    #[test]
+    fn a_rendered_profile_location_is_recognised_by_either_delimiter() {
+        assert!(is_jinja("{{ env_var('DBT_SCHEMA') }}"));
+        assert!(is_jinja(
+            "{% if env_var('ENV') == 'prod' %}analytics{% else %}dev{% endif %}"
+        ));
+        assert!(!is_jinja("analytics"));
+        assert!(!is_jinja(""));
     }
 
     // The one flag choice that is silently wrong rather than loudly wrong: a

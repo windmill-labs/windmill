@@ -1335,9 +1335,10 @@ run that publishes an environment's state and the run that defers to it are two
 invocations of ONE script (decision 6: N scripts means N projects): a project
 that could only defer by descriptor could never populate the state it reads.
 
-A project whose profile selects its schema or database with a TEMPLATE is
-refused a deferral outright, and publishes no state either: dbt renders those and
-Windmill does not, so two renderings resolve to one `relation_root`, and a
+A project whose profile selects its schema or database with a TEMPLATE — either
+delimiter, since dbt renders `{% … %}` blocks as well as `{{ … }}` — is refused a
+deferral outright, and publishes no state either: dbt renders those and Windmill
+does not, so two renderings resolve to one `relation_root`, and a
 deferral after the value changed would resolve every unbuilt `ref()` through the
 previous location's manifest. Both sides, because a published template would sit
 under a key a literal profile shares, and de-templating later would make that
