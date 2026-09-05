@@ -4,13 +4,16 @@
 
 	let {
 		path,
-		workspaceId
+		workspaceId,
+		onBack
 	}: {
 		/** The resource this tab edits (the row its location deep-links). */
 		path: string
 		/** The session's acting workspace, which the editor operates on instead of
 		 * `$workspaceStore` (the nav workspace, which a session leaves put). */
 		workspaceId: string
+		/** Back to the list this editor was reached through; the tab replaced it. */
+		onBack?: () => void
 	} = $props()
 
 	let editor = $state<ResourceEditorDrawer | undefined>()
@@ -25,4 +28,4 @@
 	})
 </script>
 
-<ResourceEditorDrawer bind:this={editor} useDrawer={false} workspace={workspaceId} />
+<ResourceEditorDrawer bind:this={editor} useDrawer={false} workspace={workspaceId} {onBack} />

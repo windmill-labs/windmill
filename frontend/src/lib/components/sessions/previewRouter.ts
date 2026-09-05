@@ -133,6 +133,14 @@ const IN_REALM_ENTITY_PAGES: Partial<Record<string, EntityEditorKind>> = {
 	[VARIABLES_PATH]: 'variable'
 }
 
+/** The list page an entity editor was reached through, so its host can offer the
+ * way back. Undefined only if a kind is registered above without a curated page,
+ * which `PREVIEW_PAGES` covers for all three today. */
+export function entityListPage(kind: EntityEditorKind): PreviewPage | undefined {
+	const path = Object.keys(IN_REALM_ENTITY_PAGES).find((p) => IN_REALM_ENTITY_PAGES[p] === kind)
+	return path ? matchPreviewPage(path) : undefined
+}
+
 /** The workspace entity a preview location opens the editor of — a list page
  * with a row deep-linked in its hash, for the pages whose editor mounts in
  * process. Undefined for the bare list page (an iframe of the list) and for

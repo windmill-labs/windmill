@@ -4,13 +4,16 @@
 
 	let {
 		path,
-		workspaceId
+		workspaceId,
+		onBack
 	}: {
 		/** The variable this tab edits (the row its location deep-links). */
 		path: string
 		/** The session's acting workspace, which the editor operates on instead of
 		 * `$workspaceStore` (the nav workspace, which a session leaves put). */
 		workspaceId: string
+		/** Back to the list this editor was reached through; the tab replaced it. */
+		onBack?: () => void
 	} = $props()
 
 	let editor = $state<VariableEditor | undefined>()
@@ -25,4 +28,4 @@
 	})
 </script>
 
-<VariableEditor bind:this={editor} useDrawer={false} workspace={workspaceId} />
+<VariableEditor bind:this={editor} useDrawer={false} workspace={workspaceId} {onBack} />

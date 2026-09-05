@@ -1,17 +1,22 @@
 <script lang="ts">
 	import ScheduleEditorInner from '$lib/components/triggers/schedules/ScheduleEditorInner.svelte'
 	import { setTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
+	import { Button } from '$lib/components/common'
+	import { ArrowLeft } from 'lucide-svelte'
 	import { untrack } from 'svelte'
 
 	let {
 		path,
-		workspaceId
+		workspaceId,
+		onBack
 	}: {
 		/** The schedule this tab edits (the row its location deep-links). */
 		path: string
 		/** The session's acting workspace, which the whole trigger subtree reads
 		 * through the `triggerWorkspace` resolver instead of `$workspaceStore`. */
 		workspaceId: string
+		/** Back to the list this editor was reached through; the tab replaced it. */
+		onBack?: () => void
 	} = $props()
 
 	// Captured at init, so it must read the current prop rather than close over it.
@@ -33,6 +38,23 @@
 
 <div class="h-full w-full overflow-auto p-4">
 	<!-- useDrawer=false renders the editor as a Section, the same inline form the
-	     script/flow trigger panel mounts (see SchedulePanel). -->
-	<ScheduleEditorInner bind:this={editor} useDrawer={false} allowDraft showDraftBanner />
+	     script/flow trigger panel mounts (see SchedulePanel). `customLabel` is that
+	     Section's header, which is where the way back belongs. -->
+	<ScheduleEditorInner bind:this={editor} useDrawer={false} allowDraft showDraftBanner>
+		{#snippet customLabel()}
+			<div class="flex flex-row items-center gap-2 min-w-0">
+				{#if onBack}
+					<Button
+						variant="subtle"
+						unifiedSize="sm"
+						startIcon={{ icon: ArrowLeft }}
+						on:click={onBack}
+						title="Back to Schedules"
+						iconOnly
+					/>
+				{/if}
+				<span class="text-sm font-semibold truncate">Schedule</span>
+			</div>
+		{/snippet}
+	</ScheduleEditorInner>
 </div>

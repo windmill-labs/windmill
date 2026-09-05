@@ -3,7 +3,7 @@
 
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 
-	import { History, Loader2, Save } from 'lucide-svelte'
+	import { ArrowLeft, History, Loader2, Save } from 'lucide-svelte'
 	import WsSpecificVersions from './WsSpecificVersions.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { isOwner } from '$lib/utils'
@@ -24,7 +24,8 @@
 		disableChatOffset = false,
 		onRestored = undefined,
 		onSaved = undefined,
-		useDrawer = true
+		useDrawer = true,
+		onBack = undefined
 	}: {
 		workspace?: string
 		disableChatOffset?: boolean
@@ -39,6 +40,9 @@
 		 * drawer to open, so it simply takes effect.
 		 */
 		useDrawer?: boolean
+		/** Inline only: offered in the header when the host replaced something the
+		 * user should be able to get back to (a session tab that took over the list). */
+		onBack?: () => void
 	} = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -233,9 +237,21 @@
 {:else}
 	<div class="flex flex-col h-full min-h-0">
 		<div class="flex flex-row items-center gap-2 justify-between px-4 py-2 border-b">
-			<span class="text-sm font-semibold truncate"
-				>{mode == 'edit' ? 'Edit ' + path : addResourceTitle(resource_type)}</span
-			>
+			<div class="flex flex-row items-center gap-2 min-w-0">
+				{#if onBack}
+					<Button
+						variant="subtle"
+						unifiedSize="sm"
+						startIcon={{ icon: ArrowLeft }}
+						on:click={onBack}
+						title="Back to Resources"
+						iconOnly
+					/>
+				{/if}
+				<span class="text-sm font-semibold truncate"
+					>{mode == 'edit' ? 'Edit ' + path : addResourceTitle(resource_type)}</span
+				>
+			</div>
 			<div class="flex flex-row items-center gap-2 shrink-0">
 				{@render editorActions()}
 			</div>

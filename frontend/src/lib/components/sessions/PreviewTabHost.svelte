@@ -12,6 +12,8 @@
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import {
+		entityListPage,
+		pageHref,
 		resolvePreviewTab,
 		parsePreviewItemRoute,
 		parsePreviewSelectedId,
@@ -140,6 +142,20 @@
 
 	const visibility = $derived(
 		active ? 'z-10 opacity-100 pointer-events-auto' : 'z-0 opacity-0 pointer-events-none'
+	)
+
+	// An entity editor replaced the list its tab was opened from (the row is the
+	// tab now, not a drawer over the list), so it has to offer the way back.
+	// Re-points this tab rather than opening another: the list is where the tab
+	// came from, not a second destination.
+	const backToList = $derived(
+		slot.kind === 'entity' && runtime
+			? () => {
+					const page = entityListPage(slot.entityKind)
+					if (page)
+						runtime.previewTabs.navigate({ type: 'page', href: pageHref(page.path), label: page.label })
+				}
+			: undefined
 	)
 
 	// Overlays a tab opens (drawers, modals, popovers) anchor here rather than to the
@@ -324,19 +340,19 @@
 			{#await import('./ScheduleEditorView.svelte')}
 				{@render editorLoading()}
 			{:then Module}
-				<Module.default path={slot.path} {workspaceId} />
+				<Module.default path={slot.path} {workspaceId} onBack={backToList} />
 			{/await}
 		{:else if slot.entityKind === 'resource'}
 			{#await import('./ResourceEditorView.svelte')}
 				{@render editorLoading()}
 			{:then Module}
-				<Module.default path={slot.path} {workspaceId} />
+				<Module.default path={slot.path} {workspaceId} onBack={backToList} />
 			{/await}
 		{:else}
 			{#await import('./VariableEditorView.svelte')}
 				{@render editorLoading()}
 			{:then Module}
-				<Module.default path={slot.path} {workspaceId} />
+				<Module.default path={slot.path} {workspaceId} onBack={backToList} />
 			{/await}
 		{/if}
 	</div>
