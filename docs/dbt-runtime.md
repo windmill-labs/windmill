@@ -1262,7 +1262,7 @@ needs the instance store configured, which is an EE feature, so on CE the ceilin
 is the limit and `DBT_STATE_INLINE_MAX_BYTES` is how it moves.
 
 Each publication writes its OWN keys
-(`wmill_dbt_state/<workspace>/<digest of path and environment>/<job>/<artifact>`)
+(`wmill_dbt_state/<workspace>/<digest of path and environment>/<job>.<nonce>/<artifact>`)
 and the row switches to them in one statement, so an upload never overwrites an
 artifact the committed row still names: a run that fails between its two uploads,
 or between them and its row, leaves the state pointing at the pair it already
@@ -1309,7 +1309,10 @@ nothing, which is right for a run of content that was never deployed.
 The job's KIND is checked beside it, because a preview carries a caller-supplied
 `script_hash` into `runnable_id` (`run_preview_script`): the version alone would
 let anyone who may run a job publish arbitrary content as a deployed script's
-state.
+state. A flow or app step naming a deployed dbt script by path is an ordinary
+`script` job carrying that script's own hash, so it publishes like any other run;
+only INLINE flow code is a `FlowScript`, and that has no deployed version to
+publish for.
 
 That guard HOLDS the script row (`FOR SHARE`) for the rest of the publication, so
 a rename, archive or delete of the path either waits for it or is seen by it.
@@ -1332,12 +1335,16 @@ run that publishes an environment's state and the run that defers to it are two
 invocations of ONE script (decision 6: N scripts means N projects): a project
 that could only defer by descriptor could never populate the state it reads.
 
-A project whose own `profiles.yml` selects its schema or database with a
-template is refused a deferral outright: dbt renders those and Windmill does not,
-so two renderings resolve to one `relation_root`, and a deferral after the value
-changed would resolve every unbuilt `ref()` through the previous location's
-manifest. Plainly absent is different — that is the adapter's default, which does
-not move.
+A project whose profile selects its schema or database with a TEMPLATE is
+refused a deferral outright, and publishes no state either: dbt renders those and
+Windmill does not, so two renderings resolve to one `relation_root`, and a
+deferral after the value changed would resolve every unbuilt `ref()` through the
+previous location's manifest. Both sides, because a published template would sit
+under a key a literal profile shares, and de-templating later would make that
+stale manifest readable as the new location's. It covers a project-owned
+`profiles.yml`, a `dbt_profile` resource — one block of the user's own file,
+copied through unchanged — and a `profile.schema` written as given. Plainly
+absent is different: that is the adapter's default, which does not move.
 
 A run that asks to defer with nothing published is refused, naming the
 environment and the runs that cannot publish one. The alternative — running

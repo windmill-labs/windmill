@@ -1864,12 +1864,16 @@ async fn write_profiles(
         dir,
         warehouse: Some(warehouse.to_string()),
         adapter,
+        // A `dbt_profile` resource is one block of the user's own
+        // `profiles.yml`, copied through unchanged, and `profile.schema` is
+        // written as given — so either can be a template dbt renders and this
+        // runtime does not, exactly as a project-owned file can.
+        templated_location: [rendered.database.as_deref(), rendered.schema.as_deref()]
+            .iter()
+            .any(|v| v.is_some_and(|v| v.contains("{{"))),
         database: rendered.database,
         schema: rendered.schema,
         target: Some(target.to_string()),
-        // Rendered from a resource, so its location is whatever that resource
-        // says rather than something the run's environment decides.
-        templated_location: false,
         digest: profile_digest,
     })
 }

@@ -121,6 +121,14 @@ pub(crate) async fn publish(
         // shared by every dbt script in the workspace.
         return Ok(());
     }
+    if p.templated_location {
+        // Refused on this side too, not only where a deferral reads. A template
+        // renders to one location per environment while the key sees the
+        // template, so publishing would file this run's manifest under a key a
+        // literal profile shares — and de-templating later would make that stale
+        // manifest readable as the new location's.
+        return Ok(());
+    }
     let artifacts = p.project_dir.join(ARTIFACTS_DIR);
     // The manifest is what a deferral resolves through, so there is no state
     // without one. Every engine writes it beside the results of a build, so this
@@ -574,10 +582,10 @@ pub(crate) async fn prepare_deferral(
     // unbuilt `ref()` through the previous location's manifest.
     if p.templated_location {
         return Err(Error::BadRequest(
-            "this project's `profiles.yml` selects its schema or database with a template, which \
-             dbt renders and Windmill does not — so two environments cannot be told apart and a \
+            "this project's profile selects its schema or database with a template, which dbt \
+             renders and Windmill does not — so two environments cannot be told apart and a \
              deferral could resolve through the wrong one's manifest. Spell the target's schema \
-             and database literally, or set `profile.schema` in the descriptor"
+             and database literally to use `defer`"
                 .to_string(),
         ));
     }
