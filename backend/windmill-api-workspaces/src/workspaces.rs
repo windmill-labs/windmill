@@ -12,10 +12,10 @@ use windmill_api_auth::{
 };
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
-use windmill_dep_map::lock_hash::record_lock_hashes_for_workspace;
 use windmill_common::usernames::{get_instance_username_or_create_pending, VALID_USERNAME};
 use windmill_common::webhook::WebhookShared;
 use windmill_common::{BASE_URL, DB};
+use windmill_dep_map::lock_hash::record_lock_hashes_for_workspace;
 
 use axum::{
     extract::{Extension, Path, Query},
@@ -152,6 +152,7 @@ pub fn workspaced_service() -> Router {
         .route("/edit_deploy_ui_config", post(edit_deploy_ui_config))
         .route("/edit_default_app", post(edit_default_app))
         .route("/edit_guest_access", post(edit_guest_access))
+        .route("/edit_guest_jwt_key", post(edit_guest_jwt_key))
         .route("/guest_usage", get(get_guest_usage))
         .route("/default_app", get(get_default_app))
         .route(
@@ -322,6 +323,14 @@ pub struct WorkspaceSettings {
     /// Whether this workspace admits guest sessions (`ExecutionMode::Guest`). An app's
     /// own `execution_mode: guest` is inert while this is off.
     pub guest_access_enabled: bool,
+    /// The key a guest JWT is verified against: a PEM public key, or a JWKS URL, at most
+    /// one (a DB CHECK enforces it). Public material, not a secret, so it is admin-
+    /// readable here. `None`/`None` falls back to the instance issuer (`JWT_EXT_JWKS_URL`)
+    /// off cloud, or accepts no JWT guest if none is set; `guest_access_enabled` is the switch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guest_jwt_public_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guest_jwt_jwks_url: Option<String>,
 }
 
 /// Subset of `WorkspaceSettings` that is safe to return to any workspace
@@ -1082,7 +1091,9 @@ async fn get_settings(
             success_handler,
             public_app_execution_limit_per_minute,
             error_handler_fallback_to_instance_alerts,
-            guest_access_enabled
+            guest_access_enabled,
+            guest_jwt_public_key,
+            guest_jwt_jwks_url
         FROM
             workspace_settings
         WHERE
@@ -4659,6 +4670,66 @@ async fn edit_guest_access(
     Ok(format!(
         "Guest access set to {guest_access_enabled} for workspace {w_id}"
     ))
+}
+
+#[derive(Deserialize)]
+struct EditGuestJwtKey {
+    /// A PEM public key (RS or ES family), or a JWKS URL, at most one. Both empty clears the
+    /// workspace key; verification then falls back to the instance issuer (`JWT_EXT_JWKS_URL`)
+    /// off cloud, or refuses the JWT if none is set. The off-switch is `guest_access_enabled`.
+    public_key: Option<String>,
+    jwks_url: Option<String>,
+}
+
+/// Configure the key a guest JWT (`jwt_guest_`) is verified against for this workspace.
+/// Workspace-admin gated, like the guest switch: guests are free up to the instance
+/// allowance on any plan, so configuring their key needs no licence. The key is
+/// validated before it is stored so a typo is refused here, not silently on every guest
+/// later: a PEM must parse as an RS/ES public key (HS* has no PEM form and is
+/// unreachable), and a JWKS URL must be fetchable and hold at least one usable signing key.
+async fn edit_guest_jwt_key(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(EditGuestJwtKey { public_key, jwks_url }): Json<EditGuestJwtKey>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    let public_key = public_key.filter(|s| !s.trim().is_empty());
+    let jwks_url = jwks_url.filter(|s| !s.trim().is_empty());
+    if public_key.is_some() && jwks_url.is_some() {
+        return Err(Error::BadRequest(
+            "Set a PEM public key or a JWKS URL, not both".to_string(),
+        ));
+    }
+    if let Some(pem) = public_key.as_deref() {
+        windmill_common::guest_jwt::decoding_key_from_pem(pem)?;
+    }
+    if let Some(url) = jwks_url.as_deref() {
+        windmill_common::guest_jwt::fetch_jwks(url).await?;
+    }
+
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "UPDATE workspace_settings SET guest_jwt_public_key = $1, guest_jwt_jwks_url = $2 WHERE workspace_id = $3",
+        public_key,
+        jwks_url,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_guest_jwt_key",
+        ActionKind::Update,
+        &w_id,
+        None,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!("Guest JWT key updated for workspace {w_id}"))
 }
 
 async fn edit_default_scripts(
@@ -11172,6 +11243,7 @@ async fn load_workspace_authed(
             token_prefix: base_authed.token_prefix.clone(),
             read_only: base_authed.read_only,
             job_id: base_authed.job_id,
+            credential_expiry: base_authed.credential_expiry,
         });
     };
 
@@ -11204,6 +11276,7 @@ async fn load_workspace_authed(
         token_prefix: base_authed.token_prefix.clone(),
         read_only: base_authed.read_only,
         job_id: base_authed.job_id,
+        credential_expiry: base_authed.credential_expiry,
     })
 }
 

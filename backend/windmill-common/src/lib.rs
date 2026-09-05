@@ -67,6 +67,7 @@ pub mod flow_status;
 pub mod flows;
 pub mod folders;
 pub mod global_settings;
+pub mod guest_jwt;
 pub mod indexer;
 pub mod instance_config;
 pub mod job_metrics;

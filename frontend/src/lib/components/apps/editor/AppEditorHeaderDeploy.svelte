@@ -176,6 +176,10 @@
 		}${customPath}`
 	)
 
+	// The app URL a guest JWT rides on: append `guest.<jwt>` and the viewer authenticates the
+	// token as a seatless guest. Uses the custom URL when set, else the public secret URL.
+	let guestJwtBase = $derived(customPath !== undefined ? fullCustomUrl : secretUrlHref)
+
 	// When embedding a raw app in an iframe inside another Windmill app (or any
 	// cross-origin-isolated page), the embedded document must set COEP. The
 	// `wm_coep` flag opts the public app into the cross-origin isolation headers.
@@ -500,8 +504,8 @@
 					Anyone your identity provider authenticates can open this app without a Windmill account.
 					They join no workspace. Members of this workspace can open it too.
 					{#if guestUsage}
-						{guestUsage.guest_count} of {guestUsage.free_allowance} free guests used across this
-						instance in the last {guestUsage.window_days} days; beyond that, {guestUsage.metered
+						{guestUsage.guest_count} of {guestUsage.free_allowance} free guests used across this instance
+						in the last {guestUsage.window_days} days; beyond that, {guestUsage.metered
 							? 'every four guests count as one seat'
 							: 'new guests are refused until the count drops'}.
 					{/if}
@@ -542,6 +546,38 @@
 				Share this url directly, or switch to <b>Embed</b> to get an iframe snippet.
 			{/if}
 		</div>
+
+		{#if embedMode && policy.execution_mode == 'guest' && guestAccessEnabled && guestJwtBase}
+			<div class="mt-4 border-t pt-3 flex flex-col gap-2">
+				<div class="text-xs font-semibold text-emphasis">
+					Embed for your own authenticated users (guest JWT)
+				</div>
+				<div class="text-xs text-secondary">
+					To open this app for a user your own product already authenticates, mint a short-lived JWT
+					in your backend and append it to the app URL as <code>guest.&lt;jwt&gt;</code>. Each token
+					is its own seatless guest, confined to this app — no shared secret and no Windmill
+					account, unlike the plain secret URL above.
+				</div>
+				<div class="text-xs text-secondary">
+					Windmill verifies the token against the workspace's guest JWT key (Workspace settings →
+					Guests) — a PEM public key or a JWKS URL{#if !isCloudHosted()}, or the instance's
+						configured issuer (<code>JWT_EXT_JWKS_URL</code>) when no workspace key is set{/if}. Set
+					the <b>public</b> half there; in your backend, sign each token with the matching
+					<b>private</b> key using RS256/384/512, PS256/384/512 or ES256/384 (symmetric HS* is
+					refused), carrying <code>email</code>, <code>workspace_id</code> = <code>{opWs}</code>,
+					<code>app_path</code> = <code>{appPath}</code> and <code>exp</code> (at most 24h ahead).
+				</div>
+				<ClipboardPanel
+					content={toEmbedSnippet(`${guestJwtBase}/guest.YOUR_GUEST_JWT`)}
+					size="md"
+				/>
+				<div class="text-2xs text-secondary">
+					Replace <code>YOUR_GUEST_JWT</code> with the token your backend signs per user. Past the instance's
+					free guest allowance a new guest email is refused (see the count above); guests already seen
+					in the window keep working.
+				</div>
+			</div>
+		{/if}
 
 		<div class="mt-4">
 			{#if !($userStore?.is_admin || $userStore?.is_super_admin)}

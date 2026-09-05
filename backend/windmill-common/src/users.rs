@@ -31,6 +31,29 @@ pub const USERNAME_GROUP_PREFIX: &str = "group-";
 /// columns runnables and triggers store one in.
 pub const PERMISSIONED_AS_MAX_LEN: usize = 55;
 
+/// Whether any account exists for `email`: a `password` row (deactivated ones
+/// included, since the sign-in path filters `disabled = false` and a re-enabled
+/// account must not read as absent) or a `usr` row in any workspace (what a service
+/// account has instead of a password). A guest is someone with none: the single rule
+/// that keeps an account holder from ever holding a cheaper guest identity.
+///
+/// The address is lowercased before the lookup: accounts are stored lowercased, so a
+/// mixed-case address would otherwise miss an existing account and be let through. The
+/// comparison stays a plain equality (not `lower(email)`), so it uses the email index.
+pub async fn has_any_account<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(
+    executor: E,
+    email: &str,
+) -> crate::error::Result<bool> {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM password WHERE email = $1)
+             OR EXISTS(SELECT 1 FROM usr WHERE email = $1)",
+    )
+    .bind(email.to_lowercase())
+    .fetch_one(executor)
+    .await
+    .map_err(|e| crate::error::Error::internal_err(format!("checking account for {email}: {e:#}")))
+}
+
 /// An email-shaped username is its own principal, which is how a superadmin acting without a
 /// `usr` row is named (`usr.username` is constrained to `[\w-]+`, so a member never is). It is
 /// decided before the group convention — an address is never a group's username — and one

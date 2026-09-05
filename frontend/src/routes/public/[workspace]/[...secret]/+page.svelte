@@ -27,12 +27,25 @@
 	 * offering an ordinary sign-in on a transient fault would provision an account. */
 	let guestEntry: 'pending' | 'none' | 'guest' | 'error' = $state('pending')
 
-	function parseSecret(secret: string): { secret: string; jwt: string | undefined } {
+	// The share link carries a trailing credential the embedder consumes: an external
+	// JWT as `<secret>/<jwt>`, or a guest JWT as `<secret>/guest.<jwt>`. The `guest.`
+	// prefix keeps the two apart with no parsing of the token, which the page cannot
+	// verify anyway. Either way `viewerUrl` below uses `secret` alone, so no JWT
+	// reaches the opaque iframe.
+	function parseSecret(secret: string): {
+		secret: string
+		jwt: string | undefined
+		guestJwt: string | undefined
+	} {
 		const parts = secret.split('/')
-		return {
-			secret: parts[0],
-			jwt: parts[1]
+		// The credential rides the segment after the secret: a guest JWT prefixed
+		// `guest.`, or an external JWT bare. The `guest.` prefix glues the marker to the
+		// token, so it can never be mistaken for a path or secret segment (which carry no
+		// `.`), and a bare token keeps the established external-JWT interpretation.
+		if (parts[1]?.startsWith('guest.')) {
+			return { secret: parts[0], jwt: undefined, guestJwt: parts[1].slice('guest.'.length) }
 		}
+		return { secret: parts[0], jwt: parts[1], guestJwt: undefined }
 	}
 
 	const parsedSecret = parseSecret(page.params.secret ?? '')
@@ -52,7 +65,9 @@
 	// Embedder side: validate access (using the main session cookie or the shared
 	// JWT) and mint a scoped embed token for the opaque iframe (WIN-2006).
 	async function fetchEmbedToken(opts?: { sdkConsent?: boolean }): Promise<{ token?: string }> {
-		if (parsedSecret.jwt) {
+		if (parsedSecret.guestJwt) {
+			OpenAPI.TOKEN = 'jwt_guest_' + parsedSecret.guestJwt
+		} else if (parsedSecret.jwt) {
 			OpenAPI.TOKEN = 'jwt_ext_' + parsedSecret.jwt
 		}
 		const headers: Record<string, string> = {}

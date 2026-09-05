@@ -2938,31 +2938,6 @@ lazy_static::lazy_static! {
         .unwrap_or(8 * 60 * 60);
 }
 
-/// Scopes a guest session carries. Mirrors `APP_EMBED_SCOPES` — the same broad-looking
-/// reads narrowed to a route allowlist by the sentinel (`guest_route_denied`) — plus the
-/// two path-scoped app grants minted per app. With no ACL of its own, this list is the
-/// whole of what a guest can do.
-///
-/// The `guest` sentinel here only narrows. What makes the session a guest at all is the
-/// server-minted label ([`windmill_common::auth::GUEST_SESSION_LABEL`]).
-fn guest_session_scopes(app_path: &str) -> Result<Vec<String>> {
-    if !windmill_common::auth::is_scope_literal_path(app_path) {
-        return Err(Error::BadRequest(format!(
-            "app path {app_path} cannot be scoped: `:`, `,` and `*` are reserved in scopes, \
-             and a leading `/` never matches a route"
-        )));
-    }
-    Ok(vec![
-        windmill_api_auth::scopes::GUEST_SENTINEL.to_string(),
-        "jobs:read".to_string(),
-        "resources:run".to_string(),
-        "users:read".to_string(),
-        "folders:read".to_string(),
-        format!("apps:read:{app_path}"),
-        format!("apps:run:{app_path}"),
-    ])
-}
-
 /// Mint a browser session for someone the identity provider authenticated who is a
 /// member of no workspace, so they can open one guest-mode app. Writes no `password`
 /// and no `usr` row: that absence is what keeps a guest off every seat counter, so
@@ -2994,20 +2969,11 @@ pub async fn create_guest_session_token<'c>(
     } else {
         Some(&token)
     };
-    let scopes = guest_session_scopes(app_path)?;
+    let scopes = windmill_api_auth::scopes::guest_session_scopes(app_path)?;
 
-    // No account at all (see `ExecutionMode::Guest`): a deactivated `password` row
-    // counts, since the sign-in path's own lookup filters on `disabled = false` and a
-    // SCIM-offboarded account would otherwise read as absent; so does a `usr` row in
-    // any workspace, which is what a service account has instead of a password.
-    let has_account: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM password WHERE email = $1)
-             OR EXISTS(SELECT 1 FROM usr WHERE email = $1)",
-    )
-    .bind(email)
-    .fetch_one(&mut **tx)
-    .await?;
-    if has_account {
+    // No account at all (see `has_any_account`): an account holder is refused a guest
+    // session, never handed a second, cheaper identity. The same helper the JWT arm uses.
+    if windmill_common::users::has_any_account(&mut **tx, email).await? {
         return Err(Error::NotAuthorized(
             "an existing account cannot hold a guest session".to_string(),
         ));
@@ -3061,7 +3027,7 @@ pub async fn create_guest_session_token<'c>(
         ActionKind::Create,
         w_id,
         Some(app_path),
-        None,
+        Some([("entry", "idp")].into()),
     )
     .await?;
 

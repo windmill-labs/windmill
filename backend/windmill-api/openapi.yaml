@@ -3785,6 +3785,12 @@ paths:
                   guest_access_enabled:
                     type: boolean
                     description: Whether this workspace admits guest sessions. An app's own `guest` execution mode is inert while this is false.
+                  guest_jwt_public_key:
+                    type: string
+                    description: PEM public key a guest JWT (`jwt_guest_`) is verified against for this workspace. Mutually exclusive with `guest_jwt_jwks_url`.
+                  guest_jwt_jwks_url:
+                    type: string
+                    description: JWKS URL a guest JWT (`jwt_guest_`) is verified against for this workspace. Mutually exclusive with `guest_jwt_public_key`.
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:
@@ -5800,6 +5806,43 @@ paths:
                   type: boolean
               required:
                 - guest_access_enabled
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/edit_guest_jwt_key:
+    post:
+      summary: set the key guest JWTs are verified against for this workspace
+      description: >-
+        A guest JWT (`jwt_guest_`) is minted by the embedding customer's own backend and
+        verified against this key: a PEM public key (RS/ES family, HS* refused) or a JWKS
+        URL, at most one. Both empty clears the workspace key; off cloud, verification then
+        falls back to the instance issuer (`JWT_EXT_JWKS_URL`) if one is set, else no guest
+        JWT is accepted (`guest_access_enabled` is the on/off switch). Workspace-admin gated.
+        The key is validated before it is stored.
+      operationId: editGuestJwtKey
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: The guest JWT verification key
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                public_key:
+                  type: string
+                  description: A PEM public key (RS or ES family).
+                jwks_url:
+                  type: string
+                  description: A JWKS URL whose keys are fetched and refreshed.
       responses:
         "200":
           description: status
