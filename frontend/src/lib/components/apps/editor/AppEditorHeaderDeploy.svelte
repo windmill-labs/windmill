@@ -559,9 +559,12 @@
 					account, unlike the plain secret URL above.
 				</div>
 				<div class="text-xs text-secondary">
-					Sign it with the workspace's guest JWT key (Workspace settings → Guests), carrying
-					<code>email</code>, <code>workspace_id</code> = <code>{opWs}</code>,
-					<code>app_path</code> = <code>{appPath}</code> and <code>exp</code> (at most 24h ahead).
+					Set the <b>public</b> half of your signing keypair as the workspace's guest JWT key
+					(Workspace settings → Guests) — a PEM public key or a JWKS URL. In your backend, sign each
+					token with the matching <b>private</b> key using RS256/384/512, PS256/384/512 or ES256/384
+					(symmetric HS* is refused), carrying <code>email</code>,
+					<code>workspace_id</code> = <code>{opWs}</code>, <code>app_path</code> =
+					<code>{appPath}</code> and <code>exp</code> (at most 24h ahead).
 				</div>
 				<ClipboardPanel
 					content={toEmbedSnippet(`${guestJwtBase}/guest.YOUR_GUEST_JWT`)}
