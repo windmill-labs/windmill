@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::Value;
+use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use windmill_common::error::{self, Error};
@@ -83,6 +84,41 @@ pub struct WacStepDispatch {
 
 fn default_dispatch_type() -> String {
     "inline".to_string()
+}
+
+/// Park a WAC v2 parent in the queue until `suspend` reaches 0 or
+/// `suspend_secs` elapses, whichever comes first.
+///
+/// `running` stays true so the normal pull query skips the row; only the
+/// suspended pull query takes it back.
+///
+/// `started_at` is cleared because the parent holds no worker while parked.
+/// The pull re-stamps it (`started_at = coalesce(started_at, now())`), and
+/// every path that completes a job without a worker-measured duration — a
+/// cancel, the child-failure handler — falls back to `now() - started_at`.
+/// Left pointing at the first segment, that fallback reports the whole sleep
+/// or approval wait as execution time, which on cloud is billed as compute
+/// seconds.
+pub async fn suspend_wac_parent(
+    tx: &mut Transaction<'_, Postgres>,
+    job_id: &Uuid,
+    w_id: &str,
+    suspend: i32,
+    suspend_secs: f64,
+) -> error::Result<()> {
+    sqlx::query!(
+        "UPDATE v2_job_queue
+         SET suspend = $3, suspend_until = now() + make_interval(secs => $4), started_at = null
+         WHERE id = $1 AND workspace_id = $2",
+        job_id,
+        w_id,
+        suspend,
+        suspend_secs,
+    )
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| Error::internal_err(format!("Failed to suspend WAC parent job {job_id}: {e}")))?;
+    Ok(())
 }
 
 /// Parse the WAC result from result.json content.

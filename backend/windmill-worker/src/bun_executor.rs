@@ -2871,24 +2871,16 @@ pub async fn handle_wac_v2_output(
                     })?;
                 }
 
-                // Suspend parent before children become visible.
-                // Keep running = true so the normal pull query ignores it.
-                // The suspended pull query picks it up when suspend reaches 0
-                // (it checks: suspend_until IS NOT NULL AND suspend <= 0).
-                let suspend_count = num_steps as i32;
-                sqlx::query!(
-                    "UPDATE v2_job_queue SET suspend = $2, suspend_until = now() + interval '14 day' WHERE id = $1",
-                    job.id,
-                    suspend_count,
+                // Suspend parent before children become visible, so a child that
+                // completes immediately finds a parked parent to decrement.
+                crate::wac_executor::suspend_wac_parent(
+                    &mut tx,
+                    &job.id,
+                    &job.workspace_id,
+                    num_steps as i32,
+                    14.0 * 24.0 * 3600.0,
                 )
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| {
-                    error::Error::internal_err(format!(
-                        "Failed to suspend WAC parent job {}: {e}",
-                        job.id
-                    ))
-                })?;
+                .await?;
 
                 tx.commit().await?;
             }
@@ -3361,12 +3353,13 @@ pub async fn handle_wac_v2_output(
             }
 
             // Suspend parent with suspend=1 (waiting for 1 approval event)
-            sqlx::query!(
-                "UPDATE v2_job_queue SET suspend = 1, suspend_until = now() + make_interval(secs => $2) WHERE id = $1",
-                job.id,
+            crate::wac_executor::suspend_wac_parent(
+                &mut tx,
+                &job.id,
+                &job.workspace_id,
+                1,
                 timeout_secs,
             )
-            .execute(&mut *tx)
             .await?;
 
             tx.commit().await?;
@@ -3453,15 +3446,15 @@ pub async fn handle_wac_v2_output(
                 })?;
             }
 
-            // Suspend parent — it will auto-resume when suspend_until passes.
             // Use suspend=1 (not 0) so the suspended pull query only picks it up
             // when `suspend_until <= now()`, not via `suspend <= 0`.
-            sqlx::query!(
-                "UPDATE v2_job_queue SET suspend = 1, suspend_until = now() + make_interval(secs => $2) WHERE id = $1",
-                job.id,
+            crate::wac_executor::suspend_wac_parent(
+                &mut tx,
+                &job.id,
+                &job.workspace_id,
+                1,
                 sleep_secs,
             )
-            .execute(&mut *tx)
             .await?;
 
             tx.commit().await?;
