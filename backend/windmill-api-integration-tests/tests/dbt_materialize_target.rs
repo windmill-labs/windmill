@@ -95,6 +95,10 @@ async fn test_dbt_materialize_target_deploy_contract(db: Pool<Postgres>) -> anyh
     )
     .await;
     assert_eq!(resp.status(), 201);
+    // The create response, not `{:x}` over the stored i64: `ScriptHash` decodes
+    // hex and demands 8 bytes, while `LowerHex` drops leading zeros, so a hash
+    // under 2^60 would 422 the rename below instead of reaching the refusal.
+    let ingest_hash = resp.text().await?;
     let write = sqlx::query_scalar!(
         "SELECT path FROM asset WHERE workspace_id = 'test-workspace' AND kind = 'dbt' \
            AND usage_path = 'u/test-user/ingest' AND usage_access_type = 'w'"
@@ -150,12 +154,6 @@ async fn test_dbt_materialize_target_deploy_contract(db: Pool<Postgres>) -> anyh
     // OLD path in the committed snapshot this deploy reads, while the same
     // transaction removes it — so it must not count as the producer that would
     // wake the subscription the rename adds.
-    let hash = sqlx::query_scalar!(
-        "SELECT hash FROM script WHERE workspace_id = 'test-workspace' \
-           AND path = 'u/test-user/ingest' AND archived = false"
-    )
-    .fetch_one(&db)
-    .await?;
     sqlx::query!(
         "INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind)
          VALUES ('test-workspace', 'main/analytics/orders', 'dbt', 'w', 'u/test-user/project',
@@ -168,7 +166,7 @@ async fn test_dbt_materialize_target_deploy_contract(db: Pool<Postgres>) -> anyh
     )))
     .json(&json!({
         "path": "u/test-user/ingest_renamed",
-        "parent_hash": format!("{:x}", hash),
+        "parent_hash": ingest_hash,
         "summary": "",
         "description": "",
         "content": "// on dbt://main/analytics/orders\nexport async function main() {}",
