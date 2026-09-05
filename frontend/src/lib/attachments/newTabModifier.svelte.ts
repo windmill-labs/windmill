@@ -58,5 +58,9 @@ export const trackNewTabModifier: Attachment<HTMLElement> = (node) => {
 	}
 }
 
-/** True while the new-tab modifier is held over an element tracked by {@link trackNewTabModifier}. */
-export const newTabModifier = state
+/** `held` is true while the new-tab modifier is held over an element tracked by {@link trackNewTabModifier}. */
+export const newTabModifier = {
+	get held() {
+		return state.held
+	}
+}
