@@ -1116,13 +1116,18 @@ async fn validate_dbt_relation(
         )));
     }
     let warehouse = relation.split('/').next().unwrap_or_default();
+    // Only the resolver's own "no such warehouse" is the annotation's fault. Its
+    // other failures are the query and a malformed setting, and blanket-mapping
+    // those to 400 would tell a retrying sync that a pool timeout is a permanent
+    // client error.
     windmill_common::workspaces::dbt_warehouse_exists(db, w_id, warehouse)
         .await
-        .map_err(|e| {
-            Error::BadRequest(format!(
+        .map_err(|e| match e {
+            Error::NotFound(_) => Error::BadRequest(format!(
                 "{what} `dbt://{relation}` names a warehouse this workspace does not \
                  configure: {e}"
-            ))
+            )),
+            other => other,
         })
 }
 

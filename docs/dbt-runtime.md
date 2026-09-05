@@ -707,12 +707,20 @@ warehouse answers to is not a namespace, it strands the write on a node nothing
 else reaches.
 
 Known boundary, shared with every other runtime pipeline annotation: the record
-is written from the normal execution path, which a job handed to a **dedicated
-worker or a flow runner** never enters — those bypass it exactly as they bypass
-`// partitioned` resolution. Such a run performs its write and cascades (the
-fan-out reads the deploy-time `asset` rows) but records no row, so the relation
-shows no last writer. Fixing it is one change for all of those annotations, not
-this one.
+is written from the normal execution path, and recording and cascading are decided
+separately, so the three routes off it differ.
+
+* A **dedicated worker** never enters that path — it bypasses the record exactly
+  as it bypasses `// partitioned` resolution — while its job is still a top-level
+  `Script`, so the fan-out (which reads the deploy-time `asset` rows) runs. It
+  cascades and records nothing, leaving the relation with no last writer.
+* A **flow runner** bypasses the path too, and is routed by `flow_step_id`, which
+  `is_eligible_kind` rejects. Neither record nor cascade.
+* An ordinary **flow step** does enter the path and its kind is `Script`, so it
+  records — and is still a flow step, so it never cascades.
+
+Fixing the recording half is one change for every runtime pipeline annotation,
+not this one.
 
 A `# on dbt://<relation>` subscription is held to the same relation a producer
 is — a whole `<warehouse>/<schema>/<name>` under a configured warehouse, checked
@@ -1292,8 +1300,9 @@ Against a real dbt project (jaffle_shop shape) and the local Postgres:
 7. **Declared write**: a native `// materialize manual dbt://<relation>` script
    and a dbt project reading that relation as a `source` render as one node; a
    run of the script records its materialization and wakes a
-   `# on dbt://<relation>` subscriber — a subscription only that producer's
-   existence makes deployable (see "no cascade *from* dbt").
+   `# on dbt://<relation>` subscriber — a subscription only that producer makes
+   wakeable, the dbt project reading the relation being no producer of it (see
+   "no cascade *from* dbt").
 8. **Selection**: descriptor `select`/`exclude`, and a run-arg override, each
    build only the expected subset.
 9. **Dynamic descriptors**: a `{{ }}` placeholder in `vars` re-ingests the graph
