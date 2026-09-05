@@ -309,6 +309,14 @@
 		})
 	})
 
+	/** The schema can only ever write `args`. `path`, `labels`, `description` and
+	 * `wsSpecific` are beyond its reach, so a difference in one of those is the
+	 * user's — whatever event did or didn't reach the gate. Removing a label runs
+	 * a click handler and emits nothing native, and would otherwise be absorbed. */
+	function differsOutsideArgs(a: ResourceState, b: ResourceState | undefined): boolean {
+		return !!b && !draftValuesEqual({ ...a, args: null }, { ...b, args: null })
+	}
+
 	// Absorb the form's settling writes into the deployed baseline while the
 	// selected workspace is gated, so they show up neither as the "unsaved
 	// changes" banner nor, once `discardIf` reads the baseline, as a draft.
@@ -322,7 +330,14 @@
 			? ($state.snapshot(states[ws].draft) as ResourceState)
 			: undefined
 		untrack(() => {
-			if (settled && !draftValuesEqual(settled, initialStates[ws])) initialStates[ws] = settled
+			if (!settled) return
+			if (differsOutsideArgs(settled, initialStates[ws])) {
+				// Open the gate rather than absorb: this is an edit, and the autosave
+				// has to come off suspension for it to persist.
+				userEdited[ws] = true
+				return
+			}
+			if (!draftValuesEqual(settled, initialStates[ws])) initialStates[ws] = settled
 		})
 	})
 
