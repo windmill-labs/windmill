@@ -24189,22 +24189,22 @@ paths:
 
   /w/{workspace}/assets/column_lineage:
     get:
-      summary: Column-level lineage of the dbt project a relation belongs to
+      summary: Column-level lineage of one dbt relation
       description: >
-        The direct (`copy` / `mod`) column-to-column lineage of the dbt project
-        the given relation belongs to, from the engine's static analysis. The
-        project's, not the relation's own edges: a column trace walks
-        transitively, so stopping at the asked-for relation would cut every hop
-        past its neighbours. The asset names the project and the version — it is
-        what the answer is keyed by, not what it is filtered to.
+        The direct (`copy` / `mod`) column-to-column lineage a relation's columns
+        sit in — the connected component within the dbt project that owns it,
+        from the engine's static analysis. Not the relation's own edges, which
+        would stop one hop out since a column trace walks transitively, and not
+        the whole project's, which carries model families the selected relation
+        cannot reach. The component is what the canvas lays out.
 
         Its own endpoint rather than a field on the asset graph: the graph is
         folder-wide and polled by a run page, while this is rendered for one
         selected asset at a time. A folder's worth of edges spans many projects
-        and many callers' access, so it needs a cap, and a cap has to come after
-        every filter; one project's is already bounded where it is written, so
-        the caller's scope and the project's visibility are simply decided once
-        for the owning script.
+        and many callers' access, so it would need a cap, and a cap has to come
+        after every filter that can drop a row. Here the filters are the answer:
+        the caller's scope and the project's visibility are decided once for the
+        owning script, and the size is bounded where the index is ingested.
 
         Empty for a project that did not opt into the analysis pass
         (`column_lineage: true`), which is the ordinary case. The indirect `scan`
@@ -26062,9 +26062,9 @@ components:
     DbtColumnLineage:
       type: object
       description: >-
-        The direct column-to-column lineage of the dbt project one relation
-        belongs to, in the terms the canvas draws — relations and columns, never
-        dbt's node ids.
+        The direct column-to-column lineage a relation's columns sit in — the
+        connected component within the project that owns it — in the terms the
+        canvas draws: relations and columns, never dbt's node ids.
       required: [edges]
       properties:
         edges:

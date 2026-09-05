@@ -25,7 +25,14 @@
 		DbtAssetProvenance
 	} from '$lib/components/assets/AssetGraph/types'
 	import { useDbtRunStatus } from './runStatus.svelte'
-	import type { DbtGraphPin } from '$lib/components/assets/AssetGraph/dbtColumnLineage.svelte'
+	import {
+		EMPTY_COLUMN_GRAPH,
+		type DbtGraphPin
+	} from '$lib/components/assets/AssetGraph/dbtColumnLineage.svelte'
+	import {
+		buildColumnGraph,
+		type ColumnLineageGraph
+	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
 
 	let {
 		workspace,
@@ -87,7 +94,13 @@
 			 *  when the panel is pinned to one, else the deployed version. Sent
 			 *  with the selection for the same reason the buffer is — it must not
 			 *  be able to disagree with the node on screen. */
-			pin: DbtGraphPin
+			pin: DbtGraphPin,
+			/** Column lineage the CONSUMERS of this project declare — a script
+			 *  reading a model's column and writing a ducklake one. It comes off
+			 *  the same graph response, and the details pane merges it with the
+			 *  project's own so a trace crosses that boundary instead of ending
+			 *  at it. */
+			producerColumns: ColumnLineageGraph
 		) => void
 	} = $props()
 
@@ -378,6 +391,12 @@
 		editorParsed && refreshJob ? { jobId: refreshJob } : { scriptHash: deployedHash }
 	)
 
+	// What the scripts around this project declare about its columns. Empty for
+	// the ordinary project nothing downstream annotates.
+	let producerColumns = $derived(
+		graph ? buildColumnGraph(graph) : EMPTY_COLUMN_GRAPH
+	)
+
 	// `untrack`, because the effect that reloads the graph clears the selection
 	// through here: reading the graph to describe a selection would subscribe that
 	// effect to the very state its own fetch writes, and it would reload forever.
@@ -389,7 +408,8 @@
 					? graph?.assets.find((a) => a.kind === sel.asset_kind && a.path === sel.path)?.dbt
 					: undefined,
 				editorParsed ? parsedBuffer : undefined,
-				pin
+				pin,
+				producerColumns
 			)
 		)
 	}

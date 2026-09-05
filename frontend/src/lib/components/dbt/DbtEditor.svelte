@@ -32,9 +32,14 @@
 		DbtAssetProvenance
 	} from '$lib/components/assets/AssetGraph/types'
 	import {
+		EMPTY_COLUMN_GRAPH,
 		useDbtColumnLineage,
 		type DbtGraphPin
 	} from '$lib/components/assets/AssetGraph/dbtColumnLineage.svelte'
+	import {
+		mergeColumnGraphs,
+		type ColumnLineageGraph
+	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
 	import {
 		DBT_DESCRIPTOR,
 		DBT_MODULE_EXTENSIONS,
@@ -222,6 +227,14 @@
 		assetPath: () => (selectedDbt ? selectedAsset?.path : undefined),
 		pin: () => selectionPin
 	})
+	// What the scripts around this project declare about its columns, off the
+	// same graph response the canvas drew. Merged rather than chosen between: a
+	// model's column and the ducklake column a script derives from it are one
+	// chain, and the trace has to cross that boundary.
+	let selectionProducerColumns = $state<ColumnLineageGraph>(EMPTY_COLUMN_GRAPH)
+	let selectionColumnGraph = $derived(
+		mergeColumnGraphs(columnLineage.graph, selectionProducerColumns)
+	)
 	// Set when the selected node came from a buffer parse: the project that parse
 	// ran on, which is the one its rows must come from. Undefined for a node off
 	// the deployed graph, which previews by version instead. Either way the rows
@@ -529,11 +542,12 @@
 						testRunning={testIsLoading}
 						testResult={testJob?.result}
 						selection={graphSelection}
-						onSelect={(sel, dbt, buffer, pin) => {
+						onSelect={(sel, dbt, buffer, pin, producerColumns) => {
 							graphSelection = sel
 							selectedDbt = dbt
 							selectedBuffer = buffer
 							selectionPin = pin
+							selectionProducerColumns = producerColumns
 						}}
 					/>
 				</Pane>
@@ -555,7 +569,7 @@
 							{args}
 							fileInBundle={!!selectedDbt.original_file_path &&
 								!!modules?.[selectedDbt.original_file_path]}
-							columnGraph={columnLineage.graph}
+							columnGraph={selectionColumnGraph}
 							columnLoading={columnLineage.loading}
 							onOpenFile={open}
 							onClose={() => (graphSelection = undefined)}

@@ -38,6 +38,10 @@ export function useDbtColumnLineage(args: {
 	let graph = $state<ColumnLineageGraph>(EMPTY_COLUMN_GRAPH)
 	let loading = $state(false)
 
+	// What the graph in hand describes, so a selection already inside it can be
+	// recognised without asking again.
+	let held: { workspace: string; pin: string } | undefined = undefined
+
 	$effect(() => {
 		const workspace = args.workspace()
 		const assetPath = args.assetPath()
@@ -48,6 +52,20 @@ export function useDbtColumnLineage(args: {
 			graph = EMPTY_COLUMN_GRAPH
 			loading = false
 			return
+		}
+		// The answer is one connected component, so every relation inside the one
+		// already held has the same answer — which is most clicks, since a
+		// project's models are connected by construction. Keyed to the graph the
+		// component was fetched against: the same relation under a different pin
+		// is a different project.
+		const key = `${workspace}|${jobId ?? ''}|${scriptHash ?? ''}`
+		if (held?.workspace === workspace && held.pin === key) {
+			for (const n of graph.nodes.values()) {
+				if (n.path === assetPath) {
+					loading = false
+					return
+				}
+			}
 		}
 		// A selection changes faster than a request completes, so an answer is
 		// applied only while it is still the one being asked for.
@@ -64,6 +82,7 @@ export function useDbtColumnLineage(args: {
 			(r) => {
 				if (!current) return
 				graph = buildDbtColumnGraph(r?.edges ?? [])
+				held = { workspace, pin: key }
 				loading = false
 			},
 			() => {
@@ -71,6 +90,7 @@ export function useDbtColumnLineage(args: {
 				// fetch shows no section rather than an error over the model.
 				if (!current) return
 				graph = EMPTY_COLUMN_GRAPH
+				held = undefined
 				loading = false
 			}
 		)

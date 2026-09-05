@@ -1231,17 +1231,29 @@ table is `ref()` lineage. The typed column list lands in
 the asset graph.** The graph is folder-wide and a run page polls it, while a
 column trace is drawn for one selected node; carried on the graph the edges would
 need a cap, and a cap has to be applied after every filter that can drop a row —
-scope, project visibility, the asset set actually rendered. Keyed to the asset
-there is no cap for a filter to sit on the wrong side of: the answer is one
-project's, already bounded where it is written (`MAX_COLUMN_EDGES` per version,
-of which only the direct kinds are served), and the caller's `scripts:read` scope
-and the project's visibility are decided once, for the script that owns the
-relation. The asset names the project and the version rather than filtering the
-edges — a trace walks transitively, so an answer cut to the selected relation's
-own edges would stop one hop out. Pinning to a run's snapshot or to the editor's
-parse of its own buffer costs the job-read gate, so that form is
-`jobs/dbt_column_lineage/{id}`, exactly as `jobs/dbt_graph/{id}` is to
-`assets/graph`.
+scope, project visibility, the asset set actually rendered. That ordering is what
+the separate endpoint removes rather than gets right: here the filters *are* the
+answer. The caller's `scripts:read` scope and the project's visibility are decided
+once in SQL, for the script that owns the relation; the size is bounded at ingest
+(`MAX_COLUMN_EDGES` per version, of which only the direct kinds are served); and
+what comes back is the **connected component** the relation's columns sit in,
+which is exactly what the canvas lays out. Neither the relation's own edges (a
+trace walks transitively, so that stops one hop out) nor the whole project's
+(model families the selection cannot reach). The component is walked in Rust over
+the rows the gated query returns, not by a recursive CTE: a CTE has no index to
+walk, so the recursive term rescans the whole edge set once per level — measured
+at 1.24s against 59ms for the query alone on a 3000-model project. Pinning to a
+run's snapshot or to the editor's parse of its own buffer costs the job-read gate,
+so that form is `jobs/dbt_column_lineage/{id}`, exactly as `jobs/dbt_graph/{id}`
+is to `assets/graph`.
+
+The two halves of a column trace are fetched separately and merged in the
+browser: the producer half — what a DuckDB script's `// column` annotations and
+inferred SQL lineage say — rides on the asset graph, and dbt's rides on this
+endpoint. They meet at shared node ids, since `// column total <-
+dbt://wh/analytics/orders.amount` mints the same `(dbt, path, column)` node dbt's
+own lineage does, so a trace crosses the boundary in both directions rather than
+ending at it.
 
 Both the lineage and `column_schema` are gated on being able to read the
 producing project, like the model's SQL: a column-level view is the shape of what

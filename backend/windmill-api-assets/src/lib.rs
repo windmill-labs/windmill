@@ -6,6 +6,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Row;
+use std::collections::{HashMap, HashSet};
 use windmill_common::{
     assets::{parse_asset_trigger_ref, AssetKind, AssetUsageKind},
     db::UserDB,
@@ -976,21 +977,23 @@ struct DbtColumnLineageEdge {
     kind: String,
 }
 
-/// The column-level lineage of the dbt project one relation belongs to.
+/// One dbt relation's column lineage: the connected component its columns sit
+/// in, within the project that owns it.
 ///
-/// The PROJECT's, not the relation's own edges: a trace walks transitively, so
-/// stopping at the asked-for relation would cut every hop past its neighbours.
-/// The asset is what the answer is keyed BY — it names the project and the
-/// version — not what it is filtered to.
+/// Not the relation's own edges, which would stop one hop out — a trace walks
+/// transitively — and not the whole project's, which carries families the
+/// selected relation cannot reach. The component is what the canvas lays out,
+/// so it is exactly what a consumer can draw.
 ///
-/// Keyed that way rather than carried on the graph, which is folder-wide and
+/// Its own endpoint rather than a field on the graph, which is folder-wide and
 /// polled by a run page while this is rendered for a single selection. A
 /// folder's worth of edges spans many projects and many callers' access, so it
-/// needs a bound, and a bound has to be applied after every filter that could
-/// drop a row. One project's is already bounded where it is written
-/// (`MAX_COLUMN_EDGES` per version, of which only the direct kinds are served),
-/// so there is nothing here for a filter to be on the wrong side of: scope and
-/// visibility are decided once, for the script that owns the relation.
+/// would need a cap, and a cap has to be applied after every filter that could
+/// drop a row — which is the ordering this shape removes rather than gets
+/// right. Here the filters ARE the answer: scope and visibility are decided
+/// once in SQL for the script that owns the relation, the component is walked
+/// over what that returns, and the size is bounded at ingest
+/// (`MAX_COLUMN_EDGES` per version, of which only the direct kinds are served).
 #[derive(Deserialize)]
 pub struct ColumnLineageQuery {
     /// The `dbt://` relation whose lineage to return.
@@ -1003,9 +1006,9 @@ pub struct ColumnLineageQuery {
 
 #[derive(Serialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ColumnLineageResponse {
-    /// Direct (`copy` / `mod`) column edges of the project this relation belongs
-    /// to, in the terms the canvas draws. Empty when the project never asked for
-    /// the analysis pass, which is the ordinary case.
+    /// Direct (`copy` / `mod`) column edges of the component this relation's
+    /// columns sit in, in the terms the canvas draws. Empty when the project
+    /// never asked for the analysis pass, which is the ordinary case.
     edges: Vec<DbtColumnLineageEdge>,
 }
 
@@ -1050,7 +1053,7 @@ pub async fn dbt_column_lineage_for(
     let pinned_job_id = pinned.as_ref().map(|p| p.job_id);
     let mut tx = user_db.begin(authed).await?;
     let rows = sqlx::query!(
-        r#"WITH RECURSIVE
+        r#"WITH
            -- The project version that owns the asked-for relation, in the graph
            -- on screen. Not the folder-wide `live` set the graph resolves: one
            -- asset is asked about here, so the version is decided per candidate
@@ -1110,77 +1113,31 @@ pub async fn dbt_column_lineage_for(
                                 AND sc.deleted = false AND sc.archived = false
                               ORDER BY sc.created_at DESC LIMIT 1)
                     END
-           ),
-           -- The owning project's direct edges, resolved to relations once.
-           --
+           )
            -- DIRECT kinds only. `scan` — the column was read to produce the ROW,
            -- not the value — reaches every output column of its model, so it is
            -- most of a project's stored lineage and none of what a trace draws.
            -- It stays in the table for a later view to ask for.
-           edge AS (
-             SELECT e.script_path, e.script_hash, e.job_id, e.lineage_kind,
-                    e.parent_unique_id, e.parent_column, p.asset_path AS from_path,
-                    e.child_unique_id, e.child_column, c.asset_path AS to_path
-               FROM dbt_column_edge e
-               JOIN owner o ON o.script_path = e.script_path
-                           AND o.script_hash IS NOT DISTINCT FROM e.script_hash
-                           AND o.job_id = e.job_id
-               JOIN dbt_node p ON p.workspace_id = e.workspace_id
-                              AND p.script_path = e.script_path
-                              AND p.script_hash IS NOT DISTINCT FROM e.script_hash
-                              AND p.job_id = e.job_id
-                              AND p.unique_id = e.parent_unique_id
-               JOIN dbt_node c ON c.workspace_id = e.workspace_id
-                              AND c.script_path = e.script_path
-                              AND c.script_hash IS NOT DISTINCT FROM e.script_hash
-                              AND c.job_id = e.job_id
-                              AND c.unique_id = e.child_unique_id
-              WHERE e.workspace_id = $1
-                AND e.lineage_kind IN ('copy', 'mod')
-                AND p.asset_path IS NOT NULL AND c.asset_path IS NOT NULL
-           ),
-           -- Both directions of every edge. A trace walks up AND down, and a
-           -- recursive term may reference the working table only once, so the
-           -- symmetry has to live here rather than in two recursive branches.
-           adj AS (
-             SELECT script_path, script_hash, job_id,
-                    parent_unique_id AS a_uid, parent_column AS a_col, from_path AS a_path,
-                    child_unique_id  AS b_uid, child_column  AS b_col
-               FROM edge
-             UNION ALL
-             SELECT script_path, script_hash, job_id,
-                    child_unique_id, child_column, to_path,
-                    parent_unique_id, parent_column
-               FROM edge
-           ),
-           -- Every column the asked-for relation's columns can reach, either
-           -- way. This is exactly what the canvas draws — it lays out the
-           -- connected component of the selected relation's columns — so
-           -- answering with the whole project would send edges no consumer can
-           -- render. The project key travels along: two projects can describe
-           -- one relation, and dbt's node ids are per project, so a shared
-           -- `unique_id` must not walk from one project's graph into another's.
-           reach AS (
-             SELECT script_path, script_hash, job_id, a_uid AS uid, a_col AS col
-               FROM adj WHERE a_path = $2
-             UNION
-             SELECT a.script_path, a.script_hash, a.job_id, a.b_uid, a.b_col
-               FROM adj a
-               JOIN reach r ON r.script_path = a.script_path
-                           AND r.script_hash IS NOT DISTINCT FROM a.script_hash
-                           AND r.job_id = a.job_id
-                           AND r.uid = a.a_uid AND r.col = a.a_col
-           )
-           -- One endpoint in the component puts the other there too, so matching
-           -- the parent alone is the whole component and matches each edge once.
-           SELECT e.from_path AS "from_path!", e.parent_column AS "from_column!",
-                  e.to_path AS "to_path!", e.child_column AS "to_column!",
+           SELECT p.asset_path AS "from_path!", e.parent_column AS "from_column!",
+                  c.asset_path AS "to_path!", e.child_column AS "to_column!",
                   e.lineage_kind AS "kind!"
-             FROM edge e
-             JOIN reach r ON r.script_path = e.script_path
-                         AND r.script_hash IS NOT DISTINCT FROM e.script_hash
-                         AND r.job_id = e.job_id
-                         AND r.uid = e.parent_unique_id AND r.col = e.parent_column"#,
+             FROM dbt_column_edge e
+             JOIN owner o ON o.script_path = e.script_path
+                         AND o.script_hash IS NOT DISTINCT FROM e.script_hash
+                         AND o.job_id = e.job_id
+             JOIN dbt_node p ON p.workspace_id = e.workspace_id
+                            AND p.script_path = e.script_path
+                            AND p.script_hash IS NOT DISTINCT FROM e.script_hash
+                            AND p.job_id = e.job_id
+                            AND p.unique_id = e.parent_unique_id
+             JOIN dbt_node c ON c.workspace_id = e.workspace_id
+                            AND c.script_path = e.script_path
+                            AND c.script_hash IS NOT DISTINCT FROM e.script_hash
+                            AND c.job_id = e.job_id
+                            AND c.unique_id = e.child_unique_id
+            WHERE e.workspace_id = $1
+              AND e.lineage_kind IN ('copy', 'mod')
+              AND p.asset_path IS NOT NULL AND c.asset_path IS NOT NULL"#,
         w_id,
         q.asset_path,
         script_hash,
@@ -1207,7 +1164,61 @@ pub async fn dbt_column_lineage_for(
     // Two projects can describe one relation, so the same edge can arrive twice.
     edges.sort();
     edges.dedup();
-    Ok(Json(ColumnLineageResponse { edges }))
+    Ok(Json(ColumnLineageResponse {
+        edges: component(edges, &q.asset_path),
+    }))
+}
+
+/// Keep the edges of the connected component the asked-for relation sits in.
+///
+/// The canvas lays out the component of the selected relation's columns, so a
+/// project's other model families are edges nothing it draws can reach. Walked
+/// here rather than in SQL: a recursive CTE has no index to walk, so it rescans
+/// the whole edge set once per level — measured at 1.24s against 59ms for the
+/// query alone on a 3000-model project, for a walk that is microseconds over a
+/// map. Columns are keyed by relation, not by project, which is how the canvas
+/// keys them too: two projects describing one relation draw one node.
+fn component(mut edges: Vec<DbtColumnLineageEdge>, asset_path: &str) -> Vec<DbtColumnLineageEdge> {
+    let keep = {
+        let mut incident: HashMap<(&str, &str), Vec<usize>> = HashMap::new();
+        for (i, e) in edges.iter().enumerate() {
+            let from = (e.from_asset_path.as_str(), e.from_column.as_str());
+            let to = (e.to_asset_path.as_str(), e.to_column.as_str());
+            incident.entry(from).or_default().push(i);
+            incident.entry(to).or_default().push(i);
+        }
+        let mut stack: Vec<(&str, &str)> = incident
+            .keys()
+            .filter(|(path, _)| *path == asset_path)
+            .copied()
+            .collect();
+        let mut seen_node: HashSet<(&str, &str)> = stack.iter().copied().collect();
+        let mut seen_edge = vec![false; edges.len()];
+        while let Some(node) = stack.pop() {
+            for &i in incident.get(&node).map(Vec::as_slice).unwrap_or_default() {
+                if std::mem::replace(&mut seen_edge[i], true) {
+                    continue;
+                }
+                let e = &edges[i];
+                let ends = [
+                    (e.from_asset_path.as_str(), e.from_column.as_str()),
+                    (e.to_asset_path.as_str(), e.to_column.as_str()),
+                ];
+                for end in ends {
+                    if seen_node.insert(end) {
+                        stack.push(end);
+                    }
+                }
+            }
+        }
+        seen_edge
+    };
+    let mut i = 0;
+    edges.retain(|_| {
+        i += 1;
+        keep[i - 1]
+    });
+    edges
 }
 
 async fn asset_graph(

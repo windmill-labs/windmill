@@ -376,18 +376,20 @@ fn read_index_blocking(
         // budget's worth however the kinds are distributed.
         let held = out.edges.len() + scan.len();
         if is_direct(&edge.lineage_kind) {
-            // Full of the kind that displaces the other: nothing later in the
-            // file can be kept, so this is where the read ends.
-            if out.edges.len() >= MAX_COLUMN_EDGES {
-                return ControlFlow::Break(());
-            }
             // A direct edge displaces a `scan` one: the budget exists to be
             // spent on what a trace draws.
             if held >= MAX_COLUMN_EDGES {
                 scan.pop();
             }
             out.edges.push(edge);
-            return ControlFlow::Continue(());
+            // The edge that FILLS the budget ends the read, not the next one to
+            // arrive: once the displacing kind is full nothing later in the file
+            // can be kept, and waiting for another direct edge to say so decodes
+            // a `scan`-only tail all the way to the backstop for nothing.
+            return match out.edges.len() >= MAX_COLUMN_EDGES {
+                true => ControlFlow::Break(()),
+                false => ControlFlow::Continue(()),
+            };
         }
         if held < MAX_COLUMN_EDGES {
             scan.push(edge);

@@ -32,7 +32,12 @@
 	import PipelineModeToggle from '$lib/components/assets/AssetGraph/PipelineModeToggle.svelte'
 	import MacroExplorerDrawer from '$lib/components/assets/AssetGraph/MacroExplorerDrawer.svelte'
 	import { parsePipelineAnnotations } from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
-	import { buildColumnGraph } from '$lib/components/assets/AssetGraph/columnLineageGraph'
+	import {
+		assetColumnNodes,
+		buildColumnGraph,
+		connectedComponent,
+		mergeColumnGraphs
+	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
 	import {
 		EMPTY_COLUMN_GRAPH,
 		useDbtColumnLineage
@@ -1988,8 +1993,9 @@
 	// overlays in edit / show-drafts, deployed-only in plain View. Gated to a
 	// ducklake selection so it isn't rebuilt on every editor keystroke when the
 	// trace UI isn't even shown.
-	let ducklakeColumnGraph = $derived(
-		pe.selection?.kind === 'asset' && pe.selection.asset_kind === 'ducklake'
+	let producerColumnGraph = $derived(
+		pe.selection?.kind === 'asset' &&
+			(pe.selection.asset_kind === 'ducklake' || pe.selection.asset_kind === 'dbt')
 			? buildColumnGraph(displayGraph)
 			: EMPTY_COLUMN_GRAPH
 	)
@@ -1997,18 +2003,30 @@
 	// is stored per relation and only exists if the descriptor asked for it, so
 	// the folder-wide graph does not carry it. A draft is never asked about —
 	// nothing has parsed it, so there is nothing to fetch.
+	//
+	// The relation to ask about is the selected one when it IS a dbt relation,
+	// and otherwise the dbt column a producer feeding this selection names as a
+	// source — the boundary node above. Asking there is what lets a ducklake
+	// selection trace back up the dbt project that fed it, rather than stopping
+	// at the annotation.
+	let dbtSeedPath = $derived.by(() => {
+		const sel = pe.selection
+		if (pe.activeDraft || sel?.kind !== 'asset') return undefined
+		if (sel.asset_kind === 'dbt') return sel.path
+		const seeds = assetColumnNodes(producerColumnGraph, sel.asset_kind, sel.path)
+		for (const id of connectedComponent(seeds, producerColumnGraph)) {
+			const node = producerColumnGraph.nodes.get(id)
+			if (node?.kind === 'dbt') return node.path
+		}
+		return undefined
+	})
 	const dbtColumnLineage = useDbtColumnLineage({
 		workspace: () => $workspaceStore,
-		assetPath: () =>
-			!pe.activeDraft && pe.selection?.kind === 'asset' && pe.selection.asset_kind === 'dbt'
-				? pe.selection.path
-				: undefined
+		assetPath: () => dbtSeedPath
 	})
-	let columnGraph = $derived(
-		pe.selection?.kind === 'asset' && pe.selection.asset_kind === 'dbt'
-			? dbtColumnLineage.graph
-			: ducklakeColumnGraph
-	)
+	// One graph across both, so a trace crosses the dbt/ducklake boundary in
+	// either direction rather than stopping at it.
+	let columnGraph = $derived(mergeColumnGraphs(producerColumnGraph, dbtColumnLineage.graph))
 
 	// Producer-side facts for the editor's live schema-contract diagnostics:
 	// which assets are muted (`on_schema_change=ignore`) and which `_current`

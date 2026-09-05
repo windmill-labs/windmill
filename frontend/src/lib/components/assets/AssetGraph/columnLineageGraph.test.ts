@@ -4,6 +4,8 @@ import {
 	buildColumnGraph,
 	buildDbtColumnGraph,
 	colNodeId,
+	mergeColumnGraphs,
+	type ColumnLineageGraph,
 	traceColumn,
 	connectedComponent,
 	assetColumnNodes,
@@ -156,6 +158,40 @@ describe('buildDbtColumnGraph', () => {
 		)
 		expect(g.up.get(colNodeId('dbt', 'main/s/mart', 'id'))).toEqual(
 			new Set([colNodeId('dbt', 'main/s/stg', 'id')])
+		)
+	})
+})
+
+describe('mergeColumnGraphs', () => {
+	it('chains a dbt column into what a producer derives from it', () => {
+		// The two halves arrive separately — the producer's from the asset graph,
+		// dbt's from its own request — and meet at the dbt node a `// column`
+		// annotation names. A trace has to cross that, or a dbt selection stops
+		// before the script consuming it.
+		const dbt = buildDbtColumnGraph([
+			{
+				from_asset_path: 'main/s/stg',
+				from_column: 'raw',
+				to_asset_path: 'main/s/mart',
+				to_column: 'clean',
+				kind: 'copy'
+			}
+		])
+		const producer: ColumnLineageGraph = {
+			nodes: new Map(),
+			up: new Map(),
+			down: new Map()
+		}
+		const src = colNodeId('dbt', 'main/s/mart', 'clean')
+		const out = colNodeId('ducklake', 'wh/report', 'total')
+		producer.nodes.set(src, { kind: 'dbt', path: 'main/s/mart', column: 'clean' })
+		producer.nodes.set(out, { kind: 'ducklake', path: 'wh/report', column: 'total' })
+		producer.up.set(out, new Set([src]))
+		producer.down.set(src, new Set([out]))
+
+		const merged = mergeColumnGraphs(dbt, producer)
+		expect(traceColumn(colNodeId('dbt', 'main/s/stg', 'raw'), merged)).toEqual(
+			new Set([colNodeId('dbt', 'main/s/stg', 'raw'), src, out])
 		)
 	})
 })

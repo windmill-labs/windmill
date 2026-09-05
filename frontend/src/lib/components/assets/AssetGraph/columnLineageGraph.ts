@@ -128,6 +128,34 @@ export function buildDbtColumnGraph(edges: DbtColumnEdge[]): ColumnLineageGraph 
 	return { nodes, up, down }
 }
 
+// One graph out of several, so a trace crosses the boundary between them.
+//
+// The two halves reach each other through shared node ids: a producer's
+// `// column out <- dbt://wh/schema/model.col` puts a `('dbt', path, column)`
+// node in the producer graph under the same `colNodeId` the dbt lineage mints
+// for it, so the union chains a dbt model's columns into the script that
+// consumes them and on into what that script writes. Kept separate up to here
+// because they are fetched separately — the producer half rides on the asset
+// graph, the dbt half is asked for per selection.
+export function mergeColumnGraphs(...graphs: ColumnLineageGraph[]): ColumnLineageGraph {
+	const nodes = new Map<ColumnNodeId, ColumnNode>()
+	const up = new Map<ColumnNodeId, Set<ColumnNodeId>>()
+	const down = new Map<ColumnNodeId, Set<ColumnNodeId>>()
+	for (const g of graphs) {
+		for (const [id, n] of g.nodes) if (!nodes.has(id)) nodes.set(id, n)
+		for (const [dir, into] of [
+			[g.up, up],
+			[g.down, down]
+		] as const) {
+			for (const [id, adj] of dir) {
+				const target = into.get(id) ?? into.set(id, new Set()).get(id)!
+				for (const m of adj) target.add(m)
+			}
+		}
+	}
+	return { nodes, up, down }
+}
+
 // Every node reachable from `start` by following `adj` (transitive closure,
 // excluding `start` itself). Iterative to avoid deep-recursion limits.
 function reach(start: ColumnNodeId, adj: Map<ColumnNodeId, Set<ColumnNodeId>>): Set<ColumnNodeId> {
