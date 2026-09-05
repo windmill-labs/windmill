@@ -708,7 +708,7 @@ else reaches.
 
 Known boundary, shared with every other runtime pipeline annotation: the record
 is written from the normal execution path, and recording and cascading are decided
-separately, so the three routes off it differ.
+separately, so the routes off it differ.
 
 * A **dedicated worker** never enters that path — it bypasses the record exactly
   as it bypasses `// partitioned` resolution — while its job is still a top-level
@@ -716,8 +716,10 @@ separately, so the three routes off it differ.
   cascades and records nothing, leaving the relation with no last writer.
 * A **flow runner** bypasses the path too, and is routed by `flow_step_id`, which
   `is_eligible_kind` rejects. Neither record nor cascade.
-* An ordinary **flow step** does enter the path and its kind is `Script`, so it
-  records — and is still a flow step, so it never cascades.
+* A **flow step running a deployed script** enters the path as a `Script` job, so
+  it records — and carries a `flow_step_id`, so it never cascades.
+* A **flow step with an inline body** is a `FlowScript` job, which the recording
+  guard excludes along with previews: neither.
 
 Fixing the recording half is one change for every runtime pipeline annotation,
 not this one.
