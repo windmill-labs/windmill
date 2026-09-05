@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_queue\n         SET suspend = $3, suspend_until = now() + make_interval(secs => $4), started_at = null\n         WHERE id = $1 AND workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int4",
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f0498c9bddc0d4d8948167f3ed849bf8b3523d8dde1ef6b8f1950423830cc6ed"
+}
