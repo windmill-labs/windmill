@@ -124,6 +124,9 @@ export type ClearLiveEditorDraftOptions = UserDraftOptions & {
 }
 
 const entries = new Map<string, DraftEntry>()
+// Cells whose last `seed` found no live entry (see `takeSeedMiss`). Bounded by
+// the seeds that missed and not yet been read back, and each entry is one key.
+const seedMisses = new Set<string>()
 const liveEditorDrafts = new Map<string, LiveEditorDraft>()
 /**
  * Map keys whose entry should start `syncSuspended` on acquire. Lets
@@ -395,25 +398,33 @@ export const UserDraft = {
 	 * is still needed when a write fans out across components (e.g. an
 	 * editor's `initContent` cascading into the bound value).
 	 *
-	 * No-op if the entry isn't live yet (acquire via `use`/`useMany` first).
+	 * No-op if the entry isn't live yet (acquire via `use`/`useMany` first) —
+	 * recorded for {@link takeSeedMiss}, since the value then reached the server
+	 * without reaching the editor that will show it.
 	 */
-	/**
-	 * Whether a mounted editor currently holds this cell — i.e. whether {@link seed}
-	 * would reach one rather than no-op. An editor acquires its cell only once its
-	 * first load resolves, so this is false while one is still loading, and a
-	 * caller that seeded then has to reconcile the editor some other way.
-	 */
-	hasLiveEntry(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): boolean {
-		return entries.has(mapKey(resolveWorkspace(opts), itemKind, path))
-	},
-
 	seed<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
-		if (!entry) return
+		if (!entry) {
+			seedMisses.add(mk)
+			return
+		}
+		seedMisses.delete(mk)
 		entry.seedNextWrite = true
 		entry.state.val = snapshotDraftValue(value)
+	},
+
+	/**
+	 * Whether the last {@link seed} for this cell found no live entry, clearing the
+	 * record. An editor acquires its cell only once its first load resolves, so a
+	 * seed during that window reaches nothing and the value lands on the server
+	 * alone — a caller showing that editor has to make it re-read. Recorded at the
+	 * seed rather than asked afterwards: by then the editor may have acquired the
+	 * cell, hiding the very miss this reports.
+	 */
+	takeSeedMiss(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): boolean {
+		return seedMisses.delete(mapKey(resolveWorkspace(opts), itemKind, path))
 	},
 
 	/**

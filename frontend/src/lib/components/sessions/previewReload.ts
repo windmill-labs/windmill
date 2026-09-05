@@ -64,7 +64,10 @@ export function toolReloadEffect(name: string, args: any): ToolReloadEffect {
 }
 
 function itemPath(args: any): string | undefined {
-	return typeof args?.path === 'string' && args.path ? args.path : undefined
+	// write_trigger carries the item under `config` (see writeTriggerDraft), unlike
+	// every other tool here, which names it at the top level.
+	const p = args?.path ?? args?.config?.path
+	return typeof p === 'string' && p ? p : undefined
 }
 
 /** One item mutation from a chat round, as the preview needs to read it back. */

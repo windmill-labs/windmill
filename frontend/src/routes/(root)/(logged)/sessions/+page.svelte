@@ -621,10 +621,11 @@
 			if (pages.length === 0) return
 			for (const p of pages) pendingPages.add(p)
 			// A write reaches a hosted editor through the draft cell it holds, but an
-			// editor still loading holds none yet and `seed` no-opped past it — so ask
-			// whether the cell was live, and refresh the ones the write missed.
+			// editor still loading holds none yet and the seed no-opped past it. The
+			// miss is recorded when it happens — asking now would be too late, since
+			// the editor can have acquired the cell during the write's round-trip.
 			const kind = path ? entityKindForPage(pages[0]) : undefined
-			const seedReachedEditor = !kind || !path || UserDraft.hasLiveEntry(kind, path, { workspace })
+			const seedReachedEditor = !kind || !path || !UserDraft.takeSeedMiss(kind, path, { workspace })
 			const effect = effectForWrite(entity, seedReachedEditor)
 			if (effect !== 'none') pendingMutations.push({ pages, effect, path, workspace })
 			clearTimeout(reloadHandle)
