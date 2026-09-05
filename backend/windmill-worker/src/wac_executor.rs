@@ -145,7 +145,7 @@ pub async fn suspend_wac_parent(
 ///
 /// Call this only where the parent really parks. On a rollback that goes on to complete
 /// the job, the completion charges the same segment and it would be billed twice.
-pub fn end_wac_segment(
+pub(crate) fn end_wac_segment(
     _conn: &windmill_common::worker::Connection,
     _job: &windmill_queue::MiniPulledJob,
     _segment_ms: Option<i64>,

@@ -2085,6 +2085,9 @@ fn apply_completed_job_cloud_usage(
 ///
 /// Fire-and-forget, like every other write to `usage`: billing must never hold up the
 /// job that produced it.
+///
+/// `w_id` and `email` are billed as given and authorize nothing on their own — take them
+/// from a job the caller already holds, never from request input.
 #[cfg(feature = "cloud")]
 pub fn meter_execution_seconds(db: &Pool<Postgres>, w_id: &str, email: &str, _duration: i64) {
     if *CLOUD_HOSTED && _duration > 1000 {
