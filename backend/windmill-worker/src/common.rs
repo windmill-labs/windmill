@@ -67,6 +67,101 @@ mount {
 #[cfg(not(debug_assertions))]
 pub const DEV_CONF_NSJAIL: &str = "";
 
+/// Error-serialization helpers injected into every generated Bun/Deno wrapper.
+///
+/// A script can throw anything, so neither reading `e.message` nor a bare
+/// `JSON.stringify` is safe: `throw null` and errors that link two objects both ways
+/// (axios hangs `response` off `request` and back) abort the wrapper itself, and the
+/// job then reports the wrapper's own stack instead of what the script threw.
+///
+/// `collectExtra` must stay false on every wrapper that did not already report the
+/// thrown value's own properties, which is all of them but the two Bun script wrappers.
+/// Enabling it there would newly persist whatever an HTTP client hangs off its errors,
+/// credential-bearing headers included, into existing scripts' run history.
+///
+/// What a thrown object holds is reported only through the one plain `JSON.stringify` the
+/// wrappers already did, so nothing reaches a result that the bare call did not already put
+/// there. What used to crash reports the thrown value's own strings and a marker instead:
+/// an HTTP client hangs its whole request off a cyclic error, credentials and mTLS keys
+/// included, and no blocklist of key names is complete enough to render that graph safely.
+///
+/// Comment-free on purpose: it is written into each job's wrapper source.
+pub const JS_ERROR_SERIALIZER: &str = r#"
+const wmErrOwnKeys = ['line', 'name', 'stack', 'column', 'message', 'sourceURL', 'originalLine', 'originalColumn'];
+
+function wmErrString(v) {
+    if (typeof v === 'string') return v;
+    try {
+        return String(v);
+    } catch (_) {
+        return '[unstringifiable ' + typeof v + ']';
+    }
+}
+
+function wmErrProp(e, key) {
+    try {
+        return e[key];
+    } catch (_) {
+        return undefined;
+    }
+}
+
+function wmToErrorObject(e, collectExtra) {
+    if (e === null || typeof e !== 'object') {
+        return { message: wmErrString(e), name: 'ThrownValue' };
+    }
+    const err = {};
+    let identified = false;
+    for (const field of ['message', 'name', 'stack']) {
+        const v = wmErrProp(e, field);
+        if (v != null) {
+            err[field] = wmErrString(v);
+            identified = true;
+        }
+    }
+    if (!identified) {
+        err.name = 'ThrownValue';
+        try {
+            err.message = Object.prototype.toString.call(e);
+        } catch (_) {
+            err.message = '[unstringifiable object]';
+        }
+    }
+    if (collectExtra) {
+        let keys = [];
+        try {
+            keys = Object.getOwnPropertyNames(e);
+        } catch (_) {}
+        const extra = {};
+        for (const key of keys) {
+            if (wmErrOwnKeys.includes(key)) continue;
+            const v = wmErrProp(e, key);
+            if (v !== undefined) extra[key] = v;
+        }
+        if (Object.keys(extra).length > 0) err.extra = extra;
+    }
+    return err;
+}
+
+function wmSerializeError(err) {
+    try {
+        const s = JSON.stringify(err);
+        if (s !== undefined) return s;
+    } catch (_) {}
+    if (err !== null && typeof err === 'object' && err.extra !== undefined) {
+        try {
+            const s = JSON.stringify(Object.assign({}, err, { extra: '[extra omitted: not serializable]' }));
+            if (s !== undefined) return s;
+        } catch (_) {}
+    }
+    try {
+        return JSON.stringify({ message: err.message, name: err.name, stack: err.stack, step_id: err.step_id, line: err.line });
+    } catch (_) {
+        return JSON.stringify({ message: '[unserializable error]', name: 'ThrownValue' });
+    }
+}
+"#;
+
 /// Turn a JSON value into the string a shell/CLI arg should receive: a JSON string
 /// becomes its inner value, anything else is re-serialized compactly.
 pub(crate) fn raw_to_string(x: &str) -> String {

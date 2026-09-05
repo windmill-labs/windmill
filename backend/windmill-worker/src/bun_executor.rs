@@ -22,7 +22,7 @@ use crate::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         parse_npm_config, read_file, read_file_content, read_result, resolve_nsjail_timeout,
         resolve_nsjail_tmp_mount_block, start_child_process, write_file_binary, MaybeLock,
-        OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL,
+        OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL, JS_ERROR_SERIALIZER,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
@@ -235,6 +235,7 @@ import * as Readline from "node:readline"
 BigInt.prototype.toJSON = function () {{
     return this.toString();
 }};
+{JS_ERROR_SERIALIZER}
 
 const scripts = new Map();
 {functions}
@@ -266,7 +267,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
             const res = await entry.module.main(...mainArgs);
             console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
         }} catch (e) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}));
+            console.log("wm_res[error]:" + wmSerializeError(Object.assign(wmToErrorObject(e, false), {{ line: argsJson }})));
         }}
         continue;
     }}
@@ -280,7 +281,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
             const res = await entry.module.main(...args);
             console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
         }} catch (e) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}));
+            console.log("wm_res[error]:" + wmSerializeError(Object.assign(wmToErrorObject(e, false), {{ line: argsJson }})));
         }}
         continue;
     }}
@@ -314,7 +315,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
             const res = await entry.module.main(...mainArgs);
             console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
         }} catch (e) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}));
+            console.log("wm_res[error]:" + wmSerializeError(Object.assign(wmToErrorObject(e, false), {{ line: argsJson }})));
         }}
         continue;
     }}
@@ -340,7 +341,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
             const res = await entry.module.main(...args);
             console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
         }} catch (e) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}));
+            console.log("wm_res[error]:" + wmSerializeError(Object.assign(wmToErrorObject(e, false), {{ line: argsJson }})));
         }}
         continue;
     }}
@@ -1919,6 +1920,7 @@ function argsObjToArr({{ {spread} }}) {{
 BigInt.prototype.toJSON = function () {{
     return this.toString();
 }};
+{JS_ERROR_SERIALIZER}
 
 // Find the workflow entrypoint (export default)
 let workflowFn = Main.default;
@@ -1997,22 +1999,12 @@ try {{
     process.exit(0);
 }} catch(e) {{
     console.error(e);
-    let err = {{ message: e.message, name: e.name, stack: e.stack }};
-    let step_id = process.env.WM_FLOW_STEP_ID;
+    const err = wmToErrorObject(e, true);
+    const step_id = process.env.WM_FLOW_STEP_ID;
     if (step_id) {{
         err["step_id"] = step_id;
     }}
-    const extra = {{}};
-    Object.getOwnPropertyNames(e).forEach((key) => {{
-        if (['line', 'name', 'stack', 'column', 'message', 'sourceURL', 'originalLine', 'originalColumn'].includes(key)) {{
-            return;
-        }}
-        extra[key] = e[key];
-    }});
-    if (Object.keys(extra).length > 0) {{
-        err["extra"] = extra;
-    }}
-    await fs.writeFile("result.json", JSON.stringify(err));
+    await fs.writeFile("result.json", wmSerializeError(err));
     process.exit(1);
 }}
     "#,
@@ -2037,6 +2029,7 @@ function isAsyncIterable(obj) {{
 BigInt.prototype.toJSON = function () {{
     return this.toString();
 }};
+{JS_ERROR_SERIALIZER}
 
 async function run() {{
     {dates}
@@ -2063,22 +2056,12 @@ try {{
     await run();
 }} catch(e) {{
     console.error(e);
-    let err = {{ message: e.message, name: e.name, stack: e.stack }};
-    let step_id = process.env.WM_FLOW_STEP_ID;
+    const err = wmToErrorObject(e, true);
+    const step_id = process.env.WM_FLOW_STEP_ID;
     if (step_id) {{
         err["step_id"] = step_id;
     }}
-    const extra = {{}};
-    Object.getOwnPropertyNames(e).forEach((key) => {{
-        if (['line', 'name', 'stack', 'column', 'message', 'sourceURL', 'originalLine', 'originalColumn'].includes(key)) {{
-            return;
-        }}
-        extra[key] = e[key];
-    }});
-    if (Object.keys(extra).length > 0) {{
-        err["extra"] = extra;
-    }}
-    await fs.writeFile("result.json", JSON.stringify(err));
+    await fs.writeFile("result.json", wmSerializeError(err));
     process.exit(1);
 }}
     "#,
