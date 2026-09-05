@@ -1,14 +1,11 @@
 /**
  * One-off sweep that drops drafts carrying no changes.
  *
- * Before the editors gated their autosave on real user input (`onUserInput`),
- * merely opening an item whose schema had moved on saved a draft — workspaces
- * accumulated dozens that nobody wrote. The gate stops new ones; the ones
- * already stored need this pass to clear. Runs once per (workspace, user) per
- * browser, after the localStorage→DB migration so anything it just uploaded is
- * swept too.
+ * `onUserInput` stops new ones from being written; the ones already stored need
+ * this pass to clear. Runs once per (workspace, user) per browser, after the
+ * localStorage→DB migration so anything it just uploaded is swept too.
  *
- * Scoped to the kinds whose editors this gate covers. A script, flow or app
+ * Scoped to the kinds whose editors that gate covers. A script, flow or app
  * draft only ever came from an explicit edit, so there is no phantom to clear
  * there — and `getDraftDiffValues` would fetch each one's full deployed payload
  * at login to prove it.
@@ -69,7 +66,12 @@ function busyLocally(workspace: string, kind: UserDraftItemKind, path: string): 
 	return UserDraftDbSyncer.getState({ workspace, itemKind: kind, path }).state !== 'none'
 }
 
-async function carriesNoChanges(workspace: string, { kind, path }: Candidate): Promise<boolean> {
+/** `undefined` when the diff could not be fetched — distinct from `false`, so
+ * the caller can leave the pass open rather than strand a row it never judged. */
+async function carriesNoChanges(
+	workspace: string,
+	{ kind, path }: Candidate
+): Promise<boolean | undefined> {
 	try {
 		const { deployed, draft, hasDraft, noDeployed } = await getDraftDiffValues(
 			kind,
@@ -82,7 +84,7 @@ async function carriesNoChanges(workspace: string, { kind, path }: Candidate): P
 		if (!hasDraft || noDeployed) return false
 		return draftValuesEqual(draft, deployed)
 	} catch {
-		return false
+		return undefined
 	}
 }
 
@@ -141,7 +143,9 @@ export async function pruneMeaninglessDrafts(workspace: string, userKey: string)
 
 		const empty: Candidate[] = []
 		await mapWithLimit(candidates, CONCURRENCY, async (c) => {
-			if (await carriesNoChanges(workspace, c)) empty.push(c)
+			const verdict = await carriesNoChanges(workspace, c)
+			if (verdict === undefined) unresolved++
+			else if (verdict) empty.push(c)
 		})
 
 		let discarded = 0

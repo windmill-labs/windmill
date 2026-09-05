@@ -109,13 +109,10 @@
 		workspaceSpecs.push({ ws, defaultValue })
 	}
 
-	// A workspace stays gated until the user puts something into its form: the
-	// resource type's schema is what fills in properties the stored value never
-	// had, and that is not an edit. While gated the autosave is suspended and
-	// the deployed baseline absorbs whatever the form settles on, so opening a
-	// resource whose type gained a property leaves no draft behind. See
-	// `onUserInput`. A workspace opened ON a saved draft keeps its baseline —
-	// the divergence there is the user's own, from an earlier session.
+	// Gated per workspace until the user puts something into that workspace's
+	// form (see `onUserInput`): the autosave stays suspended and the deployed
+	// baseline absorbs whatever the form settles on. A workspace opened ON a
+	// saved draft keeps its baseline — that divergence is the user's own.
 	let userEdited: Record<string, boolean> = $state({})
 	let openedOnDraft: Record<string, boolean> = $state({})
 	const suspendedWorkspaces = new Set<string>()
@@ -132,16 +129,11 @@
 		}
 	}
 
-	// Input that arrives before this workspace's handle exists cannot be an edit
-	// to its form — the form is not on screen yet — but it would open the gate,
-	// and the gating effect would then un-suspend the moment the fetch lands,
-	// in time for the schema's materialized values to POST as a draft.
-	//
-	// The same holds for the rest of the load: the schema arrives separately and
-	// materializes on arrival, so until it settles a bare click is not enough to
-	// call this an edit. `Path`, the labels and the description ARE editable
-	// through that window though — they render above the schema form's skeleton
-	// — so a real value event still opens the gate and keeps that edit.
+	// Nothing counts until this workspace's form is on screen, and while the
+	// schema is still arriving a precursor alone does not: it would open the gate
+	// just in time for the schema's materialized values to POST. `Path`, the
+	// labels and the description render above that skeleton and stay editable
+	// throughout, so a real value event still counts and keeps the edit.
 	onUserInput((kind) => {
 		if (!selected || !(selected in states)) return
 		if (kind === 'precursor' && loadingSchema) return

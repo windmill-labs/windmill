@@ -12,10 +12,14 @@ import { onDestroy } from 'svelte'
 export type UserInputKind = 'value' | 'precursor'
 
 /** Events that ARE an edit. `drop` and `paste` matter on their own: text
- * dragged in from another application, or an assistive technology activating a
- * control, produce no pointer or key event in this document at all. */
+ * dragged in from another application produces no pointer or key event in this
+ * document at all. */
 const VALUE_EVENTS = ['input', 'change', 'drop', 'paste'] as const
-const PRECURSOR_EVENTS = ['pointerdown', 'keydown'] as const
+/** `click` is here for the controls that mutate state from a click handler and
+ * fire no native value event — ArgInput's "Add item", say. A mouse always sends
+ * `pointerdown` first, but an assistive technology can activate one with a
+ * trusted `click` alone, and that is a real edit with nothing else to catch it. */
+const PRECURSOR_EVENTS = ['pointerdown', 'keydown', 'click'] as const
 
 /**
  * A draft is supposed to record what the USER changed, but an editor built

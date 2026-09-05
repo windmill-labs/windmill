@@ -113,14 +113,10 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 	})
 	const handle = $derived(handles[0])
 
-	// The form settles on values nobody entered: the arguments `SchemaForm`
-	// renders come from the runnable's schema, so one that gained a property
-	// fills it in — an empty string, the first option of a required enum — the
-	// moment the drawer opens. Until the user actually puts something in, the
-	// baseline absorbs whatever the form settles on and nothing persists, so an
-	// untouched trigger is never reported as having unsaved changes. A drawer
-	// opened ON a restored draft absorbs nothing: that divergence is the user's
-	// own, from an earlier session. See `onUserInput`.
+	// Gated until the user puts something in (see `onUserInput`): the baseline
+	// absorbs whatever the form settles on and nothing persists, so an untouched
+	// trigger never reports unsaved changes. A drawer opened ON a restored draft
+	// absorbs nothing — that divergence is the user's own.
 	let settledBaseline: Cfg | undefined = $state(undefined)
 	let userEdited = $state(false)
 	let openedOnDraft = $state(false)

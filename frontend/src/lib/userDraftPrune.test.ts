@@ -103,11 +103,16 @@ describe('pruneMeaninglessDrafts', () => {
 		expect(discardDraft).not.toHaveBeenCalled()
 	})
 
-	it('leaves a draft alone when its diff cannot be fetched', async () => {
+	it('leaves a draft alone when its diff cannot be fetched, and retries it later', async () => {
 		listDrafts.mockResolvedValue([row()])
 		getDraftDiffValues.mockRejectedValue(new Error('boom'))
 		await pruneMeaninglessDrafts('main', 'me@x.dev')
 		expect(discardDraft).not.toHaveBeenCalled()
+		// A row that could not be judged is not a row that carries changes, so
+		// the pass must stay open rather than strand it.
+		getDraftDiffValues.mockResolvedValue(diff())
+		await pruneMeaninglessDrafts('main', 'me@x.dev')
+		expect(discardedPaths()).toEqual(['u/me/r'])
 	})
 
 	it('conditions the delete on the timestamp it judged, so a row that moved is spared', async () => {
