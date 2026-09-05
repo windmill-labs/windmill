@@ -3161,13 +3161,15 @@ pub async fn handle_wac_v2_output(
 
                 // Unsuspend parent so the error propagates instead of a 14-day hang.
                 // Unlike the other suspend exits this one completes the job for real, so
-                // it needs a start time back — otherwise it lands in `v2_job_completed`
-                // with a null `started_at` despite having run.
+                // it needs its segment start back — the in-memory copy is what the pull
+                // stamped, before the suspend cleared the column.
                 let _ = sqlx::query!(
                     "UPDATE v2_job_queue
-                     SET suspend = 0, suspend_until = NULL, started_at = coalesce(started_at, now())
+                     SET suspend = 0, suspend_until = NULL,
+                         started_at = coalesce(started_at, $2, now())
                      WHERE id = $1",
                     job.id,
+                    job.started_at,
                 )
                 .execute(db)
                 .await;
