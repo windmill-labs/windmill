@@ -3524,6 +3524,9 @@ async fn edit_datatable_config(
     // Migrations opt-in is owned by the enable/disable endpoints, not this config
     // form: preserve each existing data table's flag, and default brand-new data
     // tables to enabled.
+    // Counted here rather than after the write because this is where a rename is
+    // still distinguishable from a creation; emitted once the commit lands.
+    let mut created_substrates: Vec<&'static str> = Vec::new();
     for (name, dt) in new_config.settings.datatables.iter_mut() {
         let lookup = rename_src
             .get(name.as_str())
@@ -3531,7 +3534,15 @@ async fn edit_datatable_config(
             .unwrap_or(name.as_str());
         dt.migrations_enabled = match old_datatables.get(lookup) {
             Some(old) => old.migrations_enabled,
-            None => Some(true),
+            None => {
+                // Keyed by how the substrate is serialized into `workspace_settings`,
+                // so these line up with the `datatable_configured` adoption counts.
+                created_substrates.push(match dt.database.resource_type {
+                    DataTableCatalogResourceType::Instance => "instance",
+                    DataTableCatalogResourceType::Postgresql => "postgresql",
+                });
+                Some(true)
+            }
         };
     }
 
@@ -3588,6 +3599,10 @@ async fn edit_datatable_config(
         .await?;
 
     tx.commit().await?;
+
+    for substrate in created_substrates {
+        windmill_common::feature_usage::log_feature_usage("datatable", "created", substrate);
+    }
 
     crate::datatable_migrations::record_datatable_cascade_deployments(
         &authed,
