@@ -5,11 +5,14 @@ const onPlatform = (userAgent: string) => vi.stubGlobal('navigator', { userAgent
 const LINUX = 'Mozilla/5.0 (X11; Linux x86_64)'
 const MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'
 
+const attached: (() => void)[] = []
+
 /** Attach to a fresh element and return it with its cleanup, as `{@attach}` would. */
 function pill() {
 	const node = document.createElement('span')
 	document.body.append(node)
 	const cleanup = trackNewTabModifier(node) as () => void
+	attached.push(cleanup)
 	const hover = (init: MouseEventInit = {}) =>
 		node.dispatchEvent(new MouseEvent('mouseenter', init))
 	const unhover = () => node.dispatchEvent(new MouseEvent('mouseleave'))
@@ -20,7 +23,10 @@ const keydown = (init: KeyboardEventInit) =>
 	window.dispatchEvent(new KeyboardEvent('keydown', init))
 
 describe('trackNewTabModifier', () => {
+	// The module state and its window listeners outlive the DOM, so every case has to be torn
+	// down through the attachment rather than by emptying the body.
 	afterEach(() => {
+		attached.splice(0).forEach((cleanup) => cleanup())
 		document.body.replaceChildren()
 		vi.unstubAllGlobals()
 	})
