@@ -101,6 +101,7 @@
 	import DraftChangesConfirmationModal from './common/confirmationModal/DraftChangesConfirmationModal.svelte'
 	import {
 		agentDraftCanWrite,
+		fetchAgentWithDraft,
 		linkedAgentPaths,
 		loadLinkedAgentDrafts,
 		type LinkedAgentDraft
@@ -127,7 +128,7 @@
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraft, draftValuesEqual } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 
 	let {
@@ -279,10 +280,19 @@
 			}
 		}
 		for (const agent of agents) {
-			// The state the dialog listed and validated, not a re-read of the draft row. The generic
-			// `deployDraft` re-reads, and its resource branch falls back to the deployed row when the
-			// draft has gone — writing `value: undefined ?? {}` over a live agent. The dialog can sit
-			// open indefinitely, so that row is exactly what cannot be assumed to still be there.
+			// The dialog can sit open indefinitely, so the draft may have moved under it — another tab,
+			// the generic resource editor, the agent editor's own Deploy. Writing the listed state
+			// blind would roll those edits back and then delete them with the draft; re-reading and
+			// writing whatever is there now would deploy a config nobody validated, and would write
+			// `{}` where the draft has gone entirely (`deployDraft`'s resource branch does exactly
+			// that). So: refuse, and let the user look at what changed.
+			const { draft: current } = await fetchAgentWithDraft(agent.path, ws)
+			if (!draftValuesEqual(current, agent.state)) {
+				throw new Error(
+					`The draft for ${agent.path} changed since this dialog opened. Nothing was deployed for it — reopen the deploy dialog to see the current one.`
+				)
+			}
+			// The state the dialog listed and validated, never a re-read: see above.
 			const written = await writeAgentResource(ws, agent.state, agent.noDeployed)
 			if (!written.ok) {
 				throw new Error(`Could not deploy agent ${agent.path}: ${written.error}`)

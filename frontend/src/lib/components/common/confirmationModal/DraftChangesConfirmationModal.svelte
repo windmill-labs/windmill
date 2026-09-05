@@ -222,29 +222,41 @@
 							{#each draftAgents as agent (agent.path)}
 								{@const permission = checkAgentPermissions(agent)}
 								{@const isSelectedAgent = selectedAgents.some((a) => a.path === agent.path)}
+								<!-- `min-h`, not the trigger table's fixed `h-12`: a never-deployed agent's row carries
+								     a second line of warning under the path. -->
 								<tr
 									class={twMerge(
-										'transition-colors h-12 border-t border-gray-200 dark:border-gray-700 whitespace-nowrap',
+										'transition-colors border-t border-gray-200 dark:border-gray-700',
 										permission.state === 'deploy' ? 'hover:bg-surface-hover ' : ''
 									)}
 								>
-									<td class="text-center py-1 px-4">
+									<td class="min-h-12 text-center py-2 px-4">
 										<div class="flex flex-row items-center gap-2">
 											<Bot size={14} class={isSelectedAgent ? 'text-accent' : 'text-hint'} />
-											<div class="flex grow min-w-0 items-center gap-2 text-left">
-												<!-- Dimmed rather than struck through: keeping a draft destroys nothing, so the
-												     trigger table's deletion styling would say the wrong thing. -->
-												<span
-													class={twMerge(
-														'truncate text-xs',
-														isSelectedAgent ? '' : 'text-tertiary'
-													)}
-													title={agent.path}
-												>
-													{agent.path}
-												</span>
-												{#if agent.noDeployed}
-													<Badge small color="indigo">Never deployed</Badge>
+											<div class="flex grow min-w-0 flex-col text-left">
+												<div class="flex items-center gap-2 min-w-0">
+													<!-- Dimmed rather than struck through: keeping a draft destroys nothing, so the
+													     trigger table's deletion styling would say the wrong thing. -->
+													<span
+														class={twMerge(
+															'truncate text-xs',
+															isSelectedAgent ? '' : 'text-tertiary'
+														)}
+														title={agent.path}
+													>
+														{agent.path}
+													</span>
+													{#if agent.noDeployed}
+														<Badge small color="indigo">Never deployed</Badge>
+													{/if}
+												</div>
+												{#if agent.noDeployed && !isSelectedAgent}
+													<!-- The section's promise — the flow falls back to the deployed agent — does not
+													     hold for one that has never been deployed. There is nothing to fall back to,
+													     so the flow would land naming a path that does not resolve. -->
+													<span class="text-xs text-red-600 dark:text-red-400 whitespace-normal">
+														Never deployed, so the flow will not run until this agent is deployed.
+													</span>
 												{/if}
 											</div>
 										</div>
