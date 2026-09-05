@@ -115,11 +115,10 @@
 		...(hasOutcome ? [{ value: 'outcome', label: outcomeTab }] : [])
 	])
 
-	// Keyed by call id, like `toggled` below: this instance is reused when the message at its
-	// index changes, and a bare flag would hand one card's raw view, or the tab its user
-	// picked, to whichever run lands in the slot next.
-	// Undefined until a tab is clicked, and never cleared after: the run follows itself
-	// only for as long as nobody has steered the card, and then it stops taking it back.
+	// Keyed by call id: this instance is reused when the message at its index changes, so a
+	// bare flag would hand one card's view to whichever run lands in the slot next. Unset
+	// until a tab is clicked and never cleared, so the run stops following itself once
+	// the user has steered the card.
 	let userTab = $state<{ id: string; value: string } | undefined>(undefined)
 	let jsonView = $state<{ id: string; on: boolean } | undefined>(undefined)
 	const steered = $derived(userTab?.id === message.tool_call_id ? userTab.value : undefined)
@@ -208,12 +207,9 @@
 		chatJob?.durationMs !== undefined ? msToReadableTime(chatJob.durationMs, 2) : ''
 	)
 
-	// The hue of the status badge the jobs bar shows for the same job — blue running, violet
-	// approval, orange queued, green ok, red fail — kept under the name it annotates, since the
-	// runnable is the subject of the row and this is metadata about it. Not the badge's ink:
-	// drawn for a tinted ground, it lands brighter than the name on this transparent one. The
-	// step differs per hue because the ramp is not uniform, and ok borrows emerald because the
-	// green one skips straight past that weight.
+	// The jobs bar's status hues, darkened: those are drawn for a tinted ground and land
+	// brighter than the name on this transparent one. Per-hue steps because the ramp is not
+	// uniform, and ok borrows emerald because green skips that weight.
 	const statusClass = $derived.by(() => {
 		// The card outlives its job and sometimes precedes it, so the states only it knows about
 		// read off its own flags rather than off a status no job is there to report.

@@ -1,12 +1,8 @@
 /**
- * Live "is there more past this edge" for one scroll region, so a fade is drawn only over
- * content there actually is: a box short enough not to scroll, or scrolled to an end, shows
- * its first and last line sharp.
- *
- * Measured rather than assumed, because the boxes it serves change height under a still
- * scroll offset — a tool result streams in, a dynamic field fills its options. Put
- * `container` on the scrolling element with `onscroll={measure}`, and `content` on the
- * element inside it whose height moves.
+ * Live "is there more past this edge" for one scroll region. Measured, not assumed: these
+ * boxes change height under a still scroll offset — a tool result streams in, a dynamic
+ * field fills its options. Put `container` on the scrolling element with
+ * `onscroll={measure}`, and `content` on the element inside it whose height moves.
  */
 export function scrollFades() {
 	let node: HTMLElement | undefined = undefined

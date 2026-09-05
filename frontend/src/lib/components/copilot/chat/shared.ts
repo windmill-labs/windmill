@@ -1307,11 +1307,9 @@ export interface ToolCallbacks {
 		toolId: string,
 		question: UserQuestionDisplay
 	) => Promise<string[] | undefined>
-	/** Park the loop on an argument form and resolve with the args the user submitted,
-	 * or undefined if they cancelled. Wired only where the form can be rendered.
-	 *
-	 * `autoAccepted` says the caller already answered the form with what it opened with,
-	 * under the YOLO posture, and attached it settled — so there is no card to wait on. */
+	/** Park the loop on an argument form and resolve with the args the user submitted, or
+	 * undefined if they cancelled. Wired only where the form can be rendered. `autoAccepted`
+	 * says YOLO already answered it with what it opened with, so there is no card to wait on. */
 	requestRunArgs?: (
 		toolId: string,
 		form: RunFormDisplay,
@@ -1638,13 +1636,10 @@ export type BackgroundJobFormatter = (job: CompletedJob) => {
 }
 
 /** Reads a running job's output incrementally through `getJobUpdates`, the only endpoint
- * carrying `new_result_stream`: `getJob` returns logs but never the partial result. Both the
- * inline wait and the background poller drive one, so a detached run keeps streaming, and
- * each keeps its own offsets so one starting over refetches from zero.
- *
- * Best-effort by construction: a poll that fails answers `undefined` rather than throwing, so
- * a run always lands on `getJob` alone. Nothing is mutated before the response arrives, so the
- * next poll resumes from the same offsets. */
+ * carrying `new_result_stream` — `getJob` returns logs but never the partial result. Each
+ * reader keeps its own offsets, so one starting over refetches from zero. Best-effort: a
+ * failed poll answers `undefined` and mutates nothing, so the next resumes from the same
+ * offsets and a run always lands on `getJob` alone. */
 export function createJobUpdateReader(jobId: string, workspace: string) {
 	let logs = ''
 	let resultStream = ''

@@ -1,38 +1,31 @@
 /**
- * A job's arguments as something other than the job sees them: prepared for a run form,
- * for the readers of one, and for a result view.
- *
- * The form filters split by what a mistake costs: coercing must not lose what the caller
- * meant to send, so it stays exact and shallow, while stripping and redacting only blank
- * a field, so they go to any depth and err towards visiting too much.
+ * A job's arguments prepared for a run form, its readers, and a result view. Coercing must
+ * not lose what the caller meant to send, so it is exact and shallow; stripping and
+ * redacting only blank a field, so they go to any depth and err towards visiting too much.
  */
 import { deepEqual } from 'fast-equals'
 
 const isLockedProp = (prop: any) => !!prop?.disabled && 'default' in prop
 
 /**
- * A field the schema disables is not the caller's to set: whatever it holds, the run
- * sends the schema's default. Top-level only, like every other filter here — see
- * {@link coerceArgsToSchema}. Returns the keys it overwrote so the caller can say so;
- * notifying is the caller's job.
+ * A field the schema disables is not the caller's to set: the run sends the schema's
+ * default whatever it holds. Top-level only, like every filter here. Returns the keys it
+ * overwrote; notifying is the caller's job.
  */
 export function enforceDisabledDefaults(
 	args: Record<string, any>,
 	schema: { properties?: Record<string, any> } | undefined
 ): { args: Record<string, any>; resetKeys: string[] } {
-	// Accumulated on a null prototype: assigning a declared `__proto__` into a plain `{}`
-	// reaches the inherited setter instead, and the default vanishes rather than landing.
-	// Copied even with nothing to enforce, since callers hand the result to a form that
-	// edits it in place and one branch returning the input would write through to theirs.
+	// Null prototype: assigning a declared `__proto__` into a plain `{}` reaches the
+	// inherited setter and the default vanishes. Always copied — callers bind the result to
+	// a form that edits in place, so returning the input would write through to theirs.
 	const result: Record<string, any> = Object.assign(Object.create(null), args)
 	if (!schema?.properties) return { args: { ...result }, resetKeys: [] }
 	const resetKeys: string[] = []
 	for (const [key, prop] of Object.entries<any>(schema.properties)) {
 		if (!isLockedProp(prop)) continue
-		// An argument never supplied was not overwritten: the field shows the default
-		// either way, and a caller told otherwise would try to correct what it never sent.
-		// By value, since a default can be an object or an array: identity would report
-		// every run of such a field as overridden, the caller that got it right included.
+		// Never supplied is not overwritten, and compared by value: a default can be an
+		// object, where identity would report every correct run as overridden.
 		if (result[key] !== undefined && !deepEqual(result[key], prop.default)) resetKeys.push(key)
 		result[key] = prop.default
 	}
@@ -50,10 +43,9 @@ export const resetKeysToast = (resetKeys: string[]): string =>
 const SCALAR_TYPES = new Set(['string', 'number', 'integer', 'boolean'])
 
 /**
- * Declares an array even though its `type` says `object`, and a mismatch here throws
- * rather than merely reading wrong: `MultiSelect` maps over the value as it renders, so
- * anything else takes the whole form down — Cancel with it, and a reference included,
- * since the widget draws before anything resolves.
+ * Declares an array though its `type` says `object`. A mismatch here throws rather than
+ * reading wrong: `MultiSelect` maps over the value as it renders, so anything else takes
+ * the form down, Cancel with it — a reference included, since it draws before resolving.
  */
 const declaresDynMultiselect = (prop: any) =>
 	typeof prop?.format === 'string' && prop.format.startsWith('dynmultiselect-')
@@ -63,9 +55,8 @@ const fitsScalarType = (value: any, type: string): boolean =>
 	type === 'integer' ? typeof value === 'number' : typeof value === type
 
 /**
- * Resolved at run time to a variable or resource, so the declared type describes what the
- * job receives and never the string standing in for it. `ArgInput.validateInput` blesses
- * these prefixes ahead of every type check for the same reason.
+ * Resolved at run time, so the declared type describes what the job receives and never the
+ * string standing in for it. `ArgInput.validateInput` blesses these ahead of every type check.
  */
 const REFERENCE_PREFIXES = ['$var:', '$res:', '$jsonvar:']
 const isReference = (value: any): boolean =>
@@ -99,21 +90,11 @@ function coerceScalar(value: any, type: string): any {
 }
 
 /**
- * Make caller-supplied arguments say the same thing the run form will show, then apply
- * {@link enforceDisabledDefaults}. A scalar widget binds one JS type and renders anything
- * else as its own reading of it — `"7"` paints a filled-looking 7 in a number input, any
- * non-empty string turns a toggle on — while never writing that reading back, so an
- * untouched form submits a value it never displayed.
- *
- * Converts rather than removes, so an argument the schema does not describe still reaches
- * the job: the worker takes the arguments its own signature names, and a script whose
- * stored schema is stale or absent accepts what that schema never declared. A value with
- * no reading in its slot is cleared instead — the field shows nothing, so nothing is what
- * it submits — and the caller is told which.
- *
- * Top-level only, like every filter here: below the top a mismatch renders the way it does
- * on the script run page, and descending means resolving `oneOf` branches and merged
- * declarations, where being wrong rewrites what the user typed.
+ * Make arguments say what the run form will show, then apply {@link enforceDisabledDefaults}.
+ * A scalar widget renders its own reading of a wrong-typed value and never writes it back, so
+ * an untouched form would submit what it never displayed; a value with no reading is cleared.
+ * Undeclared keys are carried — the worker obeys its own signature, not a stale stored schema.
+ * Top-level only: descending means resolving `oneOf`, where being wrong rewrites user input.
  */
 export function coerceArgsToSchema(
 	args: Record<string, any>,
@@ -152,10 +133,9 @@ export function coerceArgsToSchema(
 }
 
 /**
- * Every bag of `properties` a declaration can show a value's keys through: both, when it
- * carries `properties` and `oneOf`, and every branch rather than the selected one. A value
- * can hold a key belonging to a variant nobody opened, and a secret sitting there leaves
- * the form just the same.
+ * Every bag of `properties` a declaration can show a value's keys through, including every
+ * `oneOf` branch rather than the selected one: a secret under a variant nobody opened
+ * leaves the form just the same.
  */
 function declarationBags(prop: any): Record<string, any>[] {
 	const bags: Record<string, any>[] = []
@@ -167,15 +147,9 @@ function declarationBags(prop: any): Record<string, any>[] {
 
 /**
  * Apply `visit` to every value whose declaration matches `isLeaf`, at any depth; returning
- * `undefined` removes it. Recursive because the form is: `ArgInput` mounts a nested
- * `SchemaForm` for an object property, for each element of an object-typed array, and for
- * a `oneOf` branch, so a level left unvisited is one a secret can sit at.
- *
- * Descends on the shape of the value, never on which keys the declaration happens to
- * carry: an array is read through `items` and an object through `properties`/`oneOf`, so a
- * declaration holding both cannot route one shape down the other's branch. Deliberately
- * permissive — it only ever removes or replaces what it matches, so reaching a level the
- * form would not have opened costs an emptied field, never a lost argument.
+ * `undefined` removes it. Recursive because the form is, so a level left unvisited is one a
+ * secret can sit at. Descends on the value's shape, never on the declaration's keys: one
+ * carrying both `items` and `properties` must not route a shape down the other's branch.
  */
 function mapLeaves(
 	value: any,
@@ -248,14 +222,8 @@ function mapArgLeaves(
 
 /**
  * Drop every password-typed argument holding a secret of its own, so a caller cannot propose
- * one on the user's behalf: the field falls back to whatever the script itself declares, as on
- * any other run form, and the user fills in the rest. Appends the path of each one removed, so
- * the caller can be told the field was emptied rather than left to read the absence as the user
- * having deleted it.
- *
- * A `$var:` reference is kept: naming a workspace variable is how a secret is meant to reach a
- * job, the caller can list those already, and the field's own widget treats an incoming
- * reference as filled rather than minting over it.
+ * one on the user's behalf; a workspace-variable reference is kept. Appends the path of each
+ * one removed, or the caller reads the absence as the user having deleted the value.
  */
 export function stripSecretArgs(
 	args: Record<string, any>,
