@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT manifest_key, run_results_key FROM dbt_environment_state\n              WHERE workspace_id = $1 AND script_path = $2 AND environment = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "manifest_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "run_results_key",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "f963ea31d1744ff0d76ff86140f01cca0bcbc832f01eb3340050504b8b3875a2"
+}

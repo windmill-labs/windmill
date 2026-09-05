@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dbt_environment_state (workspace_id, script_path, environment, job_id,\n                                            manifest)\n         SELECT $1::varchar, $2::varchar, 'main||analytics|wh'::text, $3::uuid, '{}'::text\n          WHERE EXISTS (SELECT 1 FROM script\n                         WHERE workspace_id = $1 AND path = $2\n                           AND deleted = false AND archived = false\n                           AND language = 'dbt'\n                           AND (hash = $4 OR $4 = ANY(parent_hashes)))\n         ON CONFLICT (workspace_id, script_path, environment) DO UPDATE SET job_id = EXCLUDED.job_id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4ce90ff818e5058a7e31da24abd938eb135d6eb9714ca115359221d7c02861f0"
+}

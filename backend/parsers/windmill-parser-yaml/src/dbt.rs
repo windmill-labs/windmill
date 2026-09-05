@@ -58,6 +58,18 @@ impl DbtEngine {
     pub fn emits_node_events(&self) -> bool {
         matches!(self, DbtEngine::DbtCore1x)
     }
+
+    /// Whether the engine has `--defer-state`, the deferral-only half of
+    /// `--state`.
+    ///
+    /// It matters on one command. `dbt retry` reads the run it resumes from
+    /// `--state`, so an engine with only that flag cannot be told to defer and
+    /// to resume from the job's own results at once: handed the deferral's
+    /// directory, it resumes the all-green run stored there and rebuilds
+    /// nothing. Only dbt-core 1.x separates the two.
+    pub fn has_defer_state_flag(&self) -> bool {
+        matches!(self, DbtEngine::DbtCore1x)
+    }
 }
 
 /// How the warehouse connection is supplied. Both paths are supported
@@ -137,6 +149,16 @@ pub struct DbtDescriptor {
     pub threads: Option<u32>,
     #[serde(default)]
     pub full_refresh: bool,
+    /// Resolve a `ref()` a run does not build through the state the last
+    /// successful run of this environment published, rather than through the
+    /// schema that run writes into.
+    ///
+    /// Only the default for the `build` block's own `defer`, since the choice is
+    /// per run: the run that publishes an environment's state and the run that
+    /// defers to it are two invocations of ONE script (decision 6), so a project
+    /// that could only defer by descriptor could never populate what it reads.
+    #[serde(default)]
+    pub defer: bool,
     /// Automatic in-job retry of the nodes a build failed on.
     ///
     /// dbt already confines a failure to its own subtree, and `dbt retry`
@@ -258,6 +280,7 @@ pub const RESERVED_ARG_NAMES: &[&str] = &[
     "exclude",
     "vars",
     "full_refresh",
+    "defer",
     "dbt_command",
     "dbt_retry_job",
     "model",
@@ -345,15 +368,26 @@ fn command_variants(d: &DbtDescriptor) -> Vec<(&'static str, Vec<Arg>)> {
             "build",
             selection()
                 .into_iter()
-                .chain([Arg {
-                    name: "full_refresh".to_string(),
-                    otyp: None,
-                    typ: Typ::Bool,
-                    has_default: true,
-                    default: Some(serde_json::json!(d.full_refresh)),
-                    oidx: None,
-                    otyp_inferred: false,
-                }])
+                .chain([
+                    Arg {
+                        name: "full_refresh".to_string(),
+                        otyp: None,
+                        typ: Typ::Bool,
+                        has_default: true,
+                        default: Some(serde_json::json!(d.full_refresh)),
+                        oidx: None,
+                        otyp_inferred: false,
+                    },
+                    Arg {
+                        name: "defer".to_string(),
+                        otyp: None,
+                        typ: Typ::Bool,
+                        has_default: true,
+                        default: Some(serde_json::json!(d.defer)),
+                        oidx: None,
+                        otyp_inferred: false,
+                    },
+                ])
                 .collect(),
         ),
         (
@@ -554,6 +588,11 @@ fn property_of(arg: &Arg) -> serde_json::Value {
                  exist makes this run store its own graph rather than the deployed one.",
             ),
             "full_refresh" => Some("Rebuild incremental models from scratch instead of appending."),
+            "defer" => Some(
+                "Resolve a `ref()` this run does not build to the relation the last successful \
+                 run of this warehouse and target published, instead of to the schema this run \
+                 writes into.",
+            ),
             "model" => Some(
                 "The model to preview, by name — `stg_orders`, or `my_package.stg_orders` when \
                  two packages share a name. Any dbt selector resolving to ONE node works.",
@@ -687,8 +726,15 @@ full_refresh: true
         };
 
         let (build, build_args) = of("build");
-        assert_eq!(build_args, ["exclude", "full_refresh", "select", "vars"]);
+        assert_eq!(
+            build_args,
+            ["defer", "exclude", "full_refresh", "select", "vars"]
+        );
         assert_eq!(build["properties"]["full_refresh"]["type"], "boolean");
+        // `defer` is a per-run toggle rather than a descriptor-only setting: the
+        // run that publishes an environment's state and the run that defers to
+        // it are two invocations of ONE script.
+        assert_eq!(build["properties"]["defer"]["type"], "boolean");
         // Defaults come from the descriptor, so an untouched run reproduces it.
         assert_eq!(
             build["properties"]["select"]["default"],

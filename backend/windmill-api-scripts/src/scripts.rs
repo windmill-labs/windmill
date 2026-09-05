@@ -2347,27 +2347,28 @@ async fn create_script_internal<'c>(
     // while its own finished runs still render from them. Clearing by path
     // would empty those run pages for good.
     if ns.language != ScriptLang::Dbt {
-        // The saved retry state does go: nothing regenerates it, it is keyed by
-        // path alone, and it carries one user's failed invocation and its
-        // arguments. No dbt version is live at this path any more to resume it.
-        windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, &ns.path).await?;
+        // The saved run and environment state do go: nothing regenerates them,
+        // both are keyed by path alone, and they carry one user's failed
+        // invocation with its arguments and the project's own manifest. No dbt
+        // version is live at this path any more to resume or defer to.
+        windmill_common::dbt_manifest::clear_dbt_script_state(&mut tx, &w_id, &ns.path).await?;
     }
     if let Some(ref old) = p_path_opt {
         if old != &ns.path {
             clear_script_triggers(&mut *tx, &w_id, old, AssetUsageKind::Script).await?;
             clear_static_asset_usage(&mut *tx, &w_id, old, AssetUsageKind::Script).await?;
-            // The saved retry state travels rather than being cleared: nothing
+            // The saved state travels rather than being cleared: nothing
             // regenerates it, so dropping it would throw away a resumable
-            // failure for what is only a rename. Only while the destination is
-            // still dbt — a rename that also converts the language would
-            // otherwise reinstate at the new path the state the branch above
-            // just cleared, leaving one user's arguments and results under a
-            // path no dbt script occupies.
+            // failure and every deferral until the next full run, for what is
+            // only a rename. Only while the destination is still dbt — a rename
+            // that also converts the language would otherwise reinstate at the
+            // new path the state the branch above just cleared, leaving one
+            // user's arguments and results under a path no dbt script occupies.
             if ns.language == ScriptLang::Dbt {
-                windmill_common::dbt_manifest::move_dbt_run_state(&mut tx, &w_id, old, &ns.path)
+                windmill_common::dbt_manifest::move_dbt_script_state(&mut tx, &w_id, old, &ns.path)
                     .await?;
             } else {
-                windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, old).await?;
+                windmill_common::dbt_manifest::clear_dbt_script_state(&mut tx, &w_id, old).await?;
             }
         }
     }
@@ -3588,7 +3589,7 @@ async fn archive_script_by_path(
     // either way, while deleting it would empty the Models panel of every
     // completed run of the project. Retry state does go — nothing may resume a
     // script that is no longer live.
-    windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, path).await?;
+    windmill_common::dbt_manifest::clear_dbt_script_state(&mut tx, &w_id, path).await?;
     // Pipeline event hygiene: an archived script must not be triggered by
     // anything. Wipe declared `// on ...` edges (asset-event subscribers
     // look these up).
@@ -3673,7 +3674,7 @@ async fn archive_script_by_hash(
     clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
     // The version's graph stays: its finished runs still render from it, and
     // the live-version CTE already skips archived rows. Deletion clears it.
-    windmill_common::dbt_manifest::clear_dbt_run_state_if_path_retired(
+    windmill_common::dbt_manifest::clear_dbt_script_state_if_path_retired(
         &mut tx,
         &w_id,
         &script.path,
@@ -3749,7 +3750,7 @@ async fn delete_script_by_hash(
     windmill_common::dbt_manifest::clear_dbt_manifest_version(&mut tx, &w_id, &script.path, hash.0)
         .await?;
     clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
-    windmill_common::dbt_manifest::clear_dbt_run_state_if_path_retired(
+    windmill_common::dbt_manifest::clear_dbt_script_state_if_path_retired(
         &mut tx,
         &w_id,
         &script.path,
@@ -3854,7 +3855,7 @@ async fn delete_script_by_path(
     // state does, being keyed by path alone and so inherited by whatever is
     // created here next, and so do the editor's own graphs, whose NULL
     // `script_hash` satisfies that foreign key without riding its cascade.
-    windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, path).await?;
+    windmill_common::dbt_manifest::clear_dbt_script_state(&mut tx, &w_id, path).await?;
     windmill_common::dbt_manifest::clear_dbt_editor_graphs(&mut tx, &w_id, path).await?;
 
     if !trash_scripts.is_empty() {
@@ -4023,7 +4024,7 @@ async fn delete_scripts_bulk(
     // Same reason as the single-path delete, over every requested path rather
     // than the deleted ones: a path that had no script left can still hold state.
     for p in &request.paths {
-        windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, p).await?;
+        windmill_common::dbt_manifest::clear_dbt_script_state(&mut tx, &w_id, p).await?;
         windmill_common::dbt_manifest::clear_dbt_editor_graphs(&mut tx, &w_id, p).await?;
     }
 

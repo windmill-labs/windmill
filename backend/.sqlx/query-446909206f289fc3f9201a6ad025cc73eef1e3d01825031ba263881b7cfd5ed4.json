@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM script WHERE workspace_id = $1 AND hash = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "446909206f289fc3f9201a6ad025cc73eef1e3d01825031ba263881b7cfd5ed4"
+}
