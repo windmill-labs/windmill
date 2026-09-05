@@ -5,6 +5,7 @@ use axum::{
     Extension, Json,
 };
 use chrono::TimeZone;
+use constant_time_eq::constant_time_eq;
 use http::{request::Parts, StatusCode};
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
@@ -719,8 +720,7 @@ impl AuthCache {
                 } else if self
                     .superadmin_secret
                     .as_ref()
-                    .map(|x| x == token)
-                    .unwrap_or(false)
+                    .is_some_and(|x| constant_time_eq(x.as_bytes(), token.as_bytes()))
                 {
                     let authed = ApiAuthed {
                         email: SUPERADMIN_SECRET_EMAIL.to_string(),
