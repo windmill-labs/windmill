@@ -861,6 +861,34 @@ paths:
                 items:
                   $ref: "#/components/schemas/ExternalJwtToken"
 
+  /users/guests:
+    get:
+      summary: list the distinct guests of the trailing window (superadmin only)
+      description: >-
+        The set the guest allowance is counted on: every distinct email that held a
+        guest session in the last `window_days`, with the workspaces it opened and the
+        days it was first and last seen, most recently seen first. `usage` is the
+        instance's standing against the allowance and the meter.
+      operationId: listGuests
+      tags:
+        - user
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: the guests of the window and the allowance they count against
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuestList"
+
   /users/onboarding:
     post:
       summary: Submit user onboarding data
@@ -3667,8 +3695,12 @@ paths:
                     $ref: "#/components/schemas/WorkspaceDeployUISettings"
                   mute_critical_alerts:
                     type: boolean
+                  guest_access_enabled:
+                    type: boolean
+                    description: Whether this workspace admits guest sessions. An app's own `guest` execution mode is inert while this is false.
                 required:
                   - workspace_id
+                  - guest_access_enabled
 
   /w/{workspace}/workspaces/get_settings:
     get:
@@ -3750,6 +3782,9 @@ paths:
                   error_handler_fallback_to_instance_alerts:
                     type: boolean
                     description: Report failed jobs to the instance critical alert channels when no workspace error handler is set.
+                  guest_access_enabled:
+                    type: boolean
+                    description: Whether this workspace admits guest sessions. An app's own `guest` execution mode is inert while this is false.
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:
@@ -5738,6 +5773,60 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/workspaces/edit_guest_access:
+    post:
+      summary: enable or disable guest sessions for this workspace
+      description: >-
+        Guests are people the identity provider authenticates who have no Windmill
+        account; the `guest` app execution mode admits them. Off by default. Re-read
+        where a guest session is minted and at the auth door on every guest request, so
+        turning it off takes effect immediately, for sessions already issued and for
+        apps whose policy already says `guest`.
+      operationId: editGuestAccess
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Whether guest sessions are admitted
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                guest_access_enabled:
+                  type: boolean
+              required:
+                - guest_access_enabled
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/guest_usage:
+    get:
+      summary: the instance's standing against the guest allowance
+      description: >-
+        Instance-wide, since a licence is per instance and one email is one guest however
+        many workspaces it opens. Read by workspace admins and app publishers to see how
+        close the cap (Community and Pro) or the meter (Enterprise) is.
+      operationId: getGuestUsage
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: guest usage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuestUsage"
 
   /w/{workspace}/workspaces/default_scripts:
     post:
@@ -8805,6 +8894,27 @@ paths:
                       - value
                 required:
                   - app
+
+  /apps_u/guest_entry_by_custom_path/{custom_path}:
+    get:
+      summary: whether the app behind a custom path admits guests
+      description: >-
+        The custom-path counterpart of `getGuestEntry`. Unauthenticated; 404 unless
+        the app's execution mode is `guest` AND its workspace has
+        `guest_access_enabled` AND the instance has not set `guest_access_disabled`.
+        Returns the workspace too, since a custom URL may not carry it.
+      operationId: getGuestEntryByCustomPath
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/CustomPath"
+      responses:
+        "200":
+          description: the app is open to guests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuestEntry"
 
   /apps_u/public_app_by_custom_path/{custom_path}:
     get:
@@ -12965,6 +13075,30 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/apps_u/guest_entry/{path}:
+    get:
+      summary: whether the app behind a share secret admits guests
+      description: >-
+        Unauthenticated: what a signed-out visitor reads to learn that signing in
+        would let them in. 404 unless the app's execution mode is `guest` AND the
+        workspace has `guest_access_enabled` AND the instance has not set the
+        `guest_access_disabled` global setting, so it says nothing about apps that
+        are not open to guests. Discloses only the app path, to a caller already
+        holding the share secret.
+      operationId: getGuestEntry
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: the app is open to guests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuestEntry"
 
   /w/{workspace}/apps_u/public_app/{path}:
     get:
@@ -28727,6 +28861,76 @@ components:
         - is_operator
         - last_used_at
 
+    GuestUsage:
+      type: object
+      description: >-
+        Guests are free up to `free_allowance` distinct emails over the trailing
+        `window_days`. Past that an Enterprise plan meters them (`metered`, four guests
+        to one seat: `billable_guests`, `guest_seats`); every other plan and build
+        admits no new email until the count drops. `instance_enabled` is the superadmin
+        switch (`guest_access_disabled` global setting) every workspace switch sits under.
+      properties:
+        instance_enabled:
+          type: boolean
+        guest_count:
+          type: integer
+          format: int64
+        window_days:
+          type: integer
+        free_allowance:
+          type: integer
+          format: int64
+        metered:
+          type: boolean
+        billable_guests:
+          type: integer
+          format: int64
+        guest_seats:
+          type: integer
+          format: int64
+      required:
+        - instance_enabled
+        - guest_count
+        - window_days
+        - free_allowance
+        - metered
+        - billable_guests
+        - guest_seats
+
+    GuestActivity:
+      type: object
+      properties:
+        email:
+          type: string
+        workspaces:
+          type: array
+          items:
+            type: string
+        first_seen:
+          type: string
+          format: date
+        last_seen:
+          type: string
+          format: date
+      required:
+        - email
+        - workspaces
+        - first_seen
+        - last_seen
+
+    GuestList:
+      type: object
+      properties:
+        usage:
+          $ref: "#/components/schemas/GuestUsage"
+        guests:
+          type: array
+          items:
+            $ref: "#/components/schemas/GuestActivity"
+      required:
+        - usage
+        - guests
+
     NewToken:
       type: object
       properties:
@@ -33137,14 +33341,17 @@ components:
                 type: string
         execution_mode:
           type: string
-          enum: [viewer, publisher, anonymous]
+          enum: [viewer, publisher, guest, anonymous]
           description: >-
-            Who the app's runnables execute as. Optional, and what omitting it
-            means depends on the operation: creating an app defaults it to
-            `publisher` (runs on behalf of the app's publisher and requires an
-            authenticated viewer), while updating one keeps the mode the app is
-            already deployed under. Either way `anonymous`, which makes the app
-            publicly executable, is never assumed
+            Who may open the app, and who its runnables execute as. Optional, and
+            what omitting it means depends on the operation: creating an app
+            defaults it to `publisher` (runs on behalf of the app's publisher and
+            requires an authenticated viewer), while updating one keeps the mode
+            the app is already deployed under. Neither `anonymous`, which makes
+            the app publicly executable, nor `guest`, which opens it to anyone the
+            identity provider authenticates, is ever assumed. A guest is only
+            admitted where the workspace also has `guest_access_enabled`, which is
+            checked when the session is minted and again on every guest request
         on_behalf_of:
           type: string
         on_behalf_of_email:
@@ -33195,7 +33402,7 @@ components:
           format: date-time
         execution_mode:
           type: string
-          enum: [viewer, publisher, anonymous]
+          enum: [viewer, publisher, guest, anonymous]
         raw_app:
           type: boolean
         labels:
@@ -35009,6 +35216,17 @@ components:
       description: Configuration of protection restrictions
       items:
         $ref: "#/components/schemas/ProtectionRuleKind"
+    GuestEntry:
+      type: object
+      description: What a signed-out visitor needs to start a guest sign-in.
+      properties:
+        workspace_id:
+          type: string
+        app_path:
+          type: string
+      required:
+        - workspace_id
+        - app_path
     ProtectionRuleKind:
       type: string
       enum:
@@ -35017,6 +35235,7 @@ components:
         - RestrictDeployToDeployers
         - RestrictAnonymousAppDeployment
         - RestrictPublicRunSharing
+        - RestrictGuestAppDeployment
     RuleBypasserGroups:
       type: array
       description: Groups that can bypass this ruleset

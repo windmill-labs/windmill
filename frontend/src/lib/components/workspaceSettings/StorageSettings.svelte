@@ -19,9 +19,8 @@
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import Portal from '../Portal.svelte'
 	import Popover from '../meltComponents/Popover.svelte'
-	import ClearableInput from '../common/clearableInput/ClearableInput.svelte'
-	import MultiSelect from '../select/MultiSelect.svelte'
 	import CloseButton from '../common/CloseButton.svelte'
+	import S3PermissionRulesEditor from './S3PermissionRulesEditor.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
 	import DataTable from '../table/DataTable.svelte'
@@ -529,7 +528,7 @@
 			disabled={!storage.advancedPermissions && !$enterpriseLicense}
 		/>
 		{#if storage.advancedPermissions}
-			{@render advancedPermissionsEditor(storage.advancedPermissions)}
+			<S3PermissionRulesEditor bind:rules={storage.advancedPermissions} />
 		{/if}
 		{#if !storage.advancedPermissions}
 			{#if storage.resourceType == 's3'}
@@ -585,37 +584,3 @@
 		{/if}
 	{/if}
 </Modal2>
-
-{#snippet advancedPermissionsEditor(rules: S3ResourceSettingsItem['advancedPermissions'])}
-	<Alert title="Standard Unix-style glob syntax is supported">
-		The following will be interpolated :
-		<ul class="list-disc pl-6">
-			<li><code>{'{username}'}</code> : Nickname of the user doing the request</li>
-			<li><code>{'{group}'}</code> : Any group that the user belongs to</li>
-			<li><code>{'{folder_read}'}</code> : Any folder that the user has read access to</li>
-			<li><code>{'{folder_write}'}</code> : Any folder that the user has write access to</li>
-		</ul>
-		<br />
-		Note that changes may take up to 1 minute to propagate due to cache invalidation
-	</Alert>
-
-	<div class="flex-1 overflow-y-auto gap-3 flex flex-col">
-		{#each rules ?? [] as item, idx}
-			<div class="flex gap-2">
-				<ClearableInput bind:value={item.pattern} placeholder="Pattern" />
-				<MultiSelect
-					items={[{ value: 'read' }, { value: 'write' }, { value: 'delete' }, { value: 'list' }]}
-					bind:value={item.allow}
-					class="w-[20rem]"
-					placeholder="Deny all access"
-					hideMainClearBtn
-				/>
-				<CloseButton onClick={() => rules?.splice(idx, 1)} />
-			</div>
-		{/each}
-	</div>
-	<Button size="xs" variant="default" on:click={() => rules?.push({ pattern: '', allow: [] })}>
-		<Plus size={14} />
-		Add permission rule
-	</Button>
-{/snippet}

@@ -9,7 +9,10 @@
 
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import { untrack } from 'svelte'
-	import { AppService, SettingService } from '$lib/gen'
+	import { AppService, SettingService, WorkspaceService } from '$lib/gen'
+	import type { GuestUsage } from '$lib/gen'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import { computeSecretUrl } from './appDeploy.svelte'
 	import { base } from '$lib/base'
@@ -90,6 +93,51 @@
 			(rulesetsLoaded &&
 				canUserBypassRuleKind('RestrictAnonymousAppDeployment', $userStore ?? undefined))
 	)
+	let canSetGuest = $derived(
+		!!$userStore?.is_admin ||
+			!!$userStore?.is_super_admin ||
+			(rulesetsLoaded &&
+				canUserBypassRuleKind('RestrictGuestAppDeployment', $userStore ?? undefined))
+	)
+	// The three rungs of the access control, widest last. `viewer` is a fourth
+	// execution mode that this control never sets (it runs components as the viewer,
+	// which a guest cannot be), so an app in it shows as members-only here.
+	let accessMode = $derived(
+		policy.execution_mode == 'anonymous'
+			? 'anonymous'
+			: policy.execution_mode == 'guest'
+				? 'guest'
+				: 'publisher'
+	)
+	// Undefined until loaded. An app can be set to `guest` while the workspace has
+	// guests off, in which case the mode is stored but inert -- say so rather than
+	// letting the publisher believe the app is open.
+	let guestAccessEnabled: boolean | undefined = $state(undefined)
+	let guestUsage: GuestUsage | undefined = $state(undefined)
+
+	$effect(() => {
+		const ws = opWs
+		if (ws === undefined) return
+		untrack(() => {
+			WorkspaceService.getPublicSettings({ workspace: ws })
+				.then((s) => (guestAccessEnabled = s.guest_access_enabled))
+				.catch(() => (guestAccessEnabled = undefined))
+			WorkspaceService.getGuestUsage({ workspace: ws })
+				.then((u) => (guestUsage = u))
+				.catch(() => (guestUsage = undefined))
+		})
+	})
+
+	function onAccessModeChange(mode: string | undefined) {
+		if (mode === undefined || mode === accessMode) return
+		policy.execution_mode = mode
+		// Same as sandbox: a not-yet-deployed app has no row to PATCH, so
+		// `setPublishState` would 404. The mode is carried by the first deploy's
+		// policy; persist incrementally only once the app exists.
+		if (savedApp && !newApp) {
+			setPublishState()
+		}
+	}
 	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
 	let savedOnBehalfOfEmail = $derived(savedApp?.policy?.on_behalf_of_email)
 	let savedOnBehalfOf = $derived(savedApp?.policy?.on_behalf_of)
@@ -389,34 +437,78 @@
 {/if}
 
 {#if !hideSecretUrl}
-	<h2>Public URL</h2>
+	<h2>Access</h2>
 
 	<div class="my-6">
-		{#if rulesetsLoaded && !canSetAnonymous}
+		{#if rulesetsLoaded && !canSetAnonymous && policy.execution_mode != 'anonymous'}
 			<Alert type="warning" title="Restricted by a workspace protection rule" size="xs">
-				Making this app publicly accessible without login is restricted to workspace admins and
-				bypass users by a workspace protection rule
+				Opening this app to anyone with the link is restricted to workspace admins and bypass users
+				by a workspace protection rule
+			</Alert>
+			<div class="mb-2"></div>
+		{/if}
+		{#if rulesetsLoaded && !canSetGuest && policy.execution_mode != 'guest'}
+			<Alert type="warning" title="Restricted by a workspace protection rule" size="xs">
+				Opening this app to guests is restricted to workspace admins and bypass users by a workspace
+				protection rule
 			</Alert>
 			<div class="mb-2"></div>
 		{/if}
 		<div class="flex gap-2 items-center mb-2">
-			<Toggle
-				options={{
-					left: `Require login and read-access`,
-					right: `No login required`
-				}}
-				checked={policy.execution_mode == 'anonymous'}
-				on:change={(e) => {
-					policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
-					// Same as sandbox: a not-yet-deployed app has no row to PATCH, so
-					// `setPublishState` would 404. The mode is carried by the first
-					// deploy's policy; persist incrementally only once the app exists.
-					if (savedApp && !newApp) {
-						setPublishState()
-					}
-				}}
-				disabled={!savedApp || (!canSetAnonymous && policy.execution_mode != 'anonymous')}
-			/>
+			<ToggleButtonGroup
+				selected={accessMode}
+				on:selected={(e) => onAccessModeChange(e.detail)}
+				disabled={!savedApp}
+			>
+				{#snippet children({ item })}
+					<ToggleButton
+						label="Members"
+						value="publisher"
+						tooltip="Workspace members with read access on this app."
+						{item}
+					/>
+					<ToggleButton
+						label="Guests"
+						value="guest"
+						disabled={!canSetGuest && policy.execution_mode != 'guest'}
+						tooltip="Anyone your identity provider authenticates who has no Windmill account, plus workspace members. No membership, no seat up to the instance's allowance."
+						{item}
+					/>
+					<ToggleButton
+						label="Public"
+						value="anonymous"
+						disabled={!canSetAnonymous && policy.execution_mode != 'anonymous'}
+						tooltip="Anyone with the secret URL. No login."
+						{item}
+					/>
+				{/snippet}
+			</ToggleButtonGroup>
+		</div>
+		<div class="text-xs text-secondary mb-3">
+			{#if policy.execution_mode == 'anonymous'}
+				Anyone holding the secret URL below can open this app without signing in.
+			{:else if policy.execution_mode == 'guest'}
+				{#if guestUsage && !guestUsage.instance_enabled}
+					A superadmin has turned guests off for this instance, so this app still admits members
+					only.
+				{:else if guestAccessEnabled === undefined}
+					Checking whether this workspace allows guests…
+				{:else if guestAccessEnabled === false}
+					Guests are turned off for this workspace, so this app still admits members only. A
+					workspace admin can turn them on in the workspace settings.
+				{:else}
+					Anyone your identity provider authenticates can open this app without a Windmill account.
+					They join no workspace. Members of this workspace can open it too.
+					{#if guestUsage}
+						{guestUsage.guest_count} of {guestUsage.free_allowance} free guests used across this
+						instance in the last {guestUsage.window_days} days; beyond that, {guestUsage.metered
+							? 'every four guests count as one seat'
+							: 'new guests are refused until the count drops'}.
+					{/if}
+				{/if}
+			{:else}
+				Only workspace members with read access on this app can open it.
+			{/if}
 		</div>
 		{#if !savedApp || newApp}
 			<ClipboardPanel content={`Deploy this app once to get the public secret URL`} size="md" />

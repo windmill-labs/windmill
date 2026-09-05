@@ -519,6 +519,12 @@ function createRuntime(session: Session): SessionRuntime {
 	// Key the store before any configureGlobalMode runs, so a new session's first create shows at once.
 	void manager.artifacts.setSession(session.id)
 
+	// Assigning `manager.mode` above only records the mode; this builds the tool set
+	// and system prompt from it. Keep it here, after the resolvers and the artifact
+	// store it reads, and not on `changeMode`: a runtime exists per session the
+	// picker lists, so changeMode's network refreshes would fire once per listing.
+	manager.configureGlobalMode()
+
 	// Pipeline target state lives on the runtime (not the PipelineEditorView
 	// component) so the in-session drafts survive hide/show of the editor pane —
 	// the pane unmounts on hide, and a component-local store would be discarded.
