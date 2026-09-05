@@ -61,6 +61,15 @@ A flow does not wait for that deploy to see the draft:
 Because a draft is per-user, a flow test can behave differently for two people looking at the same
 flow. That is the same contract as a flow draft, and deploying the agent is what makes it shared.
 
+Inlining has a consequence worth knowing: a preview job's `raw_flow` then carries the agent's
+config, where a linked step used to carry only the path and leave the resolution to the worker. So
+an agent's prompt and tool set are readable by whoever can read that preview job, which is a wider
+set than whoever can read the resource when the agent sits in a more restricted folder than the
+flow. No credential travels with it — the provider stays a `$res:` reference, resolved at run time
+as the runner. The agent editor's own test pane has inlined the same way since drafts existed;
+closing the gap would mean the preview carrying a draft *reference* the worker resolves, rather
+than the config.
+
 Sharing works through standard resource folder permissions (save agents under `f/...`).
 
 Only the agent's brain is interpolated when the step runs. A tool's own `$res:`/`$var:` defaults are
