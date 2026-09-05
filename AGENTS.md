@@ -51,13 +51,22 @@ Open-source platform for internal tools, workflows, API integrations, background
 > defaults in this section apply only to a plain single checkout. **Discover the real
 > values before running anything** — see "Per-worktree ports and database" below.
 
-**Check whether they are already running before starting anything.** In a webmux worktree
-(`$WEBMUX_WORKTREE_PATH` is set) the backend and frontend are already up in sibling tmux panes —
-use those, don't spawn your own. `tmux list-panes -t "$(tmux display-message -p -t "$TMUX_PANE"
-'#{window_id}')" -F '#{pane_index} #{pane_current_command}'` shows what is running; read its log
-with `tmux capture-pane`, and see `backend/AGENTS.md` to restart it with different cargo features.
-A second server started in your own shell fights the first one for the port. The commands below
-are for a plain checkout with nothing running.
+**Check whether they are already running before starting anything.** In a managed worktree the
+backend and frontend are already up in sibling panes — use those, don't spawn your own. A second
+server started in your own shell fights the first one for the port. Two managers are in use, and
+they set disjoint environment variables, so check which one you are in:
+
+| | webmux | herdr |
+| --- | --- | --- |
+| marker | `$WEBMUX_WORKTREE_PATH` is set | `$HERDR_ENV=1` |
+| what is running | `tmux list-panes -t "$(tmux display-message -p -t "$TMUX_PANE" '#{window_id}')" -F '#{pane_index} #{pane_current_command}'` | `herdr pane list --workspace "$HERDR_WORKSPACE_ID"` |
+| read a pane's log | `tmux capture-pane -t "$(tmux display-message -p -t "$TMUX_PANE" '#{session_name}:#{window_name}').1" -p -S -50` (`.1` backend, `.2` frontend) | `herdr pane read <pane_id> --source recent-unwrapped --lines 50` |
+
+See `backend/AGENTS.md` to restart the backend with different cargo features. Under herdr, `herdr
+--skill` prints a full reference for inspecting and driving panes and agents, and the plugins that
+provision worktrees live in the private `windmill-labs/windmill-herdr` — clone it and run
+`./setup.sh` to install them and the keybindings they need. The commands below are for a plain
+checkout with nothing running.
 
 - **Backend**: `cargo run` from `backend/` (API at http://localhost:8000)
 - **Frontend**: `REMOTE=http://localhost:8000 npm run dev` from `frontend/` (port 3000+)
@@ -68,10 +77,15 @@ are for a plain checkout with nothing running.
 
 ### Per-worktree ports and database
 
-In a webmux worktree the authoritative values live in
-`$(git rev-parse --git-dir)/webmux/runtime.env` — `BACKEND_PORT`, `FRONTEND_PORT`,
-`DATABASE_URL`, `CARGO_FEATURES`, `WM_DB_NAME`. Every pane sources it at startup. Read that
-first: it is not a `.env*` file, so the repo's secret-file read rules don't stand in the way.
+**`.env.local` in the worktree root is the portable answer** — `BACKEND_PORT`,
+`FRONTEND_PORT`, `REMOTE`, `DATABASE_URL`, `CARGO_FEATURES`, `WM_DB_NAME`. Both managers write
+those fields, so it is correct whichever one you are in. Read it with `cat .env.local` from a
+shell: the file-read tool denies every `.env.*` path, and `DATABASE_URL` is written with an
+`export` prefix that a `^DATABASE_URL=` grep misses.
+
+webmux additionally writes `$(git rev-parse --git-dir)/webmux/runtime.env`, which every pane
+sources at startup and which carries the extras `.env.local` lacks: `WEBMUX_*`, `WM_CLONE_DB`,
+`USE_RUST_PLUGIN`. herdr has no equivalent file; its plugin hooks read `.env.local`.
 
 In a plain checkout, fall back to `.env` / `.env.local` (repo root) and `backend/.env`.
 
@@ -80,15 +94,17 @@ hook. It is not a copy of the main dev instance: you get the `admins` workspace,
 `admin@windmill.dev` superadmin, the license key copied from the base database, and whatever the
 migrations seed — and none of your own workspaces, scripts, flows or apps. Create whatever a test
 needs. Cloning the base `windmill` database instead is
-opt-in per project via `WM_CLONE_DB` in `.webmux.yaml`; read the note there before turning it on.
+opt-in via `WM_CLONE_DB` (in `.webmux.yaml` under webmux, or the `windmill.worktree` plugin's
+`config.env` under herdr); read the note in `.webmux.yaml` before turning it on.
 
 The database is named after the **worktree directory, not the branch** (`scripts/worktree-common.sh`):
 `windmill_` + the directory basename with `-` → `_`, which Postgres then truncates at 63
-characters. Branch `hugo/win-2340-ai-agent-evals-standalone-agent-runs-and-eval-datasets` sits in
-a worktree directory named `win-2340-…`, so its database is
-`windmill_win_2340_ai_agent_evals_standalone_agent_runs_and_eval` — no `hugo_`, and the tail
-chopped. Take `WM_DB_NAME` from `runtime.env` instead of reconstructing the name. Read those, or
-discover from what is already running:
+characters. The two managers lay worktrees out differently, so the same branch lands in different
+directories and therefore different databases: under webmux, branch
+`hugo/win-2340-ai-agent-evals-standalone-agent-runs-and-eval-datasets` sits in a directory named
+`win-2340-…`, so its database is `windmill_win_2340_ai_agent_evals_standalone_agent_runs_and_eval`
+— no `hugo_`, and the tail chopped. Take `WM_DB_NAME` from `.env.local` instead of reconstructing
+the name. Read that, or discover from what is already running:
 
 ```bash
 psql postgres://postgres:changeme@localhost:5432/postgres -tAc \
