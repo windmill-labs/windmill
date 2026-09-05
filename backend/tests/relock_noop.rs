@@ -16,7 +16,8 @@ const W: &str = "test-workspace";
 /// rather than surfacing as a worker timeout.
 const WAIT_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// How often the waits below re-check, and the floor on one turn of the drain loop.
+/// How often the waits below re-check. The drain reads the queue once per completion it waits
+/// this long for, so it doubles as the floor on one turn of that loop.
 const POLL: std::time::Duration = std::time::Duration::from_millis(20);
 
 const A: &str = "def main():\n    return 'a'\n";
@@ -131,9 +132,6 @@ async fn wait_for_jobs(
             tokio::time::Instant::now() < deadline,
             "the queue never emptied"
         );
-        // The stream ends instantly once it is closed, so this is what keeps the loop from
-        // spinning on the queue read until the deadline.
-        tokio::time::sleep(POLL).await;
     }
 }
 
