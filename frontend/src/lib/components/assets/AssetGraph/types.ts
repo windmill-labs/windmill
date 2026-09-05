@@ -230,7 +230,6 @@ export interface AssetGraphResponse {
 	macro_edges?: AssetGraphMacroEdge[]
 	test_edges?: AssetGraphTestEdge[]
 	dbt_edges?: AssetGraphDbtEdge[]
-	dbt_column_edges?: AssetGraphDbtColumnEdge[]
 	/** The job whose snapshot the dbt half was resolved from, when one was
 	 *  asked for and found. A run page polls the graph until this is its own
 	 *  job, which is how it knows a dynamic descriptor's ingest has landed. */
@@ -247,21 +246,6 @@ export interface AssetGraphResponse {
 export interface AssetGraphDbtEdge {
 	from_asset_path: string
 	to_asset_path: string
-}
-
-// Column-to-column lineage between two dbt models, from the engine's own static
-// analysis. Empty unless the project opted into it — `manifest.json` carries no
-// column edges at all.
-export interface AssetGraphDbtColumnEdge {
-	from_asset_path: string
-	from_column: string
-	to_asset_path: string
-	to_column: string
-	// dbt's own word: `copy` (passthrough) or `mod` (transformed). The indirect
-	// `scan` kind is stored but never served here — it reaches every output
-	// column of its model. Left open rather than a union: the set is the
-	// engine's.
-	kind: string
 }
 
 export type AssetGraphNodeData =

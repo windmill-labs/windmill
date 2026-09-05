@@ -8,7 +8,9 @@
 //! whole dbt half, and every later fix in this area re-touched one of the two.
 
 use sqlx::{Pool, Postgres};
-use windmill_api_assets::{asset_graph_for, GraphQuery, PinnedRun};
+use windmill_api_assets::{
+    asset_graph_for, dbt_column_lineage_for, ColumnLineageQuery, GraphQuery, PinnedRun,
+};
 use windmill_api_auth::ApiAuthed;
 use windmill_common::db::UserDB;
 
@@ -75,6 +77,33 @@ async fn seed(db: &Pool<Postgres>, job: uuid::Uuid) {
                    'u/a/wh/analytics/orders', 'select 1', '{finance}', 'daily order facts',
                    '{"order_id": {"description": "natural key"}}'::jsonb,
                    '{"warn_after": {"count": 12, "period": "hour"}}'::jsonb)"#,
+        WS,
+        PATH,
+        HASH,
+        job
+    )
+    .execute(db)
+    .await
+    .unwrap();
+    // The relation it reads, and the `ref()` between them — what draws the
+    // project as a DAG rather than a fan-out off the one dbt runnable.
+    sqlx::query!(
+        "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,
+                               resource_type, name, asset_path, tags)
+         VALUES ($1, $2, $3, $4, 'model.p.raw_orders', 'model', 'raw_orders',
+                 'u/a/wh/analytics/raw_orders', '{}')",
+        WS,
+        PATH,
+        HASH,
+        job
+    )
+    .execute(db)
+    .await
+    .unwrap();
+    sqlx::query!(
+        "INSERT INTO dbt_edge (workspace_id, script_path, script_hash, job_id,
+                               parent_unique_id, child_unique_id)
+         VALUES ($1, $2, $3, $4, 'model.p.raw_orders', 'model.p.orders')",
         WS,
         PATH,
         HASH,
@@ -160,6 +189,14 @@ async fn a_pinned_run_survives_no_access_to_its_script(db: Pool<Postgres>) {
     assert!(
         body.to_string().contains("u/a/wh/analytics/orders"),
         "while the relation the run wrote is what the page is for: {body}"
+    );
+    assert_eq!(
+        body["dbt_edges"],
+        serde_json::json!([{
+            "from_asset_path": "u/a/wh/analytics/raw_orders",
+            "to_asset_path": "u/a/wh/analytics/orders",
+        }]),
+        "and the `ref()` between them, resolved to relations: {body}"
     );
 
     // The same read by someone who may open the project: the gate has to be the
@@ -428,17 +465,6 @@ async fn an_editor_graph_renders_only_through_its_own_job(db: Pool<Postgres>) {
         serde_json::json!(parse),
         "labelled as a graph of its own, so the editor can say where it came from"
     );
-    assert_eq!(
-        body["dbt_column_edges"],
-        serde_json::json!([{
-            "from_asset_path": "u/a/wh/analytics/draft_src",
-            "from_column": "raw",
-            "to_asset_path": "u/a/wh/analytics/draft",
-            "to_column": "clean",
-            "kind": "mod",
-        }]),
-        "and its column lineage, which the buffer parse is the whole point of: {body}"
-    );
     assert!(
         !body.to_string().contains("select 1"),
         "and the deployed version's models are not mixed into it: {body}"
@@ -477,5 +503,117 @@ async fn an_editor_graph_renders_only_through_its_own_job(db: Pool<Postgres>) {
     assert!(
         !deployed_run.contains("u/a/wh/analytics/draft"),
         "nor of a run of the deployed version: {deployed_run}"
+    );
+}
+
+fn column_query(asset_path: &str) -> ColumnLineageQuery {
+    ColumnLineageQuery { asset_path: asset_path.to_string(), dbt_script_hash: None }
+}
+
+async fn column_lineage(
+    db: &Pool<Postgres>,
+    authed: &ApiAuthed,
+    asset_path: &str,
+    pinned: Option<PinnedRun>,
+) -> serde_json::Value {
+    let res = dbt_column_lineage_for(
+        authed,
+        WS,
+        UserDB::new(db.clone()),
+        column_query(asset_path),
+        pinned,
+    )
+    .await
+    .unwrap();
+    serde_json::to_value(&res.0).unwrap()["edges"].clone()
+}
+
+/// The buffer parse's own lineage, which is the case the versionless rows exist
+/// for. Its `script_hash` is NULL on both sides of every join and every
+/// visibility check, and `= NULL` is never true — so the versionless arm has to
+/// be written for it, or a parse renders its columns and none of their lineage.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn an_editor_buffers_column_lineage_answers_through_its_job(db: Pool<Postgres>) {
+    let parse = uuid::Uuid::from_u128(9);
+    seed(&db, uuid::Uuid::from_u128(7)).await;
+    seed_editor_graph(&db, parse).await;
+    let admin = ApiAuthed { is_admin: true, ..outsider() };
+
+    let pinned = PinnedRun { job_id: parse, script_path: PATH.to_string(), script_hash: None };
+    assert_eq!(
+        column_lineage(&db, &admin, "u/a/wh/analytics/draft", Some(pinned)).await,
+        serde_json::json!([{
+            "from_asset_path": "u/a/wh/analytics/draft_src",
+            "from_column": "raw",
+            "to_asset_path": "u/a/wh/analytics/draft",
+            "to_column": "clean",
+            "kind": "mod",
+        }]),
+    );
+    // Unpinned, the same relation resolves through the deployed version, which
+    // never heard of the buffer's models.
+    assert_eq!(
+        column_lineage(&db, &admin, "u/a/wh/analytics/draft", None).await,
+        serde_json::json!([]),
+        "a buffer's lineage is reachable only through the job that parsed it"
+    );
+}
+
+/// A column-level view is the shape of what the author WROTE, so it takes the
+/// script's own gate — the same one that keeps `raw_code` behind access to the
+/// project, applied here once for the script that owns the relation.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn column_lineage_takes_the_scripts_gate_and_only_the_direct_kinds(db: Pool<Postgres>) {
+    let job = uuid::Uuid::from_u128(7);
+    seed(&db, job).await;
+    // A second relation of the deployed version, feeding the first. `scan` says
+    // the column was read to produce the ROW rather than the value, so it
+    // reaches every output column of its model and is never served.
+    sqlx::query!(
+        "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,
+                               resource_type, name, asset_path, tags)
+         VALUES ($1, $2, $3, '00000000-0000-0000-0000-000000000000', 'model.p.raw_orders',
+                 'model', 'raw_orders', 'u/a/wh/analytics/raw_orders', '{}'),
+                ($1, $2, $3, '00000000-0000-0000-0000-000000000000', 'model.p.orders',
+                 'model', 'orders', 'u/a/wh/analytics/orders', '{}')",
+        WS,
+        PATH,
+        HASH,
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+    sqlx::query!(
+        "INSERT INTO dbt_column_edge (workspace_id, script_path, script_hash, job_id,
+                                      parent_unique_id, parent_column, child_unique_id,
+                                      child_column, lineage_kind)
+         VALUES ($1, $2, $3, '00000000-0000-0000-0000-000000000000',
+                 'model.p.raw_orders', 'id', 'model.p.orders', 'order_id', 'copy'),
+                ($1, $2, $3, '00000000-0000-0000-0000-000000000000',
+                 'model.p.raw_orders', 'status', 'model.p.orders', 'order_id', 'scan')",
+        WS,
+        PATH,
+        HASH,
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+
+    let admin = ApiAuthed { is_admin: true, ..outsider() };
+    assert_eq!(
+        column_lineage(&db, &admin, "u/a/wh/analytics/orders", None).await,
+        serde_json::json!([{
+            "from_asset_path": "u/a/wh/analytics/raw_orders",
+            "from_column": "id",
+            "to_asset_path": "u/a/wh/analytics/orders",
+            "to_column": "order_id",
+            "kind": "copy",
+        }]),
+        "the direct edge, and not the `scan` one beside it"
+    );
+    assert_eq!(
+        column_lineage(&db, &outsider(), "u/a/wh/analytics/orders", None).await,
+        serde_json::json!([]),
+        "and nothing at all for a caller who cannot read the project"
     );
 }

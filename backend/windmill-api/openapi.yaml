@@ -24187,6 +24187,52 @@ paths:
               schema:
                 $ref: "#/components/schemas/AssetGraph"
 
+  /w/{workspace}/assets/column_lineage:
+    get:
+      summary: Column-level lineage of one dbt relation
+      description: >
+        The direct (`copy` / `mod`) column-to-column lineage of the dbt project
+        the given relation belongs to, from the engine's static analysis.
+
+        Its own endpoint rather than a field on the asset graph: the graph is
+        folder-wide and polled by a run page, while this is rendered for one
+        selected asset at a time. A folder's worth of column edges would need a
+        cap, and a cap has to come after every filter; one relation's does not,
+        so the caller's scope and the project's visibility are simply decided
+        once for the owning script.
+
+        Empty for a project that did not opt into the analysis pass
+        (`column_lineage: true`), which is the ordinary case. The indirect `scan`
+        kind is stored but never served: it reaches every output column of its
+        model.
+      operationId: getDbtColumnLineage
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: asset_path
+          in: query
+          required: true
+          description: The `dbt://` relation whose lineage to return
+          schema:
+            type: string
+        - name: dbt_script_hash
+          in: query
+          description: >
+            Pin to one deployed version, for an editor open on an older one. A
+            run's or an editor buffer's own graph is not reachable here: that
+            pins to a job, and costs the job-read gate — see
+            `jobs/dbt_column_lineage/{id}`.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the relation's column-level lineage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DbtColumnLineage"
+
   /w/{workspace}/assets/macros:
     get:
       summary: List every workspace DuckDB macro (deployed `// macros` libraries)
@@ -24377,6 +24423,40 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AssetGraph"
+
+  /w/{workspace}/jobs/dbt_column_lineage/{id}:
+    get:
+      summary: Get one relation's column lineage as one run saw it
+      description: >
+        The same answer as `assets/column_lineage`, for the project version a
+        single job ran — including the dbt editor's parse of its own buffer,
+        whose graph belongs to that job and is reachable no other way.
+        Authorized through the job, the same gate as `dbt_graph`.
+      operationId: getDbtRunColumnLineage
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          description: The job whose graph the lineage is read from
+          schema:
+            type: string
+            format: uuid
+        - name: asset_path
+          in: query
+          required: true
+          description: The `dbt://` relation whose lineage to return
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the relation's column-level lineage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DbtColumnLineage"
 
   /w/{workspace}/jobs/run_progress/{id}:
     get:
@@ -25952,33 +26032,6 @@ components:
                 type: string
               to_asset_path:
                 type: string
-        dbt_column_edges:
-          type: array
-          description: >-
-            Column-to-column lineage between two dbt models, from the engine's
-            own static analysis: `manifest.json` carries none, and the artifact
-            that does is only written when the project opts into the analysis
-            pass. Omitted when empty, which is the usual case. DIRECT edges only
-            (`copy` / `mod`); the indirect `scan` kind is stored but not served
-            here, since it reaches every output column of its model.
-          items:
-            type: object
-            required: [from_asset_path, from_column, to_asset_path, to_column, kind]
-            properties:
-              from_asset_path:
-                type: string
-              from_column:
-                type: string
-              to_asset_path:
-                type: string
-              to_column:
-                type: string
-              kind:
-                type: string
-                description: >-
-                  dbt's own word for how the value travelled — `copy`
-                  (passthrough) or `mod` (transformed). Not an enum: the engine's
-                  own reader maps its kinds and passes anything else through.
         dbt_snapshot_job:
           type: string
           format: uuid
@@ -25998,6 +26051,34 @@ components:
             drawn identically and the ambiguity would otherwise just move into
             the editor. Omitted for the unpinned workspace graph, which spans
             every project and so has no one time.
+    DbtColumnLineage:
+      type: object
+      description: >-
+        The direct column-to-column lineage of the dbt project one relation
+        belongs to, in the terms the canvas draws — relations and columns, never
+        dbt's node ids.
+      required: [edges]
+      properties:
+        edges:
+          type: array
+          items:
+            type: object
+            required: [from_asset_path, from_column, to_asset_path, to_column, kind]
+            properties:
+              from_asset_path:
+                type: string
+              from_column:
+                type: string
+              to_asset_path:
+                type: string
+              to_column:
+                type: string
+              kind:
+                type: string
+                description: >-
+                  dbt's own word for how the value travelled — `copy`
+                  (passthrough) or `mod` (transformed). Not an enum: the engine
+                  treats the set as open.
     DbtAssetProvenance:
       type: object
       description: >-

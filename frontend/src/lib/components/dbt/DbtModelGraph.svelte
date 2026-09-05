@@ -25,10 +25,7 @@
 		DbtAssetProvenance
 	} from '$lib/components/assets/AssetGraph/types'
 	import { useDbtRunStatus } from './runStatus.svelte'
-	import {
-		buildColumnGraph,
-		type ColumnLineageGraph
-	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
+	import type { DbtGraphPin } from '$lib/components/assets/AssetGraph/dbtColumnLineage.svelte'
 
 	let {
 		workspace,
@@ -85,11 +82,12 @@
 			 *  editor holds it now. Sent with the selection rather than exposed on
 			 *  its own so it can never disagree with the SQL the parent shows. */
 			buffer: DbtPreviewBuffer | undefined,
-			/** The project's column-level lineage, when the descriptor asked for
-			 *  it. Travels with the selection for the same reason the provenance
-			 *  does: it is resolved from the graph response, which is this
-			 *  component's. */
-			columnGraph: ColumnLineageGraph | undefined
+			/** Which graph this node was taken from, so anything else fetched
+			 *  about it describes the same project: the editor's own parse job
+			 *  when the panel is pinned to one, else the deployed version. Sent
+			 *  with the selection for the same reason the buffer is — it must not
+			 *  be able to disagree with the node on screen. */
+			pin: DbtGraphPin
 		) => void
 	} = $props()
 
@@ -327,12 +325,6 @@
 			triggers: [],
 			dbt_edges: (raw.dbt_edges ?? []).filter(
 				(e) => ids.has(`dbt:${e.from_asset_path}`) && ids.has(`dbt:${e.to_asset_path}`)
-			),
-			// Scoped like the edges above, and for the same reason: the response is
-			// folder-wide, so without this the trace reaches columns of relations
-			// this canvas is deliberately not drawing.
-			dbt_column_edges: (raw.dbt_column_edges ?? []).filter(
-				(e) => ids.has(`dbt:${e.from_asset_path}`) && ids.has(`dbt:${e.to_asset_path}`)
 			)
 		} as AssetGraphResponse
 	})
@@ -379,11 +371,11 @@
 	// graph that actually came back.
 	let editorParsed = $derived(refreshJob != undefined && raw?.dbt_snapshot_job === refreshJob)
 
-	// Built lazily off the graph on screen, so the trace in the details pane
-	// describes the same parse the canvas does. Empty for a project that never
-	// asked for the analysis pass, which is the ordinary case.
-	let columnGraph = $derived(
-		graph?.dbt_column_edges?.length ? buildColumnGraph(graph) : undefined
+	// Which stored graph is on screen. Anything the details pane fetches about a
+	// selected node asks for this one, so it cannot describe a node parsed from
+	// the buffer with the deployed version's answer.
+	let pin = $derived<DbtGraphPin>(
+		editorParsed && refreshJob ? { jobId: refreshJob } : { scriptHash: deployedHash }
 	)
 
 	// `untrack`, because the effect that reloads the graph clears the selection
@@ -397,7 +389,7 @@
 					? graph?.assets.find((a) => a.kind === sel.asset_kind && a.path === sel.path)?.dbt
 					: undefined,
 				editorParsed ? parsedBuffer : undefined,
-				sel?.kind === 'asset' ? columnGraph : undefined
+				pin
 			)
 		)
 	}
@@ -428,7 +420,6 @@
 		if (deployedHash != undefined) return 'as of last deploy'
 		return 'never parsed'
 	})
-
 </script>
 
 <div class="flex flex-col h-full min-h-0">
@@ -458,8 +449,8 @@
 
 	{#if refreshPending}
 		<div class="shrink-0 px-2 py-1.5 border-b text-2xs text-secondary">
-			Still parsing. A cold worker provisions the dbt engine before it starts; a project
-			pinned to a worker tag nothing serves waits here indefinitely.
+			Still parsing. A cold worker provisions the dbt engine before it starts; a project pinned to a
+			worker tag nothing serves waits here indefinitely.
 			<a
 				class="text-blue-500 hover:underline"
 				href="{base}/run/{refreshPending}?workspace={workspace}"

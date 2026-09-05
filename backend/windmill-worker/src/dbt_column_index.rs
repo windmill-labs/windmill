@@ -94,23 +94,24 @@ pub(crate) async fn collect(
     }
 
     let index_dir = p.project_dir.join(CLL_ARTIFACTS_DIR).join("index");
-    let Some(compiled) =
-        compile_index(p, descriptor, inv, ctx, job_id, w_id, conn).await?
-    else {
+    let Some(compiled) = compile_index(p, descriptor, inv, ctx, job_id, w_id, conn).await? else {
         return Ok(None);
     };
+    let coverage = Coverage::of(&compiled);
 
     let index = read_index(&index_dir, kept).await;
     // What only the pass knows. The COUNTS are logged where the index is folded
     // into the graph, since the graph decides how much of it is kept.
-    match (&index, compiled.analyzed_everything()) {
-        (Some(_), true) => {}
-        // The ordinary partial outcome: some models did not analyze, the rest
-        // did, and their lineage is real.
-        (Some(_), false) => {
-            let note = "Column lineage: `--static-analysis strict` rejected part of the project, \
-                        so the lineage covers only the models it could analyze.";
-            append_logs(job_id, w_id, format!("\n{note}\n{}", compiled.detail()), conn).await;
+    match (&index, coverage.caveat()) {
+        (Some(_), None) => {}
+        (Some(_), Some(note)) => {
+            append_logs(
+                job_id,
+                w_id,
+                format!("\n{note}\n{}", diagnostics(&compiled.stderr)),
+                conn,
+            )
+            .await;
         }
         (None, _) => {
             let note = format!(
@@ -121,44 +122,59 @@ pub(crate) async fn collect(
             // The engine's own diagnostics. They are how a reader learns that
             // this adapter turned static analysis off, which it reports as a
             // warning on a SUCCESSFUL compile that nothing else would show.
-            append_logs(job_id, w_id, format!("\n{note}\n{}", compiled.detail()), conn).await;
+            append_logs(
+                job_id,
+                w_id,
+                format!("\n{note}\n{}", diagnostics(&compiled.stderr)),
+                conn,
+            )
+            .await;
         }
     }
     Ok(index)
 }
 
-/// What the analysis compile did, from the pass's point of view.
+/// How completely the analysis compile covered the project.
 ///
-/// Every way the COMPILE can disappoint is a value here rather than an error: a
-/// non-zero exit (strict analysis rejected some SQL), an output ceiling, or the
-/// phase budget. An `Err` from `compile_index` is the JOB's — a cancellation or
-/// its deadline — and must fail it.
-struct Compiled {
-    /// `None` once the pass gave up on its own terms, which the caller has
-    /// already been told about.
-    outcome: Option<crate::dbt_executor::Captured>,
+/// Every way the COMPILE can disappoint is a value here rather than an error. An
+/// `Err` from `compile_index` is the JOB's — a cancellation or its deadline —
+/// and must fail it; the pass giving up on its own terms is `Ok(None)` and has
+/// already been logged.
+enum Coverage {
+    /// Every model analyzed.
+    Whole,
+    /// `--static-analysis strict` rejected part of the project. Whatever it did
+    /// analyze is still in the index.
+    Partial,
+    /// The output ceiling killed the compile mid-run. Distinct from `Partial`:
+    /// nothing rejected the project, but the index is however far it had got, so
+    /// it is not `Whole` either.
+    Truncated,
 }
 
-impl Compiled {
-    /// Whether the engine analyzed the whole project. False means the index, if
-    /// there is one, covers only part of it.
-    ///
-    /// A truncated run is not a rejected project: the ceiling killed a compile
-    /// that was otherwise doing its job, and whatever it had already written to
-    /// `target/index/` is still on disk.
-    fn analyzed_everything(&self) -> bool {
-        self.outcome
-            .as_ref()
-            .is_some_and(|c| c.success || c.truncated)
+impl Coverage {
+    fn of(c: &crate::dbt_executor::Captured) -> Self {
+        match (c.truncated, c.success) {
+            (true, _) => Coverage::Truncated,
+            (false, true) => Coverage::Whole,
+            (false, false) => Coverage::Partial,
+        }
     }
 
-    /// The engine's own diagnostics, bounded, or nothing when the pass never got
-    /// far enough to have any.
-    fn detail(&self) -> String {
-        self.outcome
-            .as_ref()
-            .map(|c| diagnostics(&c.stderr))
-            .unwrap_or_default()
+    /// What to tell the reader when an index WAS produced. `None` for a run that
+    /// covered everything, which needs no caveat.
+    fn caveat(&self) -> Option<&'static str> {
+        match self {
+            Coverage::Whole => None,
+            Coverage::Partial => Some(
+                "Column lineage: `--static-analysis strict` rejected part of the project, so \
+                 the lineage covers only the models it could analyze.",
+            ),
+            Coverage::Truncated => Some(
+                "Column lineage: the analysis pass printed more than this runtime reads and was \
+                 stopped, so the lineage covers only the models it had reached.",
+            ),
+        }
     }
 }
 
@@ -177,7 +193,7 @@ async fn compile_index(
     job_id: &Uuid,
     w_id: &str,
     conn: &Connection,
-) -> error::Result<Option<Compiled>> {
+) -> error::Result<Option<crate::dbt_executor::Captured>> {
     // A previous pass in the same job directory — a retry's second attempt —
     // would otherwise be read back as this one's answer.
     tokio::fs::remove_dir_all(p.project_dir.join(CLL_ARTIFACTS_DIR))
@@ -224,10 +240,10 @@ async fn compile_index(
         crate::dbt_executor::Overflow::Truncate,
     );
     let Some(budget) = budget else {
-        return Ok(Some(Compiled { outcome: Some(run.await?) }));
+        return Ok(Some(run.await?));
     };
     match tokio::time::timeout(budget, run).await {
-        Ok(r) => Ok(Some(Compiled { outcome: Some(r?) })),
+        Ok(r) => Ok(Some(r?)),
         Err(_) => {
             append_logs(
                 job_id,
@@ -312,53 +328,64 @@ fn read_index_blocking(
     kept: &HashSet<String>,
 ) -> error::Result<ColumnIndex> {
     let mut out = ColumnIndex::default();
-    // Two passes, direct kinds first. The cap is a memory bound, so it has to
-    // apply while decoding — but applied to the file's own row order it would
-    // let `scan` edges, which are the bulk of a wide project's index and which
-    // nothing renders, fill the budget before a single `copy` edge is read.
-    // Reading a row and dropping it costs no memory, so the second pass is only
-    // time, on a file the engine just wrote.
-    for direct in [true, false] {
-        let remaining = MAX_COLUMN_EDGES - out.edges.len();
-        if remaining == 0 {
-            break;
+    // ONE pass, with the two kinds bucketed as they arrive. Direct edges are
+    // what a trace draws, so they get the whole budget; `scan` — the bulk of a
+    // wide project's index and the kind nothing renders — fills only what is
+    // left over at the end. Reading the file twice to get that ordering would
+    // double the decode of exactly the large index this bound exists for.
+    let mut scan: Vec<IngestedColumnEdge> = Vec::new();
+    for_each_row(lineage, |row| {
+        let lineage_kind = string(row, "lineage_kind");
+        let parent_unique_id = string(row, "from_node_unique_id");
+        let child_unique_id = string(row, "to_node_unique_id");
+        let parent_column = string(row, "from_column_name");
+        let child_column = string(row, "to_column_name");
+        // A column of a node the analysis could not name is not an endpoint the
+        // graph can draw, and neither is one outside this graph's nodes.
+        if parent_column.is_empty()
+            || child_column.is_empty()
+            || !kept.contains(&parent_unique_id)
+            || !kept.contains(&child_unique_id)
+        {
+            return;
         }
-        for_each_row(lineage, remaining, |row| {
-            let lineage_kind = string(row, "lineage_kind");
-            if is_direct(&lineage_kind) != direct {
-                return Kept::No;
+        let edge = IngestedColumnEdge {
+            parent_unique_id,
+            parent_column,
+            child_unique_id,
+            child_column,
+            lineage_kind,
+        };
+        // The bound covers BOTH buckets, so the pass never holds more than one
+        // budget's worth however the kinds are distributed.
+        let held = out.edges.len() + scan.len();
+        if is_direct(&edge.lineage_kind) {
+            if out.edges.len() >= MAX_COLUMN_EDGES {
+                return;
             }
-            let parent_unique_id = string(row, "from_node_unique_id");
-            let child_unique_id = string(row, "to_node_unique_id");
-            let parent_column = string(row, "from_column_name");
-            let child_column = string(row, "to_column_name");
-            // A column of a node the analysis could not name is not an endpoint
-            // the graph can draw, and neither is one outside this graph's nodes.
-            if parent_column.is_empty()
-                || child_column.is_empty()
-                || !kept.contains(&parent_unique_id)
-                || !kept.contains(&child_unique_id)
-            {
-                return Kept::No;
+            // A direct edge displaces a `scan` one: the budget exists to be
+            // spent on what a trace draws.
+            if held >= MAX_COLUMN_EDGES {
+                scan.pop();
             }
-            out.edges.push(IngestedColumnEdge {
-                parent_unique_id,
-                parent_column,
-                child_unique_id,
-                child_column,
-                lineage_kind,
-            });
-            Kept::Yes
-        })?;
-    }
+            out.edges.push(edge);
+            return;
+        }
+        if held < MAX_COLUMN_EDGES {
+            scan.push(edge);
+        }
+    })?;
+    out.edges.append(&mut scan);
     // Absent is normal — an engine can write the lineage table and not this one —
     // and unreadable is not worth losing the lineage over.
-    let _ = for_each_row(columns, MAX_INDEXED_COLUMNS, |row| {
+    let mut held = 0usize;
+    let _ = for_each_row(columns, |row| {
         let unique_id = string(row, "unique_id");
         let name = string(row, "column_name");
-        if name.is_empty() || !kept.contains(&unique_id) {
-            return Kept::No;
+        if name.is_empty() || !kept.contains(&unique_id) || held >= MAX_INDEXED_COLUMNS {
+            return;
         }
+        held += 1;
         // The author's `data_type` where `schema.yml` gives one, since that is
         // what the project calls the column; the analysis's own inference
         // otherwise.
@@ -374,7 +401,6 @@ fn read_index_blocking(
                 column_type,
                 index: int(row, "column_index").unwrap_or(i64::MAX),
             });
-        Kept::Yes
     });
     Ok(out)
 }
@@ -384,46 +410,41 @@ fn read_index_blocking(
 /// reaches; it exists for the same reason.
 const MAX_INDEXED_COLUMNS: usize = MAX_COLUMN_EDGES;
 
-/// Decode a parquet row at a time, stopping once `f` has ACCEPTED `limit` rows.
+/// The most rows of an index one pass DECODES, whatever it keeps of them.
 ///
-/// Counted on what the caller keeps, not on what the file holds, because the
+/// A bound on work rather than on memory, and the two are separate because the
 /// input this defends against is the one that cannot be collected: `scan`
 /// lineage is emitted from every predicate and join column to every output
 /// column, so a project shaped that way writes an index whose row count is
-/// quadratic in its widest model. Materializing that into a `Vec<Row>` first —
-/// each row holding its own copy of every column NAME — is what would take the
-/// worker process down, and this module's whole contract is that it cannot fail
-/// a deploy or a run. A row the caller skips costs nothing, so skipping is free
-/// and only keeping is budgeted.
-fn for_each_row(path: &Path, limit: usize, mut f: impl FnMut(&Row) -> Kept) -> error::Result<()> {
+/// quadratic in its widest model. This pass runs outside the phase budget, on a
+/// blocking thread, and its whole contract is that it cannot fail a deploy or a
+/// run — so the file it walks needs an end even when almost nothing in it is
+/// retained.
+const MAX_INDEX_ROWS: usize = 4_000_000;
+
+/// Decode a parquet a row at a time, handing each to `f` and never holding two.
+///
+/// Collecting first would put a `Vec<Row>` — each row carrying its own copy of
+/// every column NAME — in front of the caller's own bound, which is what would
+/// take the worker process down on the index described above.
+fn for_each_row(path: &Path, mut f: impl FnMut(&Row)) -> error::Result<()> {
     let fail = |e: parquet::errors::ParquetError| {
         error::Error::internal_err(format!("reading {}: {e}", path.display()))
     };
     let file = std::fs::File::open(path)
         .map_err(|e| error::Error::internal_err(format!("opening {}: {e}", path.display())))?;
     let reader = SerializedFileReader::new(file).map_err(fail)?;
-    let mut budget = limit;
-    for row in reader.get_row_iter(None).map_err(fail)? {
-        if budget == 0 {
+    for (n, row) in reader.get_row_iter(None).map_err(fail)?.enumerate() {
+        if n >= MAX_INDEX_ROWS {
             tracing::warn!(
-                "dbt column index: {} yielded more than {limit} usable rows; the rest is dropped",
+                "dbt column index: {} holds more than {MAX_INDEX_ROWS} rows; the rest is dropped",
                 path.display()
             );
             break;
         }
-        if f(&row.map_err(fail)?) == Kept::Yes {
-            budget -= 1;
-        }
+        f(&row.map_err(fail)?);
     }
     Ok(())
-}
-
-/// Whether the row the closure just saw was retained, which is what the budget
-/// counts.
-#[derive(PartialEq, Eq)]
-enum Kept {
-    Yes,
-    No,
 }
 
 /// By NAME, not by position: these tables are the engine's own schema and it

@@ -156,6 +156,9 @@
 		// resolved graph). Drives the transitive column-lineage trace shown for a
 		// selected materialized asset.
 		selectionColumnGraph?: ColumnLineageGraph
+		/** That graph still being fetched — a dbt relation's lineage is a request
+		 *  of its own, so it arrives after the selection does. */
+		selectionColumnLoading?: boolean
 		/** dbt provenance of the selected relation, when a dbt project
 		 *  materializes it — carries the model's own SQL. */
 		selectionDbt?: DbtAssetProvenance
@@ -289,6 +292,7 @@
 		onScriptRemoved,
 		selectionProducers = [],
 		selectionColumnGraph,
+		selectionColumnLoading = false,
 		selectionDbt,
 		schemaCanEvolve = true,
 		selectionForkMaterialization = undefined,
@@ -1245,7 +1249,7 @@
 										</div>
 									</div>
 								{/key}
-							{:else if selectionDbt && (selectionDbt.raw_code || selectionColumnNodes.length > 0)}
+							{:else if selectionDbt && (selectionDbt.raw_code || selectionColumnNodes.length > 0 || selectionColumnLoading)}
 								<!-- The transform behind the node. Read-only on purpose: dbt
 								     development is a local loop (`dbt run --select`, `dbt test`
 								     against a dev target), and a browser textarea over one file
@@ -1266,7 +1270,14 @@
 									     the SQL below produces, so reading them in that order is
 									     the model's own shape. Same trace component the ducklake
 									     assets use — the graph is one graph across both. -->
-									{#if selectionColumnGraph && selectionColumnNodes.length > 0}
+									{#if selectionColumnLoading && selectionColumnNodes.length === 0}
+										<div
+											class="border-b shrink-0 flex items-center gap-2 px-3 py-1.5 text-2xs text-secondary"
+										>
+											<Loader2 size={12} class="animate-spin" />
+											Loading column lineage
+										</div>
+									{:else if selectionColumnGraph && selectionColumnNodes.length > 0}
 										<div class="border-b shrink-0 overflow-auto max-h-64">
 											<ColumnLineageTrace
 												graph={selectionColumnGraph}

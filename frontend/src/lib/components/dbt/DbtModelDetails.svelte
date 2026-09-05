@@ -40,9 +40,13 @@
 		/** Whether this model's file is in the bundle being edited. */
 		fileInBundle = false,
 		/** The project's column-level lineage, when the descriptor asked for it.
-		 *  Resolved from the same graph response the canvas draws, so the trace
-		 *  and the nodes above it describe one parse. */
+		 *  Fetched for this relation against the same graph the canvas draws, so
+		 *  the trace and the nodes above it describe one parse. */
 		columnGraph,
+		/** That fetch still in flight. Distinguished from an empty graph: a
+		 *  project without the analysis pass shows nothing at all, and a slow
+		 *  answer must not read as that. */
+		columnLoading = false,
 		onOpenFile,
 		onClose
 	}: {
@@ -55,6 +59,7 @@
 		args?: Record<string, unknown>
 		fileInBundle?: boolean
 		columnGraph?: ColumnLineageGraph
+		columnLoading?: boolean
 		onOpenFile?: (path: string) => void
 		onClose?: () => void
 	} = $props()
@@ -141,9 +146,7 @@
 	let columnsAreAnalyzed = $derived(!!dbt.column_schema?.length)
 	// The selected relation's own column nodes: empty for a project that never
 	// asked for the analysis pass, which is the ordinary case.
-	let columnNodes = $derived(
-		columnGraph ? assetColumnNodes(columnGraph, 'dbt', assetPath) : []
-	)
+	let columnNodes = $derived(columnGraph ? assetColumnNodes(columnGraph, 'dbt', assetPath) : [])
 	// `dbt show` SELECTs from the node's own relation and the worker intersects
 	// the selector with `resource_type:model`, so offering it on a seed, snapshot
 	// or source only ever produces a failed job.
@@ -234,15 +237,15 @@
 
 	{#if stalePlaceholders}
 		<div class="shrink-0 px-2 py-1 border-b text-2xs text-secondary bg-surface-secondary">
-			The run arguments have changed since this graph was parsed, so these rows need not
-			describe the models on screen — arguments reach schemas, aliases and which models exist
-			at all. Refresh the models to draw and preview them under the current ones.
+			The run arguments have changed since this graph was parsed, so these rows need not describe
+			the models on screen — arguments reach schemas, aliases and which models exist at all. Refresh
+			the models to draw and preview them under the current ones.
 		</div>
 	{:else if staleVars}
 		<div class="shrink-0 px-2 py-1 border-b text-2xs text-secondary bg-surface-secondary">
-			The run form's vars have changed since this graph was parsed. Rows are previewed under
-			the vars it was parsed with, so they still describe the models on screen — refresh the
-			models to draw and preview them under the current ones.
+			The run form's vars have changed since this graph was parsed. Rows are previewed under the
+			vars it was parsed with, so they still describe the models on screen — refresh the models to
+			draw and preview them under the current ones.
 		</div>
 	{/if}
 
@@ -289,8 +292,8 @@
 						     what the model produces. -->
 						{#if !columnsAreAnalyzed}
 							<div class="text-tertiary mt-0.5">
-								Declared metadata. Set `column_lineage: true` in the descriptor for the real
-								column schema and column-level lineage.
+								Declared metadata. Set `column_lineage: true` in the descriptor for the real column
+								schema and column-level lineage.
 							</div>
 						{/if}
 					</div>
@@ -310,12 +313,17 @@
 			</div>
 		{/if}
 
-		{#if columnGraph && columnNodes.length > 0}
+		{#if columnLoading && columnNodes.length === 0}
+			<div class="border-b flex items-center gap-2 p-2 text-2xs text-secondary">
+				<Loader2 size={12} class="animate-spin" />
+				Loading column lineage
+			</div>
+		{:else if columnGraph && columnNodes.length > 0}
 			<div class="border-b overflow-auto max-h-64">
 				<ColumnLineageTrace
 					graph={columnGraph}
 					assetKind="dbt"
-					assetPath={assetPath}
+					{assetPath}
 					targetLabel={dbt.unique_id}
 				/>
 			</div>

@@ -31,7 +31,10 @@
 		AssetGraphNodeData,
 		DbtAssetProvenance
 	} from '$lib/components/assets/AssetGraph/types'
-	import type { ColumnLineageGraph } from '$lib/components/assets/AssetGraph/columnLineageGraph'
+	import {
+		useDbtColumnLineage,
+		type DbtGraphPin
+	} from '$lib/components/assets/AssetGraph/dbtColumnLineage.svelte'
 	import {
 		DBT_DESCRIPTOR,
 		DBT_MODULE_EXTENSIONS,
@@ -208,7 +211,17 @@
 	let graphSelection = $state<AssetGraphNodeData | undefined>(undefined)
 	let selectedAsset = $derived(graphSelection?.kind === 'asset' ? graphSelection : undefined)
 	let selectedDbt = $state<DbtAssetProvenance | undefined>(undefined)
-	let selectedColumnGraph = $state<ColumnLineageGraph | undefined>(undefined)
+	// Which graph the selection came from, so the lineage fetched below is the
+	// selected node's own project rather than whatever is deployed.
+	let selectionPin = $state<DbtGraphPin | undefined>(undefined)
+	// The selected model's column lineage, fetched on selection. Its own request
+	// rather than a field on the graph: only a project that opted into the
+	// analysis pass has any, and it is drawn for one model at a time.
+	const columnLineage = useDbtColumnLineage({
+		workspace: () => opWs,
+		assetPath: () => (selectedDbt ? selectedAsset?.path : undefined),
+		pin: () => selectionPin
+	})
 	// Set when the selected node came from a buffer parse: the project that parse
 	// ran on, which is the one its rows must come from. Undefined for a node off
 	// the deployed graph, which previews by version instead. Either way the rows
@@ -516,11 +529,11 @@
 						testRunning={testIsLoading}
 						testResult={testJob?.result}
 						selection={graphSelection}
-						onSelect={(sel, dbt, buffer, columnGraph) => {
+						onSelect={(sel, dbt, buffer, pin) => {
 							graphSelection = sel
 							selectedDbt = dbt
 							selectedBuffer = buffer
-							selectedColumnGraph = columnGraph
+							selectionPin = pin
 						}}
 					/>
 				</Pane>
@@ -542,7 +555,8 @@
 							{args}
 							fileInBundle={!!selectedDbt.original_file_path &&
 								!!modules?.[selectedDbt.original_file_path]}
-							columnGraph={selectedColumnGraph}
+							columnGraph={columnLineage.graph}
+							columnLoading={columnLineage.loading}
 							onOpenFile={open}
 							onClose={() => (graphSelection = undefined)}
 						/>

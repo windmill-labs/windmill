@@ -1172,21 +1172,22 @@ project: `column_lineage: true` in the descriptor. Off, nothing changes. On, a
 project that cannot be analyzed keeps exactly the graph it had.
 
 The pass is best-effort about everything that is ITS: a wrong engine, a rejected
-analysis, a missing or unreadable artifact, an over-long output, and outrunning
-its own time budget all degrade to no lineage and a line in the job log. It is
-not best-effort about the JOB: a cancellation or the job's own deadline fail it,
-because swallowing those would let a run that blew its timeout inside an optional
-annotation publish a graph and report success. The budget is half the job's
-remaining wall clock, spent on the compile alone, so the build that follows
-cannot be starved by it.
+analysis, a missing or unreadable artifact, an over-long output and outrunning its
+own time budget all degrade to partial lineage or none, plus a line in the job
+log saying which. It is not best-effort about the JOB: a cancellation or the job's
+own deadline fail it, because swallowing those would let a run that blew its
+timeout inside an optional annotation publish a graph and report success. That
+split is why the two halves have separate error contracts — the compile owns the
+job's semantics and may `Err`; reading the artifact owns none, and cannot. The
+budget is half the job's remaining wall clock, spent on the compile alone, so the
+build that follows cannot be starved by it.
 
 **A failed pass still writes the index**, holding every edge of the models that
 did analyze, so the artifact is read whatever the exit status and partial lineage
-is a normal outcome. An unreachable *source* is milder
-still: `RemoteError (dbt1014)` downgrades that model to `static_analysis: off`
-and the compile succeeds. (Strict analysis queries the warehouse catalog for
-source schemas; a `ref()`ed model is inferred statically and needs no built
-table.)
+is a normal outcome. An unreachable *source* is milder still: `RemoteError
+(dbt1014)` downgrades that model to `static_analysis: off` and the compile
+succeeds. (Strict analysis queries the warehouse catalog for source schemas; a
+`ref()`ed model is inferred statically and needs no built table.)
 
 **The flag is not the capability.** `dbt-core` 2.0.0-alpha.5 — the version
 `DBT_CORE_2X_VERSION` pins — accepts `--write-index` and `--write-lineage`, and
@@ -1204,10 +1205,10 @@ no index appears, since without it "no column lineage" has no explanation.
 ROW rather than the value: a join key, a `where` predicate, a `group by`) — and
 the engine's own reader maps those three and passes anything else through, so the
 set is the engine's to extend. All three are STORED; only `copy` and `mod` are
-served to the graph endpoint, because a `scan` edge reaches every output column
-of its model — it would render as a complete bipartite graph, and it is most of
-what a project's index holds. Keeping it in the table is what lets a later
-"show indirect" view ask for it without every project being redeployed.
+served, because a `scan` edge reaches every output column of its model — it would
+render as a complete bipartite graph, and it is most of what a project's index
+holds. Keeping it in the table is what lets a later "show indirect" view ask for
+it without every project being redeployed.
 
 Storage mirrors `dbt_edge` exactly: `dbt_column_edge`, keyed by (path, version,
 job) with the same composite foreign key to `script`, so a version's column
@@ -1222,21 +1223,26 @@ The loss is not hypothetical — an incremental that selects from `{{ this }}`
 (`coalesce(p.dbl, s.dbl)`, `p.up as prev_up`) yields `up → prev_up` with kind
 `copy`, a drawn edge meaning "this column carries the previous run's value".
 Inventing self-loop `dbt_edge` rows to hold it is not an option either: that
-table is `ref()` lineage. What the separate table DOES inherit is the read: the
-column edges come back from the same statement as the `ref()` edges, over a
-`UNION ALL`'d edge source, so the `live`/`chosen` CTEs and the version and
-editor-buffer join conditions exist once. The typed
-column list lands in `dbt_node.column_schema`, beside `columns` rather than
-merged into it — `columns` stays what the author *declared*. Both are gated on
-being able to read the producing project, like the model's SQL: a column-level
-view is the shape of what the author wrote, one level finer than the `ref()`
-graph, which is ungated only because it draws relations the caller already sees.
+table is `ref()` lineage. The typed column list lands in
+`dbt_node.column_schema`, beside `columns` rather than merged into it —
+`columns` stays what the author *declared*.
 
-The pass is best-effort about the COMPILE and nothing else. A non-zero exit is
-downgraded to a log line; a cancellation, the job's deadline or the output
-ceiling still fail the job, since those are the job's and swallowing one would
-let a run that blew its timeout inside this pass publish a graph and report
-success.
+**Served from `assets/column_lineage`, keyed to one relation, not as a field on
+the asset graph.** The graph is folder-wide and a run page polls it, while a
+column trace is drawn for one selected node; carried on the graph the edges would
+need a cap, and a cap has to be applied after every filter that can drop a row —
+scope, project visibility, the asset set actually rendered. Keyed to the asset
+there is no cap for a filter to sit on the wrong side of: the caller's
+`scripts:read` scope and the project's visibility are decided once, for the
+script that owns the relation. Pinning to a run's snapshot or to the editor's
+parse of its own buffer costs the job-read gate, so that form is
+`jobs/dbt_column_lineage/{id}`, exactly as `jobs/dbt_graph/{id}` is to
+`assets/graph`.
+
+Both the lineage and `column_schema` are gated on being able to read the
+producing project, like the model's SQL: a column-level view is the shape of what
+the author wrote, one level finer than the `ref()` graph, which is ungated only
+because it draws relations the caller already sees.
 
 ## Concept mapping
 

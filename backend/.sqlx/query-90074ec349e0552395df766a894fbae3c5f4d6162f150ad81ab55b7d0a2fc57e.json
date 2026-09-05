@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH\n           -- The project version that owns the asked-for relation, in the graph\n           -- on screen. Not the folder-wide `live` set the graph resolves: one\n           -- asset is asked about here, so the version is decided per candidate\n           -- row. Usually one row; a relation a second project declares as a\n           -- source has two, and each answers for its own lineage.\n           owner AS (\n             SELECT DISTINCT n.script_path, n.script_hash, n.job_id\n               FROM dbt_node n\n              WHERE n.workspace_id = $1 AND n.asset_path = $2\n                -- The run's snapshot, or the deployed graph when that job stored\n                -- none -- a build pins only if it wrote one.\n                AND n.job_id = CASE WHEN $5::uuid IS NOT NULL AND EXISTS (\n                                      SELECT 1 FROM dbt_graph_snapshot g\n                                       WHERE g.workspace_id = $1 AND g.job_id = $5)\n                                    THEN $5::uuid\n                                    ELSE '00000000-0000-0000-0000-000000000000'::uuid END\n                -- The gate, once, for the whole answer.\n                AND ( $6\n                      OR n.script_path = ANY($7)\n                      OR EXISTS ( SELECT 1 FROM unnest($8::text[]) AS pfx\n                                   WHERE n.script_path = pfx\n                                      OR left(n.script_path, length(pfx) + 1) = pfx || '/' ) )\n                AND CASE\n                      -- Pinned: path and version come from a job this caller was\n                      -- already granted, which is what makes the versionless\n                      -- editor buffer reachable and needs no `script` row.\n                      WHEN $4::text IS NOT NULL\n                        THEN n.script_path = $4 AND n.script_hash IS NOT DISTINCT FROM $3::bigint\n                      -- A named version, for an editor open on an older one.\n                      -- `script` is read under RLS, so this is the visibility\n                      -- check as well as the existence one.\n                      WHEN $3::bigint IS NOT NULL\n                        THEN n.script_hash = $3 AND EXISTS (\n                               SELECT 1 FROM script sc\n                                WHERE sc.workspace_id = $1 AND sc.path = n.script_path\n                                  AND sc.hash = $3)\n                      -- Otherwise the version deployed now: an older one's rows\n                      -- outlive it in `dbt_node` until the sweep, and describe a\n                      -- project that is no longer what runs.\n                      ELSE n.script_hash = (\n                             SELECT sc.hash FROM script sc\n                              WHERE sc.workspace_id = $1 AND sc.path = n.script_path\n                                AND sc.deleted = false AND sc.archived = false\n                              ORDER BY sc.created_at DESC LIMIT 1)\n                    END\n           )\n           SELECT p.asset_path AS \"from_path!\", e.parent_column AS \"from_column!\",\n                  c.asset_path AS \"to_path!\", e.child_column AS \"to_column!\",\n                  e.lineage_kind AS \"kind!\"\n             FROM dbt_column_edge e\n             JOIN owner o ON o.script_path = e.script_path\n                         AND o.script_hash IS NOT DISTINCT FROM e.script_hash\n                         AND o.job_id = e.job_id\n             JOIN dbt_node p ON p.workspace_id = e.workspace_id\n                            AND p.script_path = e.script_path\n                            AND p.script_hash IS NOT DISTINCT FROM e.script_hash\n                            AND p.job_id = e.job_id\n                            AND p.unique_id = e.parent_unique_id\n             JOIN dbt_node c ON c.workspace_id = e.workspace_id\n                            AND c.script_path = e.script_path\n                            AND c.script_hash IS NOT DISTINCT FROM e.script_hash\n                            AND c.job_id = e.job_id\n                            AND c.unique_id = e.child_unique_id\n            WHERE e.workspace_id = $1\n              -- DIRECT kinds only. `scan` — the column was read to produce the\n              -- ROW, not the value — reaches every output column of its model,\n              -- so it is most of a project's stored lineage and none of what a\n              -- trace draws. It stays in the table for a later view to ask for.\n              AND e.lineage_kind IN ('copy', 'mod')\n              AND p.asset_path IS NOT NULL AND c.asset_path IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "from_path!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "from_column!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "to_path!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "to_column!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "kind!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Uuid",
+        "Bool",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "90074ec349e0552395df766a894fbae3c5f4d6162f150ad81ab55b7d0a2fc57e"
+}

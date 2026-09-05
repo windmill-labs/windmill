@@ -32,10 +32,11 @@
 	import PipelineModeToggle from '$lib/components/assets/AssetGraph/PipelineModeToggle.svelte'
 	import MacroExplorerDrawer from '$lib/components/assets/AssetGraph/MacroExplorerDrawer.svelte'
 	import { parsePipelineAnnotations } from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
+	import { buildColumnGraph } from '$lib/components/assets/AssetGraph/columnLineageGraph'
 	import {
-		buildColumnGraph,
-		type ColumnLineageGraph
-	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
+		EMPTY_COLUMN_GRAPH,
+		useDbtColumnLineage
+	} from '$lib/components/assets/AssetGraph/dbtColumnLineage.svelte'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
 	import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 	import { hideDbtRunnables } from '$lib/components/assets/AssetGraph/hideDbtRunnables'
@@ -1980,27 +1981,33 @@
 			?.dbt
 	})
 
-	// Empty graph reused when the trace isn't shown (no ducklake-asset selection,
-	// or a draft is actively edited) so the pane blanks out like the other
-	// selection overlays and `buildColumnGraph` doesn't run.
-	const EMPTY_COLUMN_GRAPH: ColumnLineageGraph = {
-		nodes: new Map(),
-		up: new Map(),
-		down: new Map()
-	}
 	// Pipeline-wide column-lineage graph, stitched across every producer's
-	// (inferred + annotated) `column_lineage`, the asset write-edges and the
-	// column edges a dbt project's static analysis produced. Drives the
-	// transitive column trace in the details pane. Built from `displayGraph`
+	// (inferred + annotated) `column_lineage` and the asset write-edges. Drives
+	// the transitive column trace in the details pane. Built from `displayGraph`
 	// — the exact graph the canvas renders — so the trace matches it: draft
-	// overlays in edit / show-drafts, deployed-only in plain View. Gated to the
-	// two asset kinds that can carry column lineage so it isn't rebuilt on every
-	// editor keystroke when the trace UI isn't even shown.
-	let columnGraph = $derived(
-		pe.selection?.kind === 'asset' &&
-			(pe.selection.asset_kind === 'ducklake' || pe.selection.asset_kind === 'dbt')
+	// overlays in edit / show-drafts, deployed-only in plain View. Gated to a
+	// ducklake selection so it isn't rebuilt on every editor keystroke when the
+	// trace UI isn't even shown.
+	let ducklakeColumnGraph = $derived(
+		pe.selection?.kind === 'asset' && pe.selection.asset_kind === 'ducklake'
 			? buildColumnGraph(displayGraph)
 			: EMPTY_COLUMN_GRAPH
+	)
+	// dbt's half comes from its own request instead: a project's static analysis
+	// is stored per relation and only exists if the descriptor asked for it, so
+	// the folder-wide graph does not carry it. A draft is never asked about —
+	// nothing has parsed it, so there is nothing to fetch.
+	const dbtColumnLineage = useDbtColumnLineage({
+		workspace: () => $workspaceStore,
+		assetPath: () =>
+			!pe.activeDraft && pe.selection?.kind === 'asset' && pe.selection.asset_kind === 'dbt'
+				? pe.selection.path
+				: undefined
+	})
+	let columnGraph = $derived(
+		pe.selection?.kind === 'asset' && pe.selection.asset_kind === 'dbt'
+			? dbtColumnLineage.graph
+			: ducklakeColumnGraph
 	)
 
 	// Producer-side facts for the editor's live schema-contract diagnostics:
@@ -2604,6 +2611,7 @@
 				{selectionProducers}
 				{selectionDbt}
 				selectionColumnGraph={pe.activeDraft ? EMPTY_COLUMN_GRAPH : columnGraph}
+				selectionColumnLoading={dbtColumnLineage.loading}
 				{schemaCanEvolve}
 				{selectionForkMaterialization}
 				{schemaContractContext}

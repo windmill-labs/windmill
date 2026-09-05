@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dbt_edge (workspace_id, script_path, script_hash, job_id,\n                               parent_unique_id, child_unique_id)\n         VALUES ($1, $2, $3, $4, 'model.p.raw_orders', 'model.p.orders')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7ae6da193977df13ec318c5b22b04101dedeb9a29dadf7dd8db1f69d02d93b45"
+}

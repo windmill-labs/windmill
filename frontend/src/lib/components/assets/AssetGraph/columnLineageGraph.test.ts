@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { AssetGraphResponse } from './types'
 import {
 	buildColumnGraph,
+	buildDbtColumnGraph,
 	colNodeId,
 	traceColumn,
 	connectedComponent,
@@ -109,48 +110,6 @@ describe('buildColumnGraph', () => {
 		expect(colNodeId('ducklake', 'a:b', 'c')).not.toBe(colNodeId('ducklake', 'a', 'b:c'))
 	})
 
-	it('takes dbt column edges but not the indirect `scan` ones', () => {
-		// dbt arrives already resolved to two relations rather than anchored to a
-		// producer. `scan` means the column was read to produce the ROW — a join
-		// key, a predicate, a `group by` — so it reaches every output column of
-		// its model and is not the lineage a column trace means.
-		const g = buildColumnGraph({
-			assets: [],
-			runnables: [],
-			edges: [],
-			triggers: [],
-			dbt_column_edges: [
-				{
-					from_asset_path: 'main/s/stg',
-					from_column: 'raw_name',
-					to_asset_path: 'main/s/mart',
-					to_column: 'clean_name',
-					kind: 'mod'
-				},
-				{
-					from_asset_path: 'main/s/stg',
-					from_column: 'id',
-					to_asset_path: 'main/s/mart',
-					to_column: 'id',
-					kind: 'copy'
-				},
-				{
-					from_asset_path: 'main/s/stg',
-					from_column: 'id',
-					to_asset_path: 'main/s/mart',
-					to_column: 'clean_name',
-					kind: 'scan'
-				}
-			]
-		})
-		expect(g.up.get(colNodeId('dbt', 'main/s/mart', 'clean_name'))).toEqual(
-			new Set([colNodeId('dbt', 'main/s/stg', 'raw_name')])
-		)
-		expect(g.up.get(colNodeId('dbt', 'main/s/mart', 'id'))).toEqual(
-			new Set([colNodeId('dbt', 'main/s/stg', 'id')])
-		)
-	})
-
 	it('skips producers with no ducklake output asset (columns unanchorable)', () => {
 		const graph = chainGraph()
 		graph.edges = graph.edges.filter((e) => e.runnable_path !== 's1') // s1 loses its output edge
@@ -159,6 +118,45 @@ describe('buildColumnGraph', () => {
 		expect(g.up.has(STAGING_AMT)).toBe(false)
 		// ...but s2 still anchors daily.total ← staging.amt (staging.amt as a source).
 		expect(g.up.get(DAILY_TOTAL)).toEqual(new Set([STAGING_AMT]))
+	})
+})
+
+describe('buildDbtColumnGraph', () => {
+	it('takes the direct kinds and drops any other', () => {
+		// `scan` means the column was read to produce the ROW — a join key, a
+		// predicate, a `group by` — so it reaches every output column of its model
+		// and is not what a column trace means. The server filters it out; this
+		// filters again, because the kind set is the engine's and an unknown one
+		// must not become an edge the trace calls data flow.
+		const g = buildDbtColumnGraph([
+			{
+				from_asset_path: 'main/s/stg',
+				from_column: 'raw_name',
+				to_asset_path: 'main/s/mart',
+				to_column: 'clean_name',
+				kind: 'mod'
+			},
+			{
+				from_asset_path: 'main/s/stg',
+				from_column: 'id',
+				to_asset_path: 'main/s/mart',
+				to_column: 'id',
+				kind: 'copy'
+			},
+			{
+				from_asset_path: 'main/s/stg',
+				from_column: 'id',
+				to_asset_path: 'main/s/mart',
+				to_column: 'clean_name',
+				kind: 'scan'
+			}
+		])
+		expect(g.up.get(colNodeId('dbt', 'main/s/mart', 'clean_name'))).toEqual(
+			new Set([colNodeId('dbt', 'main/s/stg', 'raw_name')])
+		)
+		expect(g.up.get(colNodeId('dbt', 'main/s/mart', 'id'))).toEqual(
+			new Set([colNodeId('dbt', 'main/s/stg', 'id')])
+		)
 	})
 })
 

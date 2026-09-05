@@ -1,5 +1,10 @@
-import type { AssetKind } from '$lib/gen'
+import type { AssetKind, DbtColumnLineage } from '$lib/gen'
 import type { AssetGraphResponse } from './types'
+
+// One column-to-column edge of a dbt project's static analysis, as the API
+// serves it. Taken from the generated client rather than restated: unlike the
+// asset graph, this response is fetched through it.
+export type DbtColumnEdge = DbtColumnLineage['edges'][number]
 
 // A node in the column-level lineage graph: one column of one asset.
 export type ColumnNode = { kind: AssetKind; path: string; column: string }
@@ -37,10 +42,6 @@ const DIRECT_DBT_LINEAGE = new Set(['copy', 'mod'])
 // output asset is the ducklake target it writes (v1 materialize target), found
 // from its write-edge. Producers without a known ducklake output are skipped
 // (their columns can't be anchored to an asset node).
-//
-// dbt contributes the same edges from the other side: a dbt project is one
-// runnable with many output assets, so its lineage arrives already resolved to
-// the two relations rather than anchored to a producer.
 export function buildColumnGraph(graph: AssetGraphResponse): ColumnLineageGraph {
 	const nodes = new Map<ColumnNodeId, ColumnNode>()
 	const up = new Map<ColumnNodeId, Set<ColumnNodeId>>()
@@ -99,14 +100,31 @@ export function buildColumnGraph(graph: AssetGraphResponse): ColumnLineageGraph 
 		}
 	}
 
-	for (const e of graph.dbt_column_edges ?? []) {
-		if (!DIRECT_DBT_LINEAGE.has(e.kind)) continue
-		addEdge(
-			addNode({ kind: 'dbt', path: e.from_asset_path, column: e.from_column }),
-			addNode({ kind: 'dbt', path: e.to_asset_path, column: e.to_column })
-		)
-	}
+	return { nodes, up, down }
+}
 
+// The same graph, from one dbt relation's column lineage. dbt arrives already
+// resolved to two relations rather than anchored to a producer, and the API
+// serves only the direct kinds, so this is a straight edge list.
+export function buildDbtColumnGraph(edges: DbtColumnEdge[]): ColumnLineageGraph {
+	const nodes = new Map<ColumnNodeId, ColumnNode>()
+	const up = new Map<ColumnNodeId, Set<ColumnNodeId>>()
+	const down = new Map<ColumnNodeId, Set<ColumnNodeId>>()
+	const addNode = (n: ColumnNode): ColumnNodeId => {
+		const id = colNodeId(n.kind, n.path, n.column)
+		if (!nodes.has(id)) nodes.set(id, n)
+		return id
+	}
+	for (const e of edges) {
+		// Belt and braces: the API filters to `copy`/`mod`, and a kind an engine
+		// invents must not silently become an edge the trace calls data flow.
+		if (!DIRECT_DBT_LINEAGE.has(e.kind)) continue
+		const src = addNode({ kind: 'dbt', path: e.from_asset_path, column: e.from_column })
+		const out = addNode({ kind: 'dbt', path: e.to_asset_path, column: e.to_column })
+		if (src === out) continue
+		;(up.get(out) ?? up.set(out, new Set()).get(out)!).add(src)
+		;(down.get(src) ?? down.set(src, new Set()).get(src)!).add(out)
+	}
 	return { nodes, up, down }
 }
 
