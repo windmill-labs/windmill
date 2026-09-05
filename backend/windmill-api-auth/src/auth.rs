@@ -175,6 +175,18 @@ impl AuthCache {
         if is_no_auth() {
             return Some(OptJobAuthed { authed: no_auth_admin_authed(), job_id: None });
         }
+        // Reject an oversized guest bearer before the cache key is built from it: the key
+        // copies and hashes the whole token, so the cap should bound that work too. Log it
+        // like the other guest refusals, since get_opt_job_authed turns None into a bare 401.
+        if token.starts_with(windmill_common::guest_jwt::BEARER_PREFIX)
+            && token.len() > windmill_common::guest_jwt::MAX_GUEST_JWT_LEN
+        {
+            tracing::error!(
+                "guest JWT refused: bearer is longer than {} bytes",
+                windmill_common::guest_jwt::MAX_GUEST_JWT_LEN
+            );
+            return None;
+        }
         let key = (
             w_id.as_ref().unwrap_or(&"".to_string()).to_string(),
             token.to_string(),
@@ -216,6 +228,111 @@ impl AuthCache {
                     None
                 }
             }
+            _ if token.starts_with(windmill_common::guest_jwt::BEARER_PREFIX) => {
+                // A workspace-less route never accepts a guest JWT: the identity is
+                // pinned to the workspace its claim names, like a DB guest session.
+                let Some(w_id) = w_id.as_deref() else {
+                    return None;
+                };
+                // Strip exactly one prefix: `trim_start_matches` would strip repeated prefixes,
+                // so `jwt_guest_jwt_guest_<jwt>` would reduce to a valid token that verifies and
+                // is then cached under the full, non-canonical bearer key.
+                let jwt = token
+                    .strip_prefix(windmill_common::guest_jwt::BEARER_PREFIX)
+                    .unwrap_or(token);
+                let claims =
+                    match windmill_common::guest_jwt::verify_for_workspace(&self.db, w_id, jwt)
+                        .await
+                    {
+                        Ok(c) => c,
+                        Err(e) => {
+                            tracing::error!("guest JWT auth error for {w_id}: {e:#}");
+                            return None;
+                        }
+                    };
+                // The workspace switch, the instance switch and the app being in guest
+                // mode, in one answer (guest_app_admits). The door re-reads the switches
+                // and the no-account rule per request through the sentinel below
+                // (guest_session_stands), so turning any of them off stops a cached JWT
+                // session on its next call.
+                match windmill_common::workspaces::guest_app_admits(
+                    &self.db,
+                    w_id,
+                    &claims.app_path,
+                )
+                .await
+                {
+                    Ok(true) => {}
+                    Ok(false) => return None,
+                    Err(e) => {
+                        tracing::error!("guest JWT admit check failed for {w_id}: {e:#}");
+                        return None;
+                    }
+                }
+                // Resolve on the lowercased email: accounts are stored lowercased, so a
+                // mixed-case claim would otherwise slip past the no-account gate and
+                // resolve an account holder to a guest, and split the activity rows the
+                // seat count reads.
+                let email = claims.email.to_lowercase();
+                // A guest is someone with no account at all; an account holder is refused,
+                // never downgraded (the same rule as the signed-in guest mint).
+                match windmill_common::users::has_any_account(&self.db, &email).await {
+                    Ok(false) => {}
+                    Ok(true) => return None,
+                    Err(e) => {
+                        tracing::error!("guest JWT account check failed: {e:#}");
+                        return None;
+                    }
+                }
+                // The instance allowance, checked and recorded transactionally. A stranger
+                // past the cap on a capped instance is refused here; a returning guest
+                // always passes. Recording an account holder is avoided by the check above.
+                if !admit_and_record_guest_jwt(&self.db, w_id, &email, &claims.app_path).await {
+                    return None;
+                }
+                // guest_session_scopes already carries the sentinel, and it is the whole
+                // grant; a JWT has no label, so the sentinel is what governs it. It also
+                // re-checks the path holds no scope metacharacter (verify already did).
+                let scopes = match crate::scopes::guest_session_scopes(&claims.app_path) {
+                    Ok(s) => Some(s),
+                    Err(e) => {
+                        tracing::error!("guest JWT app_path cannot be scoped for {w_id}: {e:#}");
+                        return None;
+                    }
+                };
+                // The JWT's own expiry caps a token minted from this session. The auth
+                // cache entry itself is capped far shorter (GUEST_JWT_CACHE_TTL) so a
+                // rotated or cleared key stops the session on re-verification, within
+                // minutes, rather than only at exp (up to 24h away).
+                let credential_expiry =
+                    chrono::Utc.timestamp_nanos(claims.exp as i64 * 1_000_000_000);
+                let cache_expiry = credential_expiry.min(chrono::Utc::now() + GUEST_JWT_CACHE_TTL);
+                let authed = ApiAuthed {
+                    username: email.clone(),
+                    email,
+                    is_admin: false,
+                    is_operator: true,
+                    groups: vec![],
+                    folders: vec![],
+                    scopes,
+                    username_override: None,
+                    username_override_is_token_label: false,
+                    is_session_token: false,
+                    token_prefix: Some(safe_token_prefix(token)),
+                    read_only: false,
+                    job_id: None,
+                    credential_expiry: Some(credential_expiry),
+                };
+                AUTH_CACHE.insert(
+                    key,
+                    ExpiringAuthCache {
+                        authed: authed.clone(),
+                        expiry: cache_expiry,
+                        job_id: None,
+                    },
+                );
+                Some(OptJobAuthed { authed, job_id: None })
+            }
             _ if token.starts_with("jwt_") => {
                 let jwt_token = token.trim_start_matches("jwt_");
 
@@ -249,6 +366,7 @@ impl AuthCache {
                             token_prefix: claims.audit_span,
                             read_only: false,
                             job_id: None,
+                            credential_expiry: None,
                         };
                         // Fail closed: a `job_id` claim that does not parse must reject
                         // the token rather than resolve to `None`, which would clear the
@@ -363,6 +481,7 @@ impl AuthCache {
                                                 token_prefix: Some(safe_token_prefix(token)),
                                                 read_only,
                                                 job_id: None,
+                                                credential_expiry: None,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -416,6 +535,7 @@ impl AuthCache {
                                                 token_prefix: Some(safe_token_prefix(token)),
                                                 read_only,
                                                 job_id: None,
+                                                credential_expiry: None,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -494,6 +614,7 @@ impl AuthCache {
                                                 token_prefix: Some(safe_token_prefix(token)),
                                                 read_only,
                                                 job_id: None,
+                                                credential_expiry: None,
                                             })
                                         }
                                         None if super_admin => {
@@ -518,6 +639,7 @@ impl AuthCache {
                                                     token_prefix: Some(safe_token_prefix(token)),
                                                     read_only,
                                                     job_id: None,
+                                                    credential_expiry: None,
                                                 }),
                                                 Err(e) => {
                                                     tracing::error!(
@@ -555,6 +677,7 @@ impl AuthCache {
                                                 token_prefix: Some(safe_token_prefix(token)),
                                                 read_only,
                                                 job_id: None,
+                                                credential_expiry: None,
                                             })
                                         }
                                         None => None,
@@ -574,6 +697,7 @@ impl AuthCache {
                                         token_prefix: Some(safe_token_prefix(token)),
                                         read_only,
                                         job_id: None,
+                                        credential_expiry: None,
                                     })
                                 }
                             }
@@ -612,6 +736,7 @@ impl AuthCache {
                         token_prefix: Some(safe_token_prefix(token)),
                         read_only: false,
                         job_id: None,
+                        credential_expiry: None,
                     };
                     Some(OptJobAuthed { authed, job_id: None })
                 } else {
@@ -620,6 +745,125 @@ impl AuthCache {
             }
         }
     }
+}
+
+/// How long a guest JWT resolves from the auth cache before the arm re-runs (and
+/// re-reads the key). A guest JWT is not revocable except by the workspace switch or
+/// by rotating the key, so the entry must be short enough that a rotated key bites
+/// soon, unlike a normal token whose row can be deleted. Also what makes the
+/// day-keyed activity dedupe below reachable across a midnight.
+const GUEST_JWT_CACHE_TTL: chrono::Duration = chrono::Duration::minutes(5);
+
+/// A refused JWT (a stranger past the allowance) is remembered this long so a replayed
+/// bearer does not take the instance-wide allowance advisory lock on every request.
+/// Short, so a stranger admitted once the window frees is re-checked soon.
+const GUEST_JWT_REFUSED_TTL: std::time::Duration = std::time::Duration::from_secs(30);
+
+lazy_static::lazy_static! {
+    // One `guest_activity` upsert and one `users.login_guest` audit per email,
+    // workspace and day: the arm re-runs every GUEST_JWT_CACHE_TTL, and neither the
+    // seat scan nor the audit trail wants a write each time. LRU-bounded; the day is in
+    // the key, so a new day writes again.
+    static ref GUEST_JWT_ACTIVITY_CACHE: Cache<String, ()> = Cache::new(2000);
+    static ref GUEST_JWT_REFUSED_CACHE: Cache<String, std::time::Instant> = Cache::new(2000);
+}
+
+/// Admit a JWT guest against the instance allowance and record today's activity, in one
+/// transaction so the advisory lock in `guest_admission` spans the count check and the
+/// row that changes it. Returns false when the allowance refuses the email or on a DB
+/// error, both of which deny the guest. Cached per email, workspace and day: a bearer
+/// replayed every request runs this at most once a day, and a refused one is remembered
+/// briefly so it does not re-take the allowance lock. `email` is already lowercased.
+async fn admit_and_record_guest_jwt(db: &DB, w_id: &str, email: &str, app_path: &str) -> bool {
+    let cache_key = format!("{email}|{w_id}|{}", chrono::Utc::now().date_naive());
+    if GUEST_JWT_ACTIVITY_CACHE.get(&cache_key).is_some() {
+        return true;
+    }
+    if GUEST_JWT_REFUSED_CACHE
+        .get(&cache_key)
+        .is_some_and(|at| at.elapsed() < GUEST_JWT_REFUSED_TTL)
+    {
+        return false;
+    }
+    let mut tx = match db.begin().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            tracing::error!("guest JWT tx begin failed for {w_id}: {e:#}");
+            return false;
+        }
+    };
+    // The allowance and the row that changes it, in one transaction: guest_admission
+    // takes a transaction-scoped advisory lock, so the count check and the insert cannot
+    // race two strangers past the cap. Only a real allowance refusal is negative-cached;
+    // a transient DB error denies this request but must not lock the email out for 30s.
+    match windmill_common::workspaces::guest_admission(&mut *tx, email).await {
+        Ok(()) => {}
+        Err(e @ windmill_common::error::Error::PermissionDenied(_)) => {
+            tracing::info!("guest JWT not admitted for {w_id}: {e:#}");
+            GUEST_JWT_REFUSED_CACHE.insert(cache_key, std::time::Instant::now());
+            return false;
+        }
+        Err(e) => {
+            tracing::error!("guest JWT allowance check failed for {w_id}: {e:#}");
+            return false;
+        }
+    }
+    // The conditional `WHERE NOT jwt_entry` flips the flag only on its false-to-true
+    // transition, so the upsert returns a row exactly once per email per day: on the
+    // fresh insert, or on the first JWT after an identity-provider sign-in created
+    // today's row with `jwt_entry = false`. The audit is gated on that, decided
+    // atomically by the conflicting tuple, so concurrent first requests (a metered
+    // instance takes no advisory lock) audit at most once.
+    let first_jwt = sqlx::query_scalar!(
+        r#"INSERT INTO guest_activity (email, workspace_id, day, jwt_entry)
+         VALUES ($1, $2, CURRENT_DATE, true)
+         ON CONFLICT (email, workspace_id, day)
+         DO UPDATE SET jwt_entry = true, last_seen_at = now()
+         WHERE NOT guest_activity.jwt_entry
+         RETURNING 1 AS "audited!""#,
+        email,
+        w_id,
+    )
+    .fetch_optional(&mut *tx)
+    .await;
+    let first_jwt = match first_jwt {
+        Ok(v) => v.is_some(),
+        Err(e) => {
+            tracing::error!("recording guest JWT activity for {w_id}: {e:#}");
+            return false;
+        }
+    };
+    if let Err(e) = tx.commit().await {
+        tracing::error!("guest JWT tx commit failed for {w_id}: {e:#}");
+        return false;
+    }
+    GUEST_JWT_ACTIVITY_CACHE.insert(cache_key, ());
+    // Audit last, best-effort, on its own connection: the EE writer swallows an
+    // `audit_partitioned` failure but that failing statement still aborts the
+    // transaction it runs in, so auditing before the commit would let the whole
+    // activity row roll back while this returned success, admitting an uncounted guest.
+    if first_jwt {
+        let author = windmill_common::audit::AuditAuthor {
+            email: email.to_string(),
+            username: email.to_string(),
+            username_override: None,
+            token_prefix: None,
+        };
+        if let Err(e) = windmill_audit::audit_oss::audit_log(
+            db,
+            &author,
+            "users.login_guest",
+            windmill_audit::ActionKind::Create,
+            w_id,
+            Some(app_path),
+            Some([("entry", "jwt")].into()),
+        )
+        .await
+        {
+            tracing::error!("auditing guest JWT login for {w_id}: {e:#}");
+        }
+    }
+    true
 }
 
 pub(crate) async fn extract_token<S: Send + Sync>(parts: &mut Parts, state: &S) -> Option<String> {
@@ -822,6 +1066,7 @@ fn no_auth_admin_authed() -> ApiAuthed {
         token_prefix: None,
         read_only: false,
         job_id: None,
+        credential_expiry: None,
     }
 }
 
