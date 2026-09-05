@@ -80,7 +80,9 @@
 			for (const m of modules) {
 				const value = m?.value as { type?: string; agent?: string } | undefined
 				if (value?.type === 'aiagent' && value.agent) {
-					publishLinkedAgentTools(value.agent, ws, linkedToolsScope(ws, flow?.path), m.id)
+					// Without the draft: this viewer shows a deployed flow or a past run, both of which
+					// used the deployed agent.
+					publishLinkedAgentTools(value.agent, ws, linkedToolsScope(ws, flow?.path), m.id, false)
 				}
 			}
 		})

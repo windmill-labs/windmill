@@ -126,6 +126,54 @@ export function agentDraftDeployRefusal(
 	return undefined
 }
 
+/**
+ * Write an agent draft to its resource. Takes the state the caller validated rather than re-reading
+ * the draft row, so what lands is what was checked and shown — `deployDraft`'s generic path re-reads
+ * instead, and falls back to the deployed row when the draft has gone, which for a resource means
+ * writing `value: d.args ?? {}` over a live agent.
+ *
+ * `notAnAgent` separates the one failure that invalidates the caller's whole view of the path — it
+ * holds something else now — from a write that merely failed.
+ */
+export type AgentWriteResult = { ok: true } | { ok: false; error: string; notAnAgent?: true }
+
+export async function writeAgentResource(
+	workspace: string,
+	state: AgentResourceState,
+	noDeployed: boolean
+): Promise<AgentWriteResult> {
+	const body = {
+		path: state.path,
+		value: state.args,
+		description: state.description,
+		labels: state.labels,
+		ws_specific: state.wsSpecific
+	}
+	try {
+		if (noDeployed) {
+			// A create needs a type, and every caller proved this path is an agent before offering it.
+			await ResourceService.createResource({
+				workspace,
+				requestBody: { ...body, resource_type: state.resource_type ?? 'ai_agent' }
+			})
+		} else {
+			// The type the caller proved is as old as its own load, and an update carries no type of
+			// its own: were the path deleted and recreated as something else meanwhile, this write
+			// would put an agent config inside that resource. Reading it again narrows the window to
+			// the request rather than to however long the editor or the dialog stayed open.
+			const current = await ResourceService.getResource({ workspace, path: state.path })
+			const refused = agentEditorRefusal(state.path, current.resource_type)
+			if (refused) {
+				return { ok: false, error: refused, notAnAgent: true }
+			}
+			await ResourceService.updateResource({ workspace, path: state.path, requestBody: body })
+		}
+	} catch (err) {
+		return { ok: false, error: `Could not save agent: ${err}` }
+	}
+	return { ok: true }
+}
+
 export interface AgentDraftOptions {
 	/** The `ai_agent` resource being edited. */
 	path: () => string | undefined
@@ -289,39 +337,15 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		// made during the request as saved, and the banner would clear on a value the server never
 		// received; against the snapshot it stays a draft, which is what it is.
 		const submitted = structuredClone($state.snapshot(s)) as AgentResourceState
-		const body = {
-			path: submitted.path,
-			value: submitted.args,
-			description: submitted.description,
-			labels: submitted.labels,
-			ws_specific: submitted.wsSpecific
-		}
-		try {
-			if (noDeployed) {
-				await ResourceService.createResource({
-					workspace: ws,
-					// A create needs a type, and the load proved this path is an agent before opening.
-					requestBody: { ...body, resource_type: submitted.resource_type ?? 'ai_agent' }
-				})
+		const written = await writeAgentResource(ws, submitted, noDeployed)
+		if (!written.ok) {
+			// A path that is no longer an agent tears this editor down; anything else is a plain error
+			// the user can retry from the form as it stands.
+			if (written.notAnAgent) {
+				refuse(written.error)
 			} else {
-				// The type this editor proved is as old as the load, and an update carries no type of
-				// its own: were the path deleted and recreated as something else meanwhile, this write
-				// would put an agent config inside that resource. Reading it again narrows the window
-				// to the request rather than to however long the editor stayed open.
-				const current = await ResourceService.getResource({ workspace: ws, path: submitted.path })
-				const refused = agentEditorRefusal(submitted.path, current.resource_type)
-				if (refused) {
-					refuse(refused)
-					return false
-				}
-				await ResourceService.updateResource({
-					workspace: ws,
-					path: submitted.path,
-					requestBody: body
-				})
+				sendUserToast(written.error, true)
 			}
-		} catch (err) {
-			sendUserToast(`Could not save agent: ${err}`, true)
 			return false
 		}
 		// The counter the step card's write-back used to report, from the surface that now owns the

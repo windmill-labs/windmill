@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { inlineAgentDraft } from './linkedAgentDrafts'
-import type { FlowModule } from '$lib/gen'
+import { inlineAgentDraft, inlineAgentDrafts, type LinkedAgentDraft } from './linkedAgentDrafts'
+import type { FlowModule, FlowValue } from '$lib/gen'
 
 type AiAgentValue = Extract<FlowModule['value'], { type: 'aiagent' }>
 
@@ -63,5 +63,52 @@ describe('inlineAgentDraft', () => {
 			system_prompt: { type: 'static', value: 'from the draft' },
 			user_message: { type: 'static', value: 'hi' }
 		})
+	})
+})
+
+describe('inlineAgentDrafts', () => {
+	// The index is keyed on the bare path while a step may name its agent `$res:`-prefixed, and the
+	// walk has to reach inside branches and loops. Miss either and every preview silently runs the
+	// deployed agent — the failure this whole path exists to prevent, and a silent one.
+	it('reaches a $res:-prefixed link nested in a branch', () => {
+		const value = {
+			modules: [
+				{
+					id: 'b',
+					value: {
+						type: 'branchone',
+						default: [],
+						branches: [
+							{
+								modules: [
+									{
+										id: 'inner',
+										value: {
+											type: 'aiagent',
+											agent: '$res:f/team/support',
+											tools: [],
+											input_transforms: { user_message: { type: 'static', value: 'hi' } }
+										}
+									}
+								]
+							}
+						]
+					}
+				}
+			]
+		} as unknown as FlowValue
+
+		const drafts = new Map<string, LinkedAgentDraft>([
+			['f/team/support', { args: { system_prompt: 'drafted' } } as unknown as LinkedAgentDraft]
+		])
+
+		const inner = (inlineAgentDrafts(value, drafts).modules[0].value as any).branches[0].modules[0]
+		expect(inner.value.agent).toBeUndefined()
+		expect(inner.value.input_transforms.system_prompt).toEqual({
+			type: 'static',
+			value: 'drafted'
+		})
+		// The input the flow supplies survives the rewrite.
+		expect(inner.value.input_transforms.user_message).toEqual({ type: 'static', value: 'hi' })
 	})
 })

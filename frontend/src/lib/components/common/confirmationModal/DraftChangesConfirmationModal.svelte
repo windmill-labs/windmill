@@ -11,7 +11,6 @@
 	import ToggleButton from '../toggleButton-v2/ToggleButton.svelte'
 	import { userStore } from '$lib/stores'
 	import Badge from '../badge/Badge.svelte'
-	import { agentDraftDeployRefusal } from '$lib/components/flows/agentDraft.svelte'
 	import type { LinkedAgentDraft } from '$lib/components/flows/linkedAgentDrafts'
 
 	interface Props {
@@ -22,6 +21,11 @@
 		draftAgents?: LinkedAgentDraft[]
 		/** Whether this user may write each listed agent's resource, keyed by path. */
 		agentCanWrite?: Record<string, boolean>
+		/** Why an agent cannot be deployed, keyed by path, from the same rule the agent editor's own
+		 *  Deploy button follows — so this dialog cannot offer a write that would be rejected. Decided
+		 *  by the caller: this is a generic dialog the script editor mounts too, and agent validation
+		 *  has no business in its bundle. */
+		agentRefusal?: Record<string, string | undefined>
 		isFlow?: boolean
 	}
 
@@ -30,6 +34,7 @@
 		draftTriggers = [],
 		draftAgents = [],
 		agentCanWrite = {},
+		agentRefusal = {},
 		isFlow = false
 	}: Props = $props()
 
@@ -84,9 +89,6 @@
 		return invalidConfig ? 'invalid-config' : adminOnly ? 'admin-only' : 'deploy'
 	}
 
-	/** Same rule the agent editor's own Deploy button follows, so this dialog cannot offer a write
-	 *  that would be rejected. `undefined` for the path: a draft that renames the agent is the
-	 *  resource editor's to deploy, and this dialog lists it under the path the flow links. */
 	function checkAgentPermissions(agent: LinkedAgentDraft): {
 		state: 'deploy' | 'read-only' | 'invalid-config'
 		reason?: string
@@ -94,7 +96,7 @@
 		if (agentCanWrite[agent.path] === false) {
 			return { state: 'read-only' }
 		}
-		const refusal = agentDraftDeployRefusal(agent.state, agent.path)
+		const refusal = agentRefusal[agent.path]
 		return refusal ? { state: 'invalid-config', reason: refusal } : { state: 'deploy' }
 	}
 

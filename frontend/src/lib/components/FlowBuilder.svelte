@@ -105,9 +105,12 @@
 		loadLinkedAgentDrafts,
 		type LinkedAgentDraft
 	} from './flows/linkedAgentDrafts'
+	import { agentDraftDeployRefusal } from './flows/agentDraft.svelte'
 	import { markAgentWritten } from './flows/agentEditorStore.svelte'
 	import { logReusableAgentUsage } from './flows/agentTelemetry'
-	import { deployDraft } from '$lib/utils_draft_deploy'
+	import { writeAgentResource } from './flows/agentDraft.svelte'
+	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import { getUserExt } from '$lib/user'
 	import { Triggers } from './triggers/triggers.svelte'
 	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
@@ -208,6 +211,7 @@
 	 *  request per linked agent, so it is resolved when the deploy asks. */
 	let draftAgents = $state<LinkedAgentDraft[]>([])
 	let agentCanWrite = $state<Record<string, boolean>>({})
+	let agentRefusal = $state<Record<string, string | undefined>>({})
 
 	/** What the dialog's confirm hands back to `saveFlow`. */
 	type DraftChangesToDeploy = { triggers: Trigger[]; agents: LinkedAgentDraft[] }
@@ -275,12 +279,19 @@
 			}
 		}
 		for (const agent of agents) {
-			// `deployDraft` re-reads the persisted draft rather than taking the one listed here, so it
-			// depends on `loadLinkedAgentDrafts` having settled the autosave before the dialog opened.
-			const result = await deployDraft('resource', agent.path, ws, { draftOnly: agent.noDeployed })
-			if (!result.success) {
-				throw new Error(`Could not deploy agent ${agent.path}: ${result.error}`)
+			// The state the dialog listed and validated, not a re-read of the draft row. The generic
+			// `deployDraft` re-reads, and its resource branch falls back to the deployed row when the
+			// draft has gone — writing `value: undefined ?? {}` over a live agent. The dialog can sit
+			// open indefinitely, so that row is exactly what cannot be assumed to still be there.
+			const written = await writeAgentResource(ws, agent.state, agent.noDeployed)
+			if (!written.ok) {
+				throw new Error(`Could not deploy agent ${agent.path}: ${written.error}`)
 			}
+			// `remove`, not the syncer's delete alone: it drops the in-memory cell as well, so a second
+			// deploy in the same session cannot list this agent again from a draft that no longer exists.
+			UserDraft.remove('resource', agent.path, { workspace: ws })
+			setLocalDraftHint(ws, 'resource', agent.path, false)
+			invalidateWorkspaceDrafts(ws)
 			// Every linked card and the graph key on this to refetch the agent they display.
 			markAgentWritten(ws, agent.path)
 			logReusableAgentUsage('draft_deployed_with_flow')
@@ -484,6 +495,7 @@
 				).values()
 			]
 			agentCanWrite = {}
+			agentRefusal = {}
 			if (draftAgents.length > 0) {
 				// One lookup for the whole list: an agent lives in a folder, and the groups and admin
 				// flag that answer for it are per workspace, so the nav user would answer for the wrong
@@ -491,6 +503,12 @@
 				const user = await getUserExt(opWorkspace ?? '').catch(() => undefined)
 				agentCanWrite = Object.fromEntries(
 					draftAgents.map((a) => [a.path, agentDraftCanWrite(a, user ?? $userStore ?? undefined)])
+				)
+				// The path is passed, so a draft that renames the agent is refused here too: a rename is
+				// the resource editor's to deploy, and this dialog lists the agent under the path the
+				// flow links.
+				agentRefusal = Object.fromEntries(
+					draftAgents.map((a) => [a.path, agentDraftDeployRefusal(a.state, a.path)])
 				)
 			}
 			if (draftTriggers.length > 0 || draftAgents.length > 0) {
@@ -714,7 +732,7 @@
 		const resolved = linkedAgentToolsForScope(to)
 		for (const [moduleId, agentPath] of linkedAgentEntries(linkedAgentRefs)) {
 			if (resolved[moduleId] === undefined) {
-				publishLinkedAgentTools(agentPath, ws, to, moduleId)
+				publishLinkedAgentTools(agentPath, ws, to, moduleId, true)
 			}
 		}
 	}
@@ -782,7 +800,7 @@
 				// writing overrides against — the tool ids of the agent that was just replaced.
 				claimLinkedToolsFetch(scope, moduleId)
 				clearLinkedAgentTools(scope, moduleId)
-				publishLinkedAgentTools(agentPath, ws, scope, moduleId)
+				publishLinkedAgentTools(agentPath, ws, scope, moduleId, true)
 			}
 			publishedAgentByModule = next
 		})
@@ -1414,6 +1432,7 @@
 	draftTriggers={triggersState.triggers.filter((t) => t.draftConfig)}
 	{draftAgents}
 	{agentCanWrite}
+	{agentRefusal}
 	isFlow={true}
 	on:canceled={() => {
 		draftChangesModalOpen = false

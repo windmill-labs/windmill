@@ -124,9 +124,11 @@ export async function publishLinkedAgentTools(
 	scope: string,
 	moduleId: string,
 	/** Resolve from the agent's unsaved draft when there is one. Editors pass true so the graph
-	 *  shows the tool set a test would run; read-only viewers leave it off, since a run they are
-	 *  displaying used the deployed agent. */
-	withDraft = false
+	 *  shows the tool set a test would run; read-only viewers pass false, since a run they are
+	 *  displaying used the deployed agent. Required rather than defaulted: an editor call site that
+	 *  forgets it republishes the deployed tools over the drafted ones, which reads as the graph
+	 *  spontaneously reverting. */
+	withDraft: boolean
 ) {
 	const genKey = `${scope}:${moduleId}`
 	const gen = claimLinkedToolsFetch(scope, moduleId)
@@ -162,8 +164,8 @@ export function claimLinkedToolsFetch(scope: string, moduleId: string): number {
 // resource is missing or inaccessible so a broken link never stalls the flow load.
 export async function resolveLinkedAgentTools(
 	agentRef: string,
-	workspace?: string,
-	withDraft = false
+	workspace: string | undefined,
+	withDraft: boolean
 ): Promise<AgentTool[]> {
 	const ws = workspace ?? get(workspaceStore)
 	if (!ws) return []
