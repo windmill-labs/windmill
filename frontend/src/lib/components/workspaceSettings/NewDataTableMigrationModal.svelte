@@ -14,6 +14,9 @@
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { fetchPendingMigrations, outOfOrderRunMessage } from './datatableMigrationUtils'
+	import Select from '../select/Select.svelte'
+	import { parseMigrationRole, withMigrationRole } from '../datatableMigrationRole'
+	import { resource } from 'runed'
 
 	let {
 		workspace,
@@ -50,6 +53,8 @@
 	let tab = $state('up')
 	let name = $state('')
 	let nameInput = $state<TextInput>()
+	let upEditor = $state<SimpleEditor | undefined>()
+	let downEditor = $state<SimpleEditor | undefined>()
 	// A valid migration name is non-empty and limited to letters, digits, '_' and '-'.
 	const MIGRATION_NAME_RE = /^[a-zA-Z0-9_-]+$/
 	let nameInvalid = $derived(!MIGRATION_NAME_RE.test(name.trim()))
@@ -59,6 +64,48 @@
 	let creating = $state(false)
 
 	const confirmationModal = createAsyncConfirmationModal()
+
+	// The role lives in the SQL as a `-- role <name>` annotation, so the code is
+	// the single source of truth and the Select is a view onto it: reading is a
+	// parse, writing rewrites the annotation. Deriving rather than mirroring is
+	// what keeps the two from fighting each other.
+	const usableRoles = resource(
+		() => [workspace, datatable] as const,
+		async ([ws, dt]) => {
+			try {
+				return await WorkspaceService.listUsableDatatableRoles({ workspace: ws, datatableName: dt })
+			} catch (e) {
+				console.error('Failed to load datatable roles:', e)
+				return undefined
+			}
+		}
+	)
+	let declaredRole = $derived(parseMigrationRole(codeUp))
+	let effectiveRole = $derived(declaredRole ?? usableRoles.current?.default_role)
+	let roleItems = $derived.by(() => {
+		const roles = usableRoles.current
+		if (!roles?.enabled) return []
+		// A role the code names but the caller cannot use still has to be shown, or
+		// the picker would silently misreport what the migration will run as.
+		const names = roles.roles.includes(declaredRole ?? '')
+			? roles.roles
+			: [...roles.roles, ...(declaredRole ? [declaredRole] : [])]
+		return names.map((r) => ({
+			value: r,
+			label: r === roles.default_role ? `${r} (default)` : r
+		}))
+	})
+
+	function setRole(role: string | undefined) {
+		codeUp = withMigrationRole(codeUp, role)
+		// Up and down must agree: a rollback that ran as a different role could
+		// fail on objects it does not own.
+		if (enableDown) codeDown = withMigrationRole(codeDown, role)
+		// The editor only pushes its content out — assigning the bound value does
+		// not repaint it, and the next keystroke would write the stale text back.
+		upEditor?.setCode(codeUp)
+		if (enableDown) downEditor?.setCode(codeDown)
+	}
 
 	// Frame the migration body in an explicit transaction so it applies atomically.
 	function wrapInTransaction(body: string): string {
@@ -77,8 +124,15 @@
 		name = prefill?.name ?? ''
 		// Start from the transaction template; when prefilled from detected DDL,
 		// wrap that DDL in the same BEGIN; ... END; frame.
+		// A prefill may already declare a role. Strip it before wrapping — inside
+		// `BEGIN; ... END;` the annotation sits after a non-comment line and would
+		// never be parsed — then put it back on top.
+		const prefillRole = prefill?.codeUp ? parseMigrationRole(prefill.codeUp) : undefined
 		codeUp = prefill?.codeUp
-			? wrapInTransaction(ensureTrailingSemicolon(prefill.codeUp))
+			? withMigrationRole(
+					wrapInTransaction(ensureTrailingSemicolon(withMigrationRole(prefill.codeUp, undefined))),
+					prefillRole
+				)
 			: PLACEHOLDER
 		codeDown = prefill?.codeDown ?? PLACEHOLDER
 		enableDown = (prefill?.codeDown ?? '') !== ''
@@ -177,29 +231,57 @@
 	closeOnOutsideClick={false}
 >
 	<div class="flex flex-col gap-3 w-full grow min-h-0">
-		<TextInput
-			bind:this={nameInput}
-			bind:value={name}
-			error={nameInvalid}
-			inputProps={{ placeholder: 'Migration name (e.g. add_index_to_customers)' }}
-		/>
+		<div class="flex gap-2 items-center">
+			<TextInput
+				bind:this={nameInput}
+				bind:value={name}
+				error={nameInvalid}
+				class="grow"
+				inputProps={{ placeholder: 'Migration name (e.g. add_index_to_customers)' }}
+			/>
+			<!-- One role is still a choice worth showing when it is not the default
+				 the migration would otherwise run as. -->
+			{#if roleItems.length > 1 || (roleItems.length === 1 && roleItems[0].value !== usableRoles.current?.default_role)}
+				<Select
+					transformInputSelectedText={(s) => `Role: ${s}`}
+					items={roleItems}
+					bind:value={() => effectiveRole, (r) => setRole(r)}
+					placeholder="Role"
+					class="w-56"
+				/>
+			{/if}
+		</div>
 		<Tabs bind:selected={tab} class="grow min-h-0">
 			<Tab value="up" label="Up" />
 			<Tab value="down" label="Down" />
 			{#snippet content()}
 				<TabContent value="up" class="h-80 border rounded-md overflow-hidden">
-					<SimpleEditor class="h-full" lang="sql" bind:code={codeUp} />
+					<SimpleEditor bind:this={upEditor} class="h-full" lang="sql" bind:code={codeUp} />
 				</TabContent>
 				<TabContent value="down" class="h-80">
 					<div class="flex flex-col gap-2 h-full">
 						<Toggle
-							bind:checked={enableDown}
+							bind:checked={
+								() => enableDown,
+								(checked) => {
+									enableDown = checked
+									// A down migration written after the role was picked would
+									// otherwise roll back as the default role. The editor is
+									// created by this same toggle, so it reads the new text.
+									if (checked) codeDown = withMigrationRole(codeDown, declaredRole)
+								}
+							}
 							options={{ right: 'Enable down migration' }}
 							size="sm"
 						/>
 						{#if enableDown}
 							<div class="grow min-h-0 border rounded-md overflow-hidden">
-								<SimpleEditor class="h-full" lang="sql" bind:code={codeDown} />
+								<SimpleEditor
+									bind:this={downEditor}
+									class="h-full"
+									lang="sql"
+									bind:code={codeDown}
+								/>
 							</div>
 						{/if}
 					</div>

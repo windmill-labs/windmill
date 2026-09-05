@@ -39,6 +39,7 @@
 		defaultDatatable?: string | undefined
 		/** Default schema for new tables */
 		defaultSchema?: string | undefined
+		defaultRole?: string | undefined
 		onDefaultChange?: (datatable: string | undefined, schema: string | undefined) => void
 	}
 
@@ -60,6 +61,7 @@
 		onDataTableRefsChange,
 		defaultDatatable = undefined,
 		defaultSchema = undefined,
+		defaultRole = undefined,
 		onDefaultChange
 	}: Props = $props()
 
@@ -153,6 +155,7 @@
 	{dataTableRefs}
 	{defaultDatatable}
 	{defaultSchema}
+	{defaultRole}
 	onAdd={() => dataTableDrawer?.openDrawer()}
 	onRemove={handleRemoveDataTable}
 	onSelect={handleSelectDataTable}

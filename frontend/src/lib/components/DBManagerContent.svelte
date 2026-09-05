@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { dbSchemas, workspaceStore, type DBSchema } from '$lib/stores'
+	import type { DataTableTables } from '$lib/gen'
+	import type { DatatableRowAction } from './dbTypes'
 	import { sortArray } from '$lib/utils'
 	import { Loader2, RefreshCcw } from 'lucide-svelte'
 	import Alert from './common/alert/Alert.svelte'
@@ -18,11 +20,10 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SqlRepl from './SqlRepl.svelte'
 	import SimpleAgTable from './SimpleAgTable.svelte'
-	import { type Snippet } from 'svelte'
 	import type { DbInput } from './dbTypes'
 	import { getDbSchemas, loadAllTablesMetaData } from './apps/components/display/dbtable/metadata'
 
-	import type { SelectedTable } from './DBManager.svelte'
+	import type { PendingRowAction, SelectedTable } from './DBManager.svelte'
 	import { getDbFeatures } from './apps/components/display/dbtable/dbFeatures'
 	import { resource } from 'runed'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
@@ -36,7 +37,16 @@
 		hasReplResult?: boolean
 		selectedSchemaKey?: string | undefined
 		selectedTableKey?: string | undefined
-		dbSelector?: Snippet<[]>
+		/** Every data table with its schemas and tables, for the left-pane tree.
+		 * Undefined when the drawer is not on a data table, which is what collapses
+		 * the tree's top level away. */
+		datatableTree?: DataTableTables[]
+		datatableTreeLoading?: boolean
+		onSelectDatatable?: (datatable: string) => void
+		onSelectRole?: (datatable: string, role: string) => void
+		pendingAction?: PendingRowAction | undefined
+		onDatatableAction?: (datatable: string, action: DatatableRowAction) => void
+		canManageDatatable?: boolean
 		/** Enable multi-select mode with checkboxes in sidebar */
 		multiSelectMode?: boolean
 		/** Selected tables in multi-select mode */
@@ -59,7 +69,13 @@
 		hasReplResult = $bindable(false),
 		selectedSchemaKey = $bindable(undefined),
 		selectedTableKey = $bindable(undefined),
-		dbSelector,
+		datatableTree,
+		datatableTreeLoading,
+		onSelectDatatable,
+		onSelectRole,
+		pendingAction = $bindable(),
+		onDatatableAction,
+		canManageDatatable,
 		multiSelectMode = false,
 		selectedTables = $bindable([]),
 		disabledTables = [],
@@ -77,7 +93,10 @@
 	function getDbSchemasPath(input: DbInput): string {
 		switch (input.type) {
 			case 'database':
-				return input.resourcePath
+				// The role is part of the identity: two roles on the same data table
+				// may see different tables, so their schemas cannot share a cache
+				// entry — and the same string is what selects the role downstream.
+				return input.resourcePath + (input.role ? `?role=${input.role}` : '')
 			case 'ducklake':
 				return 'ducklake://' + input.ducklake
 		}
@@ -143,7 +162,7 @@
 				let queryError: string | undefined
 				const schema = await getDbSchemas(
 					input.resourceType,
-					input.resourcePath,
+					getDbSchemasPath(input),
 					ws,
 					(message: string) => (queryError = message),
 					{ customTag: workerTag }
@@ -305,7 +324,15 @@
 						: undefined}
 				{dbType}
 				refresh={() => refresh()}
-				{dbSelector}
+				{datatableTree}
+				{datatableTreeLoading}
+				{onSelectDatatable}
+				{onSelectRole}
+				workspace={ws}
+				currentRole={input.type === 'database' ? input.role : undefined}
+				bind:pendingAction
+				{onDatatableAction}
+				{canManageDatatable}
 				{onImport}
 				bind:selectedSchemaKey
 				bind:selectedTableKey

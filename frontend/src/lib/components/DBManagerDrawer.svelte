@@ -1,25 +1,19 @@
 <script lang="ts">
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
-	import { WorkspaceService } from '$lib/gen'
+	import { WorkspaceService, type DataTableTables } from '$lib/gen'
 	import Button from './common/button/Button.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Select from './select/Select.svelte'
-	import {
-		ArrowLeft,
-		Copy,
-		Download,
-		Expand,
-		LoaderCircle,
-		Minimize,
-		RefreshCcw,
-		Upload
-	} from 'lucide-svelte'
+	import { ArrowLeft, Copy, Expand, Minimize, RefreshCcw } from 'lucide-svelte'
 	import DBManagerContent from './DBManagerContent.svelte'
+	import type { PendingRowAction } from './DBManager.svelte'
 	import DataTableMigrationsButton from './workspaceSettings/DataTableMigrationsButton.svelte'
+	import DataTablePermissionsButton from './workspaceSettings/DataTablePermissionsButton.svelte'
 	import { resource } from 'runed'
-	import { untrack } from 'svelte'
+	import { tick, untrack } from 'svelte'
 	import type { DbManagerUriState } from './dbManagerDrawerModel.svelte'
+	import type { DatatableRowAction } from './dbTypes'
 	import ResourcePicker from './ResourcePicker.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -41,23 +35,82 @@
 	// the editor that opened it (set via openDrawer), else the nav workspace.
 	let ws = $derived(uriState.workspace ?? $workspaceStore)
 
-	// Load available datatables when drawer opens with datatable input
-	const datatables = resource<string[]>([], async () => {
-		if (!ws) return []
-		try {
-			return (await WorkspaceService.listDataTables({ workspace: ws })).map((d) => d.name)
-		} catch (e) {
-			console.error('Failed to load datatables:', e)
-			return []
-		}
-	})
+	// A create started on a data table other than the current one: survives the
+	// re-mount the switch causes.
+	let pendingAction = $state<PendingRowAction | undefined>(undefined)
 
-	const datatableItems = $derived(
-		datatables.current.map((dt) => ({
-			value: dt,
-			label: dt
-		}))
+	// Every data table with its schemas and tables, in one call: this is what the
+	// left pane's tree navigates, so it has to cover the data tables the user is
+	// not currently on, not just the selected one.
+	const datatables = resource(
+		// The privileges it reports are the connected role's, so the role picked on
+		// the open data table is part of what is being asked. Gated on the drawer
+		// being open: this reaches every data table's database in turn, and the
+		// component is mounted on every logged-in page.
+		() => [open, ws, uriState.selectedDatatable, uriState.selectedRole] as const,
+		async ([isOpen, workspace, roleFor, role]): Promise<DataTableTables[]> => {
+			if (!isOpen || !workspace) return []
+			try {
+				return await WorkspaceService.listDataTableTables({ workspace, roleFor, role })
+			} catch (e) {
+				console.error('Failed to load datatables:', e)
+				return []
+			}
+		},
+		{ initialValue: [] }
 	)
+
+	// Roles the *caller* may use, so the picker never offers one that would be
+	// refused. Absent/disabled permissions yield no roles and hide the picker.
+	const usableRoles = resource(
+		() => [ws, uriState.selectedDatatable] as const,
+		async ([workspace, datatable]) => {
+			if (!workspace || !datatable) return undefined
+			try {
+				return {
+					datatable,
+					...(await WorkspaceService.listUsableDatatableRoles({
+						workspace,
+						datatableName: datatable
+					}))
+				}
+			} catch (e) {
+				// Never leave the drawer waiting on this: fall back to the
+				// unpermissioned shape so it opens and the server picks the role.
+				console.error('Failed to load datatable roles:', e)
+				return { datatable, enabled: false, roles: [], default_role: 'admin' }
+			}
+		}
+	)
+
+	// A resource keeps its previous value while refetching, and roles are per data
+	// table: settling from the last one's answer would connect to the new data
+	// table as a role it may not even have.
+	const rolesOfCurrent = $derived(
+		usableRoles.current?.datatable === uriState.selectedDatatable ? usableRoles.current : undefined
+	)
+
+	// The content must not mount until the role is settled: mounting is what fires
+	// the schema and metadata queries, and a first round sent without a role would
+	// run — and cache — as whatever the server defaults to.
+	const roleSettled = $derived(
+		!uriState.isDatatableInput ||
+			(rolesOfCurrent !== undefined &&
+				(!rolesOfCurrent.enabled ||
+					rolesOfCurrent.roles.length === 0 ||
+					uriState.selectedRole !== undefined))
+	)
+
+	// Settle the role before anything queries the data table: the schema and
+	// metadata fetches run as whatever role the input carries, so leaving it unset
+	// until the user touches the picker would send the first — and cached — round
+	// of queries as a role they may not be allowed to use.
+	$effect(() => {
+		const roles = rolesOfCurrent
+		if (!roles?.enabled || uriState.selectedRole !== undefined) return
+		const effective = roles.roles.includes(roles.default_role) ? roles.default_role : roles.roles[0]
+		if (effective) untrack(() => (uriState.selectedRole = effective))
+	})
 
 	// Refetch datatables when switching to a datatable input
 	$effect(() => {
@@ -78,6 +131,10 @@
 		if (!open) {
 			expand = false
 			uriState.closeDrawer()
+			// An action asked for on one data table must not be waiting when the
+			// drawer is next opened on another database — or on no data table at
+			// all, where nothing would recognise it as foreign.
+			pendingAction = undefined
 		}
 	})
 
@@ -97,6 +154,8 @@
 	let importDrawerOpen = $state(false)
 	let importLoading = $state(false)
 	let importSource = $state<string | undefined>(undefined)
+	/** Which database an import writes into; set when driven from a tree row. */
+	let importTarget = $state<string | undefined>(undefined)
 	let importBehavior = $state<'schema_only' | 'schema_and_data'>('schema_only')
 
 	let isPostgresqlInput = $derived(
@@ -116,13 +175,49 @@
 		return toSourceIdentifier(input.resourcePath)
 	}
 
+	// The tree's row menus act on the data table of the row that was clicked, which
+	// is not necessarily the one currently open — so the target is set first and the
+	// headless modals are keyed on it.
+	let actionDatatable = $state<string | undefined>(undefined)
+	let migrationsModal = $state<DataTableMigrationsButton | undefined>()
+	let permissionsDrawer = $state<DataTablePermissionsButton | undefined>()
+
+	async function runDatatableAction(datatable: string, action: DatatableRowAction) {
+		actionDatatable = datatable
+		// Let the keyed block above mount against the new target before driving it.
+		await tick()
+		switch (action) {
+			case 'migrations':
+				migrationsModal?.open()
+				break
+			case 'roles':
+				permissionsDrawer?.openPermissions()
+				break
+			case 'export':
+				await handleExportSchema(`datatable://${datatable}`)
+				break
+			case 'import':
+				importTarget = `datatable://${datatable}`
+				importDrawerOpen = true
+				break
+		}
+	}
+
 	function refreshManager() {
 		dbManagerContent?.refresh()
 		dbManagerContent?.dbManager()?.dbTable()?.refresh()
+		refreshRoles()
 	}
 
-	async function handleExportSchema() {
-		const source = currentSourceIdentifier()
+	/** Re-read what the tree and the role picker show: both are answers about the
+	 * data table's roles, which the permissions drawer can have just changed. */
+	function refreshRoles() {
+		datatables.refetch()
+		usableRoles.refetch()
+	}
+
+	async function handleExportSchema(explicitSource?: string) {
+		const source = explicitSource ?? currentSourceIdentifier()
 		if (!source || !ws) return
 		try {
 			exportResult = await WorkspaceService.exportPgSchema({
@@ -137,7 +232,7 @@
 
 	async function handleImportDatabase() {
 		if (!importSource || !ws) return
-		const target = currentSourceIdentifier()
+		const target = importTarget ?? currentSourceIdentifier()
 		if (!target) return
 		importLoading = true
 		try {
@@ -183,12 +278,23 @@
 		noPadding
 		id="db-manager-drawer"
 	>
-		{#if uriState.effectiveInput && ws}
-			{#key uriState.selectedDatatable}
+		{#if uriState.effectiveInput && ws && roleSettled}
+			{#key `${uriState.selectedDatatable}~${uriState.selectedRole ?? ''}`}
 				<DBManagerContent
 					bind:this={dbManagerContent}
 					input={uriState.effectiveInput}
 					workspace={uriState.workspace}
+					datatableTree={uriState.isDatatableInput ? datatables.current : undefined}
+					datatableTreeLoading={datatables.loading}
+					onSelectDatatable={(dt) => (uriState.selectedDatatable = dt)}
+					onSelectRole={(dt, role) => {
+						// Setting the data table clears the role, so the order matters.
+						uriState.selectedDatatable = dt
+						uriState.selectedRole = role
+					}}
+					bind:pendingAction
+					canManageDatatable={!!($superadmin || $userStore?.is_admin)}
+					onDatatableAction={runDatatableAction}
 					bind:workerTag={() => workerTag.tag, (v) => (workerTag.tag = v)}
 					bind:hasReplResult
 					bind:selectedSchemaKey={uriState.selectedSchema}
@@ -196,42 +302,10 @@
 					onImport={enableImportExport
 						? (mode) => ((importDrawerOpen = true), (importBehavior = mode))
 						: undefined}
-				>
-					{#snippet dbSelector()}
-						{#if uriState.isDatatableInput}
-							{#if datatables.loading}
-								<div class="flex items-center gap-2 text-tertiary ml-2">
-									<LoaderCircle size={14} class="animate-spin" />
-									<span class="text-sm">Loading...</span>
-								</div>
-							{:else if datatables.current.length >= 1}
-								<Select
-									transformInputSelectedText={(s) => `Datatable: ${s}`}
-									items={datatableItems}
-									bind:value={uriState.selectedDatatable}
-									placeholder="Select data table"
-									size="md"
-								/>
-							{/if}
-						{/if}
-					{/snippet}
-				</DBManagerContent>
+				></DBManagerContent>
 			{/key}
 		{/if}
 		{#snippet actions()}
-			{#if uriState.isDatatableInput && uriState.selectedDatatable && ws}
-				<DataTableMigrationsButton
-					workspace={ws}
-					datatable={uriState.selectedDatatable}
-					onSchemaChanged={refreshManager}
-				/>
-			{/if}
-			{#if enableImportExport}
-				<Button startIcon={{ icon: Download }} onClick={handleExportSchema}>Export</Button>
-				<Button startIcon={{ icon: Upload }} onClick={() => (importDrawerOpen = true)}>
-					Import
-				</Button>
-			{/if}
 			{#if uriState.effectiveInput && ws}
 				<DbWorkerTagButton
 					bind:tag={() => workerTag.tag, (v) => (workerTag.tag = v)}
@@ -259,6 +333,23 @@
 		{/snippet}
 	</DrawerContent>
 </Drawer>
+
+{#if actionDatatable && ws}
+	<DataTableMigrationsButton
+		bind:this={migrationsModal}
+		hideTrigger
+		workspace={ws}
+		datatable={actionDatatable}
+		onSchemaChanged={refreshManager}
+	/>
+	<DataTablePermissionsButton
+		bind:this={permissionsDrawer}
+		hideTrigger
+		workspace={ws}
+		datatable={actionDatatable}
+		onSaved={refreshRoles}
+	/>
+{/if}
 
 <Drawer bind:open={exportDrawerOpen} size="800px" offset={offset + 1}>
 	<DrawerContent title="Export Schemas" on:close={() => (exportDrawerOpen = false)}>

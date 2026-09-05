@@ -51,11 +51,10 @@
 </script>
 
 <script lang="ts">
-	import { Plus, PlugZap } from 'lucide-svelte'
+	import { History, KeyRound, Plus, PlugZap, Trash2 } from 'lucide-svelte'
+	import DropdownV2 from '../DropdownV2.svelte'
 
 	import Button from '../common/button/Button.svelte'
-
-	import CloseButton from '../common/CloseButton.svelte'
 
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import SettingsPageHeader from '../settings/SettingsPageHeader.svelte'
@@ -79,7 +78,7 @@
 		type GetSettingsResponse,
 		type TestDataTableConnectionResponse
 	} from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { resource } from 'runed'
@@ -87,8 +86,9 @@
 	import { Popover } from '../meltComponents'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
 	import DataTableMigrationsButton from './DataTableMigrationsButton.svelte'
+	import DataTablePermissionsButton from './DataTablePermissionsButton.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { clone } from '$lib/utils'
+	import { clone, onlyAlphaNumAndUnderscore } from '$lib/utils'
 	import SettingsFooter from './SettingsFooter.svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import MissingWorkerTagAlert from '../jobs/MissingWorkerTagAlert.svelte'
@@ -253,6 +253,10 @@
 	}
 
 	let confirmationModal = createAsyncConfirmationModal()
+	// The two components mount their own modal and drawer; the row menu drives them.
+	let migrationsButtons = $state<Record<string, DataTableMigrationsButton | undefined>>({})
+	let permissionsButtons = $state<Record<string, DataTablePermissionsButton | undefined>>({})
+
 	let dirtyMap = $derived.by(() => {
 		const map: Record<string, boolean> = {}
 		for (let i = 0; i < tempSettings.dataTables.length; i++) {
@@ -411,9 +415,16 @@
 				<Cell class="whitespace-nowrap">
 					<div class="flex gap-2">
 						<DataTableMigrationsButton
+							bind:this={migrationsButtons[dataTable.name]}
+							hideTrigger
 							workspace={$workspaceStore ?? ''}
 							datatable={dataTable.name}
-							disabled={!!dirtyMap[dataTable.name]}
+						/>
+						<DataTablePermissionsButton
+							bind:this={permissionsButtons[dataTable.name]}
+							hideTrigger
+							workspace={$workspaceStore ?? ''}
+							datatable={dataTable.name}
 						/>
 						<Button
 							size="xs"
@@ -448,7 +459,36 @@
 					</div>
 				</Cell>
 				<Cell class="w-12">
-					<CloseButton small on:close={() => removeDataTable(dataTableIndex)} />
+					<DropdownV2
+						items={() => [
+							{
+								displayName: 'Migrations',
+								icon: History,
+								// Both act on the saved data table, which unsaved edits are not.
+								disabled: !!dirtyMap[dataTable.name],
+								tooltip: 'Save the settings first',
+								action: () => migrationsButtons[dataTable.name]?.open()
+							},
+							{
+								displayName: 'Permissions' + ($enterpriseLicense ? '' : ' (EE)'),
+								icon: KeyRound,
+								// The server refuses to plan a permissions change without a
+								// license, so the entry says so rather than failing later.
+								disabled: !!dirtyMap[dataTable.name] || !$enterpriseLicense,
+								tooltip: !$enterpriseLicense
+									? 'Data table permissions require an Enterprise license'
+									: 'Save the settings first',
+								action: () => permissionsButtons[dataTable.name]?.openPermissions()
+							},
+							{
+								displayName: 'Remove',
+								icon: Trash2,
+								type: 'delete',
+								action: () => removeDataTable(dataTableIndex)
+							}
+						]}
+						btnId={'datatable-settings-actions-' + onlyAlphaNumAndUnderscore(dataTable.name)}
+					/>
 				</Cell>
 			</Row>
 		{/each}

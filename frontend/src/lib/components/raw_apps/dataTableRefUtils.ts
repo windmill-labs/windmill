@@ -16,13 +16,17 @@ export interface RawAppData {
 	datatable: string | undefined
 	/** The schema for table creation (if specified) */
 	schema: string | undefined
+	/** The data table role the app's queries and table creation run as; absent
+	 * means the data table's default one. */
+	role?: string
 }
 
 /** Default data configuration */
 export const DEFAULT_DATA: RawAppData = {
 	tables: [],
 	datatable: undefined,
-	schema: undefined
+	schema: undefined,
+	role: undefined
 }
 
 /**

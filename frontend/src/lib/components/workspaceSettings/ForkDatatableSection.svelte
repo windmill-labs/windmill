@@ -41,9 +41,34 @@
 
 	let effectiveSource = $derived(sourceWorkspace ?? $workspaceStore ?? undefined)
 
+	// Listed with whether each is permissioned, in one unit: a data table whose
+	// roles were created in the source's database is not shared with the fork —
+	// the fork would either run as the data table's own connection, which owns
+	// everything there, or as a tenant list frozen at fork time. It has to be
+	// cloned, or the fork goes without it.
 	let allDatatables = resource(
 		() => effectiveSource,
-		async (ws) => (ws ? WorkspaceService.listDataTables({ workspace: ws }) : undefined)
+		async (ws) => {
+			if (!ws) return undefined
+			const datatables = await WorkspaceService.listDataTables({ workspace: ws })
+			return await Promise.all(
+				datatables.map(async (dt) => {
+					try {
+						const roles = await WorkspaceService.listUsableDatatableRoles({
+							workspace: ws,
+							datatableName: dt.name
+						})
+						return { ...dt, permissioned: roles.enabled as boolean | undefined }
+					} catch (e) {
+						// Not `false`: what the fork does with this data table is decided by
+						// the config, and saying "kept" for one the backend will drop loses
+						// it silently.
+						console.error('Failed to read datatable permissions:', e)
+						return { ...dt, permissioned: undefined }
+					}
+				})
+			)
+		}
 	)
 
 	let datatableBehaviors: Record<string, 'schema_only' | 'schema_and_data' | 'keep_original'> =
@@ -189,10 +214,30 @@
 							(v) => (datatableBehaviors[dt.name] = v)
 						}
 						items={[
-							{ value: 'keep_original', label: 'Keep original' },
-							{ value: 'schema_only', label: 'Clone schema only' },
-							...(!isCloudHosted() && $userStore?.is_admin
-								? [{ value: 'schema_and_data', label: 'Clone schema and data' }]
+							{
+								value: 'keep_original',
+								// What the backend does is decided by the config, not by this
+								// label, so where the check did not answer the label says both
+								// outcomes rather than promising the one it cannot know.
+								label:
+									dt.permissioned === undefined
+										? 'Keep original unless permissioned (check failed)'
+										: dt.permissioned
+											? 'Not shared (permissions enabled)'
+											: 'Keep original'
+							},
+							// A clone cannot carry the data table's roles, and the fork's copy
+							// is stripped of its permissions — so the copy would be readable in
+							// full by every member of the fork. The backend refuses it; not
+							// offering it is what keeps the two in step. Where the check could
+							// not answer, the safe reading is "permissioned".
+							...(dt.permissioned === false
+								? [
+										{ value: 'schema_only', label: 'Clone schema only' },
+										...(!isCloudHosted() && $userStore?.is_admin
+											? [{ value: 'schema_and_data', label: 'Clone schema and data' }]
+											: [])
+									]
 								: [])
 						]}
 					/>

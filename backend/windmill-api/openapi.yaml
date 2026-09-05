@@ -4938,6 +4938,18 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: role_for
+          in: query
+          required: false
+          schema:
+            type: string
+          description: the data table the `role` below was picked on
+        - name: role
+          in: query
+          required: false
+          schema:
+            type: string
+          description: read that data table's privileges as this role rather than its default
       responses:
         "200":
           description: table metadata of all datatables
@@ -5185,6 +5197,227 @@ paths:
                       $ref: "#/components/schemas/DatatableMigrationWithStatus"
                   error:
                     type: string
+
+  /w/{workspace}/workspaces/datatable_permissions/{datatable_name}:
+    get:
+      summary: get a datatable's role-based permissions (admins only)
+      operationId: getDatatablePermissions
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: datatable permissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DatatablePermissions"
+    post:
+      summary: set a datatable's role-based permissions, running the corresponding role SQL (admins only)
+      operationId: setDatatablePermissions
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetDatatablePermissions"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/datatable_usable_roles/{datatable_name}:
+    get:
+      summary: list the datatable roles the caller may run as
+      operationId: listUsableDatatableRoles
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: usable roles
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [enabled, roles, default_role]
+                properties:
+                  enabled:
+                    type: boolean
+                  roles:
+                    type: array
+                    items:
+                      type: string
+                  default_role:
+                    type: string
+
+  /w/{workspace}/workspaces/datatable_permissions/{datatable_name}/preview:
+    post:
+      summary: preview the SQL a datatable permissions change would run (admins only)
+      operationId: previewDatatablePermissions
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetDatatablePermissions"
+      responses:
+        "200":
+          description: statements that would be run, in a single transaction
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [statements, warnings]
+                properties:
+                  statements:
+                    type: array
+                    items:
+                      type: string
+                  warnings:
+                    type: array
+                    items:
+                      type: string
+
+  /w/{workspace}/workspaces/datatable_acl/{datatable_name}:
+    get:
+      summary: read the owner and grants of a datatable schema or table
+      operationId: getDatatableAcl
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: kind
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [database, schema, table]
+        - name: schema
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: table
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: role
+          in: query
+          required: false
+          schema:
+            type: string
+          description: read as this role rather than the caller's default one
+      responses:
+        "200":
+          description: owner and grants
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DatatableAclInfo"
+
+  /w/{workspace}/workspaces/datatable_acl/{datatable_name}/plan:
+    post:
+      summary: preview the SQL an ownership or grant change would run (a non-admin may act on what their role owns)
+      operationId: planDatatableAcl
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AclChangeRequest"
+      responses:
+        "200":
+          description: statements that would be run, in a single transaction
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [statements, warnings]
+                properties:
+                  statements:
+                    type: array
+                    items:
+                      type: string
+                  warnings:
+                    type: array
+                    items:
+                      type: string
+
+  /w/{workspace}/workspaces/datatable_acl/{datatable_name}/apply:
+    post:
+      summary: run an ownership or grant change (a non-admin may act on what their role owns)
+      operationId: applyDatatableAcl
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AclChangeRequest"
+      responses:
+        "200":
+          description: change applied
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/workspaces/enable_datatable_migrations/{datatable_name}:
     post:
@@ -33965,6 +34198,57 @@ components:
             - ran
             - not_run
             - unknown
+    DatatableRoleInfo:
+      type: object
+      required: [name, tenants]
+      properties:
+        name:
+          type: string
+        tenants:
+          description: who may run as this role, as '*' (everyone), u/<user>, g/<group> or f/<folder>
+          type: array
+          items:
+            type: string
+        pg_rolename:
+          description: the underlying postgres role, absent for admin
+          type: string
+    DatatablePermissions:
+      type: object
+      required: [enabled, roles, default_role]
+      properties:
+        enabled:
+          type: boolean
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/DatatableRoleInfo"
+        default_role:
+          description: the role a script gets when it names none
+          type: string
+    SetDatatablePermissions:
+      type: object
+      required: [enabled, roles]
+      properties:
+        enabled:
+          type: boolean
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/DatatableRoleInfo"
+        default_role:
+          description: the role a script gets when it names none; absent means admin
+          type: string
+        renames:
+          description: role renames (old -> new), so a rename keeps the postgres role and its grants
+          type: array
+          items:
+            type: object
+            required: [from, to]
+            properties:
+              from:
+                type: string
+              to:
+                type: string
     DataTableSchema:
       type: object
       required: [datatable_name, schemas]
@@ -33986,9 +34270,128 @@ components:
         error:
           type: string
 
+    AclTarget:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [database, schema, table]
+        schema:
+          type: string
+          description: required for a schema or table target
+        table:
+          type: string
+
+    AclChange:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [set_owner, grant, revoke]
+        role:
+          type: string
+        privileges:
+          type: array
+          items:
+            type: string
+        scope:
+          type: string
+          enum:
+            [
+              target,
+              all_tables,
+              all_sequences,
+              all_functions,
+              future_tables,
+              future_sequences,
+              future_functions
+            ]
+        objects:
+          type: array
+          description: objects inside the target a revoke covers, empty for the target itself
+          items:
+            $ref: "#/components/schemas/AclObject"
+
+    AclChangeRequest:
+      type: object
+      required: [target, change]
+      properties:
+        target:
+          $ref: "#/components/schemas/AclTarget"
+        change:
+          $ref: "#/components/schemas/AclChange"
+        role:
+          type: string
+          description: act as this role rather than the caller's default one
+
+    AclObject:
+      type: object
+      required: [name, kind]
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+          description: TABLE, SEQUENCE, ... — the keyword a REVOKE on it takes
+        args:
+          type: string
+          description: identity arguments of a routine, which is what tells two of the same name apart
+
+    AclGrant:
+      type: object
+      required: [grantee, privileges]
+      properties:
+        grantee:
+          type: string
+        privileges:
+          type: array
+          items:
+            type: string
+        object:
+          $ref: "#/components/schemas/AclObject"
+        future:
+          type: string
+          description: set for a default privilege, naming the kind of object it covers
+
+    DatatableAclInfo:
+      type: object
+      required:
+        [owner, roles, usable_roles, grants, supports_maintain, dbname, can_manage, current_role]
+      properties:
+        owner:
+          type: string
+        roles:
+          type: array
+          description: every role of the data table; the list is not private, only what each may reach
+          items:
+            type: string
+        usable_roles:
+          type: array
+          description: the roles the caller may themselves run as
+          items:
+            type: string
+        can_manage:
+          type: boolean
+          description: whether the caller's role may change this target at all
+        current_role:
+          type: string
+          description: the role the caller is connected as
+        supports_maintain:
+          type: boolean
+          description: whether the server is Postgres 17+, which added the MAINTAIN table privilege
+        dbname:
+          type: string
+          description: the database the target lives in
+        grants:
+          type: array
+          items:
+            $ref: "#/components/schemas/AclGrant"
+
     DataTableTables:
       type: object
-      required: [datatable_name, schemas]
+      required: [datatable_name, schemas, default_role]
       properties:
         datatable_name:
           type: string
@@ -34001,6 +34404,32 @@ components:
               type: string
         error:
           type: string
+        creatable_schemas:
+          type: array
+          description: the schemas the caller's role may create tables in
+          items:
+            type: string
+        can_create_schema:
+          type: boolean
+          description: whether that role may create schemas in the database
+        manageable_schemas:
+          type: array
+          description: the schemas whose access that role may change
+          items:
+            type: string
+        manageable_tables:
+          type: array
+          description: the tables whose access that role may change, as schema.table
+          items:
+            type: string
+        usable_roles:
+          type: array
+          description: roles the caller may run this data table as, empty when it has no permissions
+          items:
+            type: string
+        default_role:
+          type: string
+          description: the role the caller gets without naming one
 
     DataTableTableSchema:
       type: object

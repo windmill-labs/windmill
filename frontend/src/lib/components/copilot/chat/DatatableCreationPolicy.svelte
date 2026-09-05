@@ -6,7 +6,10 @@
 	const aiChatManager = getAiChatManager()
 	import DefaultDatabaseSelector from '$lib/components/raw_apps/DefaultDatabaseSelector.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { createDatatablesResource } from '$lib/components/raw_apps/datatableUtils.svelte'
+	import {
+		createDatatablesResource,
+		roleAfterDatatableChange
+	} from '$lib/components/raw_apps/datatableUtils.svelte'
 
 	// Load available datatables from workspace using shared utility
 	const datatables = createDatatablesResource(() => $workspaceStore)
@@ -37,8 +40,10 @@
 	}
 
 	function handleDefaultChange(datatable: string | undefined, schema: string | undefined) {
-		aiChatManager.datatableCreationPolicy.datatable = datatable
-		aiChatManager.datatableCreationPolicy.schema = schema
+		const policy = aiChatManager.datatableCreationPolicy
+		policy.role = roleAfterDatatableChange(policy.datatable, datatable, policy.role)
+		policy.datatable = datatable
+		policy.schema = schema
 	}
 </script>
 
@@ -67,6 +72,7 @@
 		<DefaultDatabaseSelector
 			datatable={aiChatManager.datatableCreationPolicy.datatable}
 			schema={aiChatManager.datatableCreationPolicy.schema}
+			role={aiChatManager.datatableCreationPolicy.role}
 			onChange={handleDefaultChange}
 			description="Set the default datatable and schema for new tables. When table creation is enabled, AI can create tables here if needed."
 		/>

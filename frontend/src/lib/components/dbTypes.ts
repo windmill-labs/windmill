@@ -3,6 +3,9 @@ export type DbInput =
 			type: 'database'
 			resourceType: DbType
 			resourcePath: string
+			/** Data table role to connect as. Only meaningful for a `datatable://`
+			 * resourcePath; absent means the data table's default role. */
+			role?: string
 			specificSchema?: string
 			specificTable?: string
 	  }
@@ -23,3 +26,10 @@ export const dbTypes = [
 	'duckdb'
 ] as const
 export const isDbType = (str?: string): str is DbType => !!str && dbTypes.includes(str as DbType)
+
+/** A row-menu action on a data table in the database manager's tree. */
+export type DatatableRowAction = 'migrations' | 'roles' | 'export' | 'import'
+
+/** The role a permissioned data table always has: the connection it resolved to
+ * before permissions were turned on, so it owns every object created so far. */
+export const ADMIN_DATATABLE_ROLE = 'admin'

@@ -9,6 +9,7 @@ import { writingJobOptions } from './jobs/writingJob'
 import type { DBSchema, SQLSchema } from '$lib/stores'
 import { stringifySchema } from './copilot/lib'
 import type { DbInput, DbType } from './dbTypes'
+import { withMigrationRole } from './datatableMigrationRole'
 import { assert } from '$lib/utils'
 import { WorkspaceService } from '$lib/gen'
 import { pendingMigrations } from './workspaceSettings/datatableMigrationUtils'
@@ -245,6 +246,7 @@ export type IDbSchemaOps = {
 	previewAlterSql: (params: { values: AlterTableValues; schema?: string }) => Promise<string>
 	onCreateSchema: (params: { schema: string }) => Promise<void>
 	onDeleteSchema: (params: { schema: string }) => Promise<void>
+	onRenameSchema: (params: { schema: string; newSchema: string }) => Promise<void>
 	onFetchTableEditorDefinition: (params: {
 		table: string
 		schema?: string
@@ -288,6 +290,10 @@ export function dbSchemaOpsWithPreviewScripts({
 		input.type === 'database' && input.resourcePath.startsWith('datatable://')
 			? input.resourcePath.slice('datatable://'.length)
 			: undefined
+	// The role the manager is connected as. A migration generated here has to
+	// declare it, or it would run as the data table's default role instead —
+	// silently doing the DDL with privileges the user did not pick.
+	const ambientRole = input.type === 'database' ? input.role : undefined
 
 	function makeMarker(op: string, payload: Record<string, unknown>): string {
 		if (ducklake) payload.ducklake = ducklake
@@ -368,12 +374,15 @@ export function dbSchemaOpsWithPreviewScripts({
 				throw new MigrationRunCancelled()
 			}
 		}
-		const codeUp = wrapMigration(await expandMarker(workspace, language, content))
+		const codeUp = withMigrationRole(
+			wrapMigration(await expandMarker(workspace, language, content)),
+			ambientRole
+		)
 		// Down migrations are only generated for Postgres for now.
 		let codeDown: string | undefined
 		if (downContent && dbType === 'postgresql') {
 			const downSql = (await expandMarker(workspace, language, downContent)).trim()
-			if (downSql) codeDown = wrapMigration(downSql)
+			if (downSql) codeDown = withMigrationRole(wrapMigration(downSql), ambientRole)
 		}
 		const created = await WorkspaceService.createDatatableMigration({
 			workspace,
@@ -453,6 +462,11 @@ export function dbSchemaOpsWithPreviewScripts({
 			const content = makeMarker('DROP_SCHEMA', { schema })
 			const downContent = makeMarker('CREATE_SCHEMA', { schema })
 			await applyDdl(migrationName('drop_schema', schema), content, downContent)
+		},
+		onRenameSchema: async ({ schema, newSchema }) => {
+			const content = makeMarker('RENAME_SCHEMA', { schema, new_schema: newSchema })
+			const downContent = makeMarker('RENAME_SCHEMA', { schema: newSchema, new_schema: schema })
+			await applyDdl(migrationName('rename_schema', newSchema), content, downContent)
 		},
 		onFetchTableEditorDefinition: async ({ table, schema, colDefs }) => {
 			let foreignKeys: import('./apps/components/display/dbtable/tableEditor').TableEditorForeignKey[] =
@@ -597,7 +611,9 @@ export function getDefaultDbTag(input: DbInput): string {
 export function getDatabaseArg(input: DbInput | undefined) {
 	if (input?.type === 'database') {
 		if (input.resourcePath.startsWith('datatable://')) {
-			return { database: input.resourcePath }
+			// The role rides in the reference: generated SQL has no natural place
+			// for the `-- role` annotation a hand-written script would use.
+			return { database: input.resourcePath + (input.role ? `?role=${input.role}` : '') }
 		} else {
 			return { database: '$res:' + input.resourcePath }
 		}

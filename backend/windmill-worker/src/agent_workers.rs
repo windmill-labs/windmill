@@ -65,15 +65,23 @@ pub async fn get_ducklake_from_agent_http(
 }
 
 #[allow(dead_code)]
+/// An agent worker authenticates as the agent rather than as the job's user, so
+/// the job id rides along: the API resolves its owner and authorizes the role
+/// against that identity.
 pub async fn get_datatable_resource_from_agent_http(
     client: &HttpClient,
     name: &str,
     w_id: &str,
+    role: Option<&str>,
+    job_id: &Uuid,
 ) -> anyhow::Result<serde_json::Value> {
+    let role_query = role
+        .map(|r| format!("&role={}", urlencoding::encode(r)))
+        .unwrap_or_default();
     client
         .get(&format!(
-            "/api/w/{}/agent_workers/get_datatable_resource/{}",
-            w_id, &name
+            "/api/w/{}/agent_workers/get_datatable_resource/{}?job_id={}{}",
+            w_id, &name, job_id, role_query
         ))
         .await
 }

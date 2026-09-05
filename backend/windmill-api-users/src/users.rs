@@ -1681,6 +1681,28 @@ async fn delete_user(
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
 
+    // A username is scoped to one workspace, and so are the tenants naming it, so
+    // the memberships are read before anything is deleted. Ordered, and before
+    // every other write of this transaction — see
+    // `lock_workspace_settings_unchecked`.
+    let memberships = sqlx::query!(
+        "SELECT workspace_id, username FROM usr WHERE email = $1 ORDER BY workspace_id",
+        &email_to_delete
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for row in &memberships {
+        // The username is free in that workspace once the rows below are gone, so
+        // a role still naming it would hand itself to whoever takes it next.
+        windmill_common::workspaces::remove_datatable_tenant_in_workspace_unchecked(
+            &row.workspace_id,
+            &format!("u/{}", row.username),
+            &mut tx,
+        )
+        .await?;
+    }
+
     sqlx::query!("DELETE FROM token WHERE email = $1", &email_to_delete)
         .execute(&mut *tx)
         .await?;
@@ -1689,14 +1711,12 @@ async fn delete_user(
         .await?;
     windmill_common::user_drafts::delete_drafts_of_email(&mut *tx, &email_to_delete).await?;
 
-    let usernames = sqlx::query_scalar!(
-        "DELETE FROM usr WHERE email = $1 RETURNING username",
-        &email_to_delete
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+    sqlx::query!("DELETE FROM usr WHERE email = $1", &email_to_delete)
+        .execute(&mut *tx)
+        .await?;
 
-    for username in usernames {
+    for row in memberships {
+        let username = row.username;
         sqlx::query!("DELETE FROM password WHERE email = $1", &email_to_delete)
             .execute(&mut *tx)
             .await?;
@@ -2421,6 +2441,18 @@ pub async fn delete_workspace_user_internal(
     tx: &mut Transaction<'_, Postgres>,
     authed: Option<&ApiAuthed>, // None for system operations
 ) -> Result<()> {
+    // ---- Clean up data table role tenants ----
+
+    // The username is free once this user's rows are gone, so a tenant left
+    // behind would hand every role it names to whoever is invited into it next.
+    // First in the transaction — see `lock_workspace_settings_unchecked`.
+    windmill_common::workspaces::remove_datatable_tenant_in_workspace_unchecked(
+        w_id,
+        &format!("u/{username_to_delete}"),
+        tx,
+    )
+    .await?;
+
     // ---- Clean up extra_perms referencing this user ----
     let extra_perms_tables = [
         "script",
@@ -2577,6 +2609,11 @@ async fn delete_workspace_user(
     Path((w_id, username_to_delete)): Path<(String, String)>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
+
+    // Before the `usr` row below — see `lock_workspace_settings_unchecked`. The
+    // removal itself takes this row too; re-acquiring it inside a transaction
+    // costs nothing.
+    windmill_common::workspaces::lock_workspace_settings_unchecked(&mut tx, &w_id).await?;
 
     // Locked so that the authorization below and the delete it guards see the same row.
     let target = sqlx::query!(
@@ -3427,6 +3464,16 @@ async fn leave_workspace(
 ) -> Result<String> {
     forbid_job_token_account_destruction(&authed)?;
     let mut tx = db.begin().await?;
+
+    // Leaving frees the username here too, and a role that still names it would
+    // be inherited by the next member to take it.
+    windmill_common::workspaces::remove_datatable_tenant_in_workspace_unchecked(
+        &w_id,
+        &format!("u/{}", authed.username),
+        &mut tx,
+    )
+    .await?;
+
     sqlx::query!(
         "DELETE FROM usr WHERE workspace_id = $1 AND username = $2",
         &w_id,

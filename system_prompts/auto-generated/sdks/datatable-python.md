@@ -6,10 +6,15 @@ Import: `import wmill`
 # 
 # Args:
 #     name: Database name (default: "main")
+#     role: DataTable role to run as, on a datatable with permissions
+#         enabled (default: the data table's default role)
 # 
 # Returns:
 #     DataTableClient instance
-def datatable(name: str = 'main') -> DataTableClient
+# 
+# Example:
+#     wmill.datatable("main", role="operator")
+def datatable(name: str = 'main', *, role: Optional[str] = None) -> DataTableClient
 
 # Client for executing SQL queries against Windmill DataTables.
 class DataTableClient:
@@ -18,7 +23,9 @@ class DataTableClient:
     # Args:
     #     client: Windmill client instance
     #     name: DataTable name
-    def __init__(client: Windmill, name: str)
+    #     role: DataTable role to run as, on a datatable with permissions
+    #         enabled (default: the data table's default role)
+    def __init__(client: Windmill, name: str, role: Optional[str] = None)
 
     # Execute a SQL query against the DataTable.
     # 

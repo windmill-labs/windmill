@@ -921,9 +921,14 @@ export function prepareAppSystemMessage(customPrompt?: string): ChatCompletionSy
 	const policy = aiChatManager.datatableCreationPolicy
 	const datatableName = policy.datatable ?? 'main'
 	const schemaPrefix = policy.schema ? `${policy.schema}.` : ''
-	// Use wmill.datatable() for 'main' (default), otherwise wmill.datatable('name')
-	const datatableCall =
-		datatableName === 'main' ? 'wmill.datatable()' : `wmill.datatable('${datatableName}')`
+	// `wmill.datatable()` for 'main' without a role — the defaults — and the name
+	// and role spelled out otherwise. A role names the privileges the app's own
+	// queries run with, so it has to be in the code the model writes.
+	const datatableCall = policy.role
+		? `wmill.datatable('${datatableName}', { role: '${policy.role}' })`
+		: datatableName === 'main'
+			? 'wmill.datatable()'
+			: `wmill.datatable('${datatableName}')`
 
 	let content = `You are a helpful assistant that creates and edits apps on the Windmill platform. Apps are defined as a collection of files that contains both the frontend and the backend.
 

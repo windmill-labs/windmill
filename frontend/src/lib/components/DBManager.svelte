@@ -1,11 +1,16 @@
 <script lang="ts">
-	import { superadmin, userStore, type DBSchema } from '$lib/stores'
+	import { enterpriseLicense, superadmin, userStore, type DBSchema } from '$lib/stores'
 	import {
 		ChevronDownIcon,
 		EditIcon,
 		Loader2,
 		Plus,
 		Table2,
+		Database as DatabaseIcon,
+		Folder as FolderIcon,
+		History as HistoryIcon,
+		KeyRound as KeyRoundIcon,
+		Download as DownloadIcon,
 		Trash2Icon,
 		UploadIcon
 	} from 'lucide-svelte'
@@ -21,9 +26,6 @@
 	import DbTableEditor from './DBTableEditor.svelte'
 	import type { DbType } from './dbTypes'
 	import Portal from './Portal.svelte'
-	import Select from './select/Select.svelte'
-	import { safeSelectItems } from './select/utils.svelte'
-	import type { Snippet } from 'svelte'
 	import {
 		dbSupportsTransactionalDdl,
 		diffTableEditorValues
@@ -32,13 +34,40 @@
 	import { capitalize, onlyAlphaNumAndUnderscore, pluralize } from '$lib/utils'
 	import type { DbFeatures } from './apps/components/display/dbtable/dbFeatures'
 	import Star from './Star.svelte'
-	import type { Asset } from '$lib/gen'
+	import ResizeTransitionWrapper from './common/ResizeTransitionWrapper.svelte'
+	import PgAclEditor from './datatableAcl/PgAclEditor.svelte'
+	import { favoriteManager } from './sidebar/FavoriteMenu.svelte'
+	import DatatableRoleBadge from './DatatableRoleBadge.svelte'
+	import type { AclTarget, Asset, DataTableTables } from '$lib/gen'
+	import { ADMIN_DATATABLE_ROLE, type DatatableRowAction } from './dbTypes'
+	import TextInput from './text_input/TextInput.svelte'
+	import Checkbox from './common/checkbox/Checkbox.svelte'
 
 	/** Represents a selected table with its schema */
 	export interface SelectedTable {
+		/** Absent when the tree has no data table level (a plain database). */
+		datatable?: string
 		schema: string
 		table: string
 	}
+
+	/** A row action started on a data table other than the current one. Switching
+	 * data table re-mounts this component, so the request — which has to run
+	 * against the connection of the data table it names — travels through the
+	 * parent. */
+	/** An action asked for on one data table's row, waiting for the manager to be
+	 * connected to that data table. `datatable` is what it was asked for: a switch
+	 * that lands anywhere else — because the target failed to load, or because the
+	 * user picked another one meanwhile — must not run it there. */
+	export type RowAction =
+		| { kind: 'create-table'; schema: string }
+		| { kind: 'create-schema' }
+		| { kind: 'alter-table'; schema: string; table: string }
+		| { kind: 'delete-table'; schema: string; table: string }
+		| { kind: 'drop-schema'; schema: string }
+		| { kind: 'rename-schema'; schema: string }
+
+	export type PendingRowAction = RowAction & { datatable: string }
 
 	type Props = {
 		dbType: DbType
@@ -53,7 +82,22 @@
 		initialTableKey?: string
 		selectedSchemaKey?: string | undefined
 		selectedTableKey?: string | undefined
-		dbSelector?: Snippet<[]>
+		/** Every data table with its schemas and tables. Present only when the manager
+		 * is on a data table — that is what puts a data-table level at the top of the
+		 * tree; otherwise the tree starts at schemas. */
+		datatableTree?: DataTableTables[]
+		datatableTreeLoading?: boolean
+		onSelectDatatable?: (datatable: string) => void
+		/** Role the manager is connected as, when it is not the default one. */
+		currentRole?: string
+		/** Switch a data table's role from its row badge. */
+		onSelectRole?: (datatable: string, role: string) => void
+		pendingAction?: PendingRowAction | undefined
+		/** Row-menu actions on a data table, run against that row's data table. */
+		onDatatableAction?: (datatable: string, action: DatatableRowAction) => void
+		/** Workspace the permissions drawer's own calls run against. */
+		workspace?: string
+		canManageDatatable?: boolean
 		/** Enable multi-select mode with checkboxes in sidebar */
 		multiSelectMode?: boolean
 		/** Selected tables in multi-select mode */
@@ -77,7 +121,15 @@
 		initialTableKey,
 		selectedSchemaKey = $bindable(undefined),
 		selectedTableKey = $bindable(undefined),
-		dbSelector,
+		datatableTree,
+		datatableTreeLoading,
+		onSelectDatatable,
+		currentRole,
+		onSelectRole,
+		pendingAction = $bindable(),
+		onDatatableAction,
+		workspace,
+		canManageDatatable = false,
 		multiSelectMode = false,
 		selectedTables = $bindable([]),
 		disabledTables = [],
@@ -86,72 +138,349 @@
 		onImport
 	}: Props = $props()
 
-	// Helper to check if a table is selected in multi-select mode
-	function isTableSelected(schema: string, table: string): boolean {
-		return selectedTables.some((t) => t.schema === schema && t.table === table)
+	/** Shown on the entries the server refuses to plan without a license. */
+	const EE_PERMISSIONS_TOOLTIP = 'Data table permissions require an Enterprise license'
+	/** A disabled entry has to say why it is disabled, not just that it is. */
+	const eeSuffixed = (name: string) => name + ($enterpriseLicense ? '' : ' (EE)')
+
+	const sameTable = (a: SelectedTable, b: SelectedTable) =>
+		a.datatable === b.datatable && a.schema === b.schema && a.table === b.table
+
+	function isTableSelected(t: SelectedTable): boolean {
+		return selectedTables.some((s) => sameTable(s, t))
 	}
 
-	// Helper to check if a table is disabled (already added)
-	function isTableDisabled(schema: string, table: string): boolean {
-		return disabledTables.some((t) => t.schema === schema && t.table === table)
+	/** Already added by the caller: shown ticked and locked. */
+	function isTableDisabled(t: SelectedTable): boolean {
+		return disabledTables.some((s) => sameTable(s, t))
 	}
 
-	// Toggle table selection in multi-select mode
-	function toggleTableSelection(schema: string, table: string) {
-		if (isTableDisabled(schema, table)) return
+	function toggleTableSelection(t: SelectedTable) {
+		if (isTableDisabled(t)) return
+		selectedTables = isTableSelected(t)
+			? selectedTables.filter((s) => !sameTable(s, t))
+			: [...selectedTables, t]
+	}
 
-		const idx = selectedTables.findIndex((t) => t.schema === schema && t.table === table)
-		if (idx >= 0) {
-			selectedTables = selectedTables.filter((_, i) => i !== idx)
-		} else {
-			selectedTables = [...selectedTables, { schema, table }]
+	/** Every table under a node, as it is currently rendered — so a batch toggle
+	 * acts on what the user can see, search filter included. */
+	function tablesUnder(datatable: string | undefined, schemaKey?: string): SelectedTable[] {
+		return treeRoots
+			.filter((r) => r.datatable === datatable)
+			.flatMap((r) =>
+				r.schemas
+					.filter((sc) => schemaKey === undefined || sc.schemaKey === schemaKey)
+					.flatMap((sc) => sc.tables.map((table) => ({ datatable, schema: sc.schemaKey, table })))
+			)
+	}
+
+	/** Tri-state of a node's batch checkbox. Locked tables count as ticked, so a
+	 * node whose tables were all already added reads as full rather than empty. */
+	function batchState(
+		datatable: string | undefined,
+		schemaKey?: string
+	): { checked: boolean; indeterminate: boolean; disabled: boolean } {
+		const tables = tablesUnder(datatable, schemaKey)
+		const selectable = tables.filter((t) => !isTableDisabled(t))
+		const n = tables.filter((t) => isTableSelected(t) || isTableDisabled(t)).length
+		return {
+			checked: tables.length > 0 && n === tables.length,
+			indeterminate: n > 0 && n < tables.length,
+			disabled: selectable.length === 0
 		}
 	}
 
-	// Get tables for a schema (filtered by search)
-	function getTablesForSchema(schema: string): string[] {
-		const tables = Object.keys(dbSchema.schema[schema] ?? {})
-		if (search) {
-			return tables.filter((t) => t.toLowerCase().includes(search.toLowerCase())).sort()
-		}
-		return tables.sort()
-	}
-
-	// Check if all selectable tables in a schema are selected
-	function isSchemaFullySelected(schema: string): boolean {
-		const tables = getTablesForSchema(schema)
-		if (tables.length === 0) return false
-		const selectableTables = tables.filter((t) => !isTableDisabled(schema, t))
-		if (selectableTables.length === 0) return true // All disabled means "fully selected"
-		return selectableTables.every((t) => isTableSelected(schema, t))
-	}
-
-	// Check if some (but not all) tables in a schema are selected
-	function isSchemaPartiallySelected(schema: string): boolean {
-		const tables = getTablesForSchema(schema)
-		const selectableTables = tables.filter((t) => !isTableDisabled(schema, t))
-		const selectedCount = selectableTables.filter((t) => isTableSelected(schema, t)).length
-		return selectedCount > 0 && selectedCount < selectableTables.length
-	}
-
-	// Toggle all tables in a schema
-	function toggleSchemaSelection(schema: string) {
-		const tables = getTablesForSchema(schema)
-		const selectableTables = tables.filter((t) => !isTableDisabled(schema, t))
-
-		if (isSchemaFullySelected(schema)) {
-			// Deselect all selectable tables in this schema
-			selectedTables = selectedTables.filter((t) => t.schema !== schema)
+	function toggleBatch(datatable: string | undefined, schemaKey?: string) {
+		const selectable = tablesUnder(datatable, schemaKey).filter((t) => !isTableDisabled(t))
+		if (selectable.every((t) => isTableSelected(t))) {
+			selectedTables = selectedTables.filter((s) => !selectable.some((t) => sameTable(s, t)))
 		} else {
-			// Select all selectable tables in this schema
-			const newSelections = selectableTables
-				.filter((t) => !isTableSelected(schema, t))
-				.map((t) => ({ schema, table: t }))
-			selectedTables = [...selectedTables, ...newSelections]
+			const missing = selectable.filter((t) => !isTableSelected(t))
+			selectedTables = [...selectedTables, ...missing]
 		}
 	}
 
 	let schemaKeys = $derived(Object.keys(dbSchema.schema ?? {}))
+
+	// --- Left-pane tree ---------------------------------------------------------
+	// Levels: data table -> schema -> table. The top two collapse away on their own
+	// terms: no `datatableTree` means this is not a data table, and a database
+	// without schemas has nothing to put between a data table and its tables.
+	const currentDatatable = $derived(asset?.kind === 'datatable' ? asset.path : undefined)
+
+	/** Favourites are keyed by the table's own asset URI, so a row under another
+	 * data table must not borrow the one the manager is currently pointed at. */
+	function tableAssetPath(datatable: string | undefined, schemaKey: string, tableKey: string) {
+		const kind = datatable !== undefined ? 'datatable' : asset!.kind
+		const path = datatable ?? asset!.path
+		return `${kind}://${path === 'main' ? '' : path}/${schemaKey}.${tableKey}`
+	}
+
+	/** Tables per schema for a data table, as `schema -> table[]`. */
+	function schemasOf(datatable: string | undefined): Record<string, string[]> {
+		// The open data table reads from `dbSchema`, which is refetched after a DDL;
+		// the tree snapshot is not, so using it here would hide a table until the
+		// next full reload.
+		if (datatable === undefined || datatable === currentDatatable) {
+			return Object.fromEntries(
+				Object.entries(dbSchema.schema ?? {}).map(([sk, tables]) => [sk, Object.keys(tables ?? {})])
+			)
+		}
+		return datatableTree?.find((d) => d.datatable_name === datatable)?.schemas ?? {}
+	}
+
+	function errorOf(datatable: string): string | undefined {
+		return datatableTree?.find((d) => d.datatable_name === datatable)?.error
+	}
+
+	/** Whether the role this connection uses may create a table in that schema,
+	 * or a schema at all. A plain database reports nothing, and there the buttons
+	 * stay: hiding them on no information would be worse than a refusal. */
+	function canCreateTableIn(datatable: string | undefined, schemaKey: string): boolean {
+		const entry = datatableTree?.find((d) => d.datatable_name === datatable)
+		if (!entry?.creatable_schemas) return true
+		// A schema created since the snapshot is not in it yet; the role just made
+		// it, so it can write to it.
+		if (!(schemaKey in entry.schemas)) return true
+		return entry.creatable_schemas.includes(schemaKey)
+	}
+
+	/** Whether the connected role may change access on an object: Postgres asks
+	 * for membership of its owner, so for the rest the entry is not offered. */
+	function canManage(datatable: string | undefined, schemaKey: string, table?: string): boolean {
+		// A workspace admin manages the data table itself, so nothing in it is
+		// hidden from them — `public` is owned by neither Windmill nor its roles.
+		if (canManageDatatable) return true
+		const entry = datatableTree?.find((d) => d.datatable_name === datatable)
+		if (!entry?.manageable_schemas) return true
+		return table === undefined
+			? entry.manageable_schemas.includes(schemaKey)
+			: (entry.manageable_tables ?? []).includes(`${schemaKey}.${table}`)
+	}
+
+	function canCreateSchemaIn(datatable: string | undefined): boolean {
+		const entry = datatableTree?.find((d) => d.datatable_name === datatable)
+		return entry === undefined || !!entry.can_create_schema
+	}
+
+	/** The role a data table row is reached through, and what it can be switched
+	 * to. Absent where naming the role says nothing: a data table without
+	 * permissions, or one whose single usable role is already the implicit
+	 * `admin`. */
+	function roleOf(datatable: string): { role: string; roles: string[] } | undefined {
+		const entry = datatableTree?.find((d) => d.datatable_name === datatable)
+		const roles = entry?.usable_roles ?? []
+		if (roles.length === 0 || (roles.length === 1 && roles[0] === ADMIN_DATATABLE_ROLE)) {
+			return undefined
+		}
+		const role = (datatable === currentDatatable ? currentRole : undefined) ?? entry?.default_role
+		return role ? { role, roles } : undefined
+	}
+
+	const matchesSearch = (t: string) => t.toLowerCase().includes(search.trim().toLowerCase())
+
+	/** The tree as rendered: only nodes with a matching descendant survive a search. */
+	let treeRoots = $derived.by(() => {
+		const datatables = datatableTree
+			? datatableTree.map((d) => d.datatable_name)
+			: [undefined as string | undefined]
+		return datatables
+			.map((dt) => {
+				const schemas = Object.entries(schemasOf(dt))
+					.map(([schemaKey, tables]) => ({
+						schemaKey,
+						// A schema that matches keeps all of its tables — the search named
+						// the schema, so what is in it is the answer. Copy before sorting:
+						// `tables` belongs to the tree snapshot, which is reactive state.
+						tables: (matchesSearch(schemaKey) ? [...tables] : tables.filter(matchesSearch)).sort()
+					}))
+					.filter(
+						(sc) => search.trim() === '' || matchesSearch(sc.schemaKey) || sc.tables.length > 0
+					)
+				schemas.sort((a, b) => a.schemaKey.localeCompare(b.schemaKey))
+				return { datatable: dt, schemas, error: dt ? errorOf(dt) : undefined }
+			})
+			.filter(
+				// A search narrows the tree to what matched; a data table with no match
+				// left in it would otherwise sit there as an empty row.
+				(root) => search.trim() === '' || root.schemas.length > 0
+			)
+	})
+
+	// Explicit open/closed choices, over a default rule. Storing only the
+	// overrides is what lets the current data table and selected schema — which
+	// default to open — actually be folded; a plain "expanded" set could never
+	// close them, since the default would keep winning.
+	// What the permissions drawer is open on, if anything: a schema, or a table.
+	let aclDrawer = $state<{ datatable: string | undefined; target: AclTarget } | undefined>(
+		undefined
+	)
+
+	let expandOverrides = $state<Map<string, boolean>>(new Map())
+	const nodeKey = (dt: string | undefined, schemaKey?: string) =>
+		`${dt ?? ''}${schemaKey === undefined ? '' : `/${schemaKey}`}`
+
+	function defaultExpanded(dt: string | undefined, schemaKey?: string): boolean {
+		if (dt !== undefined && dt !== currentDatatable) return false
+		return schemaKey === undefined || schemaKey === selected.schemaKey
+	}
+
+	function isExpanded(dt: string | undefined, schemaKey?: string): boolean {
+		// A search narrows the tree to what matched, so everything left is shown.
+		if (search.trim() !== '') return true
+		return expandOverrides.get(nodeKey(dt, schemaKey)) ?? defaultExpanded(dt, schemaKey)
+	}
+
+	function toggle(dt: string | undefined, schemaKey?: string) {
+		const key = nodeKey(dt, schemaKey)
+		const open = expandOverrides.get(key) ?? defaultExpanded(dt, schemaKey)
+		const next = new Map(expandOverrides)
+		next.set(key, !open)
+		expandOverrides = next
+	}
+
+	const rowChevronClass = (open: boolean) =>
+		'shrink-0 text-secondary transition-transform ' + (open ? '' : '-rotate-90')
+
+	/** A favourite says something about the table, so it stays visible; an empty
+	 * star is just an affordance and waits for the pointer. */
+	const rowStarClass = (path: string) =>
+		'-ml-1 w-1 flex shrink-0 transition-opacity ' +
+		(favoriteManager.isStarred(path, 'asset') ? '' : 'opacity-0 group-hover:opacity-100')
+
+	/** Reveal a node, dropping a stale "closed" that would hide a new selection. */
+	function reveal(dt: string | undefined, schemaKey?: string) {
+		const next = new Map(expandOverrides)
+		next.delete(nodeKey(dt))
+		next.delete(nodeKey(dt, schemaKey))
+		expandOverrides = next
+	}
+
+	function selectTable(dt: string | undefined, schemaKey: string, tableKey: string) {
+		if (dt !== undefined && dt !== currentDatatable) {
+			// Switching data table re-mounts this component against the new one, so
+			// the target has to travel through the bound keys the parent keeps —
+			// local state here is about to be thrown away.
+			selectedSchemaKey = schemaKey
+			selectedTableKey = tableKey
+			onSelectDatatable?.(dt)
+			return
+		}
+		reveal(dt, schemaKey)
+		selected = { schemaKey, tableKey }
+	}
+
+	/** Run a row action on the data table it belongs to, switching to it first
+	 * when it is not the one the manager is connected to. */
+	function onDatatable(dt: string | undefined, action: RowAction): boolean {
+		if (dt === undefined || dt === currentDatatable) return true
+		if ('schema' in action) selectedSchemaKey = action.schema
+		if ('table' in action) selectedTableKey = action.table
+		pendingAction = { ...action, datatable: dt }
+		onSelectDatatable?.(dt)
+		return false
+	}
+
+	function startCreateTable(dt: string | undefined, schema: string) {
+		if (!onDatatable(dt, { kind: 'create-table', schema })) return
+		selected = { schemaKey: schema, tableKey: undefined }
+		dbTableEditorState = { open: true }
+	}
+
+	function startCreateSchema(dt: string | undefined) {
+		if (!onDatatable(dt, { kind: 'create-schema' })) return
+		schemaDialog = { mode: 'create' }
+	}
+
+	function startAlterTable(dt: string | undefined, schema: string, table: string) {
+		if (!onDatatable(dt, { kind: 'alter-table', schema, table })) return
+		selected = { schemaKey: schema, tableKey: table }
+		dbTableEditorState = { open: true, alterTableKey: table }
+	}
+
+	function startDeleteTable(dt: string | undefined, schema: string, table: string) {
+		if (!onDatatable(dt, { kind: 'delete-table', schema, table })) return
+		askingForConfirmation = {
+			title: `Are you sure you want to delete ${table} ? This action is irreversible`,
+			confirmationText: 'Delete permanently',
+			open: true,
+			id: 'db-manager-delete-table-confirmation-modal',
+			onConfirm: async () => {
+				askingForConfirmation && (askingForConfirmation.loading = true)
+				try {
+					await dbSchemaOps.onDelete({ tableKey: table, schema })
+					refresh?.()
+					sendUserToast(`Table '${table}' deleted successfully`)
+				} catch (e) {
+					let msg: string | undefined = (e as any).body ?? (e as Error).message
+					if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
+					sendUserToast(msg ?? 'Action failed!', true)
+				}
+				askingForConfirmation = undefined
+			}
+		}
+	}
+
+	function startRenameSchema(dt: string | undefined, schema: string) {
+		if (!onDatatable(dt, { kind: 'rename-schema', schema })) return
+		schemaDialog = { mode: 'rename', schema }
+		newSchemaName = schema
+	}
+
+	function startDropSchema(dt: string | undefined, schema: string) {
+		if (!onDatatable(dt, { kind: 'drop-schema', schema })) return
+		askingForConfirmation = {
+			title: `Are you sure you want to drop ${schema} ? Everything in it goes with it, and this action is irreversible`,
+			confirmationText: 'Drop permanently',
+			open: true,
+			id: 'db-manager-drop-schema-confirmation-modal',
+			onConfirm: async () => {
+				askingForConfirmation && (askingForConfirmation.loading = true)
+				try {
+					await dbSchemaOps.onDeleteSchema({ schema })
+					refresh?.()
+					sendUserToast(`Schema '${schema}' dropped successfully`)
+				} catch (e) {
+					let msg: string | undefined = (e as any).body ?? (e as Error).message
+					if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
+					sendUserToast(msg ?? 'Action failed!', true)
+				}
+				askingForConfirmation = undefined
+			}
+		}
+	}
+
+	// Finishes an action requested before the switch, now that this component is
+	// mounted against the data table it targeted.
+	$effect(() => {
+		const req = pendingAction
+		if (!req) return
+		// Landed somewhere else: the target may have failed to load, or the user
+		// may have moved on. Either way this action was asked for on another
+		// database, and dropping a schema is not a thing to do by approximation.
+		// `undefined` is somewhere else too — a plain postgres resource or a
+		// DuckLake — so the two must be equal, not merely not-known-to-differ.
+		if (req.datatable !== currentDatatable) {
+			pendingAction = undefined
+			return
+		}
+		// Creating a schema is the one action a data table with none can still
+		// take, so it must not wait on a schema being there.
+		if (req.kind === 'create-schema') {
+			pendingAction = undefined
+			schemaDialog = { mode: 'create' }
+			return
+		}
+		if (!schemaKeys.length) return
+		pendingAction = undefined
+		if (!schemaKeys.includes(req.schema)) return
+		if (req.kind === 'create-table') startCreateTable(undefined, req.schema)
+		else if (req.kind === 'drop-schema') startDropSchema(undefined, req.schema)
+		else if (req.kind === 'rename-schema') startRenameSchema(undefined, req.schema)
+		else if (req.kind === 'alter-table') startAlterTable(undefined, req.schema, req.table)
+		else startDeleteTable(undefined, req.schema, req.table)
+	})
+
 	let search = $state('')
 	let selected: {
 		schemaKey?: undefined | string
@@ -238,8 +567,22 @@
 		}
 	)
 
-	let newSchemaDialogOpen = $state(false)
+	// Naming a schema: a new one, or a new name for one that exists.
+	let schemaDialog = $state<{ mode: 'create' } | { mode: 'rename'; schema: string } | undefined>(
+		undefined
+	)
 	let newSchemaName = $state('')
+
+	/** What the drawer is about, for its title. */
+	function aclLabel(target: AclTarget | undefined): string {
+		if (!target) return ''
+		return target.kind === 'table' ? `${target.schema}.${target.table}` : (target.schema ?? '')
+	}
+
+	function closeSchemaDialog() {
+		schemaDialog = undefined
+		newSchemaName = ''
+	}
 
 	// Check if the sanitized schema name already exists
 	const sanitizedNewSchemaName = $derived.by(() => {
@@ -249,295 +592,332 @@
 	})
 	const schemaAlreadyExists = $derived(
 		sanitizedNewSchemaName !== '' &&
-			schemaKeys.map((s) => s.toLowerCase()).includes(sanitizedNewSchemaName.toLowerCase())
+			schemaKeys
+				.filter((s) => !(schemaDialog?.mode === 'rename' && s === schemaDialog.schema))
+				.map((s) => s.toLowerCase())
+				.includes(sanitizedNewSchemaName.toLowerCase())
 	)
+
+	/** The statement the dialog is about to run, which is also what it asks about. */
+	const schemaStatement = $derived(
+		schemaDialog?.mode === 'rename'
+			? `ALTER SCHEMA ${schemaDialog.schema} RENAME TO ${sanitizedNewSchemaName}`
+			: `CREATE SCHEMA ${sanitizedNewSchemaName}`
+	)
+
+	const canSubmitSchemaName = $derived(
+		!!sanitizedNewSchemaName &&
+			!schemaAlreadyExists &&
+			(schemaDialog?.mode !== 'rename' || sanitizedNewSchemaName !== schemaDialog.schema)
+	)
+
+	function submitSchemaName() {
+		const dialog = schemaDialog
+		if (!dialog || !canSubmitSchemaName) return
+		const name = sanitizedNewSchemaName
+		askingForConfirmation = {
+			confirmationText: dialog.mode === 'rename' ? `Rename to ${name}` : `Create ${name}`,
+			type: 'reload',
+			title: `This will run '${schemaStatement}' on your database. Are you sure?`,
+			open: true,
+			id: 'db-schema-name-confirmation-modal',
+			onConfirm: async () => {
+				askingForConfirmation && (askingForConfirmation.loading = true)
+				try {
+					if (dialog.mode === 'rename') {
+						await dbSchemaOps.onRenameSchema({ schema: dialog.schema, newSchema: name })
+					} else {
+						await dbSchemaOps.onCreateSchema({ schema: name })
+					}
+					refresh?.()
+					selected.schemaKey = name
+					closeSchemaDialog()
+				} finally {
+					askingForConfirmation = undefined
+				}
+			}
+		}
+	}
 
 	let _dbTable: DBTable | undefined = $state()
 	export const dbTable = () => _dbTable
 </script>
 
 <Splitpanes>
-	<Pane size={24} class="relative flex flex-col">
+	<Pane size={28} class="relative flex flex-col">
 		<div class="mx-3 mt-3 flex flex-col gap-2">
-			{#if dbSelector}
-				{@render dbSelector()}
-			{/if}
-			{#if dbSupportsSchemas && !multiSelectMode}
-				<Select
-					bind:value={selected.schemaKey}
-					items={safeSelectItems(schemaKeys)}
-					id="db-schema-select"
-					transformInputSelectedText={(s) => `Schema: ${s}`}
-					RightIcon={ChevronDownIcon}
-					placeholder="Search or create schema..."
-					showPlaceholderOnOpen
-					onCreateItem={(schema) => {
-						schema = schema.trim().replace(/[^a-zA-Z0-9_]/g, '')
-						if (dbType === 'snowflake') schema = schema.toUpperCase()
-						askingForConfirmation = {
-							confirmationText: `Create ${schema}`,
-							type: 'reload',
-							title: `This will run 'CREATE SCHEMA ${schema}' on your database. Are you sure ?`,
-							open: true,
-							id: 'db-create-schema-confirmation-modal',
-							onConfirm: async () => {
-								askingForConfirmation && (askingForConfirmation.loading = true)
-								try {
-									await dbSchemaOps.onCreateSchema({ schema })
-									refresh?.()
-									selected.schemaKey = schema
-								} finally {
-									askingForConfirmation = undefined
-								}
-							}
-						}
-					}}
-				/>
-			{/if}
-			<ClearableInput bind:value={search} placeholder="Search table..." />
+			<TextInput bind:value={search} inputProps={{ placeholder: 'Search table or schema...' }} />
 		</div>
-		<div class="overflow-x-clip overflow-y-auto relative mt-3 border-y flex-1">
-			{#if multiSelectMode}
-				<!-- Multi-select mode: show all schemas with their tables -->
-				{#if dbSupportsSchemas}
-					<!-- New schema button -->
+		<div class="overflow-x-clip overflow-y-auto relative mt-1.5 flex-1">
+			<!-- Normal mode: data table -> schema -> table, each level dropping out
+				     when it has nothing to say (no data table / no schemas). -->
+			{#if datatableTreeLoading && (datatableTree?.length ?? 0) === 0}
+				<div class="flex items-center gap-2 text-tertiary p-3">
+					<Loader2 class="animate-spin" size={14} />
+					<span class="text-xs">Loading...</span>
+				</div>
+			{/if}
+			{#each treeRoots as root (root.datatable ?? '')}
+				{@const dtOpen = isExpanded(root.datatable)}
+				{#if root.datatable !== undefined}
+					{@const hasMenu = !multiSelectMode && onDatatableAction !== undefined}
+					{@const roleInfo = roleOf(root.datatable)}
 					<button
-						class="w-full text-sm font-medium flex gap-2 items-center h-9 cursor-pointer pl-3 pr-1 hover:bg-gray-500/10 border-b border-surface-secondary text-tertiary"
-						onclick={() => (newSchemaDialogOpen = true)}
+						class="group w-full text-xs font-normal text-primary flex gap-2 items-center h-8 cursor-pointer pl-3 pr-1 hover:bg-gray-500/10"
+						onclick={() => toggle(root.datatable)}
 					>
-						<Plus class="shrink-0" size={14} />
-						<span class="text-xs">New schema</span>
+						{#if multiSelectMode}
+							{@const state = batchState(root.datatable)}
+							<Checkbox
+								checked={state.checked}
+								indeterminate={state.indeterminate}
+								disabled={state.disabled}
+								onChange={() => toggleBatch(root.datatable)}
+								onClick={(e) => e.stopPropagation()}
+								class="shrink-0"
+							/>
+						{/if}
+						<ChevronDownIcon class={rowChevronClass(dtOpen)} size={14} />
+						<DatabaseIcon class="shrink-0" size={14} />
+						<span class="truncate text-ellipsis text-left text-xs">{root.datatable}</span>
+						{#if root.datatable === currentDatatable}
+							<!-- Several data tables are listed, but only one is the one being
+							     queried; the tree would otherwise not say which. -->
+							<span
+								class="shrink-0 w-1.5 h-1.5 rounded-full bg-green-400"
+								title="The data table this manager is connected to"
+							></span>
+						{/if}
+						{#if roleInfo}
+							{@const dt = root.datatable}
+							<DatatableRoleBadge
+								role={roleInfo.role}
+								roles={roleInfo.roles}
+								onSelect={(role) => onSelectRole?.(dt, role)}
+							/>
+						{/if}
+						<div class="grow"></div>
+						<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
+							{#if hasMenu}
+								{@const dt = root.datatable}
+								<DropdownV2
+									enableFlyTransition
+									items={() => [
+										{
+											displayName: 'Migrations',
+											icon: HistoryIcon,
+											action: () => onDatatableAction?.(dt, 'migrations')
+										},
+										...(canManageDatatable
+											? [
+													{
+														displayName: eeSuffixed('Roles'),
+														icon: KeyRoundIcon,
+														disabled: !$enterpriseLicense,
+														tooltip: EE_PERMISSIONS_TOOLTIP,
+														action: () => onDatatableAction?.(dt, 'roles')
+													}
+												]
+											: []),
+										{
+											displayName: 'Export',
+											icon: DownloadIcon,
+											action: () => onDatatableAction?.(dt, 'export')
+										},
+										{
+											displayName: 'Import',
+											icon: UploadIcon,
+											action: () => onDatatableAction?.(dt, 'import')
+										}
+									]}
+									btnId={'db-manager-datatable-actions-' + onlyAlphaNumAndUnderscore(dt)}
+								/>
+							{/if}
+						</div>
 					</button>
 				{/if}
-				{#each schemaKeys as schemaKey}
-					{@const schemaTables = getTablesForSchema(schemaKey)}
-					{@const isFullySelected = isSchemaFullySelected(schemaKey)}
-					{@const isPartiallySelected = isSchemaPartiallySelected(schemaKey)}
-					{@const hasNoTables = schemaTables.length === 0}
-					<!-- Schema header with checkbox (or just label if empty) -->
-					<div
-						class="group w-full text-sm font-medium flex gap-2 items-center h-9 cursor-pointer pl-3 pr-1 hover:bg-gray-500/10 border-b border-surface-secondary"
-						role="button"
-						tabindex="0"
-						onclick={() => {
-							if (!hasNoTables) {
-								toggleSchemaSelection(schemaKey)
-							}
-						}}
-						onkeydown={(e) => {
-							if (e.key === 'Enter' || e.key === ' ') {
-								if (!hasNoTables) {
-									toggleSchemaSelection(schemaKey)
-								}
-							}
-						}}
-					>
-						{#if hasNoTables}
-							<!-- Empty schema: no checkbox, just indent space -->
-							<span class="shrink-0 w-4"></span>
-						{:else}
-							<span class="shrink-0">
-								<input
-									type="checkbox"
-									checked={isFullySelected}
-									indeterminate={isPartiallySelected}
-									class="w-4 h-4 cursor-pointer"
-									onclick={(e) => e.stopPropagation()}
-									onchange={() => toggleSchemaSelection(schemaKey)}
-								/>
-							</span>
-						{/if}
-						<span class="truncate text-ellipsis grow text-left text-tertiary text-xs"
-							>{schemaKey}</span
-						>
-						<span class="text-2xs text-tertiary mr-2 group-hover:hidden">
-							{schemaTables.length}
-						</span>
-						<!-- Delete schema button (on hover) -->
-						<button
-							class="hidden group-hover:flex p-1 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition-colors mr-1"
-							title="Delete schema"
-							onclick={(e) => {
-								e.stopPropagation()
-								askingForConfirmation = {
-									title: `Are you sure you want to delete schema "${schemaKey}"? This will drop all tables in this schema. This action is irreversible.`,
-									confirmationText: 'Drop schema',
-									open: true,
-									onConfirm: async () => {
-										askingForConfirmation && (askingForConfirmation.loading = true)
-										try {
-											await dbSchemaOps.onDeleteSchema({ schema: schemaKey })
-											refresh?.()
-											sendUserToast(`Schema '${schemaKey}' deleted successfully`)
-										} catch (e) {
-											let msg: string | undefined = (e as any).body ?? (e as Error).message
-											if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
-											sendUserToast(msg ?? 'Action failed!', true)
-										}
-										askingForConfirmation = undefined
-									}
-								}
-							}}
-						>
-							<Trash2Icon size={12} class="text-red-500" />
-						</button>
-					</div>
-					<!-- Tables under this schema -->
-					{#each schemaTables as tableKey}
-						{@const isDisabled = isTableDisabled(schemaKey, tableKey)}
-						{@const isChecked = isTableSelected(schemaKey, tableKey) || isDisabled}
-						{@const isCurrentPreview =
-							selected.schemaKey === schemaKey && selected.tableKey === tableKey}
-						<div
-							class={'group w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pl-7 pr-1 ' +
-								(isCurrentPreview ? 'bg-gray-500/25' : 'hover:bg-gray-500/10') +
-								(isDisabled ? ' opacity-50' : '')}
-							role="button"
-							tabindex="0"
-							onclick={() => {
-								selected.schemaKey = schemaKey
-								selected.tableKey = tableKey
-								toggleTableSelection(schemaKey, tableKey)
-							}}
-							onkeydown={(e) => {
-								if (e.key === 'Enter' || e.key === ' ') {
-									selected.schemaKey = schemaKey
-									selected.tableKey = tableKey
-									toggleTableSelection(schemaKey, tableKey)
-								}
-							}}
-						>
-							<span class="shrink-0">
-								<input
-									type="checkbox"
-									checked={isChecked}
-									disabled={isDisabled}
-									class="w-4 h-4 cursor-pointer"
-									onclick={(e) => e.stopPropagation()}
-									onchange={() => toggleTableSelection(schemaKey, tableKey)}
-								/>
-							</span>
-							<Table2 class="text-primary shrink-0" size={14} />
-							<p class="truncate text-ellipsis grow text-left text-emphasis text-xs">{tableKey}</p>
-							<!-- Delete table button (on hover) -->
+				{#if dtOpen}
+					{#if root.error}
+						<p class="text-xs text-red-400 px-3 py-2">{root.error}</p>
+					{/if}
+					{#each root.schemas as sc (sc.schemaKey)}
+						{@const schemaOpen = isExpanded(root.datatable, sc.schemaKey)}
+						{@const indent = root.datatable !== undefined ? 'pl-7' : 'pl-3'}
+						{#if dbSupportsSchemas}
 							<button
-								class="hidden group-hover:flex p-1 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition-colors mr-1"
-								title="Delete table"
-								onclick={(e) => {
-									e.stopPropagation()
-									askingForConfirmation = {
-										title: `Are you sure you want to delete table "${tableKey}"? This action is irreversible.`,
-										confirmationText: 'Drop table',
-										open: true,
-										onConfirm: async () => {
-											askingForConfirmation && (askingForConfirmation.loading = true)
-											try {
-												await dbSchemaOps.onDelete({ tableKey, schema: schemaKey })
-												refresh?.()
-												sendUserToast(`Table '${tableKey}' deleted successfully`)
-											} catch (e) {
-												let msg: string | undefined = (e as any).body ?? (e as Error).message
-												if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
-												sendUserToast(msg ?? 'Action failed!', true)
-											}
-											askingForConfirmation = undefined
-										}
-									}
-								}}
+								class={'group w-full text-xs font-normal text-primary flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 ' +
+									indent}
+								onclick={() => toggle(root.datatable, sc.schemaKey)}
 							>
-								<Trash2Icon size={12} class="text-red-500" />
-							</button>
-						</div>
-					{/each}
-					<!-- New table button for this schema -->
-					<button
-						class="w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pl-7 pr-1 hover:bg-gray-500/10 text-tertiary"
-						onclick={() => {
-							selected.schemaKey = schemaKey
-							dbTableEditorState = { open: true }
-						}}
-					>
-						<Plus class="shrink-0" size={14} />
-						<span class="text-xs">New table</span>
-					</button>
-				{/each}
-			{:else}
-				<!-- Normal mode: show tables for selected schema -->
-				{#each filteredTableKeys as tableKey}
-					<!-- PLACEHOLDER -->
-					<button
-						class={'w-full text-sm font-normal flex gap-2 items-center h-10 cursor-pointer pl-3 pr-1 ' +
-							(selected.tableKey === tableKey ? 'bg-surface-secondary' : 'hover:bg-surface-hover')}
-						onclick={() => (selected.tableKey = tableKey)}
-					>
-						{#if asset}
-							<Star
-								kind="asset"
-								path={`${asset.kind}://${asset.path == 'main' ? '' : asset.path}/${selected.schemaKey}.${tableKey}`}
-							/>
-						{:else}
-							<Table2 class="text-primary shrink-0" size={14} />
-						{/if}
-
-						<p
-							class="db-manager-table-key truncate text-ellipsis grow text-left text-emphasis text-xs"
-						>
-							{tableKey}
-						</p>
-						<DropdownV2
-							items={() => [
-								{
-									displayName: 'Delete table',
-									icon: Trash2Icon,
-									action: () =>
-										(askingForConfirmation = {
-											title: `Are you sure you want to delete ${tableKey} ? This action is irreversible`,
-											confirmationText: 'Delete permanently',
-											open: true,
-											id: 'db-manager-delete-table-confirmation-modal',
-											onConfirm: async () => {
-												askingForConfirmation && (askingForConfirmation.loading = true)
-												try {
-													await dbSchemaOps.onDelete({ tableKey, schema: selected.schemaKey })
-													refresh?.()
-													sendUserToast(`Table '${tableKey}' deleted successfully`)
-												} catch (e) {
-													let msg: string | undefined = (e as any).body ?? (e as Error).message
-													if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
-													sendUserToast(msg ?? 'Action failed!', true)
+								{#if multiSelectMode}
+									{@const state = batchState(root.datatable, sc.schemaKey)}
+									<Checkbox
+										checked={state.checked}
+										indeterminate={state.indeterminate}
+										disabled={state.disabled}
+										onChange={() => toggleBatch(root.datatable, sc.schemaKey)}
+										onClick={(e) => e.stopPropagation()}
+										class="shrink-0"
+									/>
+								{/if}
+								<ChevronDownIcon class={rowChevronClass(schemaOpen)} size={14} />
+								<FolderIcon class="shrink-0" size={14} />
+								<span class="truncate text-ellipsis grow text-left text-xs">{sc.schemaKey}</span>
+								<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
+									{#if !multiSelectMode}
+										<DropdownV2
+											enableFlyTransition
+											items={() => [
+												...(canManage(root.datatable, sc.schemaKey)
+													? [
+															{
+																displayName: eeSuffixed('Permissions'),
+																icon: KeyRoundIcon,
+																disabled: !$enterpriseLicense,
+																tooltip: EE_PERMISSIONS_TOOLTIP,
+																action: () =>
+																	(aclDrawer = {
+																		datatable: root.datatable,
+																		target: { kind: 'schema', schema: sc.schemaKey }
+																	})
+															}
+														]
+													: []),
+												{
+													displayName: 'Rename schema',
+													icon: EditIcon,
+													action: () => startRenameSchema(root.datatable, sc.schemaKey)
+												},
+												{
+													displayName: 'Drop schema',
+													icon: Trash2Icon,
+													type: 'delete',
+													action: () => startDropSchema(root.datatable, sc.schemaKey)
 												}
-												askingForConfirmation = undefined
-											}
-										})
-								},
-								{
-									displayName: 'Alter table',
-									icon: EditIcon,
-									action: () => {
-										dbTableEditorState = {
-											open: true,
-											alterTableKey: tableKey
-										}
-									}
-								}
-							]}
-							class="w-fit"
-							btnId={'db-manager-table-actions-' + onlyAlphaNumAndUnderscore(tableKey)}
-						/>
-					</button>
-				{/each}
-			{/if}
+											]}
+											btnId={'db-manager-schema-actions-' + onlyAlphaNumAndUnderscore(sc.schemaKey)}
+										/>
+									{/if}
+								</div>
+							</button>
+						{/if}
+						<!-- Opening a schema slides its tables in rather than snapping them. -->
+						<ResizeTransitionWrapper vertical innerClass="w-full">
+							{#if schemaOpen || !dbSupportsSchemas}
+								{@const tableIndent = dbSupportsSchemas
+									? root.datatable !== undefined
+										? 'pl-11'
+										: 'pl-7'
+									: root.datatable !== undefined
+										? 'pl-7'
+										: 'pl-3'}
+								{#each sc.tables as tableKey (tableKey)}
+									{@const entry = {
+										datatable: root.datatable,
+										schema: sc.schemaKey,
+										table: tableKey
+									}}
+									{@const hasMenu = !multiSelectMode}
+									{@const isSelected =
+										root.datatable === currentDatatable &&
+										selected.schemaKey === sc.schemaKey &&
+										selected.tableKey === tableKey}
+									<button
+										class={'group w-full text-xs font-normal text-primary flex gap-2 items-center h-8 cursor-pointer pr-1 ' +
+											tableIndent +
+											' ' +
+											(isSelected ? 'bg-surface-secondary' : 'hover:bg-surface-hover')}
+										onclick={() => selectTable(root.datatable, sc.schemaKey, tableKey)}
+									>
+										{#if multiSelectMode}
+											<Checkbox
+												checked={isTableSelected(entry) || isTableDisabled(entry)}
+												disabled={isTableDisabled(entry)}
+												title={isTableDisabled(entry) ? 'Already added' : undefined}
+												onChange={() => toggleTableSelection(entry)}
+												onClick={(e) => e.stopPropagation()}
+												class="shrink-0"
+											/>
+										{/if}
+										<span class="shrink-0 w-3.5"></span>
+										<Table2 class="shrink-0" size={14} />
+										<p class="db-manager-table-key truncate text-ellipsis text-left text-xs">
+											{tableKey}
+										</p>
+										{#if asset}
+											{@const starPath = tableAssetPath(root.datatable, sc.schemaKey, tableKey)}
+											<span class={rowStarClass(starPath)}>
+												<Star size={14} kind="asset" path={starPath} />
+											</span>
+										{/if}
+										<div class="grow"></div>
+										<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
+											{#if hasMenu}
+												<DropdownV2
+													enableFlyTransition
+													items={() => [
+														...(canManage(root.datatable, sc.schemaKey, tableKey)
+															? [
+																	{
+																		displayName: eeSuffixed('Permissions'),
+																		icon: KeyRoundIcon,
+																		disabled: !$enterpriseLicense,
+																		tooltip: EE_PERMISSIONS_TOOLTIP,
+																		action: () =>
+																			(aclDrawer = {
+																				datatable: root.datatable,
+																				target: {
+																					kind: 'table',
+																					schema: sc.schemaKey,
+																					table: tableKey
+																				}
+																			})
+																	}
+																]
+															: []),
+														{
+															displayName: 'Delete table',
+															icon: Trash2Icon,
+															action: () => startDeleteTable(root.datatable, sc.schemaKey, tableKey)
+														},
+														{
+															displayName: 'Alter table',
+															icon: EditIcon,
+															action: () => startAlterTable(root.datatable, sc.schemaKey, tableKey)
+														}
+													]}
+													btnId={'db-manager-table-actions-' + onlyAlphaNumAndUnderscore(tableKey)}
+												/>
+											{/if}
+										</div>
+									</button>
+								{/each}
+								{#if canCreateTableIn(root.datatable, sc.schemaKey)}
+									<button
+										class={'w-full text-xs font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-secondary ' +
+											tableIndent}
+										onclick={() => startCreateTable(root.datatable, sc.schemaKey)}
+									>
+										<Plus class="shrink-0" size={14} />
+										<span class="text-xs">New table</span>
+									</button>
+								{/if}
+							{/if}
+						</ResizeTransitionWrapper>
+					{/each}
+					{#if dbSupportsSchemas && search.trim() === '' && canCreateSchemaIn(root.datatable)}
+						<button
+							class={'w-full text-xs font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-secondary ' +
+								(root.datatable !== undefined ? 'pl-7' : 'pl-3')}
+							onclick={() => startCreateSchema(root.datatable)}
+						>
+							<Plus class="shrink-0" size={14} />
+							<span class="text-xs">New schema</span>
+						</button>
+					{/if}
+				{/if}
+			{/each}
 		</div>
-		{#if !multiSelectMode}
-			<Button
-				on:click={() => (dbTableEditorState = { open: true })}
-				wrapperClasses="mx-2 my-2 text-sm"
-				startIcon={{ icon: Plus }}
-				variant={tableKeys.length === 0 ? 'accent' : 'default'}
-			>
-				New table
-			</Button>
-		{/if}
 	</Pane>
 	<Pane class="p-3 pt-1">
 		{#if tableKey && colDefs?.[tableKey]?.length}
@@ -576,6 +956,29 @@
 </Splitpanes>
 
 <Portal>
+	<Drawer open={!!aclDrawer} size="900px" on:close={() => (aclDrawer = undefined)}>
+		<DrawerContent
+			title="Permissions — {aclLabel(aclDrawer?.target)}"
+			on:close={() => (aclDrawer = undefined)}
+			tooltip="Who owns this, and what each role may do with it. Runs against the data table as its admin connection."
+		>
+			{#if aclDrawer && workspace}
+				{@const dt = aclDrawer.datatable ?? currentDatatable}
+				{#if dt}
+					<!-- Roles are per data table: the one the manager is connected as
+						 says nothing about a row under another data table, so that one
+						 is read as its own default role. -->
+					<PgAclEditor
+						{workspace}
+						datatable={dt}
+						target={aclDrawer.target}
+						role={dt === currentDatatable ? currentRole : undefined}
+					/>
+				{/if}
+			{/if}
+		</DrawerContent>
+	</Drawer>
+
 	<ConfirmationModal
 		{...askingForConfirmation ?? { confirmationText: '', title: '' }}
 		on:canceled={() => (askingForConfirmation = undefined)}
@@ -663,20 +1066,12 @@
 	</DrawerContent>
 </Drawer>
 
-<Drawer
-	size="400px"
-	open={newSchemaDialogOpen}
-	on:close={() => {
-		newSchemaDialogOpen = false
-		newSchemaName = ''
-	}}
->
+<Drawer size="400px" open={!!schemaDialog} on:close={closeSchemaDialog}>
 	<DrawerContent
-		on:close={() => {
-			newSchemaDialogOpen = false
-			newSchemaName = ''
-		}}
-		title="Create a new schema"
+		on:close={closeSchemaDialog}
+		title={schemaDialog?.mode === 'rename'
+			? `Rename ${schemaDialog.schema}`
+			: 'Create a new schema'}
 	>
 		<div class="flex flex-col gap-4">
 			<div>
@@ -688,27 +1083,7 @@
 					placeholder="Enter schema name..."
 					autofocus
 					on:keydown={(e) => {
-						if (e.key === 'Enter' && sanitizedNewSchemaName && !schemaAlreadyExists) {
-							askingForConfirmation = {
-								confirmationText: `Create ${sanitizedNewSchemaName}`,
-								type: 'reload',
-								title: `This will run 'CREATE SCHEMA ${sanitizedNewSchemaName}' on your database. Are you sure?`,
-								open: true,
-								id: 'db-create-schema-confirmation-modal',
-								onConfirm: async () => {
-									askingForConfirmation && (askingForConfirmation.loading = true)
-									try {
-										await dbSchemaOps.onCreateSchema({ schema: sanitizedNewSchemaName })
-										refresh?.()
-										selected.schemaKey = sanitizedNewSchemaName
-										newSchemaDialogOpen = false
-										newSchemaName = ''
-									} finally {
-										askingForConfirmation = undefined
-									}
-								}
-							}
-						}
+						if (e.key === 'Enter') submitSchemaName()
 					}}
 				/>
 				{#if schemaAlreadyExists}
@@ -723,32 +1098,8 @@
 			</div>
 		</div>
 		{#snippet actions()}
-			<Button
-				color="blue"
-				disabled={!sanitizedNewSchemaName || schemaAlreadyExists}
-				on:click={() => {
-					askingForConfirmation = {
-						confirmationText: `Create ${sanitizedNewSchemaName}`,
-						type: 'reload',
-						title: `This will run 'CREATE SCHEMA ${sanitizedNewSchemaName}' on your database. Are you sure?`,
-						open: true,
-						id: 'db-create-schema-confirmation-modal',
-						onConfirm: async () => {
-							askingForConfirmation && (askingForConfirmation.loading = true)
-							try {
-								await dbSchemaOps.onCreateSchema({ schema: sanitizedNewSchemaName })
-								refresh?.()
-								selected.schemaKey = sanitizedNewSchemaName
-								newSchemaDialogOpen = false
-								newSchemaName = ''
-							} finally {
-								askingForConfirmation = undefined
-							}
-						}
-					}
-				}}
-			>
-				Create schema
+			<Button color="blue" disabled={!canSubmitSchemaName} on:click={submitSchemaName}>
+				{schemaDialog?.mode === 'rename' ? 'Rename schema' : 'Create schema'}
 			</Button>
 		{/snippet}
 	</DrawerContent>

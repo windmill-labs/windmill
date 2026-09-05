@@ -1542,6 +1542,29 @@ mod tests {
         );
     }
 
+    /// The role selects which postgres login the ATTACH connects as; the asset
+    /// is still the data table, so it must not leak into the recorded path.
+    #[test]
+    fn test_sql_asset_parser_strips_role_from_datatable_ref() {
+        for (attach, expected) in [
+            ("ATTACH 'datatable://my_dt?role=analyst' AS dt;", "my_dt"),
+            ("ATTACH 'datatable?role=analyst' AS dt;", "main"),
+        ] {
+            let input = format!("{attach}\nINSERT INTO dt.table1 VALUES ('test');");
+            let s = parse_assets(&input).map(|s| s.assets);
+            assert_eq!(
+                s.map_err(|e| e.to_string()),
+                Ok(vec![ParseAssetsResult {
+                    kind: AssetKind::DataTable,
+                    path: format!("{expected}/table1"),
+                    access_type: Some(W),
+                    columns: None
+                },]),
+                "{attach}"
+            );
+        }
+    }
+
     #[test]
     fn test_sql_asset_parser_create_table() {
         let input = r#"

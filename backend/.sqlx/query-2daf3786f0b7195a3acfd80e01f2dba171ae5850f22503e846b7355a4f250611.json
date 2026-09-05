@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings\n             SET datatable = datatable #- ARRAY['datatables', $2, 'permissions']\n             WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2daf3786f0b7195a3acfd80e01f2dba171ae5850f22503e846b7355a4f250611"
+}

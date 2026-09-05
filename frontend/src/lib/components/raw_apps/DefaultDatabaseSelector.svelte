@@ -4,8 +4,8 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import {
+		createDatatableAccessResource,
 		createDatatablesResource,
-		createSchemasResource,
 		toDatatableItems,
 		toSchemaItems
 	} from './datatableUtils.svelte'
@@ -20,6 +20,9 @@
 		datatable: string | undefined
 		/** Currently selected schema */
 		schema: string | undefined
+		/** The data table role the app's queries run as, if it names one. What a
+		 * role may see is what the schema list has to be read as. */
+		role?: string | undefined
 		/** Callback when either value changes */
 		onChange?: (datatable: string | undefined, schema: string | undefined) => void
 		/** Description text to show in the popover */
@@ -29,19 +32,28 @@
 	let {
 		datatable,
 		schema,
+		role = undefined,
 		onChange,
 		description = 'Set the default datatable and schema for new tables. This is where AI will create new tables when needed.'
 	}: Props = $props()
 
 	// Load available datatables and schemas using shared utilities
 	const datatables = createDatatablesResource(() => opWs)
-	const schemas = createSchemasResource(
+	const access = createDatatableAccessResource(
 		() => datatable,
+		() => role,
 		() => opWs
 	)
 
 	const datatableItems = $derived(toDatatableItems(datatables.current))
-	const schemaItems = $derived(toSchemaItems(schemas.current))
+	// The answer says what it answers for: switching the database above leaves the
+	// previous one's schemas in hand until the refetch lands, and picking from
+	// them would name a schema this data table may not have.
+	const schemaItems = $derived(
+		access.current.datatable === datatable && access.current.role === role
+			? toSchemaItems(access.current.schemas)
+			: []
+	)
 
 	// Track datatable changes to reset schema
 	let previousDatatable = $state<string | undefined>(undefined)

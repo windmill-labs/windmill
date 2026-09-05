@@ -261,16 +261,10 @@ async fn rename_user(
         )));
     }
 
-    sqlx::query!(
-        "UPDATE password SET username = $1 WHERE email = $2",
-        ru.new_username,
-        user_email
-    )
-    .execute(&mut *tx)
-    .await?;
-
+    // Ordered, so a rename and a deletion that touch the same workspaces take
+    // their settings rows in the same sequence rather than head-on.
     let workspace_usernames = sqlx::query!(
-        "SELECT workspace_id, username FROM usr WHERE email = $1",
+        "SELECT workspace_id, username FROM usr WHERE email = $1 ORDER BY workspace_id",
         &user_email
     )
     .fetch_all(&mut *tx)
@@ -290,6 +284,16 @@ async fn rename_user(
         )
         .await?;
     }
+
+    // After the settings rows above: the deletion paths take `password` while
+    // holding one, so taking it first here would be the other order.
+    sqlx::query!(
+        "UPDATE password SET username = $1 WHERE email = $2",
+        ru.new_username,
+        user_email
+    )
+    .execute(&mut *tx)
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -316,19 +320,43 @@ async fn update_username_in_workpsace<'c>(
     new_username: &str,
     w_id: &str,
 ) -> error::Result<()> {
+    // Before anything else in the transaction — see
+    // `lock_workspace_settings_unchecked`. `rename_user` walks memberships in
+    // `workspace_id` order, so a rename spanning workspaces takes their rows in
+    // that order too.
+    let datatable_settings =
+        windmill_common::workspaces::lock_workspace_settings_unchecked(tx, w_id).await?;
+
     // ---- instance and workspace users ----
+
+    // Scoped to this workspace, like everything else here: `usr` and
+    // `usr_to_group` rows of another workspace answer to that workspace's own
+    // settings row.
     sqlx::query!(
-        "UPDATE usr SET username = $1 WHERE email = $2",
+        "UPDATE usr SET username = $1 WHERE email = $2 AND workspace_id = $3",
         new_username,
-        email
+        email,
+        w_id
     )
     .execute(&mut **tx)
     .await?;
 
     sqlx::query!(
-        "UPDATE usr_to_group SET usr = $1 WHERE usr = $2",
+        "UPDATE usr_to_group SET usr = $1 WHERE usr = $2 AND workspace_id = $3",
         new_username,
-        old_username
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // ---- group_ ----
+
+    sqlx::query!(
+        "UPDATE group_ SET extra_perms = extra_perms - ('u/' || $2) || jsonb_build_object(('u/' || $1), extra_perms->('u/' || $2)) WHERE extra_perms ? ('u/' || $2) AND workspace_id = $3",
+        new_username,
+        old_username,
+        w_id
     )
     .execute(&mut **tx)
     .await?;
@@ -813,17 +841,6 @@ async fn update_username_in_workpsace<'c>(
     .execute(&mut **tx)
     .await?;
 
-    // ---- group_ ----
-
-    sqlx::query!(
-        "UPDATE group_ SET extra_perms = extra_perms - ('u/' || $2) || jsonb_build_object(('u/' || $1), extra_perms->('u/' || $2)) WHERE extra_perms ? ('u/' || $2) AND workspace_id = $3",
-        new_username,
-        old_username,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
-
     // ---- folders ----
 
     sqlx::query!(
@@ -920,6 +937,37 @@ async fn update_username_in_workpsace<'c>(
     )
     .execute(&mut **tx)
     .await?;
+
+    // ---- data table role tenants and backing resources ----
+
+    // Who may run as a data table role is stored as `u/<username>`, and the
+    // executor compares it against the caller's name. Left behind, the rename
+    // takes the role away from the user it followed and hands it to whoever
+    // takes the old name next.
+    if let Some(mut settings) = datatable_settings {
+        let mut renamed = windmill_common::workspaces::rename_datatable_tenant(
+            &mut settings,
+            &format!("u/{old_username}"),
+            &format!("u/{new_username}"),
+        );
+        // The resource rewrite above moves a data table's own postgres resource
+        // with everything else the user owns; the config names it by path, so it
+        // has to travel too.
+        renamed |= windmill_common::workspaces::move_datatable_resource_paths(
+            &mut settings,
+            &format!("u/{old_username}/"),
+            &format!("u/{new_username}/"),
+        );
+        if renamed {
+            sqlx::query!(
+                "UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = $2",
+                settings,
+                w_id
+            )
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
 
     Ok(())
 }

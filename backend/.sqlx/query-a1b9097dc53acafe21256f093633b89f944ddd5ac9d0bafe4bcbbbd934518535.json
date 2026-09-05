@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ws.workspace_id AS \"workspace_id!\", dt.key AS \"name!\"\n               FROM workspace_settings ws\n               JOIN workspace w ON w.id = ws.workspace_id AND NOT w.deleted,\n               jsonb_each(ws.datatable->'datatables') dt\n               WHERE ws.workspace_id <> $1\n                 AND dt.value->'database'->>'resource_type' = 'instance'\n                 AND dt.value->'database'->>'resource_path' = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "name!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "a1b9097dc53acafe21256f093633b89f944ddd5ac9d0bafe4bcbbbd934518535"
+}

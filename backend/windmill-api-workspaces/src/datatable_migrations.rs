@@ -37,7 +37,7 @@ use windmill_common::query_builders::{render_db_quoted_identifier, DbType};
 use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, DebouncingSettings};
 use windmill_common::scripts::ScriptLang;
 use windmill_common::users::username_to_permissioned_as;
-use windmill_common::worker::to_raw_value;
+use windmill_common::worker::{to_raw_value, SqlAnnotations};
 use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
 use windmill_common::{PgDatabase, DB};
 use windmill_git_sync::{
@@ -128,7 +128,36 @@ async fn datatable_database_arg(
     .await?
     .ok_or_else(|| Error::internal_err(format!("datatable {datatable_name} not found")))?;
 
+    // No role in the reference: a migration carries its own as a `-- role <name>`
+    // annotation at the top of its SQL, which the executor reads. Absent, the
+    // executor falls back to the data table's default role.
     Ok(to_raw_value(&format!("datatable://{datatable_name}")))
+}
+
+/// Refuse to run a migration whose `-- role` annotation names a role the caller
+/// may not use.
+///
+/// The executor checks this too when it resolves the connection, so this is not
+/// the boundary — it is what makes the refusal legible (which migration, which
+/// role) and stops it before a job is pushed or a version recorded.
+async fn ensure_migration_role_allowed(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+    authed: &ApiAuthed,
+    sql: &str,
+    timestamp: i64,
+    name: &str,
+) -> Result<()> {
+    crate::datatable_permissions::ensure_can_use_datatable_role(
+        db,
+        w_id,
+        datatable_name,
+        SqlAnnotations::datatable_role(sql).as_deref(),
+        authed,
+        &format!("Migration {timestamp} ({name})"),
+    )
+    .await
 }
 
 /// Run a migration's SQL as a normal Windmill `postgresql` job, permissioned as
@@ -426,7 +455,7 @@ async fn run_datatable_migrations(
         "all"
     };
 
-    let mut applied = Vec::new();
+    let mut to_run = Vec::new();
     for m in migrations {
         if let Some(only) = query.only {
             // Run a single specific migration, skipping every other one.
@@ -440,6 +469,28 @@ async fn run_datatable_migrations(
         if applied_versions.contains(&m.timestamp) {
             continue;
         }
+        to_run.push(m);
+    }
+
+    // Fail the batch rather than skip: a migration the caller may not run is a
+    // gap in an ordered sequence, and silently leaving it out would apply later
+    // ones on top of a schema that never got this change. Checked for the whole
+    // batch first, so the refusal does not land half way through it.
+    for m in to_run.iter() {
+        ensure_migration_role_allowed(
+            &db,
+            &w_id,
+            &datatable_name,
+            &authed,
+            &m.code_up,
+            m.timestamp,
+            &m.name,
+        )
+        .await?;
+    }
+
+    let mut applied = Vec::new();
+    for m in to_run {
         run_datatable_migration_job(&db, &user_db, &authed, &w_id, &database_arg, &m.code_up)
             .await
             .map_err(|e| {
@@ -589,6 +640,16 @@ async fn rollback_datatable_migrations(
     })?;
 
     let database_arg = datatable_database_arg(&db, &w_id, &datatable_name).await?;
+    ensure_migration_role_allowed(
+        &db,
+        &w_id,
+        &datatable_name,
+        &authed,
+        &code_down,
+        version,
+        &definition.name,
+    )
+    .await?;
     run_datatable_migration_job(&db, &user_db, &authed, &w_id, &database_arg, &code_down)
         .await
         .map_err(|e| {
@@ -808,8 +869,7 @@ async fn require_datatable_migrations_manager(db: &DB, authed: &ApiAuthed) -> Re
         Ok(())
     } else {
         Err(Error::BadRequest(
-            "Only workspace admins and super admins can enable or disable data table migrations"
-                .to_string(),
+            "Only workspace admins and super admins can manage data table migrations".to_string(),
         ))
     }
 }
@@ -836,6 +896,12 @@ async fn enable_datatable_migrations(
             "data table {datatable_name} not found"
         )));
     }
+
+    // Opting in to migrations is one of the places an admin passes through, and
+    // an instance database provisioned before the grants carried their options
+    // cannot hand privileges to the roles permissions create.
+    crate::datatable_permissions::ensure_instance_db_can_delegate(&db, &w_id, &datatable_name)
+        .await;
 
     audit_log(
         &db,
@@ -1179,32 +1245,23 @@ async fn delete_datatable_migration(
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name, timestamp)): Path<(String, String, i64)>,
 ) -> Result<String> {
-    // Hold the run-serialization lock across the applied-check and the delete: a
-    // run snapshots a migration's SQL before recording its version, so an
-    // unserialized delete could race it and leave `_wm_migrations` pointing at a
-    // definition that no longer exists (breaking rollback and hiding the applied
-    // version). Held until the handler returns. Fail closed if we can't verify.
-    let unreachable = |e| {
-        Error::internal_err(format!(
-            "Cannot verify whether migration {} on data table '{}' has already been applied \
-             (its database is unreachable: {}). Refusing to delete it; retry once the database \
-             is reachable.",
-            timestamp, datatable_name, e
-        ))
-    };
+    // Hold the run-serialization lock across the delete: a run snapshots a
+    // migration's SQL before recording its version, so an unserialized delete
+    // could race it and record a version whose definition is already gone.
+    // Held until the handler returns.
+    //
+    // Deleting one that has already run is allowed: it leaves `_wm_migrations`
+    // naming a definition that no longer exists, so it can no longer be
+    // reverted — which is what the caller is warned about before asking.
     let lock_client = lock_datatable_migration_runs(&db, &w_id, &datatable_name)
         .await
-        .map_err(unreachable)?;
-    let applied = read_applied_versions_on_client(&lock_client, &datatable_name)
-        .await
-        .map_err(unreachable)?;
-    if applied.contains(&timestamp) {
-        return Err(Error::BadRequest(format!(
-            "Migration {} on data table '{}' has already been applied and cannot be deleted. \
-             Revert it first.",
-            timestamp, datatable_name
-        )));
-    }
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Cannot delete migration {} on data table '{}': its database is unreachable \
+                 ({}). Retry once the database is reachable.",
+                timestamp, datatable_name, e
+            ))
+        })?;
 
     let deleted_name = sqlx::query_scalar!(
         "DELETE FROM datatable_migrations \
@@ -1431,6 +1488,11 @@ async fn generate_initial_datatable_migration(
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
 ) -> JsonResult<DatatableMigration> {
+    // The snapshot below is taken with the data table's own connection and returns
+    // every object in it, so it answers to the same gate as turning migrations on
+    // rather than to whatever roles the caller may run as: a member who is a
+    // tenant of none would otherwise read the whole schema through it.
+    require_datatable_migrations_manager(&db, &authed).await?;
     validate_datatable_path_segment(&datatable_name)?;
     ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
 

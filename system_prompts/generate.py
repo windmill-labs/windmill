@@ -198,43 +198,9 @@ def extract_py_functions(content: str) -> list[dict]:
         if '.. deprecated::' in docstring:
             return
 
-        # Build parameter list
-        params = []
-        args = node.args
-
-        # Handle regular args
-        num_defaults = len(args.defaults)
-        num_args = len(args.args)
-
-        for i, arg in enumerate(args.args):
-            if arg.arg == 'self':
-                continue
-            param_str = arg.arg
-            if arg.annotation:
-                param_str += f": {ast.unparse(arg.annotation)}"
-            # Check if has default
-            default_idx = i - (num_args - num_defaults)
-            if default_idx >= 0:
-                default = args.defaults[default_idx]
-                param_str += f" = {ast.unparse(default)}"
-            params.append(param_str)
-
-        # Handle *args
-        if args.vararg:
-            params.append(f"*{args.vararg.arg}")
-
-        # Handle keyword-only args
-        for i, arg in enumerate(args.kwonlyargs):
-            param_str = arg.arg
-            if arg.annotation:
-                param_str += f": {ast.unparse(arg.annotation)}"
-            if args.kw_defaults[i]:
-                param_str += f" = {ast.unparse(args.kw_defaults[i])}"
-            params.append(param_str)
-
-        # Handle **kwargs
-        if args.kwarg:
-            params.append(f"**{args.kwarg.arg}")
+        # One renderer for Python signatures — see `_format_py_params`, which also
+        # keeps the bare `*`, the positional-only `/` and annotated varargs.
+        params_str = _format_py_params(node, skip_self=True)
 
         # Get return type
         return_type = ''
@@ -244,7 +210,7 @@ def extract_py_functions(content: str) -> list[dict]:
         seen_names.add(node.name)
         functions.append({
             'name': node.name,
-            'params': ', '.join(params),
+            'params': params_str,
             'return_type': return_type,
             'docstring': docstring,
             'async': isinstance(node, ast.AsyncFunctionDef)
@@ -1242,35 +1208,47 @@ def extract_datatable_py_sdk(py_content: str) -> str:
 
 
 def _format_py_params(node: ast.FunctionDef, skip_self: bool = False) -> str:
-    """Format function parameters from AST node."""
+    """Render a Python signature's parameters as the language reads them.
+
+    The separators are part of the signature: without the bare `*` a keyword-only
+    argument is advertised as positional, and without `/` a positional-only one is
+    advertised as passable by keyword. An agent following either gets a TypeError.
+    """
     params = []
     args = node.args
-    num_defaults = len(args.defaults)
-    num_args = len(args.args)
 
-    for i, arg in enumerate(args.args):
+    # Defaults fill the tail of positional-only and positional together, so they
+    # are numbered as one run.
+    positional = list(args.posonlyargs) + list(args.args)
+    num_defaults = len(args.defaults)
+    num_positional = len(positional)
+
+    for i, arg in enumerate(positional):
         if skip_self and arg.arg == 'self':
             continue
         param_str = arg.arg
         if arg.annotation:
             param_str += f": {ast.unparse(arg.annotation)}"
-        default_idx = i - (num_args - num_defaults)
+        default_idx = i - (num_positional - num_defaults)
         if default_idx >= 0:
-            default = args.defaults[default_idx]
-            param_str += f" = {ast.unparse(default)}"
+            param_str += f" = {ast.unparse(args.defaults[default_idx])}"
         params.append(param_str)
+        if args.posonlyargs and i == len(args.posonlyargs) - 1:
+            params.append('/')
 
     if args.vararg:
         vararg_str = f"*{args.vararg.arg}"
         if args.vararg.annotation:
             vararg_str += f": {ast.unparse(args.vararg.annotation)}"
         params.append(vararg_str)
+    elif args.kwonlyargs:
+        params.append('*')
 
     for i, arg in enumerate(args.kwonlyargs):
         param_str = arg.arg
         if arg.annotation:
             param_str += f": {ast.unparse(arg.annotation)}"
-        if args.kw_defaults[i]:
+        if args.kw_defaults[i] is not None:
             param_str += f" = {ast.unparse(args.kw_defaults[i])}"
         params.append(param_str)
 
@@ -1480,51 +1458,6 @@ def extract_wac_ts_sdk(ts_content: str) -> str:
     return md
 
 
-def _format_py_params_exact(node, skip_self: bool = False) -> str:
-    """Format Python parameters from AST, preserving bare * for keyword-only args."""
-    params = []
-    args = node.args
-
-    positional = list(args.posonlyargs) + list(args.args)
-    num_defaults = len(args.defaults)
-    num_positional = len(positional)
-
-    for i, arg in enumerate(positional):
-        if skip_self and arg.arg == 'self':
-            continue
-        param_str = arg.arg
-        if arg.annotation:
-            param_str += f": {ast.unparse(arg.annotation)}"
-        default_idx = i - (num_positional - num_defaults)
-        if default_idx >= 0:
-            param_str += f" = {ast.unparse(args.defaults[default_idx])}"
-        params.append(param_str)
-
-    if args.vararg:
-        vararg_str = f"*{args.vararg.arg}"
-        if args.vararg.annotation:
-            vararg_str += f": {ast.unparse(args.vararg.annotation)}"
-        params.append(vararg_str)
-    elif args.kwonlyargs:
-        params.append('*')
-
-    for i, arg in enumerate(args.kwonlyargs):
-        param_str = arg.arg
-        if arg.annotation:
-            param_str += f": {ast.unparse(arg.annotation)}"
-        if args.kw_defaults[i] is not None:
-            param_str += f" = {ast.unparse(args.kw_defaults[i])}"
-        params.append(param_str)
-
-    if args.kwarg:
-        kwarg_str = f"**{args.kwarg.arg}"
-        if args.kwarg.annotation:
-            kwarg_str += f": {ast.unparse(args.kwarg.annotation)}"
-        params.append(kwarg_str)
-
-    return ', '.join(params)
-
-
 def _render_py_docstring(docstring: str, indent: str = '') -> str:
     if not docstring:
         return ''
@@ -1535,7 +1468,7 @@ def _extract_py_function_signature(tree: ast.Module, name: str) -> str:
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
             docstring = ast.get_docstring(node) or ''
-            params = _format_py_params_exact(node)
+            params = _format_py_params(node)
             return_ann = f" -> {ast.unparse(node.returns)}" if node.returns else ''
             async_prefix = 'async ' if isinstance(node, ast.AsyncFunctionDef) else ''
             parts = []
@@ -1561,7 +1494,7 @@ def _extract_py_class_signature(tree: ast.Module, name: str) -> str:
                     init_docstring = _render_py_docstring(ast.get_docstring(item) or '', indent='    ')
                     if init_docstring:
                         parts.append(init_docstring)
-                    params = _format_py_params_exact(item)
+                    params = _format_py_params(item)
                     parts.append(f"    def __init__({params})")
                     break
             return '\n'.join(parts)

@@ -25,6 +25,7 @@ class RawSql {
 }
 
 interface SqlProvider {
+  annotations(): string;
   formatArgDecl(argNum: number, argType: string): string;
   formatArgUsage(
     argNum: number,
@@ -37,11 +38,23 @@ interface SqlProvider {
   providerName: string;
 }
 
-function datatableProvider(name: string, schema?: string): SqlProvider {
+const ROLE_NAME_RE = /^[A-Za-z0-9_-]{1,63}$/;
+
+function datatableProvider(
+  name: string,
+  schema?: string,
+  role?: string
+): SqlProvider {
+  if (role !== undefined && !ROLE_NAME_RE.test(role)) {
+    throw new Error(
+      `Invalid data table role '${role}': must be 1-63 characters of letters, digits, '_' or '-'`
+    );
+  }
   return {
     providerName: "datatable",
     language: "postgresql",
     extraArgs: { database: `datatable://${name}` },
+    annotations: () => (role ? `-- role ${role}\n` : ""),
     formatArgDecl: (argNum) => `-- $${argNum} arg${argNum}`,
     formatArgUsage: (argNum, explicitType, inferredType) =>
       explicitType !== undefined
@@ -56,6 +69,7 @@ function ducklakeProvider(name: string, schema?: string): SqlProvider {
     providerName: "ducklake",
     language: "duckdb",
     extraArgs: {},
+    annotations: () => "",
     formatArgDecl: (argNum, argType) => `-- $arg${argNum} (${argType})`,
     formatArgUsage: (argNum) => `$arg${argNum}`,
     preamble: () =>
@@ -177,7 +191,8 @@ function buildContentAndArgs(
       return provider.formatArgDecl(info.argNum, argType);
     });
 
-  let content = argDecls.length ? argDecls.join("\n") + "\n" : "";
+  let content = provider.annotations();
+  content += argDecls.length ? argDecls.join("\n") + "\n" : "";
   content += provider.preamble();
 
   let contentBody = "";
@@ -223,7 +238,10 @@ function buildDatatableQuery(
     .map((v, i) => `-- $${i + 1} arg${i + 1} (${inferSqlType(v)})`)
     .join("\n");
   let content =
-    (argDecls ? argDecls + "\n" : "") + provider.preamble() + sqlString;
+    provider.annotations() +
+    (argDecls ? argDecls + "\n" : "") +
+    provider.preamble() +
+    sqlString;
   let args = {
     ...Object.fromEntries(
       params.map((v, i) => [`arg${i + 1}`, serializeArgValue(v)])
@@ -238,13 +256,14 @@ function templateTag(provider: SqlProvider) {
     buildContentAndArgs(provider, strings, values);
 }
 
-const dt = (name = "main") => templateTag(datatableProvider(name));
+const dt = (name = "main", role?: string) =>
+  templateTag(datatableProvider(name, undefined, role));
 const dl = (name = "main") => {
   const { name: n, schema } = parseName(name);
   return templateTag(ducklakeProvider(n, schema));
 };
-const datatableQuery = (name = "main") => {
-  const provider = datatableProvider(name);
+const datatableQuery = (name = "main", role?: string) => {
+  const provider = datatableProvider(name, undefined, role);
   return (sql: string, ...params: any[]) =>
     buildDatatableQuery(provider, sql, params);
 };
@@ -518,6 +537,29 @@ describe("datatable() — template tag", () => {
     const sql = dt("custom_db");
     const out = sql`SELECT ${1}`;
     expect(out.args.database).toBe("datatable://custom_db");
+  });
+
+  test("role is emitted as the first line, ahead of arg declarations", () => {
+    // The executor stops parsing annotations at the first non-comment line, and
+    // a role landing after the preamble's SET would never be seen.
+    const out = dt("main", "analyst")`SELECT ${1}`;
+    expect(out.content.split("\n")[0]).toBe("-- role analyst");
+    // No role means no annotation at all, not an empty one.
+    expect(dt("main")`SELECT 1`.content).not.toContain("-- role");
+  });
+
+  test("query() also emits the role annotation first", () => {
+    const out = datatableQuery("main", "analyst")("SELECT $1", 42);
+    expect(out.content.split("\n")[0]).toBe("-- role analyst");
+  });
+
+  test("a role that is not a role name is refused, not annotated", () => {
+    // The annotation is a comment line: a newline in the value would end it and
+    // leave the rest as SQL running under whatever role the first line named.
+    expect(() => dt("main", "admin\nDELETE FROM customers")).toThrow(
+      /Invalid data table role/
+    );
+    expect(() => dt("main", "operator-1")).not.toThrow();
   });
 });
 

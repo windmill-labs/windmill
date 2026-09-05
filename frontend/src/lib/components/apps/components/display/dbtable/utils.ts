@@ -280,9 +280,14 @@ const scriptsV2: typeof legacyScripts = {
 	...legacyScripts,
 	postgresql: {
 		...legacyScripts.postgresql,
+		// The right join is what keeps a schema with no table in the list. It reads
+		// `pg_namespace`, which every role can read in full, so without the
+		// privilege check a schema the connection cannot enter shows up too — as an
+		// empty one, since `information_schema.columns` does filter by privilege.
 		code: `
 SELECT table_name, column_name, udt_name, column_default, is_nullable, nsp.nspname AS table_schema FROM information_schema.columns
-RIGHT JOIN pg_namespace nsp ON table_schema = nsp.nspname WHERE nsp.nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')`
+RIGHT JOIN pg_namespace nsp ON table_schema = nsp.nspname WHERE nsp.nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
+  AND nsp.nspname NOT LIKE 'pg\\_%' AND has_schema_privilege(nsp.oid, 'USAGE, CREATE')`
 	}
 }
 

@@ -1193,6 +1193,27 @@ async fn create_resource(
         .await?;
     }
     if update_if_exists {
+        // An upsert over an existing row is an edit, so it answers to the same
+        // rule: a permissioned data table's roles live in the database its
+        // resource names, and that is not free to move while they exist.
+        let previous = sqlx::query_scalar!(
+            "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
+            resource.path,
+            w_id
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten();
+        let nvalue: serde_json::Value = serde_json::from_str(raw_json.0.get())
+            .map_err(|e| Error::BadRequest(format!("Invalid resource value: {e}")))?;
+        windmill_common::workspaces::ensure_resource_identity_change_allowed(
+            &db,
+            &w_id,
+            &resource.path,
+            previous.as_ref(),
+            Some(&nvalue),
+        )
+        .await?;
         sqlx::query!(
             "INSERT INTO resource
                 (workspace_id, path, value, description, resource_type, created_by, edited_at, labels)
@@ -1320,6 +1341,7 @@ async fn delete_resource(
     {
         return Err(Error::PermissionDenied(msg));
     }
+    windmill_common::workspaces::ensure_resource_removal_allowed(&db, &w_id, path).await?;
     let mut tx = user_db.begin(&authed).await?;
 
     // Capture resource data for trashbin before deleting
@@ -1626,6 +1648,9 @@ async fn delete_resources_bulk(
     {
         return Err(Error::PermissionDenied(msg));
     }
+    for path in &request.paths {
+        windmill_common::workspaces::ensure_resource_removal_allowed(&db, &w_id, path).await?;
+    }
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -1815,6 +1840,33 @@ async fn update_resource(
     .await?
     {
         return Err(Error::PermissionDenied(msg));
+    }
+
+    // A rename takes the resource out from under whatever names its path.
+    if ns.path.as_deref().is_some_and(|npath| npath != path) {
+        windmill_common::workspaces::ensure_resource_removal_allowed(&db, &w_id, path).await?;
+    }
+    // Same as `set_resource_value`: the identity a permissioned data table's
+    // roles were created against is not free to move underneath them.
+    if let Some(nvalue) = ns.value.as_ref() {
+        let previous = sqlx::query_scalar!(
+            "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
+            path,
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten();
+        let nvalue: serde_json::Value = serde_json::from_str(nvalue.get())
+            .map_err(|e| Error::BadRequest(format!("Invalid resource value: {e}")))?;
+        windmill_common::workspaces::ensure_resource_identity_change_allowed(
+            &db,
+            &w_id,
+            path,
+            previous.as_ref(),
+            Some(&nvalue),
+        )
+        .await?;
     }
 
     let mut sqlb = SqlBuilder::update_table("resource");
@@ -2128,6 +2180,25 @@ async fn set_resource_value(
         return Err(Error::PermissionDenied(msg));
     }
     authorize_azure_devops_reference(authed, db, user_db, w_id, value.as_ref()).await?;
+
+    // A data table's roles live in the database its resource points at, so the
+    // identity behind that path is not free to move while they exist.
+    let previous = sqlx::query_scalar!(
+        "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
+        path,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    windmill_common::workspaces::ensure_resource_identity_change_allowed(
+        db,
+        w_id,
+        path,
+        previous.as_ref(),
+        value.as_ref(),
+    )
+    .await?;
 
     let mut tx = user_db.clone().begin(authed).await?;
 

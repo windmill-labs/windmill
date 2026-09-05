@@ -518,8 +518,10 @@ pub(crate) async fn offboard_global_user(
     require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
 
+    // Ordered, because the offboarding below takes each workspace's settings row:
+    // every path that takes more than one takes them in this sequence.
     let workspaces = sqlx::query!(
-        "SELECT workspace_id, username FROM usr WHERE email = $1",
+        "SELECT workspace_id, username FROM usr WHERE email = $1 ORDER BY workspace_id",
         &email
     )
     .fetch_all(&db)
@@ -830,6 +832,12 @@ async fn offboard_user_from_workspace<'c>(
     reassign_to: &str,
     new_permissioned_as: &str,
 ) -> Result<OffboardSummary> {
+    // Before this transaction locks anything else — see
+    // `lock_workspace_settings_unchecked`. Everything below reassigns rows a
+    // rename or a deletion writes while holding this row.
+    let datatable_settings =
+        windmill_common::workspaces::lock_workspace_settings_unchecked(tx, w_id).await?;
+
     let new_prefix = reassign_to.to_string();
     let departing = windmill_common::users::username_to_permissioned_as(username);
 
@@ -985,6 +993,25 @@ async fn offboard_user_from_workspace<'c>(
     .fetch_one(&mut **tx)
     .await?
     .unwrap_or(0);
+
+    // A data table names its database by resource path, so one just moved has to
+    // move in the config too: left behind it stops resolving, and the path it
+    // named is free for a resource pointing somewhere else entirely.
+    if let Some(mut settings) = datatable_settings {
+        if windmill_common::workspaces::move_datatable_resource_paths(
+            &mut settings,
+            &format!("u/{username}/"),
+            &format!("{new_prefix}/"),
+        ) {
+            sqlx::query!(
+                "UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = $2",
+                settings,
+                w_id
+            )
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
 
     // ---- eval datasets ----
     // The foreign keys cascade the rename onto cases and experiments; the paths held inside JSONB

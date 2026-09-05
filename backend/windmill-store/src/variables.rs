@@ -744,6 +744,10 @@ async fn delete_variable(
         return Err(Error::PermissionDenied(msg));
     }
 
+    // This takes the resource linked at the same path with it, so it answers to
+    // the same rule as deleting that resource directly.
+    windmill_common::workspaces::ensure_resource_removal_allowed(&db, &w_id, path).await?;
+
     // Check if variable is a secret before deleting (for Vault cleanup)
     let is_secret = sqlx::query_scalar!(
         "SELECT is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
@@ -916,6 +920,11 @@ async fn delete_variables_bulk(
     .await?
     {
         return Err(Error::PermissionDenied(msg));
+    }
+
+    // Each of these takes the resource linked at the same path with it.
+    for path in &request.paths {
+        windmill_common::workspaces::ensure_resource_removal_allowed(&db, &w_id, path).await?;
     }
 
     // Query which paths are secrets before deletion (for Vault cleanup)
@@ -1099,6 +1108,11 @@ async fn update_variable(
     // source path.
     if let Some(npath) = ns.path.as_deref() {
         check_scopes(&authed, || format!("variables:write:{}", npath))?;
+        // It moves the resource linked at the same path too, which is how a
+        // permissioned data table finds its database.
+        if npath != path {
+            windmill_common::workspaces::ensure_resource_removal_allowed(&db, &w_id, path).await?;
+        }
         check_proper_path(npath)?;
     }
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;

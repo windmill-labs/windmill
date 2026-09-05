@@ -5,7 +5,7 @@ import { isDbType } from './dbTypes'
 
 /**
  * Single URL param `dbm` encodes the full DB manager state:
- *   firstSegment~path~schema.table
+ *   firstSegment~path~schema.table~role
  *
  * firstSegment:
  *   datatable              – database with datatable:// resource (resourceType always postgresql)
@@ -26,6 +26,10 @@ import { isDbType } from './dbTypes'
  *   datatable~main~.customers          (schema "public" implied)
  *   ducklake~main~.orders              (schema "main" implied)
  *   postgresql~$res:u/user/my_pg~public.customers
+ *   datatable~main~~analyst            (role only, no schema/table)
+ *
+ * role (fourth segment, optional, data tables only):
+ *   the data table role to connect as; omitted means its default role.
  */
 
 const dbManagerSchema = z.object({
@@ -38,6 +42,7 @@ interface ParsedDbm {
 	resType?: string
 	schema?: string
 	table?: string
+	role?: string
 }
 
 function parseDbm(raw: unknown): ParsedDbm | null {
@@ -48,6 +53,7 @@ function parseDbm(raw: unknown): ParsedDbm | null {
 	const firstSeg = parts[0]
 	const path = parts[1]
 	const schemaTable = parts[2] ?? ''
+	const role = parts[3] || undefined
 
 	let type: ParsedDbm['type']
 	let resType: string | undefined
@@ -81,7 +87,7 @@ function parseDbm(raw: unknown): ParsedDbm | null {
 		schema = defaultSchemas[type]
 	}
 
-	return { type, path, resType, schema, table }
+	return { type, path, resType, schema, table, role }
 }
 
 const defaultSchemas: Record<string, string> = { datatable: 'public', ducklake: 'main' }
@@ -97,6 +103,7 @@ function buildDbm(p: ParsedDbm): string {
 	} else if (schema) {
 		schemaTable = `${schema}.`
 	}
+	if (p.role) return `${firstSeg}~${p.path}~${schemaTable}~${p.role}`
 	return schemaTable ? `${firstSeg}~${p.path}~${schemaTable}` : `${firstSeg}~${p.path}`
 }
 
@@ -105,6 +112,8 @@ export interface DbManagerUriState {
 	readonly effectiveInput: DbInput | undefined
 	readonly isDatatableInput: boolean
 	selectedDatatable: string | undefined
+	/** Data table role the drawer connects as; undefined means its default. */
+	selectedRole: string | undefined
 	selectedSchema: string | undefined
 	selectedTable: string | undefined
 	readonly open: boolean
@@ -137,6 +146,7 @@ export function useDbManagerUriState(): DbManagerUriState {
 			type: 'database' as const,
 			resourceType: resType as DbType,
 			resourcePath: parsed.type === 'datatable' ? `datatable://${parsed.path}` : parsed.path,
+			role: parsed.type === 'datatable' ? parsed.role : undefined,
 			specificSchema: parsed.schema,
 			specificTable: parsed.table
 		}
@@ -194,7 +204,14 @@ export function useDbManagerUriState(): DbManagerUriState {
 			return parsed?.type === 'datatable' ? parsed.path : undefined
 		},
 		set selectedDatatable(v: string | undefined) {
-			if (v) updateField({ path: v })
+			// Roles are per data table, so the current one cannot carry over.
+			if (v) updateField({ path: v, role: undefined })
+		},
+		get selectedRole() {
+			return parsed?.type === 'datatable' ? parsed.role : undefined
+		},
+		set selectedRole(v: string | undefined) {
+			updateField({ role: v })
 		},
 		get selectedSchema() {
 			return parsed?.schema

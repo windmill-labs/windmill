@@ -16,6 +16,8 @@
 		defaultDatatable?: string | undefined
 		/** Default schema for new tables */
 		defaultSchema?: string | undefined
+		/** The data table role the app's queries run as, if it names one. */
+		defaultRole?: string | undefined
 		onAdd?: () => void
 		onRemove?: (index: number) => void
 		onSelect?: (ref: DataTableRef, index: number) => void
@@ -31,6 +33,7 @@
 		dataTableRefs = [],
 		defaultDatatable = undefined,
 		defaultSchema = undefined,
+		defaultRole = undefined,
 		onAdd,
 		onRemove,
 		onSelect,
@@ -95,6 +98,7 @@
 			<DefaultDatabaseSelector
 				datatable={defaultDatatable}
 				schema={defaultSchema}
+				role={defaultRole}
 				onChange={onDefaultChange}
 			/>
 		{/if}
