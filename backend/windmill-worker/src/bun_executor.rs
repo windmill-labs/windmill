@@ -2572,7 +2572,8 @@ try {{
 
     // WAC v2 post-execution: parse output and handle dispatch/suspend
     if is_wac_v2 {
-        return handle_wac_v2_output(result, job, conn, modules, new_args.as_ref()).await;
+        return handle_wac_v2_output(result, job, conn, canceled_by, modules, new_args.as_ref())
+            .await;
     }
 
     Ok(result)
@@ -2602,11 +2603,13 @@ pub async fn handle_wac_v2_output(
     result: Box<RawValue>,
     job: &MiniPulledJob,
     conn: &Connection,
+    canceled_by: &mut Option<CanceledBy>,
     modules: &Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
     preprocessed_args: Option<&HashMap<String, Box<RawValue>>>,
 ) -> error::Result<Box<RawValue>> {
     use crate::wac_executor::{
-        load_checkpoint, parse_wac_output, update_checkpoint_for_dispatch, WacOutput,
+        load_checkpoint, parse_wac_output, update_checkpoint_for_dispatch,
+        wac_cancelled_mid_segment, WacOutput, WacPark,
     };
     use serde_json::Value;
     use windmill_common::get_latest_flow_version_info_for_path;
@@ -2874,14 +2877,22 @@ pub async fn handle_wac_v2_output(
 
                 // Suspend parent before children become visible, so a child that
                 // completes immediately finds a parked parent to decrement.
-                segment_ms = crate::wac_executor::suspend_wac_parent(
+                match crate::wac_executor::suspend_wac_parent(
                     &mut tx,
                     &job.id,
                     &job.workspace_id,
                     num_steps as i32,
                     14.0 * 24.0 * 3600.0,
                 )
-                .await?;
+                .await?
+                {
+                    WacPark::Parked(ms) => segment_ms = ms,
+                    // Returning here drops `tx`, unwriting the checkpoint and the timeline
+                    // entries, so no child is ever pushed against a parent that never parked.
+                    WacPark::Cancelled(cancel) => {
+                        return Err(wac_cancelled_mid_segment(cancel, canceled_by))
+                    }
+                }
 
                 tx.commit().await?;
             }
@@ -3362,14 +3373,20 @@ pub async fn handle_wac_v2_output(
             }
 
             // Suspend parent with suspend=1 (waiting for 1 approval event)
-            let segment_ms = crate::wac_executor::suspend_wac_parent(
+            let segment_ms = match crate::wac_executor::suspend_wac_parent(
                 &mut tx,
                 &job.id,
                 &job.workspace_id,
                 1,
                 timeout_secs,
             )
-            .await?;
+            .await?
+            {
+                WacPark::Parked(ms) => ms,
+                WacPark::Cancelled(cancel) => {
+                    return Err(wac_cancelled_mid_segment(cancel, canceled_by))
+                }
+            };
 
             tx.commit().await?;
             crate::wac_executor::end_wac_segment(conn, job, segment_ms);
@@ -3458,14 +3475,20 @@ pub async fn handle_wac_v2_output(
 
             // Use suspend=1 (not 0) so the suspended pull query only picks it up
             // when `suspend_until <= now()`, not via `suspend <= 0`.
-            let segment_ms = crate::wac_executor::suspend_wac_parent(
+            let segment_ms = match crate::wac_executor::suspend_wac_parent(
                 &mut tx,
                 &job.id,
                 &job.workspace_id,
                 1,
                 sleep_secs,
             )
-            .await?;
+            .await?
+            {
+                WacPark::Parked(ms) => ms,
+                WacPark::Cancelled(cancel) => {
+                    return Err(wac_cancelled_mid_segment(cancel, canceled_by))
+                }
+            };
 
             tx.commit().await?;
             crate::wac_executor::end_wac_segment(conn, job, segment_ms);
