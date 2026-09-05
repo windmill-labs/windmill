@@ -410,7 +410,7 @@
 				if (!redirectSaml()) autoRedirecting = false
 			} else if (logins?.some((l) => l.type === autoLogin)) {
 				autoRedirecting = true
-				if (!storeRedirect(autoLogin)) {
+				if (!storeRedirect(autoLogin, true)) {
 					autoRedirecting = false
 					sendUserToast('Popup blocked — please click the sign-in button to continue.', true)
 				}
@@ -546,13 +546,17 @@
 		}
 	}
 
-	function storeRedirect(provider: string): boolean {
+	// `automatic` marks the auto-login redirect, the one login that has to reach the
+	// provider without drawing anything. It suppresses the provider's extra params —
+	// Google's and Microsoft's account chooser — which every other login gets.
+	function storeRedirect(provider: string, automatic: boolean): boolean {
 		// The kitchen sink renders real provider buttons; clicking one must not leave the page.
 		if (previewConfig) return true
 		markLoginMethodPending({ kind: 'oauth', provider })
 		persistRd()
 		const params = new URLSearchParams()
 		if (popup) params.set('close', 'true')
+		if (automatic) params.set('auto', 'true')
 		if (guestApp) params.set('guest_app', guestApp)
 		const query = params.size > 0 ? '?' + params.toString() : ''
 		let url = base + '/api/oauth/login/' + provider + query
@@ -716,7 +720,9 @@
 						unifiedSize="lg"
 						startIcon={entry.icon ? { icon: entry.icon, classes: 'h-4' } : undefined}
 						onClick={() =>
-							entry.method.kind === 'saml' ? redirectSaml() : storeRedirect(entry.method.provider)}
+							entry.method.kind === 'saml'
+								? redirectSaml()
+								: storeRedirect(entry.method.provider, false)}
 					>
 						Continue with {entry.displayName}
 					</Button>
