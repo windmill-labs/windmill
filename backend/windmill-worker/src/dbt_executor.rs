@@ -1622,10 +1622,6 @@ async fn strip_git_remote(dir: &Path) -> std::io::Result<()> {
     tokio::fs::write(&config, out).await
 }
 
-/// Write `profiles.yml`, either rendered from a Windmill resource or taken from
-/// the project itself. Both paths are supported (decision 8): the workspace
-/// warehouse is the ergonomic one, the project's own file is what makes an
-/// existing repo run unchanged.
 /// What resolving the run's connection settled, beyond the file itself.
 struct ResolvedProfile {
     dir: PathBuf,
@@ -1642,6 +1638,10 @@ struct ResolvedProfile {
     digest: String,
 }
 
+/// Write `profiles.yml`, either rendered from a Windmill resource or taken from
+/// the project itself. Both paths are supported (decision 8): the workspace
+/// warehouse is the ergonomic one, the project's own file is what makes an
+/// existing repo run unchanged.
 async fn write_profiles(
     descriptor: &DbtDescriptor,
     project_dir: &Path,
@@ -3579,6 +3579,12 @@ async fn resolve_selection(
         return Ok(None);
     }
     let mut cmd = dbt_command(p, &["ls"]);
+    // The same state the build resolves through, or a `result:` selector — which
+    // reads `run_results.json` out of it, and which `select` passes to dbt
+    // verbatim — fails here, before the build that would have honoured it.
+    if inv.deferral.is_some() {
+        cmd.args(defer_flags("ls", p.engine.engine));
+    }
     // A project whose models call `var()` without a default fails to parse
     // without these, so the selection resolver needs them exactly as the run
     // does. Placeholders that only a run can fill are dropped rather than

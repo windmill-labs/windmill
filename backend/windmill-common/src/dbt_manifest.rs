@@ -1118,20 +1118,15 @@ pub async fn clear_dbt_editor_graphs(
     Ok(())
 }
 
-/// Follow a renamed dbt script: the run `dbt retry` resumes travels with it, the
-/// state its deferrals resolve through does not.
+/// Move a dbt script's saved state to its new path: the run `dbt retry` resumes,
+/// and the state each environment's deferrals resolve through.
 ///
-/// The retry state travels because nothing regenerates it — the deploy
-/// re-ingests a manifest, while that is the result of a run that already
-/// happened — so clearing it would throw away a resumable failure for a cosmetic
-/// change.
-///
-/// The environment state is cleared instead, because an artifact of it too large
-/// for its row lives in object storage under a key derived from the PATH. A moved
-/// row would keep pointing at that key while a script created at the old path
-/// publishes over it, and the renamed project would then defer through an
-/// unrelated project's manifest. The next successful run republishes; one
-/// deferral is the price of a rename.
+/// Keyed by path like the sidecar, but unlike the sidecar neither is regenerated
+/// by anything: the deploy re-ingests a manifest, while these are the results of
+/// runs that already happened. Clearing on rename would throw away a resumable
+/// failure, and every deferral until the next full run, for a cosmetic change —
+/// so they travel instead. An artifact too large for its row is unaffected: its
+/// key is that publication's own, and the moved row is what names it.
 ///
 /// See the mutator contract above: this authorizes nothing.
 pub async fn move_dbt_script_state(
@@ -1158,10 +1153,18 @@ pub async fn move_dbt_script_state(
     .execute(&mut **tx)
     .await?;
     sqlx::query!(
-        "DELETE FROM dbt_environment_state
-          WHERE workspace_id = $1 AND script_path = ANY($2)",
+        "DELETE FROM dbt_environment_state WHERE workspace_id = $1 AND script_path = $2",
         workspace_id,
-        &[old_path.to_string(), new_path.to_string()][..]
+        new_path
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "UPDATE dbt_environment_state SET script_path = $3
+          WHERE workspace_id = $1 AND script_path = $2",
+        workspace_id,
+        old_path,
+        new_path
     )
     .execute(&mut **tx)
     .await?;
@@ -1215,10 +1218,11 @@ pub async fn clear_dbt_script_state_if_path_retired(
 /// otherwise inherit a stranger's resumable failure and defer to a project it
 /// has nothing to do with.
 ///
-/// A manifest this moves out of the database and into the instance's object
-/// storage is left in the bucket, as a script bundle is: the key is derived from
-/// the path and the environment, so a project that comes back reuses it rather
-/// than accumulating a second one.
+/// An artifact too large for its row lives in the instance's object storage, and
+/// this leaves it there — as a deleted script leaves its bundle. Reaching it from
+/// here would mean an object-store client in this crate and a delete that has to
+/// land after the caller's transaction commits, for one object per environment of
+/// a script that is gone.
 ///
 /// See the mutator contract above: this authorizes nothing.
 pub async fn clear_dbt_script_state(

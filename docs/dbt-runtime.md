@@ -1264,13 +1264,19 @@ had. The objects the commit displaced are dropped afterwards, never before, sinc
 a reader that has already read the row is about to fetch them; a reader that
 loses that race re-reads the row once rather than reporting a state that is
 there. What a publication uploaded and then could not commit is dropped on the
-way out.
+way out — except after a commit that REPORTED an error, where what was lost may
+be only the acknowledgement: dropping then would leave a committed row naming
+objects that are gone, so an orphan is the cheaper side to take.
 
-Publishers of one environment serialize on `pg_advisory_xact_lock`, so two of
-them cannot interleave and leave one run's manifest beside another's results —
-an advisory lock rather than the row's, because the first publish of an
-environment has no row to lock and is exactly when two runs of a newly deployed
-script are most likely to race.
+The path and the environment are only a prefix of that key. The row is what says
+where an artifact is, which is why state can travel with a renamed script and go
+on naming objects under the old path's digest.
+
+Publishers of one environment serialize on `pg_advisory_xact_lock`, so only one
+of them settles the row and the objects it displaces at a time — an advisory lock
+rather than the row's, because the first publish of an environment has no row to
+lock and is exactly when two runs of a newly deployed script are most likely to
+race.
 
 ### Retention
 
@@ -1291,12 +1297,18 @@ at a path this one was renamed away from, and this job's manifest would then
 become that project's deferral state. A preview names no version and so publishes
 nothing, which is right for a run of content that was never deployed.
 
-A RENAME is where the two halves part. The retry state travels, because nothing
-regenerates it. The environment state is cleared, because an oversized artifact's
-key is derived from the path: a moved row would keep pointing at a key a script
-created at the old path publishes over, and the renamed project would then defer
-through an unrelated project's manifest. The next successful run republishes, so
-one deferral is the price of a rename.
+That guard HOLDS the script row (`FOR SHARE`) for the rest of the publication, so
+a rename, archive or delete of the path either waits for it or is seen by it.
+Read unlocked, it leaves a window where the lifecycle clear finds no row to take,
+finishes, and the publication then commits state at a path a new script goes on
+to occupy. The script row is taken before the sidecar, which is the order every
+other dbt writer takes and what keeps the two off a deadlock.
+
+An artifact too large for its row is left in the store when the row is cleared,
+as a deleted script leaves its bundle: reaching it from the delete would mean an
+object-store client in `windmill-common` and a delete that has to land after the
+caller's transaction commits, for one object per environment of a script that is
+gone.
 
 ### Asking for it
 
@@ -1315,7 +1327,10 @@ which does not expose this table.
 
 A `show` defers too, and every engine takes the flags on it. It compiles the
 model it previews, so a model whose upstream this environment built and this run
-did not is exactly the case a deferral exists for.
+did not is exactly the case a deferral exists for. So does the `dbt ls` that
+resolves what a run's selection owns, without which a `result:` selector — which
+reads `run_results.json` out of the state directory, and which `select` passes to
+dbt verbatim — would fail before the build that would have honoured it.
 
 The result carries `deferred_to`, the run whose state was used. Without it what
 a deferring run built against is unrecoverable, since the next successful run of
@@ -1342,14 +1357,18 @@ later `dbt retry` restores them, so an absolute path would name the job director
 of the run being resumed, which is gone by then. Relative, it resolves against
 the project root — whichever job directory the retry landed in.
 
-Two engine facts found while wiring this up, both worth knowing before filing a
+Three engine facts found while wiring this up, all worth knowing before filing a
 bug against the feature. `dbt retry` on dbt-core 2.x restores **neither** the
 resumed invocation's `--vars` nor its deferral: it re-parses with the current
 (empty) ones, so a retry of a run that overrode `vars` rebuilds into the
 descriptor's schema rather than the run's. That is independent of deferral and
 predates it; the refusal above stops the deferring case from being the way it is
-discovered. And neither Rust engine reached dbt's own service-backed State
-(`--manage-state`) on any run measured here, so no flag is passed to disable it.
+discovered. `dbt show` on either Rust engine prints a bare JSON array where
+dbt-core frames it as `{"node": …, "show": […]}`, which `run_show` is written
+against — so a preview there fails to parse whether or not it defers, and the
+deferral itself resolves correctly under it. And neither Rust engine reached
+dbt's own service-backed State (`--manage-state`) on any run measured here, so no
+flag is passed to disable it.
 
 Because `select` reaches dbt verbatim, a deferring run also has a `--state`
 directory for `result:` selectors, which is why `run_results.json` is stored

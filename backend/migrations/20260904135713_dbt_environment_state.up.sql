@@ -24,11 +24,13 @@ CREATE TABLE IF NOT EXISTS dbt_environment_state (
   -- The run that published it, so a deferring run can say what it deferred to.
   job_id       UUID NOT NULL,
   -- Exactly one home each. A manifest grows with the project and passes a few
-  -- hundred KB on a handful of models, so a large one goes to the workspace's
+  -- hundred KB on a handful of models, so a large one goes to the INSTANCE's
   -- object storage and this row keeps the key; a small one stays here, where it
-  -- costs no round trip and works on a workspace that has configured no storage
-  -- at all. `run_results.json` is a tenth of the size and takes the same two
-  -- homes rather than a rule of its own.
+  -- costs no round trip and works on an instance that has configured no storage
+  -- at all. The instance's and not the workspace's, because a member can write
+  -- the workspace bucket under a key of their choosing, and a manifest is what a
+  -- later run resolves every unbuilt `ref()` through. `run_results.json` is a
+  -- tenth of the size and takes the same two homes rather than a rule of its own.
   manifest        TEXT,
   manifest_key    TEXT,
   run_results     TEXT,

@@ -557,13 +557,11 @@ async fn editor_markers(db: &Pool<Postgres>) -> i64 {
 }
 
 /// A deferral resolves a `ref()` through the manifest of the last successful run
-/// at this path, and an oversized one lives in object storage under a key derived
-/// from that path. So a rename takes the state rather than moving it — a moved
-/// row would point at a key a script created at the old path publishes over —
-/// and a path no live dbt version occupies must not hand its manifest to whatever
-/// is created there next.
+/// at this path, so that state has to follow the script the way the retry state
+/// does: a rename must not strand it, and a path no live dbt version occupies
+/// must not hand its manifest to whatever is created there next.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn a_rename_clears_environment_state_rather_than_moving_it(db: Pool<Postgres>) {
+async fn environment_state_follows_the_script(db: Pool<Postgres>) {
     const MOVED: &str = "f/test/renamed";
     deploy_script(&db, 1).await;
     publish_environment_state(&db, PATH).await;
@@ -574,22 +572,21 @@ async fn a_rename_clears_environment_state_rather_than_moving_it(db: Pool<Postgr
         .unwrap();
     tx.commit().await.unwrap();
     assert_eq!(environment_states(&db, PATH).await, 0);
-    assert_eq!(environment_states(&db, MOVED).await, 0);
+    assert_eq!(environment_states(&db, MOVED).await, 1);
 
-    // Still live at this path as far as `script` is concerned, so a clear
+    // Still live at the old path as far as `script` is concerned, so a clear
     // conditioned on retirement leaves it be.
-    publish_environment_state(&db, PATH).await;
     let mut tx = db.begin().await.unwrap();
     clear_dbt_script_state_if_path_retired(&mut tx, WS, PATH)
         .await
         .unwrap();
     tx.commit().await.unwrap();
-    assert_eq!(environment_states(&db, PATH).await, 1);
+    assert_eq!(environment_states(&db, MOVED).await, 1);
 
     let mut tx = db.begin().await.unwrap();
-    clear_dbt_script_state(&mut tx, WS, PATH).await.unwrap();
+    clear_dbt_script_state(&mut tx, WS, MOVED).await.unwrap();
     tx.commit().await.unwrap();
-    assert_eq!(environment_states(&db, PATH).await, 0);
+    assert_eq!(environment_states(&db, MOVED).await, 0);
 }
 
 /// The worker publishes under a guard naming the version that ran, and the whole
@@ -624,7 +621,9 @@ async fn a_late_job_cannot_publish_for_a_path_it_no_longer_owns(db: Pool<Postgre
     );
 }
 
-/// `dbt_state::publish`'s guarded insert, reduced to what it decides.
+/// The predicate `dbt_state::publish` locks the script row on, reduced to what it
+/// decides. Keep the two in step — this file cannot call `publish` itself, which
+/// is `pub(crate)` in `windmill-worker`.
 async fn guarded_publish(db: &Pool<Postgres>, path: &str, ran: i64) -> u64 {
     sqlx::query!(
         "INSERT INTO dbt_environment_state (workspace_id, script_path, environment, job_id,

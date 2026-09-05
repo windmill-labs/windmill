@@ -135,38 +135,11 @@ pub(crate) async fn publish(
             .ok(),
     };
     let environment = environment(p);
-    // One publisher per environment at a time, so two of them cannot interleave
-    // and leave a manifest from one run beside results from another. An advisory
-    // lock rather than the row's, because the first publish of an environment has
-    // no row to lock and is exactly when two runs of a newly deployed script are
-    // most likely to race.
-    let mut tx = db.begin().await?;
-    sqlx::query_scalar!(
-        "SELECT pg_advisory_xact_lock($1)",
-        publication_lock(w_id, &p.script_path, &environment)
-    )
-    .execute(&mut *tx)
-    .await?;
-    // What the row points at NOW, so those objects can go once this one is
-    // committed in their place — never before, since a reader that has already
-    // read the row is about to fetch them.
-    let displaced = sqlx::query!(
-        "SELECT manifest_key, run_results_key FROM dbt_environment_state
-          WHERE workspace_id = $1 AND script_path = $2 AND environment = $3",
-        w_id,
-        &p.script_path,
-        environment
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .map(|r| [r.manifest_key, r.run_results_key])
-    .unwrap_or_default();
-    // Every publication writes its OWN keys and the row switches to them in one
-    // statement, so nothing overwrites an artifact another row still names: a
-    // failure anywhere below leaves the committed state pointing at the objects
-    // it was already paired with, rather than at this run's manifest beside the
-    // previous run's results.
-    let manifest = store(
+    // Uploaded BEFORE the transaction, and to this publication's own keys, so two
+    // publishers cannot collide on them and nothing here can overwrite an
+    // artifact a committed row still names. A failure below has only its own
+    // objects to drop.
+    let (manifest, manifest_key) = store(
         manifest,
         "manifest.json",
         &environment,
@@ -175,74 +148,119 @@ pub(crate) async fn publish(
         job_id,
     )
     .await?;
-    let run_results = match run_results {
-        Some(r) => Some(
-            store(
-                r,
-                "run_results.json",
-                &environment,
-                &p.script_path,
-                w_id,
-                job_id,
-            )
-            .await?,
-        ),
-        None => None,
-    };
-    let (manifest, manifest_key) = split(Some(manifest));
-    let (run_results, run_results_key) = split(run_results);
-    // Only while the live dbt version at this path is the one this job ran, or a
-    // later version of it. The retry state settles for "some live dbt script is
-    // here", which a script created at a path this one was renamed away from also
-    // satisfies — and this job's manifest would then become that project's
-    // deferral state. A preview names no version and so publishes nothing, which
-    // is right for a run of content that was never deployed.
-    let published = sqlx::query!(
-        "INSERT INTO dbt_environment_state (workspace_id, script_path, environment, job_id,
-                                            manifest, manifest_key, run_results, run_results_key,
-                                            updated_at)
-         SELECT $1::varchar, $2::varchar, $3::text, $4::uuid, $5::text, $6::text, $7::text,
-                $8::text, now()
-          WHERE EXISTS (SELECT 1 FROM script
-                         WHERE workspace_id = $1 AND path = $2
-                           AND deleted = false AND archived = false
-                           AND language = 'dbt'
-                           AND (hash = $9 OR $9 = ANY(parent_hashes)))
-         ON CONFLICT (workspace_id, script_path, environment) DO UPDATE SET
-           job_id = EXCLUDED.job_id, manifest = EXCLUDED.manifest,
-           manifest_key = EXCLUDED.manifest_key, run_results = EXCLUDED.run_results,
-           run_results_key = EXCLUDED.run_results_key, updated_at = now()",
-        w_id,
-        &p.script_path,
-        environment,
-        job_id,
-        manifest,
-        manifest_key,
-        run_results,
-        run_results_key,
-        script_hash,
-    )
-    .execute(&mut *tx)
-    .await;
-    let mine = [manifest_key, run_results_key];
-    match published.and_then(|r| Ok(r.rows_affected())) {
-        // Committed: the row names this run's objects, so the ones it displaced
-        // have no reader left.
-        Ok(1) => match tx.commit().await {
-            Ok(()) => forget_objects(&displaced).await,
+    let (run_results, run_results_key) = match run_results {
+        Some(r) => match store(
+            r,
+            "run_results.json",
+            &environment,
+            &p.script_path,
+            w_id,
+            job_id,
+        )
+        .await
+        {
+            Ok(stored) => stored,
             Err(e) => {
-                forget_objects(&mine).await;
-                return Err(e.into());
+                forget_objects(&[manifest_key, None]).await;
+                return Err(e);
             }
         },
-        // Refused by the guard, or the write failed: the committed state is
-        // untouched and what was uploaded above has no row.
-        Ok(_) => forget_objects(&mine).await,
-        Err(e) => {
-            forget_objects(&mine).await;
-            return Err(e.into());
+        None => (None, None),
+    };
+    let mine = [manifest_key.clone(), run_results_key.clone()];
+    // One publisher per environment at a time, so the row and the objects it
+    // displaces are settled by one of them at a time. An advisory lock rather
+    // than the row's, because the first publish of an environment has no row to
+    // lock and is exactly when two runs of a newly deployed script are most
+    // likely to race.
+    let mut tx = db.begin().await?;
+    let staged = async {
+        sqlx::query_scalar!(
+            "SELECT pg_advisory_xact_lock($1)",
+            publication_lock(w_id, &p.script_path, &environment)
+        )
+        .execute(&mut *tx)
+        .await?;
+        // The script row FIRST, and held, so a rename, archive or delete of this
+        // path either waits for this publication or is seen by it. Reading it
+        // unlocked leaves a window where lifecycle cleanup finds no row to clear,
+        // finishes, and this transaction then commits state at a path a new
+        // script goes on to occupy. Script row before sidecar is also the order
+        // every other dbt writer takes, which is what keeps the two off a
+        // deadlock.
+        //
+        // The version, not just the path: "some live dbt script is here" is also
+        // satisfied by a script created at a path this one was renamed away from.
+        // A preview names no version, so `script_hash` is NULL and nothing
+        // matches — right for a run of content that was never deployed.
+        let owns_path = sqlx::query_scalar!(
+            "SELECT 1 FROM script
+              WHERE workspace_id = $1 AND path = $2
+                AND deleted = false AND archived = false AND language = 'dbt'
+                AND (hash = $3 OR $3 = ANY(parent_hashes))
+              FOR SHARE",
+            w_id,
+            &p.script_path,
+            script_hash,
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .is_some();
+        if !owns_path {
+            return error::Result::Ok(None);
         }
+        // What the row points at NOW, so those objects can go once this one is
+        // committed in their place — never before, since a reader that has
+        // already read the row is about to fetch them.
+        let displaced = sqlx::query!(
+            "SELECT manifest_key, run_results_key FROM dbt_environment_state
+              WHERE workspace_id = $1 AND script_path = $2 AND environment = $3",
+            w_id,
+            &p.script_path,
+            environment
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .map(|r| [r.manifest_key, r.run_results_key])
+        .unwrap_or_default();
+        sqlx::query!(
+            "INSERT INTO dbt_environment_state (workspace_id, script_path, environment, job_id,
+                                                manifest, manifest_key, run_results,
+                                                run_results_key, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+             ON CONFLICT (workspace_id, script_path, environment) DO UPDATE SET
+               job_id = EXCLUDED.job_id, manifest = EXCLUDED.manifest,
+               manifest_key = EXCLUDED.manifest_key, run_results = EXCLUDED.run_results,
+               run_results_key = EXCLUDED.run_results_key, updated_at = now()",
+            w_id,
+            &p.script_path,
+            environment,
+            job_id,
+            manifest,
+            manifest_key,
+            run_results,
+            run_results_key,
+        )
+        .execute(&mut *tx)
+        .await?;
+        error::Result::Ok(Some(displaced))
     }
+    .await;
+    let displaced = match staged {
+        // Refused by the guard, or the write failed: nothing is committed and
+        // what was uploaded above has no row naming it.
+        Ok(None) | Err(_) => {
+            forget_objects(&mine).await;
+            return staged.map(|_| ());
+        }
+        Ok(Some(displaced)) => displaced,
+    };
+    // A commit that reports an error may still have committed — what was lost can
+    // be the acknowledgement. Dropping this run's objects would then leave the
+    // committed row naming objects that are gone, and every deferral would fail
+    // until the next publication; an orphan costs storage instead.
+    tx.commit().await?;
+    forget_objects(&displaced).await;
     Ok(())
 }
 
@@ -344,33 +362,19 @@ pub(crate) async fn write_state_dir(
     })
 }
 
-/// Where a stored artifact lives.
-enum Home {
-    /// Small enough to sit in the row.
-    Inline(String),
-    /// In the instance's object storage, under this key.
-    Stored(String),
-}
-
-fn split(home: Option<Home>) -> (Option<String>, Option<String>) {
-    match home {
-        Some(Home::Inline(v)) => (Some(v), None),
-        Some(Home::Stored(k)) => (None, Some(k)),
-        None => (None, None),
-    }
-}
-
-/// The advisory lock one environment's publishers take, so that only one of them
-/// is between its first upload and its row at a time.
+/// The advisory lock one environment's publishers take, so only one of them
+/// settles the row and the objects it displaces at a time.
 ///
 /// Derived from the same three components as the row's key. Two environments
-/// whose digests collide in 64 bits wait for each other, which costs a moment and
-/// nothing else.
+/// whose digests collide wait for each other, which costs a moment and nothing
+/// else.
 fn publication_lock(w_id: &str, script_path: &str, environment: &str) -> i64 {
     let d = digest(&format!("{w_id}|{script_path}|{environment}"));
-    let mut bytes = [0u8; 8];
-    bytes.copy_from_slice(&d.as_bytes()[..8]);
-    i64::from_be_bytes(bytes)
+    i64::from_str_radix(&d[..16], 16).unwrap_or_else(|_| {
+        // `digest` is hex, so this cannot happen; a fixed key would only queue
+        // every publication behind one lock rather than lose one.
+        i64::MIN
+    })
 }
 
 /// The object-storage key an artifact takes.
@@ -379,11 +383,10 @@ fn publication_lock(w_id: &str, script_path: &str, environment: &str) -> i64 {
 /// committed row still names: a run that fails between its two uploads, or
 /// between them and its row, leaves the state pointing at the pair it already
 /// had. The row switches to these in one statement and the objects it displaced
-/// are dropped afterwards. Digested because a Windmill path and a schema name may
-/// both carry characters an object key gives meaning to.
-///
-/// The environment prefix is derived from the PATH, which is why a rename clears
-/// the row rather than moving it (`move_dbt_script_state`).
+/// are dropped afterwards. The path and environment are only a prefix — the row
+/// is what says where an artifact is, so state that moves with a renamed script
+/// keeps naming objects under the old one. Digested because a Windmill path and a
+/// schema name may both carry characters an object key gives meaning to.
 fn object_key(
     w_id: &str,
     script_path: &str,
@@ -397,7 +400,8 @@ fn object_key(
     )
 }
 
-/// Put an artifact where its size says it belongs.
+/// Put an artifact where its size says it belongs: `(inline, key)`, exactly one
+/// of which is set.
 #[allow(clippy::too_many_arguments)]
 async fn store(
     value: String,
@@ -406,14 +410,14 @@ async fn store(
     script_path: &str,
     w_id: &str,
     job_id: &Uuid,
-) -> error::Result<Home> {
+) -> error::Result<(Option<String>, Option<String>)> {
     if value.len() <= *DBT_STATE_INLINE_MAX_BYTES {
-        return Ok(Home::Inline(value));
+        return Ok((Some(value), None));
     }
     let key = object_key(w_id, script_path, environment, job_id, artifact);
     let size = value.len();
     if put_object(&key, value).await? {
-        return Ok(Home::Stored(key));
+        return Ok((None, Some(key)));
     }
     Err(Error::BadRequest(format!(
         "this project's {artifact} is {}, past the {} this instance keeps in the database, and \
