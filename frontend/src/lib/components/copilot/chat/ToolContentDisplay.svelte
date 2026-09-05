@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Loader2, Copy, Check } from 'lucide-svelte'
 	import { TOOL_PRETTIFY_MAP } from './shared'
+	import { scrollFades } from './scrollFades.svelte'
 
 	interface Props {
 		title: string
@@ -12,6 +13,9 @@
 		streaming?: boolean
 		toolName?: string
 		showFade?: boolean
+		/** Open on the end of the content instead of its start, and stay there as it grows.
+		 * For logs, whose last lines are the ones being looked for. */
+		tail?: boolean
 	}
 
 	let {
@@ -23,7 +27,8 @@
 		showWhileLoading = true,
 		streaming = false,
 		toolName,
-		showFade = false
+		showFade = false,
+		tail = false
 	}: Props = $props()
 	let copied = $state(false)
 
@@ -75,31 +80,17 @@
 		}
 	}
 
-	// Only draw the bottom fade when the content actually overflows and the
-	// user hasn't scrolled to the bottom. `showFade` is the parent's intent;
-	// `canScrollDown` is the live measurement on the inner scroll container.
-	let scrollEl: HTMLDivElement | undefined = $state()
-	let canScrollDown = $state(false)
-	function updateCanScrollDown() {
-		if (!scrollEl) {
-			canScrollDown = false
-			return
-		}
-		canScrollDown = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight > 1
-	}
+	// Only draw the bottom fade when the content actually overflows and the user hasn't
+	// scrolled to the bottom. `showFade` is the parent's intent; `fades.bottom` is the live
+	// measurement on the inner scroll container, which catches streaming JSON growing past
+	// max-h-28 as well as the first paint.
+	const fades = scrollFades()
+	const { container: fadeContainer, content: fadeContent, measure: measureFades } = fades
 
-	// Mount-time + content-change measurement via ResizeObserver. The
-	// observer fires on initial observe (catches first paint) and on every
-	// size change of the scroll container or its content (catches streaming
-	// JSON growing past max-h-28). User scrolls fire `onscroll` directly.
+	let scroller = $state<HTMLDivElement | undefined>()
 	$effect(() => {
-		if (!scrollEl) return
-		updateCanScrollDown()
-		const ro = new ResizeObserver(updateCanScrollDown)
-		ro.observe(scrollEl)
-		const inner = scrollEl.firstElementChild
-		if (inner) ro.observe(inner)
-		return () => ro.disconnect()
+		void content
+		if (tail && scroller) scroller.scrollTop = scroller.scrollHeight
 	})
 </script>
 
@@ -136,17 +127,18 @@
 		{:else if hasContent}
 			<div class="relative">
 				<div
-					bind:this={scrollEl}
-					onscroll={updateCanScrollDown}
+					bind:this={scroller}
+					use:fadeContainer
+					onscroll={measureFades}
 					class="overflow-x-auto max-h-28 overflow-y-auto"
 				>
-					<pre class="text-2xs text-primary whitespace-pre-wrap"
+					<pre use:fadeContent class="text-2xs text-primary whitespace-pre-wrap"
 						>{formatJson($state.snapshot(content))}</pre
 					>
 				</div>
-				{#if showFade && canScrollDown}
+				{#if showFade && fades.bottom}
 					<div
-						class="absolute bottom-0 left-0 right-0 h-16 pointer-events-none bg-gradient-to-t from-surface via-surface/70 via-surface/40 to-transparent"
+						class="absolute bottom-0 left-0 right-0 h-[min(2.5rem,35%)] pointer-events-none bg-gradient-to-t from-surface via-surface/70 to-transparent"
 					></div>
 				{/if}
 			</div>

@@ -228,6 +228,13 @@
 			const focusOnChat =
 				!active || active === document.body || (panelEl?.contains(active) ?? false)
 			if (!focusOnChat) return
+			// The run form parks the loop on the user, so an Escape while one is open must not
+			// discard what they typed. Asked of the manager rather than of this panel's DOM,
+			// which misses the form the preview panel holds. Which element holds focus is no
+			// guide either: only the action row still stops the turn.
+			if (aiChatManager.hasPendingRunForm && !active?.closest('[data-run-form-actions]')) {
+				return
+			}
 			e.preventDefault()
 			// Immediate form: other chat panels' identical listeners must not
 			// also cancel on body focus, nor a drawer/modal close on this press.
@@ -559,7 +566,7 @@
 
 	const yoloBypassedTools = $derived.by(() => {
 		return aiChatManager.tools
-			.filter((tool) => tool.requiresConfirmation === true)
+			.filter((tool) => tool.requiresConfirmation === true || tool.bypassedByAutoAccept === true)
 			.map((tool) => ({
 				name: tool.def.function.name,
 				// confirmationMessage may be a function of the call args, which we don't

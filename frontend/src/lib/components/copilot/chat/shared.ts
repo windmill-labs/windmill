@@ -553,6 +553,48 @@ export function answeredChoices(q: UserQuestionDisplay): string[] | undefined {
 	return q.selectedChoices ?? (q.selectedChoice ? [q.selectedChoice] : undefined)
 }
 
+/** Argument form for a deployed-script run, persisted with the transcript — every
+ * field has to stay plain JSON. */
+export type RunFormDisplay = {
+	path: string
+	summary?: string
+	/** What the run is, in the card's own words: a deployed script run, or a preview of the
+	 * draft being written. Only the tense of the row's label turns on it. */
+	kind?: 'run' | 'test'
+	/** Of whatever version is about to run: the deployed script, or the draft a test
+	 * previews. Only the rendered form reads it, so it is dropped once one of the flags
+	 * below unmounts that form: kept, every settled card would carry a copy of the schema
+	 * — password and file defaults included — in history forever. */
+	schema?: Record<string, any>
+	/** Prefill only: the card's `parameters` records what the job started with. */
+	args: Record<string, any>
+	/** Proposed arguments emptied because their declared type had no reading of them.
+	 * Named on the card: an empty field is otherwise the caller having sent nothing. */
+	clearedKeys?: string[]
+	/** Proposed arguments a disabled field overrode with its default. Named for the same
+	 * reason: the field renders locked, so the value it holds is not the proposed one. */
+	resetKeys?: string[]
+	/** Secret and file arguments emptied out of the proposal. Named so an empty field
+	 * reads as the caller's value having been removed, not as the field having none. */
+	strippedKeys?: string[]
+	/** Either one unmounts the form, so set exactly one, and only once the loop has
+	 * stopped waiting on this card. */
+	submitted?: boolean
+	canceled?: boolean
+	/** The job exists. Distinct from `submitted`, which flips a round trip earlier — in
+	 * between, whether the server queued a job is unknown, so a turn stopped there is
+	 * recorded as neither started nor canceled. */
+	started?: boolean
+}
+
+/** What a run form is being filled with while it waits. Held by the chat manager, not by
+ * the form, so the chat card and the preview pane edit one draft rather than two copies.
+ * The schema rides along because SchemaForm binds and reorders it. */
+export type RunFormDraft = {
+	args: Record<string, any>
+	schema: Record<string, any>
+}
+
 /** One page hit from a provider-side web search (OpenAI sources carry no title). */
 export type WebSearchSource = {
 	url: string
@@ -565,6 +607,9 @@ export type ToolDisplayMessage = {
 	content: string
 	parameters?: any
 	result?: any
+	/** What the job has streamed of its result so far, while it is still running.
+	 * Cleared when the job lands: `result` is then the whole of it. */
+	resultStream?: string
 	logs?: string
 	isLoading?: boolean
 	/** Arguments fully streamed but execution not started (see queuedToolStatus). */
@@ -578,6 +623,7 @@ export type ToolDisplayMessage = {
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay
+	runForm?: RunFormDisplay
 	webSearchSources?: WebSearchSource[]
 	/** Data URL of an image the tool produced (e.g. take_screenshot), shown on the card. */
 	imageUrl?: string
@@ -653,6 +699,18 @@ export function isActiveUserQuestion(message: DisplayMessage | undefined): boole
 	)
 }
 
+export function isActiveRunForm(message: DisplayMessage | undefined): boolean {
+	return Boolean(
+		message &&
+			message.role === 'tool' &&
+			message.runForm &&
+			message.isLoading &&
+			!message.error &&
+			!message.runForm.submitted &&
+			!message.runForm.canceled
+	)
+}
+
 // The loop is parked on the user: an unanswered askUserQuestion, or a tool call
 // staged for confirmation. The manager stays `loading` through both, so anything
 // rendering progress must ask here first or it reports "the AI is working".
@@ -675,6 +733,12 @@ export function pendingUserActionDetail(
 		if (message.role !== 'tool') continue
 		if (isActiveUserQuestion(message)) {
 			return { action: 'question', toolCallId: message.tool_call_id }
+		}
+		// A run form is a confirmation carrying arguments, not a question: it parks the
+		// turn the same way, but Run or Cancel resolves it and typing never does — so it
+		// must not claim the answer affordance a pending question offers.
+		if (isActiveRunForm(message)) {
+			return { action: 'confirmation', toolCallId: message.tool_call_id }
 		}
 		if (message.needsConfirmation && message.isLoading) {
 			return { action: 'confirmation', toolCallId: message.tool_call_id }
@@ -958,6 +1022,9 @@ export async function processToolCall<T>({
 		}
 
 		let result = ''
+		// A tool that asks for consent itself settles the call as declined or blocked and
+		// returns normally, so without this both telemeter as successful runs.
+		let settledInsideTool: 'declined' | 'blocked_plan_mode' | undefined = undefined
 		try {
 			result = await callTool({
 				tools,
@@ -965,10 +1032,17 @@ export async function processToolCall<T>({
 				args,
 				workspace: workspaceId,
 				helpers,
-				toolCallbacks,
+				toolCallbacks: {
+					...toolCallbacks,
+					setToolStatus: (toolId, status) => {
+						if (status?.declinedByUser) settledInsideTool = 'declined'
+						else if (status?.blockedByPlanMode) settledInsideTool = 'blocked_plan_mode'
+						toolCallbacks.setToolStatus(toolId, status)
+					}
+				},
 				toolId: toolCall.id
 			})
-			logToolOutcome('ok')
+			logToolOutcome(settledInsideTool ?? 'ok')
 			toolCallbacks.setToolStatus(toolCall.id, {
 				isLoading: false,
 				isStreamingArguments: false
@@ -1069,6 +1143,10 @@ export interface Tool<T> {
 	 * is true. */
 	refuseInPlanMode?: (p: { args: any; helpers: T }) => ToolRejection | undefined
 	requiresConfirmation?: boolean
+	/** The tool's own argument form is its confirmation, and the bypass posture answers that
+	 * form — so no card is waited on, yet a decision is still being made for the user. The
+	 * list of what the posture bypasses is built from both this and `requiresConfirmation`. */
+	bypassedByAutoAccept?: boolean
 	/** Header shown on the confirmation card before the tool runs. Pass a function
 	 * to derive it from the parsed arguments (e.g. name the script being tested). */
 	confirmationMessage?: string | ((args: any) => string)
@@ -1229,6 +1307,18 @@ export interface ToolCallbacks {
 		toolId: string,
 		question: UserQuestionDisplay
 	) => Promise<string[] | undefined>
+	/** Park the loop on an argument form and resolve with the args the user submitted,
+	 * or undefined if they cancelled. Wired only where the form can be rendered.
+	 *
+	 * `autoAccepted` says the caller already answered the form with what it opened with,
+	 * under the YOLO posture, and attached it settled — so there is no card to wait on. */
+	requestRunArgs?: (
+		toolId: string,
+		form: RunFormDisplay,
+		opts?: { autoAccepted?: boolean }
+	) => Promise<Record<string, any> | undefined>
+	/** The submitted form's job is queued. Wired alongside requestRunArgs. */
+	markRunFormStarted?: (toolId: string) => void
 	/** Records a workspace item the tool call created/edited/deleted, by its
 	 * canonical (itemKind, storagePath). Session chats wire this to accumulate the
 	 * chat's modified-items mask; the global side-panel chat omits it (no-op). */
@@ -1488,7 +1578,7 @@ export async function buildSchemaForTool(
 
 // Constants for result formatting
 const MAX_RESULT_LENGTH = 12000
-const MAX_LOG_LENGTH = 4000
+export const MAX_LOG_LENGTH = 4000
 export const MAX_RUNNABLE_CONTENT_LENGTH = 20000
 
 /** How long a test run is awaited inline before it detaches into the background
@@ -1517,13 +1607,16 @@ export interface TestRunConfig {
 	detachAfterMs?: number
 	/** Human label for the jobs tray row (path / step id). Defaults to the job id. */
 	label?: string
-	/** Overrides the default "…test started, waiting for completion" status while the
+	/** Overrides the default "…started, waiting for completion" status while the
 	 * job runs inline (e.g. an SQL tool shows "SQL running…"). */
 	runningMessage?: string
-	/** Noun for the human-facing status strings ("<X> test completed successfully").
-	 * Defaults to `contextName`, which also carries the jobs-tray kind and so cannot
-	 * always name what ran: an app's path runnable queues a flow job. */
+	/** The item noun in the human-facing status strings ("Flow test completed
+	 * successfully"). Defaults to `contextName`, which also carries the jobs-tray kind
+	 * and so cannot always name what ran: an app's path runnable queues a flow job. */
 	completionName?: string
+	/** The action noun in those same strings ("Script run completed successfully").
+	 * Defaults to "test", so a tool running the deployed item for real passes "run". */
+	actionNoun?: string
 	/** Custom terminal formatting for the INLINE completion path (callers whose
 	 * result isn't a plain test-run summary, e.g. exec_datatable_sql shaping rows).
 	 * Returns the string handed to the model plus the tool-card patch. When omitted,
@@ -1542,6 +1635,49 @@ export interface TestRunConfig {
 export type BackgroundJobFormatter = (job: CompletedJob) => {
 	llmText: string
 	card: Partial<ToolDisplayMessage>
+}
+
+/** Reads a running job's output incrementally through `getJobUpdates`, the only endpoint
+ * carrying `new_result_stream`: `getJob` returns logs but never the partial result. Both the
+ * inline wait and the background poller drive one, so a detached run keeps streaming, and
+ * each keeps its own offsets so one starting over refetches from zero.
+ *
+ * Best-effort by construction: a poll that fails answers `undefined` rather than throwing, so
+ * a run always lands on `getJob` alone. Nothing is mutated before the response arrives, so the
+ * next poll resumes from the same offsets. */
+export function createJobUpdateReader(jobId: string, workspace: string) {
+	let logs = ''
+	let resultStream = ''
+	let logOffset = 0
+	let streamOffset = 0
+	let started = false
+	return {
+		async poll(): Promise<{ completed: boolean; logs: string; resultStream: string } | undefined> {
+			let update: Awaited<ReturnType<typeof JobService.getJobUpdates>>
+			try {
+				update = await JobService.getJobUpdates({
+					workspace,
+					id: jobId,
+					running: started,
+					logOffset,
+					streamOffset
+				})
+			} catch {
+				return undefined
+			}
+			started ||= update.running ?? false
+			// Both kept as a tail: the offsets come from the server, so dropping the head
+			// costs nothing here, and neither is the record of the run — the logs are on the
+			// job, and a streamed partial is replaced by the result the moment it lands.
+			if (update.new_logs) logs = (logs + update.new_logs).slice(-MAX_LOG_LENGTH)
+			if (update.new_result_stream) {
+				resultStream = (resultStream + update.new_result_stream).slice(-MAX_LOG_LENGTH)
+			}
+			if (update.log_offset) logOffset = update.log_offset
+			if (update.stream_offset) streamOffset = update.stream_offset
+			return { completed: update.completed ?? false, logs, resultStream }
+		}
+	}
 }
 
 // Common job polling function.
@@ -1563,24 +1699,54 @@ export async function pollJobCompletion(
 	const maxAttempts = detachEnabled ? Math.ceil((options?.detachAfterMs ?? 0) / 1000) : 60
 	let attempts = 0
 	let job: CompletedJob | null = null
+	const reader = createJobUpdateReader(jobId, workspace)
 
 	while (attempts < maxAttempts) {
 		await new Promise((resolve) => setTimeout(resolve, 1000))
 		attempts++
 
 		try {
+			const update = await reader.poll()
+			// The tray's snapshot is trimmed of logs (it is persisted), so the card is the
+			// only place a running job's output can land. Cards that hide their logs while
+			// loading are unaffected; the run card follows them line by line.
+			if (update) {
+				toolCallbacks.setToolStatus(toolId, {
+					logs: formatLogs(update.logs),
+					resultStream: update.resultStream || undefined
+				})
+			}
+
+			// Ask for the logs when the run may be over — the tail written between the last
+			// poll and the end is only on the job itself — or when there is no reader output
+			// to have collected them.
+			const wantLogs = !update || update.completed
 			const fetchedJob = await JobService.getJob({
 				workspace: workspace,
 				id: jobId,
-				noLogs: false,
+				noLogs: !wantLogs,
 				noCode: true
 			})
-
 			if (fetchedJob.type === 'CompletedJob') {
-				job = fetchedJob
+				// The updates can still call a landed job unfinished, so a completion seen on
+				// a logless fetch is fetched again rather than settled without them: the model
+				// reads these logs, and their absence is indistinguishable from a silent run.
+				job = wantLogs
+					? fetchedJob
+					: ((await JobService.getJob({
+							workspace: workspace,
+							id: jobId,
+							noLogs: false,
+							noCode: true
+						})) as CompletedJob)
 				break
 			}
-			// Keep the tray's status + Job snapshot fresh during the inline wait.
+			// With no reader, this is the only place the card's logs can come from.
+			if (!update) {
+				toolCallbacks.setToolStatus(toolId, { logs: formatLogs(fetchedJob.logs) })
+			}
+			// The badge needs the real Job to tell running from suspended or scheduled, which
+			// the updates do not say.
 			toolCallbacks.onJobStatus?.(jobId, {
 				status: deriveChatJobStatus(fetchedJob),
 				job: trimJob(fetchedJob)
@@ -1694,14 +1860,22 @@ function backgroundedSummary(jobId: string, label: string): string {
 // fills its card the same way one that finished inline does.
 export function completedJobToolStatus(job: CompletedJob): Partial<ToolDisplayMessage> {
 	// A canceled job isn't a `success`, but it isn't a failure either — the user
-	// stopped it — so don't dress the card as an error.
+	// stopped it — so don't dress the card as an error. It still has the result the run
+	// page shows for a canceled run, which names who stopped it, so keep that.
 	if (job.canceled) {
-		return { content: 'Background job canceled', logs: formatLogs(job.logs) }
+		return {
+			content: 'Background job canceled',
+			result: formatResult(job.result),
+			logs: formatLogs(job.logs),
+			resultStream: undefined
+		}
 	}
 	return {
 		content: `Background job ${job.success ? 'completed successfully' : 'failed'}`,
 		result: formatResult(job.result),
 		logs: formatLogs(job.logs),
+		// The partial is the result now, so nothing streamed is kept beside it.
+		resultStream: undefined,
 		...(job.success ? {} : { error: getErrorMessage(job.result) })
 	}
 }
@@ -1731,12 +1905,15 @@ export function backgroundJobCompletionNote(
 	)
 }
 
-// Main execution function for test runs
 export async function executeTestRun(config: TestRunConfig): Promise<string> {
 	// Detach-into-background is enabled only when the host wired the job hooks
 	// (global/sessions chat). Otherwise this stays a blocking call.
 	const detachEnabled = !!config.toolCallbacks.onJobStarted
 	const label = config.label ?? config.contextName
+	const actionNoun = config.actionNoun ?? 'test'
+	// Stands on its own where the status strings are prefixed by the item, so its
+	// default carries the noun.
+	const failureNoun = config.actionNoun ?? 'test run'
 	try {
 		config.toolCallbacks.setToolStatus(config.toolId, {
 			content: config.startMessage || `Starting ${config.contextName} test...`
@@ -1761,7 +1938,8 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 		})
 
 		config.toolCallbacks.setToolStatus(config.toolId, {
-			content: config.runningMessage ?? `${contextName} test started, waiting for completion...`
+			content:
+				config.runningMessage ?? `${contextName} ${actionNoun} started, waiting for completion...`
 		})
 
 		const outcome = await pollJobCompletion(
@@ -1781,7 +1959,7 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 		if (outcome === 'detached') {
 			config.toolCallbacks.onJobDetached?.(jobId)
 			config.toolCallbacks.setToolStatus(config.toolId, {
-				content: `${contextName} test running in background (job ${jobId})`
+				content: `${contextName} ${actionNoun} running in background (job ${jobId})`
 			})
 			return backgroundedSummary(jobId, label)
 		}
@@ -1800,9 +1978,12 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 		}
 
 		config.toolCallbacks.setToolStatus(config.toolId, {
-			content: `${contextName} test ${job.success ? 'completed successfully' : 'failed'}`,
+			content: `${contextName} ${actionNoun} ${job.success ? 'completed successfully' : 'failed'}`,
 			result: formatResult(job.result),
 			logs: formatLogs(job.logs),
+			// The partial is the result now, so the card reads it off `result` alone and the
+			// transcript stops carrying a second copy of a streamed answer.
+			resultStream: undefined,
 			...(job.success ? {} : { error: getErrorMessage(job.result) })
 		})
 
@@ -1823,10 +2004,10 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 		// the flow it could not find — losing the one diagnostic the run exists for.
 		const errorMessage = formatToolError(error)
 		config.toolCallbacks.setToolStatus(config.toolId, {
-			content: `Test execution failed`,
+			content: `Execution failed`,
 			error: errorMessage
 		})
-		throw new Error(`Failed to execute test run: ${errorMessage}`)
+		throw new Error(`Failed to execute ${failureNoun}: ${errorMessage}`)
 	}
 }
 

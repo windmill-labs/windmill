@@ -67,6 +67,7 @@ export type PreviewTarget =
 	| { type: 'page'; href: string; label: string }
 	| { type: 'item'; item: WorkspaceItem }
 	| { type: 'artifact'; id: string; name: string; version?: ArtifactVersionTarget }
+	| { type: 'runform'; toolCallId: string; label: string }
 
 export type PreviewPage = { label: string; path: string; icon: DrillIcon }
 
@@ -123,9 +124,9 @@ const INJECTED_PARAMS = ['nomenubar', 'workspace'] as const
 /** Drop the params the preview host injects, so a location observed in the frame can be
  * compared with the one that was commanded (which never carries them). */
 export function canonicalizeObservedLoc(loc: string): string {
-	// An artifact is a scheme, not a path — `new URL` would happily parse it and hand
-	// back a pathname with the scheme gone.
-	if (parseArtifactRoute(loc)) return loc
+	// An artifact or a run form is a scheme, not a path — `new URL` would happily parse it
+	// and hand back a pathname with the scheme gone.
+	if (parseArtifactRoute(loc) || parseRunFormRoute(loc)) return loc
 	try {
 		const u = new URL(loc, 'http://_')
 		for (const p of INJECTED_PARAMS) u.searchParams.delete(p)
@@ -196,6 +197,10 @@ export type PreviewLocation = {
 export function describeLocation(loc: string): PreviewLocation {
 	const artifact = parseArtifactRoute(loc)
 	if (artifact) return { identity: `artifact:${artifact.id}`, view: '', anchor: '' }
+	const runForm = parseRunFormRoute(loc)
+	// Identity is the call, never the label: that carries the script's summary, so folding it
+	// in would open a second tab for the same form whenever the summary differed.
+	if (runForm) return { identity: `runform:${runForm.toolCallId}`, view: '', anchor: '' }
 	const canonical = canonicalizeObservedLoc(loc)
 	const path = stripBase(canonical)
 	const bare = canonical.split('#')[0]
@@ -363,6 +368,8 @@ export function matchReusablePage(href: string): PreviewPage | undefined {
 export function previewLocationLabel(url: string): string {
 	const artifact = parseArtifactRoute(url)
 	if (artifact) return artifact.name || 'Artifact'
+	const runForm = parseRunFormRoute(url)
+	if (runForm) return runForm.label || 'Run form'
 	const page = matchReusablePage(url)
 	if (page) return page.label
 	const trigger = triggerLabelForPath(url)
@@ -443,6 +450,22 @@ export function parseArtifactRoute(
 	}
 }
 
+// A chat run form, addressed by the tool call it belongs to. A scheme rather than a path
+// for the same reason as artifacts: this tab mounts a component, so there is no page for a
+// frame to load, and the label rides in the hash so the strip names it without a lookup.
+export function parseRunFormRoute(url: string): { toolCallId: string; label: string } | null {
+	const m = url.match(/^runform:([^?#]+)(?:#(.*))?$/)
+	if (!m) return null
+	return {
+		toolCallId: decodeURIComponent(m[1]),
+		label: m[2] ? decodeURIComponent(m[2]) : ''
+	}
+}
+
+export function runFormUrl(toolCallId: string, label: string): string {
+	return `runform:${encodeURIComponent(toolCallId)}#${encodeURIComponent(label)}`
+}
+
 export function artifactUrl(id: string, name: string, version?: number): string {
 	// Only stamp a version parseArtifactRoute can read back: this url is persisted with the
 	// tab, so one that round-trips to null would come back as an unopenable tab every reload.
@@ -468,11 +491,14 @@ export const isArtifactKey = (key: string) => key.startsWith('artifact:')
 export type PreviewSlot =
 	| { kind: 'editor'; editorKind: SessionTargetKind | 'pipeline'; path: string }
 	| { kind: 'artifact'; id: string; version?: number }
+	| { kind: 'runform'; toolCallId: string }
 	| { kind: 'iframe' }
 
 export function resolvePreviewTab(url: string): PreviewSlot {
 	const artifact = parseArtifactRoute(url)
 	if (artifact) return { kind: 'artifact', id: artifact.id, version: artifact.version }
+	const runForm = parseRunFormRoute(url)
+	if (runForm) return { kind: 'runform', toolCallId: runForm.toolCallId }
 	const pipelineFolder = parsePipelineRoute(url)
 	if (pipelineFolder) {
 		return { kind: 'editor', editorKind: 'pipeline', path: pipelineFolder }

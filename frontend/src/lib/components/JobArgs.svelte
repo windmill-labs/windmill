@@ -21,9 +21,18 @@
 		args: any
 		argLabel?: string | undefined
 		workspace?: string | undefined
+		/** Drop the header's expand-into-a-drawer button, for a caller that already offers a
+		 * way to open the run in full. */
+		disableExpand?: boolean
 	}
 
-	let { id = undefined, args, argLabel = undefined, workspace = undefined }: Props = $props()
+	let {
+		id = undefined,
+		args,
+		argLabel = undefined,
+		workspace = undefined,
+		disableExpand = false
+	}: Props = $props()
 
 	// Internal flag injected by "test this step" runs to suppress the asset
 	// dispatcher. Not a real input: shown as a badge instead of a table row,
@@ -125,18 +134,20 @@ ${Object.entries(displayArgs)
 					<Cell head last>Value</Cell>
 				</tr>
 				{#snippet headerAction()}
-					<div class="center-center -m-1">
-						<Button
-							unifiedSize="md"
-							variant="subtle"
-							onClick={() => {
-								jsonStr = JSON.stringify(args, null, 4)
-								jsonViewer?.openDrawer()
-							}}
-							iconOnly
-							startIcon={{ icon: Expand }}
-						></Button>
-					</div>
+					{#if !disableExpand}
+						<div class="center-center -m-1">
+							<Button
+								unifiedSize="md"
+								variant="subtle"
+								onClick={() => {
+									jsonStr = JSON.stringify(args, null, 4)
+									jsonViewer?.openDrawer()
+								}}
+								iconOnly
+								startIcon={{ icon: Expand }}
+							></Button>
+						</div>
+					{/if}
 				{/snippet}
 			</Head>
 
