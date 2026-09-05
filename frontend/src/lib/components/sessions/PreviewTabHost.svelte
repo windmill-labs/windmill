@@ -118,11 +118,11 @@
 		if (slot.kind === 'editor') return
 		// An entity editor holds a live UserDraft handle on the cell the chat's
 		// write seeds, so a write needs nothing from here — but the tools that drop
-		// that cell go behind it: it has to be re-read from the server, or left
-		// when the item it edits no longer exists.
+		// that cell go behind it, and it has to be re-read from the server.
+		// Deletion is not handled here: it belongs to the tab whose item is gone,
+		// mounted or not, so the page re-points that tab by id instead.
 		if (slot.kind === 'entity') {
-			if (opts?.entity === 'close') backToList?.()
-			else if (opts?.entity === 'refresh') entityNonce++
+			if (opts?.entity === 'refresh') entityNonce++
 			return
 		}
 		try {

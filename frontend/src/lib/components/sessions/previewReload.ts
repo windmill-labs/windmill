@@ -22,7 +22,14 @@ import { stripBase, TRIGGER_PAGES, type TriggerKind } from './previewPaths'
  * altogether. `none` is what makes the live-editing case live. */
 export type EntityToolEffect = 'none' | 'refresh' | 'close'
 
-export type ToolReloadEffect = { pages: string[]; entity: EntityToolEffect }
+export type ToolReloadEffect = {
+	pages: string[]
+	entity: EntityToolEffect
+	/** The item the tool mutated, when its args name one. A hosted editor on
+	 * another path is not affected by it — unlike a list page, which shows every
+	 * row and so reloads for any mutation on it. */
+	path?: string
+}
 const NO_RELOAD: ToolReloadEffect = { pages: [], entity: 'none' }
 
 export function toolReloadEffect(name: string, args: any): ToolReloadEffect {
@@ -46,15 +53,46 @@ export function toolReloadEffect(name: string, args: any): ToolReloadEffect {
 		case 'discard_local_draft':
 		case 'deploy_workspace_item':
 		case 'rebase_draft':
-			return { pages: pagesForItemType(args?.type, args), entity: 'refresh' }
+			return { pages: pagesForItemType(args?.type, args), entity: 'refresh', path: itemPath(args) }
 		case 'delete_workspace_item':
-			return { pages: pagesForItemType(args?.type, args), entity: 'close' }
+			return { pages: pagesForItemType(args?.type, args), entity: 'close', path: itemPath(args) }
 		default:
 			return NO_RELOAD
 	}
 }
 
-/** The stronger of two effects, for a debounced round that saw several tools:
+function itemPath(args: any): string | undefined {
+	return typeof args?.path === 'string' && args.path ? args.path : undefined
+}
+
+/** One item mutation from a chat round, as the preview needs to read it back. */
+export type EntityMutation = {
+	pages: string[]
+	effect: EntityToolEffect
+	path?: string
+	/** The workspace the tool acted on — a session on a fork must not be moved by
+	 * a mutation to the same path in its parent. */
+	workspace: string
+}
+
+/** What a hosted entity editor showing `tab` must do about a round's mutations.
+ * A mutation reaches it only in its own workspace, on its own list page, and —
+ * when the tool named one — on its own path. */
+export function entityEffectForTab(
+	mutations: readonly EntityMutation[],
+	tab: { listPage: string; path: string; workspace: string }
+): EntityToolEffect {
+	let effect: EntityToolEffect = 'none'
+	for (const m of mutations) {
+		if (m.workspace !== tab.workspace) continue
+		if (!m.pages.includes(tab.listPage)) continue
+		if (m.path !== undefined && m.path !== tab.path) continue
+		effect = strongerEntityEffect(effect, m.effect)
+	}
+	return effect
+}
+
+/** The stronger of two effects, for a tab several of a round's mutations reach:
  * a delete outranks a refresh, which outranks nothing. */
 export function strongerEntityEffect(a: EntityToolEffect, b: EntityToolEffect): EntityToolEffect {
 	if (a === 'close' || b === 'close') return 'close'

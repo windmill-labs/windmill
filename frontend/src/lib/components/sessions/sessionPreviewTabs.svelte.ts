@@ -301,6 +301,18 @@ export class SessionPreviewTabs {
 		if ((commandUnchanged && drifted) || fragmentOnly) this.pulseReload(tab.id)
 	}
 
+	/** Re-point one tab by id. `navigate` moves whichever tab is active, which is
+	 * what a user's own pick means; this is for a change that belongs to a
+	 * particular tab whether or not the user is looking at it — the item a hosted
+	 * entity editor was showing has been deleted out from under it. Works on a
+	 * tab with no mounted host, which would otherwise never hear about it. */
+	retargetTabTo(id: string, url: string): void {
+		const tab = this.#tabs.find((t) => t.id === id)
+		if (!tab) return
+		this.#retarget(tab, url)
+		this.#flush()
+	}
+
 	// Force the host to reload the iframe. A navigation onto the tab's exact current URL
 	// changes nothing, so URL-driven behavior — a `#<path>` opening a drawer the user has
 	// since closed — would never re-fire.

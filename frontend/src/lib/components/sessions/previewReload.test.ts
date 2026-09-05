@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { toolReloadEffect, tabsToReload, strongerEntityEffect } from './previewReload'
+import {
+	toolReloadEffect,
+	tabsToReload,
+	strongerEntityEffect,
+	entityEffectForTab
+} from './previewReload'
 import type { SessionPreviewTab } from './sessionState.svelte'
 
 describe('toolReloadEffect', () => {
@@ -40,6 +45,14 @@ describe('toolReloadEffect', () => {
 		expect(toolReloadEffect('delete_workspace_item', { type: 'resource' }).entity).toBe('close')
 	})
 
+	it('carries the mutated item path, so an editor on another item is left alone', () => {
+		expect(
+			toolReloadEffect('delete_workspace_item', { type: 'resource', path: 'u/me/a' }).path
+		).toBe('u/me/a')
+		// No path in the args: nothing to scope by, so it reaches every editor on the page.
+		expect(toolReloadEffect('deploy_workspace_item', { type: 'resource' }).path).toBeUndefined()
+	})
+
 	it('takes the strongest effect across a debounced round', () => {
 		expect(strongerEntityEffect('none', 'refresh')).toBe('refresh')
 		expect(strongerEntityEffect('refresh', 'close')).toBe('close')
@@ -69,6 +82,44 @@ describe('toolReloadEffect', () => {
 
 	it('reloads nothing for a trigger of unknown kind rather than guessing', () => {
 		expect(toolReloadEffect('write_trigger', { kind: 'not_a_kind' }).pages).toEqual([])
+	})
+})
+
+describe('entityEffectForTab', () => {
+	const del = (path: string, workspace = 'ws1') => ({
+		pages: ['/resources'],
+		effect: 'close' as const,
+		path,
+		workspace
+	})
+	const tab = { listPage: '/resources', path: 'u/me/a', workspace: 'ws1' }
+
+	it('applies a mutation to the editor on that item', () => {
+		expect(entityEffectForTab([del('u/me/a')], tab)).toBe('close')
+	})
+
+	// The bug this guards: deleting one resource must not shut every open resource
+	// editor, nor the same path in a session acting on another workspace.
+	it('leaves editors on another item, page, or workspace alone', () => {
+		expect(entityEffectForTab([del('u/me/b')], tab)).toBe('none')
+		expect(entityEffectForTab([del('u/me/a', 'ws2')], tab)).toBe('none')
+		expect(entityEffectForTab([{ ...del('u/me/a'), pages: ['/variables'] }], tab)).toBe('none')
+	})
+
+	it('reaches every editor on the page when the tool named no item', () => {
+		expect(entityEffectForTab([{ ...del('u/me/a'), path: undefined }], tab)).toBe('close')
+	})
+
+	it('takes the strongest of the mutations that reach it, not of the whole round', () => {
+		const refreshOther = {
+			pages: ['/resources'],
+			effect: 'refresh' as const,
+			path: 'u/me/b',
+			workspace: 'ws1'
+		}
+		const refreshMine = { ...refreshOther, path: 'u/me/a' }
+		expect(entityEffectForTab([refreshMine, del('u/me/b')], tab)).toBe('refresh')
+		expect(entityEffectForTab([refreshMine, del('u/me/a')], tab)).toBe('close')
 	})
 })
 

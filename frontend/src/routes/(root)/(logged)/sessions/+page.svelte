@@ -38,7 +38,7 @@
 	} from '$lib/components/sessions/sessionState.svelte'
 	import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
 	import { enterSessionMode } from '$lib/components/sessions/sessionSwitch.svelte'
-	import type { SessionPreviewTabs } from '$lib/components/sessions/sessionPreviewTabs.svelte'
+	import { whereIs, type SessionPreviewTabs } from '$lib/components/sessions/sessionPreviewTabs.svelte'
 	import { userStore, userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import {
 		getOrCreateRuntime,
@@ -61,16 +61,19 @@
 		matchPreviewPage,
 		pageKey,
 		parseArtifactRoute,
+		entityListPage,
+		pageHref,
 		parseEntityEditorRoute,
 		parsePreviewItemRoute,
 		previewLocationLabel,
+		stripBase,
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
 	import {
 		toolReloadEffect,
 		tabsToReload,
-		strongerEntityEffect,
-		type EntityToolEffect
+		entityEffectForTab,
+		type EntityMutation
 	} from '$lib/components/sessions/previewReload'
 	import {
 		leafKeyFor,
@@ -562,45 +565,64 @@
 	// Base-stripped list-page paths (e.g. `/schedules`) a chat round touched since
 	// the last flush — see toolReloadEffect for how tools map to pages.
 	let pendingPages = new Set<string>()
-	// What those tools ask of a hosted entity editor on one of those pages —
-	// carried alongside the paths because the debounce below loses which tool
-	// contributed which page.
-	let pendingEntity: EntityToolEffect = 'none'
+	// The same round's mutations, kept whole rather than folded into one verdict:
+	// a hosted entity editor is only affected by a mutation to its own item, in
+	// its own workspace, so the path and workspace have to survive the debounce.
+	let pendingMutations: EntityMutation[] = []
 
 	// Reload the mounted list-page tabs a chat round changed, across all warm
 	// sessions (a hidden preview would otherwise show pre-mutation content on
 	// return). tabsToReload picks only the tabs whose page is in `pages`.
-	function reloadTabs(pages: Set<string>, entity: EntityToolEffect) {
+	function reloadTabs(pages: Set<string>, mutations: EntityMutation[]) {
 		for (const s of warmSessions) {
 			const owner = getRuntime(s.id)?.previewTabs
 			if (!owner) continue
+			const workspace = getEffectiveWorkspaceId(s)
 			for (const tab of tabsToReload(owner.tabs, pages)) {
 				const key = tabKey(s.id, tab.id)
-				if (mountedTabKeys.has(key)) tabHosts[key]?.reload({ entity })
+				// A list tab shows every row, so any mutation on its page is its
+				// business. A hosted entity tab shows one item, and is told apart here.
+				const entity = parseEntityEditorRoute(whereIs(tab))
+				if (!entity) {
+					if (mountedTabKeys.has(key)) tabHosts[key]?.reload()
+					continue
+				}
+				const listPage = stripBase(whereIs(tab))
+				const effect = workspace
+					? entityEffectForTab(mutations, { listPage, path: entity.path, workspace })
+					: 'none'
+				// Deletion is re-pointed on the tab model, so a tab whose host is not
+				// mounted is not left sitting on an item that no longer exists.
+				if (effect === 'close') {
+					const page = entityListPage(entity.entityKind)
+					if (page) owner.retargetTabTo(tab.id, pageHref(page.path))
+				} else if (effect === 'refresh' && mountedTabKeys.has(key)) {
+					tabHosts[key]?.reload({ entity: 'refresh' })
+				}
 			}
 		}
 	}
 	function flushReload() {
 		const pages = pendingPages
-		const entity = pendingEntity
+		const mutations = pendingMutations
 		pendingPages = new Set()
-		pendingEntity = 'none'
-		reloadTabs(pages, entity)
+		pendingMutations = []
+		reloadTabs(pages, mutations)
 	}
 	$effect(() => {
 		// Debounced so a burst of writes (the AI editing several files) reloads once.
-		setToolCompletionListener((name, args) => {
-			const { pages, entity } = toolReloadEffect(name, args)
+		setToolCompletionListener((name, args, workspace) => {
+			const { pages, entity, path } = toolReloadEffect(name, args)
 			if (pages.length === 0) return
 			for (const p of pages) pendingPages.add(p)
-			pendingEntity = strongerEntityEffect(pendingEntity, entity)
+			if (entity !== 'none') pendingMutations.push({ pages, effect: entity, path, workspace })
 			clearTimeout(reloadHandle)
 			reloadHandle = setTimeout(flushReload, 500)
 		})
 		return () => {
 			clearTimeout(reloadHandle)
 			pendingPages = new Set()
-			pendingEntity = 'none'
+			pendingMutations = []
 			setToolCompletionListener(undefined)
 		}
 	})
