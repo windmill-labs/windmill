@@ -24,10 +24,20 @@ vi.mock('./toast', () => ({ sendUserToast: (...a: unknown[]) => sendUserToast(..
 let syncState = 'none'
 let conflict: unknown = undefined
 const recordRemoteSync = vi.fn()
+const dropPending = vi.fn()
+/** Ordered log of the two calls whose ORDER is the guard being pinned. */
+let syncerCalls: string[] = []
 vi.mock('./userDraftDbSyncer.svelte', () => ({
 	UserDraftDbSyncer: {
 		save: vi.fn(),
-		recordRemoteSync: (...a: unknown[]) => recordRemoteSync(...(a as [])),
+		dropPending: (...a: unknown[]) => {
+			syncerCalls.push('dropPending')
+			return dropPending(...(a as []))
+		},
+		recordRemoteSync: (...a: unknown[]) => {
+			syncerCalls.push('recordRemoteSync')
+			return recordRemoteSync(...(a as []))
+		},
 		getState: () => ({
 			get state() {
 				return syncState
@@ -75,6 +85,7 @@ beforeEach(() => {
 	syncState = 'none'
 	conflict = undefined
 	liveDraft = false
+	syncerCalls = []
 })
 
 describe('pruneMeaninglessDrafts', () => {
@@ -135,6 +146,32 @@ describe('pruneMeaninglessDrafts', () => {
 			{ workspace: 'main', itemKind: 'resource', path: 'u/me/r' },
 			'2026-01-02T00:00:00Z'
 		)
+		// Order matters: the refused delete stays parked for the pagehide flush,
+		// which would re-send it with whatever baseline is current. Adopting the
+		// server's timestamp first would be handing it the one value that works.
+		expect(syncerCalls.slice(-2)).toEqual(['dropPending', 'recordRemoteSync'])
+	})
+
+	it('does not keep retrying a row the server will never judge', async () => {
+		listDrafts.mockResolvedValue([row()])
+		getDraftDiffValues.mockRejectedValue({ status: 404 })
+		await pruneMeaninglessDrafts('main', 'me@x.dev')
+		expect(discardDraft).not.toHaveBeenCalled()
+		// Sealed: a 4xx is final, unlike the transient case above.
+		listDrafts.mockResolvedValue([row()])
+		getDraftDiffValues.mockResolvedValue(diff())
+		await pruneMeaninglessDrafts('main', 'me@x.dev')
+		expect(discardDraft).not.toHaveBeenCalled()
+	})
+
+	it('gives up after a bounded number of unresolved passes', async () => {
+		listDrafts.mockResolvedValue([row()])
+		getDraftDiffValues.mockRejectedValue(new Error('network'))
+		for (let i = 0; i < 3; i++) await pruneMeaninglessDrafts('main', 'me@x.dev')
+		expect(listDrafts).toHaveBeenCalledTimes(3)
+		// Sealed on the third: an unresolvable row cannot re-list forever.
+		await pruneMeaninglessDrafts('main', 'me@x.dev')
+		expect(listDrafts).toHaveBeenCalledTimes(3)
 	})
 
 	it('skips a kind no diff can be computed for, and still seals', async () => {

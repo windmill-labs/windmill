@@ -40,6 +40,11 @@ import { invalidateWorkspaceDrafts } from './workspaceDrafts.svelte'
 
 const SENTINEL_PREFIX = 'userdraft/pruned/v1/'
 
+/** A pass that leaves anything unresolved runs again next mount, which costs a
+ * listing plus an overlay GET per row. Bounded so no permanently-unresolvable
+ * row can make that repeat forever — whatever the reason it can't be judged. */
+const MAX_PASSES = 3
+
 /** The editors whose forms are built from a schema, and so the only kinds that
  * could have banked a draft nobody wrote — minus the ones no diff can be
  * computed for, which would throw and keep the pass unsealed forever. */
@@ -61,14 +66,35 @@ type Candidate = {
 	createdAt: string
 }
 
+const attemptsKey = (sentinel: string) => `${sentinel}:attempts`
+
+function readAttempts(sentinel: string): number {
+	try {
+		const n = Number(localStorage.getItem(attemptsKey(sentinel)))
+		return Number.isFinite(n) && n > 0 ? n : 0
+	} catch {
+		return 0
+	}
+}
+
 /** Is this tab holding or writing this draft right now? */
 function busyLocally(workspace: string, kind: UserDraftItemKind, path: string): boolean {
 	if (UserDraft.has(kind, path, { workspace })) return true
 	return UserDraftDbSyncer.getState({ workspace, itemKind: kind, path }).state !== 'none'
 }
 
-/** `undefined` when the diff could not be fetched — distinct from `false`, so
- * the caller can leave the pass open rather than strand a row it never judged. */
+/** A 4xx is the server's final answer for this row — the item is gone, or the
+ * kind's overlay endpoint isn't served by this build (a feature-gated trigger
+ * on CE). Retrying it on every page load would never succeed. Anything else
+ * (network, 5xx) is worth another pass. 429 asks for exactly that. */
+function isPermanentlyUnjudgeable(e: unknown): boolean {
+	const status = (e as { status?: unknown })?.status
+	return typeof status === 'number' && status >= 400 && status < 500 && status !== 429
+}
+
+/** `undefined` when the diff could not be fetched and might be next time —
+ * distinct from `false`, so the caller can leave the pass open rather than
+ * strand a row it never judged. */
 async function carriesNoChanges(
 	workspace: string,
 	{ kind, path }: Candidate
@@ -84,8 +110,8 @@ async function carriesNoChanges(
 		// two sides would compare equal by construction.
 		if (!hasDraft || noDeployed) return false
 		return draftValuesEqual(draft, deployed)
-	} catch {
-		return undefined
+	} catch (e) {
+		return isPermanentlyUnjudgeable(e) ? false : undefined
 	}
 }
 
@@ -166,11 +192,17 @@ export async function pruneMeaninglessDrafts(workspace: string, userKey: string)
 			const conflict = UserDraftDbSyncer.getConflict(q).conflict
 			if (!res.success || UserDraftDbSyncer.getState(q).state === 'failed') unresolved++
 			else if (conflict) {
-				// The row moved past the baseline we seeded, and the syncer keeps a
-				// refused baseline until something resolves it. Nothing here would:
-				// these drawer editors never re-seed on load and mount no conflict
-				// modal, so every later autosave for this key would be refused and
-				// the user's edit lost. Adopt what the server reported instead.
+				// The row moved past the baseline we seeded. Drop our refused delete
+				// BEFORE adopting the server's timestamp: a refused save stays parked
+				// for the `pagehide` keepalive flush, which re-sends it with whatever
+				// baseline is current by then — so adopting first would hand it the
+				// one timestamp that makes the delete succeed, against a row that now
+				// holds someone's newer draft.
+				UserDraftDbSyncer.dropPending(q)
+				// Then re-baseline. The syncer keeps a refused baseline until
+				// something resolves it, and nothing here would: these drawer editors
+				// never re-seed on load and mount no conflict modal, so every later
+				// autosave for this key would be refused and the user's edit lost.
 				UserDraftDbSyncer.recordRemoteSync(q, conflict.serverTimestamp)
 			} else discarded++
 		}
@@ -178,12 +210,20 @@ export async function pruneMeaninglessDrafts(workspace: string, userKey: string)
 			invalidateWorkspaceDrafts(workspace)
 			sendUserToast(`Cleared ${discarded} draft${discarded > 1 ? 's' : ''} that carried no changes`)
 		}
-		if (unresolved === 0) {
+		// Seal once nothing is left hanging, or once we have tried enough times
+		// that whatever is hanging is not going to resolve.
+		const attempts = readAttempts(sentinel) + 1
+		if (unresolved === 0 || attempts >= MAX_PASSES) {
 			try {
 				localStorage.setItem(sentinel, new Date().toISOString())
+				localStorage.removeItem(attemptsKey(sentinel))
 			} catch {
 				// Nothing to do — the pass is idempotent, it just runs again.
 			}
+		} else {
+			try {
+				localStorage.setItem(attemptsKey(sentinel), String(attempts))
+			} catch {}
 		}
 	} catch {
 		// Fire-and-forget from the layout: a workspace whose draft list can't be
