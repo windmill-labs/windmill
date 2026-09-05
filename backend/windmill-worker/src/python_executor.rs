@@ -1223,6 +1223,7 @@ mount {{
             result,
             job,
             conn,
+            canceled_by,
             modules,
             new_args.as_ref(),
         ))

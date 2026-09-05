@@ -1094,6 +1094,7 @@ async fn test_privilege_gates_reject_a_job_token_directly(
             token_prefix: None,
             read_only: false,
             job_id,
+            credential_expiry: None,
         }
     }
 

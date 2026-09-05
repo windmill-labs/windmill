@@ -500,6 +500,24 @@ pub fn check_route_access(
         }
     }
 
+    // A guest session carries the same broad read scopes as an embed token and for
+    // the same handful of routes, so it gets the same default-deny.
+    if has_guest_sentinel(Some(token_scopes)) {
+        if let Some(suffix) = route_suffix.as_deref() {
+            if guest_route_denied(required_domain, suffix) {
+                return Err(Error::PermissionDenied(format!(
+                    "a guest session cannot access {route_path}"
+                )));
+            }
+            // Same rationale as the embed branch: re-running a component supersedes
+            // its in-flight run, and `cancel_job_api` confines this to the caller's
+            // own jobs.
+            if suffix.starts_with("jobs_u/queue/cancel/") {
+                return Ok(());
+            }
+        }
+    }
+
     // Each declared scope must grant what its prompt said and no more:
     // `jobs:run` only deployed runnables, `users:read` only the viewer's identity.
     if has_raw_app_sdk_sentinel(Some(token_scopes)) {
@@ -753,6 +771,55 @@ pub fn has_app_embed_sentinel(scopes: Option<&[String]>) -> bool {
     scopes.is_some_and(|s| s.iter().any(|x| x == APP_EMBED_SENTINEL))
 }
 
+/// Sentinel in a guest session token: someone the identity provider authenticated
+/// who is a member of no workspace. Grants nothing itself — it only confines the
+/// session to the app surface, the same way `app_embed` does. What makes a session a
+/// guest at all is the server-minted label
+/// [`windmill_common::auth::GUEST_SESSION_LABEL`]; a forged sentinel here can only
+/// narrow its own token.
+pub const GUEST_SENTINEL: &str = "guest";
+
+/// True if a token is a guest session, whose scopes are its entire grant: it has no ACL
+/// of its own, so every ACL check denies it unaided.
+pub fn has_guest_sentinel(scopes: Option<&[String]>) -> bool {
+    scopes.is_some_and(|s| s.iter().any(|x| x == GUEST_SENTINEL))
+}
+
+/// `scopes` with the guest sentinel present exactly once.
+pub fn with_guest_sentinel(mut scopes: Vec<String>) -> Vec<String> {
+    if !scopes.iter().any(|x| x == GUEST_SENTINEL) {
+        scopes.push(GUEST_SENTINEL.to_string());
+    }
+    scopes
+}
+
+/// Scopes a guest session carries. The broad-looking reads are narrowed to a route
+/// allowlist by the sentinel (`guest_route_denied`), plus the two path-scoped app
+/// grants. A guest has no `usr` row, so this list is the whole of what it can do. The
+/// single source both the mint (a signed-in guest) and the JWT auth arm build from.
+///
+/// The sentinel here only narrows. A signed-in guest is made one by the server-minted
+/// label; a JWT guest has no label, so for it the sentinel is what governs.
+pub fn guest_session_scopes(app_path: &str) -> windmill_common::error::Result<Vec<String>> {
+    // The path is spliced into a scope, whose grammar reserves `:`, `,`, `*` and a leading
+    // `/`; app paths may otherwise carry spaces and `@`, so guard only those reserved chars.
+    if !windmill_common::auth::is_scope_literal_path(app_path) {
+        return Err(windmill_common::error::Error::BadRequest(format!(
+            "app path {app_path} is empty or cannot be scoped: `:`, `,` and `*` are reserved \
+             in scopes, and a leading `/` never matches a route"
+        )));
+    }
+    Ok(vec![
+        GUEST_SENTINEL.to_string(),
+        "jobs:read".to_string(),
+        "resources:run".to_string(),
+        "users:read".to_string(),
+        "folders:read".to_string(),
+        format!("apps:read:{app_path}"),
+        format!("apps:run:{app_path}"),
+    ])
+}
+
 /// Sentinel in raw-app SDK tokens. Grants nothing; `check_route_access` uses it
 /// to narrow the declared scopes to what the viewer's prompt promised.
 pub const RAW_APP_SDK_SENTINEL: &str = "raw_app_sdk";
@@ -813,6 +880,19 @@ fn app_embed_apps_route_allowed(suffix: &str) -> bool {
         return false;
     }
     suffix.starts_with("apps/get/p/") || suffix.starts_with("apps_u/")
+}
+
+/// Routes a guest session is denied: the app-embed allowlist, plus the embed-token
+/// mint. A guest session is the *embedder* — the viewer's own browser rendering the
+/// app page — not the app's own JS, and the page mints the iframe's token from it.
+///
+/// Everything else stays default-denied, so a guest reaches the app it was let in
+/// for and nothing around it.
+fn guest_route_denied(domain: ScopeDomain, suffix: &str) -> bool {
+    if domain == ScopeDomain::Apps && suffix.starts_with("apps_u/embed_token") {
+        return false;
+    }
+    app_embed_route_denied(domain, suffix)
 }
 
 /// Job routes a running app uses (the by-id poll/cancel surface driven by the

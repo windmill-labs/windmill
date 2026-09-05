@@ -1,7 +1,7 @@
 <script lang="ts">
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import { Check, X } from 'lucide-svelte'
-	import { NOTE_COLORS, NoteColor } from './noteColors'
+	import { NOTE_COLORS, NOTE_TEXT_COLOR_OVERRIDE, NoteColor } from './noteColors'
 	import { stopPropagation, preventDefault } from 'svelte/legacy'
 
 	interface Props {
@@ -127,13 +127,13 @@
 		{:else if note}
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
-				class="w-full text-2xs break-words overflow-hidden p-2 select-text {noteColorConfig.text} {editMode
+				class="w-full text-2xs break-words overflow-hidden p-2 select-text {noteColorConfig.text} {NOTE_TEXT_COLOR_OVERRIDE} {editMode
 					? 'cursor-pointer'
 					: ''}"
 				ondblclick={editMode ? stopPropagation(preventDefault(handleDoubleClick)) : undefined}
 				onpointerdown={editMode ? stopPropagation(() => {}) : undefined}
 			>
-				<GfmMarkdown md={note} noPadding />
+				<GfmMarkdown md={note} prose="xs" noPadding />
 			</div>
 		{:else}
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
