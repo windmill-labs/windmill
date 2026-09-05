@@ -58,6 +58,46 @@
 
 	let workspace: string | undefined = $state(undefined)
 	let refresh: (() => void) | undefined
+	/** `<workspace>/<app_path>` when this app is open to guests. Resolved eagerly:
+	 * PublicAppFrame renders its sign-in gate before `onViewerReady` fires. */
+	let guestAppPath: string | undefined = $state(undefined)
+	/** The frame's sign-in card must not mount before this is known: a configured
+	 * auto-login would otherwise fire an ordinary sign-in and provision an account.
+	 * Only the card waits — the app load itself runs in parallel with discovery.
+	 * Only a confirmed 404 means "not a guest app"; any other failure is `error`, since
+	 * offering an ordinary sign-in on a transient fault would provision an account. */
+	let guestEntry: 'pending' | 'none' | 'guest' | 'error' = $state('pending')
+
+	// Settled once: `loadApp` calls this again on failure, and a later transient fault
+	// must not overwrite an answer already in hand. A function, not a narrowed local:
+	// the value changes across the awaits below.
+	const guestEntrySettled = () => guestEntry === 'guest' || guestEntry === 'none'
+	async function loadGuestEntry() {
+		if (guestEntrySettled()) return
+		for (let attempt = 0; attempt < 3; attempt++) {
+			try {
+				const entry = await AppService.getGuestEntryByCustomPath({
+					customPath: parsedCustomPath.path
+				})
+				guestAppPath = `${entry.workspace_id}/${entry.app_path}`
+				guestEntry = 'guest'
+				return
+			} catch (e) {
+				if (e?.status === 404) {
+					guestAppPath = undefined
+					guestEntry = 'none'
+					return
+				}
+				await new Promise((r) => setTimeout(r, 500 * (attempt + 1)))
+				// A concurrent call may have settled it meanwhile.
+				if (guestEntrySettled()) return
+			}
+		}
+		if (!guestEntrySettled()) {
+			guestAppPath = undefined
+			guestEntry = 'error'
+		}
+	}
 
 	// Embedder side: validate access (main session cookie or shared JWT) and mint
 	// a scoped embed token for the opaque iframe (WIN-2006).
@@ -113,17 +153,27 @@
 			} else {
 				notExists = true
 			}
+			// The app exists and admits guests; the load failed only for want of a
+			// session, so offer one instead of the not-found page.
+			await loadGuestEntry()
+			if (guestAppPath) {
+				notExists = false
+				noPermission = true
+			}
 		}
 	}
 
 	if (BROWSER) {
 		setLicense()
+		loadGuestEntry()
 	}
 </script>
 
 <PublicAppFrame
 	{fetchEmbedToken}
 	{viewerUrl}
+	{guestAppPath}
+	{guestEntry}
 	onViewerReady={(_token, requestTokenRefresh) => {
 		refresh = requestTokenRefresh
 		loadApp()
@@ -135,6 +185,7 @@
 			{notExists}
 			{noPermission}
 			{jwtError}
+			{guestAppPath}
 			{app}
 			onLoginSuccess={() => loadApp()}
 		></PublicApp>
