@@ -109,6 +109,17 @@ export function effectForWrite(
 	return effect === 'none' && !seedReachedEditor ? 'refresh' : effect
 }
 
+/** What a discard asks of a hosted editor. Discarding a draft that had a deployed
+ * item under it reverts the editor to that item, which a refresh shows — but a
+ * draft-only item has nothing to revert to, so the discard removed it and the
+ * editor has to leave rather than remount into a load that cannot resolve. */
+export function effectForDiscard(
+	effect: EntityToolEffect,
+	itemSurvives: boolean
+): EntityToolEffect {
+	return effect === 'refresh' && !itemSurvives ? 'close' : effect
+}
+
 /** The stronger of two effects, for a tab several of a round's mutations reach:
  * a delete outranks a refresh, which outranks nothing. */
 export function strongerEntityEffect(a: EntityToolEffect, b: EntityToolEffect): EntityToolEffect {

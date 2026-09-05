@@ -4,7 +4,8 @@ import {
 	tabsToReload,
 	strongerEntityEffect,
 	entityEffectForTab,
-	effectForWrite
+	effectForWrite,
+	effectForDiscard
 } from './previewReload'
 import type { SessionPreviewTab } from './sessionState.svelte'
 
@@ -98,6 +99,24 @@ describe('effectForWrite', () => {
 	it('never weakens what the tool already asked for', () => {
 		expect(effectForWrite('close', false)).toBe('close')
 		expect(effectForWrite('refresh', true)).toBe('refresh')
+	})
+})
+
+describe('effectForDiscard', () => {
+	// Discarding reverts an item to what is deployed — unless nothing is, in which
+	// case the draft WAS the item and the editor is left showing something that no
+	// longer exists, remounting into a load that cannot resolve.
+	it('closes a hosted editor whose item the discard removed outright', () => {
+		expect(effectForDiscard('refresh', false)).toBe('close')
+	})
+
+	it('keeps a deployed item on screen, reverted rather than closed', () => {
+		expect(effectForDiscard('refresh', true)).toBe('refresh')
+	})
+
+	it('leaves the other effects alone', () => {
+		expect(effectForDiscard('none', false)).toBe('none')
+		expect(effectForDiscard('close', true)).toBe('close')
 	})
 })
 

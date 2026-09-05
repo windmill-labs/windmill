@@ -77,6 +77,7 @@
 		tabsToReload,
 		entityEffectForTab,
 		effectForWrite,
+		effectForDiscard,
 		type EntityMutation
 	} from '$lib/components/sessions/previewReload'
 	import {
@@ -626,7 +627,11 @@
 			// the editor can have acquired the cell during the write's round-trip.
 			const kind = path ? entityKindForPage(pages[0]) : undefined
 			const seedReachedEditor = !kind || !path || !UserDraft.takeSeedMiss(kind, path, { workspace })
-			const effect = effectForWrite(entity, seedReachedEditor)
+			// A discard of a draft-only item removed the item itself, so its editor has
+			// nothing left to re-read and must leave instead.
+			const itemSurvives =
+				!kind || !path || !UserDraft.takeDraftOnlyDiscard(kind, path, { workspace })
+			const effect = effectForDiscard(effectForWrite(entity, seedReachedEditor), itemSurvives)
 			if (effect !== 'none') pendingMutations.push({ pages, effect, path, workspace })
 			clearTimeout(reloadHandle)
 			reloadHandle = setTimeout(flushReload, 500)

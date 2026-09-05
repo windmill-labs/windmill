@@ -127,6 +127,8 @@ const entries = new Map<string, DraftEntry>()
 // Cells whose last `seed` found no live entry (see `takeSeedMiss`). Bounded by
 // the seeds that missed and not yet been read back, and each entry is one key.
 const seedMisses = new Set<string>()
+// Cells whose last discard removed the item itself (see `takeDraftOnlyDiscard`).
+const draftOnlyDiscards = new Set<string>()
 const liveEditorDrafts = new Map<string, LiveEditorDraft>()
 /**
  * Map keys whose entry should start `syncSuspended` on acquire. Lets
@@ -413,6 +415,26 @@ export const UserDraft = {
 		seedMisses.delete(mk)
 		entry.seedNextWrite = true
 		entry.state.val = snapshotDraftValue(value)
+	},
+
+	/**
+	 * Record that the draft just discarded for this cell was the item's only stored
+	 * form — nothing deployed underneath, so the item is now gone rather than
+	 * reverted. Read once by a consumer showing that item, which has to stop
+	 * showing it. Set at the discard, where the deployed side is known.
+	 */
+	recordDraftOnlyDiscard(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
+		draftOnlyDiscards.add(mapKey(resolveWorkspace(opts), itemKind, path))
+	},
+
+	/** Whether the last discard for this cell removed the item outright (see
+	 * {@link recordDraftOnlyDiscard}), clearing the record. */
+	takeDraftOnlyDiscard(
+		itemKind: UserDraftItemKind,
+		path: string,
+		opts?: UserDraftOptions
+	): boolean {
+		return draftOnlyDiscards.delete(mapKey(resolveWorkspace(opts), itemKind, path))
 	},
 
 	/**
