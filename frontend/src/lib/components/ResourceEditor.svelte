@@ -144,8 +144,13 @@
 	$effect(() => {
 		const wss = Object.keys(states)
 		const edited = { ...userEdited }
+		const onDraft = { ...openedOnDraft }
 		untrack(() => {
-			for (const ws of wss) setGated(ws, !edited[ws])
+			// A workspace opened on a saved draft is never suspended — there is no
+			// phantom to prevent, and a write made while suspended is dropped for
+			// good. Without `onDraft` here this effect re-suspends it the moment its
+			// handle appears, undoing the decision made when it was opened.
+			for (const ws of wss) setGated(ws, !edited[ws] && !onDraft[ws])
 		})
 	})
 
