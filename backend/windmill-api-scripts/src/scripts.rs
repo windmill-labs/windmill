@@ -1103,6 +1103,18 @@ async fn validate_dbt_relation(
              (`dbt://<warehouse>/<schema>/<name>`)."
         )));
     }
+    // `asset.path` is VARCHAR(255) and the manifest ingest drops a relation that
+    // outgrows it rather than failing the whole graph, so past the column no
+    // producer row can exist on either side — a write would be rejected by
+    // Postgres mid-deploy, and `script_trigger.trigger_ref` is unbounded text
+    // that would take the subscription and keep it dormant for good.
+    let max = windmill_common::dbt_manifest::MAX_ASSET_PATH_LEN;
+    if relation.chars().count() > max {
+        return Err(Error::BadRequest(format!(
+            "{what} `dbt://{relation}` is longer than the {max} characters an asset path \
+             holds, so it cannot be recorded."
+        )));
+    }
     let warehouse = relation.split('/').next().unwrap_or_default();
     windmill_common::workspaces::dbt_warehouse_exists(db, w_id, warehouse)
         .await

@@ -110,6 +110,22 @@ async fn test_dbt_materialize_target_deploy_contract(db: Pool<Postgres>) -> anyh
         assert!(resp.text().await?.contains(expected));
     }
 
+    // Past `asset.path`'s column, where the manifest ingest drops the relation and
+    // no producer row can exist on either side — computed from the bound so it
+    // cannot drift under it.
+    let overlong = format!(
+        "main/analytics/{}",
+        "o".repeat(windmill_common::dbt_manifest::MAX_ASSET_PATH_LEN)
+    );
+    let resp = deploy(
+        port,
+        "u/test-user/overlong_sub",
+        &format!("// on dbt://{overlong}\nexport async function main() {{}}"),
+    )
+    .await;
+    assert_eq!(resp.status(), 400);
+    assert!(resp.text().await?.contains("characters an asset path holds"));
+
     // Any language may declare the write — the DuckLake write engine is DuckDB's,
     // this declaration is not — and the target is canonicalized on the way into
     // `asset`, so a hand-written mixed-case spelling lands on the model's key.
