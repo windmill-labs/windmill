@@ -27,6 +27,9 @@
 	} from '../linkedAgentToolsStore.svelte'
 	import { logReusableAgentUsage } from '../agentTelemetry'
 	import { claimLinkedToolsFetch } from '../flowState'
+	import { agentDraftState } from '../linkedAgentDrafts'
+	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import type { AgentTool as AgentToolStrict } from '../agentToolUtils'
 	import { resource } from 'runed'
 	import { untrack } from 'svelte'
@@ -83,6 +86,8 @@
 		writes: number
 		config: AIAgentConfig
 		tools: AgentTool[]
+		/** The config shown came from the agent's unsaved draft rather than the deployed resource. */
+		fromDraft: boolean
 		providerPath?: string
 		providerOk: boolean
 	}
@@ -90,14 +95,18 @@
 	// A linked agent is rigid and read-only: its brain and tools come from the resource. We
 	// load them here for display, and probe the provider resource so we can warn when it isn't
 	// accessible in this workspace (the user then needs to unlink/fork or gain access).
+	// The draft when there is one, since that is what a test of this step runs.
 	let linkedResource = resource(
 		() => ({ ws, path: agent, writes }),
 		async ({ ws, path, writes }): Promise<LinkedInfo> => {
 			if (!ws || !path) {
-				return { ws, path, writes, config: {}, tools: [], providerOk: true }
+				return { ws, path, writes, config: {}, tools: [], fromDraft: false, providerOk: true }
 			}
-			const res = await ResourceService.getResource({ workspace: ws, path })
-			const cfg = (res.value ?? {}) as AIAgentConfig & { provider?: { resource?: string } }
+			const res = await ResourceService.getResource({ workspace: ws, path, getDraft: true })
+			const draft = agentDraftState(res, path, ws)
+			const cfg = (draft?.args ?? res.value ?? {}) as AIAgentConfig & {
+				provider?: { resource?: string }
+			}
 			const tools = (cfg.tools ?? []) as AgentTool[]
 			const providerRef = cfg.provider?.resource
 			const providerPath =
@@ -118,6 +127,7 @@
 				writes,
 				config: cfg,
 				tools,
+				fromDraft: draft != undefined,
 				providerPath,
 				providerOk
 			}
@@ -140,6 +150,12 @@
 	let brainParams = $derived(summarizeAgentBrain(linkedInfo?.config))
 	let providerPath = $derived(linkedInfo?.providerPath)
 	let providerOk = $derived(linkedInfo?.providerOk ?? true)
+	// The hint flips on the first keystroke in the agent editor, so the badge does not wait for the
+	// debounced autosave and the refetch behind it; the fetched answer covers a draft written
+	// elsewhere, which no editor here has published an opinion about.
+	let hasDraft = $derived(
+		getLocalDraftHint(ws, 'resource', agent ?? '') ?? linkedInfo?.fromDraft ?? false
+	)
 	/** The agent the card is about: the one this step links to, or the one being edited. */
 	let cardPath = $derived(agent)
 	// The version eval runs are recorded against. The resource does not hold it; its newest history
@@ -447,6 +463,15 @@
 						<Badge color="gray" class="shrink-0" title="The version runs are recorded against">
 							v{version}
 						</Badge>
+					{/if}
+					{#if hasDraft}
+						<Tooltip class="inline-flex items-center shrink-0">
+							<Badge small color="indigo">Draft</Badge>
+							{#snippet text()}
+								This agent has unsaved changes. Testing this flow runs the draft, and deploying the
+								flow offers to deploy it.
+							{/snippet}
+						</Tooltip>
 					{/if}
 				</div>
 				<div class="flex items-center gap-1 shrink-0">

@@ -84,6 +84,48 @@ export interface AgentResourceState {
 	wsSpecific: boolean
 }
 
+/**
+ * Why writing this draft to its resource would be refused, if it would. Shared with the flow's
+ * deploy dialog, which lists the drafts of the agents a flow links: an agent the editor's own
+ * Deploy button rejects must not be deployable from a flow either.
+ *
+ * `currentPath` is the path the draft is being deployed to; pass undefined where the caller has
+ * none of its own to compare against.
+ */
+export function agentDraftDeployRefusal(
+	state: AgentResourceState,
+	currentPath: string | undefined
+): string | undefined {
+	// The editor offers only values, but a transform can arrive from a step that was forked
+	// before this existed, or from the generic resource editor: say so rather than writing it.
+	const transformValued = transformValuedBrainKeys(state.args)
+	if (transformValued.length > 0) {
+		const fields = transformValued.map((key) => AGENT_BRAIN_LABELS[key] ?? key)
+		const many = fields.length > 1
+		return `${fields.join(', ')} ${many ? 'are' : 'is'} set to an expression or an AI-filled value, which a saved agent cannot store. Replace ${many ? 'them' : 'it'} with a plain value before deploying.`
+	}
+	// The resource endpoint takes any JSON, so nothing downstream stops an agent that cannot run:
+	// the worker needs a provider to call and rejects a tool whose name it cannot pass to the
+	// model. Deploying one would break every flow linking it, so it is refused here.
+	const blocked = agentConfigRunError(state.args)
+	if (blocked) {
+		return blocked
+	}
+	// Renaming is not the agent editor's to do: moving the resource leaves every step that links to
+	// it naming a path that no longer exists, and reconciling those is a feature of its own. A
+	// renamed path can still reach here, the generic editor writing the same draft row and offering
+	// a path field, so refuse it rather than performing half of a rename.
+	if (currentPath && state.path !== currentPath) {
+		return `This draft renames the agent to ${state.path}. Deploy it from the resource editor instead.`
+	}
+	// Only a draft naming another type: the load refuses a resource that is not an agent, while a
+	// draft the generic resource editor wrote names no type at all and inherits the loaded one.
+	if (state.resource_type && state.resource_type !== 'ai_agent') {
+		return `This draft is a ${state.resource_type} resource, not an agent.`
+	}
+	return undefined
+}
+
 export interface AgentDraftOptions {
 	/** The `ai_agent` resource being edited. */
 	path: () => string | undefined
@@ -237,42 +279,9 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		const ws = opts.workspace()
 		const s = state
 		if (!ws || !s) return false
-		// The editor offers only values, but a transform can arrive from a step that was forked
-		// before this existed, or from the generic resource editor: say so rather than writing it.
-		const transformValued = transformValuedBrainKeys(s.args)
-		if (transformValued.length > 0) {
-			const fields = transformValued.map((key) => AGENT_BRAIN_LABELS[key] ?? key)
-			const many = fields.length > 1
-			sendUserToast(
-				`${fields.join(', ')} ${many ? 'are' : 'is'} set to an expression or an AI-filled value, which a saved agent cannot store. Replace ${many ? 'them' : 'it'} with a plain value before deploying.`,
-				true
-			)
-			return false
-		}
-		// The resource endpoint takes any JSON, so nothing downstream stops an agent that cannot run:
-		// the worker needs a provider to call and rejects a tool whose name it cannot pass to the
-		// model. Deploying one would break every flow linking it, so it is refused here.
-		const blocked = agentConfigRunError(s.args)
-		if (blocked) {
-			sendUserToast(blocked, true)
-			return false
-		}
-		// Renaming is not this editor's to do: moving the resource leaves every step that links to it
-		// naming a path that no longer exists, and reconciling those is a feature of its own. A
-		// renamed path can still reach here, the generic editor writing the same draft row and
-		// offering a path field, so refuse it rather than performing half of a rename.
-		const currentPath = opts.path()
-		if (currentPath && s.path !== currentPath) {
-			sendUserToast(
-				`This draft renames the agent to ${s.path}. Deploy it from the resource editor instead.`,
-				true
-			)
-			return false
-		}
-		// Only a draft naming another type: the load refuses a resource that is not an agent, while a
-		// draft the generic resource editor wrote names no type at all and inherits the loaded one.
-		if (s.resource_type && s.resource_type !== 'ai_agent') {
-			sendUserToast(`This draft is a ${s.resource_type} resource, not an agent.`, true)
+		const refused = agentDraftDeployRefusal(s, opts.path())
+		if (refused) {
+			sendUserToast(refused, true)
 			return false
 		}
 		// The form stays editable while the request is in flight, so everything below works from a

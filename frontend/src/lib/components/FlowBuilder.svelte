@@ -98,7 +98,17 @@
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import type { Trigger } from './triggers/utils'
 	import { deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
-	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
+	import DraftChangesConfirmationModal from './common/confirmationModal/DraftChangesConfirmationModal.svelte'
+	import {
+		agentDraftCanWrite,
+		linkedAgentPaths,
+		loadLinkedAgentDrafts,
+		type LinkedAgentDraft
+	} from './flows/linkedAgentDrafts'
+	import { markAgentWritten } from './flows/agentEditorStore.svelte'
+	import { logReusableAgentUsage } from './flows/agentTelemetry'
+	import { deployDraft } from '$lib/utils_draft_deploy'
+	import { getUserExt } from '$lib/user'
 	import { Triggers } from './triggers/triggers.svelte'
 	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
@@ -192,8 +202,15 @@
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
 	let open: boolean = $state(false) // Is confirmation modal open
 
-	// Draft triggers confirmation modal
-	let draftTriggersModalOpen = $state(false)
+	// Draft changes (triggers + linked agents) confirmation modal
+	let draftChangesModalOpen = $state(false)
+	/** The unsaved agent drafts the pending deploy found. Loaded rather than derived: it takes a
+	 *  request per linked agent, so it is resolved when the deploy asks. */
+	let draftAgents = $state<LinkedAgentDraft[]>([])
+	let agentCanWrite = $state<Record<string, boolean>>({})
+
+	/** What the dialog's confirm hands back to `saveFlow`. */
+	type DraftChangesToDeploy = { triggers: Trigger[]; agents: LinkedAgentDraft[] }
 
 	// Top-bar responsive collapse. Measured via bind:clientWidth — we can't
 	// rely on viewport `md:` because the editor lives inside other panes
@@ -224,7 +241,7 @@
 				]
 			: []
 	)
-	let confirmDeploymentCallback: (triggersToDeploy: Trigger[]) => void = () => {}
+	let confirmDeploymentCallback: (toDeploy: DraftChangesToDeploy) => void = () => {}
 
 	// AI changes warning modal
 	let aiChangesWarningOpen = $state(false)
@@ -236,11 +253,40 @@
 	const job: Job | undefined = $derived(flowPreviewContent?.getJob())
 	let showJobStatus = $state(false)
 
-	async function handleDraftTriggersConfirmed(event: CustomEvent<{ selectedTriggers: Trigger[] }>) {
-		const { selectedTriggers } = event.detail
+	async function handleDraftChangesConfirmed(
+		event: CustomEvent<{ selectedTriggers: Trigger[]; selectedAgents: LinkedAgentDraft[] }>
+	) {
+		const { selectedTriggers, selectedAgents } = event.detail
 		// Continue with saving the flow
-		draftTriggersModalOpen = false
-		confirmDeploymentCallback(selectedTriggers)
+		draftChangesModalOpen = false
+		confirmDeploymentCallback({ triggers: selectedTriggers, agents: selectedAgents })
+	}
+
+	/** Write each selected agent's draft to its resource. Deployed rather than dropped is the whole
+	 *  point of the toggle, so a failure aborts the deploy the way a failing trigger does: a flow
+	 *  saved against agents that were meant to change with it would be a half state nobody asked
+	 *  for. Agents left out keep their draft untouched. */
+	async function deployAgentDrafts(agents: LinkedAgentDraft[]) {
+		const ws = opWorkspace
+		if (!ws) return
+		for (const listed of draftAgents) {
+			if (!agents.some((a) => a.path === listed.path)) {
+				logReusableAgentUsage('draft_kept_on_deploy')
+			}
+		}
+		for (const agent of agents) {
+			// `deployDraft` re-reads the persisted draft, which the agent editor's autosave debounce
+			// can leave seconds behind the form. Push it first so the deploy writes what the user is
+			// looking at, and so the post-deploy draft delete cannot drop a newer edit.
+			await UserDraftDbSyncer.flush({ workspace: ws, itemKind: 'resource', path: agent.path })
+			const result = await deployDraft('resource', agent.path, ws, { draftOnly: agent.noDeployed })
+			if (!result.success) {
+				throw new Error(`Could not deploy agent ${agent.path}: ${result.error}`)
+			}
+			// Every linked card and the graph key on this to refetch the agent they display.
+			markAgentWritten(ws, agent.path)
+			logReusableAgentUsage('draft_deployed_with_flow')
+		}
 	}
 
 	// Inside an AI session pane (SessionEditorTarget injects an aiChatManager via
@@ -429,18 +475,35 @@
 		deployedBy = flow.edited_by
 	}
 
-	async function saveFlow(deploymentMsg?: string, triggersToDeploy?: Trigger[]): Promise<void> {
-		if (!triggersToDeploy) {
-			// Check if there are draft triggers that need confirmation
+	async function saveFlow(deploymentMsg?: string, toDeploy?: DraftChangesToDeploy): Promise<void> {
+		if (!toDeploy) {
+			// Draft triggers and drafts on the agents this flow links: both are unsaved changes the
+			// deploy would otherwise leave behind, so they are confirmed together.
 			const draftTriggers = triggersState.triggers.filter((trigger) => trigger.draftConfig)
-			if (draftTriggers.length > 0) {
-				draftTriggersModalOpen = true
-				confirmDeploymentCallback = async (triggersToDeploy: Trigger[]) => {
-					await saveFlow(deploymentMsg, triggersToDeploy)
+			draftAgents = [
+				...(
+					await loadLinkedAgentDrafts(linkedAgentPaths(flowStore.val.value), opWorkspace)
+				).values()
+			]
+			agentCanWrite = {}
+			if (draftAgents.length > 0) {
+				// One lookup for the whole list: an agent lives in a folder, and the groups and admin
+				// flag that answer for it are per workspace, so the nav user would answer for the wrong
+				// membership when a session editor operates on another workspace.
+				const user = await getUserExt(opWorkspace ?? '').catch(() => undefined)
+				agentCanWrite = Object.fromEntries(
+					draftAgents.map((a) => [a.path, agentDraftCanWrite(a, user ?? $userStore ?? undefined)])
+				)
+			}
+			if (draftTriggers.length > 0 || draftAgents.length > 0) {
+				draftChangesModalOpen = true
+				confirmDeploymentCallback = async (confirmed: DraftChangesToDeploy) => {
+					await saveFlow(deploymentMsg, confirmed)
 				}
 				return
 			}
 		}
+		const triggersToDeploy = toDeploy?.triggers
 
 		loadingSave = true
 		try {
@@ -470,6 +533,11 @@
 			// console.log('flow', computeUnlockedSteps(flow)) // del
 			// loadingSave = false // del
 			// return
+
+			// Ahead of the flow itself, as the update branch deploys its triggers: an agent is a
+			// resource of its own, so the flow should land on top of the agent set it was tested
+			// against rather than the other way round.
+			await deployAgentDrafts(toDeploy?.agents ?? [])
 
 			// `newFlow` comes from the embedder, and updating a path that has no
 			// deployed flow 404s. Confirm with the server before taking the update
@@ -1343,14 +1411,16 @@
 	currentValue={flowStore.val}
 />
 
-<DraftTriggersConfirmationModal
-	bind:open={draftTriggersModalOpen}
+<DraftChangesConfirmationModal
+	bind:open={draftChangesModalOpen}
 	draftTriggers={triggersState.triggers.filter((t) => t.draftConfig)}
+	{draftAgents}
+	{agentCanWrite}
 	isFlow={true}
 	on:canceled={() => {
-		draftTriggersModalOpen = false
+		draftChangesModalOpen = false
 	}}
-	on:confirmed={handleDraftTriggersConfirmed}
+	on:confirmed={handleDraftChangesConfirmed}
 />
 
 <AIChangesWarningModal bind:open={aiChangesWarningOpen} onConfirm={aiChangesConfirmCallback} />
