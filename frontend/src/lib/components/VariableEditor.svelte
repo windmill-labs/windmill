@@ -353,7 +353,7 @@
 		disabled={!anyDirty || !dirtyValid || !dirtyCanWrite || pathError != ''}
 		startIcon={{ icon: Save }}
 		variant="accent"
-		size="sm"
+		unifiedSize="sm"
 	>
 		{edit ? 'Update' : 'Save'}
 	</Button>

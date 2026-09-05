@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toolReloadEffect, tabsToReload } from './previewReload'
+import { toolReloadEffect, tabsToReload, strongerEntityEffect } from './previewReload'
 import type { SessionPreviewTab } from './sessionState.svelte'
 
 describe('toolReloadEffect', () => {
@@ -25,6 +25,26 @@ describe('toolReloadEffect', () => {
 		expect(
 			toolReloadEffect('discard_local_draft', { type: 'trigger', trigger_kind: 'nats' }).pages
 		).toEqual(['/nats_triggers'])
+	})
+
+	// A hosted entity editor holds the draft cell a write seeds, so a write must
+	// leave it alone — that is what makes the chat's edit show up live. The tools
+	// that drop the cell have to reach it, and a delete leaves it with no item.
+	it('asks a hosted entity editor to hold, refresh, or close, per tool', () => {
+		expect(toolReloadEffect('write_resource', {}).entity).toBe('none')
+		expect(toolReloadEffect('write_schedule', { path: 'u/me/s' }).entity).toBe('none')
+		expect(toolReloadEffect('write_trigger', { kind: 'kafka' }).entity).toBe('none')
+		expect(toolReloadEffect('deploy_workspace_item', { type: 'resource' }).entity).toBe('refresh')
+		expect(toolReloadEffect('discard_local_draft', { type: 'variable' }).entity).toBe('refresh')
+		expect(toolReloadEffect('rebase_draft', { type: 'schedule' }).entity).toBe('refresh')
+		expect(toolReloadEffect('delete_workspace_item', { type: 'resource' }).entity).toBe('close')
+	})
+
+	it('takes the strongest effect across a debounced round', () => {
+		expect(strongerEntityEffect('none', 'refresh')).toBe('refresh')
+		expect(strongerEntityEffect('refresh', 'close')).toBe('close')
+		expect(strongerEntityEffect('close', 'refresh')).toBe('close')
+		expect(strongerEntityEffect('none', 'none')).toBe('none')
 	})
 
 	it('reloads no page for item-editor kinds (they self-sync via their live editor)', () => {

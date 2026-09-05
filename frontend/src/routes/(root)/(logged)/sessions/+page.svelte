@@ -66,7 +66,12 @@
 		previewLocationLabel,
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
-	import { toolReloadEffect, tabsToReload } from '$lib/components/sessions/previewReload'
+	import {
+		toolReloadEffect,
+		tabsToReload,
+		strongerEntityEffect,
+		type EntityToolEffect
+	} from '$lib/components/sessions/previewReload'
 	import {
 		leafKeyFor,
 		loadKind,
@@ -557,37 +562,45 @@
 	// Base-stripped list-page paths (e.g. `/schedules`) a chat round touched since
 	// the last flush — see toolReloadEffect for how tools map to pages.
 	let pendingPages = new Set<string>()
+	// What those tools ask of a hosted entity editor on one of those pages —
+	// carried alongside the paths because the debounce below loses which tool
+	// contributed which page.
+	let pendingEntity: EntityToolEffect = 'none'
 
 	// Reload the mounted list-page tabs a chat round changed, across all warm
 	// sessions (a hidden preview would otherwise show pre-mutation content on
 	// return). tabsToReload picks only the tabs whose page is in `pages`.
-	function reloadTabs(pages: Set<string>) {
+	function reloadTabs(pages: Set<string>, entity: EntityToolEffect) {
 		for (const s of warmSessions) {
 			const owner = getRuntime(s.id)?.previewTabs
 			if (!owner) continue
 			for (const tab of tabsToReload(owner.tabs, pages)) {
 				const key = tabKey(s.id, tab.id)
-				if (mountedTabKeys.has(key)) tabHosts[key]?.reload()
+				if (mountedTabKeys.has(key)) tabHosts[key]?.reload({ entity })
 			}
 		}
 	}
 	function flushReload() {
 		const pages = pendingPages
+		const entity = pendingEntity
 		pendingPages = new Set()
-		reloadTabs(pages)
+		pendingEntity = 'none'
+		reloadTabs(pages, entity)
 	}
 	$effect(() => {
 		// Debounced so a burst of writes (the AI editing several files) reloads once.
 		setToolCompletionListener((name, args) => {
-			const { pages } = toolReloadEffect(name, args)
+			const { pages, entity } = toolReloadEffect(name, args)
 			if (pages.length === 0) return
 			for (const p of pages) pendingPages.add(p)
+			pendingEntity = strongerEntityEffect(pendingEntity, entity)
 			clearTimeout(reloadHandle)
 			reloadHandle = setTimeout(flushReload, 500)
 		})
 		return () => {
 			clearTimeout(reloadHandle)
 			pendingPages = new Set()
+			pendingEntity = 'none'
 			setToolCompletionListener(undefined)
 		}
 	})

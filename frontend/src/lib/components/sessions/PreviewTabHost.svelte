@@ -19,6 +19,7 @@
 		parsePreviewSelectedId,
 		showsView
 	} from './previewRouter'
+	import type { EntityToolEffect } from './previewReload'
 	import { withMenuHidden } from './sessionMode.svelte'
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
 	import { setOverlayHost } from '../common/overlayHost.svelte'
@@ -84,6 +85,11 @@
 
 	let frame: HTMLIFrameElement | undefined = $state()
 
+	// Bumped to remount a hosted entity editor, which is how it re-reads the item
+	// from the server: its own state is built at mount from the draft cell, so
+	// there is nothing to refresh in place once that cell has been dropped.
+	let entityNonce = $state(0)
+
 	// Pages whose theme we mirror on live toggles. Regular apps are the only item
 	// route that resolves to an iframe (scripts/flows/raw apps mount live editors)
 	// and they pin their own theme, so excluding item routes excludes exactly them.
@@ -104,14 +110,21 @@
 		applyPageIframeTheme(darkMode)
 	})
 
-	export function reload() {
+	export function reload(opts?: { entity?: EntityToolEffect }) {
 		// A live editor shares the runtime store the chat mutates, so generic chat
 		// edits are already reflected — no reload needed. Deploys refresh it via
 		// each editor view's onDeploy → runtime.syncPreviewWithDeployed. So only the
-		// iframe fallback (a separate page) has to be told to refresh. An entity
-		// editor is in-realm too: it holds a live UserDraft handle on the cell the
-		// chat's write seeds, and reloading would discard the user's edits with it.
-		if (slot.kind === 'editor' || slot.kind === 'entity') return
+		// iframe fallback (a separate page) has to be told to refresh.
+		if (slot.kind === 'editor') return
+		// An entity editor holds a live UserDraft handle on the cell the chat's
+		// write seeds, so a write needs nothing from here — but the tools that drop
+		// that cell go behind it: it has to be re-read from the server, or left
+		// when the item it edits no longer exists.
+		if (slot.kind === 'entity') {
+			if (opts?.entity === 'close') backToList?.()
+			else if (opts?.entity === 'refresh') entityNonce++
+			return
+		}
 		try {
 			const win = frame?.contentWindow
 			if (!win) return
@@ -153,7 +166,11 @@
 			? () => {
 					const page = entityListPage(slot.entityKind)
 					if (page)
-						runtime.previewTabs.navigate({ type: 'page', href: pageHref(page.path), label: page.label })
+						runtime.previewTabs.navigate({
+							type: 'page',
+							href: pageHref(page.path),
+							label: page.label
+						})
 				}
 			: undefined
 	)
@@ -335,26 +352,29 @@
 		aria-hidden={!active}
 	>
 		<!-- Dynamic import for the same reason as the editors above: these pull in
-		     the runnable pickers and the resource-type schema forms. -->
-		{#if slot.entityKind === 'trigger_schedule'}
-			{#await import('./ScheduleEditorView.svelte')}
-				{@render editorLoading()}
-			{:then Module}
-				<Module.default path={slot.path} {workspaceId} onBack={backToList} />
-			{/await}
-		{:else if slot.entityKind === 'resource'}
-			{#await import('./ResourceEditorView.svelte')}
-				{@render editorLoading()}
-			{:then Module}
-				<Module.default path={slot.path} {workspaceId} onBack={backToList} />
-			{/await}
-		{:else}
-			{#await import('./VariableEditorView.svelte')}
-				{@render editorLoading()}
-			{:then Module}
-				<Module.default path={slot.path} {workspaceId} onBack={backToList} />
-			{/await}
-		{/if}
+		     the runnable pickers and the resource-type schema forms. Keyed on the
+		     refresh nonce so a dropped draft cell remounts the editor (see reload). -->
+		{#key entityNonce}
+			{#if slot.entityKind === 'trigger_schedule'}
+				{#await import('./ScheduleEditorView.svelte')}
+					{@render editorLoading()}
+				{:then Module}
+					<Module.default path={slot.path} {workspaceId} onBack={backToList} />
+				{/await}
+			{:else if slot.entityKind === 'resource'}
+				{#await import('./ResourceEditorView.svelte')}
+					{@render editorLoading()}
+				{:then Module}
+					<Module.default path={slot.path} {workspaceId} onBack={backToList} />
+				{/await}
+			{:else}
+				{#await import('./VariableEditorView.svelte')}
+					{@render editorLoading()}
+				{:then Module}
+					<Module.default path={slot.path} {workspaceId} onBack={backToList} />
+				{/await}
+			{/if}
+		{/key}
 	</div>
 {:else if slot.kind === 'artifact' && mounted}
 	<div

@@ -15,32 +15,51 @@ import { stripBase, TRIGGER_PAGES, type TriggerKind } from './previewPaths'
 // no list page we preview lists open drafts. They fall through to NO_RELOAD.
 // This "live editors self-sync, only list pages reload" invariant is the reason
 // the callers below and in the sessions page reload nothing for item tabs.
-export type ToolReloadEffect = { pages: string[] }
-const NO_RELOAD: ToolReloadEffect = { pages: [] }
+/** What a tool asks of a hosted entity editor (see previewRouter's
+ * `IN_REALM_ENTITY_PAGES`) showing one of the affected pages. A plain write
+ * reaches it on its own — it holds the draft cell the write seeds — but the
+ * tools that clear or replace that cell go behind it, and the item can be gone
+ * altogether. `none` is what makes the live-editing case live. */
+export type EntityToolEffect = 'none' | 'refresh' | 'close'
+
+export type ToolReloadEffect = { pages: string[]; entity: EntityToolEffect }
+const NO_RELOAD: ToolReloadEffect = { pages: [], entity: 'none' }
 
 export function toolReloadEffect(name: string, args: any): ToolReloadEffect {
 	switch (name) {
 		case 'write_schedule':
-			return { pages: ['/schedules'] }
+			return { pages: ['/schedules'], entity: 'none' }
 		case 'write_trigger':
-			return { pages: triggerPages(args?.kind) }
+			return { pages: triggerPages(args?.kind), entity: 'none' }
 		case 'write_resource':
-			return { pages: ['/resources'] }
+			return { pages: ['/resources'], entity: 'none' }
 		case 'write_variable':
-			return { pages: ['/variables'] }
+			return { pages: ['/variables'], entity: 'none' }
 		case 'create_folder':
-			return { pages: ['/folders'] }
+			return { pages: ['/folders'], entity: 'none' }
 		// Generic item tools carry a workspace-item `type`; refresh its list page
 		// when it lives on one (schedule/resource/variable/trigger). script/flow/app
 		// have their own live editor tab and no previewed list page → nothing.
-		case 'delete_workspace_item':
+		// These all drop the draft the hosted editor is bound to: deploying or
+		// discarding replaces it with the deployed value, and deleting removes the
+		// item, so the editor is re-read from the server or left behind entirely.
 		case 'discard_local_draft':
 		case 'deploy_workspace_item':
 		case 'rebase_draft':
-			return { pages: pagesForItemType(args?.type, args) }
+			return { pages: pagesForItemType(args?.type, args), entity: 'refresh' }
+		case 'delete_workspace_item':
+			return { pages: pagesForItemType(args?.type, args), entity: 'close' }
 		default:
 			return NO_RELOAD
 	}
+}
+
+/** The stronger of two effects, for a debounced round that saw several tools:
+ * a delete outranks a refresh, which outranks nothing. */
+export function strongerEntityEffect(a: EntityToolEffect, b: EntityToolEffect): EntityToolEffect {
+	if (a === 'close' || b === 'close') return 'close'
+	if (a === 'refresh' || b === 'refresh') return 'refresh'
+	return 'none'
 }
 
 function pagesForItemType(type: unknown, args: any): string[] {

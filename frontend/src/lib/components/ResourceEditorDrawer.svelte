@@ -47,6 +47,9 @@
 
 	let drawer: Drawer | undefined = $state()
 	let historyDrawer: Drawer | undefined = $state()
+	// Bumped whenever the mounted editor's captured baseline is no longer the
+	// truth (see editorBody).
+	let editorGeneration = $state(0)
 	let canSave = $state(true)
 	let resource_type: string | undefined = $state(undefined)
 	let defaultValues: Record<string, any> | undefined = $state(undefined)
@@ -131,23 +134,30 @@
 </script>
 
 {#snippet editorBody()}
-	{#await import('./ResourceEditor.svelte')}
-		<Loader2 class="animate-spin" />
-	{:then Module}
-		<Module.default
-			{path}
-			{resource_type}
-			{defaultValues}
-			{workspace}
-			on:refresh
-			bind:this={resourceEditor}
-			bind:canSave
-			bind:selected
-			bind:viewJsonSchema
-			onDraftStateChange={(v) => (hasLocalDraft = v)}
-			onCanWriteChange={(v) => (canWriteSelected = v)}
-		/>
-	{/await}
+	<!-- ResourceEditor reads `path` once, at init, and every fetch/draft handle/save
+	     inside it goes through that captured value — so it has to be remounted, not
+	     re-pointed, whenever what this host shows changes. `editorGeneration` covers
+	     the changes the path alone doesn't name: restoring an old version replaces
+	     the deployed value the mounted editor still holds as its baseline. -->
+	{#key `${path ?? ''}#${editorGeneration}`}
+		{#await import('./ResourceEditor.svelte')}
+			<Loader2 class="animate-spin" />
+		{:then Module}
+			<Module.default
+				{path}
+				{resource_type}
+				{defaultValues}
+				{workspace}
+				on:refresh
+				bind:this={resourceEditor}
+				bind:canSave
+				bind:selected
+				bind:viewJsonSchema
+				onDraftStateChange={(v) => (hasLocalDraft = v)}
+				onCanWriteChange={(v) => (canWriteSelected = v)}
+			/>
+		{/await}
+	{/key}
 {/snippet}
 
 {#snippet draftBanner()}
@@ -273,10 +283,13 @@
 				canClear={canClearSelected}
 				onRestore={() => {
 					historyDrawer?.closeDrawer()
-					// Close the editor too. It holds a baseline captured before the restore, and
+					// Drop the editor. It holds a baseline captured before the restore, and
 					// any local draft on top of it, so saving from it afterwards would write the
-					// pre-restore value straight back over the version just restored.
+					// pre-restore value straight back over the version just restored. Closing
+					// the drawer is what does that when there is one; rendered inline there is
+					// no drawer to close, so remount it onto the restored value instead.
 					drawer?.closeDrawer()
+					editorGeneration++
 					// Its own callback rather than the `refresh` event: callers bind that to
 					// reopening a picker (EditorBar), which a restore should not trigger.
 					onRestored?.()
