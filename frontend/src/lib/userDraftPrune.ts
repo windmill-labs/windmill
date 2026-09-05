@@ -8,12 +8,19 @@
  * browser, after the localStorage→DB migration so anything it just uploaded is
  * swept too.
  *
+ * Scoped to the kinds whose editors this gate covers. A script, flow or app
+ * draft only ever came from an explicit edit, so there is no phantom to clear
+ * there — and `getDraftDiffValues` would fetch each one's full deployed payload
+ * at login to prove it.
+ *
  * A draft is dropped only when the diff the user would be shown is empty: both
  * sides come from `getDraftDiffValues`, the same canonicalization the diff
  * drawer renders, compared with the same `draftValuesEqual` the editors use.
  * Anything that can't be established is left alone — a `draft_only` item (no
  * deployed counterpart, so discarding would destroy the item itself), a kind
- * with no diff support, a failed fetch.
+ * with no diff support, a failed fetch, and the legacy workspace-level rows,
+ * which belong to nobody, are admin-gated to migrate, and whose discard path
+ * takes no `last_sync` and so could not be conditioned anyway.
  *
  * Deleting is the dangerous half, and the equality behind it is always stale:
  * it was read one round trip ago, and every candidate is read before any is
@@ -36,6 +43,12 @@ import { invalidateWorkspaceDrafts } from './workspaceDrafts.svelte'
 
 const SENTINEL_PREFIX = 'userdraft/pruned/v1/'
 
+/** The editors whose forms are built from a schema, and so the only kinds that
+ * could have banked a draft nobody wrote. */
+function isGatedKind(kind: UserDraftItemKind): boolean {
+	return kind === 'resource' || kind.startsWith('trigger_')
+}
+
 /** Overlay GETs are one round trip each and a cluttered workspace has dozens;
  * a small window keeps the sweep off the critical path of a fresh login. */
 const CONCURRENCY = 4
@@ -46,7 +59,6 @@ const inFlight = new Set<string>()
 type Candidate = {
 	kind: UserDraftItemKind
 	path: string
-	legacy: boolean
 	/** The row's `created_at` as listed — the baseline the delete is conditioned on. */
 	createdAt: string
 }
@@ -106,15 +118,24 @@ export async function pruneMeaninglessDrafts(workspace: string, userKey: string)
 	inFlight.add(sentinel)
 	try {
 		const rows = await DraftService.listDrafts({ workspace })
+		// Anything left unresolved keeps the pass open: a row skipped as busy was
+		// never judged, and one whose delete failed is still there. Sealing on
+		// either would strand it — a later pass in the same session would skip it
+		// again (a failed key reads as busy) and then seal with nothing attempted.
+		let unresolved = 0
 		const candidates: Candidate[] = rows
 			// `draft_only` rows ARE the item; `mine` / `can_write` are the same
 			// gate the discard endpoint enforces, so anything else would 403.
 			.filter((r) => !r.draft_only && r.mine && r.can_write)
-			.filter((r) => !busyLocally(workspace, r.kind, r.path))
+			.filter((r) => isGatedKind(r.kind) && !r.legacy_draft)
+			.filter((r) => {
+				if (!busyLocally(workspace, r.kind, r.path)) return true
+				unresolved++
+				return false
+			})
 			.map((r) => ({
 				kind: r.kind,
 				path: r.path,
-				legacy: r.legacy_draft,
 				createdAt: r.created_at
 			}))
 
@@ -124,27 +145,27 @@ export async function pruneMeaninglessDrafts(workspace: string, userKey: string)
 		})
 
 		let discarded = 0
-		let failed = 0
 		for (const c of empty) {
 			// Re-check: the reads above took a while, and the user may have opened
 			// this item in the meantime.
-			if (busyLocally(workspace, c.kind, c.path)) continue
+			if (busyLocally(workspace, c.kind, c.path)) {
+				unresolved++
+				continue
+			}
 			const q = { workspace, itemKind: c.kind, path: c.path }
 			UserDraftDbSyncer.recordRemoteSync(q, c.createdAt)
-			const res = await discardDraft(c.kind, c.path, workspace, false, c.legacy, false)
+			const res = await discardDraft(c.kind, c.path, workspace, false, false, false)
 			// Neither outcome throws: the syncer swallows an HTTP failure into its
 			// per-key state, and a delete refused for a moved row comes back as a
 			// conflict. So `success` alone says nothing about whether the row went.
-			if (!res.success || UserDraftDbSyncer.getState(q).state === 'failed') failed++
+			if (!res.success || UserDraftDbSyncer.getState(q).state === 'failed') unresolved++
 			else if (!UserDraftDbSyncer.getConflict(q).conflict) discarded++
 		}
 		if (discarded > 0) {
 			invalidateWorkspaceDrafts(workspace)
 			sendUserToast(`Cleared ${discarded} draft${discarded > 1 ? 's' : ''} that carried no changes`)
 		}
-		// Only once every deletion this pass attempted actually landed. A draft
-		// left behind by a failed delete would otherwise never be revisited.
-		if (failed === 0) {
+		if (unresolved === 0) {
 			try {
 				localStorage.setItem(sentinel, new Date().toISOString())
 			} catch {

@@ -1,6 +1,23 @@
 import { onDestroy } from 'svelte'
 
 /**
+ * What kind of event opened the gate.
+ *
+ * - `value`: the user changed something — the event *is* the edit.
+ * - `precursor`: a gesture that usually precedes an edit. Needed because a
+ *   custom component (a picker, a toggle built out of divs) writes its value
+ *   through Svelte state and fires no native value event at all, so waiting for
+ *   one would drop those edits. The cost is that a bare click counts too.
+ */
+export type UserInputKind = 'value' | 'precursor'
+
+/** Events that ARE an edit. `drop` and `paste` matter on their own: text
+ * dragged in from another application, or an assistive technology activating a
+ * control, produce no pointer or key event in this document at all. */
+const VALUE_EVENTS = ['input', 'change', 'drop', 'paste'] as const
+const PRECURSOR_EVENTS = ['pointerdown', 'keydown'] as const
+
+/**
  * A draft is supposed to record what the USER changed, but an editor built
  * from a schema writes into the value on its own: the form materializes a
  * property the stored item never carried (an empty string, `false`, the first
@@ -16,25 +33,30 @@ import { onDestroy } from 'svelte'
  * gating means for them — suspending the autosave, absorbing the settled value
  * into the deployed baseline, or both.
  *
- * `pointerdown` and `keydown` are the two events that precede every human
- * edit, and capture phase puts this ahead of the handler that writes the
- * value, so a gate opened here is already open by the time the edit lands.
- * Listening on the document rather than the editor's own subtree is
- * deliberate: pickers and modals render in portals outside it, and missing a
- * real edit would silently drop the user's work, while opening the gate too
- * eagerly only costs the phantom draft that existed before.
+ * Capture phase puts this ahead of the handler that writes the value, so a gate
+ * opened here is already open by the time the edit lands. Listening on the
+ * document rather than the editor's own subtree is deliberate: pickers and
+ * modals render in portals outside it, and missing a real edit would silently
+ * drop the user's work, while opening the gate too eagerly only costs the
+ * phantom draft that existed before.
  *
  * Registers for the lifetime of the calling component — call it during init.
  */
-export function onUserInput(handle: () => void): void {
+export function onUserInput(handle: (kind: UserInputKind) => void): void {
 	if (typeof document === 'undefined') return
-	const onEvent = (e: Event) => {
-		if (e.isTrusted) handle()
+	const listeners: Array<[string, (e: Event) => void]> = []
+	const register = (type: string, kind: UserInputKind) => {
+		const onEvent = (e: Event) => {
+			// A programmatic `dispatchEvent` is untrusted, which is what keeps the
+			// form's own settling from opening the gate it is gated by.
+			if (e.isTrusted) handle(kind)
+		}
+		document.addEventListener(type, onEvent, true)
+		listeners.push([type, onEvent])
 	}
-	document.addEventListener('pointerdown', onEvent, true)
-	document.addEventListener('keydown', onEvent, true)
+	for (const type of VALUE_EVENTS) register(type, 'value')
+	for (const type of PRECURSOR_EVENTS) register(type, 'precursor')
 	onDestroy(() => {
-		document.removeEventListener('pointerdown', onEvent, true)
-		document.removeEventListener('keydown', onEvent, true)
+		for (const [type, onEvent] of listeners) document.removeEventListener(type, onEvent, true)
 	})
 }

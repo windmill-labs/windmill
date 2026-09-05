@@ -150,10 +150,46 @@ describe('pruneMeaninglessDrafts', () => {
 		await pruneMeaninglessDrafts('main', 'me@x.dev')
 		expect(sendUserToast).not.toHaveBeenCalled()
 		discardDraft.mockResolvedValue({ success: true })
-		// Sentinel unwritten, so the next mount retries the draft left behind.
+		// A same-session retry sees the key as busy (a failed save leaves the
+		// payload parked), attempts nothing — and must still not seal the pass.
+		await pruneMeaninglessDrafts('main', 'me@x.dev')
+		expect(discardedPaths()).toEqual(['u/me/r'])
+		// Once the failure clears, the draft left behind is finally retried.
 		syncState = 'none'
 		await pruneMeaninglessDrafts('main', 'me@x.dev')
 		expect(discardedPaths()).toEqual(['u/me/r', 'u/me/r'])
+	})
+
+	it('never touches a legacy workspace-level row', async () => {
+		listDrafts.mockResolvedValue([row({ legacy_draft: true })])
+		getDraftDiffValues.mockResolvedValue(diff())
+		await pruneMeaninglessDrafts('main', 'me@x.dev')
+		expect(discardDraft).not.toHaveBeenCalled()
+	})
+
+	it('only sweeps the kinds whose editors are gated', async () => {
+		listDrafts.mockResolvedValue([
+			row({ kind: 'script', path: 'u/me/s' }),
+			row({ kind: 'flow', path: 'u/me/f' }),
+			row({ kind: 'app', path: 'u/me/a' }),
+			row({ kind: 'trigger_schedule', path: 'u/me/sched' }),
+			row()
+		])
+		getDraftDiffValues.mockResolvedValue(diff())
+		await pruneMeaninglessDrafts('main', 'me@x.dev')
+		expect(discardedPaths().sort()).toEqual(['u/me/r', 'u/me/sched'])
+		// The expensive payload fetches are never made for the ungated kinds.
+		expect(getDraftDiffValues).toHaveBeenCalledTimes(2)
+	})
+
+	it('leaves the pass open when a row was skipped as busy', async () => {
+		liveDraft = true
+		listDrafts.mockResolvedValue([row()])
+		getDraftDiffValues.mockResolvedValue(diff())
+		await pruneMeaninglessDrafts('main', 'me@x.dev')
+		liveDraft = false
+		await pruneMeaninglessDrafts('main', 'me@x.dev')
+		expect(discardedPaths()).toEqual(['u/me/r'])
 	})
 
 	it('runs once per workspace and user', async () => {

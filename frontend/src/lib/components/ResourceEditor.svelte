@@ -136,8 +136,16 @@
 	// to its form — the form is not on screen yet — but it would open the gate,
 	// and the gating effect would then un-suspend the moment the fetch lands,
 	// in time for the schema's materialized values to POST as a draft.
-	onUserInput(() => {
-		if (selected && selected in states) userEdited[selected] = true
+	//
+	// The same holds for the rest of the load: the schema arrives separately and
+	// materializes on arrival, so until it settles a bare click is not enough to
+	// call this an edit. `Path`, the labels and the description ARE editable
+	// through that window though — they render above the schema form's skeleton
+	// — so a real value event still opens the gate and keeps that edit.
+	onUserInput((kind) => {
+		if (!selected || !(selected in states)) return
+		if (kind === 'precursor' && loadingSchema) return
+		userEdited[selected] = true
 	})
 
 	$effect(() => {
