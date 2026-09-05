@@ -1,0 +1,56 @@
+name: Sign image and attach provenance
+description: >
+  Keyless-signs a pushed image digest with cosign (index and per-arch
+  manifests) and records SLSA provenance as a GitHub artifact attestation
+  pushed to the registry. SBOMs are not generated here: the build step embeds
+  them as BuildKit attestation manifests (depot `sbom: true`), which the index
+  signature then covers. The calling job must already be logged in to the
+  registry and must have id-token: write, attestations: write and
+  packages: write permissions (write-all covers all three).
+inputs:
+  image:
+    description: "Fully-qualified image name without tag, e.g. ghcr.io/windmill-labs/windmill"
+    required: true
+  digest:
+    description: "Pushed manifest digest (sha256:...) from build-push-action"
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Preflight
+      shell: bash
+      env:
+        DIGEST: ${{ inputs.digest }}
+      run: |
+        if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+          echo "::error::No OIDC token available; the calling job needs id-token: write"
+          exit 1
+        fi
+        case "$DIGEST" in
+          sha256:*) ;;
+          *)
+            echo "::error::digest '$DIGEST' is not a sha256: digest"
+            exit 1
+            ;;
+        esac
+
+    # cosign v2 writes the classic sha256-<digest>.sig tag format that the
+    # installed base of cosign clients can verify; v3's bundle format cannot be
+    # verified by v2 clients yet, so stay on v2 until v3 verification is common.
+    - uses: sigstore/cosign-installer@v4.1.2
+      with:
+        cosign-release: "v2.6.5"
+
+    - name: Cosign keyless sign (index + per-arch manifests)
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        DIGEST: ${{ inputs.digest }}
+      run: cosign sign --yes --recursive "${IMAGE}@${DIGEST}"
+
+    - name: SLSA provenance (GitHub artifact attestation)
+      uses: actions/attest-build-provenance@v4
+      with:
+        subject-name: ${{ inputs.image }}
+        subject-digest: ${{ inputs.digest }}
+        push-to-registry: true

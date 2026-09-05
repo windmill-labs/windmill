@@ -29,6 +29,10 @@
     "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
     "token_url": "https://oauth2.googleapis.com/token",
     "scopes": ["https://www.googleapis.com/auth/spreadsheets"],
+    "scope_options": [
+      "https://www.googleapis.com/auth/spreadsheets",
+      "https://www.googleapis.com/auth/spreadsheets.readonly"
+    ],
     "extra_params": {
       "access_type": "offline",
       "prompt": "consent"
@@ -38,6 +42,11 @@
     "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
     "token_url": "https://oauth2.googleapis.com/token",
     "scopes": ["https://www.googleapis.com/auth/drive"],
+    "scope_options": [
+      "https://www.googleapis.com/auth/drive.file",
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/drive"
+    ],
     "extra_params": {
       "access_type": "offline",
       "prompt": "consent"
@@ -47,6 +56,13 @@
     "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
     "token_url": "https://oauth2.googleapis.com/token",
     "scopes": ["https://www.googleapis.com/auth/gmail.send"],
+    "scope_options": [
+      "https://www.googleapis.com/auth/gmail.send",
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.compose",
+      "https://www.googleapis.com/auth/gmail.modify",
+      "https://www.googleapis.com/auth/gmail.labels"
+    ],
     "extra_params": {
       "access_type": "offline",
       "prompt": "consent"
@@ -56,6 +72,12 @@
     "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
     "token_url": "https://oauth2.googleapis.com/token",
     "scopes": ["https://www.googleapis.com/auth/calendar.events"],
+    "scope_options": [
+      "https://www.googleapis.com/auth/calendar.events",
+      "https://www.googleapis.com/auth/calendar.events.readonly",
+      "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/calendar"
+    ],
     "extra_params": {
       "access_type": "offline",
       "prompt": "consent"
@@ -65,6 +87,12 @@
     "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
     "token_url": "https://oauth2.googleapis.com/token",
     "scopes": ["https://www.googleapis.com/auth/forms"],
+    "scope_options": [
+      "https://www.googleapis.com/auth/forms",
+      "https://www.googleapis.com/auth/forms.body",
+      "https://www.googleapis.com/auth/forms.body.readonly",
+      "https://www.googleapis.com/auth/forms.responses.readonly"
+    ],
     "extra_params": {
       "access_type": "offline",
       "prompt": "consent"
@@ -74,6 +102,10 @@
     "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
     "token_url": "https://oauth2.googleapis.com/token",
     "scopes": ["https://www.googleapis.com/auth/cloud-platform"],
+    "scope_options": [
+      "https://www.googleapis.com/auth/cloud-platform",
+      "https://www.googleapis.com/auth/cloud-platform.read-only"
+    ],
     "extra_params": {
       "access_type": "offline",
       "prompt": "consent"
@@ -87,6 +119,15 @@
       "https://www.googleapis.com/auth/admin.directory.user",
       "https://www.googleapis.com/auth/admin.directory.user.security",
       "https://www.googleapis.com/auth/admin.directory.orgunit"
+    ],
+    "scope_options": [
+      "https://www.googleapis.com/auth/admin.directory.user",
+      "https://www.googleapis.com/auth/admin.directory.user.readonly",
+      "https://www.googleapis.com/auth/admin.directory.group",
+      "https://www.googleapis.com/auth/admin.directory.group.readonly",
+      "https://www.googleapis.com/auth/admin.directory.orgunit",
+      "https://www.googleapis.com/auth/admin.directory.orgunit.readonly",
+      "https://www.googleapis.com/auth/admin.directory.user.security"
     ],
     "extra_params": {
       "access_type": "offline",

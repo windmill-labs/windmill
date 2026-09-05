@@ -1,22 +1,16 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import type { OpenInSessionSource } from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import {
-		createInlineScriptModule,
-		createBranchAll,
-		createBranches,
-		createLoop,
-		createWhileLoop,
-		emptyModule,
-		pickScript,
-		pickFlow,
 		insertNewPreprocessorModule,
-		createAiAgent
+		createNewModule as createNewModuleIn,
+		insertNewModuleAtIndex as insertNewModuleAt,
+		insertAgentTool
 	} from '$lib/components/flows/flowStateUtils.svelte'
 	import type { FlowModule, Job, ScriptLang } from '$lib/gen'
 	import { emptyFlowModuleState } from '../utils.svelte'
-	import { stepSettingDefaults } from '../flowStepSettings'
 
 	import { dfs } from '../dfs'
 	import { nextId, copyId } from '../flowModuleNextId'
@@ -27,7 +21,6 @@
 
 	import { locateModules, groupByParent } from '../multiSelectUtils'
 	import { workspaceStore } from '$lib/stores'
-	import { copilotInfo } from '$lib/aiStore'
 	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
 	import { replaceId } from '../flowStore.svelte'
@@ -38,23 +31,12 @@
 	import { addBranch as addBranchOp, removeBranch as removeBranchOp } from '../branchOps'
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 	import { MoveManager } from '$lib/components/graph/moveManager.svelte'
-	import { refreshFlowStateStore } from '../flowStoreRefresh.svelte'
 	import type { GraphModuleState } from '$lib/components/graph'
 	import FlowStickyNode from './FlowStickyNode.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import { ModulesTestStates } from '$lib/components/modulesTest.svelte'
 	import type { StateStore } from '$lib/utils'
-	import {
-		type AgentTool,
-		type SpecialToolKind,
-		newFlowModuleAgentTool,
-		createMcpTool,
-		createWebsearchTool,
-		createAiAgentTool,
-		SPECIAL_TOOL_KINDS,
-		agentToolToFlowModule
-	} from '../agentToolUtils'
-	import { loadFlowModuleState } from '../flowStateUtils.svelte'
+	import { type AgentTool, type SpecialToolKind } from '../agentToolUtils'
 	import type { DeletePlan } from '../flowDeleteUtils'
 	import { executeDeletePlan, prepareDeleteRequest } from '../flowDeleteController'
 	import { getNoteEditorContext } from '$lib/components/graph/noteEditor.svelte'
@@ -161,62 +143,56 @@
 	})
 
 	/** Create a new FlowModule without inserting it into any array */
-	async function createNewModule(
+	function createNewModule(
 		kind: InsertKind,
 		wsScript?: { path: string; summary: string; hash: string | undefined },
 		wsFlow?: { path: string; summary: string },
 		inlineScript?: InlineScript,
 		agentPath?: string
 	): Promise<FlowModule> {
-		let module = emptyModule(flowStateStore.val, flowStore.val, kind == 'flow')
-		let state = emptyFlowModuleState()
-		flowStateStore.val[module.id] = state
-		if (wsFlow) {
-			;[module, state] = await pickFlow(wsFlow.path, wsFlow.summary, module.id, opWs)
-		} else if (wsScript) {
-			;[module, state] = await pickScript(
-				wsScript.path,
-				wsScript.summary,
-				module.id,
-				wsScript.hash,
-				kind,
-				opWs
-			)
-		} else if (kind == 'forloop') {
-			;[module, state] = await createLoop(module.id, !disableAi && $copilotInfo.enabled)
-		} else if (kind == 'whileloop') {
-			;[module, state] = await createWhileLoop(module.id)
-		} else if (kind == 'branchone') {
-			;[module, state] = await createBranches(module.id)
-		} else if (kind == 'branchall') {
-			;[module, state] = await createBranchAll(module.id)
-		} else if (kind == 'aiagent') {
-			;[module, state] = await createAiAgent(module.id, agentPath)
-		} else if (inlineScript) {
-			const { language, kind, subkind, summary } = inlineScript
-			;[module, state] = await createInlineScriptModule(language, kind, subkind, module.id, summary)
-			flowStateStore.val[module.id] = state
-			if (kind == 'trigger') {
-				module.summary = 'Trigger'
-			} else if (kind == 'approval') {
-				module.summary = 'Approval'
-			}
-		}
-		flowStateStore.val[module.id] = state
-
-		if (kind == 'approval') {
-			module.suspend = stepSettingDefaults('suspend')
-		} else if (kind == 'trigger') {
-			module.stop_after_if = stepSettingDefaults('early-stop', 'trigger')
-		} else if (kind == 'end') {
-			module.summary = 'Terminate flow'
-			module.stop_after_if = stepSettingDefaults('early-stop', 'end')
-		}
-
-		return module
+		return createNewModuleIn(
+			flowStore,
+			flowStateStore,
+			kind,
+			wsScript,
+			wsFlow,
+			inlineScript,
+			agentPath,
+			opWs,
+			disableAi
+		)
 	}
 
-	export async function insertNewModuleAtIndex(
+	/**
+	 * Add a tool to an agent, from the graph's own `+ Tool` or from a surface that has no graph
+	 * node to click — the agent step's Tools section. Kept here because it needs the map's history,
+	 * id allocation and `flowStateStore` seeding.
+	 */
+	export async function addToolToAgent(
+		agentId: string,
+		detail: { kind: string; script?: any; flow?: any; inlineScript?: any }
+	) {
+		push(history, flowStore.val)
+		const agentMod = findModuleInFlow(flowStore.val.value, agentId)
+		const agentValue = agentMod?.value as { tools?: AgentTool[] } | undefined
+		if (agentValue) {
+			const id = await insertAgentTool(
+				flowStore,
+				flowStateStore,
+				agentValue,
+				detail,
+				opWs,
+				disableAi
+			)
+			// Reveal the new tool's config right away — in modal (unanchored) panel mode its editor
+			// is otherwise hidden behind the graph.
+			if (id) selectionManager.selectId(id, { openPanel: true })
+		}
+		refreshStateStore(flowStore)
+		dispatch('change')
+	}
+
+	export function insertNewModuleAtIndex(
 		modules: FlowModule[] | AgentTool[],
 		index: number,
 		kind: InsertKind,
@@ -226,38 +202,19 @@
 		toolKind?: SpecialToolKind | 'flowmoduleTool'
 	): Promise<FlowModule[] | AgentTool[]> {
 		push(history, flowStore.val)
-		const module = await createNewModule(kind, wsScript, wsFlow, inlineScript)
-
-		if (!modules) return [module]
-
-		if (toolKind === 'mcpTool') {
-			// Create MCP AgentTool
-			const mcpTool = createMcpTool(module.id)
-			;(modules as AgentTool[]).splice(index, 0, mcpTool)
-			return modules as AgentTool[]
-		} else if (toolKind === 'websearchTool') {
-			// Create Websearch AgentTool
-			const websearchTool = createWebsearchTool(module.id)
-			;(modules as AgentTool[]).splice(index, 0, websearchTool)
-			return modules as AgentTool[]
-		} else if (toolKind === 'aiAgentTool') {
-			// Create AI Agent tool (nested agent)
-			const aiAgentTool = createAiAgentTool(module.id)
-			flowStateStore.val[module.id] = await loadFlowModuleState(
-				agentToolToFlowModule(aiAgentTool),
-				opWs
-			)
-			;(modules as AgentTool[]).splice(index, 0, aiAgentTool)
-			return modules as AgentTool[]
-		} else if (toolKind === 'flowmoduleTool') {
-			const agentTool = newFlowModuleAgentTool(module)
-			;(modules as AgentTool[]).splice(index, 0, agentTool)
-			return modules as AgentTool[]
-		} else {
-			// Standard FlowModule insertion
-			modules.splice(index, 0, module)
-			return modules
-		}
+		return insertNewModuleAt(
+			flowStore,
+			flowStateStore,
+			modules,
+			index,
+			kind,
+			wsScript,
+			wsFlow,
+			inlineScript,
+			toolKind,
+			opWs,
+			disableAi
+		)
 	}
 
 	let sidebarMode: 'list' | 'graph' = 'graph'
@@ -409,7 +366,7 @@
 			parentArr.splice(lastIndex + 1, 0, ...clones)
 		}
 
-		refreshFlowStateStore(flowStore)
+		refreshStateStore(flowStore)
 		selectionManager.selectByIds(allCloneIds)
 	}
 
@@ -669,7 +626,7 @@
 							selectionManager.selectId(movingId)
 						}
 						moveManager.clearMoving()
-						refreshFlowStateStore(flowStore)
+						refreshStateStore(flowStore)
 						dispatch('change')
 					}
 
@@ -705,47 +662,18 @@
 							instructions: detail.inlineScript?.instructions
 						})
 					}
-					refreshFlowStateStore(flowStore)
+					refreshStateStore(flowStore)
 					dispatch('change')
+					return
+				}
+
+				// Agent tool inserts operate on the FlowModule's tools array directly
+				if (detail.agentId) {
+					await addToolToAgent(detail.agentId, detail)
 					return
 				}
 
 				push(history, flowStore.val)
-
-				const isAgentInsert = !!detail.agentId
-				const toolKind: SpecialToolKind | 'flowmoduleTool' | undefined = isAgentInsert
-					? (SPECIAL_TOOL_KINDS as readonly string[]).includes(detail.kind)
-						? (detail.kind as SpecialToolKind)
-						: 'flowmoduleTool'
-					: undefined
-
-				// Agent tool inserts operate on the FlowModule's tools array directly
-				if (isAgentInsert) {
-					const agentMod = findModuleInFlow(flowStore.val.value, detail.agentId!)
-					const agentValue = agentMod?.value as { tools?: AgentTool[] } | undefined
-					if (agentValue) {
-						// `tools` is optional, so a module authored without it starts undefined here and
-						// would silently swallow its first tool.
-						agentValue.tools ??= []
-						const tools = agentValue.tools
-						await insertNewModuleAtIndex(
-							tools,
-							tools.length,
-							detail.kind as InsertKind,
-							detail.script,
-							detail.flow ? { path: detail.flow.path, summary: detail.flow.summary } : undefined,
-							detail.inlineScript,
-							toolKind
-						)
-						const id = tools[tools.length - 1].id
-						// Reveal the new tool's config right away — in modal (unanchored)
-						// panel mode its editor is otherwise hidden behind the graph.
-						selectionManager.selectId(id, { openPanel: true })
-					}
-					refreshFlowStateStore(flowStore)
-					dispatch('change')
-					return
-				}
 
 				// Regular module insert: create the module, then insert a leaf node via tree mutation
 				const module = await createNewModule(
@@ -823,13 +751,13 @@
 				if (['branchone', 'branchall'].includes(detail.kind)) {
 					await addBranch(module.id)
 				}
-				refreshFlowStateStore(flowStore)
+				refreshStateStore(flowStore)
 				dispatch('change')
 			}}
 			onNewBranch={async (id) => {
 				if (id) {
 					await addBranch(id)
-					refreshFlowStateStore(flowStore)
+					refreshStateStore(flowStore)
 				}
 			}}
 			onSelect={(id) => {
@@ -883,13 +811,13 @@
 				}
 				flowStateStore.val[newId] = flowStateStore.val[id]
 				delete flowStateStore.val[id]
-				refreshFlowStateStore(flowStore)
+				refreshStateStore(flowStore)
 				selectionManager.selectId(newId)
 			}}
 			onDeleteBranch={async ({ id, index }) => {
 				if (id) {
 					await removeBranch(id, index)
-					refreshFlowStateStore(flowStore)
+					refreshStateStore(flowStore)
 					selectionManager.selectId(id)
 				}
 			}}
@@ -928,7 +856,7 @@
 				})
 
 				targetModules.splice(targetIndex + 1, 0, clone)
-				refreshFlowStateStore(flowStore)
+				refreshStateStore(flowStore)
 				selectionManager.selectId(clone.id, { openPanel: true })
 			}}
 			onUpdateMock={(detail) => {
@@ -937,7 +865,7 @@
 					throw new Error(`Node ${detail.id} not found`)
 				}
 				module.mock = $state.snapshot(detail.mock)
-				refreshFlowStateStore(flowStore)
+				refreshStateStore(flowStore)
 			}}
 			{onTestFlow}
 			{isRunning}

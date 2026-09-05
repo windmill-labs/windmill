@@ -25,6 +25,9 @@
 		defaultValues?: Record<string, any> | undefined
 		workspace?: string | undefined
 		selected?: string | undefined
+		/** Show the value as JSON rather than as the resource type's form. Bindable so a caller can
+		 *  choose the view a given resource opens on, and the in-form toggle still works. */
+		viewJsonSchema?: boolean
 		/** Notifies the parent drawer whether a local draft for the selected
 		 * workspace diverges from the deployed baseline, so it can show the
 		 * "unsaved changes" banner below its header. */
@@ -44,6 +47,7 @@
 		defaultValues = undefined,
 		workspace = undefined,
 		selected: selectedProp = $bindable(),
+		viewJsonSchema = $bindable(),
 		onDraftStateChange,
 		onCanWriteChange
 	}: Props = $props()
@@ -151,7 +155,6 @@
 
 	let isValid = $state(true)
 	let jsonError = $state('')
-	let viewJsonSchema = $state(false)
 	let perWsValid: Record<string, boolean> = $state({})
 
 	const deployToResource = resource(
@@ -469,7 +472,7 @@
 					bind:args={current.args}
 					bind:wsSpecific={current.wsSpecific}
 					bind:isValid
-					bind:viewJsonSchema
+					bind:viewJsonSchema={() => viewJsonSchema ?? false, (v) => (viewJsonSchema = v)}
 					bind:jsonError
 					{initialPath}
 					{hidePath}

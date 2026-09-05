@@ -13,9 +13,13 @@ permissions:
   contents: read
   id-token: write
   packages: write
+  attestations: write
 
 jobs:
   publish_cli:
+    # a tag-targeted dispatch would republish the release tags unsigned,
+    # un-verifying the release; to republish a release, re-push its tag
+    if: github.event_name == 'push' || !startsWith(github.ref, 'refs/tags/')
     runs-on: ubicloud
     steps:
       - uses: actions/checkout@v4
@@ -42,14 +46,23 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push publicly
+        id: docker_build
         uses: depot/build-push-action@v1
         with:
           file: "./docker/DockerfileCli"
           platforms: linux/amd64,linux/arm64
           push: true
+          sbom: ${{ startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ steps.meta.outputs.tags }}
           labels: |
             ${{ steps.meta.outputs.labels }}
             org.opencontainers.image.licenses=AGPLv3
+
+      - name: Sign and attest release image
+        if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+        uses: ./.github/actions/sign-attest-image
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          digest: ${{ steps.docker_build.outputs.digest }}

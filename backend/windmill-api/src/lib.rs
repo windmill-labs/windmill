@@ -378,6 +378,7 @@ async fn inject_agent_authed(
                 token_prefix: None,
                 read_only: false,
                 job_id: None,
+                credential_expiry: None,
             },
             job_id: None,
         });

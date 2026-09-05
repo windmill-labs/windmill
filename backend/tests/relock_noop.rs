@@ -1,3 +1,7 @@
+// These pin language-independent behaviour, and Python is the cheapest runtime that still
+// generates a real lock out of relative imports, so the whole file needs that feature.
+#![cfg(feature = "python")]
+
 use sqlx::{Pool, Postgres};
 use tokio_stream::StreamExt;
 use windmill_api_client::types::NewScript;
@@ -6,21 +10,27 @@ use windmill_test_utils::*;
 
 const W: &str = "test-workspace";
 
-const A: &str = r#"export async function main() { return "a" }"#;
-const A_COMMENTED: &str = r#"// same dependencies, different content
-export async function main() { return "a" }"#;
-const A_WITH_LODASH: &str = r#"import _ from "lodash@4.17.21";
-export async function main() { return _.trim(" a ") }"#;
-const B: &str = r#"import { main as a } from "/f/rel/a.ts";
-export async function main() { return "b" + (await a()) }"#;
-const C: &str = r#"import { main as b } from "/f/rel/b.ts";
-export async function main() { return "c" + (await b()) }"#;
+/// Budget for one wait below, counted completions and drain together. Even against a cold cache
+/// these settle in a few seconds, so it only bounds a step that is stuck, and it stays under the
+/// 60s cap `in_test_worker` puts on the whole body so the panic names what was being waited on
+/// rather than surfacing as a worker timeout.
+const WAIT_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
 
-fn bun_script(path: &str, content: &str, parent_hash: Option<String>) -> NewScript {
+/// How often the waits below re-check. The drain reads the queue once per completion it waits
+/// this long for, so it doubles as the floor on one turn of that loop.
+const POLL: std::time::Duration = std::time::Duration::from_millis(20);
+
+const A: &str = "def main():\n    return 'a'\n";
+const A_COMMENTED: &str = "# same dependencies, different content\ndef main():\n    return 'a'\n";
+const A_WITH_TINY: &str = "import tiny\n\ndef main():\n    return 'a'\n";
+const B: &str = "from f.rel.a import main as a\n\ndef main():\n    return 'b' + a()\n";
+const C: &str = "from f.rel.b import main as b\n\ndef main():\n    return 'c' + b()\n";
+
+fn py_script(path: &str, content: &str, parent_hash: Option<String>) -> NewScript {
     NewScript {
         draft_only: None,
         content: content.into(),
-        language: windmill_api_client::types::ScriptLang::Bun,
+        language: windmill_api_client::types::ScriptLang::Python3,
         lock: None,
         parent_hash,
         path: path.into(),
@@ -96,17 +106,33 @@ async fn dependency_jobs_since(
 }
 
 async fn wait_for_jobs(
+    db: &Pool<Postgres>,
     completed: &mut (impl futures::Stream<Item = uuid::Uuid> + Unpin),
     count: usize,
 ) {
-    for _ in 0..count {
-        completed.next().await;
+    let deadline = tokio::time::Instant::now() + WAIT_BUDGET;
+    for i in 0..count {
+        tokio::time::timeout_at(deadline, completed.next())
+            .await
+            .unwrap_or_else(|_| panic!("only {i} of {count} jobs completed"));
     }
     // Then let anything else that was queued run out, so a job the assertions say must not
-    // exist would have shown up here.
-    while let Ok(Some(_)) =
-        tokio::time::timeout(std::time::Duration::from_secs(2), completed.next()).await
-    {}
+    // exist would have shown up here. A dependency job queues its fan-out before it completes,
+    // so an empty queue is a fixpoint rather than a lull.
+    loop {
+        while let Ok(Some(_)) = tokio::time::timeout(POLL, completed.next()).await {}
+        let queued: i64 = sqlx::query_scalar("SELECT count(*) FROM v2_job_queue")
+            .fetch_one(db)
+            .await
+            .unwrap();
+        if queued == 0 {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the queue never emptied"
+        );
+    }
 }
 
 /// A redeploy of an imported script whose dependencies did not move relocks its importer,
@@ -128,10 +154,10 @@ async fn relative_import_relock_deploys_only_when_the_lock_changed(
             // importer whose edges are recorded is what a later relock of it can skip on.
             for (path, content) in [("f/rel/a", A), ("f/rel/b", B), ("f/rel/c", C)] {
                 client
-                    .create_script(W, &bun_script(path, content, None))
+                    .create_script(W, &py_script(path, content, None))
                     .await
                     .unwrap();
-                wait_for_jobs(&mut completed, 1).await;
+                wait_for_jobs(&db, &mut completed, 1).await;
             }
             let b_before = versions(&db, "f/rel/b").await;
             let c_before = versions(&db, "f/rel/c").await;
@@ -144,11 +170,11 @@ async fn relative_import_relock_deploys_only_when_the_lock_changed(
             client
                 .create_script(
                     W,
-                    &bun_script("f/rel/a", A_COMMENTED, Some(format!("{a_hash:016x}"))),
+                    &py_script("f/rel/a", A_COMMENTED, Some(format!("{a_hash:016x}"))),
                 )
                 .await
                 .unwrap();
-            wait_for_jobs(&mut completed, 2).await;
+            wait_for_jobs(&db, &mut completed, 2).await;
 
             let jobs = dependency_jobs_since(&db, since).await;
             let paths: Vec<&str> = jobs.iter().map(|(p, _, _)| p.as_str()).collect();
@@ -181,11 +207,11 @@ async fn relative_import_relock_deploys_only_when_the_lock_changed(
             client
                 .create_script(
                     W,
-                    &bun_script("f/rel/a", A_WITH_LODASH, Some(format!("{a_hash:016x}"))),
+                    &py_script("f/rel/a", A_WITH_TINY, Some(format!("{a_hash:016x}"))),
                 )
                 .await
                 .unwrap();
-            wait_for_jobs(&mut completed, 3).await;
+            wait_for_jobs(&db, &mut completed, 3).await;
 
             let jobs = dependency_jobs_since(&db, since).await;
             let paths: Vec<&str> = jobs.iter().map(|(p, _, _)| p.as_str()).collect();
@@ -203,7 +229,7 @@ async fn relative_import_relock_deploys_only_when_the_lock_changed(
                 );
                 assert!(vs[0].created_at < vs[1].created_at, "{path}: lineage order");
                 assert!(
-                    vs[1].lock.as_deref().unwrap_or("").contains("lodash"),
+                    vs[1].lock.as_deref().unwrap_or("").contains("tiny"),
                     "{path}: the new version carries the new lock: {:?}",
                     vs[1].lock
                 );
@@ -233,10 +259,10 @@ async fn relock_waiting_on_a_deploy_requeues_for_its_successor(
         async {
             for (path, content) in [("f/rel/a", A), ("f/rel/b", B)] {
                 client
-                    .create_script(W, &bun_script(path, content, None))
+                    .create_script(W, &py_script(path, content, None))
                     .await
                     .unwrap();
-                wait_for_jobs(&mut completed, 1).await;
+                wait_for_jobs(&db, &mut completed, 1).await;
             }
 
             // A deploy of b that holds its head's row lock for as long as this transaction lives.
@@ -251,14 +277,15 @@ async fn relock_waiting_on_a_deploy_requeues_for_its_successor(
             client
                 .create_script(
                     W,
-                    &bun_script("f/rel/a", A_COMMENTED, Some(format!("{a_hash:016x}"))),
+                    &py_script("f/rel/a", A_COMMENTED, Some(format!("{a_hash:016x}"))),
                 )
                 .await
                 .unwrap();
 
             // b's relock skips generation and reaches its commit, where it waits on the lock.
+            let deadline = std::time::Instant::now() + WAIT_BUDGET;
             let mut waiting = false;
-            for _ in 0..300 {
+            while !waiting && std::time::Instant::now() < deadline {
                 waiting = sqlx::query_scalar(
                     "SELECT EXISTS (SELECT 1 FROM pg_stat_activity
                      WHERE datname = current_database() AND wait_event_type = 'Lock'
@@ -267,10 +294,9 @@ async fn relock_waiting_on_a_deploy_requeues_for_its_successor(
                 .fetch_one(&db)
                 .await
                 .unwrap();
-                if waiting {
-                    break;
+                if !waiting {
+                    tokio::time::sleep(POLL).await;
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
             assert!(waiting, "b's relock never reached the row lock");
 
@@ -284,7 +310,7 @@ async fn relock_waiting_on_a_deploy_requeues_for_its_successor(
             deploy.commit().await.unwrap();
 
             // a's own job, the relock that waited, and the relock it queued for the successor.
-            wait_for_jobs(&mut completed, 3).await;
+            wait_for_jobs(&db, &mut completed, 3).await;
 
             let jobs = dependency_jobs_since(&db, since).await;
             let paths: Vec<&str> = jobs.iter().map(|(p, _, _)| p.as_str()).collect();
@@ -324,7 +350,6 @@ async fn relock_waiting_on_a_deploy_requeues_for_its_successor(
 
 /// A multi-file importer: on a skipped relock each module gets its own last lock back, not the
 /// parent script's, so an import's content-only redeploy leaves the importer alone as well.
-#[cfg(feature = "python")]
 #[sqlx::test(fixtures("base"))]
 async fn multi_file_importer_relock_is_a_no_op_too(db: Pool<Postgres>) -> anyhow::Result<()> {
     std::env::set_var("DEPENDENCY_JOB_DEBOUNCE_DELAY", "0");
@@ -332,8 +357,7 @@ async fn multi_file_importer_relock_is_a_no_op_too(db: Pool<Postgres>) -> anyhow
     let mut completed = listen_for_completed_jobs(&db).await;
 
     let py = |path: &str, content: &str, parent_hash: Option<String>, with_module: bool| {
-        let mut ns = bun_script(path, content, parent_hash);
-        ns.language = windmill_api_client::types::ScriptLang::Python3;
+        let mut ns = py_script(path, content, parent_hash);
         if with_module {
             ns.modules = Some(std::collections::HashMap::from([(
                 "helper.py".to_string(),
@@ -363,7 +387,7 @@ async fn multi_file_importer_relock_is_a_no_op_too(db: Pool<Postgres>) -> anyhow
                 .create_script(W, &py("f/rel/pa", "def main():\n    return 'a'\n", None, false))
                 .await
                 .unwrap();
-            wait_for_jobs(&mut completed, 1).await;
+            wait_for_jobs(&db, &mut completed, 1).await;
             client
                 .create_script(
                     W,
@@ -376,7 +400,7 @@ async fn multi_file_importer_relock_is_a_no_op_too(db: Pool<Postgres>) -> anyhow
                 )
                 .await
                 .unwrap();
-            wait_for_jobs(&mut completed, 1).await;
+            wait_for_jobs(&db, &mut completed, 1).await;
             let lock_before = module_lock(&db).await;
             assert!(lock_before.is_some(), "the module got a lock of its own on deploy");
 
@@ -394,7 +418,7 @@ async fn multi_file_importer_relock_is_a_no_op_too(db: Pool<Postgres>) -> anyhow
                 )
                 .await
                 .unwrap();
-            wait_for_jobs(&mut completed, 2).await;
+            wait_for_jobs(&db, &mut completed, 2).await;
 
             let jobs = dependency_jobs_since(&db, since).await;
             let paths: Vec<&str> = jobs.iter().map(|(p, _, _)| p.as_str()).collect();

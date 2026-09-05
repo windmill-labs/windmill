@@ -1,3 +1,7 @@
+<!-- `@(root)` skips the (logged) layout on purpose: that layout renders nothing but
+     "Loading user..." until `$userStore` is set, and `$userStore` is only ever filled in
+     for a chosen workspace. An MCP client sends the browser straight here after login, so
+     in gateway mode there is no workspace yet — picking one is what this page is for. -->
 <script lang="ts">
 	import { page } from '$app/state'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
@@ -138,9 +142,13 @@
 </script>
 
 {#if !redirectUriValid}
-	<p class="text-center text-sm text-primary mb-6"> Error: invalid or unsafe redirect_uri </p>
+	<CenteredModal title="Authorization Request">
+		<p class="text-center text-sm text-primary"> Error: invalid or unsafe redirect_uri </p>
+	</CenteredModal>
 {:else if !isGateway && !workspaceId}
-	<p class="text-center text-sm text-primary mb-6">Error: missing workspace_id</p>
+	<CenteredModal title="Authorization Request">
+		<p class="text-center text-sm text-primary">Error: missing workspace_id</p>
+	</CenteredModal>
 {:else}
 	<CenteredModal title={success ? 'Authorization Approved' : 'Authorization Request'}>
 		{#if success}

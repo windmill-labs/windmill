@@ -63,3 +63,65 @@ gap, rebuild and republish the `latest` / patch tags:
 
 Scan the published images (e.g. Trivy / Defender) after rebuilds to confirm the
 base-OS finding count stays low.
+
+# Verifying image signatures, SBOMs and provenance
+
+Release images are signed and attested at publish time:
+
+- **cosign keyless signature** on the pushed manifest digest (index and
+  per-arch manifests), via GitHub OIDC — no long-lived signing key exists
+  (`.github/actions/sign-attest-image`).
+- **SBOMs** are generated at build time (`sbom: true` on the depot build
+  step) and embedded in the image index as BuildKit attestation manifests —
+  one SPDX document per platform. They are part of the signed index digest,
+  so the cosign signature covers them. They are not sent to a transparency
+  log: SPDX documents for these images run tens of MB, beyond what Rekor or
+  GitHub attestations accept as payloads.
+- **SLSA build provenance** recorded as a GitHub artifact attestation and
+  pushed to the registry (`actions/attest-build-provenance`).
+
+## What is covered
+
+Only images published from a release tag (`v*`) are signed: `windmill`,
+`windmill-ee`, `windmill-ee-cuda`, `windmill-slim`, `windmill-ee-slim`,
+`windmill-full`, `windmill-ee-full` (`.github/workflows/docker-image.yml`),
+`windmill-cli` (`build_cli_image.yml`) and `windmill-extra`
+(`publish_extra.yml`). The `:latest` and `:main` tags are repointed on
+every `main` push as well as on releases, so they resolve to a signed
+digest only until the next `main` build lands — verify a version tag or a
+digest, not `:latest`. Development images (`:dev`, branch builds,
+`windmill-test`), the dispatch-only RHEL/rpi images and the `caddy-l4`
+image are not signed.
+
+## How to verify
+
+Signatures are keyless: trust is anchored in the Fulcio certificate identity,
+which for these images is the *calling workflow file at a `v*` tag ref* in
+this repository. Verify a signature with cosign (v2.x):
+
+```bash
+cosign verify \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github.com/windmill-labs/windmill/\.github/workflows/(docker-image|publish_extra|build_cli_image)\.yml@refs/tags/v' \
+  ghcr.io/windmill-labs/windmill:<version>
+```
+
+Extract the embedded SBOM (per platform; verify the signature first — it
+covers the index these documents live in):
+
+```bash
+docker buildx imagetools inspect ghcr.io/windmill-labs/windmill:<version> \
+  --format '{{ json .SBOM }}'
+```
+
+Verify SLSA provenance through GitHub's attestation API:
+
+```bash
+gh attestation verify oci://ghcr.io/windmill-labs/windmill:<version> \
+  -R windmill-labs/windmill
+```
+
+Note for registry housekeeping: cosign stores signatures as extra
+`sha256-<digest>.sig` tags in the same ghcr package, and the pushed
+provenance attestations live there as referrer artifacts — any
+tag-retention automation must not prune them.

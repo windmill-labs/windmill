@@ -16,6 +16,7 @@
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
 	import FlowEditorPanel from '$lib/components/flows/content/FlowEditorPanel.svelte'
+	import AgentEditorModal from '$lib/components/flows/content/AgentEditorModal.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { findModuleInFlow } from '$lib/components/flows/flowDiff'
 	import { page } from '$app/state'
@@ -343,5 +344,9 @@
 				</div>
 			{/if}
 		</div>
+		<!-- Every surface that can select an agent step needs one: the card's Edit only sets a
+		     module-global target, and without a mount here it would do nothing. `disableAi` matches
+		     the map and panel above. -->
+		<AgentEditorModal owns={() => true} />
 	</div>
 </main>
