@@ -1990,9 +1990,9 @@
 	// (inferred + annotated) `column_lineage` and the asset write-edges. Drives
 	// the transitive column trace in the details pane. Built from `displayGraph`
 	// — the exact graph the canvas renders — so the trace matches it: draft
-	// overlays in edit / show-drafts, deployed-only in plain View. Gated to a
-	// ducklake selection so it isn't rebuilt on every editor keystroke when the
-	// trace UI isn't even shown.
+	// overlays in edit / show-drafts, deployed-only in plain View. Gated to the
+	// two asset kinds that can carry column lineage so it isn't rebuilt on every
+	// editor keystroke when the trace UI isn't even shown.
 	let producerColumnGraph = $derived(
 		pe.selection?.kind === 'asset' &&
 			(pe.selection.asset_kind === 'ducklake' || pe.selection.asset_kind === 'dbt')
@@ -2009,20 +2009,24 @@
 	// source — the boundary node above. Asking there is what lets a ducklake
 	// selection trace back up the dbt project that fed it, rather than stopping
 	// at the annotation.
-	let dbtSeedPath = $derived.by(() => {
+	let dbtSeedPaths = $derived.by(() => {
 		const sel = pe.selection
-		if (pe.activeDraft || sel?.kind !== 'asset') return undefined
-		if (sel.asset_kind === 'dbt') return sel.path
+		if (pe.activeDraft || sel?.kind !== 'asset') return []
+		if (sel.asset_kind === 'dbt') return [sel.path]
+		// EVERY dbt relation this selection reaches, not the first: one output can
+		// be derived from several, and expanding one would leave the others as
+		// leaves on the canvas.
 		const seeds = assetColumnNodes(producerColumnGraph, sel.asset_kind, sel.path)
+		const paths = new Set<string>()
 		for (const id of connectedComponent(seeds, producerColumnGraph)) {
 			const node = producerColumnGraph.nodes.get(id)
-			if (node?.kind === 'dbt') return node.path
+			if (node?.kind === 'dbt') paths.add(node.path)
 		}
-		return undefined
+		return [...paths]
 	})
 	const dbtColumnLineage = useDbtColumnLineage({
 		workspace: () => $workspaceStore,
-		assetPath: () => dbtSeedPath
+		assetPaths: () => dbtSeedPaths
 	})
 	// One graph across both, so a trace crosses the dbt/ducklake boundary in
 	// either direction rather than stopping at it.

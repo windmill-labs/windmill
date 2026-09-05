@@ -224,7 +224,10 @@
 	// analysis pass has any, and it is drawn for one model at a time.
 	const columnLineage = useDbtColumnLineage({
 		workspace: () => opWs,
-		assetPath: () => (selectedDbt ? selectedAsset?.path : undefined),
+		assetPaths: () => {
+			const path = selectedDbt ? selectedAsset?.path : undefined
+			return path ? [path] : []
+		},
 		pin: () => selectionPin
 	})
 	// What the scripts around this project declare about its columns, off the

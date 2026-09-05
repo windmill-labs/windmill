@@ -1,5 +1,10 @@
+import { untrack } from 'svelte'
 import { AssetService, JobService } from '$lib/gen'
-import { buildDbtColumnGraph, type ColumnLineageGraph } from './columnLineageGraph'
+import {
+	buildDbtColumnGraph,
+	mergeColumnGraphs,
+	type ColumnLineageGraph
+} from './columnLineageGraph'
 
 export const EMPTY_COLUMN_GRAPH: ColumnLineageGraph = {
 	nodes: new Map(),
@@ -21,7 +26,32 @@ export type DbtColumnLineageState = {
 	readonly loading: boolean
 }
 
-/** Follow the selection, fetching the selected dbt relation's column lineage.
+function pinKey(workspace: string, pin: DbtGraphPin | undefined): string {
+	return `${workspace}|${pin?.jobId ?? ''}|${pin?.scriptHash ?? ''}`
+}
+
+function fetchComponent(
+	workspace: string,
+	assetPath: string,
+	pin: DbtGraphPin | undefined
+): Promise<ColumnLineageGraph> {
+	const req = pin?.jobId
+		? JobService.getDbtRunColumnLineage({ workspace, id: pin.jobId, assetPath })
+		: AssetService.getDbtColumnLineage({
+				workspace,
+				assetPath,
+				dbtScriptHash: pin?.scriptHash != undefined ? String(pin.scriptHash) : undefined
+			})
+	return req.then(
+		(r) => buildDbtColumnGraph(r?.edges ?? []),
+		// Lineage annotates a graph that renders without it, so a failed fetch
+		// leaves that branch unexpanded rather than putting an error over the
+		// model — and one failed boundary does not lose the others.
+		() => EMPTY_COLUMN_GRAPH
+	)
+}
+
+/** Follow the selection, fetching the dbt column lineage it reaches.
  *
  *  Per asset rather than off the graph response: the graph is folder-wide and a
  *  run page polls it, while this is drawn for one selection. It also means the
@@ -30,70 +60,62 @@ export type DbtColumnLineageState = {
  */
 export function useDbtColumnLineage(args: {
 	workspace: () => string | undefined
-	/** The selected dbt relation, or undefined for any other selection. */
-	assetPath: () => string | undefined
+	/** The dbt relations to expand. The selection itself when it is one; for a
+	 *  selection of another kind, every dbt relation its own lineage reaches —
+	 *  a ducklake table can be derived from several, and expanding only the
+	 *  first would leave the rest as leaves. */
+	assetPaths: () => string[]
 	/** The graph on screen, so the lineage describes the same project. */
 	pin?: () => DbtGraphPin | undefined
 }): DbtColumnLineageState {
 	let graph = $state<ColumnLineageGraph>(EMPTY_COLUMN_GRAPH)
 	let loading = $state(false)
 
-	// What the graph in hand describes, so a selection already inside it can be
-	// recognised without asking again.
-	let held: { workspace: string; pin: string } | undefined = undefined
+	// Which pin the graph in hand was fetched against, and which relations were
+	// actually ASKED about under it.
+	let heldPin: string | undefined = undefined
+	let asked = new Set<string>()
 
 	$effect(() => {
 		const workspace = args.workspace()
-		const assetPath = args.assetPath()
+		const paths = args.assetPaths()
 		const pin = args.pin?.()
-		const jobId = pin?.jobId
-		const scriptHash = pin?.scriptHash
-		if (!workspace || !assetPath) {
+		if (!workspace || paths.length === 0) {
 			graph = EMPTY_COLUMN_GRAPH
+			heldPin = undefined
+			asked = new Set()
 			loading = false
 			return
 		}
-		// The answer is one connected component, so every relation inside the one
-		// already held has the same answer — which is most clicks, since a
-		// project's models are connected by construction. Keyed to the graph the
-		// component was fetched against: the same relation under a different pin
-		// is a different project.
-		const key = `${workspace}|${jobId ?? ''}|${scriptHash ?? ''}`
-		if (held?.workspace === workspace && held.pin === key) {
-			for (const n of graph.nodes.values()) {
-				if (n.path === assetPath) {
-					loading = false
-					return
-				}
-			}
+		const key = pinKey(workspace, pin)
+		// `untrack`: this effect writes `graph`, so reading it as a dependency
+		// would make it retrigger itself forever.
+		const fresh = heldPin !== key
+		const base = untrack(() => (fresh ? EMPTY_COLUMN_GRAPH : graph))
+		if (fresh) asked = new Set()
+		// Only a relation this pin has ASKED about is skipped, not every relation
+		// present in what came back. A relation two projects describe has an owner
+		// row in each, and a component fetched for one of them carries that
+		// relation as an endpoint without the other project's half — so treating
+		// "appears in the graph" as "resolved" would hide exactly the cross-project
+		// edges the server's relation-keyed walk exists to merge.
+		const missing = paths.filter((p) => !asked.has(p))
+		if (missing.length === 0) {
+			graph = base
+			loading = false
+			return
 		}
 		// A selection changes faster than a request completes, so an answer is
 		// applied only while it is still the one being asked for.
 		let current = true
 		loading = true
-		const req = jobId
-			? JobService.getDbtRunColumnLineage({ workspace, id: jobId, assetPath })
-			: AssetService.getDbtColumnLineage({
-					workspace,
-					assetPath,
-					dbtScriptHash: scriptHash != undefined ? String(scriptHash) : undefined
-				})
-		req.then(
-			(r) => {
-				if (!current) return
-				graph = buildDbtColumnGraph(r?.edges ?? [])
-				held = { workspace, pin: key }
-				loading = false
-			},
-			() => {
-				// Lineage annotates a graph that renders without it, so a failed
-				// fetch shows no section rather than an error over the model.
-				if (!current) return
-				graph = EMPTY_COLUMN_GRAPH
-				held = undefined
-				loading = false
-			}
-		)
+		Promise.all(missing.map((p) => fetchComponent(workspace, p, pin))).then((parts) => {
+			if (!current) return
+			graph = mergeColumnGraphs(base, ...parts)
+			heldPin = key
+			for (const p of missing) asked.add(p)
+			loading = false
+		})
 		return () => {
 			current = false
 		}
