@@ -1100,7 +1100,7 @@ async fn validate_dbt_relation(
     if !windmill_parser::asset_parser::is_full_relation_path(relation) {
         return Err(Error::BadRequest(format!(
             "{what} `dbt://{relation}` is not a whole warehouse relation \
-             (`dbt://<warehouse>/<schema>/<name>`), so nothing can produce it."
+             (`dbt://<warehouse>/<schema>/<name>`)."
         )));
     }
     let warehouse = relation.split('/').next().unwrap_or_default();
