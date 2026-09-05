@@ -12,7 +12,9 @@ import {
 	parsePreviewSelectedId,
 	previewLocationContext,
 	previewLocationLabel,
-	resolvePreviewTab
+	resolvePreviewTab,
+	entityListHref,
+	entityEditorHref
 } from './previewRouter'
 
 describe('drawerAnchorFor', () => {
@@ -291,6 +293,32 @@ describe('resolvePreviewTab', () => {
 		expect(resolvePreviewTab('/apps/edit/f/a/b')).toEqual({ kind: 'iframe' })
 	})
 
+	// The row in the hash is what separates "edit this entity" from "show me the
+	// list": both are the same page path, and only the first can mount in process.
+	it('routes an anchored row to its in-process entity editor', () => {
+		expect(resolvePreviewTab('/schedules#u/me/daily')).toEqual({
+			kind: 'entity',
+			entityKind: 'trigger_schedule',
+			path: 'u/me/daily'
+		})
+		expect(resolvePreviewTab('/resources#/resource/u/me/db')).toEqual({
+			kind: 'entity',
+			entityKind: 'resource',
+			path: 'u/me/db'
+		})
+		expect(resolvePreviewTab('/variables?owner=u#u/me/token')).toEqual({
+			kind: 'entity',
+			entityKind: 'variable',
+			path: 'u/me/token'
+		})
+	})
+
+	it('leaves the bare list page, and an anchored page with no hosted editor, on the iframe', () => {
+		expect(resolvePreviewTab('/schedules')).toEqual({ kind: 'iframe' })
+		// Anchored like the three above, but no editor is mounted for it yet.
+		expect(resolvePreviewTab('/kafka_triggers#f/team/ingest')).toEqual({ kind: 'iframe' })
+	})
+
 	it('routes a pipeline folder to the pipeline editor kind', () => {
 		expect(resolvePreviewTab('/pipeline/my_folder')).toEqual({
 			kind: 'editor',
@@ -389,5 +417,24 @@ describe('artifact route', () => {
 	it('labels an artifact tab by its name, falling back to "Artifact" when unnamed', () => {
 		expect(previewLocationLabel(artifactUrl('abc', 'My Doc'))).toBe('My Doc')
 		expect(previewLocationLabel('artifact:abc')).toBe('Artifact')
+	})
+})
+
+describe('entity location helpers', () => {
+	// The list a row was opened from is part of where the tab came from: dropping
+	// its filters on the way back (or on a delete) lands the user on a list they
+	// never chose.
+	it('keeps the list query when going back and when following a rename', () => {
+		const loc = '/resources?filter_path_of=db#/resource/u/me/a'
+		expect(entityListHref(loc)).toBe('/resources?filter_path_of=db')
+		expect(entityEditorHref(loc, 'u/me/b')).toBe(
+			'/resources?filter_path_of=db#/resource/u/me/b'
+		)
+	})
+
+	it('addresses a row the way its own page does', () => {
+		// Resources route theirs through an extra segment; the others name the path.
+		expect(entityEditorHref('/schedules#u/me/a', 'u/me/b')).toBe('/schedules#u/me/b')
+		expect(entityEditorHref('/variables#u/me/a', 'u/me/b')).toBe('/variables#u/me/b')
 	})
 })

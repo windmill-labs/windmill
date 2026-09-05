@@ -3,7 +3,7 @@
 
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 
-	import { History, Loader2, Save } from 'lucide-svelte'
+	import { ArrowLeft, History, Loader2, Save } from 'lucide-svelte'
 	import WsSpecificVersions from './WsSpecificVersions.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { isOwner } from '$lib/utils'
@@ -23,25 +23,42 @@
 		workspace = undefined,
 		disableChatOffset = false,
 		onRestored = undefined,
-		onSaved = undefined
+		onSaved = undefined,
+		useDrawer = true,
+		onBack = undefined
 	}: {
 		workspace?: string
 		disableChatOffset?: boolean
 		onRestored?: () => void
-		/** Fires after Save has written, for a caller showing state derived from the
-		 * resource — `onRestored` only covers restoring an old version. */
-		onSaved?: () => void
+		/** Fires after Save has written, with the path it wrote to — which is not the
+		 * one it was opened on when the user renamed it. For a caller showing state
+		 * derived from the resource; `onRestored` only covers restoring a version. */
+		onSaved?: (savedPath?: string) => void
+		/**
+		 * False renders the editor in place instead of in a drawer, for a host that
+		 * gives it a pane of its own (a session's resource tab). Same convention as
+		 * the trigger editors. `initEdit` still selects what is shown; there is no
+		 * drawer to open, so it simply takes effect.
+		 */
+		useDrawer?: boolean
+		/** Inline only: offered in the header when the host replaced something the
+		 * user should be able to get back to (a session tab that took over the list). */
+		onBack?: () => void
 	} = $props()
 
 	let drawer: Drawer | undefined = $state()
 	let historyDrawer: Drawer | undefined = $state()
+	// Bumped whenever the mounted editor's captured baseline is no longer the
+	// truth (see editorBody).
+	let editorGeneration = $state(0)
 	let canSave = $state(true)
 	let resource_type: string | undefined = $state(undefined)
 	let defaultValues: Record<string, any> | undefined = $state(undefined)
 
 	let resourceEditor:
 		| {
-				save: () => void
+				/** False when the write failed; it toasts its own error. */
+				save: () => Promise<boolean>
 				localDraftDeployed: () => unknown
 				localDraftCurrent: () => unknown
 				discardLocalDraft: () => void
@@ -49,6 +66,8 @@
 		| undefined = $state(undefined)
 	let hasLocalDraft = $state(false)
 	let canWriteSelected = $state(true)
+	// The path as edited in the form, which a rename moves off `path`.
+	let livePath: string | undefined = $state(undefined)
 
 	let path: string | undefined = $state(undefined)
 	let selected: string | undefined = $state(undefined)
@@ -118,28 +137,13 @@
 	)
 </script>
 
-<Drawer
-	bind:this={drawer}
-	size="50rem"
-	{disableChatOffset}
-	on:close={() => {
-		if (keepAnchorOnClose) {
-			keepAnchorOnClose = false
-			return
-		}
-		clearPageDrawerAnchor(RESOURCES_PATH)
-	}}
->
-	<DrawerContent
-		title={mode == 'edit' ? 'Edit ' + path : addResourceTitle(resource_type)}
-		bannerReserved={mode == 'edit'}
-		on:close={drawer?.closeDrawer}
-	>
-		{#snippet titleExtra()}
-			{#if mode == 'new' && resource_type}
-				<IconedResourceType name={resource_type} silent width="20px" height="20px" />
-			{/if}
-		{/snippet}
+{#snippet editorBody()}
+	<!-- ResourceEditor reads `path` once, at init, and every fetch/draft handle/save
+	     inside it goes through that captured value — so it has to be remounted, not
+	     re-pointed, whenever what this host shows changes. `editorGeneration` covers
+	     the changes the path alone doesn't name: restoring an old version replaces
+	     the deployed value the mounted editor still holds as its baseline. -->
+	{#key `${path ?? ''}#${editorGeneration}`}
 		{#await import('./ResourceEditor.svelte')}
 			<Loader2 class="animate-spin" />
 		{:then Module}
@@ -153,58 +157,135 @@
 				bind:canSave
 				bind:selected
 				bind:viewJsonSchema
+				onChange={(e) => (livePath = e.path)}
 				onDraftStateChange={(v) => (hasLocalDraft = v)}
 				onCanWriteChange={(v) => (canWriteSelected = v)}
 			/>
 		{/await}
-		{#snippet banner()}
-			<LocalDraftBanner
-				show={hasLocalDraft}
-				reserveSpace={mode == 'edit'}
-				getDeployed={() => resourceEditor?.localDraftDeployed()}
-				getCurrent={() => resourceEditor?.localDraftCurrent()}
-				onDiscard={() => resourceEditor?.discardLocalDraft()}
-				disabled={!canWriteSelected}
-			/>
-		{/snippet}
-		{#snippet actions()}
-			<OpenInSessionButton source={sessionSource} />
-			{#if mode == 'edit' && path && effectiveWorkspace}
-				<Button
-					variant="default"
-					unifiedSize="md"
-					startIcon={{ icon: History }}
-					on:click={() => historyDrawer?.openDrawer()}
+	{/key}
+{/snippet}
+
+{#snippet draftBanner()}
+	<LocalDraftBanner
+		show={hasLocalDraft}
+		reserveSpace={mode == 'edit'}
+		getDeployed={() => resourceEditor?.localDraftDeployed()}
+		getCurrent={() => resourceEditor?.localDraftCurrent()}
+		onDiscard={() => resourceEditor?.discardLocalDraft()}
+		disabled={!canWriteSelected}
+	/>
+{/snippet}
+
+{#snippet editorActions()}
+	<!-- Only the drawer offers the hand-off: rendered inline the editor is
+	     already inside the session it would open. -->
+	{#if useDrawer}
+		<OpenInSessionButton source={sessionSource} />
+	{/if}
+	{#if mode == 'edit' && path && effectiveWorkspace}
+		<Button
+			variant="default"
+			unifiedSize="md"
+			startIcon={{ icon: History }}
+			on:click={() => historyDrawer?.openDrawer()}
+		>
+			History
+		</Button>
+		<WsSpecificVersions
+			kind="resource"
+			workspaceId={effectiveWorkspace}
+			initialPath={path}
+			bind:selected
+		/>
+	{/if}
+	<Button
+		variant="accent"
+		unifiedSize="md"
+		startIcon={{ icon: Save }}
+		on:click={async () => {
+			// Closed before the write is awaited, the way it always was: `save()` toasts its
+			// own failures and never rejects, so waiting would only add visible lag to every
+			// caller of this drawer. `onSaved` still fires after the write lands.
+			const saving = resourceEditor?.save()
+			drawer?.closeDrawer()
+			// Everything below moves this host onto the path that was written, so it
+			// must not run for a write that failed — a rejected rename (a name
+			// collision, say) would point the tab at a path this save never created.
+			if (!(await saving)) return
+			// Rendered inline there is no drawer to close, so the mounted editor would
+			// otherwise keep the pre-save baseline. Follow a rename before remounting,
+			// or it comes back up on a path the save just moved the item off.
+			const savedPath = livePath ?? path
+			if (savedPath) path = savedPath
+			editorGeneration++
+			onSaved?.(savedPath)
+		}}
+		disabled={!canSave}
+	>
+		Save
+	</Button>
+{/snippet}
+
+{#if useDrawer}
+	<Drawer
+		bind:this={drawer}
+		size="50rem"
+		{disableChatOffset}
+		on:close={() => {
+			if (keepAnchorOnClose) {
+				keepAnchorOnClose = false
+				return
+			}
+			clearPageDrawerAnchor(RESOURCES_PATH)
+		}}
+	>
+		<DrawerContent
+			title={mode == 'edit' ? 'Edit ' + path : addResourceTitle(resource_type)}
+			bannerReserved={mode == 'edit'}
+			on:close={drawer?.closeDrawer}
+		>
+			{#snippet titleExtra()}
+				{#if mode == 'new' && resource_type}
+					<IconedResourceType name={resource_type} silent width="20px" height="20px" />
+				{/if}
+			{/snippet}
+			{@render editorBody()}
+			{#snippet banner()}
+				{@render draftBanner()}
+			{/snippet}
+			{#snippet actions()}
+				{@render editorActions()}
+			{/snippet}
+		</DrawerContent>
+	</Drawer>
+{:else}
+	<div class="flex flex-col h-full min-h-0">
+		<div class="flex flex-row items-center gap-2 justify-between px-4 py-2 border-b">
+			<div class="flex flex-row items-center gap-2 min-w-0">
+				{#if onBack}
+					<Button
+						variant="subtle"
+						unifiedSize="sm"
+						startIcon={{ icon: ArrowLeft }}
+						on:click={onBack}
+						title="Back to Resources"
+						iconOnly
+					/>
+				{/if}
+				<span class="text-sm font-semibold truncate"
+					>{mode == 'edit' ? 'Edit ' + path : addResourceTitle(resource_type)}</span
 				>
-					History
-				</Button>
-				<WsSpecificVersions
-					kind="resource"
-					workspaceId={effectiveWorkspace}
-					initialPath={path}
-					bind:selected
-				/>
-			{/if}
-			<Button
-				variant="accent"
-				unifiedSize="md"
-				startIcon={{ icon: Save }}
-				on:click={async () => {
-					// Closed before the write is awaited, the way it always was: `save()` toasts its
-					// own failures and never rejects, so waiting would only add visible lag to every
-					// caller of this drawer. `onSaved` still fires after the write lands.
-					const saved = resourceEditor?.save()
-					drawer?.closeDrawer()
-					await saved
-					onSaved?.()
-				}}
-				disabled={!canSave}
-			>
-				Save
-			</Button>
-		{/snippet}
-	</DrawerContent>
-</Drawer>
+			</div>
+			<div class="flex flex-row items-center gap-2 shrink-0">
+				{@render editorActions()}
+			</div>
+		</div>
+		{@render draftBanner()}
+		<div class="flex-1 min-h-0 overflow-auto p-4">
+			{@render editorBody()}
+		</div>
+	</div>
+{/if}
 
 <Drawer bind:this={historyDrawer} size="1200px">
 	<DrawerContent title="Versions History" on:close={historyDrawer?.closeDrawer} noPadding>
@@ -216,10 +297,13 @@
 				canClear={canClearSelected}
 				onRestore={() => {
 					historyDrawer?.closeDrawer()
-					// Close the editor too. It holds a baseline captured before the restore, and
+					// Drop the editor. It holds a baseline captured before the restore, and
 					// any local draft on top of it, so saving from it afterwards would write the
-					// pre-restore value straight back over the version just restored.
+					// pre-restore value straight back over the version just restored. Closing
+					// the drawer is what does that when there is one; rendered inline there is
+					// no drawer to close, so remount it onto the restored value instead.
 					drawer?.closeDrawer()
+					editorGeneration++
 					// Its own callback rather than the `refresh` event: callers bind that to
 					// reopening a picker (EditorBar), which a restore should not trigger.
 					onRestored?.()

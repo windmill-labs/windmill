@@ -421,6 +421,9 @@ export async function persistGlobalDraft(
 	const itemKind = itemKindFor(type, opts.triggerKind)
 	if (!itemKind) throw new Error(`Unsupported draft type "${type}".`)
 	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
+	// Writing the item back means it exists again, so any removal marker left from
+	// an earlier draft-only discard is void.
+	UserDraft.clearDraftOnlyDiscard(itemKind, storagePath, { workspace })
 	UserDraft.seed(itemKind, storagePath, value, { workspace })
 	await UserDraftDbSyncer.save({
 		workspace,

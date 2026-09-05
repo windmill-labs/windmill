@@ -12,11 +12,15 @@
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import {
+		entityEditorHref,
+		entityListHref,
+		entityListPage,
 		resolvePreviewTab,
 		parsePreviewItemRoute,
 		parsePreviewSelectedId,
 		showsView
 	} from './previewRouter'
+	import type { EntityToolEffect } from './previewReload'
 	import { withMenuHidden } from './sessionMode.svelte'
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
 	import { setOverlayHost } from '../common/overlayHost.svelte'
@@ -82,6 +86,11 @@
 
 	let frame: HTMLIFrameElement | undefined = $state()
 
+	// A hosted entity editor builds its state at mount, from the draft cell and the
+	// workspace it was given, and can refresh neither in place — so both the bump
+	// below and a change of `workspaceId` key it, and remounting is how it re-reads.
+	let entityNonce = $state(0)
+
 	// Pages whose theme we mirror on live toggles. Regular apps are the only item
 	// route that resolves to an iframe (scripts/flows/raw apps mount live editors)
 	// and they pin their own theme, so excluding item routes excludes exactly them.
@@ -102,12 +111,21 @@
 		applyPageIframeTheme(darkMode)
 	})
 
-	export function reload() {
+	export function reload(opts?: { entity?: EntityToolEffect }) {
 		// A live editor shares the runtime store the chat mutates, so generic chat
 		// edits are already reflected — no reload needed. Deploys refresh it via
 		// each editor view's onDeploy → runtime.syncPreviewWithDeployed. So only the
 		// iframe fallback (a separate page) has to be told to refresh.
 		if (slot.kind === 'editor') return
+		// An entity editor holds a live UserDraft handle on the cell the chat's
+		// write seeds, so a write needs nothing from here — but the tools that drop
+		// that cell go behind it, and it has to be re-read from the server.
+		// Deletion is not handled here: it belongs to the tab whose item is gone,
+		// mounted or not, so the page re-points that tab by id instead.
+		if (slot.kind === 'entity') {
+			if (opts?.entity === 'refresh') entityNonce++
+			return
+		}
 		try {
 			const win = frame?.contentWindow
 			if (!win) return
@@ -138,6 +156,37 @@
 
 	const visibility = $derived(
 		active ? 'z-10 opacity-100 pointer-events-auto' : 'z-0 opacity-0 pointer-events-none'
+	)
+
+	// An entity editor replaced the list its tab was opened from (the row is the
+	// tab now, not a drawer over the list), so it has to offer the way back.
+	// Re-points this tab rather than opening another: the list is where the tab
+	// came from, not a second destination.
+	const backToList = $derived(
+		slot.kind === 'entity' && runtime
+			? () => {
+					const page = entityListPage(slot.entityKind)
+					if (page)
+						runtime.previewTabs.navigate({
+							// The tab's own location, not the page's bare path: it carries the
+							// query of the list the row was opened from, and returning to an
+							// unfiltered list is not returning to where the tab came from.
+							type: 'page',
+							href: entityListHref(whereIs(tab)),
+							label: page.label
+						})
+				}
+			: undefined
+	)
+
+	// Follow a rename: the editor stays mounted and keeps editing the item, but the
+	// tab, its label, the chat's ACTIVE PREVIEW and the draft key all address it by
+	// path — so they have to move with it, or they name an item that no longer exists.
+	const retargetTo = $derived(
+		slot.kind === 'entity' && runtime
+			? (newPath: string) =>
+					runtime.previewTabs.retargetTabTo(tab.id, entityEditorHref(whereIs(tab), newPath))
+			: undefined
 	)
 
 	// Overlays a tab opens (drawers, modals, popovers) anchor here rather than to the
@@ -309,6 +358,47 @@
 				/>
 			{/await}
 		{/if}
+	</div>
+{:else if slot.kind === 'entity' && mounted}
+	<div
+		bind:this={overlayHostEl}
+		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
+		aria-hidden={!active}
+	>
+		<!-- Dynamic import for the same reason as the editors above: these pull in
+		     the runnable pickers and the resource-type schema forms. Keyed on the
+		     refresh nonce so a dropped draft cell remounts the editor (see reload). -->
+		{#key `${workspaceId}#${entityNonce}`}
+			{#if slot.entityKind === 'trigger_schedule'}
+				{#await import('./ScheduleEditorView.svelte')}
+					{@render editorLoading()}
+				{:then Module}
+					<Module.default path={slot.path} {workspaceId} onBack={backToList} />
+				{/await}
+			{:else if slot.entityKind === 'resource'}
+				{#await import('./ResourceEditorView.svelte')}
+					{@render editorLoading()}
+				{:then Module}
+					<Module.default
+						path={slot.path}
+						{workspaceId}
+						onBack={backToList}
+						onRenamed={retargetTo}
+					/>
+				{/await}
+			{:else if slot.entityKind === 'variable'}
+				{#await import('./VariableEditorView.svelte')}
+					{@render editorLoading()}
+				{:then Module}
+					<Module.default
+						path={slot.path}
+						{workspaceId}
+						onBack={backToList}
+						onRenamed={retargetTo}
+					/>
+				{/await}
+			{/if}
+		{/key}
 	</div>
 {:else if slot.kind === 'artifact' && mounted}
 	<div

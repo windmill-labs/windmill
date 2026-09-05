@@ -1,6 +1,7 @@
 import {
 	ASSETS_PATH,
 	AUDIT_LOGS_PATH,
+	drawerHashFor,
 	FOLDERS_PATH,
 	GROUPS_PATH,
 	pageKey,
@@ -114,6 +115,65 @@ export function drawerAnchorFor(location: string): string | undefined {
 		Object.values(TRIGGER_PAGES).some((p) => p.path === route)
 	if (!known) return undefined
 	return location.slice(hashAt + 1).replace(/^\/resource\//, '') || undefined
+}
+
+/** A workspace entity whose editor the preview hosts in process. The
+ * `UserDraftItemKind` the entity's draft lives under, so the mounted editor and
+ * the chat address the same cell. */
+export type EntityEditorKind = 'trigger_schedule' | 'resource' | 'variable'
+
+// The workspace entities whose single-item editor the preview mounts in process,
+// by the list page that deep-links them. Mounting in process is what puts the
+// editor in the same realm as the chat: it then holds a live `UserDraft` handle
+// on the same cell the chat's writes seed, and reflects them without a reload
+// (an iframe has a `UserDraft` of its own, so its only route is `toolReloadEffect`).
+// A page absent here keeps loading its whole list in an iframe.
+const IN_REALM_ENTITY_PAGES: Partial<Record<string, EntityEditorKind>> = {
+	[SCHEDULES_PATH]: 'trigger_schedule',
+	[RESOURCES_PATH]: 'resource',
+	[VARIABLES_PATH]: 'variable'
+}
+
+/** The entity kind a list page hosts an editor for, or undefined for a page with
+ * none. The kind doubles as the `UserDraftItemKind` its draft lives under. */
+export function entityKindForPage(pagePath: string): EntityEditorKind | undefined {
+	return IN_REALM_ENTITY_PAGES[pagePath]
+}
+
+/** The list an entity editor's tab came from: its own location with the row
+ * dropped. Built from the location rather than the page's bare path so the query
+ * survives — a row opened from a filtered list returns to that same filtered
+ * list, whether by Back or because the item was deleted. */
+export function entityListHref(location: string): string {
+	return location.split('#')[0]
+}
+
+/** The location of `path`'s editor on the list `location` came from, keeping that
+ * list's query. For following a rename: the tab has to name the item it now
+ * shows, or the chat's "edit this" and the draft key still point at the old one. */
+export function entityEditorHref(location: string, path: string): string {
+	return `${entityListHref(location)}#${drawerHashFor(stripBase(location), path)}`
+}
+
+/** The list page an entity editor was reached through, so its host can offer the
+ * way back. Undefined only if a kind is registered above without a curated page,
+ * which `PREVIEW_PAGES` covers for all three today. */
+export function entityListPage(kind: EntityEditorKind): PreviewPage | undefined {
+	const path = Object.keys(IN_REALM_ENTITY_PAGES).find((p) => IN_REALM_ENTITY_PAGES[p] === kind)
+	return path ? matchPreviewPage(path) : undefined
+}
+
+/** The workspace entity a preview location opens the editor of — a list page
+ * with a row deep-linked in its hash, for the pages whose editor mounts in
+ * process. Undefined for the bare list page (an iframe of the list) and for
+ * anchored pages whose editor is not hosted yet. */
+export function parseEntityEditorRoute(
+	location: string
+): { entityKind: EntityEditorKind; path: string } | undefined {
+	const entityKind = IN_REALM_ENTITY_PAGES[stripBase(location)]
+	if (!entityKind) return undefined
+	const path = drawerAnchorFor(location)
+	return path ? { entityKind, path } : undefined
 }
 
 // Query params the preview host injects into an iframe URL (`nomenubar` hides the nav,
@@ -467,6 +527,7 @@ export const isArtifactKey = (key: string) => key.startsWith('artifact:')
 // other route) stays an iframe.
 export type PreviewSlot =
 	| { kind: 'editor'; editorKind: SessionTargetKind | 'pipeline'; path: string }
+	| { kind: 'entity'; entityKind: EntityEditorKind; path: string }
 	| { kind: 'artifact'; id: string; version?: number }
 	| { kind: 'iframe' }
 
@@ -477,6 +538,10 @@ export function resolvePreviewTab(url: string): PreviewSlot {
 	if (pipelineFolder) {
 		return { kind: 'editor', editorKind: 'pipeline', path: pipelineFolder }
 	}
+	// Before the item route: an entity location is a list page (never an item
+	// route) with a row in its hash, so the parse below would call it an iframe.
+	const entity = parseEntityEditorRoute(url)
+	if (entity) return { kind: 'entity', ...entity }
 	const route = parsePreviewItemRoute(url)
 	if (!route) return { kind: 'iframe' }
 	const editorKind: SessionTargetKind | undefined =

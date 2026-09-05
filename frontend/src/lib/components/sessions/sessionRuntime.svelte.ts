@@ -389,7 +389,12 @@ function createRuntime(session: Session): SessionRuntime {
 		// point those at a page the user cannot see.
 		const tab = owner?.displayedTab
 		if (!tab) return undefined
-		if (resolvePreviewTab(tab.url).kind !== 'iframe') return undefined
+		// Entity editors are hosted in process but, unlike the item editors, they
+		// register no live-editor draft — so this is the only thing that tells the
+		// model which schedule/resource/variable is on screen, and "change this
+		// one" would otherwise resolve against nothing.
+		const kind = resolvePreviewTab(tab.url).kind
+		if (kind !== 'iframe' && kind !== 'entity') return undefined
 		return previewLocationContext(whereIs(tab))
 	}
 	// Pre-flight: materialise the (still-transient) session, then commit

@@ -1,0 +1,81 @@
+<script lang="ts">
+	import ScheduleEditorInner from '$lib/components/triggers/schedules/ScheduleEditorInner.svelte'
+	import { setTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
+	import { Button } from '$lib/components/common'
+	import { ArrowLeft } from 'lucide-svelte'
+	import { untrack } from 'svelte'
+
+	let {
+		path,
+		workspaceId,
+		onBack
+	}: {
+		/** The schedule this tab edits (the row its location deep-links). */
+		path: string
+		/** The session's acting workspace, which the whole trigger subtree reads
+		 * through the `triggerWorkspace` resolver instead of `$workspaceStore`. */
+		workspaceId: string
+		/** Back to the list this editor was reached through; the tab replaced it. */
+		onBack?: () => void
+	} = $props()
+
+	// Captured at init, so it must read the current prop rather than close over it.
+	setTriggerWorkspace(() => workspaceId)
+
+	let editor = $state<ScheduleEditorInner | undefined>()
+
+	// A save leaves the mounted editor holding the pre-save config as its deployed
+	// baseline — the drawer hides that by closing, which inline is a no-op, so the
+	// banner would go on claiming unsaved changes and Discard would restore the
+	// value the save just replaced. Remounting re-reads the saved schedule.
+	let generation = $state(0)
+
+	// Load whenever the tab is pointed at another schedule; the component keeps
+	// its identity across that, as it does for the drawer's row-to-row switch.
+	// `isFlow` is a first guess only — loadScheduleCfg sets it from the loaded
+	// config — so the tab needs no knowledge of the target beyond the path.
+	$effect(() => {
+		const p = path
+		const e = editor
+		// `generation` is tracked so a remount re-opens: `editor` is rebound to the
+		// fresh instance, but reading it alone would not say the instance changed.
+		generation
+		if (!p || !e) return
+		untrack(() => void e.openEdit(p, false))
+	})
+</script>
+
+<div class="h-full w-full overflow-auto p-4">
+	<!-- useDrawer=false renders the editor as a Section, the same inline form the
+	     script/flow trigger panel mounts (see SchedulePanel). `customLabel` is that
+	     Section's header, which is where the way back belongs. -->
+	{#key generation}
+		<!-- No `allowDraft`: that switches the toolbar to the trigger-panel branch,
+		     whose deploy button is gated on the `trigger`/`isDeployed` a script or
+		     flow editor supplies for a trigger staged next to it. A standalone tab
+		     has neither, which leaves the schedule permanently unsavable — its
+		     situation is the drawer's, whose plain Save this restores. -->
+		<ScheduleEditorInner
+			bind:this={editor}
+			useDrawer={false}
+			showDraftBanner
+			onUpdate={() => generation++}
+		>
+			{#snippet customLabel()}
+				<div class="flex flex-row items-center gap-2 min-w-0">
+					{#if onBack}
+						<Button
+							variant="subtle"
+							unifiedSize="sm"
+							startIcon={{ icon: ArrowLeft }}
+							on:click={onBack}
+							title="Back to Schedules"
+							iconOnly
+						/>
+					{/if}
+					<span class="text-sm font-semibold truncate">Schedule</span>
+				</div>
+			{/snippet}
+		</ScheduleEditorInner>
+	{/key}
+</div>

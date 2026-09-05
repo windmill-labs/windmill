@@ -7,6 +7,7 @@ import {
 	canonicalizeObservedLoc,
 	describeLocation,
 	matchPreviewPage,
+	parseEntityEditorRoute,
 	showsView,
 	parseArtifactRoute,
 	parsePipelineRoute,
@@ -298,6 +299,18 @@ export class SessionPreviewTabs {
 			!commandUnchanged && url.includes('#') && tab.url.split('#')[0] === url.split('#')[0]
 		retargetTab(tab, url)
 		if ((commandUnchanged && drifted) || fragmentOnly) this.pulseReload(tab.id)
+	}
+
+	/** Re-point one tab by id. `navigate` moves whichever tab is active, which is
+	 * what a user's own pick means; this is for a change that belongs to a
+	 * particular tab whether or not the user is looking at it — the item a hosted
+	 * entity editor was showing has been deleted out from under it. Works on a
+	 * tab with no mounted host, which would otherwise never hear about it. */
+	retargetTabTo(id: string, url: string): void {
+		const tab = this.#tabs.find((t) => t.id === id)
+		if (!tab) return
+		this.#retarget(tab, url)
+		this.#flush()
 	}
 
 	// Force the host to reload the iframe. A navigation onto the tab's exact current URL
@@ -599,6 +612,14 @@ export class SessionPreviewTabs {
 		const observed = describeLocation(canonical)
 		if (commanded.anchor && !observed.anchor && commanded.identity === observed.identity) {
 			t.url = t.url.split('#')[0]
+		} else if (!commanded.anchor && observed.anchor && parseEntityEditorRoute(canonical)) {
+			// The mirror case, for the entities whose editor this panel hosts in
+			// process: a drawer opened on a row inside the frame is that entity's
+			// editor, and the frame's copy is a realm apart from the chat's writes —
+			// it can only be brought up to date by reloading the whole page under it.
+			// Following the command re-resolves the tab onto the hosted editor, which
+			// shares the draft cell the chat writes and so tracks it as the user reads.
+			t.url = canonical
 		}
 		this.#flush()
 	}

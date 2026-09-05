@@ -65,6 +65,13 @@ export function stripBase(path: string): string {
 	return p || '/'
 }
 
+/** How a list page addresses one of its rows in the hash. Resources route theirs
+ * through an extra segment; every other page names the path directly. The inverse
+ * of `drawerAnchorFor`. */
+export function drawerHashFor(pagePath: string, itemPath: string): string {
+	return pagePath === RESOURCES_PATH ? `/resource/${itemPath}` : itemPath
+}
+
 export type PreviewItemRoute = { kind: WorkspaceItemKind; raw_app: boolean; itemPath: string }
 
 // Parse a preview URL/pathname into the workspace item it edits, or null for a

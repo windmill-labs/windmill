@@ -124,6 +124,26 @@ export type ClearLiveEditorDraftOptions = UserDraftOptions & {
 }
 
 const entries = new Map<string, DraftEntry>()
+// Cells whose last `seed` found no live entry (see `takeSeedMiss`). Bounded by
+// the seeds that missed and not yet been read back, and each entry is one key.
+const seedMisses = new Set<string>()
+// Cells whose last discard removed the item itself (see `takeDraftOnlyDiscard`).
+const draftOnlyDiscards = new Set<string>()
+
+// Both sets above are read by the tool-completion listener right after the write
+// that wrote them — but only while something is listening, and nothing is when the
+// user is not in a session. Capped so an unread marker cannot accumulate: the
+// oldest is dropped, since a marker is only ever meaningful to the action that
+// immediately follows it.
+const MAX_WRITE_MARKERS = 64
+function noteMarker(set: Set<string>, key: string): void {
+	set.add(key)
+	while (set.size > MAX_WRITE_MARKERS) {
+		const oldest = set.values().next().value
+		if (oldest === undefined || oldest === key) break
+		set.delete(oldest)
+	}
+}
 const liveEditorDrafts = new Map<string, LiveEditorDraft>()
 /**
  * Map keys whose entry should start `syncSuspended` on acquire. Lets
@@ -395,15 +415,60 @@ export const UserDraft = {
 	 * is still needed when a write fans out across components (e.g. an
 	 * editor's `initContent` cascading into the bound value).
 	 *
-	 * No-op if the entry isn't live yet (acquire via `use`/`useMany` first).
+	 * No-op if the entry isn't live yet (acquire via `use`/`useMany` first) —
+	 * recorded for {@link takeSeedMiss}, since the value then reached the server
+	 * without reaching the editor that will show it.
 	 */
 	seed<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
-		if (!entry) return
+		if (!entry) {
+			noteMarker(seedMisses, mk)
+			return
+		}
+		seedMisses.delete(mk)
 		entry.seedNextWrite = true
 		entry.state.val = snapshotDraftValue(value)
+	},
+
+	/**
+	 * Record that the draft just discarded for this cell was the item's only stored
+	 * form — nothing deployed underneath, so the item is now gone rather than
+	 * reverted. Read once by a consumer showing that item, which has to stop
+	 * showing it. Set at the discard, where the deployed side is known.
+	 */
+	recordDraftOnlyDiscard(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
+		noteMarker(draftOnlyDiscards, mapKey(resolveWorkspace(opts), itemKind, path))
+	},
+
+	/** Drop any removal marker for this cell — the item exists again, so a marker
+	 * still standing (nothing consumed it, because nothing was listening) would be
+	 * read by whatever touches it next and send its editor away. */
+	clearDraftOnlyDiscard(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
+		draftOnlyDiscards.delete(mapKey(resolveWorkspace(opts), itemKind, path))
+	},
+
+	/** Whether the last discard for this cell removed the item outright (see
+	 * {@link recordDraftOnlyDiscard}), clearing the record. */
+	takeDraftOnlyDiscard(
+		itemKind: UserDraftItemKind,
+		path: string,
+		opts?: UserDraftOptions
+	): boolean {
+		return draftOnlyDiscards.delete(mapKey(resolveWorkspace(opts), itemKind, path))
+	},
+
+	/**
+	 * Whether the last {@link seed} for this cell found no live entry, clearing the
+	 * record. An editor acquires its cell only once its first load resolves, so a
+	 * seed during that window reaches nothing and the value lands on the server
+	 * alone — a caller showing that editor has to make it re-read. Recorded at the
+	 * seed rather than asked afterwards: by then the editor may have acquired the
+	 * cell, hiding the very miss this reports.
+	 */
+	takeSeedMiss(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): boolean {
+		return seedMisses.delete(mapKey(resolveWorkspace(opts), itemKind, path))
 	},
 
 	/**

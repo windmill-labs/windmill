@@ -38,7 +38,10 @@
 	} from '$lib/components/sessions/sessionState.svelte'
 	import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
 	import { enterSessionMode } from '$lib/components/sessions/sessionSwitch.svelte'
-	import type { SessionPreviewTabs } from '$lib/components/sessions/sessionPreviewTabs.svelte'
+	import {
+		whereIs,
+		type SessionPreviewTabs
+	} from '$lib/components/sessions/sessionPreviewTabs.svelte'
 	import { userStore, userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import {
 		getOrCreateRuntime,
@@ -61,11 +64,22 @@
 		matchPreviewPage,
 		pageKey,
 		parseArtifactRoute,
+		entityKindForPage,
+		entityListHref,
+		parseEntityEditorRoute,
 		parsePreviewItemRoute,
 		previewLocationLabel,
+		stripBase,
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
-	import { toolReloadEffect, tabsToReload } from '$lib/components/sessions/previewReload'
+	import {
+		toolReloadEffect,
+		tabsToReload,
+		entityEffectForTab,
+		effectForWrite,
+		effectForDiscard,
+		type EntityMutation
+	} from '$lib/components/sessions/previewReload'
 	import {
 		leafKeyFor,
 		loadKind,
@@ -73,6 +87,7 @@
 		type WorkspaceItemKind
 	} from '$lib/components/workspacePicker'
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
+	import { UserDraft } from '$lib/userDraft.svelte'
 
 	const globalEnabled = isGlobalAiEnabled()
 
@@ -556,37 +571,83 @@
 	// Base-stripped list-page paths (e.g. `/schedules`) a chat round touched since
 	// the last flush — see toolReloadEffect for how tools map to pages.
 	let pendingPages = new Set<string>()
+	// The same round's mutations, kept whole rather than folded into one verdict:
+	// a hosted entity editor is only affected by a mutation to its own item, in
+	// its own workspace, so the path and workspace have to survive the debounce.
+	let pendingMutations: EntityMutation[] = []
 
 	// Reload the mounted list-page tabs a chat round changed, across all warm
 	// sessions (a hidden preview would otherwise show pre-mutation content on
 	// return). tabsToReload picks only the tabs whose page is in `pages`.
-	function reloadTabs(pages: Set<string>) {
+	function reloadTabs(pages: Set<string>, mutations: EntityMutation[]) {
 		for (const s of warmSessions) {
 			const owner = getRuntime(s.id)?.previewTabs
 			if (!owner) continue
+			const workspace = getEffectiveWorkspaceId(s)
 			for (const tab of tabsToReload(owner.tabs, pages)) {
 				const key = tabKey(s.id, tab.id)
-				if (mountedTabKeys.has(key)) tabHosts[key]?.reload()
+				// A list tab shows every row, so any mutation on its page is its
+				// business. A hosted entity tab shows one item, and is told apart here.
+				const entity = parseEntityEditorRoute(whereIs(tab))
+				if (!entity) {
+					if (mountedTabKeys.has(key)) tabHosts[key]?.reload()
+					continue
+				}
+				const listPage = stripBase(whereIs(tab))
+				const effect = workspace
+					? entityEffectForTab(mutations, { listPage, path: entity.path, workspace })
+					: 'none'
+				// Deletion is re-pointed on the tab model, so a tab whose host is not
+				// mounted is not left sitting on an item that no longer exists.
+				// The tab's own location, so the list it came from keeps its filters.
+				if (effect === 'close') {
+					owner.retargetTabTo(tab.id, entityListHref(whereIs(tab)))
+				} else if (effect === 'refresh' && mountedTabKeys.has(key)) {
+					tabHosts[key]?.reload({ entity: 'refresh' })
+				}
 			}
 		}
 	}
 	function flushReload() {
 		const pages = pendingPages
+		const mutations = pendingMutations
 		pendingPages = new Set()
-		reloadTabs(pages)
+		pendingMutations = []
+		reloadTabs(pages, mutations)
 	}
 	$effect(() => {
 		// Debounced so a burst of writes (the AI editing several files) reloads once.
-		setToolCompletionListener((name, args) => {
-			const { pages } = toolReloadEffect(name, args)
+		setToolCompletionListener((name, args, workspace) => {
+			const { pages, entity, path } = toolReloadEffect(name, args)
 			if (pages.length === 0) return
 			for (const p of pages) pendingPages.add(p)
+			// A write reaches a hosted editor through the draft cell it holds, but an
+			// editor still loading holds none yet and the seed no-opped past it. The
+			// miss is recorded when it happens — asking now would be too late, since
+			// the editor can have acquired the cell during the write's round-trip.
+			// Each marker is read only by the kind of tool that writes it. A marker
+			// left unread — nothing consumes them outside a session — would otherwise
+			// be spent by whatever touched the item next, and a removal marker read by
+			// a deploy sends a live editor away.
+			const kind = path ? entityKindForPage(pages[0]) : undefined
+			const readable = !!kind && !!path
+			const seedReachedEditor =
+				!readable || entity !== 'none' || !UserDraft.takeSeedMiss(kind!, path!, { workspace })
+			// A discard of a draft-only item removed the item itself, so its editor has
+			// nothing left to re-read and must leave instead.
+			const itemSurvives =
+				!readable ||
+				name !== 'discard_local_draft' ||
+				!UserDraft.takeDraftOnlyDiscard(kind!, path!, { workspace })
+			const effect = effectForDiscard(effectForWrite(entity, seedReachedEditor), itemSurvives)
+			if (effect !== 'none') pendingMutations.push({ pages, effect, path, workspace })
 			clearTimeout(reloadHandle)
 			reloadHandle = setTimeout(flushReload, 500)
 		})
 		return () => {
 			clearTimeout(reloadHandle)
 			pendingPages = new Set()
+			pendingMutations = []
 			setToolCompletionListener(undefined)
 		}
 	})
@@ -726,8 +787,19 @@
 		return (
 			tab.friendlyLabel ??
 			(listed && itemDisplayName(listed.path, listed.draftPath, listed.summary)) ??
+			// An entity tab hosts one item's editor; `previewLocationLabel` would name
+			// it after the list page its location shares a path with, so several open
+			// at once would all read "Schedules". (Not moved into that function: the
+			// chat's location context reports the page and the anchored row as
+			// separate fields, and reads the page name from there.)
+			entityTabLabel(tab.loc) ??
 			previewLocationLabel(tab.loc)
 		)
+	}
+
+	function entityTabLabel(loc: string): string | undefined {
+		const entity = parseEntityEditorRoute(loc)
+		return entity ? (entity.path.split('/').pop() ?? entity.path) : undefined
 	}
 
 	// Hover title for a tab. A summary label is free text the strip truncates, and

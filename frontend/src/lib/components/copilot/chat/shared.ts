@@ -687,10 +687,12 @@ export function pendingUserActionDetail(
 // the sessions page) react to mutating tools — refreshing previews — without
 // the tool layer knowing about the UI. Single slot; the consumer filters by name
 // and reads the tool args (e.g. the mutated item's `path`) to scope its refresh.
-let toolCompletionListener: ((toolName: string, args: any) => void) | undefined
+let toolCompletionListener:
+	| ((toolName: string, args: any, workspace: string) => void)
+	| undefined
 
 export function setToolCompletionListener(
-	fn: ((toolName: string, args: any) => void) | undefined
+	fn: ((toolName: string, args: any, workspace: string) => void) | undefined
 ): void {
 	toolCompletionListener = fn
 }
@@ -719,7 +721,9 @@ async function callTool<T>({
 		)
 	}
 	const result = await tool.fn({ args, workspace, helpers, toolCallbacks, toolId })
-	toolCompletionListener?.(functionName, args)
+	// The workspace the tool acted on, so a consumer can tell a mutation in this
+	// session's workspace from the same path in another one.
+	toolCompletionListener?.(functionName, args, workspace)
 	return result
 }
 

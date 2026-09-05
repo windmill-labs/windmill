@@ -63,7 +63,12 @@
 		onConfigChange = undefined,
 		onDelete = undefined,
 		onReset = undefined,
-		trigger = undefined
+		trigger = undefined,
+		// The drawer carries the draft banner in its own slot; inline (`useDrawer`
+		// false) it is the host's, since the trigger panel inside a script or flow
+		// editor is covered by that editor's banner. A host that stands alone — a
+		// session's schedule tab — opts in, or nothing says an edit is unsaved.
+		showDraftBanner = false
 	} = $props()
 
 	let optionTabSelected:
@@ -1444,6 +1449,16 @@
 				{@render saveButton()}
 			</div>
 		{/snippet}
+		{#if showDraftBanner}
+			<LocalDraftBanner
+				show={draftSync.hasDraft}
+				getDeployed={() => draftSync.deployed}
+				reserveSpace={draftSync.hasBaseline}
+				getCurrent={() => draftSync.current}
+				onDiscard={() => draftSync.resetToDeployed(initialPath)}
+				disabled={!can_write}
+			/>
+		{/if}
 		{#if docDescription}
 			{@render docDescription()}
 		{/if}

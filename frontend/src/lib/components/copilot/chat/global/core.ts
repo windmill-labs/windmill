@@ -6135,6 +6135,25 @@ function createOpenVariableAction(path: string): ToolDisplayAction {
 	}
 }
 
+/** Whether a deployed item exists under a draft, for the kinds whose editor a
+ * session hosts. Anything else answers true — the caller only uses this to decide
+ * whether discarding leaves nothing behind, and no other kind is hosted. */
+async function hasDeployedItem(
+	workspace: string,
+	type: WorkspaceItemType,
+	path: string
+): Promise<boolean> {
+	try {
+		if (type === 'resource') return await ResourceService.existsResource({ workspace, path })
+		if (type === 'variable') return await VariableService.existsVariable({ workspace, path })
+		if (type === 'schedule') return await ScheduleService.existsSchedule({ workspace, path })
+	} catch {
+		// The probe is an optimisation over "assume it survived"; a failed one must
+		// not fail the discard, and treating it as deployed keeps today's behavior.
+	}
+	return true
+}
+
 async function discardLocalDraft(
 	args: { type: WorkspaceItemType; path: string; trigger_kind?: TriggerKind },
 	ctx: WriteDraftCtx
@@ -6151,16 +6170,27 @@ async function discardLocalDraft(
 		throw new Error(`No draft found for ${type} "${path}".`)
 	}
 
+	// Probed before the delete, while both sides are still knowable: a draft with
+	// nothing deployed under it IS the item, so discarding it removes the item
+	// rather than reverting it — and anything showing that item has to stop.
+	const discardedKind = itemKindFor(type, triggerKind)
+	const storagePath = getGlobalDraftStoragePath(workspace, type, path, triggerKind)
+	const removesItem = !!discardedKind && !(await hasDeployedItem(workspace, type, path))
+
 	await deleteGlobalDraft(workspace, type, path, triggerKind)
+
+	// Published only now: the delete above can throw, and the marker is read by the
+	// tool-completion listener, which a throw never reaches — leaving it to be
+	// consumed by some later action on this item, which would send its editor away
+	// while the item is still there.
+	if (removesItem && discardedKind) {
+		UserDraft.recordDraftOnlyDiscard(discardedKind, storagePath, { workspace })
+	}
 
 	// The chat's touch on the item is undone — drop it from the mask so a
 	// pre-existing deployed item doesn't keep reading as this chat's edit.
-	const discardedKind = itemKindFor(type, triggerKind)
 	if (discardedKind) {
-		toolCallbacks.onItemDiscarded?.(
-			discardedKind,
-			getGlobalDraftStoragePath(workspace, type, path, triggerKind)
-		)
+		toolCallbacks.onItemDiscarded?.(discardedKind, storagePath)
 	}
 
 	toolCallbacks.setToolStatus(toolId, {
