@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_queue\n                     SET suspend = 0, suspend_until = NULL, started_at = coalesce(started_at, now())\n                     WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "499f36fe475241fcd69aa4291f8846fd4ed3b025a290fe48660db3c1faaa4d27"
+}

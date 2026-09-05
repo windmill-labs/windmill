@@ -86,19 +86,18 @@ fn default_dispatch_type() -> String {
     "inline".to_string()
 }
 
-/// Park a WAC v2 parent in the queue until `suspend` reaches 0 or
-/// `suspend_secs` elapses, whichever comes first.
+/// Park a WAC v2 parent in the queue until `suspend` reaches 0 or `suspend_secs`
+/// elapses, whichever comes first. `running` stays true so the normal pull query
+/// skips the row; only the suspended pull query takes it back. The `id`/`workspace_id`
+/// pair is a consistency check, not an authorization one — callers must already hold
+/// the job (every one of them passes a job its own worker pulled).
 ///
-/// `running` stays true so the normal pull query skips the row; only the
-/// suspended pull query takes it back.
-///
-/// `started_at` is cleared because the parent holds no worker while parked.
-/// The pull re-stamps it (`started_at = coalesce(started_at, now())`), and
-/// every path that completes a job without a worker-measured duration — a
-/// cancel, the child-failure handler — falls back to `now() - started_at`.
-/// Left pointing at the first segment, that fallback reports the whole sleep
-/// or approval wait as execution time, which on cloud is billed as compute
-/// seconds.
+/// `started_at` is cleared because the parent holds no worker while parked. The pull
+/// re-stamps it (`started_at = coalesce(started_at, now())`), and every path that
+/// completes a job without a worker-measured duration — a cancel, the child-failure
+/// handler — falls back to `now() - started_at`. Left pointing at the first segment,
+/// that fallback reports the whole sleep or approval wait as execution time, which on
+/// cloud is billed as compute seconds.
 pub async fn suspend_wac_parent(
     tx: &mut Transaction<'_, Postgres>,
     job_id: &Uuid,
@@ -106,7 +105,7 @@ pub async fn suspend_wac_parent(
     suspend: i32,
     suspend_secs: f64,
 ) -> error::Result<()> {
-    sqlx::query!(
+    let parked = sqlx::query!(
         "UPDATE v2_job_queue
          SET suspend = $3, suspend_until = now() + make_interval(secs => $4), started_at = null
          WHERE id = $1 AND workspace_id = $2",
@@ -117,7 +116,17 @@ pub async fn suspend_wac_parent(
     )
     .execute(&mut **tx)
     .await
-    .map_err(|e| Error::internal_err(format!("Failed to suspend WAC parent job {job_id}: {e}")))?;
+    .map_err(|e| Error::internal_err(format!("Failed to suspend WAC parent job {job_id}: {e}")))?
+    .rows_affected();
+
+    // Silently parking nothing is unrecoverable on the dispatch arm: the children are
+    // pushed right after and decrement a `suspend` that was never set, so the parent
+    // sits out its whole suspend window instead of resuming.
+    if parked != 1 {
+        return Err(Error::internal_err(format!(
+            "WAC parent job {job_id} not in the queue of workspace {w_id} to suspend"
+        )));
+    }
     Ok(())
 }
 

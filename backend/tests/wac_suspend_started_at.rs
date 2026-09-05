@@ -1,8 +1,4 @@
-//! A WAC parent parked on a sleep, an approval or its children holds no worker,
-//! so the queue row must not keep pointing at the segment that ran before it
-//! parked: every path that completes a job without a worker-measured duration
-//! falls back to `now() - started_at` and would record (and, on cloud, bill) the
-//! whole wait as execution time.
+//! Guards the `started_at` invariant documented on `suspend_wac_parent`.
 
 use sqlx::{Pool, Postgres};
 use uuid::Uuid;
