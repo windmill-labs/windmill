@@ -21,21 +21,25 @@
  *
  * Deleting is the dangerous half, and the equality behind it is always stale:
  * it was read one round trip ago, and every candidate is read before any is
- * deleted. Two guards keep that from eating work. Anything this tab is
- * currently writing is skipped outright — a discard POSTs immediately, which
- * cancels the autosave the user's keystrokes have queued. And the delete
- * itself is a compare-and-delete: the listing's timestamp is seeded as the
- * `last_sync` baseline, so the backend refuses it if the row moved since,
- * whoever moved it. Without the seed a freshly loaded tab has no baseline and
- * the delete is unconditional.
+ * deleted. So the delete is a compare-and-delete — `last_sync` is the
+ * timestamp the row was judged on, and the backend drops it only if nothing has
+ * written it since, whoever wrote it.
+ *
+ * It is sent straight to `DraftService`, NOT through `UserDraftDbSyncer`. That
+ * syncer exists to autosave an editor's own live value, and everything it does
+ * for that — parking the payload for the `pagehide` flush, debouncing, holding
+ * a per-tab `last_sync` baseline and conflict state — is a way for a one-shot
+ * delete to reach back into whatever the user is doing in the same tab. This
+ * sweep wants exactly one conditional request and no state afterwards.
  */
 
 import { DraftService } from './gen'
 import type { UserDraftItemKind } from './gen'
 import { sendUserToast } from './toast'
+import { setLocalDraftHint } from './localDraftHints.svelte'
 import { UserDraft, draftValuesEqual } from './userDraft.svelte'
 import { UserDraftDbSyncer } from './userDraftDbSyncer.svelte'
-import { canDiffDraftKind, discardDraft, getDraftDiffValues } from './utils_draft_deploy'
+import { canDiffDraftKind, getDraftDiffValues } from './utils_draft_deploy'
 import { invalidateWorkspaceDrafts } from './workspaceDrafts.svelte'
 
 const SENTINEL_PREFIX = 'userdraft/pruned/v1/'
@@ -183,28 +187,22 @@ export async function pruneMeaninglessDrafts(workspace: string, userKey: string)
 				unresolved++
 				continue
 			}
-			const q = { workspace, itemKind: c.kind, path: c.path }
-			UserDraftDbSyncer.recordRemoteSync(q, c.createdAt)
-			const res = await discardDraft(c.kind, c.path, workspace, false, false, false)
-			// Neither outcome throws: the syncer swallows an HTTP failure into its
-			// per-key state, and a delete refused for a moved row comes back as a
-			// conflict. So `success` alone says nothing about whether the row went.
-			const conflict = UserDraftDbSyncer.getConflict(q).conflict
-			if (!res.success || UserDraftDbSyncer.getState(q).state === 'failed') unresolved++
-			else if (conflict) {
-				// The row moved past the baseline we seeded. Drop our refused delete
-				// BEFORE adopting the server's timestamp: a refused save stays parked
-				// for the `pagehide` keepalive flush, which re-sends it with whatever
-				// baseline is current by then — so adopting first would hand it the
-				// one timestamp that makes the delete succeed, against a row that now
-				// holds someone's newer draft.
-				UserDraftDbSyncer.dropPending(q)
-				// Then re-baseline. The syncer keeps a refused baseline until
-				// something resolves it, and nothing here would: these drawer editors
-				// never re-seed on load and mount no conflict modal, so every later
-				// autosave for this key would be refused and the user's edit lost.
-				UserDraftDbSyncer.recordRemoteSync(q, conflict.serverTimestamp)
-			} else discarded++
+			try {
+				const resp = await DraftService.updateDraft({
+					workspace,
+					kind: c.kind,
+					path: c.path,
+					requestBody: { value: null, last_sync: c.createdAt, force: false }
+				})
+				// `conflict` means the row moved past the timestamp we judged it on,
+				// so it is no longer the empty draft we decided to drop.
+				if (resp.status === 'saved') {
+					setLocalDraftHint(workspace, c.kind, c.path, false)
+					discarded++
+				}
+			} catch {
+				unresolved++
+			}
 		}
 		if (discarded > 0) {
 			invalidateWorkspaceDrafts(workspace)

@@ -5,47 +5,33 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 // per-kind diff — and assert on what it discards.
 const listDrafts = vi.fn()
 const getDraftDiffValues = vi.fn()
-const discardDraft = vi.fn(async () => ({ success: true }))
+const updateDraft = vi.fn(async () => ({ status: 'saved', current_timestamp: 'x' }))
 
 vi.mock('./gen', () => ({
-	DraftService: { listDrafts: (...a: unknown[]) => listDrafts(...(a as [])) }
+	DraftService: {
+		listDrafts: (...a: unknown[]) => listDrafts(...(a as [])),
+		updateDraft: (...a: unknown[]) => updateDraft(...(a as []))
+	}
 }))
-// Only the two network-touching functions are stubbed; `canDiffDraftKind` is
-// the real one, so the kind filter is pinned against the actual overlay table.
+// Only `getDraftDiffValues` is stubbed; `canDiffDraftKind` is the real one, so
+// the kind filter is pinned against the actual overlay table.
 vi.mock('./utils_draft_deploy', async (orig) => ({
 	...(await orig<Record<string, unknown>>()),
-	getDraftDiffValues: (...a: unknown[]) => getDraftDiffValues(...(a as [])),
-	discardDraft: (...a: unknown[]) => discardDraft(...(a as []))
+	getDraftDiffValues: (...a: unknown[]) => getDraftDiffValues(...(a as []))
 }))
+vi.mock('./localDraftHints.svelte', () => ({ setLocalDraftHint: vi.fn() }))
 vi.mock('./workspaceDrafts.svelte', () => ({ invalidateWorkspaceDrafts: vi.fn() }))
 const sendUserToast = vi.fn()
 vi.mock('./toast', () => ({ sendUserToast: (...a: unknown[]) => sendUserToast(...(a as [])) }))
 
+// The sweep reads exactly one thing from the syncer — whether this tab is
+// mid-write on the key — and writes nothing back to it.
 let syncState = 'none'
-let conflict: unknown = undefined
-const recordRemoteSync = vi.fn()
-const dropPending = vi.fn()
-/** Ordered log of the two calls whose ORDER is the guard being pinned. */
-let syncerCalls: string[] = []
 vi.mock('./userDraftDbSyncer.svelte', () => ({
 	UserDraftDbSyncer: {
-		save: vi.fn(),
-		dropPending: (...a: unknown[]) => {
-			syncerCalls.push('dropPending')
-			return dropPending(...(a as []))
-		},
-		recordRemoteSync: (...a: unknown[]) => {
-			syncerCalls.push('recordRemoteSync')
-			return recordRemoteSync(...(a as []))
-		},
 		getState: () => ({
 			get state() {
 				return syncState
-			}
-		}),
-		getConflict: () => ({
-			get conflict() {
-				return conflict
 			}
 		})
 	}
@@ -76,16 +62,14 @@ const diff = (over: Record<string, unknown> = {}) => ({
 	noDeployed: false,
 	...over
 })
-const discardedPaths = () => discardDraft.mock.calls.map((c: any[]) => c[1])
+const discardedPaths = () => updateDraft.mock.calls.map((c: any[]) => c[0].path as string)
 
 beforeEach(() => {
 	localStorage.clear()
 	vi.clearAllMocks()
-	discardDraft.mockResolvedValue({ success: true })
+	updateDraft.mockResolvedValue({ status: 'saved', current_timestamp: 'x' })
 	syncState = 'none'
-	conflict = undefined
 	liveDraft = false
-	syncerCalls = []
 })
 
 describe('pruneMeaninglessDrafts', () => {
@@ -100,28 +84,28 @@ describe('pruneMeaninglessDrafts', () => {
 		listDrafts.mockResolvedValue([row()])
 		getDraftDiffValues.mockResolvedValue(diff({ draft: { value: { host: 'other' } } }))
 		await pruneMeaninglessDrafts('main', 'me@x.dev')
-		expect(discardDraft).not.toHaveBeenCalled()
+		expect(updateDraft).not.toHaveBeenCalled()
 	})
 
 	it('never touches a draft-only item — the draft is the whole item', async () => {
 		listDrafts.mockResolvedValue([row({ draft_only: true })])
 		getDraftDiffValues.mockResolvedValue(diff())
 		await pruneMeaninglessDrafts('main', 'me@x.dev')
-		expect(discardDraft).not.toHaveBeenCalled()
+		expect(updateDraft).not.toHaveBeenCalled()
 	})
 
 	it('never touches another user’s row, or one it cannot write', async () => {
 		listDrafts.mockResolvedValue([row({ mine: false }), row({ path: 'u/me/b', can_write: false })])
 		getDraftDiffValues.mockResolvedValue(diff())
 		await pruneMeaninglessDrafts('main', 'me@x.dev')
-		expect(discardDraft).not.toHaveBeenCalled()
+		expect(updateDraft).not.toHaveBeenCalled()
 	})
 
 	it('leaves a draft alone when its diff cannot be fetched, and retries it later', async () => {
 		listDrafts.mockResolvedValue([row()])
 		getDraftDiffValues.mockRejectedValue(new Error('boom'))
 		await pruneMeaninglessDrafts('main', 'me@x.dev')
-		expect(discardDraft).not.toHaveBeenCalled()
+		expect(updateDraft).not.toHaveBeenCalled()
 		// A row that could not be judged is not a row that carries changes, so
 		// the pass must stay open rather than strand it.
 		getDraftDiffValues.mockResolvedValue(diff())
@@ -132,36 +116,29 @@ describe('pruneMeaninglessDrafts', () => {
 	it('conditions the delete on the timestamp it judged, so a row that moved is spared', async () => {
 		listDrafts.mockResolvedValue([row()])
 		getDraftDiffValues.mockResolvedValue(diff())
-		conflict = { serverTimestamp: '2026-01-02T00:00:00Z', localLastSync: null }
+		updateDraft.mockResolvedValue({ status: 'conflict', current_timestamp: 'newer' })
 		await pruneMeaninglessDrafts('main', 'me@x.dev')
-		expect(recordRemoteSync).toHaveBeenCalledWith(
-			{ workspace: 'main', itemKind: 'resource', path: 'u/me/r' },
-			'2026-01-01T00:00:00Z'
-		)
-		// The discard was attempted but refused, so nothing is reported as cleared.
+		expect(updateDraft).toHaveBeenCalledWith({
+			workspace: 'main',
+			kind: 'resource',
+			path: 'u/me/r',
+			requestBody: { value: null, last_sync: '2026-01-01T00:00:00Z', force: false }
+		})
+		// Refused, so nothing is reported as cleared — and the sweep leaves no
+		// state behind for the editor's own autosave to trip over.
 		expect(sendUserToast).not.toHaveBeenCalled()
-		// …and the refused baseline is handed back to the server's, so the next
-		// autosave for this key is not refused too.
-		expect(recordRemoteSync).toHaveBeenLastCalledWith(
-			{ workspace: 'main', itemKind: 'resource', path: 'u/me/r' },
-			'2026-01-02T00:00:00Z'
-		)
-		// Order matters: the refused delete stays parked for the pagehide flush,
-		// which would re-send it with whatever baseline is current. Adopting the
-		// server's timestamp first would be handing it the one value that works.
-		expect(syncerCalls.slice(-2)).toEqual(['dropPending', 'recordRemoteSync'])
 	})
 
 	it('does not keep retrying a row the server will never judge', async () => {
 		listDrafts.mockResolvedValue([row()])
 		getDraftDiffValues.mockRejectedValue({ status: 404 })
 		await pruneMeaninglessDrafts('main', 'me@x.dev')
-		expect(discardDraft).not.toHaveBeenCalled()
+		expect(updateDraft).not.toHaveBeenCalled()
 		// Sealed: a 4xx is final, unlike the transient case above.
 		listDrafts.mockResolvedValue([row()])
 		getDraftDiffValues.mockResolvedValue(diff())
 		await pruneMeaninglessDrafts('main', 'me@x.dev')
-		expect(discardDraft).not.toHaveBeenCalled()
+		expect(updateDraft).not.toHaveBeenCalled()
 	})
 
 	it('gives up after a bounded number of unresolved passes', async () => {
@@ -183,7 +160,7 @@ describe('pruneMeaninglessDrafts', () => {
 		listDrafts.mockResolvedValue([row()])
 		getDraftDiffValues.mockResolvedValue(diff())
 		await pruneMeaninglessDrafts('main', 'me@x.dev')
-		expect(discardDraft).not.toHaveBeenCalled()
+		expect(updateDraft).not.toHaveBeenCalled()
 	})
 
 	it('leaves alone a draft this tab is editing', async () => {
@@ -191,7 +168,7 @@ describe('pruneMeaninglessDrafts', () => {
 		listDrafts.mockResolvedValue([row()])
 		getDraftDiffValues.mockResolvedValue(diff())
 		await pruneMeaninglessDrafts('main', 'me@x.dev')
-		expect(discardDraft).not.toHaveBeenCalled()
+		expect(updateDraft).not.toHaveBeenCalled()
 	})
 
 	it('leaves alone a draft with a write queued or in flight', async () => {
@@ -199,26 +176,16 @@ describe('pruneMeaninglessDrafts', () => {
 		listDrafts.mockResolvedValue([row()])
 		getDraftDiffValues.mockResolvedValue(diff())
 		await pruneMeaninglessDrafts('main', 'me@x.dev')
-		expect(discardDraft).not.toHaveBeenCalled()
+		expect(updateDraft).not.toHaveBeenCalled()
 	})
 
-	it('does not count, or seal the pass on, a delete the syncer failed to send', async () => {
+	it('does not count, or seal the pass on, a delete that failed to send', async () => {
 		listDrafts.mockResolvedValue([row()])
 		getDraftDiffValues.mockResolvedValue(diff())
-		// The discard's own POST is what fails, so the state flips during it.
-		discardDraft.mockImplementation(async () => {
-			syncState = 'failed'
-			return { success: true }
-		})
+		updateDraft.mockRejectedValueOnce(new Error('network'))
 		await pruneMeaninglessDrafts('main', 'me@x.dev')
 		expect(sendUserToast).not.toHaveBeenCalled()
-		discardDraft.mockResolvedValue({ success: true })
-		// A same-session retry sees the key as busy (a failed save leaves the
-		// payload parked), attempts nothing — and must still not seal the pass.
-		await pruneMeaninglessDrafts('main', 'me@x.dev')
-		expect(discardedPaths()).toEqual(['u/me/r'])
-		// Once the failure clears, the draft left behind is finally retried.
-		syncState = 'none'
+		// The pass stayed open, so the draft left behind is retried.
 		await pruneMeaninglessDrafts('main', 'me@x.dev')
 		expect(discardedPaths()).toEqual(['u/me/r', 'u/me/r'])
 	})
@@ -227,7 +194,7 @@ describe('pruneMeaninglessDrafts', () => {
 		listDrafts.mockResolvedValue([row({ legacy_draft: true })])
 		getDraftDiffValues.mockResolvedValue(diff())
 		await pruneMeaninglessDrafts('main', 'me@x.dev')
-		expect(discardDraft).not.toHaveBeenCalled()
+		expect(updateDraft).not.toHaveBeenCalled()
 	})
 
 	it('only sweeps the kinds whose editors are gated', async () => {
@@ -260,9 +227,9 @@ describe('pruneMeaninglessDrafts', () => {
 		getDraftDiffValues.mockResolvedValue(diff())
 		await pruneMeaninglessDrafts('main', 'me@x.dev')
 		await pruneMeaninglessDrafts('main', 'me@x.dev')
-		expect(discardDraft).toHaveBeenCalledTimes(1)
+		expect(updateDraft).toHaveBeenCalledTimes(1)
 		await pruneMeaninglessDrafts('other', 'me@x.dev')
-		expect(discardDraft).toHaveBeenCalledTimes(2)
+		expect(updateDraft).toHaveBeenCalledTimes(2)
 	})
 
 	it('retries next mount when the listing failed', async () => {
