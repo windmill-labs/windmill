@@ -86,13 +86,9 @@
 
 	let frame: HTMLIFrameElement | undefined = $state()
 
-	// Bumped to remount a hosted entity editor, which is how it re-reads the item
-	// from the server: its own state is built at mount from the draft cell, so
-	// there is nothing to refresh in place once that cell has been dropped. The
-	// acting workspace joins it in the key for the same reason — these editors
-	// load and save against the workspace they were mounted with, so a session
-	// that rescopes (a staged fork materialising on first send) must not leave
-	// them bound to the previous one.
+	// A hosted entity editor builds its state at mount, from the draft cell and the
+	// workspace it was given, and can refresh neither in place — so both the bump
+	// below and a change of `workspaceId` key it, and remounting is how it re-reads.
 	let entityNonce = $state(0)
 
 	// Pages whose theme we mirror on live toggles. Regular apps are the only item

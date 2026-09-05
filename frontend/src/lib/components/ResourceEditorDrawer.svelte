@@ -57,7 +57,8 @@
 
 	let resourceEditor:
 		| {
-				save: () => void
+				/** False when the write failed; it toasts its own error. */
+				save: () => Promise<boolean>
 				localDraftDeployed: () => unknown
 				localDraftCurrent: () => unknown
 				discardLocalDraft: () => void
@@ -205,9 +206,12 @@
 			// Closed before the write is awaited, the way it always was: `save()` toasts its
 			// own failures and never rejects, so waiting would only add visible lag to every
 			// caller of this drawer. `onSaved` still fires after the write lands.
-			const saved = resourceEditor?.save()
+			const saving = resourceEditor?.save()
 			drawer?.closeDrawer()
-			await saved
+			// Everything below moves this host onto the path that was written, so it
+			// must not run for a write that failed — a rejected rename (a name
+			// collision, say) would point the tab at a path this save never created.
+			if (!(await saving)) return
 			// Rendered inline there is no drawer to close, so the mounted editor would
 			// otherwise keep the pre-save baseline. Follow a rename before remounting,
 			// or it comes back up on a path the save just moved the item off.
