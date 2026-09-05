@@ -734,17 +734,17 @@ pub(crate) async fn ensure_can_use_datatable_role(
 /// the data table was unpermissioned carries a verbatim copy of it, and every
 /// member of that fork — including members this workspace does not have — would
 /// keep reaching the database through the copy's own connection, which owns
-/// everything in it. Forks made after the opt-in never receive a permissioned
-/// data table (see the strip in the fork creation), so refusing while any exist
-/// is what closes the gap. A dev workspace detached from this one keeps such a
-/// copy without being a fork any more, which is what the last check is for; it
-/// is exact for an instance database, whose only credential holders are the
-/// data tables naming it, and meaningless for a resource-backed one, where
-/// whoever holds the resource's credentials reaches the database regardless.
+/// everything in it. A dev workspace detached from this one keeps such a copy
+/// without being a fork any more, which is what the last check is for; it is
+/// exact for an instance database, whose only credential holders are the data
+/// tables naming it, and meaningless for a resource-backed one, where whoever
+/// holds the resource's credentials reaches the database regardless.
 ///
-/// Turning them off is always allowed, or a workspace carrying permissions from
-/// before this rule could never be rid of them, and the roles behind them never
-/// dropped.
+/// All three are properties of the opt-in, so only the save that turns
+/// permissions on is checked. Forks made afterwards never receive a permissioned
+/// data table (see the strip in the fork creation), and a save that edits the
+/// roles of a live config must keep working while they exist — revoking a tenant
+/// above all. Turning permissions off is never refused.
 ///
 /// The save calls this under the settings row lock, which fork creation takes on
 /// the parent before copying its settings: a fork mid-creation has either
@@ -758,6 +758,10 @@ async fn refuse_enabling_permissions_over_shared_access(
     if !enabled {
         return Ok(());
     }
+    let datatable = read_datatable_unchecked(db, w_id, datatable_name).await?;
+    if datatable.permissions.as_ref().is_some_and(|p| p.enabled) {
+        return Ok(());
+    }
     if crate::workspaces_extra::workspace_is_fork(db, w_id).await? {
         return Err(Error::BadRequest(
             "Data table permissions cannot be enabled from a fork workspace: a fork's data \
@@ -768,7 +772,7 @@ async fn refuse_enabling_permissions_over_shared_access(
                 .to_string(),
         ));
     }
-    let forks = windmill_common::workspaces::list_fork_descendants(db, w_id).await?;
+    let forks = windmill_common::workspaces::list_live_fork_descendants(db, w_id).await?;
     if !forks.is_empty() {
         return Err(Error::BadRequest(format!(
             "Data table permissions cannot be enabled while this workspace has forks ({}): a \
@@ -778,7 +782,6 @@ async fn refuse_enabling_permissions_over_shared_access(
             forks.join(", ")
         )));
     }
-    let datatable = read_datatable_unchecked(db, w_id, datatable_name).await?;
     if datatable.database.resource_type == DataTableCatalogResourceType::Instance {
         let others = sqlx::query!(
             r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "name!"

@@ -62,6 +62,12 @@ pub(crate) async fn change_workspace_id(
     // rename moves the chain from one to the other.
     crate::workspaces::lock_dev_pairing(&mut tx, &[&old_id, &rw.new_id]).await?;
 
+    // The settings are copied below, and a permissions save holds this row while it changes
+    // the roles in the database and then the config: copied without it, the new workspace
+    // could carry the config from before that save while the database has the roles from
+    // after it. Same order as fork creation: pairing lock, then the settings row.
+    windmill_common::workspaces::lock_workspace_settings_unchecked(&mut tx, &old_id).await?;
+
     check_w_id_conflict(&mut tx, &rw.new_id).await?;
 
     info!(
@@ -120,21 +126,25 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
-    // Two configs now name the same Postgres logins, and only one of them owns
-    // them: deleting the archived id would plan drops for logins the renamed
-    // workspace is still using. The archived copy stops naming them — it is kept
-    // for reference, and a reference does not need credentials.
+    // Two configs now name the same Postgres logins, and only one of them owns them:
+    // deleting the archived id would plan drops for logins the renamed workspace is still
+    // using. A permissioned data table leaves the archived copy entirely rather than losing
+    // its `permissions` block: this transaction commits before the old id is archived, and
+    // a copy that still named the database without the block would hand every caller of the
+    // old id the owner connection in between — and again if the shell were ever unarchived.
+    // A missing data table fails closed. The unpermissioned ones stay, for reference.
     //
-    // The renamed workspace keeps them and keeps working: a role's `pg_rolename`
-    // is what resolution uses, and the generated name only decides what a *new*
-    // role is called. Its next permissions save finds the stored name no longer
-    // matches the one this workspace id generates and renames the login to match,
-    // under the ownership proof that rename already carries.
+    // The renamed workspace keeps the roles and keeps working: a role's `pg_rolename` is
+    // what resolution uses, and the generated name only decides what a *new* role is called.
+    // Its next permissions save finds the stored name no longer matches the one this
+    // workspace id generates and renames the login to match, under the ownership proof that
+    // rename already carries.
     sqlx::query!(
         "UPDATE workspace_settings
          SET datatable = jsonb_set(datatable, '{datatables}', COALESCE((
              SELECT jsonb_object_agg(key, value - 'permissions')
              FROM jsonb_each(datatable->'datatables')
+             WHERE COALESCE((value->'permissions'->>'enabled')::boolean, false) = false
          ), '{}'::jsonb))
          WHERE workspace_id = $1 AND jsonb_typeof(datatable->'datatables') = 'object'",
         &old_id,

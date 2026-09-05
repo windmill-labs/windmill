@@ -3126,15 +3126,14 @@ pub(crate) async fn is_instance_datatable(db: &DB, w_id: &str, name: &str) -> Re
         .unwrap_or(false))
 }
 
-/// Same, for the `datatable://<name>` / `$res:<path>` form the import endpoints take.
 /// Refuse to clone a data table whose role permissions are enabled.
 ///
 /// A clone lands in a brand-new database where none of the roles exist, and the
 /// fork's copy of the config is stripped of its permissions — so every member of
 /// the fork resolves to the copy's own owner connection and reads, in full, the
 /// data the roles existed to divide. Reproducing the roles in the copy is a
-/// separate piece of work; until it exists, a fork shares the original, which
-/// keeps the parent's restrictions, or goes without.
+/// separate piece of work; until it exists, a fork goes without the data table
+/// (the fork creation leaves a permissioned one out of the fork's config).
 pub(crate) async fn refuse_clone_of_permissioned_datatable(
     db: &DB,
     w_id: &str,
@@ -3157,12 +3156,14 @@ pub(crate) async fn refuse_clone_of_permissioned_datatable(
         return Err(Error::BadRequest(format!(
             "Data table '{name}' has role permissions enabled and cannot be cloned into a fork: \
              the copy cannot carry its roles, so it would be readable in full by every member of \
-             the fork. Keep the original instead — the fork shares it with the same restrictions."
+             the fork. The fork goes without it; disable its permissions first to clone it."
         )));
     }
     Ok(())
 }
 
+/// Same as [`is_instance_datatable`], for the `datatable://<name>` / `$res:<path>` form the
+/// import endpoints take.
 async fn is_instance_datatable_source(db: &DB, w_id: &str, source: &str) -> Result<bool> {
     match source.strip_prefix("datatable://") {
         Some(name) => is_instance_datatable(db, w_id, name).await,

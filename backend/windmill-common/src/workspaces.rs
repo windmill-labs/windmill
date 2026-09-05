@@ -737,6 +737,31 @@ pub async fn list_fork_descendants(db: &crate::DB, w_id: &str) -> Result<Vec<Str
     Ok(ids)
 }
 
+/// Same, without the soft-deleted ones: the descendants that still have members. An archived
+/// fork, or the shell a fork's rename archives, keeps its `parent_workspace_id` and would
+/// otherwise count as a workspace that can still reach what the parent owns.
+///
+/// Unauthenticated helper, like [`list_fork_descendants`].
+pub async fn list_live_fork_descendants(db: &crate::DB, w_id: &str) -> Result<Vec<String>> {
+    let ids = sqlx::query_scalar!(
+        r#"
+            WITH RECURSIVE tree AS (
+                SELECT id, deleted, 0 AS depth FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.deleted, tree.depth + 1 FROM workspace w
+                JOIN tree ON w.parent_workspace_id = tree.id
+                WHERE tree.depth < 20
+            )
+            SELECT id AS "id!" FROM tree WHERE id != $1 AND NOT deleted ORDER BY id
+        "#,
+        w_id
+    )
+    .fetch_all(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("listing live fork descendants of {w_id}: {e:#}")))?;
+    Ok(ids)
+}
+
 /// Count non-deleted fork/dev workspaces anywhere under `root` (excludes `root` itself).
 ///
 /// Unauthenticated metering helper: it reads workspace hierarchy for any `root` id, so callers must
@@ -3476,7 +3501,8 @@ mod tests {
         // Repointed — however the resource got there, including through a `$var:`
         // no guard on the resource itself would see.
         assert!(
-            ensure_datatable_database_unchanged("main", &dt, &resolved("elsewhere", "one")).is_err()
+            ensure_datatable_database_unchanged("main", &dt, &resolved("elsewhere", "one"))
+                .is_err()
         );
         // A config that never recorded one cannot claim to match: the roles it
         // names were created against a database nobody wrote down.

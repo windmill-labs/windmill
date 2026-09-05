@@ -152,6 +152,56 @@ async fn enabling_permissions_is_refused_while_a_fork_exists(
         assert!(text.contains("wm-fork-t"), "{endpoint}: {text}");
     }
 
+    // Only the opt-in is gated: once permissions are on, forks made afterwards
+    // never receive the data table, and editing the roles — revoking a tenant
+    // above all — has to keep working while they exist. The preview then gets as
+    // far as the database, which this test does not have.
+    sqlx::query(
+        r#"UPDATE workspace_settings
+           SET datatable = jsonb_set(datatable, '{datatables,main,permissions}',
+               '{"enabled": true, "roles": {"admin": {"tenants": []}}}')
+           WHERE workspace_id = 'test-workspace'"#,
+    )
+    .execute(&db)
+    .await?;
+    let edit = json!({ "enabled": true, "roles": [
+        { "name": "admin", "tenants": [] }, { "name": "analyst", "tenants": ["u/test-user"] }
+    ]});
+    let resp = authed(
+        client().post(format!(
+            "{ws}/workspaces/datatable_permissions/main/preview"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&edit)
+    .send()
+    .await?;
+    let text = resp.text().await?;
+    assert!(!text.contains("cannot be enabled"), "{text}");
+    sqlx::query(
+        r#"UPDATE workspace_settings
+           SET datatable = datatable #- '{datatables,main,permissions}'
+           WHERE workspace_id = 'test-workspace'"#,
+    )
+    .execute(&db)
+    .await?;
+
+    // An archived fork has no members left to reach anything.
+    sqlx::query("UPDATE workspace SET deleted = true WHERE id = 'wm-fork-t'")
+        .execute(&db)
+        .await?;
+    let resp = authed(
+        client().post(format!(
+            "{ws}/workspaces/datatable_permissions/main/preview"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&body)
+    .send()
+    .await?;
+    let text = resp.text().await?;
+    assert!(!text.contains("has forks"), "{text}");
+
     // A workspace that is no longer a fork — a detached dev workspace — keeps its
     // copy of the data table, pointing at the same instance database.
     sqlx::query("DELETE FROM workspace WHERE id = 'wm-fork-t'")
@@ -199,6 +249,75 @@ async fn enabling_permissions_is_refused_while_a_fork_exists(
     .await?;
     let text = resp.text().await?;
     assert!(!text.contains("cannot be enabled"), "{text}");
+
+    Ok(())
+}
+
+/// The rename keeps a copy of the settings under the archived id, and commits it
+/// before the old id is archived. A permissioned data table must not be in that
+/// copy: without its `permissions` block it would resolve, for anyone still
+/// using the old id, to the owner connection.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn a_rename_leaves_no_permissioned_datatable_under_the_old_id(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::query(
+        r#"UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = 'test-workspace'"#,
+    )
+    .bind(json!({
+        "datatables": {
+            "open": { "database": { "resource_type": "instance", "resource_path": "dt_open" } },
+            "main": {
+                "database": { "resource_type": "instance", "resource_path": "dt_main" },
+                "permissions": { "enabled": true, "roles": {
+                    "admin": { "tenants": [] },
+                    "analyst": { "tenants": ["*"], "pg_rolename": "wm_x", "pg_password": "s3cret" }
+                }}
+            }
+        }
+    }))
+    .execute(&db)
+    .await?;
+
+    let resp = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/test-workspace/workspaces/change_workspace_id"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({ "new_id": "renamed-ws", "new_name": "Renamed" }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    let names = |w: &'static str| {
+        let db = db.clone();
+        async move {
+            let value: serde_json::Value = sqlx::query_scalar(
+                "SELECT datatable->'datatables' FROM workspace_settings WHERE workspace_id = $1",
+            )
+            .bind(w)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+            let mut keys: Vec<String> = value.as_object().unwrap().keys().cloned().collect();
+            keys.sort();
+            (keys, value)
+        }
+    };
+    let (old_names, _) = names("test-workspace").await;
+    assert_eq!(old_names, vec!["open".to_string()]);
+    let (new_names, new_value) = names("renamed-ws").await;
+    assert_eq!(new_names, vec!["main".to_string(), "open".to_string()]);
+    assert_eq!(new_value["main"]["permissions"]["enabled"], json!(true));
+    assert_eq!(
+        new_value["main"]["permissions"]["roles"]["analyst"]["pg_password"],
+        json!("s3cret")
+    );
 
     Ok(())
 }
