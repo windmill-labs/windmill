@@ -806,6 +806,18 @@ pub fn canonicalize_table_asset_path(path: &str) -> String {
     )
 }
 
+/// Whether a `dbt://` path names a whole relation, `<warehouse>/<schema>/<name>`.
+///
+/// Every producer spells one that way — the manifest ingest derives it from
+/// `relation_name`, a `// materialize` target is checked against it — so anything
+/// else can be produced by nothing and read by nothing. Both sides of the deploy
+/// ask here rather than counting segments themselves: a subscription and a write
+/// that disagreed on the shape would refuse and accept the same string.
+pub fn is_full_relation_path(path: &str) -> bool {
+    let mut segments = path.split('/');
+    segments.clone().count() == 3 && !segments.any(str::is_empty)
+}
+
 /// A doubled delimiter inside a quoted identifier is that delimiter, literally —
 /// the same rule the worker's `split_relation` applies to `relation_name`. Both
 /// have to decode it or one spelling of a table becomes two graph nodes: the dbt
@@ -1740,6 +1752,17 @@ mod pipeline_annotation_tests {
     // annotation is hand-written, and the warehouses fold case in opposite
     // directions. A regression here is invisible: both nodes still render, they
     // just stop being the same node and the cross-boundary cascade never fires.
+    /// The shape both halves of the deploy check against: a subscription and a
+    /// write that disagreed on it would refuse and accept the same string.
+    #[test]
+    fn a_whole_relation_is_three_non_empty_segments() {
+        assert!(is_full_relation_path("main/analytics/orders"));
+        assert!(is_full_relation_path("main/archive.sales/orders"));
+        for partial in ["main", "main/analytics", "main/analytics/orders/x", "", "main//orders"] {
+            assert!(!is_full_relation_path(partial), "{partial} is not a relation");
+        }
+    }
+
     #[test]
     fn table_paths_from_every_spelling_canonicalize_to_one_key() {
         let canonical = Some((AssetKind::Dbt, Cow::Owned("main/analytics/orders".into())));

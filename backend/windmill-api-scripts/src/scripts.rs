@@ -1638,25 +1638,24 @@ async fn create_script_internal<'c>(
                             .to_string(),
                     ));
                 }
-                let segments = m.target_path.split('/').collect::<Vec<_>>();
-                if segments.len() != 3 || segments.iter().any(|s| s.is_empty()) {
+                if !windmill_parser::asset_parser::is_full_relation_path(&m.target_path) {
                     return Err(Error::BadRequest(format!(
                         "`// materialize` needs a full warehouse relation in the target: \
                          `dbt://<warehouse>/<schema>/<name>` (got `dbt://{}`).",
                         m.target_path
                     )));
                 }
+                let warehouse = m.target_path.split('/').next().unwrap_or_default();
                 // The warehouse segment IS the identity a dbt model reading this
                 // relation keys on, so a name no warehouse answers to is not a
                 // namespace — it strands this write on a node nothing reaches.
                 // Same resolution a dbt descriptor's `profile.warehouse` gets.
-                windmill_common::workspaces::dbt_warehouse_exists(&db, &w_id, segments[0])
+                windmill_common::workspaces::dbt_warehouse_exists(&db, &w_id, warehouse)
                     .await
                     .map_err(|e| {
                         Error::BadRequest(format!(
-                            "`// materialize dbt://{}/…` names a warehouse this workspace does \
-                             not configure: {e}",
-                            segments[0]
+                            "`// materialize dbt://{warehouse}/…` names a warehouse this \
+                             workspace does not configure: {e}"
                         ))
                     })?;
             }
@@ -2466,6 +2465,15 @@ async fn create_script_internal<'c>(
                 return Err(Error::BadRequest(format!(
                     "a dbt script cannot subscribe to `{trigger_ref}`: dbt orders its own DAG \
                      and a project is run on its schedule, not woken by an asset cascade."
+                )));
+            }
+            // Every producer spells a whole relation, so a partial one is an edge
+            // nothing can ever wake — refused on the same terms as the dbt-only
+            // case rather than persisted.
+            if !windmill_parser::asset_parser::is_full_relation_path(relation) {
+                return Err(Error::BadRequest(format!(
+                    "`{trigger_ref}` is not a whole warehouse relation \
+                     (`dbt://<warehouse>/<schema>/<name>`), so nothing can produce it."
                 )));
             }
             // Both paths under a rename: the old one's committed write row is

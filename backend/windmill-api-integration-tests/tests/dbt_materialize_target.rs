@@ -85,6 +85,17 @@ async fn test_dbt_materialize_target_deploy_contract(db: Pool<Postgres>) -> anyh
         .await?
         .contains("`// data_test` is not supported"));
 
+    // Every producer spells a whole relation, so a partial one is an edge nothing
+    // can ever wake.
+    let resp = deploy(
+        port,
+        "u/test-user/partial_sub",
+        "// on dbt://main/analytics\nexport async function main() {}",
+    )
+    .await;
+    assert_eq!(resp.status(), 400);
+    assert!(resp.text().await?.contains("not a whole warehouse relation"));
+
     // Any language may declare the write — the DuckLake write engine is DuckDB's,
     // this declaration is not — and the target is canonicalized on the way into
     // `asset`, so a hand-written mixed-case spelling lands on the model's key.

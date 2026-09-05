@@ -319,11 +319,9 @@ describe('resolveGraph', () => {
 		expect(assetTrigKeys(r, 'f/x/open')).toEqual(['ducklake:main.orders'])
 	})
 
-	// A `dbt://` subscription used to be suppressed here because every one of them
-	// was refused at deploy. A relation a native `// materialize manual dbt://…`
-	// script writes now wakes its subscribers, so hiding the edge would leave the
-	// author's own annotation off the canvas; the deploy is what refuses the case
-	// that still cannot fire (a relation dbt alone builds).
+	// A relation a native `// materialize manual dbt://…` script writes wakes its
+	// subscribers, so hiding the edge would leave the author's own annotation off
+	// the canvas. The deploy refuses the ones that cannot fire.
 	it('draws an explicit dbt:// subscription as an unsaved trigger overlay', () => {
 		const liveAnnotations = {
 			scriptPath: 'f/x/open',
