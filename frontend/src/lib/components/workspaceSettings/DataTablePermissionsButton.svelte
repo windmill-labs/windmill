@@ -275,7 +275,7 @@
 					<Alert type="info" title="Permissions belong to the workspace this was forked from" size="xs">
 						A fork's data table points either at that workspace's database, where roles created
 						here would be invisible to its own configuration, or at a copy this fork can drop.
-						Enable permissions there instead — a fork shares them, with the same restrictions.
+						Enable permissions there instead, once this fork is deleted.
 					</Alert>
 				{/if}
 

@@ -8243,6 +8243,14 @@ async fn create_workspace_fork(
         .await?;
     }
 
+    // Enabling a data table's permissions is refused while the workspace has forks, and it
+    // checks for them under this same row: a fork still being created has either committed,
+    // and is found, or copies the parent's settings only after the opt-in landed, so the
+    // permissioned data table is stripped from it below. After the pairing lock, which is
+    // the order the workspace rename takes the two in.
+    windmill_common::workspaces::lock_workspace_settings_unchecked(&mut tx, &parent_workspace_id)
+        .await?;
+
     let forked_id = nw.id;
 
     sqlx::query!(

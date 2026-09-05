@@ -106,3 +106,99 @@ async fn freeing_a_principal_takes_its_datatable_tenant(db: Pool<Postgres>) -> a
 
     Ok(())
 }
+
+/// A fork made while the data table was unpermissioned carries a copy of it that
+/// points at the same database; opting in would leave every member of the fork
+/// reaching that database through the copy's own connection. Pinned on the save
+/// and on the preview, since a plan the save refuses to run must not be offered.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn enabling_permissions_is_refused_while_a_fork_exists(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    sqlx::query(
+        r#"UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = 'test-workspace'"#,
+    )
+    .bind(json!({
+        "datatables": {
+            "main": { "database": { "resource_type": "instance", "resource_path": "dt_main" } }
+        }
+    }))
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO workspace (id, name, owner, parent_workspace_id)
+         VALUES ('wm-fork-t', 'wm-fork-t', 'test-user', 'test-workspace')",
+    )
+    .execute(&db)
+    .await?;
+
+    let body = json!({ "enabled": true, "roles": [] });
+    for endpoint in [
+        "workspaces/datatable_permissions/main/preview",
+        "workspaces/datatable_permissions/main",
+    ] {
+        let resp = authed(client().post(format!("{ws}/{endpoint}")), "SECRET_TOKEN")
+            .json(&body)
+            .send()
+            .await?;
+        let status = resp.status();
+        let text = resp.text().await?;
+        assert_eq!(status, 400, "{endpoint}: {text}");
+        assert!(text.contains("wm-fork-t"), "{endpoint}: {text}");
+    }
+
+    // A workspace that is no longer a fork — a detached dev workspace — keeps its
+    // copy of the data table, pointing at the same instance database.
+    sqlx::query("DELETE FROM workspace WHERE id = 'wm-fork-t'")
+        .execute(&db)
+        .await?;
+    sqlx::query(
+        "INSERT INTO workspace (id, name, owner) VALUES ('detached', 'detached', 'test-user')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query("INSERT INTO workspace_settings (workspace_id, datatable) VALUES ('detached', $1)")
+        .bind(json!({
+            "datatables": {
+                "copy": { "database": { "resource_type": "instance", "resource_path": "dt_main" } }
+            }
+        }))
+        .execute(&db)
+        .await?;
+    let resp = authed(
+        client().post(format!(
+            "{ws}/workspaces/datatable_permissions/main/preview"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&body)
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 400);
+    let text = resp.text().await?;
+    assert!(text.contains("detached (data table 'copy')"), "{text}");
+
+    // With both gone the refusal lifts: the preview then gets as far as the
+    // database, which this test does not have.
+    sqlx::query("DELETE FROM workspace_settings WHERE workspace_id = 'detached'")
+        .execute(&db)
+        .await?;
+    let resp = authed(
+        client().post(format!(
+            "{ws}/workspaces/datatable_permissions/main/preview"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&body)
+    .send()
+    .await?;
+    let text = resp.text().await?;
+    assert!(!text.contains("cannot be enabled"), "{text}");
+
+    Ok(())
+}

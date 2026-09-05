@@ -723,18 +723,42 @@ pub(crate) async fn ensure_can_use_datatable_role(
     Ok(())
 }
 
-/// A fork may not turn a data table's permissions on.
+/// Permissions are turned on where this workspace is the only one reaching the
+/// database: no fork above it, none below it, and no other workspace's data
+/// table naming the same instance database.
 ///
-/// Its data table is either a copy pointing at the database of the workspace it
-/// was forked from, where roles created here would hold grants that workspace's
-/// own config does not name, or a clone whose whole database the fork can drop,
-/// taking the roles with it. Neither is a place to build an access model; it is
-/// built in the workspace that owns the data table.
+/// A fork's data table is either a copy pointing at the database of the workspace
+/// it was forked from, where roles created in the fork would hold grants that
+/// workspace's own config does not name, or a clone whose whole database the fork
+/// can drop, taking the roles with it. In the other direction, a fork made while
+/// the data table was unpermissioned carries a verbatim copy of it, and every
+/// member of that fork — including members this workspace does not have — would
+/// keep reaching the database through the copy's own connection, which owns
+/// everything in it. Forks made after the opt-in never receive a permissioned
+/// data table (see the strip in the fork creation), so refusing while any exist
+/// is what closes the gap. A dev workspace detached from this one keeps such a
+/// copy without being a fork any more, which is what the last check is for; it
+/// is exact for an instance database, whose only credential holders are the
+/// data tables naming it, and meaningless for a resource-backed one, where
+/// whoever holds the resource's credentials reaches the database regardless.
 ///
-/// Turning them off is always allowed, or a fork carrying permissions from before
-/// this rule could never be rid of them, and the roles behind them never dropped.
-async fn refuse_enabling_permissions_from_a_fork(db: &DB, w_id: &str, enabled: bool) -> Result<()> {
-    if enabled && crate::workspaces_extra::workspace_is_fork(db, w_id).await? {
+/// Turning them off is always allowed, or a workspace carrying permissions from
+/// before this rule could never be rid of them, and the roles behind them never
+/// dropped.
+///
+/// The save calls this under the settings row lock, which fork creation takes on
+/// the parent before copying its settings: a fork mid-creation has either
+/// committed, and is listed here, or copies the config after the opt-in landed.
+async fn refuse_enabling_permissions_over_shared_access(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+    enabled: bool,
+) -> Result<()> {
+    if !enabled {
+        return Ok(());
+    }
+    if crate::workspaces_extra::workspace_is_fork(db, w_id).await? {
         return Err(Error::BadRequest(
             "Data table permissions cannot be enabled from a fork workspace: a fork's data \
              table points either at the database of the workspace it was forked from, where \
@@ -743,6 +767,44 @@ async fn refuse_enabling_permissions_from_a_fork(db: &DB, w_id: &str, enabled: b
              them here is allowed."
                 .to_string(),
         ));
+    }
+    let forks = windmill_common::workspaces::list_fork_descendants(db, w_id).await?;
+    if !forks.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "Data table permissions cannot be enabled while this workspace has forks ({}): a \
+             fork holds a copy of the data table pointing at the same database, and its members \
+             would keep reaching it through the data table's own connection, as every role at \
+             once. Delete the forks first.",
+            forks.join(", ")
+        )));
+    }
+    let datatable = read_datatable_unchecked(db, w_id, datatable_name).await?;
+    if datatable.database.resource_type == DataTableCatalogResourceType::Instance {
+        let others = sqlx::query!(
+            r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "name!"
+               FROM workspace_settings ws
+               JOIN workspace w ON w.id = ws.workspace_id AND NOT w.deleted,
+               jsonb_each(ws.datatable->'datatables') dt
+               WHERE ws.workspace_id <> $1
+                 AND dt.value->'database'->>'resource_type' = 'instance'
+                 AND dt.value->'database'->>'resource_path' = $2"#,
+            w_id,
+            &datatable.database.resource_path,
+        )
+        .fetch_all(db)
+        .await?;
+        if !others.is_empty() {
+            let others: Vec<String> = others
+                .into_iter()
+                .map(|o| format!("{} (data table '{}')", o.workspace_id, o.name))
+                .collect();
+            return Err(Error::BadRequest(format!(
+                "Data table permissions cannot be enabled while another workspace reaches the \
+                 same database: {}. Its members would keep reaching it through that data \
+                 table's own connection, as every role at once. Remove that data table first.",
+                others.join(", ")
+            )));
+        }
     }
     Ok(())
 }
@@ -784,7 +846,8 @@ async fn preview_datatable_permissions(
     require_admin(authed.is_admin, &authed.username)?;
     // Refused here too: the preview connects to the database and reads its roles,
     // and offering a plan that the save will not run is its own kind of wrong.
-    refuse_enabling_permissions_from_a_fork(&db, &w_id, req.enabled).await?;
+    refuse_enabling_permissions_over_shared_access(&db, &w_id, &datatable_name, req.enabled)
+        .await?;
     let (_client, plan) = build_plan(&db, &w_id, &datatable_name, &req).await?;
     Ok(Json(DatatablePermissionsPreview {
         statements: plan.statements.into_iter().map(|s| s.display).collect(),
@@ -799,7 +862,6 @@ async fn set_datatable_permissions(
     Json(req): Json<SetDatatablePermissions>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
-    refuse_enabling_permissions_from_a_fork(&db, &w_id, req.enabled).await?;
 
     // Reading the config, planning against it, running the plan and persisting
     // it are one operation: interleaved with another save, or with the removal
@@ -808,6 +870,8 @@ async fn set_datatable_permissions(
     // touching that config takes, so taking it here is what serializes them.
     let mut tx = db.begin().await?;
     windmill_common::workspaces::lock_workspace_settings_unchecked(&mut tx, &w_id).await?;
+    refuse_enabling_permissions_over_shared_access(&db, &w_id, &datatable_name, req.enabled)
+        .await?;
 
     // The roles about to be created are handed privileges by this connection,
     // which cannot pass on what it holds without the grant option.
