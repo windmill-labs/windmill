@@ -14,6 +14,12 @@
 	import JobLoader, { type Callbacks } from './JobLoader.svelte'
 	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
 	import { loadSchemaFromModule } from './flows/flowInfers'
+	import {
+		inlineAgentDraft,
+		loadLinkedAgentDrafts,
+		normalizeAgentRef
+	} from './flows/linkedAgentDrafts'
+	import { AGENT_FLOW_LOCAL_KEYS } from './flows/agentResourceUtils'
 
 	interface Props {
 		mod: FlowModule
@@ -138,7 +144,22 @@
 		} else if (val.type == 'aiagent') {
 			const { schema } = await loadSchemaFromModule(mod, opWs)
 
-			const agentVal = val
+			// A linked step whose agent has an unsaved draft is tested as the draft, the same way the
+			// whole-flow preview and the agent editor's own test pane run it. `inlineAgentDraft`
+			// clears `agent` and moves the draft's brain and tools onto the step, so the branches
+			// below then treat it as a standalone agent.
+			const draft = val.agent
+				? (await loadLinkedAgentDrafts([normalizeAgentRef(val.agent)], opWs)).get(
+						normalizeAgentRef(val.agent)
+					)
+				: undefined
+			const agentVal = draft ? inlineAgentDraft(val, draft.args) : val
+
+			// `args` is built from the whole AI agent schema whatever the step is, so on a linked step
+			// it carries every brain key as undefined even though the form renders only the flow-local
+			// ones (`flowLocalAgentSchema`). Overlaying those would shadow the brain the draft just
+			// supplied with nothing, so an inlined step takes only the inputs its form actually offers.
+			const formKeys = draft ? (AGENT_FLOW_LOCAL_KEYS as readonly string[]) : Object.keys(args)
 
 			// The test form only covers the schema it was given, and for a standalone agent that may be
 			// the flow-local one (the agent editor shows the brain in its own form, not here). Take the
@@ -150,7 +171,7 @@
 					? {}
 					: ((agentVal.input_transforms ?? {}) as Record<string, InputTransform>)),
 				...Object.fromEntries(
-					Object.keys(args).map((key) => [
+					formKeys.map((key) => [
 						key,
 						{
 							expr: `flow_input.${key}`,

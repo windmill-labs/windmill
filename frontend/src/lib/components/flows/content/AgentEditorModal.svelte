@@ -183,7 +183,9 @@
 		const moduleIds = new Set(linkedModulesForAgent(scope, path))
 		moduleIds.add(at.host.moduleId)
 		return Promise.all(
-			[...moduleIds].map((moduleId) => publishLinkedAgentTools(path, at.ws, scope, moduleId))
+			// With the draft: a deploy leaves none, but a version restore leaves the draft standing and
+			// it is still what a test of the host step would run.
+			[...moduleIds].map((moduleId) => publishLinkedAgentTools(path, at.ws, scope, moduleId, true))
 		)
 	}
 
