@@ -30,9 +30,10 @@
 		workspace?: string
 		disableChatOffset?: boolean
 		onRestored?: () => void
-		/** Fires after Save has written, for a caller showing state derived from the
-		 * resource — `onRestored` only covers restoring an old version. */
-		onSaved?: () => void
+		/** Fires after Save has written, with the path it wrote to — which is not the
+		 * one it was opened on when the user renamed it. For a caller showing state
+		 * derived from the resource; `onRestored` only covers restoring a version. */
+		onSaved?: (savedPath?: string) => void
 		/**
 		 * False renders the editor in place instead of in a drawer, for a host that
 		 * gives it a pane of its own (a session's resource tab). Same convention as
@@ -64,6 +65,8 @@
 		| undefined = $state(undefined)
 	let hasLocalDraft = $state(false)
 	let canWriteSelected = $state(true)
+	// The path as edited in the form, which a rename moves off `path`.
+	let livePath: string | undefined = $state(undefined)
 
 	let path: string | undefined = $state(undefined)
 	let selected: string | undefined = $state(undefined)
@@ -153,6 +156,7 @@
 				bind:canSave
 				bind:selected
 				bind:viewJsonSchema
+				onChange={(e) => (livePath = e.path)}
 				onDraftStateChange={(v) => (hasLocalDraft = v)}
 				onCanWriteChange={(v) => (canWriteSelected = v)}
 			/>
@@ -204,7 +208,13 @@
 			const saved = resourceEditor?.save()
 			drawer?.closeDrawer()
 			await saved
-			onSaved?.()
+			// Rendered inline there is no drawer to close, so the mounted editor would
+			// otherwise keep the pre-save baseline. Follow a rename before remounting,
+			// or it comes back up on a path the save just moved the item off.
+			const savedPath = livePath ?? path
+			if (savedPath) path = savedPath
+			editorGeneration++
+			onSaved?.(savedPath)
 		}}
 		disabled={!canSave}
 	>

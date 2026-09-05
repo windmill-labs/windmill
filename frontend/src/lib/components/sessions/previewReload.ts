@@ -120,13 +120,12 @@ function triggerPages(kind: unknown): string[] {
 	return page ? [page.path] : []
 }
 
-// The open tabs a page-reload should refresh: those whose observed page path is
-// in `pages`. Item-editor and pipeline tab routes are never list pages, so they
-// never match (see the self-sync invariant above). An entity-editor tab does
-// match — its location is a list page with the row in the hash, which the path
-// comparison drops — but it is in-realm and self-syncing too, so the host's
-// `reload` ignores it. Pure over a tab snapshot so the sessions page can reload
-// by id and this stays unit-testable.
+// The open tabs a round touched: those whose observed page path is in `pages`.
+// Item-editor and pipeline routes are never list pages, so they never match. An
+// entity-editor tab does — its location is a list page with the row in the hash,
+// which the path comparison drops — and the caller tells the two apart, reloading
+// the list frames and passing the rest through `entityEffectForTab`. Pure over a
+// tab snapshot so the sessions page can act by id and this stays unit-testable.
 export function tabsToReload(
 	tabs: SessionPreviewTab[],
 	pages: ReadonlySet<string>

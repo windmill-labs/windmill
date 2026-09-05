@@ -5,7 +5,8 @@
 	let {
 		path,
 		workspaceId,
-		onBack
+		onBack,
+		onRenamed
 	}: {
 		/** The resource this tab edits (the row its location deep-links). */
 		path: string
@@ -14,6 +15,10 @@
 		workspaceId: string
 		/** Back to the list this editor was reached through; the tab replaced it. */
 		onBack?: () => void
+		/** The item was saved under a different path. The tab addresses it by path —
+		 * as do its label, the chat's ACTIVE PREVIEW and the draft key — so the tab
+		 * has to follow, or all four keep naming an item that no longer exists. */
+		onRenamed?: (newPath: string) => void
 	} = $props()
 
 	let editor = $state<ResourceEditorDrawer | undefined>()
@@ -28,4 +33,12 @@
 	})
 </script>
 
-<ResourceEditorDrawer bind:this={editor} useDrawer={false} workspace={workspaceId} {onBack} />
+<ResourceEditorDrawer
+	bind:this={editor}
+	useDrawer={false}
+	workspace={workspaceId}
+	{onBack}
+	onSaved={(saved) => {
+		if (saved && saved !== path) onRenamed?.(saved)
+	}}
+/>

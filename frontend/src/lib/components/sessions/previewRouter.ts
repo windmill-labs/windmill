@@ -1,6 +1,7 @@
 import {
 	ASSETS_PATH,
 	AUDIT_LOGS_PATH,
+	drawerHashFor,
 	FOLDERS_PATH,
 	GROUPS_PATH,
 	pageKey,
@@ -131,6 +132,21 @@ const IN_REALM_ENTITY_PAGES: Partial<Record<string, EntityEditorKind>> = {
 	[SCHEDULES_PATH]: 'trigger_schedule',
 	[RESOURCES_PATH]: 'resource',
 	[VARIABLES_PATH]: 'variable'
+}
+
+/** The list an entity editor's tab came from: its own location with the row
+ * dropped. Built from the location rather than the page's bare path so the query
+ * survives — a row opened from a filtered list returns to that same filtered
+ * list, whether by Back or because the item was deleted. */
+export function entityListHref(location: string): string {
+	return location.split('#')[0]
+}
+
+/** The location of `path`'s editor on the list `location` came from, keeping that
+ * list's query. For following a rename: the tab has to name the item it now
+ * shows, or the chat's "edit this" and the draft key still point at the old one. */
+export function entityEditorHref(location: string, path: string): string {
+	return `${entityListHref(location)}#${drawerHashFor(stripBase(location), path)}`
 }
 
 /** The list page an entity editor was reached through, so its host can offer the

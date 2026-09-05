@@ -352,6 +352,19 @@ describe('SessionPreviewTabs.open', () => {
 	// A legacy app owns its own hash (the editor reads it as `context.hash`), so the
 	// observer records app state into `loc`. Reading that as a drawer anchor would
 	// retarget on reopen, and a same-document retarget forces a reload that discards
+	// the state the user was looking at.
+	it('focuses a legacy app whose own hash changed instead of reloading it', () => {
+		const o = owner()
+		const app = () => ({ type: 'page' as const, href: '/apps/edit/u/me/dash', label: 'dash' })
+		o.open(app())
+		const id = o.tabs[0].id
+		o.observeLocation(id, '/apps/edit/u/me/dash#tab=2')
+
+		expect(o.open(app()).status).toBe('focused')
+		expect(o.tabs).toHaveLength(1)
+		expect(o.tabs[0].url).toBe('/apps/edit/u/me/dash')
+	})
+
 	// Opening a row inside the list frame is the user asking to edit that entity. The
 	// frame's copy of the editor is a realm apart from the chat's writes, so the tab
 	// follows onto the hosted one, which shares the draft cell those writes land in.
@@ -378,19 +391,6 @@ describe('SessionPreviewTabs.open', () => {
 		o.observeLocation(id, '/kafka_triggers#f/team/ingest')
 
 		expect(o.tabs[0].url).toBe('/kafka_triggers')
-	})
-
-	// the state the user was looking at.
-	it('focuses a legacy app whose own hash changed instead of reloading it', () => {
-		const o = owner()
-		const app = () => ({ type: 'page' as const, href: '/apps/edit/u/me/dash', label: 'dash' })
-		o.open(app())
-		const id = o.tabs[0].id
-		o.observeLocation(id, '/apps/edit/u/me/dash#tab=2')
-
-		expect(o.open(app()).status).toBe('focused')
-		expect(o.tabs).toHaveLength(1)
-		expect(o.tabs[0].url).toBe('/apps/edit/u/me/dash')
 	})
 
 	// Re-commanding the URL a tab is already pointed at changes nothing the host can

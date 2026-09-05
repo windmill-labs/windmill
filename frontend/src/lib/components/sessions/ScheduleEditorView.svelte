@@ -24,6 +24,12 @@
 
 	let editor = $state<ScheduleEditorInner | undefined>()
 
+	// A save leaves the mounted editor holding the pre-save config as its deployed
+	// baseline — the drawer hides that by closing, which inline is a no-op, so the
+	// banner would go on claiming unsaved changes and Discard would restore the
+	// value the save just replaced. Remounting re-reads the saved schedule.
+	let generation = $state(0)
+
 	// Load whenever the tab is pointed at another schedule; the component keeps
 	// its identity across that, as it does for the drawer's row-to-row switch.
 	// `isFlow` is a first guess only — loadScheduleCfg sets it from the loaded
@@ -31,6 +37,9 @@
 	$effect(() => {
 		const p = path
 		const e = editor
+		// `generation` is tracked so a remount re-opens: `editor` is rebound to the
+		// fresh instance, but reading it alone would not say the instance changed.
+		generation
 		if (!p || !e) return
 		untrack(() => void e.openEdit(p, false))
 	})
@@ -40,21 +49,33 @@
 	<!-- useDrawer=false renders the editor as a Section, the same inline form the
 	     script/flow trigger panel mounts (see SchedulePanel). `customLabel` is that
 	     Section's header, which is where the way back belongs. -->
-	<ScheduleEditorInner bind:this={editor} useDrawer={false} allowDraft showDraftBanner>
-		{#snippet customLabel()}
-			<div class="flex flex-row items-center gap-2 min-w-0">
-				{#if onBack}
-					<Button
-						variant="subtle"
-						unifiedSize="sm"
-						startIcon={{ icon: ArrowLeft }}
-						on:click={onBack}
-						title="Back to Schedules"
-						iconOnly
-					/>
-				{/if}
-				<span class="text-sm font-semibold truncate">Schedule</span>
-			</div>
-		{/snippet}
-	</ScheduleEditorInner>
+	{#key generation}
+		<!-- No `allowDraft`: that switches the toolbar to the trigger-panel branch,
+		     whose deploy button is gated on the `trigger`/`isDeployed` a script or
+		     flow editor supplies for a trigger staged next to it. A standalone tab
+		     has neither, which leaves the schedule permanently unsavable — its
+		     situation is the drawer's, whose plain Save this restores. -->
+		<ScheduleEditorInner
+			bind:this={editor}
+			useDrawer={false}
+			showDraftBanner
+			onUpdate={() => generation++}
+		>
+			{#snippet customLabel()}
+				<div class="flex flex-row items-center gap-2 min-w-0">
+					{#if onBack}
+						<Button
+							variant="subtle"
+							unifiedSize="sm"
+							startIcon={{ icon: ArrowLeft }}
+							on:click={onBack}
+							title="Back to Schedules"
+							iconOnly
+						/>
+					{/if}
+					<span class="text-sm font-semibold truncate">Schedule</span>
+				</div>
+			{/snippet}
+		</ScheduleEditorInner>
+	{/key}
 </div>

@@ -42,7 +42,8 @@
 	let {
 		workspace = undefined,
 		useDrawer = true,
-		onBack = undefined
+		onBack = undefined,
+		onSaved = undefined
 	}: {
 		workspace?: string
 		/**
@@ -55,6 +56,9 @@
 		/** Inline only: offered in the header when the host replaced something the
 		 * user should be able to get back to (a session tab that took over the list). */
 		onBack?: () => void
+		/** Fires after a save, with the path it wrote to — which is not the one it was
+		 * opened on when the user renamed it. */
+		onSaved?: (savedPath?: string) => void
 	} = $props()
 	let curWs = $derived(workspace ?? $workspaceStore)
 
@@ -316,7 +320,12 @@
 			}
 			sendUserToast(edit ? `Updated variable in ${dirty.length} workspace(s)` : `Created variable`)
 			dispatch('create')
+			// A rename moved the item; the drawer host closes over it, but an inline one
+			// stays mounted, so follow the new path here and tell the host about it.
+			const savedPath = current?.path ?? editPath
+			if (savedPath && savedPath !== editPath) editPath = savedPath
 			drawer?.closeDrawer()
+			onSaved?.(savedPath)
 		} catch (err) {
 			sendUserToast(`Could not save variable: ${err.body}`, true)
 		}

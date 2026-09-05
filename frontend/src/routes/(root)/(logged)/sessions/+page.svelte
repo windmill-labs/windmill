@@ -61,8 +61,7 @@
 		matchPreviewPage,
 		pageKey,
 		parseArtifactRoute,
-		entityListPage,
-		pageHref,
+		entityListHref,
 		parseEntityEditorRoute,
 		parsePreviewItemRoute,
 		previewLocationLabel,
@@ -593,9 +592,9 @@
 					: 'none'
 				// Deletion is re-pointed on the tab model, so a tab whose host is not
 				// mounted is not left sitting on an item that no longer exists.
+				// The tab's own location, so the list it came from keeps its filters.
 				if (effect === 'close') {
-					const page = entityListPage(entity.entityKind)
-					if (page) owner.retargetTabTo(tab.id, pageHref(page.path))
+					owner.retargetTabTo(tab.id, entityListHref(whereIs(tab)))
 				} else if (effect === 'refresh' && mountedTabKeys.has(key)) {
 					tabHosts[key]?.reload({ entity: 'refresh' })
 				}

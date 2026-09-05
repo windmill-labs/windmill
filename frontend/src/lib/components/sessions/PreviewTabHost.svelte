@@ -12,8 +12,9 @@
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import {
+		entityEditorHref,
+		entityListHref,
 		entityListPage,
-		pageHref,
 		resolvePreviewTab,
 		parsePreviewItemRoute,
 		parsePreviewSelectedId,
@@ -87,7 +88,11 @@
 
 	// Bumped to remount a hosted entity editor, which is how it re-reads the item
 	// from the server: its own state is built at mount from the draft cell, so
-	// there is nothing to refresh in place once that cell has been dropped.
+	// there is nothing to refresh in place once that cell has been dropped. The
+	// acting workspace joins it in the key for the same reason — these editors
+	// load and save against the workspace they were mounted with, so a session
+	// that rescopes (a staged fork materialising on first send) must not leave
+	// them bound to the previous one.
 	let entityNonce = $state(0)
 
 	// Pages whose theme we mirror on live toggles. Regular apps are the only item
@@ -167,11 +172,24 @@
 					const page = entityListPage(slot.entityKind)
 					if (page)
 						runtime.previewTabs.navigate({
+							// The tab's own location, not the page's bare path: it carries the
+							// query of the list the row was opened from, and returning to an
+							// unfiltered list is not returning to where the tab came from.
 							type: 'page',
-							href: pageHref(page.path),
+							href: entityListHref(whereIs(tab)),
 							label: page.label
 						})
 				}
+			: undefined
+	)
+
+	// Follow a rename: the editor stays mounted and keeps editing the item, but the
+	// tab, its label, the chat's ACTIVE PREVIEW and the draft key all address it by
+	// path — so they have to move with it, or they name an item that no longer exists.
+	const retargetTo = $derived(
+		slot.kind === 'entity' && runtime
+			? (newPath: string) =>
+					runtime.previewTabs.retargetTabTo(tab.id, entityEditorHref(whereIs(tab), newPath))
 			: undefined
 	)
 
@@ -354,7 +372,7 @@
 		<!-- Dynamic import for the same reason as the editors above: these pull in
 		     the runnable pickers and the resource-type schema forms. Keyed on the
 		     refresh nonce so a dropped draft cell remounts the editor (see reload). -->
-		{#key entityNonce}
+		{#key `${workspaceId}#${entityNonce}`}
 			{#if slot.entityKind === 'trigger_schedule'}
 				{#await import('./ScheduleEditorView.svelte')}
 					{@render editorLoading()}
@@ -365,13 +383,23 @@
 				{#await import('./ResourceEditorView.svelte')}
 					{@render editorLoading()}
 				{:then Module}
-					<Module.default path={slot.path} {workspaceId} onBack={backToList} />
+					<Module.default
+						path={slot.path}
+						{workspaceId}
+						onBack={backToList}
+						onRenamed={retargetTo}
+					/>
 				{/await}
-			{:else}
+			{:else if slot.entityKind === 'variable'}
 				{#await import('./VariableEditorView.svelte')}
 					{@render editorLoading()}
 				{:then Module}
-					<Module.default path={slot.path} {workspaceId} onBack={backToList} />
+					<Module.default
+						path={slot.path}
+						{workspaceId}
+						onBack={backToList}
+						onRenamed={retargetTo}
+					/>
 				{/await}
 			{/if}
 		{/key}
