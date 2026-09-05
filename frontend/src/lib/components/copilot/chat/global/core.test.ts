@@ -4990,135 +4990,42 @@ describe('global AI tools', () => {
 		expect(result).toContain('Do not call run_script again')
 	})
 
-	// The stored schema is not what the worker obeys: it takes the arguments its own
-	// signature names, so a **kwargs script and one whose schema is stale or absent accept
-	// what no property declares. Dropping those made such a script unrunnable from here.
-	it('run_script carries a proposed argument the schema does not declare', async () => {
+	// job_args.test.ts owns what each step of the argument pipeline does; this owns that
+	// run_script still runs them. Delete a call from runThroughForm and every one of those
+	// unit tests still passes, so one call has to cross all of them here.
+	it('run_script puts the proposed arguments through the whole pipeline', async () => {
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-			path: 'f/scripts/noargs',
-			summary: 'Takes nothing',
-			schema: { properties: {} }
-		} as any)
-
-		let shown: Record<string, any> | undefined
-		await withCompletedTestJob(() =>
-			callGlobalTool(
-				'run_script',
-				{ path: 'f/scripts/noargs', args: { force_delete: true } },
-				{
-					...toolCallbacks,
-					requestRunArgs: async (_toolId, form) => {
-						shown = form.args
-						return form.args
-					}
-				}
-			)
-		)
-
-		expect(shown).toEqual({ force_delete: true })
-		expect(JobService.runScriptByPath).toHaveBeenCalledWith({
-			workspace: WORKSPACE,
-			path: 'f/scripts/noargs',
-			requestBody: { force_delete: true }
-		})
-	})
-
-	// A scalar widget renders its own reading of a wrong-typed value and never writes it
-	// back, so an untouched form would submit something it never displayed.
-	it('run_script coerces a wrong-typed argument and empties one it cannot read', async () => {
-		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-			path: 'f/scripts/typed',
+			path: 'f/scripts/everything',
 			schema: {
 				properties: {
 					count: { type: 'number' },
-					flag: { type: 'boolean' },
-					label: { type: 'string' },
-					ratio: { type: 'number' }
+					ratio: { type: 'number' },
+					size: { type: 'number' },
+					token: { type: 'string', password: true },
+					locked: { type: 'string', default: 'fixed', disabled: true },
+					doc: { type: 'string', contentEncoding: 'base64' }
 				}
 			}
 		} as any)
 
+		const bytes = 'QUJD'.repeat(1024)
+		const statuses: any[] = []
 		let shown: Record<string, any> | undefined
 		let cleared: string[] | undefined
+		let reset: string[] | undefined
 		const result = await withCompletedTestJob(() =>
 			callGlobalTool(
 				'run_script',
 				{
-					path: 'f/scripts/typed',
-					args: { count: '7', flag: 'false', label: 3, ratio: 'abc' }
-				},
-				{
-					...toolCallbacks,
-					requestRunArgs: async (_toolId, form) => {
-						shown = form.args
-						cleared = form.clearedKeys
-						return form.args
-					}
-				}
-			)
-		)
-
-		expect(shown).toEqual({ count: 7, flag: false, label: '3' })
-		expect(cleared).toEqual(['ratio'])
-		// Only the unreadable one is worth a word: the rest run as the form showed them.
-		expect(result).toContain('ratio')
-		expect(result).not.toContain('count')
-	})
-
-	// A reference occupies a typed slot on purpose and is resolved by the job, so coercing
-	// it would turn a variable into NaN and clearing it would delete the user's intent.
-	it('run_script leaves a variable reference in a number slot alone', async () => {
-		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-			path: 'f/scripts/batch',
-			schema: { properties: { size: { type: 'number' } } }
-		} as any)
-
-		let shown: Record<string, any> | undefined
-		await withCompletedTestJob(() =>
-			callGlobalTool(
-				'run_script',
-				{ path: 'f/scripts/batch', args: { size: '$var:u/admin/batch_size' } },
-				{
-					...toolCallbacks,
-					requestRunArgs: async (_toolId, form) => {
-						shown = form.args
-						return form.args
-					}
-				}
-			)
-		)
-
-		expect(shown).toEqual({ size: '$var:u/admin/batch_size' })
-	})
-
-	// A secret the model picked is not consent, and a result that echoed one back would let
-	// it propose the same value again on the next call.
-	it('run_script empties a proposed secret but keeps a variable reference', async () => {
-		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-			path: 'f/scripts/rotate',
-			schema: {
-				properties: {
-					token: { type: 'string', password: true },
-					nested: {
-						type: 'object',
-						properties: { inner: { type: 'string', password: true } }
-					},
-					name: { type: 'string' }
-				}
-			}
-		} as any)
-
-		let shown: Record<string, any> | undefined
-		const statuses: any[] = []
-		const result = await withCompletedTestJob(() =>
-			callGlobalTool(
-				'run_script',
-				{
-					path: 'f/scripts/rotate',
+					path: 'f/scripts/everything',
 					args: {
+						count: '7',
+						ratio: 'abc',
+						size: '$var:u/admin/batch_size',
 						token: 'hunter2',
-						nested: { inner: '$var:u/ada/prod_api_key' },
-						name: 'ada'
+						locked: 'tampered',
+						doc: bytes,
+						force_delete: true
 					}
 				},
 				{
@@ -5126,26 +5033,49 @@ describe('global AI tools', () => {
 					setToolStatus: (_toolId: string, status: any) => statuses.push(status),
 					requestRunArgs: async (_toolId, form) => {
 						shown = form.args
-						return { ...form.args, token: '$var:u/ada/secret_arg/typed' }
+						cleared = form.clearedKeys
+						reset = form.resetKeys
+						// What the user does with the form: attaches the file no model can produce,
+						// and names a variable for the secret it was not allowed to fill.
+						return { ...form.args, doc: bytes, token: '$var:u/ada/prod_api_key' }
 					}
 				}
 			)
 		)
 
-		// The literal is emptied; the variable reference is the model's to send and survives,
-		// since the secret stays in the variable and only its path travels.
-		expect(shown).toEqual({ nested: { inner: '$var:u/ada/prod_api_key' }, name: 'ada' })
-		// Named, or an emptied field reads as the user having deleted the value and the
-		// next call proposes the same secret again.
-		expect(result).toContain('token')
-		expect(result).not.toContain('nested.inner')
-		expect(result).not.toContain('hunter2')
-		expect(result).not.toContain('secret_arg')
-		expect(result).not.toContain('prod_api_key')
-		expect(result).toContain('ada')
-		// The card's parameters are persisted too: a variable path is enough to run a job
-		// on a value whoever reads the transcript cannot see.
-		expect(JSON.stringify(statuses)).not.toContain('secret_arg')
+		// Coerced, cleared, left alone, emptied, reset and stripped — every rule reached
+		// through the tool rather than called directly.
+		expect(shown).toEqual({
+			count: 7,
+			size: '$var:u/admin/batch_size',
+			locked: 'fixed',
+			force_delete: true
+		})
+		expect(cleared).toEqual(['ratio'])
+		expect(reset).toEqual(['locked'])
+
+		// The bytes belong in the job request and nowhere else: the card is persisted, and a
+		// file small enough to survive truncation would otherwise reach the model whole.
+		expect(JobService.runScriptByPath).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/scripts/everything',
+			requestBody: {
+				count: 7,
+				size: '$var:u/admin/batch_size',
+				locked: 'fixed',
+				force_delete: true,
+				doc: bytes,
+				token: '$var:u/ada/prod_api_key'
+			}
+		})
+		expect(result).toContain('<file: 3 KB>')
+		for (const leak of [bytes, 'hunter2', 'prod_api_key']) {
+			expect(result).not.toContain(leak)
+			expect(JSON.stringify(statuses)).not.toContain(leak)
+		}
+		// Named, or an emptied field reads as the user having deleted the value and the next
+		// call proposes the same secret again.
+		for (const named of ['ratio', 'token', 'locked']) expect(result).toContain(named)
 	})
 
 	// The form is its own confirmation, so it never reaches processToolCall's second gate.
@@ -5172,80 +5102,6 @@ describe('global AI tools', () => {
 
 		expect(JobService.runScriptByPath).not.toHaveBeenCalled()
 		expect(result).toContain('plan mode is active')
-	})
-
-	it('run_script prefills a locked field with its default', async () => {
-		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-			path: 'f/scripts/locked',
-			schema: {
-				properties: {
-					locked: { type: 'string', default: 'fixed', disabled: true },
-					other: { type: 'string' }
-				}
-			}
-		} as any)
-
-		let shown: Record<string, any> | undefined
-		let reset: string[] | undefined
-		const result = await withCompletedTestJob(() =>
-			callGlobalTool(
-				'run_script',
-				{ path: 'f/scripts/locked', args: { locked: 'tampered', other: 'hello' } },
-				{
-					...toolCallbacks,
-					requestRunArgs: async (_toolId, form) => {
-						shown = form.args
-						reset = form.resetKeys
-						return form.args
-					}
-				}
-			)
-		)
-
-		expect(shown).toEqual({ locked: 'fixed', other: 'hello' })
-		// Named on the card and to the model, like a dropped argument: the field renders
-		// locked, so what it carries is not what was proposed.
-		expect(reset).toEqual(['locked'])
-		expect(result).toContain('locked')
-	})
-
-	// The bytes belong in the job request and nowhere else: the card is persisted, and a
-	// file small enough to survive truncation would reach the model whole.
-	it('run_script sends the file bytes to the job and a size marker everywhere else', async () => {
-		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-			path: 'f/scripts/upload',
-			schema: { properties: { doc: { type: 'string', contentEncoding: 'base64' } } }
-		} as any)
-
-		const bytes = 'QUJD'.repeat(1024)
-		const statuses: any[] = []
-		let shown: Record<string, any> | undefined
-		const result = await withCompletedTestJob(() =>
-			callGlobalTool(
-				'run_script',
-				// Proposed, not just user-attached: prefilled bytes are bytes the stored
-				// transcript carries, for a value no model can produce anyway.
-				{ path: 'f/scripts/upload', args: { doc: bytes } },
-				{
-					...toolCallbacks,
-					setToolStatus: (_toolId: string, status: any) => statuses.push(status),
-					requestRunArgs: async (_toolId, form) => {
-						shown = form.args
-						return { doc: bytes }
-					}
-				}
-			)
-		)
-
-		expect(shown).toEqual({})
-		expect(JobService.runScriptByPath).toHaveBeenCalledWith({
-			workspace: WORKSPACE,
-			path: 'f/scripts/upload',
-			requestBody: { doc: bytes }
-		})
-		expect(JSON.stringify(statuses)).not.toContain(bytes)
-		expect(result).not.toContain(bytes)
-		expect(result).toContain('<file: 3 KB>')
 	})
 
 	it('run_script runs the arguments the user submitted, not the ones proposed', async () => {
