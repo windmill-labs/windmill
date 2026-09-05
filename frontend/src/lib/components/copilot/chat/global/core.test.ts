@@ -2136,6 +2136,30 @@ describe('global AI tools', () => {
 		).toBeUndefined()
 	})
 
+	// The removal marker tells a session's hosted editor that its item is gone, and
+	// it is read by the tool-completion listener — which a throw never reaches. Left
+	// behind by a failed discard it would be consumed by some later action on the
+	// same item and send that editor away while the item is still there.
+	it('records the draft-only removal marker only once the discard has landed', async () => {
+		const path = 'f/resources/discard-marker'
+		await callGlobalTool('write_resource', {
+			path,
+			resource_type: 'postgresql',
+			value: { host: 'localhost' }
+		})
+
+		// The delete is a `value: null` draft write, so failing that write fails it.
+		failingWrites.add(`resource:${path}`)
+		await expect(callGlobalTool('discard_local_draft', { type: 'resource', path })).rejects.toThrow()
+		expect(UserDraft.takeDraftOnlyDiscard('resource', path, { workspace: WORKSPACE })).toBe(false)
+
+		// The same discard, allowed through, does publish it (so the check above is
+		// about the failure, not about the marker never being written at all).
+		failingWrites.delete(`resource:${path}`)
+		await callGlobalTool('discard_local_draft', { type: 'resource', path })
+		expect(UserDraft.takeDraftOnlyDiscard('resource', path, { workspace: WORKSPACE })).toBe(true)
+	})
+
 	// "Create a resource, then never mind": delete_workspace_item must reject a path
 	// that was never deployed, before the confirmation card — otherwise the user
 	// confirms a workspace mutation that 404s past the draft cleanup, leaving the

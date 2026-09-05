@@ -129,6 +129,21 @@ const entries = new Map<string, DraftEntry>()
 const seedMisses = new Set<string>()
 // Cells whose last discard removed the item itself (see `takeDraftOnlyDiscard`).
 const draftOnlyDiscards = new Set<string>()
+
+// Both sets above are read by the tool-completion listener right after the write
+// that wrote them — but only while something is listening, and nothing is when the
+// user is not in a session. Capped so an unread marker cannot accumulate: the
+// oldest is dropped, since a marker is only ever meaningful to the action that
+// immediately follows it.
+const MAX_WRITE_MARKERS = 64
+function noteMarker(set: Set<string>, key: string): void {
+	set.add(key)
+	while (set.size > MAX_WRITE_MARKERS) {
+		const oldest = set.values().next().value
+		if (oldest === undefined || oldest === key) break
+		set.delete(oldest)
+	}
+}
 const liveEditorDrafts = new Map<string, LiveEditorDraft>()
 /**
  * Map keys whose entry should start `syncSuspended` on acquire. Lets
@@ -409,7 +424,7 @@ export const UserDraft = {
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (!entry) {
-			seedMisses.add(mk)
+			noteMarker(seedMisses, mk)
 			return
 		}
 		seedMisses.delete(mk)
@@ -424,7 +439,7 @@ export const UserDraft = {
 	 * showing it. Set at the discard, where the deployed side is known.
 	 */
 	recordDraftOnlyDiscard(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
-		draftOnlyDiscards.add(mapKey(resolveWorkspace(opts), itemKind, path))
+		noteMarker(draftOnlyDiscards, mapKey(resolveWorkspace(opts), itemKind, path))
 	},
 
 	/** Whether the last discard for this cell removed the item outright (see

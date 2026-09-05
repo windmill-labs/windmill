@@ -2,6 +2,13 @@ import type { SessionPreviewTab } from './sessionState.svelte'
 import { whereIs } from './sessionPreviewTabs.svelte'
 import { stripBase, TRIGGER_PAGES, type TriggerKind } from './previewPaths'
 
+/** What a tool asks of a hosted entity editor (see previewRouter's
+ * `IN_REALM_ENTITY_PAGES`) showing one of the affected pages. A plain write
+ * reaches it on its own — it holds the draft cell the write seeds — but the
+ * tools that clear or replace that cell go behind it, and the item can be gone
+ * altogether. `none` is what makes the live-editing case live. */
+export type EntityToolEffect = 'none' | 'refresh' | 'close'
+
 // Which list pages a completed chat tool can change, as base-stripped paths
 // (e.g. `/schedules`). This allowlist is the single source of truth for "does
 // this tool change a list page a preview tab might show". A new mutating tool
@@ -15,13 +22,6 @@ import { stripBase, TRIGGER_PAGES, type TriggerKind } from './previewPaths'
 // no list page we preview lists open drafts. They fall through to NO_RELOAD.
 // This "live editors self-sync, only list pages reload" invariant is the reason
 // the callers below and in the sessions page reload nothing for item tabs.
-/** What a tool asks of a hosted entity editor (see previewRouter's
- * `IN_REALM_ENTITY_PAGES`) showing one of the affected pages. A plain write
- * reaches it on its own — it holds the draft cell the write seeds — but the
- * tools that clear or replace that cell go behind it, and the item can be gone
- * altogether. `none` is what makes the live-editing case live. */
-export type EntityToolEffect = 'none' | 'refresh' | 'close'
-
 export type ToolReloadEffect = {
 	pages: string[]
 	entity: EntityToolEffect

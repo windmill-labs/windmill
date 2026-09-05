@@ -6170,16 +6170,22 @@ async function discardLocalDraft(
 		throw new Error(`No draft found for ${type} "${path}".`)
 	}
 
-	// Before the delete, while both sides are still knowable: a draft with nothing
-	// deployed under it IS the item, so discarding it removes the item rather than
-	// reverting it — and anything showing that item has to stop.
+	// Probed before the delete, while both sides are still knowable: a draft with
+	// nothing deployed under it IS the item, so discarding it removes the item
+	// rather than reverting it — and anything showing that item has to stop.
 	const discardedKind = itemKindFor(type, triggerKind)
 	const storagePath = getGlobalDraftStoragePath(workspace, type, path, triggerKind)
-	if (discardedKind && !(await hasDeployedItem(workspace, type, path))) {
-		UserDraft.recordDraftOnlyDiscard(discardedKind, storagePath, { workspace })
-	}
+	const removesItem = !!discardedKind && !(await hasDeployedItem(workspace, type, path))
 
 	await deleteGlobalDraft(workspace, type, path, triggerKind)
+
+	// Published only now: the delete above can throw, and the marker is read by the
+	// tool-completion listener, which a throw never reaches — leaving it to be
+	// consumed by some later action on this item, which would send its editor away
+	// while the item is still there.
+	if (removesItem && discardedKind) {
+		UserDraft.recordDraftOnlyDiscard(discardedKind, storagePath, { workspace })
+	}
 
 	// The chat's touch on the item is undone — drop it from the mask so a
 	// pre-existing deployed item doesn't keep reading as this chat's edit.
