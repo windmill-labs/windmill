@@ -657,15 +657,17 @@ async fn logout(
     let t_prefix = token.get(..TOKEN_PREFIX_LEN).unwrap_or(&token);
 
     let email = if *INVALIDATE_ALL_SESSIONS_ON_LOGOUT {
-        sqlx::query_scalar!(
+        // A guest's browser session is a session too: this is its one user-driven revocation.
+        sqlx::query_scalar::<_, Option<String>>(
             "WITH email_lookup AS (
                 SELECT email FROM token WHERE token_hash = $1
             )
             DELETE FROM token
-            WHERE email = (SELECT email FROM email_lookup) AND label = 'session'
+            WHERE email = (SELECT email FROM email_lookup)
+                AND label IN ('session', 'guest_session')
             RETURNING email",
-            t_hash
         )
+        .bind(&t_hash)
         .fetch_optional(&mut *tx)
         .await?
     } else {
@@ -745,7 +747,30 @@ async fn whoami(
     Path(w_id): Path<String>,
     authed: ApiAuthed,
 ) -> JsonResult<UserInfo> {
+    let is_guest = windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref());
     let ApiAuthed { username, email, is_admin, groups, folders, .. } = authed;
+    // A guest would otherwise fall through to the non-member branch below and be
+    // handed a `superadmin` role. Answer it here, as the operator-shaped identity it is.
+    if is_guest {
+        return Ok(Json(UserInfo {
+            workspace_id: w_id,
+            email,
+            username,
+            name: None,
+            is_admin: false,
+            is_super_admin: false,
+            created_at: chrono::Utc::now(),
+            groups: vec![],
+            operator: true,
+            disabled: false,
+            role: Some("guest".to_string()),
+            folders_read: vec![],
+            folders: vec![],
+            folders_owners: vec![],
+            is_service_account: false,
+            non_member: true,
+        }));
+    }
     let user = get_user(&w_id, &username, &db).await?;
     // Only treat the row as "this user is a member" when its email matches; the
     // derived username is instance-unique so a match on a different email should
@@ -2882,7 +2907,12 @@ pub async fn create_session_token<'c>(
     .execute(&mut **tx)
     .await?;
 
-    let mut cookie = Cookie::new(COOKIE_NAME, token.clone());
+    set_session_cookie(&cookies, &token, *MAX_SESSION_VALIDITY_SECONDS);
+    Ok(token)
+}
+
+fn set_session_cookie(cookies: &Cookies, token: &str, validity_seconds: i64) {
+    let mut cookie = Cookie::new(COOKIE_NAME, token.to_string());
     cookie.set_secure(IS_SECURE.load(std::sync::atomic::Ordering::Relaxed));
     cookie.set_same_site(Some(tower_cookies::cookie::SameSite::Lax));
     cookie.set_http_only(true);
@@ -2892,9 +2922,150 @@ pub async fn create_session_token<'c>(
     }
 
     let mut expire: OffsetDateTime = time::OffsetDateTime::now_utc();
-    expire += time::Duration::seconds(*MAX_SESSION_VALIDITY_SECONDS);
+    expire += time::Duration::seconds(validity_seconds);
     cookie.set_expires(expire);
     cookies.add(cookie);
+}
+
+lazy_static::lazy_static! {
+    /// A guest session is the only credential held by someone with no account, so
+    /// there is nothing to disable when the workspace revokes guest access or the
+    /// identity provider removes them — the expiry is the revocation. Much shorter
+    /// than a member session for that reason.
+    static ref GUEST_SESSION_VALIDITY_SECONDS: i64 = std::env::var("GUEST_SESSION_VALIDITY_SECONDS")
+        .ok()
+        .and_then(|x| x.parse::<i64>().ok())
+        .unwrap_or(8 * 60 * 60);
+}
+
+/// Scopes a guest session carries. Mirrors `APP_EMBED_SCOPES` — the same broad-looking
+/// reads narrowed to a route allowlist by the sentinel (`guest_route_denied`) — plus the
+/// two path-scoped app grants minted per app. With no ACL of its own, this list is the
+/// whole of what a guest can do.
+///
+/// The `guest` sentinel here only narrows. What makes the session a guest at all is the
+/// server-minted label ([`windmill_common::auth::GUEST_SESSION_LABEL`]).
+fn guest_session_scopes(app_path: &str) -> Result<Vec<String>> {
+    if !windmill_common::auth::is_scope_literal_path(app_path) {
+        return Err(Error::BadRequest(format!(
+            "app path {app_path} cannot be scoped: `:`, `,` and `*` are reserved in scopes, \
+             and a leading `/` never matches a route"
+        )));
+    }
+    Ok(vec![
+        windmill_api_auth::scopes::GUEST_SENTINEL.to_string(),
+        "jobs:read".to_string(),
+        "resources:run".to_string(),
+        "users:read".to_string(),
+        "folders:read".to_string(),
+        format!("apps:read:{app_path}"),
+        format!("apps:run:{app_path}"),
+    ])
+}
+
+/// Mint a browser session for someone the identity provider authenticated who is a
+/// member of no workspace, so they can open one guest-mode app. Writes no `password`
+/// and no `usr` row: that absence is what keeps a guest off every seat counter, so
+/// nothing here may be "helpfully" upgraded into provisioning.
+///
+/// Pinned to `w_id` (`AuthCache` matches on `token.workspace_id`): without the pin an
+/// `apps:run:<path>` scope would unlock a same-path app elsewhere. So a guest cannot
+/// authenticate on any workspace-less route (`/api/users/*`, `/api/settings/*`); a
+/// page that needs one for a guest must become workspace-scoped, not loosen the pin.
+///
+/// Refuses unless every gate says yes (`guest_app_admits`, then the allowance in
+/// `guest_admission`), so no caller can mint where a guest is not wanted, whatever it
+/// believed when it decided to call. All that is left to the caller is the
+/// authentication of `email`.
+pub async fn create_guest_session_token<'c>(
+    email: &str,
+    w_id: &str,
+    app_path: &str,
+    tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+    cookies: Cookies,
+) -> Result<String> {
+    use windmill_common::min_version::MIN_VERSION_SUPPORTS_TOKEN_HASH;
+
+    let token = rd_string(32);
+    let t_hash = windmill_common::auth::hash_token(&token);
+    let t_prefix = token.get(..TOKEN_PREFIX_LEN).unwrap_or(&token);
+    let plaintext: Option<&str> = if MIN_VERSION_SUPPORTS_TOKEN_HASH.met().await {
+        None
+    } else {
+        Some(&token)
+    };
+    let scopes = guest_session_scopes(app_path)?;
+
+    // No account at all (see `ExecutionMode::Guest`): a deactivated `password` row
+    // counts, since the sign-in path's own lookup filters on `disabled = false` and a
+    // SCIM-offboarded account would otherwise read as absent; so does a `usr` row in
+    // any workspace, which is what a service account has instead of a password.
+    let has_account: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM password WHERE email = $1)
+             OR EXISTS(SELECT 1 FROM usr WHERE email = $1)",
+    )
+    .bind(email)
+    .fetch_one(&mut **tx)
+    .await?;
+    if has_account {
+        return Err(Error::NotAuthorized(
+            "an existing account cannot hold a guest session".to_string(),
+        ));
+    }
+    if !windmill_common::workspaces::guest_app_admits(&mut **tx, w_id, app_path).await? {
+        return Err(Error::NotAuthorized(format!(
+            "app {app_path} is not open to guests"
+        )));
+    }
+    windmill_common::workspaces::guest_admission(&mut **tx, email).await?;
+
+    sqlx::query!(
+        "INSERT INTO token
+            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, workspace_id)
+            VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' seconds')::interval, false, $7, $8)",
+        t_hash,
+        t_prefix,
+        plaintext as Option<&str>,
+        email,
+        windmill_common::auth::GUEST_SESSION_LABEL,
+        &GUEST_SESSION_VALIDITY_SECONDS.to_string(),
+        &scopes,
+        w_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // The only durable record that a guest was here, and the set the allowance is
+    // counted on; not the audit log, see the migration. Idempotent per email,
+    // workspace and day.
+    sqlx::query!(
+        "INSERT INTO guest_activity (email, workspace_id, day)
+         VALUES ($1, $2, CURRENT_DATE)
+         ON CONFLICT (email, workspace_id, day)
+         DO UPDATE SET last_seen_at = now()",
+        email,
+        w_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    audit_log(
+        &mut **tx,
+        &AuditAuthor {
+            email: email.to_string(),
+            username: email.to_string(),
+            username_override: None,
+            token_prefix: Some(t_prefix.to_string()),
+        },
+        "users.login_guest",
+        ActionKind::Create,
+        w_id,
+        Some(app_path),
+        None,
+    )
+    .await?;
+
+    set_session_cookie(&cookies, &token, *GUEST_SESSION_VALIDITY_SECONDS);
     Ok(token)
 }
 
@@ -3159,9 +3330,13 @@ async fn update_token_scopes(
 
     let mut tx = db.begin().await?;
 
+    // A guest-labelled token is never rescoped: its scopes are its whole confinement,
+    // and after promotion the same email owns an account that could otherwise strip
+    // them from the still-valid guest credential. Same shape as the relabel guard.
     let updated: Option<String> = sqlx::query_scalar!(
         "UPDATE token SET scopes = $1
            WHERE email = $2 AND token_prefix = $3
+             AND (label IS NULL OR label <> 'guest_session')
            RETURNING token_prefix",
         req.scopes.as_deref(),
         &authed.email,
@@ -3172,7 +3347,7 @@ async fn update_token_scopes(
 
     let prefix = updated.ok_or_else(|| {
         Error::NotFound(format!(
-            "token {token_prefix} not found or not owned by user"
+            "token {token_prefix} not found, not owned by user, or not rescopable"
         ))
     })?;
 
@@ -3242,6 +3417,7 @@ async fn update_token_label(
            WHERE email = $2 AND token_prefix = $3
              AND (label IS NULL OR (
                  label <> 'session'
+                 AND label <> 'guest_session'
                  AND lower(label) NOT LIKE 'ephemeral%'
                  AND label <> 'debugger-token'
                  AND label NOT LIKE 'mcp-oauth-%'

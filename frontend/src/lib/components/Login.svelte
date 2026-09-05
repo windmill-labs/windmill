@@ -63,10 +63,18 @@
 		firstTime?: boolean
 		autoRedirect?: boolean
 		onLoginSuccess?: () => void
+		/** A refusal the popup relayed back, in the server's words. */
+		onLoginError?: (message: string) => void
 		preview?: LoginPreview
 		/** Reports the instance's login options once loaded, so the page around the card can
 		 * adapt its heading: a third-party login also creates the account on first use. */
 		onOptionsLoaded?: (options: { hasThirdParty: boolean }) => void
+		/** `<workspace>/<app_path>` when this sign-in is someone opening an app that is
+		 * open to guests. A third-party login then mints a guest session -- no account,
+		 * no seat -- instead of creating a user. Omitting it is what promotion is: the
+		 * same sign-in without this, which provisions them for real. Password login
+		 * ignores it: a guest has no stored credential to check. */
+		guestApp?: string | undefined
 	}
 
 	let {
@@ -78,8 +86,10 @@
 		firstTime = false,
 		autoRedirect = true,
 		onLoginSuccess = undefined,
+		onLoginError = undefined,
 		preview = undefined,
-		onOptionsLoaded = undefined
+		onOptionsLoaded = undefined,
+		guestApp = undefined
 	}: Props = $props()
 
 	// The harness never takes effect in a production bundle, whatever a caller passes.
@@ -477,7 +487,9 @@
 
 	function processPopupData(data) {
 		if (data.type === 'error') {
+			clearPendingLoginMethod()
 			sendUserToast(data.error, true)
+			onLoginError?.(data.error)
 		} else if (data.type === 'success') {
 			finishOauthFlow('postMessage')
 		}
@@ -539,7 +551,11 @@
 		if (previewConfig) return true
 		markLoginMethodPending({ kind: 'oauth', provider })
 		persistRd()
-		let url = base + '/api/oauth/login/' + provider + (popup ? '?close=true' : '')
+		const params = new URLSearchParams()
+		if (popup) params.set('close', 'true')
+		if (guestApp) params.set('guest_app', guestApp)
+		const query = params.size > 0 ? '?' + params.toString() : ''
+		let url = base + '/api/oauth/login/' + provider + query
 		console.log('storeRedirect', popup, url)
 
 		if (popup) {
@@ -585,8 +601,14 @@
 				console.log('oauth: popup closed before login completed')
 				return
 			}
+			// A guest session is pinned to its workspace and cannot answer the global
+			// probe; an ordinary session for a non-member cannot answer the workspace
+			// one. Either answering means the popup signed someone in.
+			const guestWorkspace = guestApp?.split('/')[0]
+			const probes: Promise<unknown>[] = [UserService.getCurrentEmail()]
+			if (guestWorkspace) probes.push(UserService.whoami({ workspace: guestWorkspace }))
 			try {
-				await UserService.getCurrentEmail()
+				await Promise.any(probes)
 			} catch {
 				return
 			}
@@ -610,7 +632,17 @@
 		// full URLs (e.g. the page URL from /a/[...path]) are reduced to their
 		// path component first. The backend re-validates. Cross-origin or
 		// otherwise unsafe values fall through to the localStorage fallback.
-		const safePath = toSameOriginRelativePath(rd)
+		// A guest entry rides in the same RelayState as a `guest_app` query parameter
+		// the ACS lifts out: SAML never passes through `/api/oauth/login/<client>`,
+		// where the OAuth path hands its target to the server.
+		let safePath = toSameOriginRelativePath(rd)
+		if (guestApp && safePath) {
+			const hashAt = safePath.indexOf('#')
+			const pathAndQuery = hashAt === -1 ? safePath : safePath.slice(0, hashAt)
+			const hash = hashAt === -1 ? '' : safePath.slice(hashAt)
+			const sep = pathAndQuery.includes('?') ? '&' : '?'
+			safePath = `${pathAndQuery}${sep}guest_app=${encodeURIComponent(guestApp)}${hash}`
+		}
 		if (safePath) {
 			try {
 				const url = new URL(saml)
@@ -620,6 +652,13 @@
 			} catch (e) {
 				console.error('Could not set SAML RelayState', e)
 			}
+		}
+		if (guestApp && !relayStateSet) {
+			// Without the target the callback provisions an account, so a guest
+			// sign-in that cannot carry it does not start.
+			clearPendingLoginMethod()
+			sendUserToast('Could not start sign-in, please try again.', true)
+			return false
 		}
 		// Only use the localStorage fallback when RelayState is NOT carrying the
 		// deep link. With RelayState the ACS redirects straight to the target and
