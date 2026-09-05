@@ -714,8 +714,11 @@ fan-out reads the deploy-time `asset` rows) but records no row, so the relation
 shows no last writer. Fixing it is one change for all of those annotations, not
 this one.
 
-A `# on dbt://<relation>` subscription is therefore refused at deploy in exactly
-one shape: when every script that writes that relation is a dbt one. Nothing
+A `# on dbt://<relation>` subscription is held to the same relation a producer
+is — a whole `<warehouse>/<schema>/<name>` under a configured warehouse, checked
+by the validator the `// materialize` target goes through, since two spellings of
+that rule would refuse and accept the same string. Beyond that it is refused in
+exactly one shape: when every script that writes that relation is a dbt one. Nothing
 produces it yet is NOT that shape — a subscriber may be deployed before its
 producer, as for every other asset kind, and refusing there would break
 deploy-order-independent syncs. A dbt script may neither subscribe nor declare a

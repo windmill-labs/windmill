@@ -1752,17 +1752,6 @@ mod pipeline_annotation_tests {
     // annotation is hand-written, and the warehouses fold case in opposite
     // directions. A regression here is invisible: both nodes still render, they
     // just stop being the same node and the cross-boundary cascade never fires.
-    /// The shape both halves of the deploy check against: a subscription and a
-    /// write that disagreed on it would refuse and accept the same string.
-    #[test]
-    fn a_whole_relation_is_three_non_empty_segments() {
-        assert!(is_full_relation_path("main/analytics/orders"));
-        assert!(is_full_relation_path("main/archive.sales/orders"));
-        for partial in ["main", "main/analytics", "main/analytics/orders/x", "", "main//orders"] {
-            assert!(!is_full_relation_path(partial), "{partial} is not a relation");
-        }
-    }
-
     #[test]
     fn table_paths_from_every_spelling_canonicalize_to_one_key() {
         let canonical = Some((AssetKind::Dbt, Cow::Owned("main/analytics/orders".into())));
@@ -1784,6 +1773,17 @@ mod pipeline_annotation_tests {
                 canonical,
                 "spelling {spelling} did not canonicalize"
             );
+        }
+    }
+
+    /// The shape both halves of the deploy check against: a subscription and a
+    /// write that disagreed on it would refuse and accept the same string.
+    #[test]
+    fn a_whole_relation_is_three_non_empty_segments() {
+        assert!(is_full_relation_path("main/analytics/orders"));
+        assert!(is_full_relation_path("main/archive.sales/orders"));
+        for partial in ["main", "main/analytics", "main/analytics/orders/x", "", "main//orders"] {
+            assert!(!is_full_relation_path(partial), "{partial} is not a relation");
         }
     }
 

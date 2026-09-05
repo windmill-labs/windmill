@@ -1081,6 +1081,39 @@ fn lock_hash_entry(path: &str, lock: &str) -> [(String, i64); 1] {
     [(path.to_string(), hash_script(lock))]
 }
 
+/// The `dbt://` relation both halves of a deploy have to agree on: a whole
+/// `<warehouse>/<schema>/<name>`, under a warehouse this workspace configures.
+///
+/// Every producer is held to exactly this — a `// materialize` target here, a
+/// descriptor's `profile.warehouse` in the worker — so a subscription to anything
+/// else names a relation nothing can ever write. No later deploy fixes that and
+/// no dormant-edge warning reports it, since the warning fires on a dbt project's
+/// ingest and no project can claim a relation under a warehouse that isn't there.
+/// Asking here rather than at each site is what keeps the two from drifting into
+/// refusing and accepting the same string.
+async fn validate_dbt_relation(
+    db: &sqlx::Pool<Postgres>,
+    w_id: &str,
+    relation: &str,
+    what: &str,
+) -> Result<()> {
+    if !windmill_parser::asset_parser::is_full_relation_path(relation) {
+        return Err(Error::BadRequest(format!(
+            "{what} `dbt://{relation}` is not a whole warehouse relation \
+             (`dbt://<warehouse>/<schema>/<name>`), so nothing can produce it."
+        )));
+    }
+    let warehouse = relation.split('/').next().unwrap_or_default();
+    windmill_common::workspaces::dbt_warehouse_exists(db, w_id, warehouse)
+        .await
+        .map_err(|e| {
+            Error::BadRequest(format!(
+                "{what} `dbt://{relation}` names a warehouse this workspace does not \
+                 configure: {e}"
+            ))
+        })
+}
+
 async fn create_script_internal<'c>(
     mut ns: NewScript,
     w_id: String,
@@ -1638,26 +1671,8 @@ async fn create_script_internal<'c>(
                             .to_string(),
                     ));
                 }
-                if !windmill_parser::asset_parser::is_full_relation_path(&m.target_path) {
-                    return Err(Error::BadRequest(format!(
-                        "`// materialize` needs a full warehouse relation in the target: \
-                         `dbt://<warehouse>/<schema>/<name>` (got `dbt://{}`).",
-                        m.target_path
-                    )));
-                }
-                let warehouse = m.target_path.split('/').next().unwrap_or_default();
-                // The warehouse segment IS the identity a dbt model reading this
-                // relation keys on, so a name no warehouse answers to is not a
-                // namespace — it strands this write on a node nothing reaches.
-                // Same resolution a dbt descriptor's `profile.warehouse` gets.
-                windmill_common::workspaces::dbt_warehouse_exists(&db, &w_id, warehouse)
-                    .await
-                    .map_err(|e| {
-                        Error::BadRequest(format!(
-                            "`// materialize dbt://{warehouse}/…` names a warehouse this \
-                             workspace does not configure: {e}"
-                        ))
-                    })?;
+                validate_dbt_relation(&db, &w_id, &m.target_path, "`// materialize` target")
+                    .await?;
             }
             _ => {
                 return Err(Error::BadRequest(
@@ -2467,15 +2482,7 @@ async fn create_script_internal<'c>(
                      and a project is run on its schedule, not woken by an asset cascade."
                 )));
             }
-            // Every producer spells a whole relation, so a partial one is an edge
-            // nothing can ever wake — refused on the same terms as the dbt-only
-            // case rather than persisted.
-            if !windmill_parser::asset_parser::is_full_relation_path(relation) {
-                return Err(Error::BadRequest(format!(
-                    "`{trigger_ref}` is not a whole warehouse relation \
-                     (`dbt://<warehouse>/<schema>/<name>`), so nothing can produce it."
-                )));
-            }
+            validate_dbt_relation(&db, &w_id, relation, "subscription target").await?;
             // Both paths under a rename: the old one's committed write row is
             // still there and this transaction is about to remove it.
             let deploying_paths = match p_path_opt.as_deref().filter(|old| *old != ns.path) {
