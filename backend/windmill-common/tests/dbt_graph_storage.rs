@@ -8,8 +8,8 @@
 use sqlx::{Pool, Postgres};
 use windmill_common::dbt_manifest::{
     clear_dbt_editor_graphs, clear_dbt_manifest_version, prune_dbt_run_graphs,
-    replace_dbt_editor_graph, replace_dbt_manifest, IngestedManifest, IngestedNode,
-    DBT_EDITOR_GRAPHS_KEPT, DEPLOYED_GRAPH, DEPLOYED_GRAPH_VERSIONS_KEPT,
+    replace_dbt_editor_graph, replace_dbt_manifest, IngestedColumnEdge, IngestedManifest,
+    IngestedNode, DBT_EDITOR_GRAPHS_KEPT, DEPLOYED_GRAPH, DEPLOYED_GRAPH_VERSIONS_KEPT,
 };
 
 const WS: &str = "test-workspace";
@@ -52,8 +52,34 @@ fn manifest(names: &[&str]) -> IngestedManifest {
             .windows(2)
             .map(|w| (format!("model.p.{}", w[0]), format!("model.p.{}", w[1])))
             .collect(),
+        // Same reason: a project that opted into the analysis pass has these, and
+        // a fixture without them leaves every column-edge insert and sweep in
+        // this file unexecuted.
+        column_edges: names
+            .windows(2)
+            .map(|w| IngestedColumnEdge {
+                parent_unique_id: format!("model.p.{}", w[0]),
+                parent_column: w[0].to_string(),
+                child_unique_id: format!("model.p.{}", w[1]),
+                child_column: w[1].to_string(),
+                lineage_kind: "copy".to_string(),
+            })
+            .collect(),
         ..Default::default()
     }
+}
+
+/// Column edges of one version, so the sweeps can be shown to reach them.
+async fn column_edges_for(db: &Pool<Postgres>, hash: i64) -> i64 {
+    sqlx::query_scalar!(
+        "SELECT count(*) FROM dbt_column_edge WHERE workspace_id = $1 AND script_hash = $2",
+        WS,
+        hash
+    )
+    .fetch_one(db)
+    .await
+    .unwrap()
+    .unwrap_or(0)
 }
 
 /// Edges for one version, so a test can assert the batched insert ran at all.
@@ -275,6 +301,8 @@ async fn deleting_the_script_cascades_to_every_sidecar(db: Pool<Postgres>) {
     assert_eq!(nodes_for(&db, 2, DEPLOYED_GRAPH).await, 0);
     assert_eq!(edges_for(&db, 1).await, 0);
     assert_eq!(edges_for(&db, 2).await, 0);
+    assert_eq!(column_edges_for(&db, 1).await, 0);
+    assert_eq!(column_edges_for(&db, 2).await, 0);
     assert_eq!(markers_for_path(&db).await, 0);
 }
 
@@ -315,7 +343,7 @@ async fn the_sweep_takes_old_snapshots_and_spares_the_version(db: Pool<Postgres>
     tx.commit().await.unwrap();
 
     // Age one snapshot past the window, rows and marker together.
-    for t in ["dbt_node", "dbt_edge", "dbt_graph_snapshot"] {
+    for t in ["dbt_node", "dbt_edge", "dbt_column_edge", "dbt_graph_snapshot"] {
         sqlx::query(&format!(
             "UPDATE {t} SET ingested_at = now() - interval '400 days' WHERE job_id = $1"
         ))

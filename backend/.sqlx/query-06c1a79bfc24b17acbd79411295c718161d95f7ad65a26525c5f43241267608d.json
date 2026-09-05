@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,\n                               resource_type, name, asset_path, tags)\n         VALUES ($1, $2, $3, $4, 'model.p.stock', 'model', 'stock',\n                 'u/a/wh/analytics/stock', '{}'),\n                ($1, $2, $3, $4, 'model.p.stock_daily', 'model', 'stock_daily',\n                 'u/a/wh/analytics/stock_daily', '{}')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "06c1a79bfc24b17acbd79411295c718161d95f7ad65a26525c5f43241267608d"
+}

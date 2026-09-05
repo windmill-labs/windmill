@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dbt_column_edge (workspace_id, script_path, script_hash, job_id,\n            parent_unique_id, parent_column, child_unique_id, child_column, lineage_kind,\n            ingested_at)\n         SELECT $2, script_path, script_hash, job_id, parent_unique_id, parent_column,\n            child_unique_id, child_column, lineage_kind, ingested_at\n         FROM dbt_column_edge\n         WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3b7858e47e4e3f31f861e114c7ff26b467185edcfde151f22c6e903d15722ad4"
+}

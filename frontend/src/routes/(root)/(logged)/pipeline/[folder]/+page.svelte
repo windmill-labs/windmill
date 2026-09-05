@@ -33,9 +33,15 @@
 	import MacroExplorerDrawer from '$lib/components/assets/AssetGraph/MacroExplorerDrawer.svelte'
 	import { parsePipelineAnnotations } from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
 	import {
+		assetColumnNodes,
 		buildColumnGraph,
-		type ColumnLineageGraph
+		connectedComponent,
+		mergeColumnGraphs
 	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
+	import {
+		EMPTY_COLUMN_GRAPH,
+		useDbtColumnLineage
+	} from '$lib/components/assets/AssetGraph/dbtColumnLineage.svelte'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
 	import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 	import { hideDbtRunnables } from '$lib/components/assets/AssetGraph/hideDbtRunnables'
@@ -1980,26 +1986,51 @@
 			?.dbt
 	})
 
-	// Empty graph reused when the trace isn't shown (no ducklake-asset selection,
-	// or a draft is actively edited) so the pane blanks out like the other
-	// selection overlays and `buildColumnGraph` doesn't run.
-	const EMPTY_COLUMN_GRAPH: ColumnLineageGraph = {
-		nodes: new Map(),
-		up: new Map(),
-		down: new Map()
-	}
 	// Pipeline-wide column-lineage graph, stitched across every producer's
 	// (inferred + annotated) `column_lineage` and the asset write-edges. Drives
 	// the transitive column trace in the details pane. Built from `displayGraph`
 	// — the exact graph the canvas renders — so the trace matches it: draft
-	// overlays in edit / show-drafts, deployed-only in plain View. Gated to a
-	// ducklake-asset selection so it isn't rebuilt on every editor keystroke when
-	// the trace UI isn't even shown.
-	let columnGraph = $derived(
-		pe.selection?.kind === 'asset' && pe.selection.asset_kind === 'ducklake'
+	// overlays in edit / show-drafts, deployed-only in plain View. Gated to the
+	// two asset kinds that can carry column lineage so it isn't rebuilt on every
+	// editor keystroke when the trace UI isn't even shown.
+	let producerColumnGraph = $derived(
+		pe.selection?.kind === 'asset' &&
+			(pe.selection.asset_kind === 'ducklake' || pe.selection.asset_kind === 'dbt')
 			? buildColumnGraph(displayGraph)
 			: EMPTY_COLUMN_GRAPH
 	)
+	// dbt's half comes from its own request instead: a project's static analysis
+	// is stored per relation and only exists if the descriptor asked for it, so
+	// the folder-wide graph does not carry it. A draft is never asked about —
+	// nothing has parsed it, so there is nothing to fetch.
+	//
+	// The relation to ask about is the selected one when it IS a dbt relation,
+	// and otherwise the dbt column a producer feeding this selection names as a
+	// source — the boundary node above. Asking there is what lets a ducklake
+	// selection trace back up the dbt project that fed it, rather than stopping
+	// at the annotation.
+	let dbtSeedPaths = $derived.by(() => {
+		const sel = pe.selection
+		if (pe.activeDraft || sel?.kind !== 'asset') return []
+		if (sel.asset_kind === 'dbt') return [sel.path]
+		// EVERY dbt relation this selection reaches, not the first: one output can
+		// be derived from several, and expanding one would leave the others as
+		// leaves on the canvas.
+		const seeds = assetColumnNodes(producerColumnGraph, sel.asset_kind, sel.path)
+		const paths = new Set<string>()
+		for (const id of connectedComponent(seeds, producerColumnGraph)) {
+			const node = producerColumnGraph.nodes.get(id)
+			if (node?.kind === 'dbt') paths.add(node.path)
+		}
+		return [...paths]
+	})
+	const dbtColumnLineage = useDbtColumnLineage({
+		workspace: () => $workspaceStore,
+		assetPaths: () => dbtSeedPaths
+	})
+	// One graph across both, so a trace crosses the dbt/ducklake boundary in
+	// either direction rather than stopping at it.
+	let columnGraph = $derived(mergeColumnGraphs(producerColumnGraph, dbtColumnLineage.graph))
 
 	// Producer-side facts for the editor's live schema-contract diagnostics:
 	// which assets are muted (`on_schema_change=ignore`) and which `_current`
@@ -2602,6 +2633,7 @@
 				{selectionProducers}
 				{selectionDbt}
 				selectionColumnGraph={pe.activeDraft ? EMPTY_COLUMN_GRAPH : columnGraph}
+				selectionColumnLoading={dbtColumnLineage.loading}
 				{schemaCanEvolve}
 				{selectionForkMaterialization}
 				{schemaContractContext}

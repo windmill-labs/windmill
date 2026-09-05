@@ -1,5 +1,10 @@
-import type { AssetKind } from '$lib/gen'
+import type { AssetKind, DbtColumnLineage } from '$lib/gen'
 import type { AssetGraphResponse } from './types'
+
+// One column-to-column edge of a dbt project's static analysis, as the API
+// serves it. Taken from the generated client rather than restated: unlike the
+// asset graph, this response is fetched through it.
+export type DbtColumnEdge = DbtColumnLineage['edges'][number]
 
 // A node in the column-level lineage graph: one column of one asset.
 export type ColumnNode = { kind: AssetKind; path: string; column: string }
@@ -22,6 +27,15 @@ export type ColumnLineageGraph = {
 	// sourceColumn → the output columns derived from it (walk downstream).
 	down: Map<ColumnNodeId, Set<ColumnNodeId>>
 }
+
+// Direct value flow, as dbt's static analysis labels it: `copy` passes a column
+// through, `mod` transforms it. The API serves only those two — the third kind,
+// `scan`, means the column was read to produce the ROW rather than the value (a
+// join key, a `where` predicate, a `group by`), so it reaches EVERY output
+// column of the model and would draw the diagram as a complete bipartite graph.
+// Filtered here as well so a kind the engine invents cannot silently become an
+// edge the trace claims is data flow.
+const DIRECT_DBT_LINEAGE = new Set(['copy', 'mod'])
 
 // Build the column graph from a resolved asset graph. A producer's
 // `column_lineage` describes the columns of the asset it materializes; that
@@ -86,6 +100,59 @@ export function buildColumnGraph(graph: AssetGraphResponse): ColumnLineageGraph 
 		}
 	}
 
+	return { nodes, up, down }
+}
+
+// The same graph, from one dbt relation's column lineage. dbt arrives already
+// resolved to two relations rather than anchored to a producer, and the API
+// serves only the direct kinds, so this is a straight edge list.
+export function buildDbtColumnGraph(edges: DbtColumnEdge[]): ColumnLineageGraph {
+	const nodes = new Map<ColumnNodeId, ColumnNode>()
+	const up = new Map<ColumnNodeId, Set<ColumnNodeId>>()
+	const down = new Map<ColumnNodeId, Set<ColumnNodeId>>()
+	const addNode = (n: ColumnNode): ColumnNodeId => {
+		const id = colNodeId(n.kind, n.path, n.column)
+		if (!nodes.has(id)) nodes.set(id, n)
+		return id
+	}
+	for (const e of edges) {
+		// Belt and braces: the API filters to `copy`/`mod`, and a kind an engine
+		// invents must not silently become an edge the trace calls data flow.
+		if (!DIRECT_DBT_LINEAGE.has(e.kind)) continue
+		const src = addNode({ kind: 'dbt', path: e.from_asset_path, column: e.from_column })
+		const out = addNode({ kind: 'dbt', path: e.to_asset_path, column: e.to_column })
+		if (src === out) continue
+		;(up.get(out) ?? up.set(out, new Set()).get(out)!).add(src)
+		;(down.get(src) ?? down.set(src, new Set()).get(src)!).add(out)
+	}
+	return { nodes, up, down }
+}
+
+// One graph out of several, so a trace crosses the boundary between them.
+//
+// The two halves reach each other through shared node ids: a producer's
+// `// column out <- dbt://wh/schema/model.col` puts a `('dbt', path, column)`
+// node in the producer graph under the same `colNodeId` the dbt lineage mints
+// for it, so the union chains a dbt model's columns into the script that
+// consumes them and on into what that script writes. Kept separate up to here
+// because they are fetched separately — the producer half rides on the asset
+// graph, the dbt half is asked for per selection.
+export function mergeColumnGraphs(...graphs: ColumnLineageGraph[]): ColumnLineageGraph {
+	const nodes = new Map<ColumnNodeId, ColumnNode>()
+	const up = new Map<ColumnNodeId, Set<ColumnNodeId>>()
+	const down = new Map<ColumnNodeId, Set<ColumnNodeId>>()
+	for (const g of graphs) {
+		for (const [id, n] of g.nodes) if (!nodes.has(id)) nodes.set(id, n)
+		for (const [dir, into] of [
+			[g.up, up],
+			[g.down, down]
+		] as const) {
+			for (const [id, adj] of dir) {
+				const target = into.get(id) ?? into.set(id, new Set()).get(id)!
+				for (const m of adj) target.add(m)
+			}
+		}
+	}
 	return { nodes, up, down }
 }
 

@@ -6541,7 +6541,7 @@ async fn clone_scripts(
 }
 
 /// The parsed dbt graph a deployed script carries: its models, their SQL and
-/// tests, and the `ref()` lineage between them.
+/// tests, and the `ref()` and column-level lineage between them.
 ///
 /// Keyed on (workspace_id, script_path, script_hash), and the fork keeps every
 /// script's hash, so each row moves across as itself.
@@ -6559,11 +6559,11 @@ async fn clone_dbt_graph(
         "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,
             resource_type, name, asset_path, materialized, materialize_strategy, unique_key,
             tags, description, test_kind, test_column, test_args, severity, attached_node,
-            columns, freshness, raw_code, original_file_path, ingested_at)
+            columns, column_schema, freshness, raw_code, original_file_path, ingested_at)
          SELECT $2, script_path, script_hash, job_id, unique_id,
             resource_type, name, asset_path, materialized, materialize_strategy, unique_key,
             tags, description, test_kind, test_column, test_args, severity, attached_node,
-            columns, freshness, raw_code, original_file_path, ingested_at
+            columns, column_schema, freshness, raw_code, original_file_path, ingested_at
          FROM dbt_node
          WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
         source_workspace_id,
@@ -6577,6 +6577,24 @@ async fn clone_dbt_graph(
          SELECT $2, script_path, script_hash, job_id, parent_unique_id, child_unique_id,
             ingested_at
          FROM dbt_edge
+         WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
+        source_workspace_id,
+        target_workspace_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    // Column lineage travels with the rest of the graph, and it has to: the
+    // snapshot's digest covers it, so a fork missing these rows recomputes the
+    // digest the source stored, matches, and stores nothing — leaving the
+    // lineage gone until someone redeploys, which is the failure this whole
+    // function exists to prevent.
+    sqlx::query!(
+        "INSERT INTO dbt_column_edge (workspace_id, script_path, script_hash, job_id,
+            parent_unique_id, parent_column, child_unique_id, child_column, lineage_kind,
+            ingested_at)
+         SELECT $2, script_path, script_hash, job_id, parent_unique_id, parent_column,
+            child_unique_id, child_column, lineage_kind, ingested_at
+         FROM dbt_column_edge
          WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
         source_workspace_id,
         target_workspace_id

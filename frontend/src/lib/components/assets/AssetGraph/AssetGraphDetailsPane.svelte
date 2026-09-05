@@ -156,6 +156,9 @@
 		// resolved graph). Drives the transitive column-lineage trace shown for a
 		// selected materialized asset.
 		selectionColumnGraph?: ColumnLineageGraph
+		/** That graph still being fetched — a dbt relation's lineage is a request
+		 *  of its own, so it arrives after the selection does. */
+		selectionColumnLoading?: boolean
 		/** dbt provenance of the selected relation, when a dbt project
 		 *  materializes it — carries the model's own SQL. */
 		selectionDbt?: DbtAssetProvenance
@@ -289,6 +292,7 @@
 		onScriptRemoved,
 		selectionProducers = [],
 		selectionColumnGraph,
+		selectionColumnLoading = false,
 		selectionDbt,
 		schemaCanEvolve = true,
 		selectionForkMaterialization = undefined,
@@ -445,6 +449,15 @@
 		const scripts = selectionProducers.filter((p) => p.kind === 'script')
 		return scripts.length === 1 ? `${scripts[0].path}__dbt/${file}` : file
 	})
+
+	// The selected relation's own column nodes, which is what decides whether
+	// there is a trace to draw at all: a producer that declares no column lineage
+	// — or a dbt project that never asked for the analysis pass — has none.
+	let selectionColumnNodes = $derived(
+		selection?.kind === 'asset' && selectionColumnGraph
+			? assetColumnNodes(selectionColumnGraph, selection.asset_kind, selection.path)
+			: []
+	)
 
 	// Bound from ScriptEditor — populated by inferAssets on every code
 	// change. Forwarded to the page so the canvas can re-derive write
@@ -1221,7 +1234,7 @@
 												</span>
 											</div>
 										{/if}
-										{#if selectionColumnGraph && assetColumnNodes(selectionColumnGraph, selection.asset_kind, selection.path).length > 0}
+										{#if selectionColumnGraph && selectionColumnNodes.length > 0}
 											<div class="border-b shrink-0">
 												<ColumnLineageTrace
 													graph={selectionColumnGraph}
@@ -1236,7 +1249,7 @@
 										</div>
 									</div>
 								{/key}
-							{:else if selectionDbt?.raw_code}
+							{:else if selectionDbt && (selectionDbt.raw_code || selectionColumnNodes.length > 0 || selectionColumnLoading)}
 								<!-- The transform behind the node. Read-only on purpose: dbt
 								     development is a local loop (`dbt run --select`, `dbt test`
 								     against a dev target), and a browser textarea over one file
@@ -1249,11 +1262,36 @@
 										<DbtIcon width={11} height={11} />
 										<span class="font-mono truncate">{dbtBundlePath ?? selectionDbt.unique_id}</span
 										>
-										<span class="ml-auto shrink-0 opacity-70">read-only · edit locally</span>
+										{#if selectionDbt.raw_code}
+											<span class="ml-auto shrink-0 opacity-70">read-only · edit locally</span>
+										{/if}
 									</div>
-									<div class="flex-1 min-h-0 overflow-auto">
-										<HighlightCode language="sql" code={selectionDbt.raw_code} />
-									</div>
+									<!-- Above the SQL rather than beside it: the columns are what
+									     the SQL below produces, so reading them in that order is
+									     the model's own shape. Same trace component the ducklake
+									     assets use — the graph is one graph across both. -->
+									{#if selectionColumnLoading && selectionColumnNodes.length === 0}
+										<div
+											class="border-b shrink-0 flex items-center gap-2 px-3 py-1.5 text-2xs text-secondary"
+										>
+											<Loader2 size={12} class="animate-spin" />
+											Loading column lineage
+										</div>
+									{:else if selectionColumnGraph && selectionColumnNodes.length > 0}
+										<div class="border-b shrink-0 overflow-auto max-h-64">
+											<ColumnLineageTrace
+												graph={selectionColumnGraph}
+												assetKind={selection.asset_kind}
+												assetPath={selection.path}
+												targetLabel={selectionDbt.unique_id}
+											/>
+										</div>
+									{/if}
+									{#if selectionDbt.raw_code}
+										<div class="flex-1 min-h-0 overflow-auto">
+											<HighlightCode language="sql" code={selectionDbt.raw_code} />
+										</div>
+									{/if}
 								</div>
 							{:else}
 								<div class="p-3 text-xs text-secondary">

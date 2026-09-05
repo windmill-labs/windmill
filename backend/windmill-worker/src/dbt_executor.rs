@@ -653,12 +653,23 @@ pub(crate) async fn dbt_dep(
         None => GraphPublisher::Unversioned,
     };
     let superseded = if let Some(warehouse) = prepared.warehouse.as_deref() {
-        let ingested = windmill_common::dbt_manifest::ingest_manifest(
+        let mut ingested = windmill_common::dbt_manifest::ingest_manifest(
             &manifest,
             warehouse,
             prepared.default_database.as_deref(),
             selected.as_ref(),
         );
+        attach_column_index(
+            &mut ingested,
+            &prepared,
+            &descriptor,
+            &inv,
+            &mut ctx,
+            job_id,
+            w_id,
+            &conn,
+        )
+        .await?;
         let published = persist_ingest(
             db,
             w_id,
@@ -2882,7 +2893,8 @@ async fn run_show(
         conn,
         SHOW_MAX_OUTPUT_BYTES,
     )
-    .await?;
+    .await?
+    .stdout;
     // dbt frames the rows as `{"node": …, "show": [ … ]}`, pretty-printed, with a
     // banner before and a deprecation summary after — so neither "the line starting
     // with `{`" nor "first `{` to the end" parses. A streaming deserializer stops at
@@ -3064,12 +3076,23 @@ async fn run_parse_only(
     // manifest and the selection while the warehouse only keys them — so a project
     // with no warehouse identity still reports what dbt found. The placeholder
     // reaches no row: the guard below returns before anything is written.
-    let ingested = windmill_common::dbt_manifest::ingest_manifest(
+    let mut ingested = windmill_common::dbt_manifest::ingest_manifest(
         &manifest,
         p.warehouse.as_deref().unwrap_or("unkeyed"),
         p.default_database.as_deref(),
         selected.as_ref(),
     );
+    attach_column_index(
+        &mut ingested,
+        p,
+        descriptor,
+        inv,
+        ctx,
+        &job.id,
+        &job.workspace_id,
+        conn,
+    )
+    .await?;
     result.nodes = ingested.nodes.len();
     result.edges = ingested.edges.len();
     for n in &ingested.nodes {
@@ -3143,6 +3166,57 @@ async fn run_parse_only(
     Ok(to_raw_value(&result))
 }
 
+/// Fold this project's column lineage into the graph about to be stored, when
+/// the descriptor asked for it.
+///
+/// One helper for all three ingests — deploy, editor parse, per-run refresh —
+/// because a graph that carries column lineage in one provenance and not another
+/// reads as the lineage having disappeared.
+async fn attach_column_index(
+    ingested: &mut windmill_common::dbt_manifest::IngestedManifest,
+    p: &PreparedProject,
+    descriptor: &DbtDescriptor,
+    inv: &Invocation,
+    ctx: &mut JobCtx<'_>,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> error::Result<()> {
+    // The nodes this graph kept, so the pass reads only rows it could store: the
+    // index describes the whole project, this graph one selection of it.
+    let kept: std::collections::HashSet<&str> =
+        ingested.nodes.iter().map(|n| n.unique_id.as_str()).collect();
+    let index =
+        crate::dbt_column_index::collect(p, descriptor, inv, ctx, job_id, w_id, conn, &kept).await?;
+    drop(kept);
+    let Some(index) = index else {
+        return Ok(());
+    };
+    let found = index.edges.len();
+    ingested.attach_column_index(index);
+    let kept = ingested.column_edges.len();
+    let typed: usize = ingested
+        .nodes
+        .iter()
+        .filter(|n| n.column_schema.is_some())
+        .count();
+    // Counted here rather than at the pass: the index describes the whole
+    // project and this graph describes one selection of it, so `found` is what
+    // dbt produced and `kept` is what the graph can draw.
+    let dropped = match found.saturating_sub(kept) {
+        0 => String::new(),
+        n => format!(" ({n} outside this graph or past the cap)"),
+    };
+    append_logs(
+        job_id,
+        w_id,
+        format!("\nIngested {kept} column lineage edges{dropped} and typed {typed} nodes\n"),
+        conn,
+    )
+    .await;
+    Ok(())
+}
+
 /// Refresh the stored graph from the manifest this run produced.
 async fn ingest_from_run(
     p: &PreparedProject,
@@ -3164,12 +3238,23 @@ async fn ingest_from_run(
     // filter this run's manifest by a different node set than it built.
     let selected =
         resolve_selection(p, descriptor, inv, ctx, &job.id, &job.workspace_id, conn).await?;
-    let ingested = windmill_common::dbt_manifest::ingest_manifest(
+    let mut ingested = windmill_common::dbt_manifest::ingest_manifest(
         &manifest,
         warehouse,
         p.default_database.as_deref(),
         selected.as_ref(),
     );
+    attach_column_index(
+        &mut ingested,
+        p,
+        descriptor,
+        inv,
+        ctx,
+        &job.id,
+        &job.workspace_id,
+        conn,
+    )
+    .await?;
     // Only a run whose models are its own snapshots per run. A static
     // descriptor at a moved profile re-ingests the VERSION's graph, since the
     // move outlives the run; one that neither drifted nor overrode anything
@@ -3428,7 +3513,9 @@ async fn resolve_selection(
     // through the job-log writer, which `NO_LOGS_AT_ALL` discards — the selection
     // would resolve to the empty set and the ingest would wipe the script's assets
     // while dbt went on building the descriptor's models.
-    let stdout = run_capturing(cmd, "dbt ls", ctx, job_id, w_id, conn, LS_MAX_OUTPUT_BYTES).await?;
+    let stdout = run_capturing(cmd, "dbt ls", ctx, job_id, w_id, conn, LS_MAX_OUTPUT_BYTES)
+        .await?
+        .stdout;
     let mut set = std::collections::HashSet::new();
     for line in stdout.lines() {
         let line = line.trim();
@@ -3459,6 +3546,34 @@ async fn resolve_selection(
 /// what is kept is the TAIL, because dbt prints its error summary last.
 const CAPTURE_MAX_STDERR_BYTES: usize = 64 * 1024;
 
+/// What a captured invocation produced. `stderr` is where dbt writes its
+/// diagnostics — the errors and warnings block — so a caller that has to explain
+/// a SUCCESSFUL run needs it as much as a failing one does.
+pub(crate) struct Captured {
+    pub stdout: String,
+    pub stderr: String,
+    /// Whether the child exited zero. Separate from the `Result` on purpose: an
+    /// `Err` from `run_captured` is the JOB's — a cancellation or its deadline —
+    /// so a caller that tolerates a failed command must still propagate one.
+    pub success: bool,
+    /// Whether the output ceiling cut the child short. Only ever true under
+    /// [`Overflow::Truncate`].
+    pub truncated: bool,
+}
+
+/// What an over-long stdout means to the caller.
+///
+/// The ceiling belongs to the PASS, not to the job: a caller that only annotates
+/// a job wants to keep what it read and carry on, while one whose whole result
+/// is that output has nothing to return without it.
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub(crate) enum Overflow {
+    /// Fail the job. For a command whose output IS the answer.
+    Fail,
+    /// Stop reading, kill the child, and report `truncated`.
+    Truncate,
+}
+
 /// Run a command for its stdout under the job's cancellation and timeout.
 /// The same poller `handle_child` uses drives them, so a cancel or a deadline
 /// drops the wait future — which owns the child, and `kill_on_drop` then
@@ -3471,7 +3586,7 @@ const CAPTURE_MAX_STDERR_BYTES: usize = 64 * 1024;
 /// never holds more than it, so it has to be enforced while reading. Both pipes
 /// are drained concurrently because a child that fills the one nobody reads
 /// blocks forever.
-async fn run_capturing(
+pub(crate) async fn run_captured(
     mut cmd: Command,
     name: &str,
     ctx: &mut JobCtx<'_>,
@@ -3479,7 +3594,8 @@ async fn run_capturing(
     w_id: &str,
     conn: &Connection,
     max_stdout_bytes: usize,
-) -> error::Result<String> {
+    on_overflow: Overflow,
+) -> error::Result<Captured> {
     use tokio::io::AsyncReadExt;
 
     let mut child = cmd
@@ -3514,6 +3630,7 @@ async fn run_capturing(
             let mut out_buf = vec![0u8; 16 * 1024];
             let mut err_buf = vec![0u8; 16 * 1024];
             let (mut out_open, mut err_open) = (true, true);
+            let mut truncated = false;
             while out_open || err_open {
                 tokio::select! {
                     r = stdout_pipe.read(&mut out_buf[..]), if out_open => match r {
@@ -3521,14 +3638,19 @@ async fn run_capturing(
                         Ok(n) => {
                             if stdout.len() + n > max_stdout_bytes {
                                 // Killed here rather than left to `kill_on_drop`
-                                // so the child is gone before the error unwinds,
-                                // not merely once this future is dropped.
+                                // so the child is gone before this returns, not
+                                // merely once the future is dropped.
                                 let _ = child.kill().await;
-                                return Err(Error::ExecutionErr(format!(
-                                    "{name} produced more than {} MB of output. Narrow the \
-                                     selection, or query the relation from a SQL script.",
-                                    max_stdout_bytes / 1024 / 1024
-                                )));
+                                if on_overflow == Overflow::Fail {
+                                    return Err(Error::ExecutionErr(format!(
+                                        "{name} produced more than {} MB of output. Narrow the \
+                                         selection, or query the relation from a SQL script.",
+                                        max_stdout_bytes / 1024 / 1024
+                                    )));
+                                }
+                                truncated = true;
+                                out_open = false;
+                                continue;
                             }
                             stdout.extend_from_slice(&out_buf[..n]);
                         }
@@ -3551,7 +3673,7 @@ async fn run_capturing(
                 .wait()
                 .await
                 .map_err(|e| Error::internal_err(format!("{name} failed: {e}")))?;
-            Ok((status, stdout, stderr))
+            Ok((status, stdout, stderr, truncated))
         },
         ctx.worker_name,
         w_id,
@@ -3561,14 +3683,46 @@ async fn run_capturing(
         })),
     )
     .await?;
-    let (status, stdout, stderr) = out;
-    if !status.success() {
+    let (status, stdout, stderr, truncated) = out;
+    Ok(Captured {
+        stdout: String::from_utf8_lossy(&stdout).to_string(),
+        stderr: String::from_utf8_lossy(&stderr).to_string(),
+        // A killed child reports failure; under `Truncate` that is the ceiling's
+        // doing, not the project's, and the caller reads `truncated` to tell.
+        success: status.success(),
+        truncated,
+    })
+}
+
+/// `run_captured`, with a non-zero exit folded into the error — what a caller
+/// that needs the command to have WORKED wants.
+pub(crate) async fn run_capturing(
+    cmd: Command,
+    name: &str,
+    ctx: &mut JobCtx<'_>,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+    max_stdout_bytes: usize,
+) -> error::Result<Captured> {
+    let captured = run_captured(
+        cmd,
+        name,
+        ctx,
+        job_id,
+        w_id,
+        conn,
+        max_stdout_bytes,
+        Overflow::Fail,
+    )
+    .await?;
+    if !captured.success {
         return Err(Error::ExecutionErr(format!(
             "{name} failed: {}",
-            String::from_utf8_lossy(&stderr)
+            captured.stderr
         )));
     }
-    Ok(String::from_utf8_lossy(&stdout).to_string())
+    Ok(captured)
 }
 
 /// Run a preparation command through the same child handler the build uses, so
@@ -4518,7 +4672,11 @@ fn has_retryable_node(run_results: &str) -> bool {
 }
 
 /// Append `--vars` if the descriptor (or the run) declares any.
-fn add_vars(cmd: &mut Command, descriptor: &DbtDescriptor, inv: &Invocation) -> error::Result<()> {
+pub(crate) fn add_vars(
+    cmd: &mut Command,
+    descriptor: &DbtDescriptor,
+    inv: &Invocation,
+) -> error::Result<()> {
     let vars = resolved_vars(descriptor, &inv.args, inv.strict)?;
     if !vars.is_empty() {
         cmd.args(["--vars", &serde_json::to_string(&vars).unwrap_or_default()]);

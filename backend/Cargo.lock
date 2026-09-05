@@ -16696,6 +16696,7 @@ dependencies = [
  "opentelemetry 0.30.0",
  "opentelemetry-proto 0.30.0",
  "oracle",
+ "parquet",
  "pem 3.0.6",
  "pep440_rs",
  "postgres-native-tls 0.5.3",

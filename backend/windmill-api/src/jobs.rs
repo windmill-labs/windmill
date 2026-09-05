@@ -139,6 +139,7 @@ pub fn workspaced_service() -> Router {
         .route("/run_progress/{id}", get(get_run_progress))
         .route("/run_assets/{id}", get(list_run_assets))
         .route("/dbt_graph/{id}", get(get_dbt_run_graph))
+        .route("/dbt_column_lineage/{id}", get(get_dbt_run_column_lineage))
         .route("/dbt_resumable/{id}", get(get_dbt_resumable))
         .route(
             "/dbt_resumable_script/p/{*script_path}",
@@ -891,21 +892,27 @@ struct AssetProgress {
     error: Option<String>,
 }
 
-/// The asset graph as one run saw it. Pinning to a job needs the full job-read
-/// contract, so it lives on `require_job_read_access` here rather than as a
-/// parameter on `/assets/graph`. See docs/dbt-runtime.md.
-async fn get_dbt_run_graph(
-    authed: ApiAuthed,
-    OptViewToken(view_token): OptViewToken,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, job_id)): Path<(String, Uuid)>,
-    Query(q): Query<windmill_api_assets::GraphQuery>,
-) -> error::JsonResult<windmill_api_assets::AssetGraphResponse> {
+/// Which project version a dbt view pins to for this job, once the caller has
+/// been shown to be entitled to it.
+///
+/// `Ok(None)` is "answer unpinned", not a refusal: a job that stored no graph of
+/// its own — and one that has aged out of retention — is served the deployed
+/// version rather than an error, so a run page keeps drawing after the run is
+/// gone. Pinning needs the full job-read contract, which is why it lives on
+/// `require_job_read_access` here rather than as a parameter on `/assets/*`.
+/// See docs/dbt-runtime.md.
+async fn dbt_pinned_run(
+    authed: &ApiAuthed,
+    db: &DB,
+    user_db: &UserDB,
+    w_id: &str,
+    job_id: Uuid,
+    view_token: Option<&str>,
+) -> error::Result<Option<windmill_api_assets::PinnedRun>> {
     // The scope domain comes from the URL segment, so `/jobs` asks a scoped token
     // for `jobs:read` alone while the body returned is asset data. Both are
     // required: the job gate below reaches this run, this reaches assets at all.
-    check_scopes(&authed, || "assets:read".to_string())?;
+    check_scopes(authed, || "assets:read".to_string())?;
     let job = sqlx::query!(
         r#"SELECT created_by, runnable_path,
                 CASE WHEN kind = 'script' THEN runnable_id END AS script_hash,
@@ -918,40 +925,67 @@ async fn get_dbt_run_graph(
                            AND g.script_hash IS NULL) AS "editor_graph!"
            FROM v2_job WHERE id = $1 AND workspace_id = $2"#,
         job_id,
-        &w_id
+        w_id
     )
-    .fetch_optional(&db)
+    .fetch_optional(db)
     .await?;
-    // No such job: answer the unpinned graph rather than 404, so a run page whose
-    // job has aged out of retention still draws the deployed version instead of
-    // an error. Reachable only with `assets:read`, which is exactly what
-    // `/assets/graph` would have cost for the same answer.
+    // Unpinned rather than 404 for a job that is gone. Reachable only with
+    // `assets:read`, which is exactly what the unpinned route would have cost
+    // for the same answer.
     let Some(job) = job else {
-        return windmill_api_assets::asset_graph_for(&authed, &w_id, user_db, db, q, None).await;
+        return Ok(None);
     };
     require_job_read_access(
-        &db,
-        &user_db,
-        &authed,
-        &w_id,
+        db,
+        user_db,
+        authed,
+        w_id,
         &job_id,
         &job.created_by,
-        view_token.as_deref(),
+        view_token,
     )
     .await?;
     // A preview or flow job names no deployed version, so there is usually no
     // graph to pin to and the workspace one answers. The exception is a job that
     // parsed one itself, which is what the dbt editor's refresh is: its graph
     // belongs to that job alone and nothing else can reach it.
-    let pinned = job
+    Ok(job
         .runnable_path
         .filter(|_| job.script_hash.is_some() || job.editor_graph)
         .map(|path| windmill_api_assets::PinnedRun {
             job_id,
             script_path: path,
             script_hash: job.script_hash,
-        });
+        }))
+}
+
+/// The asset graph as one run saw it.
+async fn get_dbt_run_graph(
+    authed: ApiAuthed,
+    OptViewToken(view_token): OptViewToken,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+    Query(q): Query<windmill_api_assets::GraphQuery>,
+) -> error::JsonResult<windmill_api_assets::AssetGraphResponse> {
+    let pinned =
+        dbt_pinned_run(&authed, &db, &user_db, &w_id, job_id, view_token.as_deref()).await?;
     windmill_api_assets::asset_graph_for(&authed, &w_id, user_db, db, q, pinned).await
+}
+
+/// One relation's column lineage as one run saw it — the same pin as
+/// `get_dbt_run_graph`, for the trace drawn beside a node of that graph.
+async fn get_dbt_run_column_lineage(
+    authed: ApiAuthed,
+    OptViewToken(view_token): OptViewToken,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+    Query(q): Query<windmill_api_assets::ColumnLineageQuery>,
+) -> error::JsonResult<windmill_api_assets::ColumnLineageResponse> {
+    let pinned =
+        dbt_pinned_run(&authed, &db, &user_db, &w_id, job_id, view_token.as_deref()).await?;
+    windmill_api_assets::dbt_column_lineage_for(&authed, &w_id, user_db, q, pinned).await
 }
 
 /// Whether a `dbt retry` submitted by this caller would resume THIS run.

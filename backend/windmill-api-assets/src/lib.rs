@@ -6,6 +6,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Row;
+use std::collections::{HashMap, HashSet};
 use windmill_common::{
     assets::{parse_asset_trigger_ref, AssetKind, AssetUsageKind},
     db::UserDB,
@@ -13,7 +14,9 @@ use windmill_common::{
     utils::escape_ilike_pattern,
 };
 
-use windmill_api_auth::{build_scope_path_predicate, ApiAuthed};
+use windmill_api_auth::{
+    build_scope_path_filter, build_scope_path_predicate, ApiAuthed, ScopePathFilter,
+};
 
 // Partition-range backfill preview. The logic (producer resolution, range
 // enumeration, status join) is enterprise: the `private` build compiles the
@@ -33,6 +36,7 @@ pub fn workspaced_service() -> Router {
         .route("/list_by_usages", post(list_assets_by_usages))
         .route("/list_favorites", get(list_favorites))
         .route("/graph", get(asset_graph))
+        .route("/column_lineage", get(dbt_column_lineage))
         .route("/pipelines", get(list_pipeline_folders))
         .route("/partitions", get(list_partitions))
         .route("/partitions_in_range", get(list_partitions_in_range))
@@ -663,10 +667,21 @@ struct DbtAssetProvenance {
     description: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     data_tests: Vec<DbtDataTest>,
-    /// Declared column metadata (name -> description). NOT column lineage —
-    /// `manifest.json` carries none (docs/dbt-runtime.md, decision 14).
+    /// Declared column metadata (name -> description): what `manifest.json`
+    /// carries, which is only the columns an author wrote down.
     #[serde(skip_serializing_if = "Option::is_none")]
     columns: Option<serde_json::Value>,
+    /// Every column of the relation, typed and in order —
+    /// `[{"name": …, "type": …}]` — from the engine's static analysis. Present
+    /// only for a project that opted into it.
+    ///
+    /// Gated exactly like `columns` and the model's SQL: a full column list is
+    /// the shape of what the author WROTE, one level finer than the `ref()`
+    /// graph, which is ungated only because it draws relations the caller
+    /// already sees in `asset`. Widening that boundary has to be a decision, not
+    /// a consequence of a project turning the analysis pass on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    column_schema: Option<serde_json::Value>,
     /// A source's declared freshness policy, for the staleness chip.
     #[serde(skip_serializing_if = "Option::is_none")]
     freshness: Option<serde_json::Value>,
@@ -944,6 +959,266 @@ pub struct AssetGraphResponse {
 struct DbtLineageEdge {
     from_asset_path: String,
     to_asset_path: String,
+}
+
+/// One column-to-column edge, in the same terms: the two relations and the two
+/// columns, never dbt's node ids.
+#[derive(Serialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct DbtColumnLineageEdge {
+    from_asset_path: String,
+    from_column: String,
+    to_asset_path: String,
+    to_column: String,
+    /// dbt's own word for how the value travelled: `copy` (passthrough), `mod`
+    /// (transformed), `scan` (read to produce the ROW rather than the value — a
+    /// join key, a predicate, a `group by`). Sent verbatim, including a kind
+    /// this engine version invented, because the renderer decides what a kind
+    /// means and the set is the engine's.
+    kind: String,
+}
+
+/// One dbt relation's column lineage: the connected component its columns sit
+/// in, within the project that owns it.
+///
+/// Not the relation's own edges, which would stop one hop out — a trace walks
+/// transitively — and not the whole project's, which carries families the
+/// selected relation cannot reach. The component is what the canvas lays out,
+/// so it is exactly what a consumer can draw.
+///
+/// Its own endpoint rather than a field on the graph, which is folder-wide and
+/// polled by a run page while this is rendered for a single selection. A
+/// folder's worth of edges spans many projects and many callers' access, so it
+/// would need a cap, and a cap has to be applied after every filter that could
+/// drop a row — which is the ordering this shape removes rather than gets
+/// right. Here the filters ARE the answer: scope and visibility are decided
+/// once in SQL for the script that owns the relation, the component is walked
+/// over what that returns, and the size is bounded at ingest
+/// (`MAX_COLUMN_EDGES` per version, of which only the direct kinds are served).
+#[derive(Deserialize)]
+pub struct ColumnLineageQuery {
+    /// The `dbt://` relation whose lineage to return.
+    pub asset_path: String,
+    /// A deployed version other than the current one, for an editor open on an
+    /// older one. A run's or an editor buffer's graph is NOT reachable from
+    /// here: it pins to a job, and that costs the job-read gate.
+    pub dbt_script_hash: Option<windmill_common::scripts::ScriptHash>,
+}
+
+#[derive(Serialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ColumnLineageResponse {
+    /// Direct (`copy` / `mod`) column edges of the component this relation's
+    /// columns sit in, in the terms the canvas draws. Empty when the project
+    /// never asked for the analysis pass, which is the ordinary case.
+    edges: Vec<DbtColumnLineageEdge>,
+}
+
+async fn dbt_column_lineage(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+    Query(q): Query<ColumnLineageQuery>,
+) -> JsonResult<ColumnLineageResponse> {
+    // `None`: pinning to one run is job-scoped and this endpoint is authorized
+    // as `assets:read`. See `dbt_column_lineage_for`.
+    dbt_column_lineage_for(&authed, &w_id, user_db, q, None).await
+}
+
+/// One dbt relation's column lineage, optionally as one run saw it.
+///
+/// AUTHORIZES NOTHING BY ITSELF, on the same contract as `asset_graph_for`:
+/// `assets:read` always, and the job-read gate for `Some(pinned)`, whose path
+/// and hash are then taken from that job's row rather than from the caller.
+pub async fn dbt_column_lineage_for(
+    authed: &ApiAuthed,
+    w_id: &str,
+    user_db: UserDB,
+    q: ColumnLineageQuery,
+    pinned: Option<PinnedRun>,
+) -> JsonResult<ColumnLineageResponse> {
+    // A column-level view is the shape of what the author WROTE, so it takes the
+    // model's own gate rather than the relation's. Decided ONCE here, for the
+    // script that owns the asset, instead of per row against a cap.
+    let (scope_all, scope_exact, scope_prefix) =
+        match build_scope_path_filter(authed, "scripts", "read") {
+            ScopePathFilter::AllowAll => (true, Vec::new(), Vec::new()),
+            ScopePathFilter::Restricted { exact, prefix } => (false, exact, prefix),
+        };
+    let (pinned_path, script_hash) = match pinned.as_ref() {
+        // The job's own version, so a pin cannot name one project's run while
+        // claiming another's version — including when it names NONE, which is
+        // the editor buffer.
+        Some(p) => (Some(p.script_path.as_str()), p.script_hash),
+        None => (None, q.dbt_script_hash.map(|h| h.0)),
+    };
+    let pinned_job_id = pinned.as_ref().map(|p| p.job_id);
+    let mut tx = user_db.begin(authed).await?;
+    let rows = sqlx::query!(
+        r#"WITH
+           -- The project version that owns the asked-for relation, in the graph
+           -- on screen. Not the folder-wide `live` set the graph resolves: one
+           -- asset is asked about here, so the version is decided per candidate
+           -- row. Usually one row; a relation a second project declares as a
+           -- source has two, and each answers for its own lineage.
+           owner AS (
+             SELECT DISTINCT n.script_path, n.script_hash, n.job_id
+               FROM dbt_node n
+              WHERE n.workspace_id = $1 AND n.asset_path = $2
+                -- The run's snapshot, or the deployed graph when that job stored
+                -- none -- a build pins only if it wrote one.
+                AND n.job_id = CASE WHEN $5::uuid IS NOT NULL AND EXISTS (
+                                      SELECT 1 FROM dbt_graph_snapshot g
+                                       WHERE g.workspace_id = $1 AND g.job_id = $5)
+                                    THEN $5::uuid
+                                    ELSE '00000000-0000-0000-0000-000000000000'::uuid END
+                -- The gate, once, for the whole answer.
+                AND ( $6
+                      OR n.script_path = ANY($7)
+                      OR EXISTS ( SELECT 1 FROM unnest($8::text[]) AS pfx
+                                   WHERE n.script_path = pfx
+                                      OR left(n.script_path, length(pfx) + 1) = pfx || '/' ) )
+                AND CASE
+                      -- Pinned: which version comes from a job this caller was
+                      -- already granted, so `script` does not decide THAT — but
+                      -- it still decides whether the project may be read, the
+                      -- same second gate `script_visible` is on the graph. Being
+                      -- entitled to a run is not being entitled to the SQL
+                      -- behind it, and column lineage is that SQL's shape. A
+                      -- version-less row is exempt because it is an editor
+                      -- buffer, which has no `script` row to ask and reaches
+                      -- this only through the parse job that wrote it.
+                      WHEN $4::text IS NOT NULL
+                        THEN n.script_path = $4 AND n.script_hash IS NOT DISTINCT FROM $3::bigint
+                             AND ($3::bigint IS NULL OR EXISTS (
+                                   SELECT 1 FROM script sc
+                                    WHERE sc.workspace_id = $1 AND sc.path = n.script_path
+                                      AND sc.hash = $3))
+                      -- A named version, for an editor open on an older one.
+                      -- `script` is read under RLS, so this is the visibility
+                      -- check as well as the existence one.
+                      WHEN $3::bigint IS NOT NULL
+                        THEN n.script_hash = $3 AND EXISTS (
+                               SELECT 1 FROM script sc
+                                WHERE sc.workspace_id = $1 AND sc.path = n.script_path
+                                  AND sc.hash = $3)
+                      -- Otherwise the version deployed now: an older one's rows
+                      -- outlive it in `dbt_node` until the sweep, and describe a
+                      -- project that is no longer what runs. `language` narrows
+                      -- it the way the graph's own resolution does, so a path
+                      -- that has since become a script of another kind draws and
+                      -- explains the same version rather than disagreeing.
+                      ELSE n.script_hash = (
+                             SELECT sc.hash FROM script sc
+                              WHERE sc.workspace_id = $1 AND sc.path = n.script_path
+                                AND sc.language = 'dbt'
+                                AND sc.deleted = false AND sc.archived = false
+                              ORDER BY sc.created_at DESC LIMIT 1)
+                    END
+           )
+           -- DIRECT kinds only. `scan` — the column was read to produce the ROW,
+           -- not the value — reaches every output column of its model, so it is
+           -- most of a project's stored lineage and none of what a trace draws.
+           -- It stays in the table for a later view to ask for.
+           SELECT p.asset_path AS "from_path!", e.parent_column AS "from_column!",
+                  c.asset_path AS "to_path!", e.child_column AS "to_column!",
+                  e.lineage_kind AS "kind!"
+             FROM dbt_column_edge e
+             JOIN owner o ON o.script_path = e.script_path
+                         AND o.script_hash IS NOT DISTINCT FROM e.script_hash
+                         AND o.job_id = e.job_id
+             JOIN dbt_node p ON p.workspace_id = e.workspace_id
+                            AND p.script_path = e.script_path
+                            AND p.script_hash IS NOT DISTINCT FROM e.script_hash
+                            AND p.job_id = e.job_id
+                            AND p.unique_id = e.parent_unique_id
+             JOIN dbt_node c ON c.workspace_id = e.workspace_id
+                            AND c.script_path = e.script_path
+                            AND c.script_hash IS NOT DISTINCT FROM e.script_hash
+                            AND c.job_id = e.job_id
+                            AND c.unique_id = e.child_unique_id
+            WHERE e.workspace_id = $1
+              AND e.lineage_kind IN ('copy', 'mod')
+              AND p.asset_path IS NOT NULL AND c.asset_path IS NOT NULL"#,
+        w_id,
+        q.asset_path,
+        script_hash,
+        pinned_path,
+        pinned_job_id,
+        scope_all,
+        &scope_exact[..],
+        &scope_prefix[..],
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    let mut edges: Vec<DbtColumnLineageEdge> = rows
+        .into_iter()
+        .map(|r| DbtColumnLineageEdge {
+            from_asset_path: r.from_path,
+            from_column: r.from_column,
+            to_asset_path: r.to_path,
+            to_column: r.to_column,
+            kind: r.kind,
+        })
+        .collect();
+    // Two projects can describe one relation, so the same edge can arrive twice.
+    edges.sort();
+    edges.dedup();
+    Ok(Json(ColumnLineageResponse {
+        edges: component(edges, &q.asset_path),
+    }))
+}
+
+/// Keep the edges of the connected component the asked-for relation sits in.
+///
+/// The canvas lays out the component of the selected relation's columns, so a
+/// project's other model families are edges nothing it draws can reach. Walked
+/// here rather than in SQL: a recursive CTE has no index to walk, so it rescans
+/// the whole edge set once per level — measured at 1.24s against 59ms for the
+/// query alone on a 3000-model project, for a walk that is microseconds over a
+/// map. Columns are keyed by relation, not by project, which is how the canvas
+/// keys them too: two projects describing one relation draw one node.
+fn component(mut edges: Vec<DbtColumnLineageEdge>, asset_path: &str) -> Vec<DbtColumnLineageEdge> {
+    let keep = {
+        let mut incident: HashMap<(&str, &str), Vec<usize>> = HashMap::new();
+        for (i, e) in edges.iter().enumerate() {
+            let from = (e.from_asset_path.as_str(), e.from_column.as_str());
+            let to = (e.to_asset_path.as_str(), e.to_column.as_str());
+            incident.entry(from).or_default().push(i);
+            incident.entry(to).or_default().push(i);
+        }
+        let mut stack: Vec<(&str, &str)> = incident
+            .keys()
+            .filter(|(path, _)| *path == asset_path)
+            .copied()
+            .collect();
+        let mut seen_node: HashSet<(&str, &str)> = stack.iter().copied().collect();
+        let mut seen_edge = vec![false; edges.len()];
+        while let Some(node) = stack.pop() {
+            for &i in incident.get(&node).map(Vec::as_slice).unwrap_or_default() {
+                if std::mem::replace(&mut seen_edge[i], true) {
+                    continue;
+                }
+                let e = &edges[i];
+                let ends = [
+                    (e.from_asset_path.as_str(), e.from_column.as_str()),
+                    (e.to_asset_path.as_str(), e.to_column.as_str()),
+                ];
+                for end in ends {
+                    if seen_node.insert(end) {
+                        stack.push(end);
+                    }
+                }
+            }
+        }
+        seen_edge
+    };
+    let mut i = 0;
+    edges.retain(|_| {
+        i += 1;
+        keep[i - 1]
+    });
+    edges
 }
 
 async fn asset_graph(
@@ -1323,7 +1598,7 @@ pub async fn asset_graph_for(
                   n.resource_type AS "resource_type!", n.name AS "name!", n.asset_path,
                   n.materialized, n.materialize_strategy, n.tags AS "tags!", n.description,
                   n.test_kind, n.test_column, n.test_args, n.severity, n.attached_node,
-                  n.columns, n.freshness,
+                  n.columns, n.column_schema, n.freshness,
                   n.raw_code, n.original_file_path,
                   -- Whether the caller may read the project this row describes.
                   -- The query deliberately reaches outside the requested folder
@@ -1379,6 +1654,10 @@ pub async fn asset_graph_for(
     // `ref()` lineage between two models, resolved to the relations they
     // produce. Joined to `dbt_node` on both key columns because a dbt
     // `unique_id` is only unique within its project.
+    //
+    // Column lineage is NOT here: it is per-selected-asset and served by
+    // `/column_lineage`, so this response — which a run page polls — carries
+    // only what the canvas draws for every node at once.
     let dbt_edge_rows = sqlx::query!(
         r#"WITH live AS (
              SELECT * FROM (
@@ -1604,6 +1883,7 @@ pub async fn asset_graph_for(
             description: r.description.clone().filter(|_| source_allowed),
             data_tests: vec![],
             columns: r.columns.clone().filter(|_| source_allowed),
+            column_schema: r.column_schema.clone().filter(|_| source_allowed),
             freshness: r.freshness.clone().filter(|_| source_allowed),
         };
         // One relation can carry rows from several projects — typically a model
