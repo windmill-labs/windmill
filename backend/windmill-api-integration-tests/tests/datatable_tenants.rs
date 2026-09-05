@@ -136,6 +136,16 @@ async fn enabling_permissions_is_refused_while_a_fork_exists(
     )
     .execute(&db)
     .await?;
+    sqlx::query(
+        "INSERT INTO workspace_settings (workspace_id, datatable) VALUES ('wm-fork-t', $1)",
+    )
+    .bind(json!({
+        "datatables": {
+            "main": { "database": { "resource_type": "instance", "resource_path": "dt_main" } }
+        }
+    }))
+    .execute(&db)
+    .await?;
 
     let body = json!({ "enabled": true, "roles": [] });
     for endpoint in [
@@ -149,7 +159,10 @@ async fn enabling_permissions_is_refused_while_a_fork_exists(
         let status = resp.status();
         let text = resp.text().await?;
         assert_eq!(status, 400, "{endpoint}: {text}");
-        assert!(text.contains("wm-fork-t"), "{endpoint}: {text}");
+        assert!(
+            text.contains("wm-fork-t (data table 'main')"),
+            "{endpoint}: {text}"
+        );
     }
 
     // Only the opt-in is gated: once permissions are on, forks made afterwards
@@ -186,7 +199,8 @@ async fn enabling_permissions_is_refused_while_a_fork_exists(
     .execute(&db)
     .await?;
 
-    // An archived fork has no members left to reach anything.
+    // Archiving keeps the fork's members and its copy, so it still counts; a fork
+    // whose copy is a clone of its own does not.
     sqlx::query("UPDATE workspace SET deleted = true WHERE id = 'wm-fork-t'")
         .execute(&db)
         .await?;
@@ -199,11 +213,38 @@ async fn enabling_permissions_is_refused_while_a_fork_exists(
     .json(&body)
     .send()
     .await?;
+    assert_eq!(resp.status(), 400);
     let text = resp.text().await?;
-    assert!(!text.contains("has forks"), "{text}");
+    assert!(
+        text.contains("wm-fork-t, archived (data table 'main')"),
+        "{text}"
+    );
+    sqlx::query(
+        r#"UPDATE workspace_settings
+           SET datatable = jsonb_set(
+               jsonb_set(datatable, '{datatables,main,forked_from}', '{"schema": {}}'),
+               '{datatables,main,database,resource_path}', '"wm_fork_dt_main"')
+           WHERE workspace_id = 'wm-fork-t'"#,
+    )
+    .execute(&db)
+    .await?;
+    let resp = authed(
+        client().post(format!(
+            "{ws}/workspaces/datatable_permissions/main/preview"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&body)
+    .send()
+    .await?;
+    let text = resp.text().await?;
+    assert!(!text.contains("cannot be enabled"), "{text}");
 
     // A workspace that is no longer a fork — a detached dev workspace — keeps its
     // copy of the data table, pointing at the same instance database.
+    sqlx::query("DELETE FROM workspace_settings WHERE workspace_id = 'wm-fork-t'")
+        .execute(&db)
+        .await?;
     sqlx::query("DELETE FROM workspace WHERE id = 'wm-fork-t'")
         .execute(&db)
         .await?;
@@ -233,8 +274,25 @@ async fn enabling_permissions_is_refused_while_a_fork_exists(
     let text = resp.text().await?;
     assert!(text.contains("detached (data table 'copy')"), "{text}");
 
-    // With both gone the refusal lifts: the preview then gets as far as the
-    // database, which this test does not have.
+    // Archived, it still counts; with the copy gone the refusal lifts, and the
+    // preview then gets as far as the database, which this test does not have.
+    sqlx::query("UPDATE workspace SET deleted = true WHERE id = 'detached'")
+        .execute(&db)
+        .await?;
+    let resp = authed(
+        client().post(format!(
+            "{ws}/workspaces/datatable_permissions/main/preview"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&body)
+    .send()
+    .await?;
+    let text = resp.text().await?;
+    assert!(
+        text.contains("detached, archived (data table 'copy')"),
+        "{text}"
+    );
     sqlx::query("DELETE FROM workspace_settings WHERE workspace_id = 'detached'")
         .execute(&db)
         .await?;
@@ -254,13 +312,12 @@ async fn enabling_permissions_is_refused_while_a_fork_exists(
 }
 
 /// The rename keeps a copy of the settings under the archived id, and commits it
-/// before the old id is archived. A permissioned data table must not be in that
-/// copy: without its `permissions` block it would resolve, for anyone still
-/// using the old id, to the owner connection.
+/// before the old id is archived. No data table may be in that copy: a
+/// permissioned one without its `permissions` block would resolve, for anyone
+/// still using the old id, to the owner connection, and any one naming the same
+/// instance database would keep the renamed workspace from opting in.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn a_rename_leaves_no_permissioned_datatable_under_the_old_id(
-    db: Pool<Postgres>,
-) -> anyhow::Result<()> {
+async fn a_rename_leaves_no_datatable_under_the_old_id(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -310,7 +367,7 @@ async fn a_rename_leaves_no_permissioned_datatable_under_the_old_id(
         }
     };
     let (old_names, _) = names("test-workspace").await;
-    assert_eq!(old_names, vec!["open".to_string()]);
+    assert!(old_names.is_empty(), "{old_names:?}");
     let (new_names, new_value) = names("renamed-ws").await;
     assert_eq!(new_names, vec!["main".to_string(), "open".to_string()]);
     assert_eq!(new_value["main"]["permissions"]["enabled"], json!(true));

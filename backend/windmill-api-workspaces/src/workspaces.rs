@@ -2233,6 +2233,8 @@ struct GetDataTableSchemaQuery {
     datatable_name: String,
     schema_name: String,
     table_name: String,
+    /// Read the columns as this role rather than the data table's default one.
+    role: Option<String>,
 }
 
 #[derive(Serialize, Debug)]
@@ -2501,6 +2503,7 @@ async fn get_datatable_table_schema(
         &query.datatable_name,
         &query.schema_name,
         &query.table_name,
+        query.role.as_deref(),
     )
     .await?;
 
@@ -2797,6 +2800,7 @@ async fn get_datatable_table_columns(
     datatable_name: &str,
     schema_name: &str,
     table_name: &str,
+    role: Option<&str>,
 ) -> Result<ColumnMap> {
     if is_system_pg_schema(schema_name) {
         return Err(Error::BadRequest(format!(
@@ -2805,8 +2809,16 @@ async fn get_datatable_table_columns(
         )));
     }
 
-    let db_resource =
-        get_datatable_resource_as_default_role(db, authed, w_id, datatable_name).await?;
+    // Columns are what the connected role may see, so a caller on a role reads
+    // them as that role.
+    let db_resource = get_datatable_resource_from_db(
+        db,
+        w_id,
+        datatable_name,
+        role,
+        DatatableAccess::Authed(authed.to_authed_ref()),
+    )
+    .await?;
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
     let (client, connection) = pg_db.connect(Some(db)).await?;
@@ -8244,11 +8256,11 @@ async fn create_workspace_fork(
         .await?;
     }
 
-    // Enabling a data table's permissions is refused while the workspace has forks, and it
-    // checks for them under this same row: a fork still being created has either committed,
+    // Enabling a data table's permissions is refused while a fork holds a copy of it, and
+    // that check runs under this same row: a fork still being created has either committed,
     // and is found, or copies the parent's settings only after the opt-in landed, so the
-    // permissioned data table is stripped from it below. After the pairing lock, which is
-    // the order the workspace rename takes the two in.
+    // permissioned data table is stripped from it below. Pairing lock first, as
+    // `lock_workspace_settings_unchecked` states.
     windmill_common::workspaces::lock_workspace_settings_unchecked(&mut tx, &parent_workspace_id)
         .await?;
 

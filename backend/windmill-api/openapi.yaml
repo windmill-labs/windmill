@@ -4983,6 +4983,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: role
+          in: query
+          required: false
+          description: read the columns as this role rather than the data table's default one
+          schema:
+            type: string
       responses:
         "200":
           description: schema of one datatable table

@@ -737,31 +737,6 @@ pub async fn list_fork_descendants(db: &crate::DB, w_id: &str) -> Result<Vec<Str
     Ok(ids)
 }
 
-/// Same, without the soft-deleted ones: the descendants that still have members. An archived
-/// fork, or the shell a fork's rename archives, keeps its `parent_workspace_id` and would
-/// otherwise count as a workspace that can still reach what the parent owns.
-///
-/// Unauthenticated helper, like [`list_fork_descendants`].
-pub async fn list_live_fork_descendants(db: &crate::DB, w_id: &str) -> Result<Vec<String>> {
-    let ids = sqlx::query_scalar!(
-        r#"
-            WITH RECURSIVE tree AS (
-                SELECT id, deleted, 0 AS depth FROM workspace WHERE id = $1
-                UNION ALL
-                SELECT w.id, w.deleted, tree.depth + 1 FROM workspace w
-                JOIN tree ON w.parent_workspace_id = tree.id
-                WHERE tree.depth < 20
-            )
-            SELECT id AS "id!" FROM tree WHERE id != $1 AND NOT deleted ORDER BY id
-        "#,
-        w_id
-    )
-    .fetch_all(db)
-    .await
-    .map_err(|e| Error::internal_err(format!("listing live fork descendants of {w_id}: {e:#}")))?;
-    Ok(ids)
-}
-
 /// Count non-deleted fork/dev workspaces anywhere under `root` (excludes `root` itself).
 ///
 /// Unauthenticated metering helper: it reads workspace hierarchy for any `root` id, so callers must
@@ -1372,12 +1347,15 @@ pub fn remove_datatable_tenant(datatable: &mut serde_json::Value, tenant: &str) 
 /// planned with `g/devs` would otherwise put the tenant back after the group's
 /// deletion took it away.
 ///
-/// **Take it before the transaction locks anything else.** One lock, always
-/// acquired first, cannot deadlock; a caller that writes `usr` or `group_` and
-/// then reaches for this one holds two in an order some other path holds the
-/// other way round. A transaction spanning workspaces takes them in
-/// `workspace_id` order, for the same reason. That is the whole ordering rule:
-/// what a handler writes after taking it, and in what order, does not matter.
+/// **Take it before the transaction locks anything else**, with one exception:
+/// the dev-pairing advisory lock (`lock_dev_pairing`) comes first where a path
+/// needs both — fork creation and the workspace rename — and nothing takes this
+/// row and then reaches for that one. One order, held everywhere, cannot
+/// deadlock; a caller that writes `usr` or `group_` and then reaches for this
+/// one holds two in an order some other path holds the other way round. A
+/// transaction spanning workspaces takes them in `workspace_id` order, for the
+/// same reason. That is the whole ordering rule: what a handler writes after
+/// taking it, and in what order, does not matter.
 ///
 /// Authorization: performs none, for any workspace it is handed. What it returns
 /// is the config as stored, generated role passwords included, so callers MUST

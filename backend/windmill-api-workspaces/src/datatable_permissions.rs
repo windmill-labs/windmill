@@ -724,8 +724,8 @@ pub(crate) async fn ensure_can_use_datatable_role(
 }
 
 /// Permissions are turned on where this workspace is the only one reaching the
-/// database: no fork above it, none below it, and no other workspace's data
-/// table naming the same instance database.
+/// database: it is not a fork, no fork below it holds a copy of the data table,
+/// and no other workspace's data table names the same instance database.
 ///
 /// A fork's data table is either a copy pointing at the database of the workspace
 /// it was forked from, where roles created in the fork would hold grants that
@@ -739,6 +739,12 @@ pub(crate) async fn ensure_can_use_datatable_role(
 /// exact for an instance database, whose only credential holders are the data
 /// tables naming it, and meaningless for a resource-backed one, where whoever
 /// holds the resource's credentials reaches the database regardless.
+///
+/// Archived workspaces count. Archiving keeps the members, their session tokens
+/// and the settings, and nothing on the job path checks the flag, so an archived
+/// fork reaches the database exactly as a live one does. Only a permanent
+/// deletion, or removing the copy, takes that away. The shell a rename archives
+/// is left with no data tables at all, so it never counts.
 ///
 /// All three are properties of the opt-in, so only the save that turns
 /// permissions on is checked. Forks made afterwards never receive a permissioned
@@ -772,25 +778,55 @@ async fn refuse_enabling_permissions_over_shared_access(
                 .to_string(),
         ));
     }
-    let forks = windmill_common::workspaces::list_live_fork_descendants(db, w_id).await?;
+    let database = serde_json::to_value(&datatable.database)
+        .map_err(|e| Error::internal_err(format!("Failed to serialize the database: {e}")))?;
+    let describe = |workspace_id: &str, name: &str, deleted: bool| {
+        format!(
+            "{workspace_id}{} (data table '{name}')",
+            if deleted { ", archived" } else { "" }
+        )
+    };
+    let forks = windmill_common::workspaces::list_fork_descendants(db, w_id).await?;
     if !forks.is_empty() {
-        return Err(Error::BadRequest(format!(
-            "Data table permissions cannot be enabled while this workspace has forks ({}): a \
-             fork holds a copy of the data table pointing at the same database, and its members \
-             would keep reaching it through the data table's own connection, as every role at \
-             once. Delete the forks first.",
-            forks.join(", ")
-        )));
+        // A clone points at a database of its own and does not count.
+        let copies = sqlx::query!(
+            r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "name!", w.deleted AS "deleted!"
+               FROM workspace_settings ws
+               JOIN workspace w ON w.id = ws.workspace_id,
+               jsonb_each(ws.datatable->'datatables') dt
+               WHERE ws.workspace_id = ANY($1)
+                 AND dt.value->'database' = $2
+               ORDER BY ws.workspace_id, dt.key"#,
+            &forks[..],
+            database,
+        )
+        .fetch_all(db)
+        .await?;
+        if !copies.is_empty() {
+            let copies: Vec<String> = copies
+                .into_iter()
+                .map(|c| describe(&c.workspace_id, &c.name, c.deleted))
+                .collect();
+            return Err(Error::BadRequest(format!(
+                "Data table permissions cannot be enabled while a fork of this workspace holds a \
+                 copy of the data table pointing at the same database: {}. Its members would \
+                 keep reaching it through the copy's own connection, as every role at once — an \
+                 archived fork included, since archiving keeps its members. Remove the data \
+                 table from the fork, or delete the fork permanently, first.",
+                copies.join(", ")
+            )));
+        }
     }
     if datatable.database.resource_type == DataTableCatalogResourceType::Instance {
         let others = sqlx::query!(
-            r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "name!"
+            r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "name!", w.deleted AS "deleted!"
                FROM workspace_settings ws
-               JOIN workspace w ON w.id = ws.workspace_id AND NOT w.deleted,
+               JOIN workspace w ON w.id = ws.workspace_id,
                jsonb_each(ws.datatable->'datatables') dt
                WHERE ws.workspace_id <> $1
                  AND dt.value->'database'->>'resource_type' = 'instance'
-                 AND dt.value->'database'->>'resource_path' = $2"#,
+                 AND dt.value->'database'->>'resource_path' = $2
+               ORDER BY ws.workspace_id, dt.key"#,
             w_id,
             &datatable.database.resource_path,
         )
@@ -799,12 +835,14 @@ async fn refuse_enabling_permissions_over_shared_access(
         if !others.is_empty() {
             let others: Vec<String> = others
                 .into_iter()
-                .map(|o| format!("{} (data table '{}')", o.workspace_id, o.name))
+                .map(|o| describe(&o.workspace_id, &o.name, o.deleted))
                 .collect();
             return Err(Error::BadRequest(format!(
                 "Data table permissions cannot be enabled while another workspace reaches the \
                  same database: {}. Its members would keep reaching it through that data \
-                 table's own connection, as every role at once. Remove that data table first.",
+                 table's own connection, as every role at once — an archived workspace \
+                 included, since archiving keeps its members. Remove that data table, or delete \
+                 the workspace permanently, first.",
                 others.join(", ")
             )));
         }

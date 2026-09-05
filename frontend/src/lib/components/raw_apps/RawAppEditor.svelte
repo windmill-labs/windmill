@@ -283,6 +283,12 @@
 		}
 	}
 
+	// The role the app is saved with applies to its own data table; another data
+	// table named by a tool is read as its default role, like everywhere else.
+	function appRoleFor(datatableName: string): string | undefined {
+		return datatableName === data.datatable ? data.role : undefined
+	}
+
 	function isDatatableTableWhitelisted(
 		datatableName: string,
 		schemaName: string,
@@ -1086,8 +1092,12 @@
 					return []
 				}
 
+				// The app's data table is read as the role the app runs as, so the AI
+				// sees the tables that role reaches, not the default role's.
 				const tables = await WorkspaceService.listDataTableTables({
-					workspace: opWorkspace
+					workspace: opWorkspace,
+					roleFor: data.role ? data.datatable : undefined,
+					role: data.role
 				})
 				return filterDatatableTables(tables)
 			},
@@ -1113,7 +1123,8 @@
 					workspace: opWorkspace,
 					datatableName,
 					schemaName,
-					tableName
+					tableName,
+					role: appRoleFor(datatableName)
 				})
 				return schema.columns
 			},
@@ -1131,13 +1142,16 @@
 				}
 
 				try {
+					// Same reference the generated runnables use: the role rides in it, so
+					// a table the AI creates belongs to the role the app will connect as.
+					const role = appRoleFor(datatableName)
 					const result = await runScriptAndPollResult(
 						{
 							workspace: opWorkspace,
 							requestBody: {
 								language: 'postgresql',
 								content: sql,
-								args: { database: `datatable://${datatableName}` }
+								args: { database: `datatable://${datatableName}${role ? `?role=${role}` : ''}` }
 							}
 						},
 						writingJobOptions

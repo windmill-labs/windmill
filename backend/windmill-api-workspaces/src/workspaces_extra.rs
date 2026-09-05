@@ -65,7 +65,7 @@ pub(crate) async fn change_workspace_id(
     // The settings are copied below, and a permissions save holds this row while it changes
     // the roles in the database and then the config: copied without it, the new workspace
     // could carry the config from before that save while the database has the roles from
-    // after it. Same order as fork creation: pairing lock, then the settings row.
+    // after it. Pairing lock first, as `lock_workspace_settings_unchecked` states.
     windmill_common::workspaces::lock_workspace_settings_unchecked(&mut tx, &old_id).await?;
 
     check_w_id_conflict(&mut tx, &rw.new_id).await?;
@@ -126,13 +126,14 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
-    // Two configs now name the same Postgres logins, and only one of them owns them:
-    // deleting the archived id would plan drops for logins the renamed workspace is still
-    // using. A permissioned data table leaves the archived copy entirely rather than losing
-    // its `permissions` block: this transaction commits before the old id is archived, and
-    // a copy that still named the database without the block would hand every caller of the
-    // old id the owner connection in between — and again if the shell were ever unarchived.
-    // A missing data table fails closed. The unpermissioned ones stay, for reference.
+    // The archived copy keeps no data tables. Two configs would otherwise name the same
+    // databases and, for a permissioned one, the same Postgres logins, which only the renamed
+    // workspace owns: deleting the archived id would plan drops for logins still in use, and
+    // — since this transaction commits before the old id is archived — a copy without its
+    // `permissions` block would hand every caller of the old id the owner connection in
+    // between. An archived shell that still named an instance database would also keep the
+    // renamed workspace from ever opting in, as another workspace reaching the same database.
+    // A missing data table fails closed.
     //
     // The renamed workspace keeps the roles and keeps working: a role's `pg_rolename` is
     // what resolution uses, and the generated name only decides what a *new* role is called.
@@ -141,11 +142,7 @@ pub(crate) async fn change_workspace_id(
     // rename already carries.
     sqlx::query!(
         "UPDATE workspace_settings
-         SET datatable = jsonb_set(datatable, '{datatables}', COALESCE((
-             SELECT jsonb_object_agg(key, value - 'permissions')
-             FROM jsonb_each(datatable->'datatables')
-             WHERE COALESCE((value->'permissions'->>'enabled')::boolean, false) = false
-         ), '{}'::jsonb))
+         SET datatable = jsonb_set(datatable, '{datatables}', '{}'::jsonb)
          WHERE workspace_id = $1 AND jsonb_typeof(datatable->'datatables') = 'object'",
         &old_id,
     )
