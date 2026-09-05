@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Badge, Tab, Tabs } from '$lib/components/common'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import { GripVertical, Plus, Trash2 } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
@@ -9,7 +10,6 @@
 		reorderBranches as reorderBranchesOp,
 		graphBranchIndex
 	} from '../branchOps'
-	import { refreshFlowStateStore } from '../flowStoreRefresh.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
@@ -83,7 +83,7 @@
 
 	function addBranch() {
 		addBranchOp(flowModule.id, { flowStore, history })
-		refreshFlowStateStore(flowStore)
+		refreshStateStore(flowStore)
 	}
 	function removeBranch(arrayIndex: number) {
 		// The shared op counts branches the way the graph does; see graphBranchIndex.
@@ -92,7 +92,7 @@
 			flowStateStore,
 			history
 		})
-		refreshFlowStateStore(flowStore)
+		refreshStateStore(flowStore)
 	}
 
 	let runSettings: FlowRunSettings | undefined = $state(undefined)

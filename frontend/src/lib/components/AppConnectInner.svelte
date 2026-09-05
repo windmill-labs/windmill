@@ -21,9 +21,10 @@
 	} from '$lib/gen'
 	import { emptyString, truncateRev, urlize } from '$lib/utils'
 	import { registryEntryFor, registryCcCapableFor, stripSandboxSuffix } from './oauthRegistry'
-	import { createEventDispatcher, onDestroy, tick, untrack } from 'svelte'
+	import { createEventDispatcher, onDestroy, tick } from 'svelte'
 	import Path from './Path.svelte'
-	import { Button, RadioCard, Skeleton } from './common'
+	import { ListRow, RadioCard, Skeleton } from './common'
+	import { useListHighlight } from './common/listRow/listHighlight.svelte'
 	import ApiConnectForm from './ApiConnectForm.svelte'
 	import SearchItems from './SearchItems.svelte'
 	import WhitelistIp from './WhitelistIp.svelte'
@@ -42,7 +43,6 @@
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
 	import Label from './Label.svelte'
 	import ResourcePathHint from './ResourcePathHint.svelte'
-	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		step?: number
@@ -1027,15 +1027,8 @@
 	// Both lists start undefined and render skeletons; "nothing found" only means something
 	// once they have landed.
 	let listsLoaded = $derived(rankedConnectsManual !== undefined && rankedConnects !== undefined)
-	let highlightedIndex = $state(-1)
 	const rowDomId = (index: number) => `resource-type-row-${index}`
 
-	// Set at hover time rather than up front, so only the descriptions the row actually cut
-	// off carry a tooltip.
-	function titleIfTruncated(e: MouseEvent & { currentTarget: HTMLElement }) {
-		const el = e.currentTarget
-		el.title = el.scrollWidth > el.clientWidth ? (el.textContent?.trim() ?? '') : ''
-	}
 	const oauthRowOffset = $derived(customKeys.length)
 	const otherRowOffset = $derived(customKeys.length + (rankedConnects?.length ?? 0))
 
@@ -1054,53 +1047,23 @@
 		return best
 	}
 
-	// Filtering reshuffles the rows under the highlight: point it at the best match so Enter
-	// takes the top hit, and drop it entirely once the filter is cleared.
-	$effect(() => {
-		navItems
-		filter
-		untrack(() => (highlightedIndex = searching ? bestMatchIndex() : -1))
+	const highlight = useListHighlight({
+		count: () => navItems.length,
+		rowId: rowDomId,
+		// Sections are rendered in a fixed order, so the best match is not necessarily the
+		// first row; Enter should still take the top hit.
+		restingIndex: () => (searching ? bestMatchIndex() : -1),
+		onActivate: (index) => {
+			const item = navItems[index]
+			if (!item) return
+			item.oauth ? connectOauth(item.key) : selectFromOthers(item.key)
+		},
+		activateEnterFrom: [SEARCH_INPUT_ID]
 	})
-
-	// Scrolling rows under a resting pointer makes the browser fire `mouseenter` on each one,
-	// which would drag the highlight back under the cursor as the arrow keys move it. Only a
-	// real pointer move hands the highlight back to the mouse.
-	let pointerOwnsHighlight = $state(true)
-
-	function highlightHovered(index: number) {
-		if (pointerOwnsHighlight) highlightedIndex = index
-	}
-
-	function moveHighlight(delta: number) {
-		const count = navItems.length
-		if (count === 0) return
-		pointerOwnsHighlight = false
-		// Rows are tabbable buttons, so focus can sit on one. Enter then activates whatever is
-		// focused, which has to stay the highlighted row.
-		const rowWasFocused = document.activeElement?.id?.startsWith('resource-type-row-') ?? false
-		highlightedIndex =
-			highlightedIndex < 0
-				? delta > 0
-					? 0
-					: count - 1
-				: (highlightedIndex + delta + count) % count
-		const row = document.getElementById(rowDomId(highlightedIndex))
-		row?.scrollIntoView({ block: 'nearest' })
-		if (rowWasFocused) row?.focus()
-	}
 
 	function onListKeydown(e: KeyboardEvent) {
 		if (step !== 1) return
-		if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-			e.preventDefault()
-			moveHighlight(e.key === 'ArrowDown' ? 1 : -1)
-		} else if (e.key === 'Enter' && (e.target as HTMLElement)?.id === SEARCH_INPUT_ID) {
-			// A focused row activates itself on Enter; this covers Enter typed in the search field.
-			const item = navItems[highlightedIndex]
-			if (!item) return
-			e.preventDefault()
-			item.oauth ? connectOauth(item.key) : selectFromOthers(item.key)
-		}
+		highlight.onKeydown(e)
 	}
 
 	let editScopes = $state(false)
@@ -1132,7 +1095,7 @@
 		<div
 			class="flex flex-col h-full min-h-0"
 			onkeydown={onListKeydown}
-			onpointermove={() => (pointerOwnsHighlight = true)}
+			onpointermove={highlight.pointerMoved}
 		>
 			<div class="shrink-0 pb-4">
 				<div class="relative w-full">
@@ -1146,28 +1109,6 @@
 				</div>
 			</div>
 
-			{#snippet resourceRow(key: string)}
-				<div class="flex flex-row items-center gap-4 w-full min-w-0 text-left">
-					<div class="shrink-0">
-						<IconedResourceType name={key} silent width="20px" height="20px" />
-					</div>
-					<div class="flex flex-col gap-1 min-w-0">
-						<div class="flex flex-row items-baseline gap-2 min-w-0">
-							<span class="truncate leading-5">{resourceTypeDisplayName(key)}</span>
-							<span class="shrink-0 font-mono text-2xs font-normal text-hint">{key}</span>
-						</div>
-						{#if resourceTypeDescriptions[key]}
-							<span
-								class="truncate text-xs font-normal leading-4 text-secondary"
-								onmouseenter={titleIfTruncated}
-							>
-								{plainDescription(resourceTypeDescriptions[key])}
-							</span>
-						{/if}
-					</div>
-				</div>
-			{/snippet}
-
 			{#snippet sectionHeading(title: string, count: number)}
 				<h2 class="mb-3 text-2xs font-normal uppercase text-secondary">
 					{title}{#if searching}<span class="ml-2 text-hint">{count}</span>{/if}
@@ -1175,26 +1116,29 @@
 			{/snippet}
 
 			{#snippet resourceButton(key: string, index: number, oauth: boolean)}
-				<Button
+				{#snippet icon()}
+					<IconedResourceType name={key} silent width="20px" height="20px" />
+				{/snippet}
+				{#snippet title()}
+					<span class="truncate leading-5">{resourceTypeDisplayName(key)}</span>
+					<span class="shrink-0 font-mono text-2xs font-normal text-hint">{key}</span>
+				{/snippet}
+				{#snippet subtitle()}
+					{plainDescription(resourceTypeDescriptions[key])}
+				{/snippet}
+				<!-- `highlighted`: the pointer moves the same highlight the arrow keys move, so
+				     the row's own hover is off — two lit rows at once would be ambiguous. -->
+				<ListRow
 					id={rowDomId(index)}
 					aiId={`app-connect-inner-${oauth ? 'oauth-' : ''}${key}`}
 					aiDescription={`Connect to ${key}${oauth ? ' with the instance OAuth client' : ''}`}
-					unifiedSize="md"
-					variant="subtle"
-					btnClasses={twMerge(
-						'justify-start px-3 h-auto py-3 scroll-my-2',
-						// The pointer moves the same highlight the arrow keys move, so the variant's
-						// own hover is off: two lit rows at once would be ambiguous.
-						'hover:bg-transparent',
-						// `!` so the highlight also wins on the row the pointer is over, whose own
-						// hover was turned off just above.
-						index === highlightedIndex ? '!bg-surface-hover' : ''
-					)}
-					on:mouseenter={() => highlightHovered(index)}
-					on:click={() => (oauth ? connectOauth(key) : selectFromOthers(key))}
-				>
-					{@render resourceRow(key)}
-				</Button>
+					{icon}
+					{title}
+					subtitle={resourceTypeDescriptions[key] ? subtitle : undefined}
+					highlighted={index === highlight.index}
+					onMouseEnter={() => highlight.hovered(index)}
+					onClick={() => (oauth ? connectOauth(key) : selectFromOthers(key))}
+				/>
 			{/snippet}
 
 			<div class="flex-1 min-h-0 overflow-y-auto">
@@ -1213,7 +1157,7 @@
 						{#if customKeys.length > 0}
 							<section>
 								{@render sectionHeading('Custom resource types', customKeys.length)}
-								<div class="flex flex-col gap-1">
+								<div class="flex flex-col gap-0.5">
 									{#each customKeys as key, i}
 										{@render resourceButton(key, i, false)}
 									{/each}
@@ -1227,7 +1171,7 @@
 									'Instance-configured OAuth APIs',
 									rankedConnects?.length ?? 0
 								)}
-								<div class="flex flex-col gap-1">
+								<div class="flex flex-col gap-0.5">
 									{#if rankedConnects}
 										{#each rankedConnects as { key }, i}
 											{@render resourceButton(key, oauthRowOffset + i, true)}
@@ -1259,7 +1203,7 @@
 									</div>
 								{/if}
 
-								<div class="flex flex-col gap-1">
+								<div class="flex flex-col gap-0.5">
 									{#if rankedConnectsManual}
 										{#each otherKeys as key, i}
 											{@render resourceButton(key, otherRowOffset + i, false)}
@@ -1532,7 +1476,7 @@
 					>
 
 					{#if editScopes}
-						<OauthScopes bind:scopes />
+						<OauthScopes bind:scopes options={registryEntry()?.scope_options} />
 					{:else}
 						<div class="flex flex-col gap-1">
 							{#each scopes as scope}

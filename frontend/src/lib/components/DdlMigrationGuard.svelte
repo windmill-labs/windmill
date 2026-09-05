@@ -5,6 +5,7 @@
 	import DataTableMigrationsButton from './workspaceSettings/DataTableMigrationsButton.svelte'
 	import { splitSqlStatements, isDdlStatement } from './sqlDdl'
 	import { withMigrationRole } from './datatableMigrationRole'
+	import { logDdlGuardChoice } from './workspaceSettings/datatableTelemetry'
 	import { CornerDownLeft } from 'lucide-svelte'
 
 	let {
@@ -109,9 +110,11 @@
 			for (;;) {
 				const choice = await promptDdl(statement)
 				if (choice === 'cancel') {
+					logDdlGuardChoice('cancelled')
 					return { proceed: false, code, ranMigration: migrationRan }
 				}
 				if (choice === 'run') {
+					logDdlGuardChoice('run_anyway')
 					kept.push(statement)
 					break
 				}
@@ -119,6 +122,7 @@
 				// created; if the modal was cancelled, loop back to the prompt.
 				const created = await openMigrationModal(statement)
 				if (created) {
+					logDdlGuardChoice('migrated')
 					break
 				}
 			}

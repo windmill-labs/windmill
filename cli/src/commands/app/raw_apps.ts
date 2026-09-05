@@ -15,7 +15,13 @@ import { readdir } from "node:fs/promises";
 import { GlobalOptions, isSuperset } from "../../types.ts";
 import { deepEqual, readTextFile } from "../../utils/utils.ts";
 
-import { replaceInlineScripts, repopulateFields } from "./app.ts";
+import {
+  type AppExecutionMode,
+  executionModeFromAppFile,
+  markAccessFromPolicy,
+  replaceInlineScripts,
+  repopulateFields,
+} from "./app.ts";
 import { createBundle, detectFrameworks } from "./bundle.ts";
 import { APP_BACKEND_FOLDER, RECORDINGS_FOLDER } from "./app_metadata.ts";
 import { writeIfChanged } from "../../utils/utils.ts";
@@ -27,6 +33,7 @@ import {
 } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 
 export interface AppFile {
+  guests?: boolean;
   runnables?: any;
   custom_path?: string;
   public?: boolean;
@@ -369,9 +376,7 @@ export async function pushRawApp(
   } catch {
     //ignore
   }
-  if (app?.["policy"]?.["execution_mode"] == "anonymous") {
-    app.public = true;
-  }
+  markAccessFromPolicy(app);
   // console.log(app);
   if (app) {
     app.policy = undefined;
@@ -422,7 +427,7 @@ export async function pushRawApp(
   await generatingPolicy(
     appForPolicy,
     remotePath,
-    localApp?.["public"] ?? false,
+    executionModeFromAppFile(localApp),
   );
 
   const files = await collectAppFiles(localPath);
@@ -526,7 +531,7 @@ export async function pushRawApp(
 export async function generatingPolicy(
   app: any,
   path: string,
-  publicApp: boolean,
+  executionMode: AppExecutionMode,
 ) {
   log.info(colors.gray(`Generating fresh policy for app ${path}...`));
   try {
@@ -534,7 +539,7 @@ export async function generatingPolicy(
       app.runnables,
       app.policy,
     );
-    app.policy.execution_mode = publicApp ? "anonymous" : "publisher";
+    app.policy.execution_mode = executionMode;
   } catch (e) {
     log.error(colors.red(`Error generating policy for app ${path}: ${e}`));
     throw e;

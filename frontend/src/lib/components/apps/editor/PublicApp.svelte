@@ -28,6 +28,7 @@
 		notExists,
 		noPermission,
 		jwtError,
+		guestAppPath = undefined,
 		onLoginSuccess,
 		app,
 		workspace,
@@ -37,6 +38,9 @@
 		notExists: boolean
 		noPermission: boolean
 		jwtError: boolean
+		/** Set when this app is open to guests: signing in gets the visitor in without
+		 * an account. Undefined means the ordinary "you need read access" dead end. */
+		guestAppPath?: string | undefined
 		onLoginSuccess: () => void
 		app: (AppWithLastVersion & { value: any; workspace_id?: string }) | undefined
 		workspace: string | undefined
@@ -128,17 +132,31 @@
 		</Alert></div
 	>
 {:else if noPermission}
-	<div class="px-4 mt-20 w-full text-center font-bold text-xl"> This app requires read access </div>
-	<div class="text-center mt-8 text-sm text-primary">
-		{#if $userStore}You are logged in but have no read access to this app{:else if globalUser && effectiveWorkspace}
-			You are logged in but are not a member of the workspace <span class="text-xl font-bold"
-				>{effectiveWorkspace}</span
-			> this app is part of
-		{:else}You must be logged in and have read access to this app{/if}</div
-	>
+	{#if guestAppPath && !$userStore}
+		<div class="px-4 mt-20 w-full text-center font-bold text-xl"> Sign in to open this app </div>
+		<div class="text-center mt-8 text-sm text-primary">
+			You do not need a Windmill account. Signing in lets you open this app and nothing else.
+		</div>
+	{:else}
+		<div class="px-4 mt-20 w-full text-center font-bold text-xl">
+			This app requires read access
+		</div>
+		<div class="text-center mt-8 text-sm text-primary">
+			{#if $userStore}You are logged in but have no read access to this app{:else if globalUser && effectiveWorkspace}
+				You are logged in but are not a member of the workspace <span class="text-xl font-bold"
+					>{effectiveWorkspace}</span
+				> this app is part of
+			{:else}You must be logged in and have read access to this app{/if}</div
+		>
+	{/if}
 	<div class="px-2 mx-auto mt-20 max-w-xl w-full">
 		{#if !jwtError}
-			<Login {onLoginSuccess} popup rd={page.url.pathname + page.url.search + page.url.hash} />
+			<Login
+				{onLoginSuccess}
+				popup
+				guestApp={guestAppPath}
+				rd={page.url.pathname + page.url.search + page.url.hash}
+			/>
 		{/if}
 	</div>
 {:else if app}

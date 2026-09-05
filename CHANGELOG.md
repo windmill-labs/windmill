@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.804.0](https://github.com/windmill-labs/windmill/compare/v1.803.0...v1.804.0) (2026-09-05)
+
+
+### Features
+
+* **ai-sessions:** replace the context panel with an assistant settings modal ([#10919](https://github.com/windmill-labs/windmill/issues/10919)) ([fda7b3f](https://github.com/windmill-labs/windmill/commit/fda7b3f086619e3716e5894c07be127104174f1d))
+* **frontend:** group the agent form and edit saved agents as drafts ([#10880](https://github.com/windmill-labs/windmill/issues/10880)) ([f037c73](https://github.com/windmill-labs/windmill/commit/f037c73d104fffe7bb2640a5b1f2a92154c85e06))
+* guest app execution mode, a role that takes no seat ([#10929](https://github.com/windmill-labs/windmill/issues/10929)) ([fce635d](https://github.com/windmill-labs/windmill/commit/fce635d3c4c8962f448140ceb55a00fb99012701))
+* guest JWT entry for embedded apps ([#10954](https://github.com/windmill-labs/windmill/issues/10954)) ([8aab503](https://github.com/windmill-labs/windmill/commit/8aab5034a68a4aafb264b0e86d000ef58f4a8511))
+* instrument sandbox isolation, data tables and in-flow script edits ([#10981](https://github.com/windmill-labs/windmill/issues/10981)) ([130a2f7](https://github.com/windmill-labs/windmill/commit/130a2f74083ba1bd308beeb86e2cbbaa41fd3345))
+* make S3 permission rules reorderable by drag and drop ([#10958](https://github.com/windmill-labs/windmill/issues/10958)) ([2257b05](https://github.com/windmill-labs/windmill/commit/2257b05b2857c7ae2b5ae0b4f9004e2d4e757925))
+* reconcile IdP instance groups from the SSO groups claim ([#10957](https://github.com/windmill-labs/windmill/issues/10957)) ([79426a1](https://github.com/windmill-labs/windmill/commit/79426a1a68a6b19e12af4633b8a79d07a103a106))
+
+
+### Bug Fixes
+
+* deploy a relocked script version only when its lock changed ([#10966](https://github.com/windmill-labs/windmill/issues/10966)) ([1113828](https://github.com/windmill-labs/windmill/commit/11138284acc4c1d8673e86823c7f74c9e1f419e6))
+* **frontend:** render ordered lists in markdown descriptions ([#10973](https://github.com/windmill-labs/windmill/issues/10973)) ([a0295b2](https://github.com/windmill-labs/windmill/commit/a0295b20c436fd3f2bd6a6d294ae3cee005391e8))
+* keep braces inside string tool arguments out of JSON depth count ([#10965](https://github.com/windmill-labs/windmill/issues/10965)) ([3e3d2a6](https://github.com/windmill-labs/windmill/commit/3e3d2a636334146014926841949372083e6e8516))
+* keep the instance user editor popover inside the viewport ([#10979](https://github.com/windmill-labs/windmill/issues/10979)) ([1901d31](https://github.com/windmill-labs/windmill/commit/1901d3193bfc6a9e29d0b7c5389fef44ff9d3687))
+* meter WAC compute per segment, not the whole sleep ([#10985](https://github.com/windmill-labs/windmill/issues/10985)) ([5428710](https://github.com/windmill-labs/windmill/commit/54287102b22dd17903cdd4b48c5828875e5b9be4))
+* name the extension to load when duckdb autoload hits the fence ([#10972](https://github.com/windmill-labs/windmill/issues/10972)) ([64b6798](https://github.com/windmill-labs/windmill/commit/64b679879936e2ddf4dbc2f90edbd56e3893bd83))
+* **oauth:** show the account chooser on an explicit Google/Microsoft login ([#10961](https://github.com/windmill-labs/windmill/issues/10961)) ([9f7908e](https://github.com/windmill-labs/windmill/commit/9f7908e2622647388768b574083cc48a6e1990f1))
+* patch critical CVEs in the worker image ([#10962](https://github.com/windmill-labs/windmill/issues/10962)) ([b100606](https://github.com/windmill-labs/windmill/commit/b100606da6a61f2dbcb24516363f43643bc917e3))
+* render the MCP OAuth consent page without a workspace ([#10988](https://github.com/windmill-labs/windmill/issues/10988)) ([ebfac29](https://github.com/windmill-labs/windmill/commit/ebfac29096f12c4da2df45d5d82db83d352f3426))
+* stand the WAC park down for a cancel that beat it to the row ([#10990](https://github.com/windmill-labs/windmill/issues/10990)) ([f977f5b](https://github.com/windmill-labs/windmill/commit/f977f5bf8b1ac70d3afbdc8ad6fcbe072cc51ebc))
+
 ## [1.803.0](https://github.com/windmill-labs/windmill/compare/v1.802.0...v1.803.0) (2026-09-03)
 
 

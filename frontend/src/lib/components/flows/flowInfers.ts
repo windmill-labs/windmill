@@ -15,29 +15,31 @@ export const AI_AGENT_SCHEMA: Schema = {
 		output_type: {
 			type: 'string',
 			description:
-				'The type of output the AI agent will generate (text or image). Image output requires a configured workspace S3 storage, will ignore tools, and only works with OpenAI, Google AI and OpenRouter gemini-image-preview model.',
+				'Whether the answer is text or an image. An image needs S3 storage on the workspace, and ignores tools.',
 			enum: ['text', 'image'],
 			default: 'text'
 		},
 		user_message: {
 			type: 'string',
-			description:
-				'The message to give as input to the AI agent. Optional when messages array is provided. You can turn on chat input mode on the input interface to link this field to the message sent by the user.'
+			description: 'The message sent to the agent as the user turn.'
 		},
 		system_prompt: {
 			type: 'string',
-			description: 'The system prompt to give as input to the AI agent.'
+			description: 'Sets how the agent behaves. Sent ahead of everything else.',
+			// The one field people write paragraphs into, so it opens as a text area.
+			minRows: 5,
+			placeholder:
+				"You are a support agent.\nLook up an answer with your tools before replying.\nCite what you used, and say you don't know rather than guessing."
 		},
 		streaming: {
 			type: 'boolean',
-			description: 'Whether to stream the output of the AI agent.',
+			description: 'Stream the answer as it is produced.',
 			default: true,
-			showExpr: "fields.output_type === 'text'"
+			showExpr: "fields.output_type !== 'image'"
 		},
 		memory: {
 			type: 'object',
-			description:
-				'Configure how conversation memory is managed. Choose "auto" to let Windmill automatically store and load messages (up to N last messages), or "manual" to provide an explicit array of conversation messages. The system_prompt and user_message are added to the messages if provided.',
+			description: 'History sent between the system message and the user message.',
 			oneOf: [
 				{
 					type: 'object',
@@ -133,18 +135,17 @@ export const AI_AGENT_SCHEMA: Schema = {
 					required: ['kind', 'messages']
 				}
 			],
-			showExpr: "fields.output_type === 'text'"
+			showExpr: "fields.output_type !== 'image'"
 		},
 		output_schema: {
 			type: 'object',
-			description: 'JSON schema that the AI agent will follow for its response format.',
+			description: 'A JSON schema the answer has to follow.',
 			format: 'json-schema',
-			showExpr: "fields.output_type === 'text'"
+			showExpr: "fields.output_type !== 'image'"
 		},
 		user_attachments: {
 			type: 'array',
-			description:
-				'Array of files (images or PDFs) to give as input to the AI agent. Requires a configured workspace S3 storage.',
+			description: 'Images or PDFs sent with the message. Needs S3 storage on the workspace.',
 			items: {
 				type: 'object',
 				resourceType: 's3object'
@@ -152,22 +153,21 @@ export const AI_AGENT_SCHEMA: Schema = {
 		},
 		max_completion_tokens: {
 			type: 'number',
-			description: 'The maximum number of output tokens.'
+			description: 'The most tokens the answer may use.'
 		},
 		temperature: {
 			type: 'number',
-			description:
-				'Controls randomness in text generation. Range: 0.0 (deterministic) to 2.0 (random).',
-			showExpr: "fields.output_type === 'text'"
+			description: 'How random the generation is, from 0 for deterministic up to 2.'
 		},
 		max_iterations: {
 			type: 'number',
-			description:
-				'Limits how many times the agent can loop through reasoning and tool use. Range: 1-1000.',
+			description: 'How many times the agent may loop over calling the model and running tools.',
 			default: 10
 		}
 	},
-	required: ['provider', 'output_type'],
+	// `output_type` defaults to text on the backend, so leaving it unset is valid: the form drops
+	// the row rather than showing a field whose value a run would ignore.
+	required: ['provider'],
 	type: 'object',
 	order: [
 		'provider',

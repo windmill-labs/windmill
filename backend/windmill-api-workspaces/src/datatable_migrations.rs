@@ -445,6 +445,16 @@ async fn run_datatable_migrations(
 
     let applied_versions = read_applied_versions_on_client(&client, &datatable_name).await?;
 
+    // How the user scoped the run, for the counter emitted on the first migration
+    // that lands below.
+    let scope = if query.only.is_some() {
+        "only"
+    } else if query.up_to.is_some() {
+        "up_to"
+    } else {
+        "all"
+    };
+
     let mut to_run = Vec::new();
     for m in migrations {
         if let Some(only) = query.only {
@@ -504,6 +514,14 @@ async fn run_datatable_migrations(
                 ))
             })?;
         applied.push(AppliedMigration { version: m.timestamp, name: m.name });
+        // One event per run that moved the data table forward, emitted on the
+        // first migration that lands rather than after the loop: a later one
+        // failing returns early, and that run still advanced the data table. A
+        // run with nothing pending stays uncounted — it is the common outcome of
+        // opening the list and would drown out the runs that did something.
+        if applied.len() == 1 {
+            windmill_common::feature_usage::log_feature_usage("datatable", "migration_run", scope);
+        }
     }
 
     Ok(Json(RunDatatableMigrationsResult { applied }))
@@ -654,6 +672,12 @@ async fn rollback_datatable_migrations(
                 pg_error_message(&e)
             ))
         })?;
+
+    windmill_common::feature_usage::log_feature_usage(
+        "datatable",
+        "migration_rollback",
+        if query.only.is_some() { "only" } else { "last" },
+    );
 
     Ok(Json(RollbackDatatableMigrationsResult {
         rolled_back: vec![RolledBackMigration { version, name: definition.name }],
@@ -890,6 +914,8 @@ async fn enable_datatable_migrations(
     )
     .await?;
 
+    windmill_common::feature_usage::log_feature_usage("datatable", "migrations_toggled", "on");
+
     Ok(format!(
         "Enabled migrations for data table {datatable_name}"
     ))
@@ -957,6 +983,8 @@ async fn disable_datatable_migrations(
         )
         .await?;
     }
+
+    windmill_common::feature_usage::log_feature_usage("datatable", "migrations_toggled", "off");
 
     Ok(format!(
         "Disabled migrations for data table {datatable_name} and deleted its migrations"
@@ -1200,6 +1228,8 @@ async fn create_datatable_migration(
     )
     .await?;
 
+    windmill_common::feature_usage::log_feature_usage("datatable", "migration_created", "manual");
+
     Ok(Json(DatatableMigration {
         datatable: datatable_name,
         timestamp,
@@ -1428,6 +1458,20 @@ async fn upsert_datatable_migration(
     )
     .await?;
 
+    // An unchanged re-push is not counted: `wmill sync push` sends every migration
+    // on every sync, so counting those would swamp the definitions people write.
+    if !unchanged {
+        windmill_common::feature_usage::log_feature_usage(
+            "datatable",
+            "migration_created",
+            if existing.is_none() {
+                "synced"
+            } else {
+                "edited"
+            },
+        );
+    }
+
     Ok(format!(
         "Upserted migration {} in {}",
         payload.timestamp, datatable_name
@@ -1538,6 +1582,12 @@ async fn generate_initial_datatable_migration(
         "initial",
     )
     .await?;
+
+    windmill_common::feature_usage::log_feature_usage(
+        "datatable",
+        "migration_created",
+        "initial_snapshot",
+    );
 
     Ok(Json(DatatableMigration {
         datatable: datatable_name,
