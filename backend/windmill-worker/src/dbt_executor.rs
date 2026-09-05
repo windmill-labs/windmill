@@ -2027,10 +2027,12 @@ async fn adapter_from_profiles_yml(
         adapter,
         database: read(database_key),
         schema: read(schema_key),
-        // A TEMPLATED location reads as absent above, so two renderings of this
-        // file resolve to one `relation_root` and would share one environment.
-        // Distinguished from plainly absent, which is the adapter's default and
-        // does not move: only the templated case has to refuse a deferral.
+        // A TEMPLATED location is one dbt renders and this runtime does not, so
+        // two renderings of this file resolve to one `relation_root` and would
+        // share one environment — `{{ }}` because `read` drops it and it reads
+        // as absent, `{% %}` because the raw block is kept and reads the same
+        // for every rendering. Distinguished from plainly absent, which is the
+        // adapter's default and does not move.
         templated_location: [database_key, schema_key]
             .iter()
             .any(|k| raw(k).is_some_and(is_jinja)),
@@ -2066,10 +2068,11 @@ struct ProfileTarget {
     schema: Option<String>,
     /// The output this resolved to, by name.
     name: String,
-    /// Whether its database or schema is a template rather than a literal. Both
-    /// read as absent, so this is the only thing that separates "the adapter's
-    /// default, which does not move" from "wherever this run's environment
-    /// renders it to".
+    /// Whether its database or schema is a template rather than a literal. The
+    /// fields above cannot say: a `{{ }}` value is dropped and reads as absent,
+    /// a `{% %}` block is kept and reads the same for every rendering. So this
+    /// is what separates "the adapter's default, which does not move" from
+    /// "wherever this run's environment renders it to".
     templated_location: bool,
 }
 

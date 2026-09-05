@@ -300,12 +300,14 @@ pub(crate) async fn load(
         ));
     };
     let environment = environment(p);
-    // Twice at most: a publish committing between the row and the objects it
-    // named drops those objects, so a miss is one re-read rather than a run
-    // refused for a state that is there.
-    let mut attempts = 0;
-    loop {
-        attempts += 1;
+    // A publication committing between the row and the objects it named drops
+    // those objects, so a miss is re-read rather than reported as a state that is
+    // not there. Re-read for as long as the row keeps MOVING: a reader takes no
+    // lock, so back-to-back publications can each overtake it, and a fixed one
+    // retry would report the second as missing. An unmoved row is the other
+    // answer — nothing republished, so the object really is gone.
+    let mut tried: Option<(Uuid, Option<String>, Option<String>)> = None;
+    for _ in 0..PUBLICATIONS_OUTRUN {
         let Some(row) = sqlx::query!(
             "SELECT job_id, manifest, manifest_key, run_results, run_results_key
                FROM dbt_environment_state
@@ -319,7 +321,11 @@ pub(crate) async fn load(
         else {
             return Ok(None);
         };
-        let job_id = row.job_id;
+        let seen = (
+            row.job_id,
+            row.manifest_key.clone(),
+            row.run_results_key.clone(),
+        );
         let fetched = async {
             let manifest = fetch(row.manifest, row.manifest_key).await?;
             let run_results = fetch(row.run_results, row.run_results_key).await?;
@@ -328,14 +334,28 @@ pub(crate) async fn load(
         .await;
         match fetched {
             Ok((Some(manifest), run_results)) => {
-                return Ok(Some(StoredState { manifest, run_results, job_id }))
+                return Ok(Some(StoredState { manifest, run_results, job_id: seen.0 }))
             }
             Ok((None, _)) => return Ok(None),
-            Err(_) if attempts < 2 => continue,
-            Err(e) => return Err(e),
+            Err(e) => {
+                if tried.as_ref() == Some(&seen) {
+                    return Err(e);
+                }
+                tried = Some(seen);
+            }
         }
     }
+    Err(Error::internal_err(
+        "the dbt state for this environment was replaced faster than it could be read; run this \
+         script again"
+            .to_string(),
+    ))
 }
+
+/// How many publications a read may lose to before it gives up. Each one costs a
+/// re-read, and a project publishing this often while another run defers is
+/// already contending for the same relations.
+const PUBLICATIONS_OUTRUN: usize = 5;
 
 /// A `manifest.json` for a state directory, whichever side it comes from.
 ///
