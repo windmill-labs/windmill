@@ -38,7 +38,10 @@
 	} from '$lib/components/sessions/sessionState.svelte'
 	import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
 	import { enterSessionMode } from '$lib/components/sessions/sessionSwitch.svelte'
-	import { whereIs, type SessionPreviewTabs } from '$lib/components/sessions/sessionPreviewTabs.svelte'
+	import {
+		whereIs,
+		type SessionPreviewTabs
+	} from '$lib/components/sessions/sessionPreviewTabs.svelte'
 	import { userStore, userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import {
 		getOrCreateRuntime,
@@ -61,6 +64,7 @@
 		matchPreviewPage,
 		pageKey,
 		parseArtifactRoute,
+		entityKindForPage,
 		entityListHref,
 		parseEntityEditorRoute,
 		parsePreviewItemRoute,
@@ -72,6 +76,7 @@
 		toolReloadEffect,
 		tabsToReload,
 		entityEffectForTab,
+		effectForWrite,
 		type EntityMutation
 	} from '$lib/components/sessions/previewReload'
 	import {
@@ -81,6 +86,7 @@
 		type WorkspaceItemKind
 	} from '$lib/components/workspacePicker'
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
+	import { UserDraft } from '$lib/userDraft.svelte'
 
 	const globalEnabled = isGlobalAiEnabled()
 
@@ -614,7 +620,13 @@
 			const { pages, entity, path } = toolReloadEffect(name, args)
 			if (pages.length === 0) return
 			for (const p of pages) pendingPages.add(p)
-			if (entity !== 'none') pendingMutations.push({ pages, effect: entity, path, workspace })
+			// A write reaches a hosted editor through the draft cell it holds, but an
+			// editor still loading holds none yet and `seed` no-opped past it — so ask
+			// whether the cell was live, and refresh the ones the write missed.
+			const kind = path ? entityKindForPage(pages[0]) : undefined
+			const seedReachedEditor = !kind || !path || UserDraft.hasLiveEntry(kind, path, { workspace })
+			const effect = effectForWrite(entity, seedReachedEditor)
+			if (effect !== 'none') pendingMutations.push({ pages, effect, path, workspace })
 			clearTimeout(reloadHandle)
 			reloadHandle = setTimeout(flushReload, 500)
 		})

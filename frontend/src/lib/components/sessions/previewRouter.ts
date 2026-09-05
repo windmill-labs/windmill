@@ -134,6 +134,12 @@ const IN_REALM_ENTITY_PAGES: Partial<Record<string, EntityEditorKind>> = {
 	[VARIABLES_PATH]: 'variable'
 }
 
+/** The entity kind a list page hosts an editor for, or undefined for a page with
+ * none. The kind doubles as the `UserDraftItemKind` its draft lives under. */
+export function entityKindForPage(pagePath: string): EntityEditorKind | undefined {
+	return IN_REALM_ENTITY_PAGES[pagePath]
+}
+
 /** The list an entity editor's tab came from: its own location with the row
  * dropped. Built from the location rather than the page's bare path so the query
  * survives — a row opened from a filtered list returns to that same filtered

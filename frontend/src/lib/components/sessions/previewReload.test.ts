@@ -3,7 +3,8 @@ import {
 	toolReloadEffect,
 	tabsToReload,
 	strongerEntityEffect,
-	entityEffectForTab
+	entityEffectForTab,
+	effectForWrite
 } from './previewReload'
 import type { SessionPreviewTab } from './sessionState.svelte'
 
@@ -82,6 +83,21 @@ describe('toolReloadEffect', () => {
 
 	it('reloads nothing for a trigger of unknown kind rather than guessing', () => {
 		expect(toolReloadEffect('write_trigger', { kind: 'not_a_kind' }).pages).toEqual([])
+	})
+})
+
+describe('effectForWrite', () => {
+	// A write is normally invisible to this layer — the editor holds the cell it
+	// seeds. The exception is an editor whose first load is still in flight: it
+	// holds no cell yet, `seed` no-ops, and only a re-read reconciles it.
+	it('asks for a refresh only when the seed found no live editor', () => {
+		expect(effectForWrite('none', true)).toBe('none')
+		expect(effectForWrite('none', false)).toBe('refresh')
+	})
+
+	it('never weakens what the tool already asked for', () => {
+		expect(effectForWrite('close', false)).toBe('close')
+		expect(effectForWrite('refresh', true)).toBe('refresh')
 	})
 })
 

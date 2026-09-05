@@ -397,6 +397,16 @@ export const UserDraft = {
 	 *
 	 * No-op if the entry isn't live yet (acquire via `use`/`useMany` first).
 	 */
+	/**
+	 * Whether a mounted editor currently holds this cell — i.e. whether {@link seed}
+	 * would reach one rather than no-op. An editor acquires its cell only once its
+	 * first load resolves, so this is false while one is still loading, and a
+	 * caller that seeded then has to reconcile the editor some other way.
+	 */
+	hasLiveEntry(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): boolean {
+		return entries.has(mapKey(resolveWorkspace(opts), itemKind, path))
+	},
+
 	seed<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)

@@ -34,14 +34,16 @@ const NO_RELOAD: ToolReloadEffect = { pages: [], entity: 'none' }
 
 export function toolReloadEffect(name: string, args: any): ToolReloadEffect {
 	switch (name) {
+		// `path` rides along on the writes too: it is what scopes the refresh a write
+		// needs when its seed missed a still-loading editor (see effectForWrite).
 		case 'write_schedule':
-			return { pages: ['/schedules'], entity: 'none' }
+			return { pages: ['/schedules'], entity: 'none', path: itemPath(args) }
 		case 'write_trigger':
-			return { pages: triggerPages(args?.kind), entity: 'none' }
+			return { pages: triggerPages(args?.kind), entity: 'none', path: itemPath(args) }
 		case 'write_resource':
-			return { pages: ['/resources'], entity: 'none' }
+			return { pages: ['/resources'], entity: 'none', path: itemPath(args) }
 		case 'write_variable':
-			return { pages: ['/variables'], entity: 'none' }
+			return { pages: ['/variables'], entity: 'none', path: itemPath(args) }
 		case 'create_folder':
 			return { pages: ['/folders'], entity: 'none' }
 		// Generic item tools carry a workspace-item `type`; refresh its list page
@@ -90,6 +92,18 @@ export function entityEffectForTab(
 		effect = strongerEntityEffect(effect, m.effect)
 	}
 	return effect
+}
+
+/** What a write actually asks of a hosted editor. A write normally needs nothing
+ * — the editor holds the draft cell it seeds — but `UserDraft.seed` no-ops when
+ * no editor holds that cell yet, which is the case while one is still loading.
+ * The write is then only on the server, and the editor has to re-read it: its own
+ * loader fetches the draft, so a refresh reconciles it. */
+export function effectForWrite(
+	effect: EntityToolEffect,
+	seedReachedEditor: boolean
+): EntityToolEffect {
+	return effect === 'none' && !seedReachedEditor ? 'refresh' : effect
 }
 
 /** The stronger of two effects, for a tab several of a round's mutations reach:
