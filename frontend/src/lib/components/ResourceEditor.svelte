@@ -13,6 +13,7 @@
 	import { getUserExt } from '$lib/user'
 	import type { UserExt } from '$lib/stores'
 	import { UserDraft, draftValuesEqual, type UserDraftHandle } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { onUserInput } from '$lib/userDraftEditGate'
 
@@ -293,8 +294,10 @@
 				openedOnDraft[ws] = !!savedDraftState
 				// Gate BEFORE the handle is acquired: `stopSync` queues on a
 				// not-yet-live entry, and the form can settle before the effect
-				// above gets a chance to run.
-				setGated(ws, true)
+				// above gets a chance to run. Only worth doing when no draft exists
+				// yet — where one does, there is no phantom to prevent and
+				// suspending could only drop a write.
+				if (!savedDraftState) setGated(ws, true)
 				ensureHandle(ws, s)
 				initialStates[ws] = structuredClone(deployedState)
 				// Draft-only paths (`no_deployed`) have no row — saving must
@@ -332,9 +335,18 @@
 		untrack(() => {
 			if (!settled) return
 			if (differsOutsideArgs(settled, initialStates[ws])) {
-				// Open the gate rather than absorb: this is an edit, and the autosave
-				// has to come off suspension for it to persist.
+				// An edit, not settling. This runs AFTER the write landed, and a write
+				// made while suspended is swallowed for good (the mirror advances its
+				// baseline either way), so un-suspend and push the value here rather
+				// than leaving it to whichever effect happens to run next.
 				userEdited[ws] = true
+				setGated(ws, false)
+				void UserDraftDbSyncer.save({
+					workspace: ws,
+					itemKind: 'resource',
+					path: initialPath,
+					value: settled
+				})
 				return
 			}
 			if (!draftValuesEqual(settled, initialStates[ws])) initialStates[ws] = settled

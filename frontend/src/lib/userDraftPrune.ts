@@ -16,8 +16,7 @@
  * Anything that can't be established is left alone — a `draft_only` item (no
  * deployed counterpart, so discarding would destroy the item itself), a kind
  * with no diff support, a failed fetch, and the legacy workspace-level rows,
- * which belong to nobody, are admin-gated to migrate, and whose discard path
- * takes no `last_sync` and so could not be conditioned anyway.
+ * which belong to nobody and are admin-gated to migrate.
  *
  * Deleting is the dangerous half, and the equality behind it is always stale:
  * it was read one round trip ago, and every candidate is read before any is
@@ -153,8 +152,7 @@ export async function pruneMeaninglessDrafts(workspace: string, userKey: string)
 		const rows = await DraftService.listDrafts({ workspace })
 		// Anything left unresolved keeps the pass open: a row skipped as busy was
 		// never judged, and one whose delete failed is still there. Sealing on
-		// either would strand it — a later pass in the same session would skip it
-		// again (a failed key reads as busy) and then seal with nothing attempted.
+		// either would strand it.
 		let unresolved = 0
 		const candidates: Candidate[] = rows
 			// `draft_only` rows ARE the item; `mine` / `can_write` are the same
