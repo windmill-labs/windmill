@@ -112,6 +112,20 @@ async fn seed(db: &Pool<Postgres>, job: uuid::Uuid) {
     .execute(db)
     .await
     .unwrap();
+    sqlx::query!(
+        "INSERT INTO dbt_column_edge (workspace_id, script_path, script_hash, job_id,
+                                      parent_unique_id, parent_column, child_unique_id,
+                                      child_column, lineage_kind)
+         VALUES ($1, $2, $3, $4, 'model.p.raw_orders', 'id', 'model.p.orders', 'order_id',
+                 'copy')",
+        WS,
+        PATH,
+        HASH,
+        job
+    )
+    .execute(db)
+    .await
+    .unwrap();
     // A test node, for the arguments it carries: `accepted_values` spells out a
     // column's domain.
     sqlx::query!(
@@ -559,6 +573,42 @@ async fn an_editor_buffers_column_lineage_answers_through_its_job(db: Pool<Postg
     );
 }
 
+/// Being entitled to a RUN is not being entitled to the SQL behind it, and
+/// column lineage is that SQL's shape. The pinned graph draws the relations for
+/// a share-link viewer and redacts what the author wrote; the lineage is the
+/// second, and resolving the version from the job must not be mistaken for
+/// deciding that too.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn a_pinned_run_does_not_hand_over_the_projects_column_lineage(db: Pool<Postgres>) {
+    let job = uuid::Uuid::from_u128(7);
+    seed(&db, job).await;
+    let pinned =
+        || PinnedRun { job_id: job, script_path: PATH.to_string(), script_hash: Some(HASH) };
+
+    assert_eq!(
+        column_lineage(&db, &outsider(), "u/a/wh/analytics/orders", Some(pinned())).await,
+        serde_json::json!([]),
+        "the run renders for them, its column-level shape does not"
+    );
+    assert_eq!(
+        column_lineage(
+            &db,
+            &ApiAuthed { is_admin: true, ..outsider() },
+            "u/a/wh/analytics/orders",
+            Some(pinned())
+        )
+        .await,
+        serde_json::json!([{
+            "from_asset_path": "u/a/wh/analytics/raw_orders",
+            "from_column": "id",
+            "to_asset_path": "u/a/wh/analytics/orders",
+            "to_column": "order_id",
+            "kind": "copy",
+        }]),
+        "while a reader of the project gets it"
+    );
+}
+
 /// A column-level view is the shape of what the author WROTE, so it takes the
 /// script's own gate — the same one that keeps `raw_code` behind access to the
 /// project, applied here once for the script that owns the relation.
@@ -615,5 +665,70 @@ async fn column_lineage_takes_the_scripts_gate_and_only_the_direct_kinds(db: Poo
         column_lineage(&db, &outsider(), "u/a/wh/analytics/orders", None).await,
         serde_json::json!([]),
         "and nothing at all for a caller who cannot read the project"
+    );
+}
+
+/// One project routinely holds model families that share no column, and the
+/// canvas lays out the connected component of the selected relation's columns.
+/// Answering with the project's other components sends edges nothing can draw.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn column_lineage_stops_at_the_selected_relations_component(db: Pool<Postgres>) {
+    let job = uuid::Uuid::from_u128(7);
+    seed(&db, job).await;
+    // A second family in the same project version, reaching neither of the two
+    // relations `seed` wired together.
+    sqlx::query!(
+        "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,
+                               resource_type, name, asset_path, tags)
+         VALUES ($1, $2, $3, $4, 'model.p.stock', 'model', 'stock',
+                 'u/a/wh/analytics/stock', '{}'),
+                ($1, $2, $3, $4, 'model.p.stock_daily', 'model', 'stock_daily',
+                 'u/a/wh/analytics/stock_daily', '{}')",
+        WS,
+        PATH,
+        HASH,
+        job
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+    sqlx::query!(
+        "INSERT INTO dbt_column_edge (workspace_id, script_path, script_hash, job_id,
+                                      parent_unique_id, parent_column, child_unique_id,
+                                      child_column, lineage_kind)
+         VALUES ($1, $2, $3, $4, 'model.p.stock', 'sku', 'model.p.stock_daily', 'sku', 'copy')",
+        WS,
+        PATH,
+        HASH,
+        job
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+
+    let admin = ApiAuthed { is_admin: true, ..outsider() };
+    let pinned =
+        || PinnedRun { job_id: job, script_path: PATH.to_string(), script_hash: Some(HASH) };
+    assert_eq!(
+        column_lineage(&db, &admin, "u/a/wh/analytics/orders", Some(pinned())).await,
+        serde_json::json!([{
+            "from_asset_path": "u/a/wh/analytics/raw_orders",
+            "from_column": "id",
+            "to_asset_path": "u/a/wh/analytics/orders",
+            "to_column": "order_id",
+            "kind": "copy",
+        }]),
+        "the orders family, and not the stock one beside it in the same project"
+    );
+    assert_eq!(
+        column_lineage(&db, &admin, "u/a/wh/analytics/stock_daily", Some(pinned())).await,
+        serde_json::json!([{
+            "from_asset_path": "u/a/wh/analytics/stock",
+            "from_column": "sku",
+            "to_asset_path": "u/a/wh/analytics/stock_daily",
+            "to_column": "sku",
+            "kind": "copy",
+        }]),
+        "and the other way round — reached from the child end, which is upstream"
     );
 }

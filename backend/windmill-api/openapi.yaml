@@ -24189,17 +24189,22 @@ paths:
 
   /w/{workspace}/assets/column_lineage:
     get:
-      summary: Column-level lineage of one dbt relation
+      summary: Column-level lineage of the dbt project a relation belongs to
       description: >
         The direct (`copy` / `mod`) column-to-column lineage of the dbt project
-        the given relation belongs to, from the engine's static analysis.
+        the given relation belongs to, from the engine's static analysis. The
+        project's, not the relation's own edges: a column trace walks
+        transitively, so stopping at the asked-for relation would cut every hop
+        past its neighbours. The asset names the project and the version — it is
+        what the answer is keyed by, not what it is filtered to.
 
         Its own endpoint rather than a field on the asset graph: the graph is
         folder-wide and polled by a run page, while this is rendered for one
-        selected asset at a time. A folder's worth of column edges would need a
-        cap, and a cap has to come after every filter; one relation's does not,
-        so the caller's scope and the project's visibility are simply decided
-        once for the owning script.
+        selected asset at a time. A folder's worth of edges spans many projects
+        and many callers' access, so it needs a cap, and a cap has to come after
+        every filter; one project's is already bounded where it is written, so
+        the caller's scope and the project's visibility are simply decided once
+        for the owning script.
 
         Empty for a project that did not opt into the analysis pass
         (`column_lineage: true`), which is the ordinary case. The indirect `scan`
@@ -24426,12 +24431,15 @@ paths:
 
   /w/{workspace}/jobs/dbt_column_lineage/{id}:
     get:
-      summary: Get one relation's column lineage as one run saw it
+      summary: Get a relation's project column lineage as one run saw it
       description: >
         The same answer as `assets/column_lineage`, for the project version a
         single job ran — including the dbt editor's parse of its own buffer,
         whose graph belongs to that job and is reachable no other way.
-        Authorized through the job, the same gate as `dbt_graph`.
+        Authorized through the job, the same gate as `dbt_graph`. Reaching the
+        run is not on its own enough to read the project: a caller with no access
+        to the script gets its relations and `ref()` edges from `dbt_graph` and
+        an empty answer here, exactly as that endpoint redacts the model's SQL.
       operationId: getDbtRunColumnLineage
       tags:
         - job

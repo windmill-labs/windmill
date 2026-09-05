@@ -976,13 +976,21 @@ struct DbtColumnLineageEdge {
     kind: String,
 }
 
-/// One dbt relation's column-level lineage.
+/// The column-level lineage of the dbt project one relation belongs to.
 ///
-/// Keyed to one asset rather than carried on the graph, which is folder-wide and
+/// The PROJECT's, not the relation's own edges: a trace walks transitively, so
+/// stopping at the asked-for relation would cut every hop past its neighbours.
+/// The asset is what the answer is keyed BY — it names the project and the
+/// version — not what it is filtered to.
+///
+/// Keyed that way rather than carried on the graph, which is folder-wide and
 /// polled by a run page while this is rendered for a single selection. A
-/// folder's worth of column edges needs a bound, and a bound has to be applied
-/// after every filter that could drop a row; one relation's does not, so scope
-/// and visibility are simply decided once, for the script that owns it.
+/// folder's worth of edges spans many projects and many callers' access, so it
+/// needs a bound, and a bound has to be applied after every filter that could
+/// drop a row. One project's is already bounded where it is written
+/// (`MAX_COLUMN_EDGES` per version, of which only the direct kinds are served),
+/// so there is nothing here for a filter to be on the wrong side of: scope and
+/// visibility are decided once, for the script that owns the relation.
 #[derive(Deserialize)]
 pub struct ColumnLineageQuery {
     /// The `dbt://` relation whose lineage to return.
@@ -1042,7 +1050,7 @@ pub async fn dbt_column_lineage_for(
     let pinned_job_id = pinned.as_ref().map(|p| p.job_id);
     let mut tx = user_db.begin(authed).await?;
     let rows = sqlx::query!(
-        r#"WITH
+        r#"WITH RECURSIVE
            -- The project version that owns the asked-for relation, in the graph
            -- on screen. Not the folder-wide `live` set the graph resolves: one
            -- asset is asked about here, so the version is decided per candidate
@@ -1066,11 +1074,21 @@ pub async fn dbt_column_lineage_for(
                                    WHERE n.script_path = pfx
                                       OR left(n.script_path, length(pfx) + 1) = pfx || '/' ) )
                 AND CASE
-                      -- Pinned: path and version come from a job this caller was
-                      -- already granted, which is what makes the versionless
-                      -- editor buffer reachable and needs no `script` row.
+                      -- Pinned: which version comes from a job this caller was
+                      -- already granted, so `script` does not decide THAT — but
+                      -- it still decides whether the project may be read, the
+                      -- same second gate `script_visible` is on the graph. Being
+                      -- entitled to a run is not being entitled to the SQL
+                      -- behind it, and column lineage is that SQL's shape. A
+                      -- version-less row is exempt because it is an editor
+                      -- buffer, which has no `script` row to ask and reaches
+                      -- this only through the parse job that wrote it.
                       WHEN $4::text IS NOT NULL
                         THEN n.script_path = $4 AND n.script_hash IS NOT DISTINCT FROM $3::bigint
+                             AND ($3::bigint IS NULL OR EXISTS (
+                                   SELECT 1 FROM script sc
+                                    WHERE sc.workspace_id = $1 AND sc.path = n.script_path
+                                      AND sc.hash = $3))
                       -- A named version, for an editor open on an older one.
                       -- `script` is read under RLS, so this is the visibility
                       -- check as well as the existence one.
@@ -1092,31 +1110,77 @@ pub async fn dbt_column_lineage_for(
                                 AND sc.deleted = false AND sc.archived = false
                               ORDER BY sc.created_at DESC LIMIT 1)
                     END
+           ),
+           -- The owning project's direct edges, resolved to relations once.
+           --
+           -- DIRECT kinds only. `scan` — the column was read to produce the ROW,
+           -- not the value — reaches every output column of its model, so it is
+           -- most of a project's stored lineage and none of what a trace draws.
+           -- It stays in the table for a later view to ask for.
+           edge AS (
+             SELECT e.script_path, e.script_hash, e.job_id, e.lineage_kind,
+                    e.parent_unique_id, e.parent_column, p.asset_path AS from_path,
+                    e.child_unique_id, e.child_column, c.asset_path AS to_path
+               FROM dbt_column_edge e
+               JOIN owner o ON o.script_path = e.script_path
+                           AND o.script_hash IS NOT DISTINCT FROM e.script_hash
+                           AND o.job_id = e.job_id
+               JOIN dbt_node p ON p.workspace_id = e.workspace_id
+                              AND p.script_path = e.script_path
+                              AND p.script_hash IS NOT DISTINCT FROM e.script_hash
+                              AND p.job_id = e.job_id
+                              AND p.unique_id = e.parent_unique_id
+               JOIN dbt_node c ON c.workspace_id = e.workspace_id
+                              AND c.script_path = e.script_path
+                              AND c.script_hash IS NOT DISTINCT FROM e.script_hash
+                              AND c.job_id = e.job_id
+                              AND c.unique_id = e.child_unique_id
+              WHERE e.workspace_id = $1
+                AND e.lineage_kind IN ('copy', 'mod')
+                AND p.asset_path IS NOT NULL AND c.asset_path IS NOT NULL
+           ),
+           -- Both directions of every edge. A trace walks up AND down, and a
+           -- recursive term may reference the working table only once, so the
+           -- symmetry has to live here rather than in two recursive branches.
+           adj AS (
+             SELECT script_path, script_hash, job_id,
+                    parent_unique_id AS a_uid, parent_column AS a_col, from_path AS a_path,
+                    child_unique_id  AS b_uid, child_column  AS b_col
+               FROM edge
+             UNION ALL
+             SELECT script_path, script_hash, job_id,
+                    child_unique_id, child_column, to_path,
+                    parent_unique_id, parent_column
+               FROM edge
+           ),
+           -- Every column the asked-for relation's columns can reach, either
+           -- way. This is exactly what the canvas draws — it lays out the
+           -- connected component of the selected relation's columns — so
+           -- answering with the whole project would send edges no consumer can
+           -- render. The project key travels along: two projects can describe
+           -- one relation, and dbt's node ids are per project, so a shared
+           -- `unique_id` must not walk from one project's graph into another's.
+           reach AS (
+             SELECT script_path, script_hash, job_id, a_uid AS uid, a_col AS col
+               FROM adj WHERE a_path = $2
+             UNION
+             SELECT a.script_path, a.script_hash, a.job_id, a.b_uid, a.b_col
+               FROM adj a
+               JOIN reach r ON r.script_path = a.script_path
+                           AND r.script_hash IS NOT DISTINCT FROM a.script_hash
+                           AND r.job_id = a.job_id
+                           AND r.uid = a.a_uid AND r.col = a.a_col
            )
-           SELECT p.asset_path AS "from_path!", e.parent_column AS "from_column!",
-                  c.asset_path AS "to_path!", e.child_column AS "to_column!",
+           -- One endpoint in the component puts the other there too, so matching
+           -- the parent alone is the whole component and matches each edge once.
+           SELECT e.from_path AS "from_path!", e.parent_column AS "from_column!",
+                  e.to_path AS "to_path!", e.child_column AS "to_column!",
                   e.lineage_kind AS "kind!"
-             FROM dbt_column_edge e
-             JOIN owner o ON o.script_path = e.script_path
-                         AND o.script_hash IS NOT DISTINCT FROM e.script_hash
-                         AND o.job_id = e.job_id
-             JOIN dbt_node p ON p.workspace_id = e.workspace_id
-                            AND p.script_path = e.script_path
-                            AND p.script_hash IS NOT DISTINCT FROM e.script_hash
-                            AND p.job_id = e.job_id
-                            AND p.unique_id = e.parent_unique_id
-             JOIN dbt_node c ON c.workspace_id = e.workspace_id
-                            AND c.script_path = e.script_path
-                            AND c.script_hash IS NOT DISTINCT FROM e.script_hash
-                            AND c.job_id = e.job_id
-                            AND c.unique_id = e.child_unique_id
-            WHERE e.workspace_id = $1
-              -- DIRECT kinds only. `scan` — the column was read to produce the
-              -- ROW, not the value — reaches every output column of its model,
-              -- so it is most of a project's stored lineage and none of what a
-              -- trace draws. It stays in the table for a later view to ask for.
-              AND e.lineage_kind IN ('copy', 'mod')
-              AND p.asset_path IS NOT NULL AND c.asset_path IS NOT NULL"#,
+             FROM edge e
+             JOIN reach r ON r.script_path = e.script_path
+                         AND r.script_hash IS NOT DISTINCT FROM e.script_hash
+                         AND r.job_id = e.job_id
+                         AND r.uid = e.parent_unique_id AND r.col = e.parent_column"#,
         w_id,
         q.asset_path,
         script_hash,

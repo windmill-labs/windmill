@@ -23,6 +23,7 @@
 //!   writing them is picked up with no change.
 
 use std::collections::HashSet;
+use std::ops::ControlFlow;
 use std::path::Path;
 use std::time::Duration;
 
@@ -99,39 +100,43 @@ pub(crate) async fn collect(
     };
     let coverage = Coverage::of(&compiled);
 
-    let index = read_index(&index_dir, kept).await;
     // What only the pass knows. The COUNTS are logged where the index is folded
     // into the graph, since the graph decides how much of it is kept.
-    match (&index, coverage.caveat()) {
-        (Some(_), None) => {}
-        (Some(_), Some(note)) => {
-            append_logs(
-                job_id,
-                w_id,
-                format!("\n{note}\n{}", diagnostics(&compiled.stderr)),
-                conn,
-            )
-            .await;
+    let note = match read_index(&index_dir, kept).await {
+        Artifact::Read(index) => {
+            if let Some(note) = coverage.caveat() {
+                log(job_id, w_id, note, &compiled.stderr, conn).await;
+            }
+            return Ok(Some(index));
         }
-        (None, _) => {
-            let note = format!(
-                "No column lineage: the analysis pass wrote no `{COLUMN_LINEAGE_PARQUET}`. Only \
-                 an engine that computes it does, and only for the warehouses it analyzes \
-                 natively — the flag alone is not the capability."
-            );
-            // The engine's own diagnostics. They are how a reader learns that
-            // this adapter turned static analysis off, which it reports as a
-            // warning on a SUCCESSFUL compile that nothing else would show.
-            append_logs(
-                job_id,
-                w_id,
-                format!("\n{note}\n{}", diagnostics(&compiled.stderr)),
-                conn,
-            )
-            .await;
-        }
-    }
-    Ok(index)
+        // Said apart from the one above, because it sends the reader somewhere
+        // else entirely: the engine did its job and this runtime could not read
+        // what it wrote.
+        Artifact::Unreadable(why) => format!(
+            "No column lineage: `{COLUMN_LINEAGE_PARQUET}` was written but could not be read \
+             ({why}). The graph is unaffected."
+        ),
+        Artifact::Missing => format!(
+            "No column lineage: the analysis pass wrote no `{COLUMN_LINEAGE_PARQUET}`. Only an \
+             engine that computes it does, and only for the warehouses it analyzes natively — \
+             the flag alone is not the capability."
+        ),
+    };
+    // The engine's own diagnostics come along. They are how a reader learns that
+    // this adapter turned static analysis off, which it reports as a warning on
+    // a SUCCESSFUL compile that nothing else would show.
+    log(job_id, w_id, &note, &compiled.stderr, conn).await;
+    Ok(None)
+}
+
+async fn log(job_id: &Uuid, w_id: &str, note: &str, stderr: &str, conn: &Connection) {
+    append_logs(
+        job_id,
+        w_id,
+        format!("\n{note}\n{}", diagnostics(stderr)),
+        conn,
+    )
+    .await;
 }
 
 /// How completely the analysis compile covered the project.
@@ -296,30 +301,41 @@ fn diagnostics(out: &str) -> String {
     }
 }
 
+/// What came back from the artifact. Never an `Err`: this half owns none of the
+/// job's semantics. `Unreadable` is separate from `Missing` because the two send
+/// a reader looking in different places — one at their engine and adapter, the
+/// other at a file that exists.
+enum Artifact {
+    Read(ColumnIndex),
+    Missing,
+    Unreadable(String),
+}
+
 /// Read both parquets, if the lineage one is there.
 ///
 /// The column schemas alone are not worth a graph: they arrive with the lineage
 /// or not at all, and a node's declared columns already answer for the case
 /// where the pass never ran.
-async fn read_index(index_dir: &Path, kept: &HashSet<&str>) -> Option<ColumnIndex> {
+async fn read_index(index_dir: &Path, kept: &HashSet<&str>) -> Artifact {
     let lineage = index_dir.join(COLUMN_LINEAGE_PARQUET);
     if !tokio::fs::try_exists(&lineage).await.unwrap_or(false) {
-        return None;
+        return Artifact::Missing;
     }
     let columns = index_dir.join(NODE_COLUMNS_PARQUET);
     // Owned, because the decode moves to a blocking thread. The index describes
     // the whole project while this graph describes one selection of it, so
-    // scoping HERE is what keeps the cap below from being spent on rows the
+    // scoping HERE is what keeps the bound below from being spent on rows the
     // graph would discard anyway.
     let kept: HashSet<String> = kept.iter().map(|s| (*s).to_string()).collect();
     // Decompressing and decoding a parquet is CPU work on a file the engine just
     // wrote, so it does not belong on the runtime's poll thread.
-    tokio::task::spawn_blocking(move || read_index_blocking(&lineage, &columns, &kept))
-        .await
-        .map_err(|e| tracing::warn!("reading the dbt column index: {e:#}"))
-        .ok()?
-        .map_err(|e| tracing::warn!("reading the dbt column index: {e:#}"))
-        .ok()
+    let read =
+        tokio::task::spawn_blocking(move || read_index_blocking(&lineage, &columns, &kept)).await;
+    match read {
+        Ok(Ok(index)) => Artifact::Read(index),
+        Ok(Err(e)) => Artifact::Unreadable(e.to_string()),
+        Err(e) => Artifact::Unreadable(e.to_string()),
+    }
 }
 
 fn read_index_blocking(
@@ -347,7 +363,7 @@ fn read_index_blocking(
             || !kept.contains(&parent_unique_id)
             || !kept.contains(&child_unique_id)
         {
-            return;
+            return ControlFlow::Continue(());
         }
         let edge = IngestedColumnEdge {
             parent_unique_id,
@@ -360,8 +376,10 @@ fn read_index_blocking(
         // budget's worth however the kinds are distributed.
         let held = out.edges.len() + scan.len();
         if is_direct(&edge.lineage_kind) {
+            // Full of the kind that displaces the other: nothing later in the
+            // file can be kept, so this is where the read ends.
             if out.edges.len() >= MAX_COLUMN_EDGES {
-                return;
+                return ControlFlow::Break(());
             }
             // A direct edge displaces a `scan` one: the budget exists to be
             // spent on what a trace draws.
@@ -369,11 +387,14 @@ fn read_index_blocking(
                 scan.pop();
             }
             out.edges.push(edge);
-            return;
+            return ControlFlow::Continue(());
         }
         if held < MAX_COLUMN_EDGES {
             scan.push(edge);
         }
+        // Not a stopping point even when full: a direct edge still to come takes
+        // a `scan` entry's place.
+        ControlFlow::Continue(())
     })?;
     out.edges.append(&mut scan);
     // Absent is normal — an engine can write the lineage table and not this one —
@@ -382,8 +403,11 @@ fn read_index_blocking(
     let _ = for_each_row(columns, |row| {
         let unique_id = string(row, "unique_id");
         let name = string(row, "column_name");
-        if name.is_empty() || !kept.contains(&unique_id) || held >= MAX_INDEXED_COLUMNS {
-            return;
+        if held >= MAX_INDEXED_COLUMNS {
+            return ControlFlow::Break(());
+        }
+        if name.is_empty() || !kept.contains(&unique_id) {
+            return ControlFlow::Continue(());
         }
         held += 1;
         // The author's `data_type` where `schema.yml` gives one, since that is
@@ -401,6 +425,7 @@ fn read_index_blocking(
                 column_type,
                 index: int(row, "column_index").unwrap_or(i64::MAX),
             });
+        ControlFlow::Continue(())
     });
     Ok(out)
 }
@@ -427,7 +452,11 @@ const MAX_INDEX_ROWS: usize = 4_000_000;
 /// Collecting first would put a `Vec<Row>` — each row carrying its own copy of
 /// every column NAME — in front of the caller's own bound, which is what would
 /// take the worker process down on the index described above.
-fn for_each_row(path: &Path, mut f: impl FnMut(&Row)) -> error::Result<()> {
+///
+/// `f` says when it has all it will take, and that is the ordinary end: this
+/// runs outside the phase budget, so every row decoded past the point of being
+/// able to keep one is wall clock the build below does not get.
+fn for_each_row(path: &Path, mut f: impl FnMut(&Row) -> ControlFlow<()>) -> error::Result<()> {
     let fail = |e: parquet::errors::ParquetError| {
         error::Error::internal_err(format!("reading {}: {e}", path.display()))
     };
@@ -442,7 +471,9 @@ fn for_each_row(path: &Path, mut f: impl FnMut(&Row)) -> error::Result<()> {
             );
             break;
         }
-        f(&row.map_err(fail)?);
+        if f(&row.map_err(fail)?).is_break() {
+            break;
+        }
     }
     Ok(())
 }

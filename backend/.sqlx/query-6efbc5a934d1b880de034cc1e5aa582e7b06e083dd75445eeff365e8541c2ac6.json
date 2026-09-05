@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE\n           -- The project version that owns the asked-for relation, in the graph\n           -- on screen. Not the folder-wide `live` set the graph resolves: one\n           -- asset is asked about here, so the version is decided per candidate\n           -- row. Usually one row; a relation a second project declares as a\n           -- source has two, and each answers for its own lineage.\n           owner AS (\n             SELECT DISTINCT n.script_path, n.script_hash, n.job_id\n               FROM dbt_node n\n              WHERE n.workspace_id = $1 AND n.asset_path = $2\n                -- The run's snapshot, or the deployed graph when that job stored\n                -- none -- a build pins only if it wrote one.\n                AND n.job_id = CASE WHEN $5::uuid IS NOT NULL AND EXISTS (\n                                      SELECT 1 FROM dbt_graph_snapshot g\n                                       WHERE g.workspace_id = $1 AND g.job_id = $5)\n                                    THEN $5::uuid\n                                    ELSE '00000000-0000-0000-0000-000000000000'::uuid END\n                -- The gate, once, for the whole answer.\n                AND ( $6\n                      OR n.script_path = ANY($7)\n                      OR EXISTS ( SELECT 1 FROM unnest($8::text[]) AS pfx\n                                   WHERE n.script_path = pfx\n                                      OR left(n.script_path, length(pfx) + 1) = pfx || '/' ) )\n                AND CASE\n                      -- Pinned: which version comes from a job this caller was\n                      -- already granted, so `script` does not decide THAT — but\n                      -- it still decides whether the project may be read, the\n                      -- same second gate `script_visible` is on the graph. Being\n                      -- entitled to a run is not being entitled to the SQL\n                      -- behind it, and column lineage is that SQL's shape. A\n                      -- version-less row is exempt because it is an editor\n                      -- buffer, which has no `script` row to ask and reaches\n                      -- this only through the parse job that wrote it.\n                      WHEN $4::text IS NOT NULL\n                        THEN n.script_path = $4 AND n.script_hash IS NOT DISTINCT FROM $3::bigint\n                             AND ($3::bigint IS NULL OR EXISTS (\n                                   SELECT 1 FROM script sc\n                                    WHERE sc.workspace_id = $1 AND sc.path = n.script_path\n                                      AND sc.hash = $3))\n                      -- A named version, for an editor open on an older one.\n                      -- `script` is read under RLS, so this is the visibility\n                      -- check as well as the existence one.\n                      WHEN $3::bigint IS NOT NULL\n                        THEN n.script_hash = $3 AND EXISTS (\n                               SELECT 1 FROM script sc\n                                WHERE sc.workspace_id = $1 AND sc.path = n.script_path\n                                  AND sc.hash = $3)\n                      -- Otherwise the version deployed now: an older one's rows\n                      -- outlive it in `dbt_node` until the sweep, and describe a\n                      -- project that is no longer what runs. `language` narrows\n                      -- it the way the graph's own resolution does, so a path\n                      -- that has since become a script of another kind draws and\n                      -- explains the same version rather than disagreeing.\n                      ELSE n.script_hash = (\n                             SELECT sc.hash FROM script sc\n                              WHERE sc.workspace_id = $1 AND sc.path = n.script_path\n                                AND sc.language = 'dbt'\n                                AND sc.deleted = false AND sc.archived = false\n                              ORDER BY sc.created_at DESC LIMIT 1)\n                    END\n           ),\n           -- The owning project's direct edges, resolved to relations once.\n           --\n           -- DIRECT kinds only. `scan` — the column was read to produce the ROW,\n           -- not the value — reaches every output column of its model, so it is\n           -- most of a project's stored lineage and none of what a trace draws.\n           -- It stays in the table for a later view to ask for.\n           edge AS (\n             SELECT e.script_path, e.script_hash, e.job_id, e.lineage_kind,\n                    e.parent_unique_id, e.parent_column, p.asset_path AS from_path,\n                    e.child_unique_id, e.child_column, c.asset_path AS to_path\n               FROM dbt_column_edge e\n               JOIN owner o ON o.script_path = e.script_path\n                           AND o.script_hash IS NOT DISTINCT FROM e.script_hash\n                           AND o.job_id = e.job_id\n               JOIN dbt_node p ON p.workspace_id = e.workspace_id\n                              AND p.script_path = e.script_path\n                              AND p.script_hash IS NOT DISTINCT FROM e.script_hash\n                              AND p.job_id = e.job_id\n                              AND p.unique_id = e.parent_unique_id\n               JOIN dbt_node c ON c.workspace_id = e.workspace_id\n                              AND c.script_path = e.script_path\n                              AND c.script_hash IS NOT DISTINCT FROM e.script_hash\n                              AND c.job_id = e.job_id\n                              AND c.unique_id = e.child_unique_id\n              WHERE e.workspace_id = $1\n                AND e.lineage_kind IN ('copy', 'mod')\n                AND p.asset_path IS NOT NULL AND c.asset_path IS NOT NULL\n           ),\n           -- Both directions of every edge. A trace walks up AND down, and a\n           -- recursive term may reference the working table only once, so the\n           -- symmetry has to live here rather than in two recursive branches.\n           adj AS (\n             SELECT script_path, script_hash, job_id,\n                    parent_unique_id AS a_uid, parent_column AS a_col, from_path AS a_path,\n                    child_unique_id  AS b_uid, child_column  AS b_col\n               FROM edge\n             UNION ALL\n             SELECT script_path, script_hash, job_id,\n                    child_unique_id, child_column, to_path,\n                    parent_unique_id, parent_column\n               FROM edge\n           ),\n           -- Every column the asked-for relation's columns can reach, either\n           -- way. This is exactly what the canvas draws — it lays out the\n           -- connected component of the selected relation's columns — so\n           -- answering with the whole project would send edges no consumer can\n           -- render. The project key travels along: two projects can describe\n           -- one relation, and dbt's node ids are per project, so a shared\n           -- `unique_id` must not walk from one project's graph into another's.\n           reach AS (\n             SELECT script_path, script_hash, job_id, a_uid AS uid, a_col AS col\n               FROM adj WHERE a_path = $2\n             UNION\n             SELECT a.script_path, a.script_hash, a.job_id, a.b_uid, a.b_col\n               FROM adj a\n               JOIN reach r ON r.script_path = a.script_path\n                           AND r.script_hash IS NOT DISTINCT FROM a.script_hash\n                           AND r.job_id = a.job_id\n                           AND r.uid = a.a_uid AND r.col = a.a_col\n           )\n           -- One endpoint in the component puts the other there too, so matching\n           -- the parent alone is the whole component and matches each edge once.\n           SELECT e.from_path AS \"from_path!\", e.parent_column AS \"from_column!\",\n                  e.to_path AS \"to_path!\", e.child_column AS \"to_column!\",\n                  e.lineage_kind AS \"kind!\"\n             FROM edge e\n             JOIN reach r ON r.script_path = e.script_path\n                         AND r.script_hash IS NOT DISTINCT FROM e.script_hash\n                         AND r.job_id = e.job_id\n                         AND r.uid = e.parent_unique_id AND r.col = e.parent_column",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "from_path!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "from_column!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "to_path!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "to_column!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "kind!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Uuid",
+        "Bool",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "6efbc5a934d1b880de034cc1e5aa582e7b06e083dd75445eeff365e8541c2ac6"
+}

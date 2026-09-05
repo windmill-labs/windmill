@@ -1232,9 +1232,13 @@ the asset graph.** The graph is folder-wide and a run page polls it, while a
 column trace is drawn for one selected node; carried on the graph the edges would
 need a cap, and a cap has to be applied after every filter that can drop a row —
 scope, project visibility, the asset set actually rendered. Keyed to the asset
-there is no cap for a filter to sit on the wrong side of: the caller's
-`scripts:read` scope and the project's visibility are decided once, for the
-script that owns the relation. Pinning to a run's snapshot or to the editor's
+there is no cap for a filter to sit on the wrong side of: the answer is one
+project's, already bounded where it is written (`MAX_COLUMN_EDGES` per version,
+of which only the direct kinds are served), and the caller's `scripts:read` scope
+and the project's visibility are decided once, for the script that owns the
+relation. The asset names the project and the version rather than filtering the
+edges — a trace walks transitively, so an answer cut to the selected relation's
+own edges would stop one hop out. Pinning to a run's snapshot or to the editor's
 parse of its own buffer costs the job-read gate, so that form is
 `jobs/dbt_column_lineage/{id}`, exactly as `jobs/dbt_graph/{id}` is to
 `assets/graph`.
@@ -1242,7 +1246,13 @@ parse of its own buffer costs the job-read gate, so that form is
 Both the lineage and `column_schema` are gated on being able to read the
 producing project, like the model's SQL: a column-level view is the shape of what
 the author wrote, one level finer than the `ref()` graph, which is ungated only
-because it draws relations the caller already sees.
+because it draws relations the caller already sees. **That gate is separate from
+the pin**, and the pinned read is where the two are easiest to conflate: a run
+resolves WHICH version answers, and never whether the caller may read it. A
+share-link viewer entitled to a dbt run gets its relations and `ref()` edges and
+an empty lineage, the same split `dbt_graph` already makes by redacting
+`raw_code`. The one exemption is a version-less row — an editor buffer, which has
+no `script` row to ask and is reachable only through the parse job that wrote it.
 
 ## Concept mapping
 
