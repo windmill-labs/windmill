@@ -35,15 +35,16 @@ import type { UserDraftItemKind } from './gen'
 import { sendUserToast } from './toast'
 import { UserDraft, draftValuesEqual } from './userDraft.svelte'
 import { UserDraftDbSyncer } from './userDraftDbSyncer.svelte'
-import { discardDraft, getDraftDiffValues } from './utils_draft_deploy'
+import { canDiffDraftKind, discardDraft, getDraftDiffValues } from './utils_draft_deploy'
 import { invalidateWorkspaceDrafts } from './workspaceDrafts.svelte'
 
 const SENTINEL_PREFIX = 'userdraft/pruned/v1/'
 
 /** The editors whose forms are built from a schema, and so the only kinds that
- * could have banked a draft nobody wrote. */
-function isGatedKind(kind: UserDraftItemKind): boolean {
-	return kind === 'resource' || kind.startsWith('trigger_')
+ * could have banked a draft nobody wrote — minus the ones no diff can be
+ * computed for, which would throw and keep the pass unsealed forever. */
+function isSweepableKind(kind: UserDraftItemKind): boolean {
+	return (kind === 'resource' || kind.startsWith('trigger_')) && canDiffDraftKind(kind)
 }
 
 /** Overlay GETs are one round trip each and a cluttered workspace has dozens;
@@ -129,7 +130,7 @@ export async function pruneMeaninglessDrafts(workspace: string, userKey: string)
 			// `draft_only` rows ARE the item; `mine` / `can_write` are the same
 			// gate the discard endpoint enforces, so anything else would 403.
 			.filter((r) => !r.draft_only && r.mine && r.can_write)
-			.filter((r) => isGatedKind(r.kind) && !r.legacy_draft)
+			.filter((r) => isSweepableKind(r.kind) && !r.legacy_draft)
 			.filter((r) => {
 				if (!busyLocally(workspace, r.kind, r.path)) return true
 				unresolved++
@@ -162,8 +163,16 @@ export async function pruneMeaninglessDrafts(workspace: string, userKey: string)
 			// Neither outcome throws: the syncer swallows an HTTP failure into its
 			// per-key state, and a delete refused for a moved row comes back as a
 			// conflict. So `success` alone says nothing about whether the row went.
+			const conflict = UserDraftDbSyncer.getConflict(q).conflict
 			if (!res.success || UserDraftDbSyncer.getState(q).state === 'failed') unresolved++
-			else if (!UserDraftDbSyncer.getConflict(q).conflict) discarded++
+			else if (conflict) {
+				// The row moved past the baseline we seeded, and the syncer keeps a
+				// refused baseline until something resolves it. Nothing here would:
+				// these drawer editors never re-seed on load and mount no conflict
+				// modal, so every later autosave for this key would be refused and
+				// the user's edit lost. Adopt what the server reported instead.
+				UserDraftDbSyncer.recordRemoteSync(q, conflict.serverTimestamp)
+			} else discarded++
 		}
 		if (discarded > 0) {
 			invalidateWorkspaceDrafts(workspace)

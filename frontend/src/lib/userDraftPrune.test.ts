@@ -10,7 +10,10 @@ const discardDraft = vi.fn(async () => ({ success: true }))
 vi.mock('./gen', () => ({
 	DraftService: { listDrafts: (...a: unknown[]) => listDrafts(...(a as [])) }
 }))
-vi.mock('./utils_draft_deploy', () => ({
+// Only the two network-touching functions are stubbed; `canDiffDraftKind` is
+// the real one, so the kind filter is pinned against the actual overlay table.
+vi.mock('./utils_draft_deploy', async (orig) => ({
+	...(await orig<Record<string, unknown>>()),
 	getDraftDiffValues: (...a: unknown[]) => getDraftDiffValues(...(a as [])),
 	discardDraft: (...a: unknown[]) => discardDraft(...(a as []))
 }))
@@ -126,6 +129,24 @@ describe('pruneMeaninglessDrafts', () => {
 		)
 		// The discard was attempted but refused, so nothing is reported as cleared.
 		expect(sendUserToast).not.toHaveBeenCalled()
+		// …and the refused baseline is handed back to the server's, so the next
+		// autosave for this key is not refused too.
+		expect(recordRemoteSync).toHaveBeenLastCalledWith(
+			{ workspace: 'main', itemKind: 'resource', path: 'u/me/r' },
+			'2026-01-02T00:00:00Z'
+		)
+	})
+
+	it('skips a kind no diff can be computed for, and still seals', async () => {
+		listDrafts.mockResolvedValue([row({ kind: 'trigger_webhook', path: 'u/me/hook' })])
+		await pruneMeaninglessDrafts('main', 'me@x.dev')
+		expect(getDraftDiffValues).not.toHaveBeenCalled()
+		// Unjudgeable is permanent, not transient: leaving the pass open would
+		// re-run the sweep on every page load forever.
+		listDrafts.mockResolvedValue([row()])
+		getDraftDiffValues.mockResolvedValue(diff())
+		await pruneMeaninglessDrafts('main', 'me@x.dev')
+		expect(discardDraft).not.toHaveBeenCalled()
 	})
 
 	it('leaves alone a draft this tab is editing', async () => {
