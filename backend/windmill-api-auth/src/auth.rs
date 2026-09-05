@@ -799,7 +799,9 @@ async fn admit_and_record_guest_jwt(db: &DB, w_id: &str, email: &str, app_path: 
     match windmill_common::workspaces::guest_admission(&mut *tx, email).await {
         Ok(()) => {}
         Err(e @ windmill_common::error::Error::PermissionDenied(_)) => {
-            tracing::info!("guest JWT not admitted for {w_id}: {e:#}");
+            // The guest hits a bare 401 (the reason must not leak to an unauthenticated caller);
+            // warn so an admin sees the cap in logs, since it is the actionable signal here.
+            tracing::warn!("guest JWT refused (guest allowance) for {w_id}: {e:#}");
             GUEST_JWT_REFUSED_CACHE.insert(cache_key, std::time::Instant::now());
             return false;
         }
