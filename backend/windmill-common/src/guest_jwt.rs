@@ -262,8 +262,14 @@ struct JwksEntry {
 lazy_static::lazy_static! {
     static ref JWKS_CACHE: Cache<String, Arc<JwksEntry>> = Cache::new(200);
     /// Per-URL fetch lock: only one refresh per URL is in flight at a time, so a cold
-    /// or stale entry under a burst triggers one fetch, not one per request.
-    static ref JWKS_FETCH_LOCKS: Cache<String, Arc<tokio::sync::Mutex<()>>> = Cache::new(200);
+    /// or stale entry under a burst triggers one fetch, not one per request. This is a
+    /// plain map, not a capacity-bounded `Cache`: a `Cache` could evict a lock whose fetch
+    /// is still running, and the next request for that URL would then mint a fresh lock and
+    /// start a duplicate fetch, so cycling past 200 cold URLs could defeat single-flight and
+    /// storm the issuers. `JwksFetchLock` drops each entry once its last holder is gone, so
+    /// the map only ever holds the fetches in flight (bounded by concurrent distinct URLs).
+    static ref JWKS_FETCH_LOCKS: std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>> =
+        std::sync::Mutex::new(HashMap::new());
 }
 
 /// How long a good key set is served before a refresh; also the lag before a
@@ -414,17 +420,51 @@ fn servable(entry: Arc<JwksEntry>) -> Result<Arc<JwksEntry>> {
     }
 }
 
+/// A held single-flight lock for one JWKS URL. Dropping it removes the URL from
+/// `JWKS_FETCH_LOCKS` once no other holder remains, so the registry never keeps a lock past
+/// its fetch and stays bounded by the number of fetches in flight, not by URLs ever seen.
+struct JwksFetchLock {
+    url: String,
+    lock: Arc<tokio::sync::Mutex<()>>,
+}
+
+impl JwksFetchLock {
+    /// The lock for `url`, created on first use. Callers sharing a URL get the same `Arc`,
+    /// so one holds the inner mutex and fetches while the rest wait on it.
+    fn acquire(url: &str) -> Self {
+        let mut map = JWKS_FETCH_LOCKS.lock().unwrap();
+        let lock = map
+            .entry(url.to_string())
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone();
+        JwksFetchLock { url: url.to_string(), lock }
+    }
+}
+
+impl Drop for JwksFetchLock {
+    fn drop(&mut self) {
+        let mut map = JWKS_FETCH_LOCKS.lock().unwrap();
+        // Clones are only taken while holding this same map lock, so the count is stable
+        // here: two Arcs (the map's and this one's) means we are the last holder and the
+        // entry can go; more means another request still needs it and will remove it in turn.
+        if map
+            .get(&self.url)
+            .is_some_and(|lock| Arc::strong_count(lock) <= 2)
+        {
+            map.remove(&self.url);
+        }
+    }
+}
+
 /// Refresh a URL's JWKS off the request path, under the single-flight lock. A held
 /// lock means a refresh is already running, so this is a no-op. A failed refresh
 /// leaves the served stale keys in place rather than dropping them.
 fn spawn_jwks_refresh(url: String) {
     tokio::spawn(async move {
-        let lock = JWKS_FETCH_LOCKS
-            .get_or_insert_with(url.as_str(), || {
-                Ok::<_, ()>(Arc::new(tokio::sync::Mutex::new(())))
-            })
-            .unwrap();
-        let Ok(_guard) = lock.try_lock() else { return };
+        let fetch_lock = JwksFetchLock::acquire(&url);
+        let Ok(_guard) = fetch_lock.lock.try_lock() else {
+            return;
+        };
         match fetch_jwks(&url).await {
             Ok(keys) => {
                 let now = Instant::now();
@@ -476,11 +516,9 @@ async fn cached_jwks(url: &str) -> Result<Arc<JwksEntry>> {
         }
     }
     // Cold or negative entry, nothing good to serve: block on a single-flight refresh.
-    // `get_or_insert_with` creates the lock atomically, so two cold requests share one.
-    let lock = JWKS_FETCH_LOCKS
-        .get_or_insert_with(url, || Ok::<_, ()>(Arc::new(tokio::sync::Mutex::new(()))))
-        .unwrap();
-    let _guard = lock.lock().await;
+    // `JwksFetchLock::acquire` hands cold requests the same lock, so they share one fetch.
+    let fetch_lock = JwksFetchLock::acquire(url);
+    let _guard = fetch_lock.lock.lock().await;
     // Another task may have refreshed while we waited for the lock (honour the age limit too,
     // so a concurrent stale re-serve of too-old keys is not mistaken for a fresh entry).
     if let Some(entry) = JWKS_CACHE.get(url) {
@@ -860,6 +898,26 @@ y9rTR828ADcaZ63Ej1oL4GcqmGhODxCLy1YKKcy0FHzChqPMV6g=\n\
             "single-flight: a concurrent cold burst makes one fetch"
         );
         unsafe { std::env::remove_var("ALLOW_PRIVATE_GUEST_JWKS_URLS") };
+    }
+
+    #[tokio::test]
+    async fn jwks_fetch_locks_are_shared_and_self_cleaning() {
+        // The registry is a plain map, not a capacity-bounded cache: a cache could evict a
+        // lock mid-fetch, letting a later request for that URL start a duplicate fetch. Pin
+        // both halves of what keeps single-flight intact under many distinct URLs: the same
+        // URL hands back one shared lock, and the entry is removed once its last holder drops
+        // (so nothing evicts an in-flight lock and the map stays bounded by fetches in flight).
+        let url = "https://example.test/jwks-lock-probe.json";
+        {
+            let a = JwksFetchLock::acquire(url);
+            let b = JwksFetchLock::acquire(url);
+            assert!(Arc::ptr_eq(&a.lock, &b.lock), "one lock per URL");
+            assert!(JWKS_FETCH_LOCKS.lock().unwrap().contains_key(url));
+        }
+        assert!(
+            !JWKS_FETCH_LOCKS.lock().unwrap().contains_key(url),
+            "the lock is dropped once idle"
+        );
     }
 
     #[tokio::test]
