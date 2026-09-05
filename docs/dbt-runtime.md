@@ -1193,15 +1193,21 @@ migration, and what makes a profile move detectable now.
 
 ### Which runs publish it
 
-A successful `build` whose graph becomes what the script owns
-(`GraphRefresh::publishes_ownership`), which is the same condition and the same
-reason: an invocation that scoped its own model set — a `vars` or
-`select` override, or a descriptor dynamic by construction — describes where the
-CALLER put those relations, not where this project's models live. Publishing it
-would point every later deferral at one caller's scratch schema. It is also what
-makes the ordinary flow work without a second concept: a run that defers is by
-construction a narrowed or re-varred one, so it reads the state and does not
-replace it, while the plain nightly run publishes.
+A successful `build` that did not itself defer, and whose graph becomes what the
+script owns (`GraphRefresh::publishes_ownership`) — the same condition as the
+graph's and the same reason: an invocation that scoped its own model set — a
+`vars` or `select` override, or a descriptor dynamic by construction — describes
+where the CALLER put those relations, not where this project's models live.
+Publishing it would point every later deferral at one caller's scratch schema.
+
+**A run that deferred never publishes, whatever narrowed it**, and that is a
+separate condition rather than a consequence of the first. A deferring run built
+some of the relations its manifest names and resolved the rest out of the state
+it read, so recording that manifest would claim relations nothing built — and a
+model renamed since would be recorded under a name only a full build creates,
+breaking every later deferral until one repairs it. `publishes_ownership` cannot
+see this: it reads the caller's overrides, and a descriptor that already narrows
+`select` needs none.
 
 A `retry` publishes nothing. Its `run_results.json` names only the nodes it
 redid, so the environment would come to claim a run of a handful of models. The

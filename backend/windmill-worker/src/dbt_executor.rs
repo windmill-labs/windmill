@@ -599,7 +599,19 @@ pub(crate) async fn handle_dbt_job(
     // to exist. A `retry` is excluded: its `run_results.json` names only the
     // nodes it redid, so publishing it would leave the environment claiming a
     // run of a handful of models.
-    if run.is_ok() && command == "build" && prepared.graph_refresh.publishes_ownership() {
+    //
+    // And never a run that DEFERRED, whatever narrowed it. A deferring run built
+    // some of the relations its manifest names and resolved the rest out of the
+    // state it read, so publishing that manifest would record relations nothing
+    // built — and a model renamed since would be recorded under a name only a
+    // full build creates, breaking every later deferral until one repairs it.
+    // `publishes_ownership` cannot see this on its own: it reads the caller's
+    // overrides, and a descriptor that already narrows `select` needs none.
+    if run.is_ok()
+        && command == "build"
+        && inv.deferral.is_none()
+        && prepared.graph_refresh.publishes_ownership()
+    {
         // Losing it costs the next deferral, not the run that just finished —
         // but silently, so the one actionable case (an artifact too large for
         // the database on an instance with no object storage) says so.

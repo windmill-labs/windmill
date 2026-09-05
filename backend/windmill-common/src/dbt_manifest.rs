@@ -1136,7 +1136,9 @@ pub async fn move_dbt_script_state(
     new_path: &str,
 ) -> Result<()> {
     // The destination may already hold state from a script that lived there
-    // before; the incoming row is the newer truth for this project.
+    // before; the incoming row is the newer truth for this project. What the
+    // displaced row named in object storage is left there, as a cleared one's is
+    // — see `clear_dbt_script_state`.
     sqlx::query!(
         "DELETE FROM dbt_run_state WHERE workspace_id = $1 AND script_path = $2",
         workspace_id,

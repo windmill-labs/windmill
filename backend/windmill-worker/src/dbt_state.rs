@@ -173,7 +173,13 @@ pub(crate) async fn publish(
     // than the row's, because the first publish of an environment has no row to
     // lock and is exactly when two runs of a newly deployed script are most
     // likely to race.
-    let mut tx = db.begin().await?;
+    let mut tx = match db.begin().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            forget_objects(&mine).await;
+            return Err(e.into());
+        }
+    };
     let staged = async {
         sqlx::query_scalar!(
             "SELECT pg_advisory_xact_lock($1)",
@@ -370,11 +376,9 @@ pub(crate) async fn write_state_dir(
 /// else.
 fn publication_lock(w_id: &str, script_path: &str, environment: &str) -> i64 {
     let d = digest(&format!("{w_id}|{script_path}|{environment}"));
-    i64::from_str_radix(&d[..16], 16).unwrap_or_else(|_| {
-        // `digest` is hex, so this cannot happen; a fixed key would only queue
-        // every publication behind one lock rather than lose one.
-        i64::MIN
-    })
+    // Parsed unsigned and reinterpreted: half of all digests set the top bit,
+    // and read as `i64` those overflow and would collapse onto one key.
+    u64::from_str_radix(&d[..16], 16).unwrap_or_default() as i64
 }
 
 /// The object-storage key an artifact takes.
@@ -598,6 +602,26 @@ mod tests {
         assert_ne!(
             here,
             environment_key(Some("main"), Some("prod"), "analytics|other_db")
+        );
+    }
+
+    // Two environments must not queue behind one advisory lock, which is what a
+    // digest folded through a signed parse did for every one whose top bit is
+    // set — half of them.
+    #[test]
+    fn each_environment_gets_its_own_publication_lock() {
+        let mut seen = std::collections::HashSet::new();
+        for i in 0..64 {
+            seen.insert(publication_lock(
+                "ws",
+                "f/a/p",
+                &format!("main|prod|s{i}|db"),
+            ));
+        }
+        assert_eq!(seen.len(), 64);
+        assert_eq!(
+            publication_lock("ws", "f/a/p", "e"),
+            publication_lock("ws", "f/a/p", "e")
         );
     }
 }
