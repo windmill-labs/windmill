@@ -15613,6 +15613,7 @@ dependencies = [
  "reqwest-retry",
  "rsa",
  "schemars 0.8.22",
+ "security-framework 2.11.1",
  "semver 1.0.28",
  "serde",
  "serde_json",
