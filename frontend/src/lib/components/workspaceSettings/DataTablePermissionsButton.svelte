@@ -23,6 +23,7 @@
 		WorkspaceService,
 		type DatatableRoleInfo
 	} from '$lib/gen'
+	import { userWorkspaces } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { randomUUID } from '$lib/utils/uuid'
 	import { ADMIN_DATATABLE_ROLE } from '../dbTypes'
@@ -47,6 +48,15 @@
 		 * (the manager's role picker) can read them again. */
 		onSaved?: () => void
 	} = $props()
+
+	// The server refuses to enable permissions in a fork: its data table points
+	// either at the database of the workspace it was forked from, where the roles
+	// would be invisible to that workspace's own config, or at a copy the fork can
+	// drop. Turning them off stays available, so one that already has them can be
+	// rid of them.
+	const isFork = $derived(
+		!!$userWorkspaces.find((w) => w.id === workspace)?.parent_workspace_id
+	)
 
 	// Matches every workspace member, unlike the `all` group whose membership is
 	// bookkeeping that can drift.
@@ -253,12 +263,21 @@
 			<div class="flex flex-col gap-4">
 				<Toggle
 					bind:checked={enabled}
+					disabled={isFork && !enabled}
 					options={{
 						right: 'Enable permissions',
 						rightTooltip:
 							'While off, every workspace member reaches this data table through its single connection. Turning it off again drops the roles created here, after giving their objects back to admin.'
 					}}
 				/>
+
+				{#if isFork && !enabled}
+					<Alert type="info" title="Permissions belong to the workspace this was forked from" size="xs">
+						A fork's data table points either at that workspace's database, where roles created
+						here would be invisible to its own configuration, or at a copy this fork can drop.
+						Enable permissions there instead — a fork shares them, with the same restrictions.
+					</Alert>
+				{/if}
 
 				{#if enabled}
 					<DataTable>

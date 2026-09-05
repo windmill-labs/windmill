@@ -723,6 +723,30 @@ pub(crate) async fn ensure_can_use_datatable_role(
     Ok(())
 }
 
+/// A fork may not turn a data table's permissions on.
+///
+/// Its data table is either a copy pointing at the database of the workspace it
+/// was forked from, where roles created here would hold grants that workspace's
+/// own config does not name, or a clone whose whole database the fork can drop,
+/// taking the roles with it. Neither is a place to build an access model; it is
+/// built in the workspace that owns the data table.
+///
+/// Turning them off is always allowed, or a fork carrying permissions from before
+/// this rule could never be rid of them, and the roles behind them never dropped.
+async fn refuse_enabling_permissions_from_a_fork(db: &DB, w_id: &str, enabled: bool) -> Result<()> {
+    if enabled && crate::workspaces_extra::workspace_is_fork(db, w_id).await? {
+        return Err(Error::BadRequest(
+            "Data table permissions cannot be enabled from a fork workspace: a fork's data \
+             table points either at the database of the workspace it was forked from, where \
+             roles created here would be invisible to that workspace's own configuration, or \
+             at a copy the fork can drop. Set them where the data table belongs. Disabling \
+             them here is allowed."
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// List the roles `authed` may run this data table as. An unpermissioned data
 /// table reports `enabled: false` and no roles, so a picker can hide itself.
 async fn list_usable_datatable_roles(
@@ -758,6 +782,9 @@ async fn preview_datatable_permissions(
     Json(req): Json<SetDatatablePermissions>,
 ) -> JsonResult<DatatablePermissionsPreview> {
     require_admin(authed.is_admin, &authed.username)?;
+    // Refused here too: the preview connects to the database and reads its roles,
+    // and offering a plan that the save will not run is its own kind of wrong.
+    refuse_enabling_permissions_from_a_fork(&db, &w_id, req.enabled).await?;
     let (_client, plan) = build_plan(&db, &w_id, &datatable_name, &req).await?;
     Ok(Json(DatatablePermissionsPreview {
         statements: plan.statements.into_iter().map(|s| s.display).collect(),
@@ -772,6 +799,7 @@ async fn set_datatable_permissions(
     Json(req): Json<SetDatatablePermissions>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+    refuse_enabling_permissions_from_a_fork(&db, &w_id, req.enabled).await?;
 
     // Reading the config, planning against it, running the plan and persisting
     // it are one operation: interleaved with another save, or with the removal

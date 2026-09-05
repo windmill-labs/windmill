@@ -120,6 +120,28 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
+    // Two configs now name the same Postgres logins, and only one of them owns
+    // them: deleting the archived id would plan drops for logins the renamed
+    // workspace is still using. The archived copy stops naming them — it is kept
+    // for reference, and a reference does not need credentials.
+    //
+    // The renamed workspace keeps them and keeps working: a role's `pg_rolename`
+    // is what resolution uses, and the generated name only decides what a *new*
+    // role is called. Its next permissions save finds the stored name no longer
+    // matches the one this workspace id generates and renames the login to match,
+    // under the ownership proof that rename already carries.
+    sqlx::query!(
+        "UPDATE workspace_settings
+         SET datatable = jsonb_set(datatable, '{datatables}', COALESCE((
+             SELECT jsonb_object_agg(key, value - 'permissions')
+             FROM jsonb_each(datatable->'datatables')
+         ), '{}'::jsonb))
+         WHERE workspace_id = $1 AND jsonb_typeof(datatable->'datatables') = 'object'",
+        &old_id,
+    )
+    .execute(&mut *tx)
+    .await?;
+
     // The managed git-sync webhooks deliver to /api/w/{old_id}/... — a URL the
     // renamed workspace no longer answers on (the old id is archived and the
     // receiver skips it). Strip the webhook fields from the new row so polling
@@ -2124,7 +2146,7 @@ async fn is_workspace_owner(
 /// `ON DELETE SET NULL`), so also treat the prefix as fork-ness — otherwise an orphaned fork would
 /// lose owner-self-delete. Used to gate owner-self-delete, which is permitted for forks/dev
 /// workspaces but requires superadmin otherwise.
-async fn workspace_is_fork(db: &DB, w_id: &str) -> Result<bool> {
+pub(crate) async fn workspace_is_fork(db: &DB, w_id: &str) -> Result<bool> {
     if w_id.starts_with(WM_FORK_PREFIX) {
         return Ok(true);
     }
