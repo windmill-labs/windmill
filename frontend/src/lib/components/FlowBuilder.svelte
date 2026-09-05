@@ -275,10 +275,8 @@
 			}
 		}
 		for (const agent of agents) {
-			// `deployDraft` re-reads the persisted draft, which the agent editor's autosave debounce
-			// can leave seconds behind the form. Push it first so the deploy writes what the user is
-			// looking at, and so the post-deploy draft delete cannot drop a newer edit.
-			await UserDraftDbSyncer.flush({ workspace: ws, itemKind: 'resource', path: agent.path })
+			// `deployDraft` re-reads the persisted draft rather than taking the one listed here, so it
+			// depends on `loadLinkedAgentDrafts` having settled the autosave before the dialog opened.
 			const result = await deployDraft('resource', agent.path, ws, { draftOnly: agent.noDeployed })
 			if (!result.success) {
 				throw new Error(`Could not deploy agent ${agent.path}: ${result.error}`)

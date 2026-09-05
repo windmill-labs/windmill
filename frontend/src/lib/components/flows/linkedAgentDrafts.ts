@@ -1,5 +1,12 @@
-import { ResourceService, type FlowModule, type FlowValue, type InputTransform } from '$lib/gen'
+import {
+	ResourceService,
+	type FlowModule,
+	type FlowValue,
+	type InputTransform,
+	type Resource
+} from '$lib/gen'
 import { UserDraft } from '$lib/userDraft.svelte'
+import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { canWrite } from '$lib/utils'
 import type { UserExt } from '$lib/stores'
 import { dfs } from './dfs'
@@ -32,8 +39,9 @@ export function linkedAgentPaths(value: FlowValue | undefined): string[] {
  * The unsaved draft for an agent, freshest first: the cell an open agent editor is writing, then
  * what a `get_draft` response carried.
  *
- * Order matters. `UserDraftDbSyncer` debounces autosave by 1.5s (up to 10s), so the persisted row
- * lags an open editor by seconds — a test right after typing would otherwise run a stale prompt.
+ * Only the live cell is reliably current, and only while an editor holds it: `releaseEntry` drops
+ * the cached write at refcount 0 on purpose, so once the agent editor closes the persisted row is
+ * the sole answer. Read through `fetchAgentWithDraft`, which settles that row first.
  */
 export function agentDraftState(
 	response: { draft?: unknown },
@@ -42,6 +50,23 @@ export function agentDraftState(
 ): AgentResourceState | undefined {
 	const live = UserDraft.get<AgentResourceState>('resource', path, { workspace })
 	return live ?? (response.draft as AgentResourceState | undefined)
+}
+
+/**
+ * An agent's resource together with the draft a run of it would use.
+ *
+ * The flush is what makes the answer current. Autosave is debounced by 1.5s (10s ceiling), and
+ * closing the agent editor releases the in-memory cell without cancelling that pending POST — so
+ * testing or deploying right after closing would otherwise read a row the last edits have not
+ * reached yet. `flush` replays the parked save and is a no-op when there is none.
+ */
+export async function fetchAgentWithDraft(
+	path: string,
+	workspace: string
+): Promise<{ response: Resource; draft: AgentResourceState | undefined }> {
+	await UserDraftDbSyncer.flush({ workspace, itemKind: 'resource', path })
+	const response = await ResourceService.getResource({ workspace, path, getDraft: true })
+	return { response, draft: agentDraftState(response, path, workspace) }
 }
 
 /** One linked agent whose resource the user has an unsaved draft for. */
@@ -78,15 +103,14 @@ export async function loadLinkedAgentDrafts(
 	await Promise.all(
 		paths.map(async (path) => {
 			try {
-				const r = await ResourceService.getResource({ workspace, path, getDraft: true })
-				const state = agentDraftState(r, path, workspace)
-				if (!state) return
+				const { response, draft } = await fetchAgentWithDraft(path, workspace)
+				if (!draft) return
 				out.set(path, {
 					path,
-					args: (state.args ?? {}) as AIAgentConfig,
-					state,
-					noDeployed: Boolean((r as { no_deployed?: boolean }).no_deployed),
-					extraPerms: r.extra_perms ?? {}
+					args: (draft.args ?? {}) as AIAgentConfig,
+					state: draft,
+					noDeployed: Boolean((response as { no_deployed?: boolean }).no_deployed),
+					extraPerms: response.extra_perms ?? {}
 				})
 			} catch {
 				// No draft we can act on.

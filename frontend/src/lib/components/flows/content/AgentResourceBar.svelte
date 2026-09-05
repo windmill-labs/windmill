@@ -19,7 +19,12 @@
 		type AIAgentConfig,
 		type AgentTool
 	} from '../agentResourceUtils'
-	import { agentWriteCount, markAgentWritten, openAgentEditor } from '../agentEditorStore.svelte'
+	import {
+		agentDraftSaveCount,
+		agentWriteCount,
+		markAgentWritten,
+		openAgentEditor
+	} from '../agentEditorStore.svelte'
 	import {
 		setLinkedAgentTools,
 		clearLinkedAgentTools,
@@ -27,7 +32,7 @@
 	} from '../linkedAgentToolsStore.svelte'
 	import { logReusableAgentUsage } from '../agentTelemetry'
 	import { claimLinkedToolsFetch } from '../flowState'
-	import { agentDraftState } from '../linkedAgentDrafts'
+	import { fetchAgentWithDraft } from '../linkedAgentDrafts'
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import type { AgentTool as AgentToolStrict } from '../agentToolUtils'
@@ -68,6 +73,10 @@
 	// deploy from the agent editor mounted alongside it. Both reads below key on it, so neither
 	// keeps naming the config and version a write has just replaced.
 	let writes = $derived(agentWriteCount(ws, agent))
+	// Draft saves as well, for the link fetch: the card shows what a test of this step would run,
+	// and that is the draft. Only the deploy moves `writes`, so without this the card would keep
+	// describing the config the agent held before it was edited.
+	let draftSaves = $derived(agentDraftSaveCount(ws, agent))
 
 	let saveDrawer: Drawer | undefined = $state()
 	let newPath = $state('')
@@ -78,12 +87,14 @@
 	type LinkedInfo = {
 		// What this result was fetched for. runed's resource neither aborts nor tags a superseded
 		// request, so a slow fetch can land after a newer one: every consumer gates on these matching
-		// the current (ws, agent, writes). `writes` is what covers a refetch of the *same* link after
-		// a deploy — without it a pre-deploy response is indistinguishable from the current one, and
-		// accepting it republishes the tools the deploy just replaced.
+		// the current (ws, agent, writes, draftSaves). `writes` is what covers a refetch of the *same*
+		// link after a deploy — without it a pre-deploy response is indistinguishable from the current
+		// one, and accepting it republishes the tools the deploy just replaced. `draftSaves` does the
+		// same for a draft save, which the card follows just as closely.
 		ws?: string
 		path?: string
 		writes: number
+		draftSaves: number
 		config: AIAgentConfig
 		tools: AgentTool[]
 		/** The config shown came from the agent's unsaved draft rather than the deployed resource. */
@@ -97,14 +108,22 @@
 	// accessible in this workspace (the user then needs to unlink/fork or gain access).
 	// The draft when there is one, since that is what a test of this step runs.
 	let linkedResource = resource(
-		() => ({ ws, path: agent, writes }),
-		async ({ ws, path, writes }): Promise<LinkedInfo> => {
+		() => ({ ws, path: agent, writes, draftSaves }),
+		async ({ ws, path, writes, draftSaves }): Promise<LinkedInfo> => {
 			if (!ws || !path) {
-				return { ws, path, writes, config: {}, tools: [], fromDraft: false, providerOk: true }
+				return {
+					ws,
+					path,
+					writes,
+					draftSaves,
+					config: {},
+					tools: [],
+					fromDraft: false,
+					providerOk: true
+				}
 			}
-			const res = await ResourceService.getResource({ workspace: ws, path, getDraft: true })
-			const draft = agentDraftState(res, path, ws)
-			const cfg = (draft?.args ?? res.value ?? {}) as AIAgentConfig & {
+			const { response, draft } = await fetchAgentWithDraft(path, ws)
+			const cfg = (draft?.args ?? response.value ?? {}) as AIAgentConfig & {
 				provider?: { resource?: string }
 			}
 			const tools = (cfg.tools ?? []) as AgentTool[]
@@ -125,6 +144,7 @@
 				ws,
 				path,
 				writes,
+				draftSaves,
 				config: cfg,
 				tools,
 				fromDraft: draft != undefined,
@@ -139,7 +159,13 @@
 	let loadedInfo = $state<LinkedInfo | undefined>(undefined)
 	$effect(() => {
 		const current = linkedResource.current
-		if (current && current.ws === ws && current.path === agent && current.writes === writes) {
+		if (
+			current &&
+			current.ws === ws &&
+			current.path === agent &&
+			current.writes === writes &&
+			current.draftSaves === draftSaves
+		) {
 			loadedInfo = current
 		}
 	})

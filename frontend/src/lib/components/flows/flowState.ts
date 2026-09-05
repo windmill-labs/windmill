@@ -5,7 +5,7 @@ import { get } from 'svelte/store'
 import { workspaceStore } from '$lib/stores'
 import { isFlowModuleTool, agentToolToFlowModule, type AgentTool } from './agentToolUtils'
 import { linkedToolsScope, setLinkedAgentTools } from './linkedAgentToolsStore.svelte'
-import { agentDraftState, normalizeAgentRef } from './linkedAgentDrafts'
+import { fetchAgentWithDraft, normalizeAgentRef } from './linkedAgentDrafts'
 import { loadFlowModuleState } from './flowStateUtils.svelte'
 import { emptyFlowModuleState } from './utils.svelte'
 import type { StateStore } from '$lib/utils'
@@ -169,9 +169,12 @@ export async function resolveLinkedAgentTools(
 	if (!ws) return []
 	const path = normalizeAgentRef(agentRef)
 	try {
-		const res = await ResourceService.getResource({ workspace: ws, path, getDraft: withDraft })
-		const draft = withDraft ? agentDraftState(res, path, ws) : undefined
-		const value = (draft?.args ?? res.value) as { tools?: AgentTool[] } | undefined
+		if (!withDraft) {
+			const res = await ResourceService.getResource({ workspace: ws, path })
+			return ((res.value as { tools?: AgentTool[] } | undefined)?.tools ?? []) as AgentTool[]
+		}
+		const { response, draft } = await fetchAgentWithDraft(path, ws)
+		const value = (draft?.args ?? response.value) as { tools?: AgentTool[] } | undefined
 		return (value?.tools ?? []) as AgentTool[]
 	} catch {
 		return []
