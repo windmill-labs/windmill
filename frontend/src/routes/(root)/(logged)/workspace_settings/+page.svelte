@@ -28,6 +28,7 @@
 		type InstanceAISummary,
 		type GetSettingsResponse
 	} from '$lib/gen'
+	import type { GuestUsage } from '$lib/gen'
 	import {
 		enterpriseLicense,
 		superadmin,
@@ -187,6 +188,9 @@
 	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let publicAppRateLimitPerMinute: number | undefined = $state(undefined)
+	let guestAccessEnabled: boolean = $state(false)
+	let guestUsage: GuestUsage | undefined = $state(undefined)
+	let initialGuestAccessEnabled: boolean = $state(false)
 	let initialPublicAppRateLimitPerMinute: number | undefined = $state(undefined)
 
 	let hasInstanceAiConfig = $state(false)
@@ -522,12 +526,30 @@
 	}
 
 	async function saveDefaultAppSettings(): Promise<void> {
+		// Guests first: the only write of this card available on every plan, so a refused
+		// Enterprise-only write after it cannot swallow it.
+		if (guestAccessEnabled !== initialGuestAccessEnabled) {
+			await editGuestAccess()
+		}
 		if (workspaceDefaultAppPath !== initialWorkspaceDefaultAppPath) {
 			await editWorkspaceDefaultApp()
 		}
 		if (publicAppRateLimitPerMinute !== initialPublicAppRateLimitPerMinute) {
 			await editPublicAppRateLimit()
 		}
+	}
+
+	async function editGuestAccess(): Promise<void> {
+		await WorkspaceService.editGuestAccess({
+			workspace: $workspaceStore!,
+			requestBody: { guest_access_enabled: guestAccessEnabled }
+		})
+		initialGuestAccessEnabled = guestAccessEnabled
+		sendUserToast(
+			guestAccessEnabled
+				? 'Guests can now open apps set to Guests in this workspace'
+				: 'Guests can no longer sign in to this workspace'
+		)
 	}
 
 	async function loadWorkspaceEncryptionKey(): Promise<void> {
@@ -623,6 +645,11 @@
 		initialCriticalAlertUIMuted = settings.mute_critical_alerts
 		publicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
 		initialPublicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
+		guestAccessEnabled = settings.guest_access_enabled ?? false
+		initialGuestAccessEnabled = settings.guest_access_enabled ?? false
+		WorkspaceService.getGuestUsage({ workspace: $workspaceStore! })
+			.then((u) => (guestUsage = u))
+			.catch(() => (guestUsage = undefined))
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
 		} else if (
@@ -1024,11 +1051,13 @@
 		return {
 			savedValue: {
 				defaultAppPath: initialWorkspaceDefaultAppPath,
-				publicAppRateLimitPerMinute: initialPublicAppRateLimitPerMinute
+				publicAppRateLimitPerMinute: initialPublicAppRateLimitPerMinute,
+				guestAccessEnabled: initialGuestAccessEnabled
 			},
 			modifiedValue: {
 				defaultAppPath: workspaceDefaultAppPath,
-				publicAppRateLimitPerMinute: publicAppRateLimitPerMinute
+				publicAppRateLimitPerMinute: publicAppRateLimitPerMinute,
+				guestAccessEnabled: guestAccessEnabled
 			}
 		}
 	}
@@ -1037,6 +1066,7 @@
 	function discardDefaultAppSettingsChanges() {
 		workspaceDefaultAppPath = initialWorkspaceDefaultAppPath
 		publicAppRateLimitPerMinute = initialPublicAppRateLimitPerMinute
+		guestAccessEnabled = initialGuestAccessEnabled
 	}
 
 	// Strip keys from extraArgs that are auto-managed by child components:
@@ -2152,13 +2182,43 @@ export async function main(
 								<span class="text-hint text-2xs">executions per minute per server</span>
 							</SettingCard>
 
+							<SettingCard
+								label="Guests"
+								description="Let anyone your identity provider authenticates open the apps set to Guests without a Windmill account. They join no workspace, see nothing else, and take no seat. Off by default. Turning it off stops guests immediately, even for apps already set to Guests."
+								class="mt-6"
+							>
+								<Toggle
+									bind:checked={guestAccessEnabled}
+									options={{ right: 'Allow guests to open apps set to Guests' }}
+								/>
+								{#if guestUsage && !guestUsage.instance_enabled}
+									<span class="text-hint text-2xs">
+										A superadmin has turned guests off for this instance, so this switch has no
+										effect until they are allowed again.
+									</span>
+								{:else if guestUsage}
+									<span class="text-hint text-2xs">
+										{guestUsage.guest_count} of {guestUsage.free_allowance} free guests used across
+										this instance in the last {guestUsage.window_days} days.
+										{#if guestUsage.metered}
+											Beyond that, every four guests count as one seat{guestUsage.guest_seats > 0
+												? ` (${guestUsage.guest_seats} now)`
+												: ''}.
+										{:else}
+											Beyond that, new guests are refused until the count drops; an Enterprise
+											license meters them instead.
+										{/if}
+									</span>
+								{/if}
+							</SettingCard>
+
 							<SettingsFooter
 								class="mt-8"
 								hasUnsavedChanges={hasDefaultAppChanges}
 								onSave={saveDefaultAppSettings}
 								onDiscard={discardDefaultAppSettingsChanges}
 								saveLabel="Save app settings"
-								disabled={!$enterpriseLicense}
+								disabled={!$enterpriseLicense && guestAccessEnabled === initialGuestAccessEnabled}
 							/>
 						{:else if tab == 'native_triggers'}
 							{#if $workspaceStore}

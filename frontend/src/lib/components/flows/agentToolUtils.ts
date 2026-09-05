@@ -21,6 +21,11 @@ export function getToolNameError(
 	if (kind === 'mcp') {
 		return name.length > 0 ? undefined : 'Tool name must not be empty'
 	}
+	// Ahead of the pattern, which an empty name also fails: "must only contain letters" reads as a
+	// complaint about characters that are not there.
+	if (name.length === 0) {
+		return 'Tool name must not be empty'
+	}
 	if (!/^[a-zA-Z0-9_]+$/.test(name)) {
 		return 'Tool name must only contain letters, numbers and underscores'
 	}
@@ -60,6 +65,9 @@ export type WebsearchTool = AgentTool & {
  * Type guard to check if a tool is a FlowModule tool
  */
 export function isFlowModuleTool(tool: AgentTool): tool is FlowModuleTool {
+	// `value` must be there, not merely lack a `tool_type`: the tool list is JSON-authored, and an
+	// entry without one is not a flowmodule tool for the callers that go on to read its script.
+	if (tool?.value == undefined) return false
 	return tool.value.tool_type === undefined || tool.value.tool_type === 'flowmodule'
 }
 
@@ -67,14 +75,28 @@ export function isFlowModuleTool(tool: AgentTool): tool is FlowModuleTool {
  * Type guard to check if a tool is an MCP tool
  */
 export function isMcpTool(tool: AgentTool): tool is McpTool {
-	return tool.value.tool_type === 'mcp'
+	return tool?.value?.tool_type === 'mcp'
 }
 
 /**
  * Type guard to check if a tool is a Websearch tool
  */
 export function isWebsearchTool(tool: AgentTool): tool is WebsearchTool {
-	return tool.value.tool_type === 'websearch'
+	return tool?.value?.tool_type === 'websearch'
+}
+
+/** The only input a nested agent used as a tool has the calling agent fill: the rest is its own
+ *  configuration, not something to generate. Mirrors the server, which offers such a tool a schema
+ *  of `{user_message}` and nothing else (`AI_AGENT_TOOL_SCHEMA` in `ai_executor.rs`); anything else
+ *  left AI-filled here is dropped from that schema and never reaches the model. */
+export const AI_AGENT_TOOL_AI_KEYS = ['user_message']
+
+/** What a tool is called wherever it is named: its own name, else what it points at. Never its id,
+ *  which is internal. Undefined when it has nothing to be called yet — an MCP tool with no server
+ *  picked is unnamed rather than misnamed, so each surface words that for itself. */
+export function toolDisplayName(tool: AgentTool): string | undefined {
+	const value = tool?.value as Record<string, any>
+	return tool?.summary || value?.path || value?.resource_path || undefined
 }
 
 /**
