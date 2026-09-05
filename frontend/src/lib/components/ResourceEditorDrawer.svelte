@@ -25,7 +25,8 @@
 		onRestored = undefined,
 		onSaved = undefined,
 		useDrawer = true,
-		onBack = undefined
+		onBack = undefined,
+		onRemoved = undefined
 	}: {
 		workspace?: string
 		disableChatOffset?: boolean
@@ -44,6 +45,9 @@
 		/** Inline only: offered in the header when the host replaced something the
 		 * user should be able to get back to (a session tab that took over the list). */
 		onBack?: () => void
+		/** The resource is gone — a draft-only one whose draft was discarded. A host
+		 * addressing it by path (a session tab) has to stop showing it. */
+		onRemoved?: () => void
 	} = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -61,7 +65,8 @@
 				save: () => Promise<boolean>
 				localDraftDeployed: () => unknown
 				localDraftCurrent: () => unknown
-				discardLocalDraft: () => void
+				/** False when the discard removed the resource (it was draft-only). */
+				discardLocalDraft: () => boolean
 		  }
 		| undefined = $state(undefined)
 	let hasLocalDraft = $state(false)
@@ -171,7 +176,9 @@
 		reserveSpace={mode == 'edit'}
 		getDeployed={() => resourceEditor?.localDraftDeployed()}
 		getCurrent={() => resourceEditor?.localDraftCurrent()}
-		onDiscard={() => resourceEditor?.discardLocalDraft()}
+		onDiscard={() => {
+			if (resourceEditor?.discardLocalDraft() === false) onRemoved?.()
+		}}
 		disabled={!canWriteSelected}
 	/>
 {/snippet}

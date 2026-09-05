@@ -290,11 +290,16 @@
 	export function localDraftCurrent(): ResourceState | undefined {
 		return current
 	}
-	export function discardLocalDraft(): void {
-		if (!selected) return
+	/** Returns whether the resource still exists afterwards. Discarding a draft
+	 * that was never deployed removes the resource itself — `initialStates` holds a
+	 * synthesized stand-in, not a baseline to fall back to — so a caller showing it
+	 * has to stop rather than keep displaying that stand-in. */
+	export function discardLocalDraft(): boolean {
+		if (!selected) return true
 		UserDraft.discard('resource', initialPath ?? '', initialStates[selected], {
 			workspace: selected
 		})
+		return !!existedInitially[selected]
 	}
 
 	$effect(() => {

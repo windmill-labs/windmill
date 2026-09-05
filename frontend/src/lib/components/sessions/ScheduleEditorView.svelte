@@ -8,7 +8,8 @@
 	let {
 		path,
 		workspaceId,
-		onBack
+		onBack,
+		onRenamed
 	}: {
 		/** The schedule this tab edits (the row its location deep-links). */
 		path: string
@@ -17,6 +18,10 @@
 		workspaceId: string
 		/** Back to the list this editor was reached through; the tab replaced it. */
 		onBack?: () => void
+		/** The item was saved under a different path. The tab addresses it by path —
+		 * as do its label, the chat's ACTIVE PREVIEW and the draft key — so the tab
+		 * has to follow, or all four keep naming an item that no longer exists. */
+		onRenamed?: (newPath: string) => void
 	} = $props()
 
 	// Captured at init, so it must read the current prop rather than close over it.
@@ -59,7 +64,13 @@
 			bind:this={editor}
 			useDrawer={false}
 			showDraftBanner
-			onUpdate={() => generation++}
+			onRemoved={onBack}
+			onUpdate={(saved: string | undefined) => {
+				generation++
+				// A draft-only schedule opens with its path editable (saving CREATEs),
+				// so the save can land somewhere other than where the tab is pointed.
+				if (saved && saved !== path) onRenamed?.(saved)
+			}}
 		>
 			{#snippet customLabel()}
 				<div class="flex flex-row items-center gap-2 min-w-0">

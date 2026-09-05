@@ -38,6 +38,7 @@
 	useDrawer={false}
 	workspace={workspaceId}
 	{onBack}
+	onRemoved={onBack}
 	onSaved={(saved) => {
 		if (saved && saved !== path) onRenamed?.(saved)
 	}}

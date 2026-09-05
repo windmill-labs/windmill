@@ -68,7 +68,10 @@
 		// false) it is the host's, since the trigger panel inside a script or flow
 		// editor is covered by that editor's banner. A host that stands alone — a
 		// session's schedule tab — opts in, or nothing says an edit is unsaved.
-		showDraftBanner = false
+		showDraftBanner = false,
+		// The schedule is gone — a draft-only one whose draft the banner discarded.
+		// A host addressing it by path (a session tab) has to stop showing it.
+		onRemoved = undefined
 	} = $props()
 
 	let optionTabSelected:
@@ -79,6 +82,9 @@
 		| 'dynamic_skip' = $state('error_handler')
 	let initialPath = $state('')
 	let edit = $state(true)
+	// Opened on a schedule that exists only as a draft: its draft IS the schedule,
+	// so discarding it removes the item rather than reverting it.
+	let draftOnly = $state(false)
 	let schedule: string = $state('0 0 12 * *')
 	let cronVersion: string = $state('v2')
 	let isLatestCron = $state(true)
@@ -183,6 +189,7 @@
 			const { overlay: draftOverlay, noDeployed } = await loadSchedule(defaultCfg)
 			// Draft-only schedules have no deployed row, so saving must CREATE (update 404s).
 			edit = !noDeployed
+			draftOnly = noDeployed
 			if (!defaultCfg) {
 				// Form holds DEPLOYED here; capture it as `initialConfig` so the
 				// dirty check / banner fires whenever a saved draft exists.
@@ -339,6 +346,7 @@
 			drawer?.openDrawer()
 			runnable = undefined
 			edit = false
+			draftOnly = false
 			// No deployed baseline for a brand-new schedule. The editor instance
 			// is reused across open() calls, so clear any baseline left by a prior
 			// openEdit — otherwise the "unsaved changes" banner / dirty check would
@@ -1455,7 +1463,10 @@
 				getDeployed={() => draftSync.deployed}
 				reserveSpace={draftSync.hasBaseline}
 				getCurrent={() => draftSync.current}
-				onDiscard={() => draftSync.resetToDeployed(initialPath)}
+				onDiscard={async () => {
+					await draftSync.resetToDeployed(initialPath)
+					if (draftOnly) onRemoved?.()
+				}}
 				disabled={!can_write}
 			/>
 		{/if}

@@ -43,7 +43,8 @@
 		workspace = undefined,
 		useDrawer = true,
 		onBack = undefined,
-		onSaved = undefined
+		onSaved = undefined,
+		onRemoved = undefined
 	}: {
 		workspace?: string
 		/**
@@ -59,6 +60,9 @@
 		/** Fires after a save, with the path it wrote to — which is not the one it was
 		 * opened on when the user renamed it. */
 		onSaved?: (savedPath?: string) => void
+		/** The variable is gone — a draft-only one whose draft was discarded. A host
+		 * addressing it by path (a session tab) has to stop showing it. */
+		onRemoved?: () => void
 	} = $props()
 	let curWs = $derived(workspace ?? $workspaceStore)
 
@@ -343,6 +347,10 @@
 			UserDraft.discard('variable', editPath ?? '', initialStates[selected], {
 				workspace: selected
 			})
+			// A draft-only variable has no deployed row under the draft, so discarding
+			// it removed the variable: `initialStates` holds a synthesized stand-in,
+			// not a baseline to fall back to.
+			if (!existedInitially[selected]) onRemoved?.()
 		}}
 		disabled={!can_write}
 	/>

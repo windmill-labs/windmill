@@ -373,7 +373,12 @@
 				{#await import('./ScheduleEditorView.svelte')}
 					{@render editorLoading()}
 				{:then Module}
-					<Module.default path={slot.path} {workspaceId} onBack={backToList} />
+					<Module.default
+						path={slot.path}
+						{workspaceId}
+						onBack={backToList}
+						onRenamed={retargetTo}
+					/>
 				{/await}
 			{:else if slot.entityKind === 'resource'}
 				{#await import('./ResourceEditorView.svelte')}
