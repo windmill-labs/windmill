@@ -687,7 +687,7 @@ async fn list_apps(
     if lq.with_deployment_msg.unwrap_or(false) {
         sqlb.join("deployment_metadata dm")
             .left()
-            .on("dm.app_version = app.versions[array_upper(app.versions, 1)]")
+            .on("dm.app_version = app.versions[array_upper(app.versions, 1)] AND dm.workspace_id = app.workspace_id")
             .fields(&["dm.deployment_msg"]);
     }
 
@@ -1196,7 +1196,7 @@ async fn get_app_history(
     let mut tx = user_db.begin(&authed).await?;
     let query_result = sqlx::query!(
         "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg
-        FROM app a LEFT JOIN app_version av ON a.id = av.app_id LEFT JOIN deployment_metadata dm ON av.id = dm.app_version
+        FROM app a LEFT JOIN app_version av ON a.id = av.app_id LEFT JOIN deployment_metadata dm ON av.id = dm.app_version AND dm.workspace_id = a.workspace_id
         WHERE a.workspace_id = $1 AND a.path = $2
         ORDER BY created_at DESC",
         w_id,
@@ -1225,7 +1225,7 @@ async fn get_latest_version(
     let mut tx = user_db.begin(&authed).await?;
     let row = sqlx::query!(
         "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg
-        FROM app a LEFT JOIN app_version av ON a.id = av.app_id LEFT JOIN deployment_metadata dm ON av.id = dm.app_version
+        FROM app a LEFT JOIN app_version av ON a.id = av.app_id LEFT JOIN deployment_metadata dm ON av.id = dm.app_version AND dm.workspace_id = a.workspace_id
         WHERE a.workspace_id = $1 AND a.path = $2
         ORDER BY created_at DESC",
         w_id,
@@ -1253,15 +1253,24 @@ async fn update_app_history(
     Json(app_history_update): Json<AppHistoryUpdate>,
 ) -> Result<()> {
     let mut tx = user_db.begin(&authed).await?;
-    let app_path = sqlx::query_scalar!("SELECT path FROM app WHERE id = $1", app_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+    // `app_version.id` is a global sequence, so the version has to be tied back to the app and
+    // the app to the workspace: without both, the row this writes lands on another workspace's
+    // deployment history.
+    let app_path = sqlx::query_scalar!(
+        "SELECT a.path FROM app a JOIN app_version av ON av.app_id = a.id
+        WHERE a.id = $1 AND a.workspace_id = $2 AND av.id = $3",
+        app_id,
+        w_id,
+        app_version,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
 
     let Some(app_path) = app_path else {
         tx.commit().await?;
-        return Err(Error::NotFound(
-            format!("App with ID {app_id} not found").to_string(),
-        ));
+        return Err(Error::NotFound(format!(
+            "App with ID {app_id} and version {app_version} not found"
+        )));
     };
 
     check_scopes(&authed, || format!("apps:write:{}", &app_path))?;
