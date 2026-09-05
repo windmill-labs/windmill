@@ -734,10 +734,20 @@ What that leaves is a subscription accepted while it was live and later orphaned
 A dbt project deployed afterwards that claims the relation names those edges in
 its own log rather than leaving them silently dormant — the same "an edge that can
 never fire is worse than saying so" the refusal is for, at the other point where
-it is knowable. The remaining case, a native producer that drops its
-`// materialize` and leaves dbt alone on the relation, is reported nowhere: the
-deploy that causes it does not touch the subscriber, and the canvas is where it
-shows.
+it is knowable.
+
+Two orphanings are reported nowhere, and both are accepted rather than overlooked.
+A native producer that drops its `// materialize` and leaves dbt alone on the
+relation: the deploy that causes it does not touch the subscriber. And the
+interleaving where a dbt ingest commits between a subscriber's producer check and
+its own commit — the check sees no producer and accepts, the ingest's warning
+query sees no trigger and says nothing. Closing the second means a per-relation
+lock shared by the deploy path and the ingest, and the ingest takes
+`script … FOR UPDATE` before its own advisory lock, so a deploy holding relation
+locks first inverts that order into a deadlock across two subsystems — a worse
+failure than the cosmetic edge it would prevent. Both are bounded the same way:
+the next deploy of that project warns, and the canvas is where they show
+meanwhile.
 
 A plain READ still renders the consumer beside the model, which is what makes
 the lineage one graph — but it is written in the script's own code, not in a

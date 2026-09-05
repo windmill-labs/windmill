@@ -267,8 +267,16 @@ pub fn derive_pipeline_asset_trigger_refs(
 /// them is free of the opposite error, because a script never wakes its own
 /// subscription — the dispatcher skips that as a self-loop.
 ///
-/// A producer another deploy is committing concurrently is still invisible, so
-/// that race resolves toward refusing with a message the user can retry past.
+/// A producer another deploy is committing concurrently is invisible either way,
+/// and the outcome depends on which side it is. An uncommitted NATIVE producer
+/// leaves a dbt-only set and refuses, with a message the user can retry past. An
+/// uncommitted DBT one leaves an empty set and accepts — and if that ingest then
+/// commits and runs [`dormant_dbt_subscriptions`] before this deploy's trigger
+/// row lands, neither side reports the edge it left dormant. Serializing the two
+/// is not worth it: they would have to share a per-relation lock, and the ingest
+/// takes `script … FOR UPDATE` before its own advisory lock, so a deploy holding
+/// relation locks first inverts that order into a deadlock across the two
+/// subsystems. The next deploy of that project warns (docs/dbt-runtime.md).
 pub async fn sole_dbt_producer<'e>(
     executor: impl PgExecutor<'e>,
     workspace_id: &str,
