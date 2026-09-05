@@ -59,6 +59,14 @@ pub enum GuestJwtKeySource {
     JwksUrl(String),
 }
 
+/// The instance-wide external JWT issuer (`JWT_EXT_JWKS_URL`, also used by `jwt_ext_`). Read
+/// fresh rather than cached so it is testable and picks up config regardless of init order.
+fn instance_ext_jwks_url() -> Option<String> {
+    std::env::var("JWT_EXT_JWKS_URL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+}
+
 pub async fn key_source(db: &DB, w_id: &str) -> Result<Option<GuestJwtKeySource>> {
     let row = sqlx::query!(
         "SELECT guest_jwt_public_key, guest_jwt_jwks_url FROM workspace_settings WHERE workspace_id = $1",
@@ -67,13 +75,25 @@ pub async fn key_source(db: &DB, w_id: &str) -> Result<Option<GuestJwtKeySource>
     .fetch_optional(db)
     .await
     .map_err(|e| Error::internal_err(format!("reading guest JWT key of {w_id}: {e:#}")))?;
-    Ok(
-        row.and_then(|r| match (r.guest_jwt_public_key, r.guest_jwt_jwks_url) {
-            (Some(pem), _) => Some(GuestJwtKeySource::Pem(pem)),
-            (None, Some(url)) => Some(GuestJwtKeySource::JwksUrl(url)),
-            (None, None) => None,
-        }),
-    )
+    let per_workspace = row.and_then(|r| match (r.guest_jwt_public_key, r.guest_jwt_jwks_url) {
+        (Some(pem), _) => Some(GuestJwtKeySource::Pem(pem)),
+        (None, Some(url)) => Some(GuestJwtKeySource::JwksUrl(url)),
+        (None, None) => None,
+    });
+    if per_workspace.is_some() {
+        return Ok(per_workspace);
+    }
+    // No workspace key: fall back to the instance issuer, so an operator running one issuer for
+    // both `jwt_ext_` and guests configures it once. Verifying it (and granting a *guest*) is
+    // done here in CE; granting a full login from it stays EE (`jwt_ext_`). Not on the shared
+    // cloud, where one instance issuer must not be trusted to mint guests in every tenant's
+    // workspace — there the per-workspace key is the only source.
+    if !*crate::worker::CLOUD_HOSTED {
+        if let Some(url) = instance_ext_jwks_url() {
+            return Ok(Some(GuestJwtKeySource::JwksUrl(url)));
+        }
+    }
+    Ok(None)
 }
 
 /// Parse a PEM public key and the algorithms it may verify: RSA keys the RS/PS family,

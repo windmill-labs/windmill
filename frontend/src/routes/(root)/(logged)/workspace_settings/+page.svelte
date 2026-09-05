@@ -2293,6 +2293,14 @@ export async function main(
 											bind:value={guestJwtJwksUrl}
 										/>
 									{/if}
+									{#if !isCloudHosted()}
+										<div class="text-2xs text-hint">
+											Leave empty to fall back to the instance's configured JWT issuer (<code
+												>JWT_EXT_JWKS_URL</code
+											>), if one is set. Set a key here to trust a different issuer for this
+											workspace.
+										</div>
+									{/if}
 								</div>
 							</SettingCard>
 

@@ -473,3 +473,22 @@ async fn a_guest_jwt_derived_embed_token_is_capped(db: Pool<Postgres>) -> anyhow
 
     Ok(())
 }
+
+/// A workspace with no guest key of its own falls back to the instance issuer
+/// (`JWT_EXT_JWKS_URL`), so an operator running one issuer configures it once. Verified as a
+/// guest here in CE; a full login from that issuer stays EE (`jwt_ext_`).
+#[sqlx::test(fixtures("base"))]
+async fn no_workspace_key_falls_back_to_the_instance_issuer(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use windmill_common::guest_jwt::{key_source, GuestJwtKeySource};
+    let url = "https://issuer.example.com/jwks.json";
+    unsafe { std::env::set_var("JWT_EXT_JWKS_URL", url) };
+    let src = key_source(&db, "test-workspace").await;
+    unsafe { std::env::remove_var("JWT_EXT_JWKS_URL") };
+    assert!(
+        matches!(src?, Some(GuestJwtKeySource::JwksUrl(u)) if u == url),
+        "no workspace key falls back to the instance issuer"
+    );
+    Ok(())
+}
