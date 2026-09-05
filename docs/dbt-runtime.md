@@ -1268,8 +1268,10 @@ artifact the committed row still names: a run that fails between its two uploads
 or between them and its row, leaves the state pointing at the pair it already
 had. The objects the commit displaced are dropped afterwards, never before, since
 a reader that has already read the row is about to fetch them; a reader that
-loses that race re-reads the row once rather than reporting a state that is
-there. What a publication uploaded and then could not commit is dropped on the
+loses that race re-reads for as long as the row keeps MOVING, rather than
+reporting a state that is there. A reader takes no lock, so successive
+publications can each overtake one, and only an unmoved row whose objects are
+gone is an error. What a publication uploaded and then could not commit is dropped on the
 way out — except after a commit that REPORTED an error, where what was lost may
 be only the acknowledgement: dropping then would leave a committed row naming
 objects that are gone, so an orphan is the cheaper side to take.
