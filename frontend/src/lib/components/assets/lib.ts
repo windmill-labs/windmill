@@ -96,10 +96,11 @@ export function formatAssetKind(asset: {
 		case 'volume':
 			return 'Volume'
 		case 'dbt':
-			// The SCHEME says dbt because dbt is the only thing that creates one;
-			// the PATH stays the relation, so a mart one project builds and the
-			// `source` the next reads land on one node — their dbt `unique_id`s
-			// differ where the relation does not (docs/dbt-runtime.md, decision 11).
+			// The SCHEME says dbt because dbt is what derives these relations; the
+			// PATH stays the relation, so a mart one project builds, the `source`
+			// the next reads, and a native `// materialize manual dbt://…` writer
+			// land on one node — their dbt `unique_id`s differ where the relation
+			// does not (docs/dbt-runtime.md, decision 11).
 			return 'dbt table'
 	}
 }

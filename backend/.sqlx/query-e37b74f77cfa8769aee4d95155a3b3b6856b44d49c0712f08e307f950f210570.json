@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind)\n         VALUES ('test-workspace', 'main/analytics/orders', 'dbt', 'w', 'u/test-user/project',\n                 'script')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "e37b74f77cfa8769aee4d95155a3b3b6856b44d49c0712f08e307f950f210570"
+}

@@ -319,6 +319,18 @@ describe('resolveGraph', () => {
 		expect(assetTrigKeys(r, 'f/x/open')).toEqual(['ducklake:main.orders'])
 	})
 
+	// A relation a native `// materialize manual dbt://…` script writes wakes its
+	// subscribers, so hiding the edge would leave the author's own annotation off
+	// the canvas. The deploy refuses the ones that cannot fire.
+	it('draws an explicit dbt:// subscription as an unsaved trigger overlay', () => {
+		const liveAnnotations = {
+			scriptPath: 'f/x/open',
+			annotations: ann({ triggerAssets: [{ kind: 'dbt', path: 'main/analytics/orders' }] })
+		}
+		const r = resolveGraph(input({ liveAnnotations }))
+		expect(assetTrigKeys(r, 'f/x/open')).toEqual(['dbt:main/analytics/orders'])
+	})
+
 	it('open-script live annotations add unsaved triggers, deduped vs persisted', () => {
 		const base = baseGraph({
 			triggers: [

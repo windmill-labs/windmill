@@ -5527,7 +5527,7 @@ async fn handle_code_execution_job(
     .await?;
 
     let language = language.clone();
-    run_language_executor(
+    let result = run_language_executor(
         job,
         conn,
         client,
@@ -5553,7 +5553,110 @@ async fn handle_code_execution_job(
         false,
         in_pipeline,
     )
-    .await
+    .await;
+    record_declared_warehouse_write(job, conn, code, &result).await;
+    result
+}
+
+/// Record the outcome of a `// materialize manual dbt://<warehouse>/<schema>/<name>`
+/// declaration, the way the DuckDB executor records a DuckLake target.
+///
+/// Nothing generates warehouse DDL, so the script issues its own write and this
+/// is the only thing that turns it into a `materialized_partition` row — the
+/// relation's last writer on the run page and the graph. Language-agnostic on
+/// purpose — the DuckLake write engine is DuckDB's, this declaration is anyone's
+/// — except dbt's own, which is refused at deploy.
+///
+/// Best-effort, and it can be: the cascade fans out from the deploy-time `asset`
+/// rows, not from this one, so a lost row costs the relation its last writer and
+/// nothing else. It must not fail a job whose write already landed.
+///
+/// Shares the reach of every other runtime pipeline annotation, which is this
+/// function's caller: a job handed to a dedicated worker or a flow runner never
+/// passes through it, so — exactly as `// partitioned` is not resolved there —
+/// such a run performs its write and records no row.
+async fn record_declared_warehouse_write(
+    job: &MiniPulledJob,
+    conn: &Connection,
+    code: &str,
+    result: &error::Result<Box<RawValue>>,
+) {
+    use windmill_common::materialization::{
+        MaterializationStatus, RecordMaterializationRequest, UNPARTITIONED,
+    };
+    // A DEPLOYED script only. The annotation is a deploy-time contract — `manual`,
+    // a three-segment relation, a configured warehouse — checked in
+    // `create_script_internal`, which also required write access to the path. A
+    // preview, hub or inline-flow body reaches this function without any of that,
+    // so honouring it there would let `jobs:run` alone restamp any relation's last
+    // writer from a script that never touched it.
+    if job.kind != JobKind::Script {
+        return;
+    }
+    // Cheap guard: the annotation scan is skipped for the overwhelming majority
+    // of jobs, which carry no `materialize` line at all.
+    if !code.contains("materialize") {
+        return;
+    }
+    let Some(m) = windmill_parser::asset_parser::parse_pipeline_annotations(code)
+        .materialize
+        .filter(|m| m.target_kind == windmill_parser::asset_parser::AssetKind::Dbt)
+    else {
+        return;
+    };
+    // The slice this run wrote, resolved once upstream (`resolve_partition_for_job`)
+    // and carried in the args the cascade reads too, so a partitioned producer
+    // records the same identity everything else propagates.
+    let partition = job
+        .args
+        .as_ref()
+        .and_then(|a| a.0.get(windmill_common::partition::PARTITION_ARG))
+        .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
+        .unwrap_or_else(|| UNPARTITIONED.to_string());
+    let (status, error) = match result {
+        Ok(_) => (MaterializationStatus::Materialized, None),
+        Err(e) => (MaterializationStatus::Failed, Some(e.to_string())),
+    };
+    let recorded = match conn {
+        Connection::Sql(db) => windmill_common::materialization::record_materialization(
+            db,
+            &job.workspace_id,
+            windmill_common::assets::AssetKind::Dbt,
+            &m.target_path,
+            &partition,
+            status,
+            None,
+            None,
+            Some(job.id),
+            error.as_deref(),
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("{e:#}")),
+        Connection::Http(client) => {
+            crate::agent_workers::record_materialization_from_agent_http(
+                client,
+                &job.workspace_id,
+                &RecordMaterializationRequest {
+                    asset_kind: windmill_common::assets::AssetKind::Dbt,
+                    asset_path: m.target_path.clone(),
+                    partition,
+                    status,
+                    snapshot_id: None,
+                    row_count: None,
+                    job_id: Some(job.id),
+                    error,
+                    schema: None,
+                },
+            )
+            .await
+        }
+    };
+    if let Err(e) = recorded {
+        tracing::warn!(
+            "recording the materialization of dbt://{} failed: {e:#}",
+            m.target_path
+        );
+    }
 }
 
 /// True when `path` contains only `Normal`/`CurDir` components, i.e. it cannot

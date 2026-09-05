@@ -248,11 +248,13 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
     // A dbt run records the relations it builds, so it looks like a producer
     // here — but dbt does not trigger downstream runs. Its own DAG is dbt's to
     // order; the only thing a cascade would add is waking Windmill scripts that
-    // read a mart, and nothing outside dbt can declare a `dbt://` write, so
-    // that edge exists in one direction only. Cascading from a project whose
-    // per-run selection can build any subset of itself needs a per-run write set
-    // to be correct, which is a design worth doing deliberately rather than
-    // inferring. Until then dbt materializes and reports; it does not dispatch.
+    // read a mart. Cascading from a project whose per-run selection can build any
+    // subset of itself needs a per-run write set to be correct, which is a design
+    // worth doing deliberately rather than inferring: the deploy-time write set is
+    // not what ran, and the per-relation state table keeps one row per relation.
+    // Until then dbt materializes and reports; it does not dispatch. The opposite
+    // direction does: a native `// materialize manual dbt://…` script reaches the
+    // fan-out below on the ordinary path, on the strength of its own asset rows.
     if job.script_lang == Some(ScriptLang::Dbt) {
         return Ok(DispatchResult::default());
     }

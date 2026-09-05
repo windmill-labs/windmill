@@ -47,6 +47,7 @@ the dominant way dbt is orchestrated today.
 | 22 | Naming | Match Cosmos field names; importer deferred |
 | 23 | Descriptor | `wm_dbt.yaml` inside the project, OPTIONAL. See below |
 | 24 | Warehouse | Configured on the workspace by name, `main` by default. See below |
+| 25 | Cascade direction | Into a relation, not out of a run: `// materialize manual dbt://…` declares a write from any language but dbt's own and wakes `# on dbt://…` subscribers; a finished dbt run still does not dispatch. See "No cascade *from* dbt" |
 
 ## Decision 1: engine toggle, and why the shipped default is not Fusion yet
 
@@ -157,11 +158,15 @@ build and an enterprise build whose key did not verify.
 workspace warehouse's NAME, so two scripts running against the same warehouse
 agree on identity.
 
-The SCHEME names the producer, because dbt is the only thing that creates one of
-these: no other language derives warehouse relations, `// materialize` takes
-DuckLake targets only, and a dbt run does not dispatch. Calling the kind
-something generic promised a parity with native Snowflake and BigQuery scripts
-that does not exist.
+The SCHEME names the namespace dbt made, not an exclusive producer. dbt is what
+put warehouse relations in the asset graph and is what derives them from a
+project; no other language *infers* one, and calling the kind something generic
+promised a parity with native Snowflake and BigQuery scripts that does not exist.
+A script can nonetheless DECLARE that it writes one — `// materialize manual
+dbt://<warehouse>/<schema>/<name>`, in any language but dbt's own, whose writes
+come from its manifest — and that declaration lands on the same node the dbt model
+reading the relation does, because identity is the relation rather than the tool.
+See "No cascade *from* dbt" below.
 
 The PATH is the physical relation, and that is the load-bearing half. dbt-core
 has no cross-project `ref()`: two projects meet when one materializes a mart and
@@ -648,10 +653,13 @@ Two consequences worth knowing:
   dropped would be filtered out of its own run's graph. The pinned version's
   nodes are the scope instead.
 
-## No cascade from dbt, and no pipeline membership
+## No cascade *from* dbt, and no pipeline membership
 
 A finished dbt run does not trigger anything. Its models are recorded, drawn and
-tracked; they do not fan out.
+tracked; they do not fan out. The opposite direction does: a script that declares
+`// materialize manual dbt://<warehouse>/<schema>/<name>` is an ordinary producer
+of that relation, and its completion wakes `# on dbt://<relation>` subscribers
+through the same fan-out every other asset kind uses.
 
 A dbt script is also not a pipeline member (`in_pipeline` is forced false for
 `ScriptLang::Dbt` at deploy). It materializes warehouse tables, so it looks like
@@ -663,22 +671,96 @@ Its models are `dbt://` assets in the shared graph regardless: that is what
 puts a native script reading one of them on the same node, and it is independent
 of pipeline membership.
 
-dbt already orders its own DAG, so a cascade would only ever add one thing:
-waking a Windmill script that reads a mart. That edge is real but narrow, and
-only half of it exists — nothing outside dbt can declare a `dbt://` write
-(`// materialize` accepts DuckLake targets only), so the reverse direction, an
-ingestion script waking a dbt project, cannot be expressed at all.
-
-Against that, dispatching correctly from dbt is not cheap. A run's `select` can
-build any subset of the project, so the deploy-time write set is not what ran;
-using it wakes consumers of relations the run never touched, and narrowing it
-needs a per-job record of what was built, which the per-relation state table
-cannot supply (it keeps one row per relation, stamped with the last writer).
+dbt already orders its own DAG, so a cascade out of a run would only ever add one
+thing: waking a Windmill script that reads a mart. That edge is real but narrow,
+and dispatching it correctly is not cheap. A run's `select` can build any subset
+of the project, so the deploy-time write set is not what ran; using it wakes
+consumers of relations the run never touched, and narrowing it needs a per-job
+record of what was built, which the per-relation state table cannot supply (it
+keeps one row per relation, stamped with the last writer).
 
 So dbt materializes and reports, and `asset_dispatch` returns early for
-`ScriptLang::Dbt`. A `# on dbt://<mart>` subscription is refused outright at
-deploy rather than accepted and left dormant — an edge drawn on the canvas that
-can never fire is worse than an error saying so.
+`ScriptLang::Dbt`. Wiring it up later means deciding what a selective run should
+notify — that decision is the work, not the plumbing.
+
+### Declaring the write, and which subscriptions are refused
+
+`// materialize manual dbt://<warehouse>/<schema>/<name>` is how an ingestion
+script says it writes a warehouse relation. `manual` is not a mode but the only
+mode: nothing generates warehouse DDL, so the script issues its own write and
+Windmill records the outcome — the same `materialized_partition` row a DuckLake
+target lands, so the relation carries a last writer on the run page and the graph.
+It is language-agnostic (the DuckLake write ENGINE is DuckDB's; this declaration
+is anyone's but a dbt project's, whose writes are read from its manifest), and the
+recording happens in the generic job path
+(`record_declared_warehouse_write`) rather than in an executor, for the same
+reason. Identity is unchanged — the physical relation — so the ingestion script
+and the dbt model reading it are one node, and a `source` declared on the relation
+puts the whole thing on one lineage. `// data_test` is refused beside it: those
+checks are probes the DuckDB executor splices around a managed write, so on a
+warehouse relation — which the script writes itself, from any language — nothing
+would run them, and a declarer would deploy green with its assertions silently
+skipped. Assert on the relation with a dbt test in the project that reads it.
+The `<warehouse>` segment is resolved at
+deploy for the same reason a descriptor's `profile.warehouse` is: a name no
+warehouse answers to is not a namespace, it strands the write on a node nothing
+else reaches.
+
+Known boundary, shared with every other runtime pipeline annotation: the record
+is written from the normal execution path, and recording and cascading are decided
+separately, so the routes off it differ.
+
+* A **dedicated worker** never enters that path — it bypasses the record exactly
+  as it bypasses `// partitioned` resolution — while its job is still a top-level
+  `Script`, so the fan-out (which reads the deploy-time `asset` rows) runs. It
+  cascades and records nothing, leaving the relation with no last writer.
+* A **flow runner** bypasses the path too, and is routed by `flow_step_id`, which
+  `is_eligible_kind` rejects. Neither record nor cascade.
+* A **flow step running a deployed script** enters the path as a `Script` job, so
+  it records — and carries a `flow_step_id`, so it never cascades.
+* A **flow step with an inline body** is a `FlowScript` job, which the recording
+  guard excludes along with previews: neither.
+
+Fixing the recording half is one change for every runtime pipeline annotation,
+not this one.
+
+A `# on dbt://<relation>` subscription is held to the same relation a producer
+is — a whole `<warehouse>/<schema>/<name>` under a configured warehouse, checked
+by the validator the `// materialize` target goes through, since two spellings of
+that rule would refuse and accept the same string. Beyond that it is refused in
+exactly one shape: when every script that writes that relation is a dbt one. Nothing
+produces it yet is NOT that shape — a subscriber may be deployed before its
+producer, as for every other asset kind, and refusing there would break
+deploy-order-independent syncs. A dbt script may neither subscribe nor declare a
+`// materialize`: its graph ingest republishes that path's trigger and asset rows
+wholesale, so either annotation would deploy something the dependency job then
+silently removes — while the declared write would still stamp the relation on
+every run.
+
+The producer set is read as it stands committed, minus the deploying script's own
+rows — those describe the version being replaced, so a script dropping its
+`// materialize` while adding a subscription would otherwise count itself as the
+producer that wakes it, which it could not be anyway (the dispatcher skips
+self-loops).
+
+What that leaves is a subscription accepted while it was live and later orphaned.
+A dbt project deployed afterwards that claims the relation names those edges in
+its own log rather than leaving them silently dormant — the same "an edge that can
+never fire is worse than saying so" the refusal is for, at the other point where
+it is knowable.
+
+Two orphanings are reported nowhere, and both are accepted rather than overlooked.
+A native producer that drops its `// materialize` and leaves dbt alone on the
+relation: the deploy that causes it does not touch the subscriber. And the
+interleaving where a dbt ingest commits between a subscriber's producer check and
+its own commit — the check sees no producer and accepts, the ingest's warning
+query sees no trigger and says nothing. Closing the second means a per-relation
+lock shared by the deploy path and the ingest, and the ingest takes
+`script … FOR UPDATE` before its own advisory lock, so a deploy holding relation
+locks first inverts that order into a deadlock across two subsystems — a worse
+failure than the cosmetic edge it would prevent. Both are bounded the same way:
+the next deploy of that project warns, and the canvas is where they show
+meanwhile.
 
 A plain READ still renders the consumer beside the model, which is what makes
 the lineage one graph — but it is written in the script's own code, not in a
@@ -687,8 +769,8 @@ comment: the body parsers resolve an asset URI from a string literal
 Python, TS/Bun/Deno, DuckDB or Ansible script is the read. Those four are the
 languages with a body-asset parser; the native warehouse ones (snowflake,
 bigquery, postgresql, mysql, mssql) declare no assets at all today, so a mart
-they consume joins the graph only once that inference exists. Wiring the trigger up later means deciding what a
-selective run should notify — that decision is the work, not the plumbing.
+they consume joins the graph only once that inference exists — while a relation
+one of them WRITES joins it now, through the annotation.
 
 ## Live per-model progress, and why only dbt-core 1.x has it
 
@@ -1215,17 +1297,22 @@ Against a real dbt project (jaffle_shop shape) and the local Postgres:
    script reading one of the marts gets an edge to it.
 6. **Shared node**: a native script that READS a mart renders as a reader of the
    same node the dbt model writes — one node, not two islands. Declared with a
-   plain read (`# dbt://<mart>`), never `# on`: a `dbt://` subscription is
-   refused at deploy, because nothing but dbt writes a warehouse relation and a
-   dbt run does not dispatch (see "no cascade from dbt").
-7. **Selection**: descriptor `select`/`exclude`, and a run-arg override, each
+   plain read (`# dbt://<mart>`), never `# on`: a subscription to a relation dbt
+   alone builds is refused at deploy, since a dbt run does not dispatch.
+7. **Declared write**: a native `// materialize manual dbt://<relation>` script
+   and a dbt project reading that relation as a `source` render as one node; a
+   run of the script records its materialization and wakes a
+   `# on dbt://<relation>` subscriber — a subscription only that producer makes
+   wakeable, the dbt project reading the relation being no producer of it (see
+   "no cascade *from* dbt").
+8. **Selection**: descriptor `select`/`exclude`, and a run-arg override, each
    build only the expected subset.
-8. **Dynamic descriptors**: a `{{ }}` placeholder in `vars` re-ingests the graph
+9. **Dynamic descriptors**: a `{{ }}` placeholder in `vars` re-ingests the graph
    from the run's own manifest, so a model that placeholder enables appears in
    the same run that builds it.
-9. **Both credential paths**: resource-rendered `profiles.yml`, and the project's
+10. **Both credential paths**: resource-rendered `profiles.yml`, and the project's
    own `profiles.yml` with env-var injection.
-10. **Caching**: a second run reuses the cached `dbt_packages/` with no network
+11. **Caching**: a second run reuses the cached `dbt_packages/` with no network
     fetch.
 
 Keep only tests that pin behavior a future change could break. Per AGENTS.md,
