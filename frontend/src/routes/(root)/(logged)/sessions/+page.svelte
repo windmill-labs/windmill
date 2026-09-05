@@ -625,12 +625,20 @@
 			// editor still loading holds none yet and the seed no-opped past it. The
 			// miss is recorded when it happens — asking now would be too late, since
 			// the editor can have acquired the cell during the write's round-trip.
+			// Each marker is read only by the kind of tool that writes it. A marker
+			// left unread — nothing consumes them outside a session — would otherwise
+			// be spent by whatever touched the item next, and a removal marker read by
+			// a deploy sends a live editor away.
 			const kind = path ? entityKindForPage(pages[0]) : undefined
-			const seedReachedEditor = !kind || !path || !UserDraft.takeSeedMiss(kind, path, { workspace })
+			const readable = !!kind && !!path
+			const seedReachedEditor =
+				!readable || entity !== 'none' || !UserDraft.takeSeedMiss(kind!, path!, { workspace })
 			// A discard of a draft-only item removed the item itself, so its editor has
 			// nothing left to re-read and must leave instead.
 			const itemSurvives =
-				!kind || !path || !UserDraft.takeDraftOnlyDiscard(kind, path, { workspace })
+				!readable ||
+				name !== 'discard_local_draft' ||
+				!UserDraft.takeDraftOnlyDiscard(kind!, path!, { workspace })
 			const effect = effectForDiscard(effectForWrite(entity, seedReachedEditor), itemSurvives)
 			if (effect !== 'none') pendingMutations.push({ pages, effect, path, workspace })
 			clearTimeout(reloadHandle)

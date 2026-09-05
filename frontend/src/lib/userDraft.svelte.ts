@@ -442,6 +442,13 @@ export const UserDraft = {
 		noteMarker(draftOnlyDiscards, mapKey(resolveWorkspace(opts), itemKind, path))
 	},
 
+	/** Drop any removal marker for this cell — the item exists again, so a marker
+	 * still standing (nothing consumed it, because nothing was listening) would be
+	 * read by whatever touches it next and send its editor away. */
+	clearDraftOnlyDiscard(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
+		draftOnlyDiscards.delete(mapKey(resolveWorkspace(opts), itemKind, path))
+	},
+
 	/** Whether the last discard for this cell removed the item outright (see
 	 * {@link recordDraftOnlyDiscard}), clearing the record. */
 	takeDraftOnlyDiscard(

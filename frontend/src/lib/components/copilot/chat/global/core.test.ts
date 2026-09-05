@@ -2160,6 +2160,27 @@ describe('global AI tools', () => {
 		expect(UserDraft.takeDraftOnlyDiscard('resource', path, { workspace: WORKSPACE })).toBe(true)
 	})
 
+	// Nothing consumes a marker outside a session, so one can outlive the item it
+	// was about. Recreating the item must void it, or the next action on the
+	// recreated item reads it and sends a perfectly valid editor back to its list.
+	it('voids a draft-only removal marker when the item is written again', async () => {
+		const path = 'f/resources/discard-then-recreate'
+		await callGlobalTool('write_resource', {
+			path,
+			resource_type: 'postgresql',
+			value: { host: 'localhost' }
+		})
+		await callGlobalTool('discard_local_draft', { type: 'resource', path })
+
+		// The marker is standing (no listener consumed it), and now the item is back.
+		await callGlobalTool('write_resource', {
+			path,
+			resource_type: 'postgresql',
+			value: { host: 'elsewhere' }
+		})
+		expect(UserDraft.takeDraftOnlyDiscard('resource', path, { workspace: WORKSPACE })).toBe(false)
+	})
+
 	// "Create a resource, then never mind": delete_workspace_item must reject a path
 	// that was never deployed, before the confirmation card — otherwise the user
 	// confirms a workspace mutation that 404s past the draft cleanup, leaving the
