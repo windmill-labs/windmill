@@ -179,13 +179,27 @@
 			: undefined
 	)
 
+	// An editor reports a removal or a rename after the write it awaited, and the tab
+	// it was mounted for may have moved on in the meantime — retargeted onto another
+	// item, or onto a different page entirely. The report belongs to the item it
+	// started on, so both callbacks below act only while the tab is still showing it:
+	// otherwise they would re-point whatever the tab holds now, and build the URL out
+	// of that unrelated location.
+	function stillShowing(path: string): boolean {
+		const now = resolvePreviewTab(tab.url)
+		return now.kind === 'entity' && now.path === path
+	}
+
 	// The item is gone (a draft-only one whose draft was discarded), so the tab has
 	// the same destination as `backToList` — but bound to this tab by id, not to
-	// whichever is active: a discard completes asynchronously, and by then the user
-	// may be looking at another tab, which must not be the one sent to the list.
+	// whichever is active: by the time a discard lands the user may be looking at
+	// another tab, which must not be the one sent to the list.
 	const returnToList = $derived(
 		slot.kind === 'entity' && runtime
-			? () => runtime.previewTabs.retargetTabTo(tab.id, entityListHref(whereIs(tab)))
+			? (fromPath: string) => {
+					if (!stillShowing(fromPath)) return
+					runtime.previewTabs.retargetTabTo(tab.id, entityListHref(whereIs(tab)))
+				}
 			: undefined
 	)
 
@@ -194,8 +208,10 @@
 	// path — so they have to move with it, or they name an item that no longer exists.
 	const retargetTo = $derived(
 		slot.kind === 'entity' && runtime
-			? (newPath: string) =>
+			? (newPath: string, fromPath: string) => {
+					if (!stillShowing(fromPath)) return
 					runtime.previewTabs.retargetTabTo(tab.id, entityEditorHref(whereIs(tab), newPath))
+				}
 			: undefined
 	)
 

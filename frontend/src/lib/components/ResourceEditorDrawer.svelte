@@ -32,9 +32,10 @@
 		disableChatOffset?: boolean
 		onRestored?: () => void
 		/** Fires after Save has written, with the path it wrote to — which is not the
-		 * one it was opened on when the user renamed it. For a caller showing state
-		 * derived from the resource; `onRestored` only covers restoring a version. */
-		onSaved?: (savedPath?: string) => void
+		 * one it was opened on when the user renamed it — and the one it was opened
+		 * on. For a caller showing state derived from the resource; `onRestored` only
+		 * covers restoring a version. */
+		onSaved?: (savedPath?: string, fromPath?: string) => void
 		/**
 		 * False renders the editor in place instead of in a drawer, for a host that
 		 * gives it a pane of its own (a session's resource tab). Same convention as
@@ -45,9 +46,10 @@
 		/** Inline only: offered in the header when the host replaced something the
 		 * user should be able to get back to (a session tab that took over the list). */
 		onBack?: () => void
-		/** The resource is gone — a draft-only one whose draft was discarded. A host
-		 * addressing it by path (a session tab) has to stop showing it. */
-		onRemoved?: () => void
+		/** The resource is gone — a draft-only one whose draft was discarded — with
+		 * the path it was showing. A host addressing it by path (a session tab) has
+		 * to stop showing it. */
+		onRemoved?: (fromPath: string) => void
 	} = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -177,7 +179,8 @@
 		getDeployed={() => resourceEditor?.localDraftDeployed()}
 		getCurrent={() => resourceEditor?.localDraftCurrent()}
 		onDiscard={() => {
-			if (resourceEditor?.discardLocalDraft() === false) onRemoved?.()
+			const from = path
+			if (resourceEditor?.discardLocalDraft() === false && from) onRemoved?.(from)
 		}}
 		disabled={!canWriteSelected}
 	/>
@@ -210,6 +213,10 @@
 		unifiedSize="md"
 		startIcon={{ icon: Save }}
 		on:click={async () => {
+			// The path this save started from. Read before the await: an inline host can
+			// re-point the editor at another resource while the write is in flight, and
+			// the caller needs to know which one the result belongs to.
+			const from = path
 			// Closed before the write is awaited, the way it always was: `save()` toasts its
 			// own failures and never rejects, so waiting would only add visible lag to every
 			// caller of this drawer. `onSaved` still fires after the write lands.
@@ -225,7 +232,7 @@
 			const savedPath = livePath ?? path
 			if (savedPath) path = savedPath
 			editorGeneration++
-			onSaved?.(savedPath)
+			onSaved?.(savedPath, from)
 		}}
 		disabled={!canSave}
 	>

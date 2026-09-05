@@ -16,14 +16,15 @@
 		workspaceId: string
 		/** Back to the list this editor was reached through; the tab replaced it. */
 		onBack?: () => void
-		/** The item is gone — a draft-only one whose draft was discarded. Distinct from
-		 * `onBack`, which moves whichever tab is active: a discard can complete after
-		 * the user has moved on, and only this tab is the one to send back. */
-		onRemoved?: () => void
-		/** The item was saved under a different path. The tab addresses it by path —
-		 * as do its label, the chat's ACTIVE PREVIEW and the draft key — so the tab
-		 * has to follow, or all four keep naming an item that no longer exists. */
-		onRenamed?: (newPath: string) => void
+		/** The item at `fromPath` is gone — a draft-only one whose draft was discarded.
+		 * Distinct from `onBack`, which moves whichever tab is active: only this tab is
+		 * the one to send back, and only while it still shows that item. */
+		onRemoved?: (fromPath: string) => void
+		/** The item at `fromPath` was saved under a different path. The tab addresses
+		 * it by path — as do its label, the chat's ACTIVE PREVIEW and the draft key —
+		 * so the tab has to follow, or all four keep naming an item that no longer
+		 * exists. */
+		onRenamed?: (newPath: string, fromPath: string) => void
 	} = $props()
 
 	let editor = $state<ResourceEditorDrawer | undefined>()
@@ -44,7 +45,7 @@
 	workspace={workspaceId}
 	{onBack}
 	{onRemoved}
-	onSaved={(saved) => {
-		if (saved && saved !== path) onRenamed?.(saved)
+	onSaved={(saved, from) => {
+		if (saved && from && saved !== from) onRenamed?.(saved, from)
 	}}
 />

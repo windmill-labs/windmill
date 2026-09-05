@@ -69,8 +69,9 @@
 		// editor is covered by that editor's banner. A host that stands alone — a
 		// session's schedule tab — opts in, or nothing says an edit is unsaved.
 		showDraftBanner = false,
-		// The schedule is gone — a draft-only one whose draft the banner discarded.
-		// A host addressing it by path (a session tab) has to stop showing it.
+		// The schedule is gone — a draft-only one whose draft the banner discarded —
+		// with the path it was showing. A host addressing it by path (a session tab)
+		// has to stop showing it.
 		onRemoved = undefined
 	} = $props()
 
@@ -619,7 +620,7 @@
 		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, wsId!)
 		if (isSaved) {
 			draftSync.discard(previousPath, scheduleCfg)
-			onUpdate?.(scheduleCfg.path)
+			onUpdate?.(scheduleCfg.path, previousPath)
 			drawer?.closeDrawer()
 		}
 		deploymentLoading = false
@@ -717,12 +718,13 @@
 
 	async function handleToggleEnabled(nEnabled: boolean) {
 		const previousEnabled = enabled
+		const path = initialPath
 		enabled = nEnabled
 		if (!trigger?.draftConfig) {
 			const ok = await withForkConflictRetry(
 				(force) =>
 					ScheduleService.setScheduleEnabled({
-						path: initialPath,
+						path,
 						workspace: wsId ?? '',
 						requestBody: { enabled: nEnabled, force }
 					}),
@@ -732,8 +734,8 @@
 				enabled = previousEnabled
 				return
 			}
-			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${initialPath}`)
-			onUpdate?.(initialPath)
+			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${path}`)
+			onUpdate?.(path, path)
 		}
 	}
 
@@ -1464,8 +1466,12 @@
 				reserveSpace={draftSync.hasBaseline}
 				getCurrent={() => draftSync.current}
 				onDiscard={async () => {
-					await draftSync.resetToDeployed(initialPath)
-					if (draftOnly) onRemoved?.()
+					// The path the discard started from: it awaits a reload of the runnable,
+					// and an inline host can re-point the editor in the meantime.
+					const from = initialPath
+					const wasDraftOnly = draftOnly
+					await draftSync.resetToDeployed(from)
+					if (wasDraftOnly && from) onRemoved?.(from)
 				}}
 				disabled={!can_write}
 			/>

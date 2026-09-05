@@ -58,11 +58,12 @@
 		 * user should be able to get back to (a session tab that took over the list). */
 		onBack?: () => void
 		/** Fires after a save, with the path it wrote to — which is not the one it was
-		 * opened on when the user renamed it. */
-		onSaved?: (savedPath?: string) => void
-		/** The variable is gone — a draft-only one whose draft was discarded. A host
-		 * addressing it by path (a session tab) has to stop showing it. */
-		onRemoved?: () => void
+		 * opened on when the user renamed it — and the one it was opened on. */
+		onSaved?: (savedPath?: string, fromPath?: string) => void
+		/** The variable is gone — a draft-only one whose draft was discarded — with the
+		 * path it was showing. A host addressing it by path (a session tab) has to stop
+		 * showing it. */
+		onRemoved?: (fromPath: string) => void
 	} = $props()
 	let curWs = $derived(workspace ?? $workspaceStore)
 
@@ -277,6 +278,10 @@
 
 	async function save(): Promise<void> {
 		const dirty = dirtyWorkspaces
+		// The path this save started from. Read before the awaits: an inline host can
+		// re-point the editor at another variable while the write is in flight, and the
+		// caller needs to know which one the result belongs to.
+		const from = editPath
 		try {
 			for (const ws of dirty) {
 				const s = states[ws].draft!
@@ -326,10 +331,10 @@
 			dispatch('create')
 			// A rename moved the item; the drawer host closes over it, but an inline one
 			// stays mounted, so follow the new path here and tell the host about it.
-			const savedPath = current?.path ?? editPath
+			const savedPath = current?.path ?? from
 			if (savedPath && savedPath !== editPath) editPath = savedPath
 			drawer?.closeDrawer()
-			onSaved?.(savedPath)
+			onSaved?.(savedPath, from)
 		} catch (err) {
 			sendUserToast(`Could not save variable: ${err.body}`, true)
 		}
@@ -344,13 +349,14 @@
 		getCurrent={() => current}
 		onDiscard={() => {
 			if (!selected) return
-			UserDraft.discard('variable', editPath ?? '', initialStates[selected], {
+			const from = editPath ?? ''
+			UserDraft.discard('variable', from, initialStates[selected], {
 				workspace: selected
 			})
 			// A draft-only variable has no deployed row under the draft, so discarding
 			// it removed the variable: `initialStates` holds a synthesized stand-in,
 			// not a baseline to fall back to.
-			if (!existedInitially[selected]) onRemoved?.()
+			if (!existedInitially[selected] && from) onRemoved?.(from)
 		}}
 		disabled={!can_write}
 	/>

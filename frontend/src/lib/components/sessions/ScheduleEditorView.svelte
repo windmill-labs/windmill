@@ -19,14 +19,16 @@
 		workspaceId: string
 		/** Back to the list this editor was reached through; the tab replaced it. */
 		onBack?: () => void
-		/** The item is gone — a draft-only one whose draft was discarded. Distinct from
-		 * `onBack`, which moves whichever tab is active: the discard awaits a reload of
-		 * the runnable, by which time the user may be looking at another tab. */
-		onRemoved?: () => void
-		/** The item was saved under a different path. The tab addresses it by path —
-		 * as do its label, the chat's ACTIVE PREVIEW and the draft key — so the tab
-		 * has to follow, or all four keep naming an item that no longer exists. */
-		onRenamed?: (newPath: string) => void
+		/** The item at `fromPath` is gone — a draft-only one whose draft was discarded.
+		 * Distinct from `onBack`, which moves whichever tab is active: the discard
+		 * awaits a reload of the runnable, by which time the user may be looking at
+		 * another tab, or have pointed this one somewhere else. */
+		onRemoved?: (fromPath: string) => void
+		/** The item at `fromPath` was saved under a different path. The tab addresses
+		 * it by path — as do its label, the chat's ACTIVE PREVIEW and the draft key —
+		 * so the tab has to follow, or all four keep naming an item that no longer
+		 * exists. */
+		onRenamed?: (newPath: string, fromPath: string) => void
 	} = $props()
 
 	// Captured at init, so it must read the current prop rather than close over it.
@@ -70,11 +72,11 @@
 			useDrawer={false}
 			showDraftBanner
 			{onRemoved}
-			onUpdate={(saved: string | undefined) => {
+			onUpdate={(saved: string | undefined, from: string) => {
 				generation++
 				// A draft-only schedule opens with its path editable (saving CREATEs),
 				// so the save can land somewhere other than where the tab is pointed.
-				if (saved && saved !== path) onRenamed?.(saved)
+				if (saved && saved !== from) onRenamed?.(saved, from)
 			}}
 		>
 			{#snippet customLabel()}
