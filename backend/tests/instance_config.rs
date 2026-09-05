@@ -1485,3 +1485,57 @@ async fn declarative_sync_rejects_an_unusable_webhook_base_url(db: Pool<Postgres
         "the other settings in the same apply must not have been written either"
     );
 }
+
+#[sqlx::test(fixtures("base"))]
+async fn declarative_sync_rejects_an_unusable_default_allowed_origins(db: Pool<Postgres>) {
+    // The declarative writers (the sync-config CLI, the operator's ConfigMap
+    // sync) do not run the HTTP layer's pre-write hook, so an origin list that
+    // cannot be parsed would persist here, be dropped at boot, and leave the
+    // instance with no restriction at all.
+    clear_settings_and_configs(&db).await;
+    let before = count_global_settings(&db).await;
+
+    for bad in [
+        serde_json::json!([""]),
+        serde_json::json!(["https://a.example,https://b.example"]),
+        serde_json::json!("null"),
+    ] {
+        let mut desired = BTreeMap::new();
+        desired.insert(
+            "http_route_default_allowed_origins".to_string(),
+            bad.clone(),
+        );
+        let err = windmill_common::instance_config::sync_global_settings_declarative(
+            &db,
+            &BTreeMap::new(),
+            &desired,
+        )
+        .await
+        .expect_err(&format!("{bad} must fail the sync"));
+        assert!(
+            err.to_string()
+                .contains("http_route_default_allowed_origins"),
+            "the error should name the offending setting, got: {err}"
+        );
+    }
+
+    assert_eq!(
+        count_global_settings(&db).await,
+        before,
+        "a rejected sync must not have persisted anything"
+    );
+
+    // A usable list still syncs.
+    let mut desired = BTreeMap::new();
+    desired.insert(
+        "http_route_default_allowed_origins".to_string(),
+        serde_json::json!(["https://app.example.com"]),
+    );
+    windmill_common::instance_config::sync_global_settings_declarative(
+        &db,
+        &BTreeMap::new(),
+        &desired,
+    )
+    .await
+    .expect("a valid origin list must sync");
+}

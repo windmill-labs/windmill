@@ -118,6 +118,7 @@ pub const OTEL_TRACING_PROXY_SETTING: &str = "otel_tracing_proxy";
 pub const OTEL_TRACES_RETENTION_SECS_SETTING: &str = "otel_traces_retention_secs";
 pub const APP_WORKSPACED_ROUTE_SETTING: &str = "app_workspaced_route";
 pub const HTTP_ROUTE_WORKSPACED_ROUTE_SETTING: &str = "http_route_workspaced_route";
+pub const HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING: &str = "http_route_default_allowed_origins";
 pub const SECRET_BACKEND_SETTING: &str = "secret_backend";
 pub const MIN_KEEP_ALIVE_VERSION_SETTING: &str = "min_keep_alive_version";
 pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
@@ -256,6 +257,125 @@ use std::sync::atomic::AtomicBool;
 lazy_static::lazy_static! {
     pub static ref HTTP_ROUTE_WORKSPACED_ROUTE: AtomicBool = AtomicBool::new(false);
     pub static ref DISABLE_PASSWORD_LOGIN: AtomicBool = AtomicBool::new(false);
+    /// Origins HTTP routes allow cross-origin when they configure none of their
+    /// own. Empty means unset, which keeps the historical `*`.
+    pub static ref HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS: arc_swap::ArcSwap<Vec<String>> =
+        arc_swap::ArcSwap::from_pointee(vec![]);
+}
+
+/// Whether an allowlist places no restriction at all.
+///
+/// `*` is the explicit "open on purpose" entry, and a route carrying it behaves
+/// exactly as an unconfigured one: it is how a route opts out of a stricter
+/// instance default, including back into the `wm_headers` escape hatch.
+pub fn allows_any_origin(allowed_origins: &[String]) -> bool {
+    allowed_origins.iter().any(|allowed| allowed == "*")
+}
+
+/// An allowlist is scanned on every request to a restricted route, including
+/// the unauthenticated preflight, so its size is a request cost anyone can
+/// trigger.
+pub const MAX_ALLOWED_ORIGINS: usize = 100;
+pub const MAX_ALLOWED_ORIGIN_LEN: usize = 256;
+
+/// Reject allowlist entries that cannot be compared, stored, or safely allowed.
+///
+/// The stored string is only ever an operand: `match_origin` echoes the
+/// request's own `Origin` back, never this value, so a malformed entry matches
+/// nothing and fails closed. Shapes that merely cannot match are the editor's
+/// business to warn about, not this function's to refuse. What is left are the
+/// three cases where permissiveness costs something: `null` is what every
+/// sandboxed iframe sends, so allowing it would admit any page that can open
+/// one; a comma cannot survive the editor's comma-separated field, which would
+/// silently split one entry into two and widen the list; and an unbounded list
+/// makes every preflight pay for it.
+pub fn validate_allowed_origins(allowed_origins: &[String]) -> crate::error::Result<()> {
+    if allowed_origins.len() > MAX_ALLOWED_ORIGINS {
+        return Err(crate::error::Error::BadRequest(format!(
+            "At most {} allowed origins, got {}.",
+            MAX_ALLOWED_ORIGINS,
+            allowed_origins.len()
+        )));
+    }
+
+    for origin in allowed_origins {
+        if origin == "*" {
+            continue;
+        }
+
+        let invalid = |reason: &str| {
+            crate::error::Error::BadRequest(format!(
+                "Invalid allowed origin '{}': {}.",
+                origin, reason
+            ))
+        };
+
+        if origin.is_empty() {
+            return Err(invalid("must not be empty"));
+        }
+        if origin.len() > MAX_ALLOWED_ORIGIN_LEN {
+            return Err(invalid("is longer than any origin a browser sends"));
+        }
+        // The editor edits the whole list as one comma-separated field, so an
+        // entry carrying a comma comes back as two and widens the list.
+        if origin.contains(',') {
+            return Err(invalid("must not contain a comma, which separates entries"));
+        }
+        if origin.eq_ignore_ascii_case("null") {
+            return Err(invalid(
+                "'null' is what a sandboxed iframe sends, so allowing it would allow any page that can open one",
+            ));
+        }
+        // An Origin header is always visible ASCII, so a value outside it can
+        // never be the string this is compared against.
+        if !origin.chars().all(|c| c.is_ascii_graphic()) {
+            return Err(invalid(
+                "must contain only visible ASCII, with no whitespace",
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+/// Read [`HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING`] from its stored value.
+///
+/// Accepts the comma-separated string the settings UI writes, or a JSON array
+/// for anything setting it through the API directly.
+pub fn parse_allowed_origins_setting(
+    value: Option<&serde_json::Value>,
+) -> crate::error::Result<Vec<String>> {
+    let origins = match value {
+        None | Some(serde_json::Value::Null) => vec![],
+        Some(serde_json::Value::String(raw)) => raw
+            .split(',')
+            .map(|origin| origin.trim().to_string())
+            .filter(|origin| !origin.is_empty())
+            .collect(),
+        Some(serde_json::Value::Array(entries)) => entries
+            .iter()
+            .map(|entry| match entry {
+                serde_json::Value::String(origin) => Ok(origin.trim().to_string()),
+                _ => Err(crate::error::Error::BadRequest(format!(
+                    "{} entries must be strings",
+                    HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
+                ))),
+            })
+            // Not filtered for empties, unlike the string form: there a
+            // trailing separator naturally yields an empty token, whereas an
+            // empty array entry is something the caller wrote and validation
+            // should reject rather than silently drop.
+            .collect::<crate::error::Result<Vec<_>>>()?,
+        Some(_) => {
+            return Err(crate::error::Error::BadRequest(format!(
+                "{} expected to be a comma-separated string or an array of strings",
+                HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
+            )))
+        }
+    };
+
+    validate_allowed_origins(&origins)?;
+    Ok(origins)
 }
 
 pub const ENV_SETTINGS: &[&str] = &[

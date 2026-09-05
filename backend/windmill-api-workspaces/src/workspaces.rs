@@ -5931,7 +5931,7 @@ async fn clone_triggers_and_schedules(
             path, route_path, route_path_key, script_path, is_flow, workspace_id,
             edited_by, edited_at, extra_perms, authentication_method, http_method,
             static_asset_config, is_static_website, workspaced_route, wrap_body,
-            raw_string, authentication_resource_path, summary, description,
+            raw_string, allowed_origins, authentication_resource_path, summary, description,
             error_handler_path, error_handler_args, retry, request_type, mode,
             permissioned_as, labels
         )
@@ -5939,7 +5939,7 @@ async fn clone_triggers_and_schedules(
             path, route_path, route_path_key, script_path, is_flow, $1,
             edited_by, edited_at, extra_perms, authentication_method, http_method,
             static_asset_config, is_static_website, workspaced_route, wrap_body,
-            raw_string, authentication_resource_path, summary, description,
+            raw_string, allowed_origins, authentication_resource_path, summary, description,
             error_handler_path, error_handler_args, retry, request_type, 'disabled'::TRIGGER_MODE,
             permissioned_as, labels
         FROM http_trigger

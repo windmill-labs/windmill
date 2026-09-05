@@ -106,8 +106,9 @@ use windmill_common::{
 use windmill_common::{
     client::AuthedClient,
     global_settings::{
-        APP_WORKSPACED_ROUTE_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE,
-        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+        parse_allowed_origins_setting, APP_WORKSPACED_ROUTE_SETTING,
+        HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
+        HTTP_ROUTE_WORKSPACED_ROUTE, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
     },
 };
 #[cfg(feature = "parquet")]
@@ -420,6 +421,18 @@ pub async fn initial_load(
         pass.setting(APP_WORKSPACED_ROUTE_SETTING, false, |v| async move {
             apply_app_workspaced_route_setting(v)
         });
+        pass.setting(
+            HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
+            false,
+            |v| async move {
+                if let Err(e) = apply_http_route_default_allowed_origins_setting(v) {
+                    tracing::error!(
+                        "Error reloading http route default allowed origins: {:?}",
+                        e
+                    )
+                }
+            },
+        );
         pass.setting(
             HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
             false,
@@ -6521,6 +6534,34 @@ pub fn apply_app_workspaced_route_setting(app_workspaced_route: Option<serde_jso
     };
 
     APP_WORKSPACED_ROUTE.store(ws_route, Ordering::Relaxed);
+}
+
+pub async fn reload_http_route_default_allowed_origins_setting(conn: &DB) -> error::Result<()> {
+    let v =
+        load_value_from_global_settings(conn, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING).await?;
+    apply_http_route_default_allowed_origins_setting(v)
+}
+
+pub fn apply_http_route_default_allowed_origins_setting(
+    value: Option<serde_json::Value>,
+) -> error::Result<()> {
+    // A bad value leaves whatever is already loaded in place rather than
+    // reverting to no restriction. On the boot path that is still the empty
+    // default, so what keeps a stored typo from widening CORS instance-wide is
+    // write-time validation, not this.
+    let origins = match parse_allowed_origins_setting(value.as_ref()) {
+        Ok(origins) => origins,
+        Err(err) => {
+            tracing::error!(
+                "Invalid {} setting, keeping the previous value: {err:#}",
+                HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
+            );
+            return Ok(());
+        }
+    };
+
+    HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS.store(std::sync::Arc::new(origins));
+    Ok(())
 }
 
 pub async fn reload_http_route_workspaced_route_setting(conn: &DB) -> error::Result<()> {
