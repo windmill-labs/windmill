@@ -131,6 +131,10 @@
 		if (!open) {
 			expand = false
 			uriState.closeDrawer()
+			// An action asked for on one data table must not be waiting when the
+			// drawer is next opened on another database — or on no data table at
+			// all, where nothing would recognise it as foreign.
+			pendingAction = undefined
 		}
 	})
 

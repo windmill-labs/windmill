@@ -458,7 +458,9 @@
 		// Landed somewhere else: the target may have failed to load, or the user
 		// may have moved on. Either way this action was asked for on another
 		// database, and dropping a schema is not a thing to do by approximation.
-		if (currentDatatable !== undefined && req.datatable !== currentDatatable) {
+		// `undefined` is somewhere else too — a plain postgres resource or a
+		// DuckLake — so the two must be equal, not merely not-known-to-differ.
+		if (req.datatable !== currentDatatable) {
 			pendingAction = undefined
 			return
 		}

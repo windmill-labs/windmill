@@ -160,6 +160,9 @@
 	export function closeDrawer() {
 		open = false
 		dbManagerContent?.clearReplResult()
+		// Same reason as its sibling: an action outlives the data table it was
+		// asked for otherwise.
+		pendingAction = undefined
 	}
 
 	function handleAddTables() {
