@@ -1,4 +1,5 @@
-//! Guards the `started_at` invariant documented on `suspend_wac_parent`.
+//! Guards the two things `suspend_wac_parent` promises: the `started_at` invariant
+//! documented on it, and the segment length it hands back for metering.
 
 use sqlx::{Pool, Postgres};
 use uuid::Uuid;
@@ -16,8 +17,16 @@ async fn wac_suspend_clears_started_at(db: Pool<Postgres>) -> anyhow::Result<()>
     .await?;
 
     let mut tx = db.begin().await?;
-    suspend_wac_parent(&mut tx, &job_id, "test-workspace", 1, 3600.0).await?;
+    let segment_ms = suspend_wac_parent(&mut tx, &job_id, "test-workspace", 1, 3600.0).await?;
     tx.commit().await?;
+
+    // The segment is what gets billed, so it must be the run that just ended, measured
+    // from the pull — not the park ahead of it, and not zero.
+    let four_days_ms = 4 * 24 * 3600 * 1000;
+    assert!(
+        segment_ms.is_some_and(|ms| (ms - four_days_ms).abs() < 60_000),
+        "expected the ended segment (~{four_days_ms}ms), got {segment_ms:?}"
+    );
 
     let (started_at, running, suspend, suspend_until): (
         Option<chrono::DateTime<chrono::Utc>>,
