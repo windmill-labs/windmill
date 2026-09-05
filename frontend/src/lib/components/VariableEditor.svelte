@@ -39,7 +39,19 @@
 	// The "current" workspace this editor defaults New/Edit actions to. Session
 	// editors pass their acting workspace so secrets are created/updated there
 	// rather than in the navigation workspace. Defaults to $workspaceStore.
-	let { workspace = undefined }: { workspace?: string } = $props()
+	let {
+		workspace = undefined,
+		useDrawer = true
+	}: {
+		workspace?: string
+		/**
+		 * False renders the editor in place instead of in a drawer, for a host that
+		 * gives it a pane of its own (a session's variable tab). Same convention as
+		 * the trigger editors. `editVariable` still selects what is shown; there is
+		 * no drawer to open, so it simply takes effect.
+		 */
+		useDrawer?: boolean
+	} = $props()
 	let curWs = $derived(workspace ?? $workspaceStore)
 
 	let editPath: string | undefined = $state(undefined)
@@ -307,73 +319,106 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="50rem" on:close={() => clearPageDrawerAnchor(VARIABLES_PATH)}>
-	<DrawerContent
-		title={edit ? `Update variable at ${initialPath}` : 'Add a variable'}
-		bannerReserved={edit}
-		on:close={drawer?.closeDrawer}
+{#snippet draftBanner()}
+	<LocalDraftBanner
+		show={edit && selectedDirty}
+		reserveSpace={edit}
+		getDeployed={() => (selected ? initialStates[selected] : undefined)}
+		getCurrent={() => current}
+		onDiscard={() => {
+			if (!selected) return
+			UserDraft.discard('variable', editPath ?? '', initialStates[selected], {
+				workspace: selected
+			})
+		}}
+		disabled={!can_write}
+	/>
+{/snippet}
+
+{#snippet editorActions()}
+	<!-- Only the drawer offers the hand-off: rendered inline the editor is
+	     already inside the session it would open. -->
+	{#if useDrawer}
+		<OpenInSessionButton source={sessionSource} />
+	{/if}
+	{#if edit && curWs}
+		<WsSpecificVersions kind="variable" workspaceId={curWs} {initialPath} bind:selected />
+	{/if}
+	<Button
+		on:click={save}
+		disabled={!anyDirty || !dirtyValid || !dirtyCanWrite || pathError != ''}
+		startIcon={{ icon: Save }}
+		variant="accent"
+		size="sm"
 	>
-		{#snippet banner()}
-			<LocalDraftBanner
-				show={edit && selectedDirty}
-				reserveSpace={edit}
-				getDeployed={() => (selected ? initialStates[selected] : undefined)}
-				getCurrent={() => current}
-				onDiscard={() => {
-					if (!selected) return
-					UserDraft.discard('variable', editPath ?? '', initialStates[selected], {
-						workspace: selected
-					})
-				}}
-				disabled={!can_write}
-			/>
-		{/snippet}
-		<div class="flex flex-col gap-8 pb-2">
-			{#if !can_write}
-				<Alert type="warning" title="Only read access">
-					You only have read access to this resource and cannot edit it
-				</Alert>
-			{/if}
+		{edit ? 'Update' : 'Save'}
+	</Button>
+{/snippet}
 
-			{#if otherDirty.length > 0}
-				<Alert type="warning" title="Editing multiple workspaces">
-					You are going to edit the value in: {otherDirty.join(', ')}
-				</Alert>
-			{/if}
+{#snippet editorBody()}
+	<div class="flex flex-col gap-8 pb-2">
+		{#if !can_write}
+			<Alert type="warning" title="Only read access">
+				You only have read access to this resource and cannot edit it
+			</Alert>
+		{/if}
 
-			{#if current}
-				{#key current}
-					<VariableForm
-						bind:this={form}
-						bind:path={current.path}
-						bind:pathError
-						bind:variable={current.variable}
-						bind:labels={current.labels}
-						bind:wsSpecific={current.wsSpecific}
-						{initialPath}
-						deployTo={deployTo.current}
-						{can_write}
-						{edit}
-						onLoadSecret={loadSecret}
-						{workspace}
-					/>
-				{/key}
-			{/if}
-		</div>
-		{#snippet actions()}
-			<OpenInSessionButton source={sessionSource} />
-			{#if edit && curWs}
-				<WsSpecificVersions kind="variable" workspaceId={curWs} {initialPath} bind:selected />
-			{/if}
-			<Button
-				on:click={save}
-				disabled={!anyDirty || !dirtyValid || !dirtyCanWrite || pathError != ''}
-				startIcon={{ icon: Save }}
-				variant="accent"
-				size="sm"
+		{#if otherDirty.length > 0}
+			<Alert type="warning" title="Editing multiple workspaces">
+				You are going to edit the value in: {otherDirty.join(', ')}
+			</Alert>
+		{/if}
+
+		{#if current}
+			{#key current}
+				<VariableForm
+					bind:this={form}
+					bind:path={current.path}
+					bind:pathError
+					bind:variable={current.variable}
+					bind:labels={current.labels}
+					bind:wsSpecific={current.wsSpecific}
+					{initialPath}
+					deployTo={deployTo.current}
+					{can_write}
+					{edit}
+					onLoadSecret={loadSecret}
+					{workspace}
+				/>
+			{/key}
+		{/if}
+	</div>
+{/snippet}
+
+{#if useDrawer}
+	<Drawer bind:this={drawer} size="50rem" on:close={() => clearPageDrawerAnchor(VARIABLES_PATH)}>
+		<DrawerContent
+			title={edit ? `Update variable at ${initialPath}` : 'Add a variable'}
+			bannerReserved={edit}
+			on:close={drawer?.closeDrawer}
+		>
+			{#snippet banner()}
+				{@render draftBanner()}
+			{/snippet}
+			{@render editorBody()}
+			{#snippet actions()}
+				{@render editorActions()}
+			{/snippet}
+		</DrawerContent>
+	</Drawer>
+{:else}
+	<div class="flex flex-col h-full min-h-0">
+		<div class="flex flex-row items-center gap-2 justify-between px-4 py-2 border-b">
+			<span class="text-sm font-semibold truncate"
+				>{edit ? `Update variable at ${initialPath}` : 'Add a variable'}</span
 			>
-				{edit ? 'Update' : 'Save'}
-			</Button>
-		{/snippet}
-	</DrawerContent>
-</Drawer>
+			<div class="flex flex-row items-center gap-2 shrink-0">
+				{@render editorActions()}
+			</div>
+		</div>
+		{@render draftBanner()}
+		<div class="flex-1 min-h-0 overflow-auto p-4">
+			{@render editorBody()}
+		</div>
+	</div>
+{/if}

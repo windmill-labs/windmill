@@ -61,6 +61,7 @@
 		matchPreviewPage,
 		pageKey,
 		parseArtifactRoute,
+		parseEntityEditorRoute,
 		parsePreviewItemRoute,
 		previewLocationLabel,
 		type PreviewTarget
@@ -726,8 +727,19 @@
 		return (
 			tab.friendlyLabel ??
 			(listed && itemDisplayName(listed.path, listed.draftPath, listed.summary)) ??
+			// An entity tab hosts one item's editor; `previewLocationLabel` would name
+			// it after the list page its location shares a path with, so several open
+			// at once would all read "Schedules". (Not moved into that function: the
+			// chat's location context reports the page and the anchored row as
+			// separate fields, and reads the page name from there.)
+			entityTabLabel(tab.loc) ??
 			previewLocationLabel(tab.loc)
 		)
+	}
+
+	function entityTabLabel(loc: string): string | undefined {
+		const entity = parseEntityEditorRoute(loc)
+		return entity ? (entity.path.split('/').pop() ?? entity.path) : undefined
 	}
 
 	// Hover title for a tab. A summary label is free text the strip truncates, and

@@ -23,7 +23,8 @@
 		workspace = undefined,
 		disableChatOffset = false,
 		onRestored = undefined,
-		onSaved = undefined
+		onSaved = undefined,
+		useDrawer = true
 	}: {
 		workspace?: string
 		disableChatOffset?: boolean
@@ -31,6 +32,13 @@
 		/** Fires after Save has written, for a caller showing state derived from the
 		 * resource — `onRestored` only covers restoring an old version. */
 		onSaved?: () => void
+		/**
+		 * False renders the editor in place instead of in a drawer, for a host that
+		 * gives it a pane of its own (a session's resource tab). Same convention as
+		 * the trigger editors. `initEdit` still selects what is shown; there is no
+		 * drawer to open, so it simply takes effect.
+		 */
+		useDrawer?: boolean
 	} = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -118,93 +126,126 @@
 	)
 </script>
 
-<Drawer
-	bind:this={drawer}
-	size="50rem"
-	{disableChatOffset}
-	on:close={() => {
-		if (keepAnchorOnClose) {
-			keepAnchorOnClose = false
-			return
-		}
-		clearPageDrawerAnchor(RESOURCES_PATH)
-	}}
->
-	<DrawerContent
-		title={mode == 'edit' ? 'Edit ' + path : addResourceTitle(resource_type)}
-		bannerReserved={mode == 'edit'}
-		on:close={drawer?.closeDrawer}
+{#snippet editorBody()}
+	{#await import('./ResourceEditor.svelte')}
+		<Loader2 class="animate-spin" />
+	{:then Module}
+		<Module.default
+			{path}
+			{resource_type}
+			{defaultValues}
+			{workspace}
+			on:refresh
+			bind:this={resourceEditor}
+			bind:canSave
+			bind:selected
+			bind:viewJsonSchema
+			onDraftStateChange={(v) => (hasLocalDraft = v)}
+			onCanWriteChange={(v) => (canWriteSelected = v)}
+		/>
+	{/await}
+{/snippet}
+
+{#snippet draftBanner()}
+	<LocalDraftBanner
+		show={hasLocalDraft}
+		reserveSpace={mode == 'edit'}
+		getDeployed={() => resourceEditor?.localDraftDeployed()}
+		getCurrent={() => resourceEditor?.localDraftCurrent()}
+		onDiscard={() => resourceEditor?.discardLocalDraft()}
+		disabled={!canWriteSelected}
+	/>
+{/snippet}
+
+{#snippet editorActions()}
+	<!-- Only the drawer offers the hand-off: rendered inline the editor is
+	     already inside the session it would open. -->
+	{#if useDrawer}
+		<OpenInSessionButton source={sessionSource} />
+	{/if}
+	{#if mode == 'edit' && path && effectiveWorkspace}
+		<Button
+			variant="default"
+			unifiedSize="md"
+			startIcon={{ icon: History }}
+			on:click={() => historyDrawer?.openDrawer()}
+		>
+			History
+		</Button>
+		<WsSpecificVersions
+			kind="resource"
+			workspaceId={effectiveWorkspace}
+			initialPath={path}
+			bind:selected
+		/>
+	{/if}
+	<Button
+		variant="accent"
+		unifiedSize="md"
+		startIcon={{ icon: Save }}
+		on:click={async () => {
+			// Closed before the write is awaited, the way it always was: `save()` toasts its
+			// own failures and never rejects, so waiting would only add visible lag to every
+			// caller of this drawer. `onSaved` still fires after the write lands.
+			const saved = resourceEditor?.save()
+			drawer?.closeDrawer()
+			await saved
+			onSaved?.()
+		}}
+		disabled={!canSave}
 	>
-		{#snippet titleExtra()}
-			{#if mode == 'new' && resource_type}
-				<IconedResourceType name={resource_type} silent width="20px" height="20px" />
-			{/if}
-		{/snippet}
-		{#await import('./ResourceEditor.svelte')}
-			<Loader2 class="animate-spin" />
-		{:then Module}
-			<Module.default
-				{path}
-				{resource_type}
-				{defaultValues}
-				{workspace}
-				on:refresh
-				bind:this={resourceEditor}
-				bind:canSave
-				bind:selected
-				bind:viewJsonSchema
-				onDraftStateChange={(v) => (hasLocalDraft = v)}
-				onCanWriteChange={(v) => (canWriteSelected = v)}
-			/>
-		{/await}
-		{#snippet banner()}
-			<LocalDraftBanner
-				show={hasLocalDraft}
-				reserveSpace={mode == 'edit'}
-				getDeployed={() => resourceEditor?.localDraftDeployed()}
-				getCurrent={() => resourceEditor?.localDraftCurrent()}
-				onDiscard={() => resourceEditor?.discardLocalDraft()}
-				disabled={!canWriteSelected}
-			/>
-		{/snippet}
-		{#snippet actions()}
-			<OpenInSessionButton source={sessionSource} />
-			{#if mode == 'edit' && path && effectiveWorkspace}
-				<Button
-					variant="default"
-					unifiedSize="md"
-					startIcon={{ icon: History }}
-					on:click={() => historyDrawer?.openDrawer()}
-				>
-					History
-				</Button>
-				<WsSpecificVersions
-					kind="resource"
-					workspaceId={effectiveWorkspace}
-					initialPath={path}
-					bind:selected
-				/>
-			{/if}
-			<Button
-				variant="accent"
-				unifiedSize="md"
-				startIcon={{ icon: Save }}
-				on:click={async () => {
-					// Closed before the write is awaited, the way it always was: `save()` toasts its
-					// own failures and never rejects, so waiting would only add visible lag to every
-					// caller of this drawer. `onSaved` still fires after the write lands.
-					const saved = resourceEditor?.save()
-					drawer?.closeDrawer()
-					await saved
-					onSaved?.()
-				}}
-				disabled={!canSave}
+		Save
+	</Button>
+{/snippet}
+
+{#if useDrawer}
+	<Drawer
+		bind:this={drawer}
+		size="50rem"
+		{disableChatOffset}
+		on:close={() => {
+			if (keepAnchorOnClose) {
+				keepAnchorOnClose = false
+				return
+			}
+			clearPageDrawerAnchor(RESOURCES_PATH)
+		}}
+	>
+		<DrawerContent
+			title={mode == 'edit' ? 'Edit ' + path : addResourceTitle(resource_type)}
+			bannerReserved={mode == 'edit'}
+			on:close={drawer?.closeDrawer}
+		>
+			{#snippet titleExtra()}
+				{#if mode == 'new' && resource_type}
+					<IconedResourceType name={resource_type} silent width="20px" height="20px" />
+				{/if}
+			{/snippet}
+			{@render editorBody()}
+			{#snippet banner()}
+				{@render draftBanner()}
+			{/snippet}
+			{#snippet actions()}
+				{@render editorActions()}
+			{/snippet}
+		</DrawerContent>
+	</Drawer>
+{:else}
+	<div class="flex flex-col h-full min-h-0">
+		<div class="flex flex-row items-center gap-2 justify-between px-4 py-2 border-b">
+			<span class="text-sm font-semibold truncate"
+				>{mode == 'edit' ? 'Edit ' + path : addResourceTitle(resource_type)}</span
 			>
-				Save
-			</Button>
-		{/snippet}
-	</DrawerContent>
-</Drawer>
+			<div class="flex flex-row items-center gap-2 shrink-0">
+				{@render editorActions()}
+			</div>
+		</div>
+		{@render draftBanner()}
+		<div class="flex-1 min-h-0 overflow-auto p-4">
+			{@render editorBody()}
+		</div>
+	</div>
+{/if}
 
 <Drawer bind:this={historyDrawer} size="1200px">
 	<DrawerContent title="Versions History" on:close={historyDrawer?.closeDrawer} noPadding>

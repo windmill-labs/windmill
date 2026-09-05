@@ -106,8 +106,10 @@
 		// A live editor shares the runtime store the chat mutates, so generic chat
 		// edits are already reflected — no reload needed. Deploys refresh it via
 		// each editor view's onDeploy → runtime.syncPreviewWithDeployed. So only the
-		// iframe fallback (a separate page) has to be told to refresh.
-		if (slot.kind === 'editor') return
+		// iframe fallback (a separate page) has to be told to refresh. An entity
+		// editor is in-realm too: it holds a live UserDraft handle on the cell the
+		// chat's write seeds, and reloading would discard the user's edits with it.
+		if (slot.kind === 'editor' || slot.kind === 'entity') return
 		try {
 			const win = frame?.contentWindow
 			if (!win) return
@@ -307,6 +309,34 @@
 					{isActiveSession}
 					{active}
 				/>
+			{/await}
+		{/if}
+	</div>
+{:else if slot.kind === 'entity' && mounted}
+	<div
+		bind:this={overlayHostEl}
+		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
+		aria-hidden={!active}
+	>
+		<!-- Dynamic import for the same reason as the editors above: these pull in
+		     the runnable pickers and the resource-type schema forms. -->
+		{#if slot.entityKind === 'trigger_schedule'}
+			{#await import('./ScheduleEditorView.svelte')}
+				{@render editorLoading()}
+			{:then Module}
+				<Module.default path={slot.path} {workspaceId} />
+			{/await}
+		{:else if slot.entityKind === 'resource'}
+			{#await import('./ResourceEditorView.svelte')}
+				{@render editorLoading()}
+			{:then Module}
+				<Module.default path={slot.path} {workspaceId} />
+			{/await}
+		{:else}
+			{#await import('./VariableEditorView.svelte')}
+				{@render editorLoading()}
+			{:then Module}
+				<Module.default path={slot.path} {workspaceId} />
 			{/await}
 		{/if}
 	</div>

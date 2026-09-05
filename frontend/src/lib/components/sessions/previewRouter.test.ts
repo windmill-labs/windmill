@@ -291,6 +291,32 @@ describe('resolvePreviewTab', () => {
 		expect(resolvePreviewTab('/apps/edit/f/a/b')).toEqual({ kind: 'iframe' })
 	})
 
+	// The row in the hash is what separates "edit this entity" from "show me the
+	// list": both are the same page path, and only the first can mount in process.
+	it('routes an anchored row to its in-process entity editor', () => {
+		expect(resolvePreviewTab('/schedules#u/me/daily')).toEqual({
+			kind: 'entity',
+			entityKind: 'trigger_schedule',
+			path: 'u/me/daily'
+		})
+		expect(resolvePreviewTab('/resources#/resource/u/me/db')).toEqual({
+			kind: 'entity',
+			entityKind: 'resource',
+			path: 'u/me/db'
+		})
+		expect(resolvePreviewTab('/variables?owner=u#u/me/token')).toEqual({
+			kind: 'entity',
+			entityKind: 'variable',
+			path: 'u/me/token'
+		})
+	})
+
+	it('leaves the bare list page, and an anchored page with no hosted editor, on the iframe', () => {
+		expect(resolvePreviewTab('/schedules')).toEqual({ kind: 'iframe' })
+		// Anchored like the three above, but no editor is mounted for it yet.
+		expect(resolvePreviewTab('/kafka_triggers#f/team/ingest')).toEqual({ kind: 'iframe' })
+	})
+
 	it('routes a pipeline folder to the pipeline editor kind', () => {
 		expect(resolvePreviewTab('/pipeline/my_folder')).toEqual({
 			kind: 'editor',
