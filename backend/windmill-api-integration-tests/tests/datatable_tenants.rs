@@ -125,7 +125,8 @@ async fn enabling_permissions_is_refused_while_a_fork_exists(
     )
     .bind(json!({
         "datatables": {
-            "main": { "database": { "resource_type": "instance", "resource_path": "dt_main" } }
+            "main": { "database": { "resource_type": "instance", "resource_path": "dt_main" } },
+            "byo": { "database": { "resource_type": "postgresql", "resource_path": "u/test-user/pg" } }
         }
     }))
     .execute(&db)
@@ -141,7 +142,8 @@ async fn enabling_permissions_is_refused_while_a_fork_exists(
     )
     .bind(json!({
         "datatables": {
-            "main": { "database": { "resource_type": "instance", "resource_path": "dt_main" } }
+            "main": { "database": { "resource_type": "instance", "resource_path": "dt_main" } },
+            "byo": { "database": { "resource_type": "postgresql", "resource_path": "u/test-user/pg" } }
         }
     }))
     .execute(&db)
@@ -198,6 +200,30 @@ async fn enabling_permissions_is_refused_while_a_fork_exists(
     )
     .execute(&db)
     .await?;
+
+    // A resource-backed copy keeps the parent's pointer when cloned — the cloned
+    // resource is what changes — so `forked_from` is what tells the two apart.
+    let byo = format!("{ws}/workspaces/datatable_permissions/byo/preview");
+    let resp = authed(client().post(&byo), "SECRET_TOKEN")
+        .json(&body)
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 400);
+    let text = resp.text().await?;
+    assert!(text.contains("wm-fork-t (data table 'byo')"), "{text}");
+    sqlx::query(
+        r#"UPDATE workspace_settings
+           SET datatable = jsonb_set(datatable, '{datatables,byo,forked_from}', '{"schema": {}}')
+           WHERE workspace_id = 'wm-fork-t'"#,
+    )
+    .execute(&db)
+    .await?;
+    let resp = authed(client().post(&byo), "SECRET_TOKEN")
+        .json(&body)
+        .send()
+        .await?;
+    let text = resp.text().await?;
+    assert!(!text.contains("cannot be enabled"), "{text}");
 
     // Archiving keeps the fork's members and its copy, so it still counts; a fork
     // whose copy is a clone of its own does not.

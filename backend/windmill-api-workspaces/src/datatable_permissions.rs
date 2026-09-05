@@ -788,7 +788,10 @@ async fn refuse_enabling_permissions_over_shared_access(
     };
     let forks = windmill_common::workspaces::list_fork_descendants(db, w_id).await?;
     if !forks.is_empty() {
-        // A clone points at a database of its own and does not count.
+        // A clone (`forked_from`) points at a database of its own and does not
+        // count. It is not told apart by the pointer alone: cloning a
+        // resource-backed data table rewrites the cloned resource, not the path
+        // the entry names, so the pointer still equals the parent's.
         let copies = sqlx::query!(
             r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "name!", w.deleted AS "deleted!"
                FROM workspace_settings ws
@@ -796,6 +799,7 @@ async fn refuse_enabling_permissions_over_shared_access(
                jsonb_each(ws.datatable->'datatables') dt
                WHERE ws.workspace_id = ANY($1)
                  AND dt.value->'database' = $2
+                 AND dt.value->'forked_from' IS NULL
                ORDER BY ws.workspace_id, dt.key"#,
             &forks[..],
             database,

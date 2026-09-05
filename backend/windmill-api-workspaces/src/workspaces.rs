@@ -3146,6 +3146,10 @@ pub(crate) async fn is_instance_datatable(db: &DB, w_id: &str, name: &str) -> Re
 /// data the roles existed to divide. Reproducing the roles in the copy is a
 /// separate piece of work; until it exists, a fork goes without the data table
 /// (the fork creation leaves a permissioned one out of the fork's config).
+///
+/// Authorization: performs none. It reads whether `w_id`'s data table is
+/// permissioned, for any `w_id` it is handed, so callers MUST already have
+/// authorized the caller for that workspace.
 pub(crate) async fn refuse_clone_of_permissioned_datatable(
     db: &DB,
     w_id: &str,

@@ -2166,7 +2166,10 @@ async fn is_workspace_owner(
 /// `parent_workspace_id`, but a `wm-fork-` workspace can outlive its parent (the FK is
 /// `ON DELETE SET NULL`), so also treat the prefix as fork-ness — otherwise an orphaned fork would
 /// lose owner-self-delete. Used to gate owner-self-delete, which is permitted for forks/dev
-/// workspaces but requires superadmin otherwise.
+/// workspaces but requires superadmin otherwise, and to refuse a data table opt-in from a fork.
+///
+/// Authorization: performs none. It reads the lineage of any `w_id` it is handed, so callers
+/// MUST already have authorized the caller for that workspace.
 pub(crate) async fn workspace_is_fork(db: &DB, w_id: &str) -> Result<bool> {
     if w_id.starts_with(WM_FORK_PREFIX) {
         return Ok(true);
