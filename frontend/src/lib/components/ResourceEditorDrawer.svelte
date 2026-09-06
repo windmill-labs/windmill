@@ -223,6 +223,10 @@
 			// workspace, while the write is in flight.
 			const from = path
 			const fromWs = effectiveWorkspace
+			// The workspace whose version is on screen, which `WsSpecificVersions` can
+			// make a linked one: a rename made there is that workspace's alone, but the
+			// form is showing it, so the form follows it.
+			const shownWs = selected
 			// Closed before the write is awaited, the way it always was: `save()` toasts its
 			// own failures and never rejects, so waiting would only add visible lag to every
 			// caller of this drawer. `onSaved` still fires after the write lands.
@@ -232,7 +236,8 @@
 			// be showing a linked workspace's variant, whose rename is not this host's.
 			const written = (await saving) ?? []
 			if (written.length === 0) return
-			const submitted = written.find((w) => w.ws === fromWs)?.path
+			const submitted =
+				written.find((w) => w.ws === shownWs)?.path ?? written.find((w) => w.ws === fromWs)?.path
 			// Follow a rename: rendered inline there is no drawer to close, so the mounted
 			// editor stays, and the key below remounts it on the path the item moved to.
 			// The editor adopts its own new baseline, so a same-path save needs nothing

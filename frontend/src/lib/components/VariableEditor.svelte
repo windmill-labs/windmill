@@ -295,9 +295,15 @@
 			ini: $state.snapshot(initialStates[ws]) as VariableState,
 			existed: !!existedInitially[ws]
 		}))
-		// What this editor itself follows: `WsSpecificVersions` can point the form at a
-		// linked workspace, and a rename made there is that workspace's alone.
-		const actingPath = payloads.find((pl) => pl.ws === fromWs)?.s.path ?? from
+		// What this editor itself follows: the workspace whose version is on screen,
+		// which `WsSpecificVersions` can make a linked one. A rename made there is that
+		// workspace's alone — the host is told per workspace and decides for itself —
+		// but the form is showing it, so the form goes with it.
+		const shownWs = selected
+		const actingPath =
+			payloads.find((pl) => pl.ws === shownWs)?.s.path ??
+			payloads.find((pl) => pl.ws === fromWs)?.s.path ??
+			from
 		let actingCommitted = false
 		// Every workspace written, with the path it wrote there. Reported once the loop
 		// is done: per workspace, each carrying its own, so a linked workspace's rename
