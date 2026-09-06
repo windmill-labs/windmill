@@ -349,9 +349,6 @@
 			ini: $state.snapshot(initialStates[ws]) as ResourceState,
 			existed: !!existedInitially[ws]
 		}))
-		// The path the ACTING workspace's write used. `WsSpecificVersions` can point
-		// the form at a linked workspace, and a rename made there is that workspace's
-		// alone — reporting it would move a host that is looking at this one.
 		// Every workspace this save wrote, in order, each with the path it wrote there.
 		// The workspaces go in sequence and a later one throwing aborts the rest, but
 		// what an earlier one wrote is deployed — a caller told nothing about it would

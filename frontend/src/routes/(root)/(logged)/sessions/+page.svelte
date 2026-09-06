@@ -620,6 +620,7 @@
 		workspace: string
 		/** The path it wrote to; absent when the write removed the item. */
 		to?: string
+		fromSessionId: string | undefined
 		fromTabId: string
 	}) {
 		const page = entityListPage(ev.kind)?.path
@@ -638,7 +639,8 @@
 				// baseline the deploy has replaced and would offer to discard back to it.
 				// The reporting one has settled its own, including an edit typed while the
 				// save was in flight, which a remount would re-read from under.
-				else if (tab.id !== ev.fromTabId) tabHosts[tabKey(s.id, tab.id)]?.reload({ entity: 'refresh' })
+				else if (s.id !== ev.fromSessionId || tab.id !== ev.fromTabId)
+					tabHosts[tabKey(s.id, tab.id)]?.reload({ entity: 'refresh' })
 			}
 		}
 	}
