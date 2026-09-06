@@ -235,12 +235,17 @@
 	}
 
 	function goToRow(target: DbForeignKeyTarget) {
-		// Foreign key queries qualify the target as `schema.table`; the sidebar
-		// only lets a schema-less database browse its single schema entry.
+		// Foreign key queries qualify the target as `schema.table` on every dialect.
 		const parts = target.table.split('.')
 		const table = parts[parts.length - 1]
-		const schemaKey =
-			dbSupportsSchemas && parts.length > 1 ? parts.slice(0, -1).join('.') : selected.schemaKey
+		const qualifier = parts.length > 1 ? parts.slice(0, -1).join('.') : undefined
+		// Without schema support the sidebar browses the connection's default
+		// schema only, and unqualified reads would hit a same-named local table.
+		if (!dbSupportsSchemas && qualifier && qualifier !== selected.schemaKey) {
+			sendUserToast(`Table ${target.table} is outside the browsed schema`, true)
+			return
+		}
+		const schemaKey = dbSupportsSchemas && qualifier ? qualifier : selected.schemaKey
 		if (!schemaKey || !(table in (dbSchema.schema[schemaKey] ?? {}))) {
 			sendUserToast(`Table ${target.table} not found`, true)
 			return
@@ -262,13 +267,16 @@
 	// table's same-named columns as foreign keys.
 	let foreignKeys = resource(
 		[() => selected.tableKey, () => selected.schemaKey, () => colDefs],
-		async ([table, schema]) => {
+		async ([table, schema], _prev, { signal }) => {
 			if (!table) return undefined
 			const forTableKey = dbSupportsSchemas && schema ? `${schema}.${table}` : table
 			const fks =
 				features?.foreignKeys === false
 					? []
 					: await dbSchemaOps.onFetchForeignKeys({ table, schema })
+			// A newer selection started meanwhile: an AbortError keeps this result
+			// out of `current`, where it would shadow the newer table's keys.
+			if (signal.aborted) throw new DOMException('Superseded', 'AbortError')
 			return { tableKey: forTableKey, foreignKeys: fks }
 		}
 	)

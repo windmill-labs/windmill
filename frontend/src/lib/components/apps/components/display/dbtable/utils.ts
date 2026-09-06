@@ -333,20 +333,19 @@ export function duckdbQuicksearchColumns(columnDefs: ColumnDef[]): string {
 		.join(', ')
 }
 
+/** Mirrors the backend's `render_db_quoted_identifier`, including doubling an
+ * embedded delimiter. */
 export function renderDbQuotedIdentifier(identifier: string, dbType: DbType): string {
 	switch (dbType) {
 		case 'postgresql':
-			return `"${identifier}"` // PostgreSQL uses double quotes for identifiers
-		case 'ms_sql_server':
-			return `[${identifier}]` // MSSQL uses square brackets for identifiers
-		case 'mysql':
-			return `\`${identifier}\`` // MySQL uses backticks
 		case 'snowflake':
-			return `"${identifier}"` // Snowflake uses double quotes for identifiers
-		case 'bigquery':
-			return `\`${identifier}\`` // BigQuery uses backticks
 		case 'duckdb':
-			return `"${identifier}"` // DuckDB uses double quotes for identifiers
+			return `"${identifier.replace(/"/g, '""')}"`
+		case 'ms_sql_server':
+			return `[${identifier.replace(/]/g, ']]')}]`
+		case 'mysql':
+		case 'bigquery':
+			return `\`${identifier.replace(/`/g, '``')}\``
 		default:
 			throw new Error('Unsupported database type: ' + dbType)
 	}

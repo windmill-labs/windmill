@@ -30,6 +30,15 @@ describe('renderDbEqualityFilter', () => {
 	it('quotes the identifier per dialect', () => {
 		expect(renderDbEqualityFilter('user id', 'x', 'postgresql')).toBe(`"user id" = 'x'`)
 		expect(renderDbEqualityFilter('user id', 'x', 'ms_sql_server')).toBe(`[user id] = 'x'`)
+		expect(renderDbEqualityFilter('user id', 'x', 'mysql')).toBe("`user id` = 'x'")
 		expect(renderDbEqualityFilter('user id', null, 'postgresql')).toBeUndefined()
+	})
+
+	it('doubles a delimiter embedded in the identifier', () => {
+		expect(renderDbEqualityFilter('a"b', 1, 'postgresql')).toBe(`"a""b" = 1`)
+		expect(renderDbEqualityFilter('a"b', 1, 'snowflake')).toBe(`"a""b" = 1`)
+		expect(renderDbEqualityFilter('a"b', 1, 'duckdb')).toBe(`"a""b" = 1`)
+		expect(renderDbEqualityFilter('a]b', 1, 'ms_sql_server')).toBe(`[a]]b] = 1`)
+		expect(renderDbEqualityFilter('a`b', 1, 'mysql')).toBe('`a``b` = 1')
 	})
 })

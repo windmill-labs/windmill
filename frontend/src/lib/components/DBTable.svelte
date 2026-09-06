@@ -36,6 +36,9 @@
 		}
 	}
 
+	const hasForeignKeyValue = (value: unknown) =>
+		value !== null && value !== undefined && value !== ''
+
 	/** Single-column foreign keys only: a composite key has no one cell value to follow. */
 	function foreignKeyColDefs(
 		foreignKeys: TableEditorForeignKey[],
@@ -51,10 +54,11 @@
 				tooltipComponent: ForeignKeyTooltip,
 				tooltipComponentParams: { onGoToRow },
 				tooltipValueGetter: (p): FkTooltipValue | null =>
-					p.value === null || p.value === undefined || p.value === ''
-						? null
-						: { table, column: targetColumn, value: p.value },
-				cellClass: 'underline decoration-dotted decoration-tertiary underline-offset-2'
+					hasForeignKeyValue(p.value) ? { table, column: targetColumn, value: p.value } : null,
+				cellClass: (p) =>
+					hasForeignKeyValue(p.value)
+						? 'underline decoration-dotted decoration-tertiary underline-offset-2'
+						: ''
 			}
 		}
 		return out
@@ -67,7 +71,7 @@
 	import { createGrid, type GridApi, type IDatasource } from 'ag-grid-community'
 	import { transformColumnDefs } from './apps/components/display/table/utils'
 	import DarkModeObserver from './DarkModeObserver.svelte'
-	import { Button } from './common'
+	import { Badge, Button } from './common'
 	import { Download, X } from 'lucide-svelte'
 	import Popover from './Popover.svelte'
 	import DebouncedInput from './apps/components/helpers/DebouncedInput.svelte'
@@ -227,10 +231,7 @@
 				placeholder="Search..."
 			/>
 			{#if rowFilter}
-				<div
-					class="flex h-7 items-center gap-1 whitespace-nowrap rounded-md border bg-surface-secondary pl-2 pr-0.5 text-xs text-primary"
-					data-testid="db-row-filter-chip"
-				>
+				<Badge rounded class="pr-0.5 text-xs" data-testid="db-row-filter-chip">
 					<span class="font-mono">{rowFilter.column} = {String(rowFilter.value)}</span>
 					<Button
 						iconOnly
@@ -240,7 +241,7 @@
 						title="Clear filter"
 						onClick={onClearRowFilter}
 					/>
-				</div>
+				</Badge>
 			{/if}
 		</div>
 		{#if dbTableOps.onInsert}
