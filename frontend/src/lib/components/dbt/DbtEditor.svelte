@@ -8,7 +8,7 @@
 	// single file, so the arguments, the run and the graph are all the project's
 	// whichever file happens to be open.
 	import { untrack } from 'svelte'
-	import { createEventDispatcher, onDestroy } from 'svelte'
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import type { Preview, ScriptModule } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -95,6 +95,14 @@
 			editor?.setCode(editorCode)
 			untrack(() => inferSchema(code))
 		}
+	})
+
+	// The stored schema can predate the parser (a CLI push, an older version), and
+	// the autosave baseline is taken as the mounted editor holds it
+	// (`schemaAsEditorMounts`), so the descriptor is re-inferred on mount rather
+	// than only on its first edit — otherwise the two only agree once edited.
+	onMount(() => {
+		void inferSchema(code)
 	})
 
 	function flushOpenFile() {
