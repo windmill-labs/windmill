@@ -4,6 +4,7 @@ import { deepEqual } from 'fast-equals'
 import { workspaceStore } from './stores'
 import { readFieldsRecursively } from './utils'
 import { UserDraftDbSyncer } from './userDraftDbSyncer.svelte'
+import { getLocalDraftHint } from './localDraftHints.svelte'
 import type { UserDraftItemKind } from './gen'
 
 export type { UserDraftItemKind }
@@ -291,22 +292,21 @@ export function settleDraftAfterWrite<V>(
 }
 
 /**
- * Wait for a queued draft delete to actually land, reporting whether it did. The
- * delete rides the autosave debouncer, so a caller that acts on it — a host that
- * leaves an editor whose item the discard removed — would otherwise navigate onto
- * a row that is still there, or away from a delete that failed.
+ * Wait for a queued draft delete to actually land, reporting whether the draft is
+ * gone. A caller acts on this — a host leaves an editor whose item the discard
+ * removed — so it has to be the outcome, not the pipeline's state: the delete
+ * shares its queue with the edits, and the form stays editable after Discard, so
+ * it can be displaced by a newer upsert as easily as it can fail. The hint is
+ * written by whichever POST landed, which is what tells the two apart.
  */
 export async function flushDraftDelete(
 	itemKind: UserDraftItemKind,
 	path: string,
 	opts?: UserDraftOptions
 ): Promise<boolean> {
-	const query = { workspace: resolveWorkspace(opts), itemKind, path }
-	await UserDraftDbSyncer.flush(query)
-	return (
-		UserDraftDbSyncer.getState(query).state !== 'failed' &&
-		UserDraftDbSyncer.getConflict(query).conflict === undefined
-	)
+	const workspace = resolveWorkspace(opts)
+	await UserDraftDbSyncer.flush({ workspace, itemKind, path })
+	return getLocalDraftHint(workspace, itemKind, path) === false
 }
 
 export type UserDraftHandle<V> = {

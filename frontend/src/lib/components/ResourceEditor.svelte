@@ -354,6 +354,11 @@
 		// the form at a linked workspace, and a rename made there is that workspace's
 		// alone — reporting it would move a host that is looking at this one.
 		const savedPath = payloads.find((pl) => pl.ws === effectiveWorkspace)?.s.path ?? from
+		// Set once the acting workspace's own write has committed. The workspaces are
+		// written in sequence and a later one throwing aborts the rest, but what this
+		// one wrote is already deployed — a caller told nothing would stay pointed at
+		// a path it has moved off.
+		let committed: string | undefined = undefined
 		try {
 			for (const { ws, s, ini, existed } of payloads) {
 				if (existed) {
@@ -389,6 +394,7 @@
 				// `remove`. See VariableEditor for the full rationale.
 				initialStates[ws] = s
 				existedInitially[ws] = true
+				if (ws === effectiveWorkspace) committed = s.path
 				// `s.path`, not the reported one: each workspace settles against the path
 				// its own write used.
 				settleDraftAfterWrite('resource', s, states[ws]?.draft, from, s.path, { workspace: ws })
@@ -405,7 +411,7 @@
 			return savedPath
 		} catch (err) {
 			sendUserToast(`Could not save resource: ${err.body ?? err.message}`, true)
-			return undefined
+			return committed
 		}
 	}
 </script>

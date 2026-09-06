@@ -299,6 +299,21 @@
 		// the form at a linked workspace, and a rename made there is that workspace's
 		// alone — reporting it would move a host that is looking at this one.
 		const savedPath = payloads.find((pl) => pl.ws === fromWs)?.s.path ?? from
+		// Set once the acting workspace's own write has committed. The workspaces are
+		// written in sequence and a later one throwing aborts the rest, but what this
+		// one wrote is already deployed — a host told nothing would stay pointed at a
+		// path it has moved off.
+		let committed: string | undefined = undefined
+		// Follow the rename locally and tell the host, for whatever committed. Guarded
+		// on this editor still being the one that was saved: re-pointed, `editPath` is
+		// the variable it moved to.
+		const reportSaved = (saved: string | undefined) => {
+			if (editPath === from) {
+				if (saved && saved !== editPath) editPath = saved
+				drawer?.closeDrawer()
+			}
+			onSaved?.(saved, from, fromWs)
+		}
 		try {
 			for (const { ws, s, ini, existed } of payloads) {
 				if (existed) {
@@ -342,6 +357,7 @@
 				// resets the handle to it via `discard` (not `remove` — blanking the cell
 				// to `undefined` reads as dirty), and keeps an edit made mid-request. Each
 				// workspace settles against the path its own write used, not the reported one.
+				if (ws === fromWs) committed = s.path
 				settleDraftAfterWrite('variable', s, states[ws]?.draft, from ?? '', s.path, {
 					workspace: ws
 				})
@@ -353,17 +369,10 @@
 				edit ? `Updated variable in ${payloads.length} workspace(s)` : `Created variable`
 			)
 			dispatch('create')
-			// Only while this editor is still the one that was saved: re-pointed, the
-			// path below is the variable it moved to.
-			if (editPath === from) {
-				// A rename moved the item; the drawer host closes over it, but an inline one
-				// stays mounted, so follow the new path here and tell the host about it.
-				if (savedPath && savedPath !== editPath) editPath = savedPath
-				drawer?.closeDrawer()
-			}
-			onSaved?.(savedPath, from, fromWs)
+			reportSaved(savedPath)
 		} catch (err) {
 			sendUserToast(`Could not save variable: ${err.body}`, true)
+			if (committed) reportSaved(committed)
 		}
 	}
 </script>
