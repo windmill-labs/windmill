@@ -626,11 +626,14 @@
 		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, wsId!)
 		if (isSaved) {
 			// A create deploys the schedule enabled whatever the form said (see
-			// saveScheduleFromCfg), so both the form and what counts as written adopt it
-			// — otherwise the baseline below records a state the server does not have.
+			// saveScheduleFromCfg), so what counts as written records that — otherwise
+			// the baseline below claims a state the server does not have. The form
+			// follows only while it still holds what was sent: changed during the
+			// request, it is a newer edit, and `keptEdit` below is what protects it.
 			if (wasCreate) {
-				enabled = true
+				const sentEnabled = scheduleCfg.enabled
 				scheduleCfg.enabled = true
+				if (enabled === sentEnabled) enabled = true
 			}
 			// What was sent is the deployed value now. Adopted here rather than by
 			// remounting: the form stays editable during the write, and a remount would
