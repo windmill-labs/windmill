@@ -306,11 +306,12 @@
 		let committed: string | undefined = undefined
 		// Follow the rename locally and tell the host, for whatever committed. Guarded
 		// on this editor still being the one that was saved: re-pointed, `editPath` is
-		// the variable it moved to.
-		const reportSaved = (saved: string | undefined) => {
+		// the variable it moved to. `close` only when every workspace is done — after a
+		// partial failure the drawer is where the one that still needs saving is retried.
+		const reportSaved = (saved: string | undefined, close: boolean) => {
 			if (editPath === from) {
 				if (saved && saved !== editPath) editPath = saved
-				drawer?.closeDrawer()
+				if (close) drawer?.closeDrawer()
 			}
 			onSaved?.(saved, from, fromWs)
 		}
@@ -369,10 +370,13 @@
 				edit ? `Updated variable in ${payloads.length} workspace(s)` : `Created variable`
 			)
 			dispatch('create')
-			reportSaved(savedPath)
+			reportSaved(savedPath, true)
 		} catch (err) {
 			sendUserToast(`Could not save variable: ${err.body}`, true)
-			if (committed) reportSaved(committed)
+			// The workspaces that did not get this far keep their drafts under the path
+			// they still hold the item at; re-keying them onto this rename would move a
+			// path they never wrote. They stay listed, and retryable from here.
+			if (committed) reportSaved(committed, false)
 		}
 	}
 </script>

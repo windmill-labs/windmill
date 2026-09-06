@@ -411,6 +411,9 @@
 			return savedPath
 		} catch (err) {
 			sendUserToast(`Could not save resource: ${err.body ?? err.message}`, true)
+			// The workspaces that did not get this far keep their drafts under the path
+			// they still hold the item at; re-keying them onto this rename would move a
+			// path they never wrote.
 			return committed
 		}
 	}

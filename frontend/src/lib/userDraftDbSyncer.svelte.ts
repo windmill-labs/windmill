@@ -229,6 +229,16 @@ const failures = new SvelteMap<string, string>()
 const flushes = new SvelteMap<string, number>()
 
 /**
+ * Whether the last save that LANDED for a key deleted the draft or wrote one.
+ * Written only here, by the response handler, which is what distinguishes it
+ * from the display-level draft hint: that one is also published optimistically
+ * and by the editors themselves, so it cannot say whether a POST succeeded.
+ * A caller acting on a delete (leaving an editor whose item it removed) needs
+ * the difference. Never cleared — "last landed" is meaningless until one has.
+ */
+const lastLanded = new Map<string, 'delete' | 'upsert'>()
+
+/**
  * Per-key listeners fired when a save for that key LANDS on the server
  * (`status === 'saved'` with a non-null value — the draft now exists
  * server-side). Distinct from `save()` resolving, which only means the work
@@ -316,6 +326,7 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		// (value !== null → exists). Every delete path clears the hint for
 		// free instead of maintaining a separate source of truth.
 		setLocalDraftHint(opts.workspace, opts.itemKind, opts.path, opts.value !== null)
+		lastLanded.set(key, opts.value === null ? 'delete' : 'upsert')
 		conflicts.delete(key)
 		failures.delete(key)
 		// Clear pending only if it's still the opts we just saved — a
@@ -594,6 +605,15 @@ export const UserDraftDbSyncer = {
 	},
 
 	/** Reactive conflict snapshot (if any) for a draft. */
+	/**
+	 * Whether the last save that landed for this key was the draft's deletion.
+	 * False while none has landed at all — a failed or conflicted delete never
+	 * reaches the response handler, so it never claims to have landed.
+	 */
+	lastLandedWasDelete(query: UserDraftLastSyncQuery): boolean {
+		return lastLanded.get(draftKey(query.workspace, query.itemKind, query.path)) === 'delete'
+	},
+
 	getConflict(query: UserDraftLastSyncQuery): {
 		readonly conflict: DraftConflictInfo | undefined
 	} {
