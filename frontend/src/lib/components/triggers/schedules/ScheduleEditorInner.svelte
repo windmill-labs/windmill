@@ -131,6 +131,10 @@
 	let initNewPath = $state(false)
 	let path: string = $state('')
 	let enabled: boolean = $state(false)
+	// What the server has accepted for `enabled`. The toggle sets `enabled` before
+	// its request and puts it back if that fails, so the form's value is a claim
+	// until then — and a save must not adopt a claim as its deployed baseline.
+	let deployedEnabled = false
 	let pathError = $state('')
 	let summary = $state('')
 	let labels: string[] | undefined = $state(undefined)
@@ -545,6 +549,7 @@
 		initialCronVersion = cronVersion
 		isLatestCron = cronVersion == 'v2'
 		enabled = cfg.enabled
+		deployedEnabled = cfg.enabled
 		schedule = cfg.schedule
 		initialSchedule = schedule
 		timezone = cfg.timezone
@@ -632,16 +637,18 @@
 			if (wasCreate) {
 				const sentEnabled = scheduleCfg.enabled
 				scheduleCfg.enabled = true
+				deployedEnabled = true
 				if (enabled === sentEnabled) enabled = true
+			} else {
+				// An update's payload carries no `enabled` (see saveScheduleFromCfg), so
+				// this write did not move it: what counts as written keeps the value the
+				// server has accepted, and the baseline below with it.
+				scheduleCfg.enabled = deployedEnabled
 			}
 			// What was sent is the deployed value now. Adopted here rather than by
 			// remounting: the form stays editable during the write, and a remount would
 			// re-read over an edit made then — which `settleDraftAfterWrite` keeps.
 			initialConfig = structuredClone(scheduleCfg)
-			// An update's payload carries no `enabled` (see saveScheduleFromCfg): the
-			// toggle deploys that field on its own, so the deployed value is whatever it
-			// last set, not what this save's click-time snapshot happens to hold.
-			if (!wasCreate) initialConfig.enabled = enabled
 			// An edit made while the write was in flight is kept rather than settled away
 			// — and the host must not remount over it, which is the only thing that can
 			// tell it so.
@@ -778,6 +785,7 @@
 			}
 			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${path}`)
 			// Deployed state moved, so the baseline the banner compares against does too.
+			deployedEnabled = nEnabled
 			if (initialConfig) initialConfig.enabled = nEnabled
 			// This request carried the enabled flag alone: anything else the form has
 			// diverged into is an edit of the user's, which a remount would drop.

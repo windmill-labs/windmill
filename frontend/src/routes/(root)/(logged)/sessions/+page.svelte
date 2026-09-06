@@ -588,7 +588,13 @@
 			const owner = getRuntime(s.id)?.previewTabs
 			if (!owner) continue
 			const workspace = getEffectiveWorkspaceId(s)
-			for (const tab of tabsToReload(owner.tabs, pages)) {
+			// The queue names the workspace each page was touched in; this session only
+			// cares about the ones touched in its own.
+			const prefix = `${workspace}\u0000`
+			const mine = new Set(
+				[...pages].filter((p) => p.startsWith(prefix)).map((p) => p.slice(prefix.length))
+			)
+			for (const tab of tabsToReload(owner.tabs, mine)) {
 				const key = tabKey(s.id, tab.id)
 				// A list tab shows every row, so any mutation on its page is its
 				// business. A hosted entity tab shows one item, and is told apart here.
@@ -639,7 +645,7 @@
 				// otherwise. Queued rather than reloaded here, so one deploy's writes and
 				// this report collapse into a single reload.
 				if (!entity) {
-					queuePageReload(page)
+					queuePageReload(ev.workspace, page)
 					continue
 				}
 				if (entity.path !== ev.path) continue
@@ -657,9 +663,12 @@
 	}
 	// One queue for every reason a previewed list page goes stale — a chat tool, a
 	// hosted editor's write, a draft landing afterwards — so the same frame is not
-	// reloaded several times for one deploy.
-	function queuePageReload(page: string) {
-		pendingPages.add(page)
+	// reloaded several times for one deploy. Keyed by workspace too: a write in one
+	// says nothing about the same page in another, and reloading it there costs the
+	// frame its scroll and everything else it holds.
+	function queuePageReload(workspace: string | undefined, page: string) {
+		if (!workspace) return
+		pendingPages.add(`${workspace}\u0000${page}`)
 		clearTimeout(reloadHandle)
 		reloadHandle = setTimeout(flushReload, 500)
 	}
@@ -675,9 +684,9 @@
 	// reloads against writes, reload when one lands: a draft written after a save —
 	// an edit made while it was in flight — reaches the list this way too.
 	$effect(() => {
-		return UserDraftDbSyncer.onAnySaved(({ itemKind }) => {
+		return UserDraftDbSyncer.onAnySaved(({ workspace, itemKind }) => {
 			const page = entityListPage(itemKind as EntityEditorKind)?.path
-			if (page) queuePageReload(page)
+			if (page) queuePageReload(workspace, page)
 		})
 	})
 
@@ -686,7 +695,7 @@
 		setToolCompletionListener((name, args, workspace) => {
 			const { pages, entity, path } = toolReloadEffect(name, args)
 			if (pages.length === 0) return
-			for (const p of pages) pendingPages.add(p)
+			for (const p of pages) pendingPages.add(`${workspace}\u0000${p}`)
 			// A write reaches a hosted editor through the draft cell it holds, but an
 			// editor still loading holds none yet and the seed no-opped past it. The
 			// miss is recorded when it happens — asking now would be too late, since

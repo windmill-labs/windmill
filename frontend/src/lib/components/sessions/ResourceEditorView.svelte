@@ -45,7 +45,7 @@
 	workspace={workspaceId}
 	{onBack}
 	{onRemoved}
-	onRestored={(ws) => path && onSavedTo?.(path, path, ws)}
+	onRestored={(ws, restored) => onSavedTo?.(restored, restored, ws)}
 	onSaved={(saved, from, fromWs) => {
 		if (saved && from && fromWs) onSavedTo?.(saved, from, fromWs)
 	}}
