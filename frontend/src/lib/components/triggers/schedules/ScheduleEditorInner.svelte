@@ -44,7 +44,7 @@
 	import { runScheduleNow } from '../scheduled/utils'
 	import { handleConfigChange } from '../utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
-	import { settleDraftAfterWrite } from '$lib/userDraft.svelte'
+	import { flushDraftDelete, settleDraftAfterWrite } from '$lib/userDraft.svelte'
 	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -1486,7 +1486,13 @@
 					const fromWs = wsId
 					const wasDraftOnly = draftOnly
 					await draftSync.resetToDeployed(from)
-					if (wasDraftOnly && from && fromWs && initialPath === from) onRemoved?.(from, fromWs)
+					// Only once the delete has landed: until then the schedule is still
+					// there, and a host would leave on a row it can see.
+					const landed = await flushDraftDelete('trigger_schedule', from, {
+						workspace: fromWs ?? undefined
+					})
+					if (wasDraftOnly && landed && from && fromWs && initialPath === from)
+						onRemoved?.(from, fromWs)
 				}}
 				disabled={!can_write}
 			/>

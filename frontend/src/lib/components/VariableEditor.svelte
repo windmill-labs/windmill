@@ -25,6 +25,7 @@
 	import {
 		UserDraft,
 		draftValuesEqual,
+		flushDraftDelete,
 		settleDraftAfterWrite,
 		type UserDraftHandle
 	} from '$lib/userDraft.svelte'
@@ -288,13 +289,16 @@
 		// one's path, and the baseline below would overwrite its own.
 		const from = editPath
 		const fromWs = curWs
-		const savedPath = current?.path ?? from
 		const payloads = dirtyWorkspaces.map((ws) => ({
 			ws,
 			s: $state.snapshot(states[ws].draft!) as VariableState,
 			ini: $state.snapshot(initialStates[ws]) as VariableState,
 			existed: !!existedInitially[ws]
 		}))
+		// The path the ACTING workspace's write used. `WsSpecificVersions` can point
+		// the form at a linked workspace, and a rename made there is that workspace's
+		// alone — reporting it would move a host that is looking at this one.
+		const savedPath = payloads.find((pl) => pl.ws === fromWs)?.s.path ?? from
 		try {
 			for (const { ws, s, ini, existed } of payloads) {
 				if (existed) {
@@ -336,9 +340,9 @@
 				}
 				// The just-saved state is the new deployed baseline; `settleDraftAfterWrite`
 				// resets the handle to it via `discard` (not `remove` — blanking the cell
-				// to `undefined` reads as dirty), and carries a mid-request edit onto the
-				// path the save wrote to.
-				settleDraftAfterWrite('variable', s, states[ws]?.draft, from ?? '', savedPath ?? '', {
+				// to `undefined` reads as dirty), and keeps an edit made mid-request. Each
+				// workspace settles against the path its own write used, not the reported one.
+				settleDraftAfterWrite('variable', s, states[ws]?.draft, from ?? '', s.path, {
 					workspace: ws
 				})
 				// Path now exists server-side — drop the autocomplete cache so
@@ -370,16 +374,18 @@
 		reserveSpace={edit}
 		getDeployed={() => (selected ? initialStates[selected] : undefined)}
 		getCurrent={() => current}
-		onDiscard={() => {
+		onDiscard={async () => {
 			if (!selected) return
+			const ws = selected
 			const from = editPath ?? ''
-			UserDraft.discard('variable', from, initialStates[selected], {
-				workspace: selected
-			})
+			const fromWs = curWs
+			UserDraft.discard('variable', from, initialStates[ws], { workspace: ws })
 			// A draft-only variable has no deployed row under the draft, so discarding
-			// it removed the variable: `initialStates` holds a synthesized stand-in,
-			// not a baseline to fall back to.
-			if (!existedInitially[selected] && from && curWs) onRemoved?.(from, curWs)
+			// it removed the variable: `initialStates` holds a synthesized stand-in, not
+			// a baseline to fall back to. Only once the delete has landed — until then
+			// the variable is still there, and a host would leave on a row it can see.
+			const landed = await flushDraftDelete('variable', from, { workspace: ws })
+			if (!existedInitially[ws] && landed && from && fromWs) onRemoved?.(from, fromWs)
 		}}
 		disabled={!can_write}
 	/>

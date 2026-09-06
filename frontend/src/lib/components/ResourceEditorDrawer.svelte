@@ -63,18 +63,16 @@
 
 	let resourceEditor:
 		| {
-				/** False when the write failed; it toasts its own error. */
-				save: () => Promise<boolean>
+				/** The path it wrote to, or undefined when it failed; it toasts its own error. */
+				save: () => Promise<string | undefined>
 				localDraftDeployed: () => unknown
 				localDraftCurrent: () => unknown
 				/** False when the discard removed the resource (it was draft-only). */
-				discardLocalDraft: () => boolean
+				discardLocalDraft: () => Promise<boolean>
 		  }
 		| undefined = $state(undefined)
 	let hasLocalDraft = $state(false)
 	let canWriteSelected = $state(true)
-	// The path as edited in the form, which a rename moves off `path`.
-	let livePath: string | undefined = $state(undefined)
 
 	let path: string | undefined = $state(undefined)
 	let selected: string | undefined = $state(undefined)
@@ -163,7 +161,6 @@
 				bind:canSave
 				bind:selected
 				bind:viewJsonSchema
-				onChange={(e) => (livePath = e.path)}
 				onDraftStateChange={(v) => (hasLocalDraft = v)}
 				onCanWriteChange={(v) => (canWriteSelected = v)}
 			/>
@@ -177,10 +174,11 @@
 		reserveSpace={mode == 'edit'}
 		getDeployed={() => resourceEditor?.localDraftDeployed()}
 		getCurrent={() => resourceEditor?.localDraftCurrent()}
-		onDiscard={() => {
+		onDiscard={async () => {
 			const from = path
-			if (resourceEditor?.discardLocalDraft() === false && from)
-				onRemoved?.(from, effectiveWorkspace)
+			const fromWs = effectiveWorkspace
+			if ((await resourceEditor?.discardLocalDraft()) === false && from)
+				onRemoved?.(from, fromWs)
 		}}
 		disabled={!canWriteSelected}
 	/>
@@ -218,22 +216,20 @@
 			// workspace, while the write is in flight.
 			const from = path
 			const fromWs = effectiveWorkspace
-			// The path the form holds now is the one `save()` is about to send; read
-			// after the await it would be a rename the user typed meanwhile, and the
-			// tab would follow to a path this write never created.
-			const submitted = livePath ?? path
 			// Closed before the write is awaited, the way it always was: `save()` toasts its
 			// own failures and never rejects, so waiting would only add visible lag to every
 			// caller of this drawer. `onSaved` still fires after the write lands.
 			const saving = resourceEditor?.save()
 			drawer?.closeDrawer()
-			// Everything below moves this host onto the path that was written, so it
-			// must not run for a write that failed — a rejected rename (a name
-			// collision, say) would point the tab at a path this save never created.
-			if (!(await saving)) return
+			// The path the write landed on, from the editor rather than the form: the form
+			// may be showing a linked workspace's variant, whose rename is not this host's.
+			// Undefined means the write failed — a rejected rename (a name collision, say)
+			// — and everything below would move this host onto a path it never created.
+			const submitted = await saving
+			if (!submitted) return
 			// An inline host re-pointed this editor while the write was in flight, so
-			// `path`, `livePath` and the mounted editor are another resource's now.
-			// Moving any of them onto this write's result would move that one instead.
+			// `path` and the mounted editor are another resource's now. Moving either
+			// onto this write's result would move that one instead.
 			if (path !== from) return
 			// Rendered inline there is no drawer to close, so the mounted editor would
 			// otherwise keep the pre-save baseline. Follow a rename before remounting,

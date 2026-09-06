@@ -290,6 +290,25 @@ export function settleDraftAfterWrite<V>(
 	}
 }
 
+/**
+ * Wait for a queued draft delete to actually land, reporting whether it did. The
+ * delete rides the autosave debouncer, so a caller that acts on it — a host that
+ * leaves an editor whose item the discard removed — would otherwise navigate onto
+ * a row that is still there, or away from a delete that failed.
+ */
+export async function flushDraftDelete(
+	itemKind: UserDraftItemKind,
+	path: string,
+	opts?: UserDraftOptions
+): Promise<boolean> {
+	const query = { workspace: resolveWorkspace(opts), itemKind, path }
+	await UserDraftDbSyncer.flush(query)
+	return (
+		UserDraftDbSyncer.getState(query).state !== 'failed' &&
+		UserDraftDbSyncer.getConflict(query).conflict === undefined
+	)
+}
+
 export type UserDraftHandle<V> = {
 	get draft(): V | undefined
 	set draft(value: V | undefined)

@@ -15,6 +15,7 @@
 	import {
 		UserDraft,
 		draftValuesEqual,
+		flushDraftDelete,
 		settleDraftAfterWrite,
 		type UserDraftHandle
 	} from '$lib/userDraft.svelte'
@@ -299,12 +300,13 @@
 	 * that was never deployed removes the resource itself — `initialStates` holds a
 	 * synthesized stand-in, not a baseline to fall back to — so a caller showing it
 	 * has to stop rather than keep displaying that stand-in. */
-	export function discardLocalDraft(): boolean {
+	export async function discardLocalDraft(): Promise<boolean> {
 		if (!selected) return true
-		UserDraft.discard('resource', initialPath ?? '', initialStates[selected], {
-			workspace: selected
-		})
-		return !!existedInitially[selected]
+		const ws = selected
+		UserDraft.discard('resource', initialPath ?? '', initialStates[ws], { workspace: ws })
+		// A delete that never landed leaves the resource where it was.
+		const landed = await flushDraftDelete('resource', initialPath ?? '', { workspace: ws })
+		return !!existedInitially[ws] || !landed
 	}
 
 	$effect(() => {
@@ -333,9 +335,10 @@
 		current.path = npath
 	}
 
-	/** Whether the write landed. It toasts its own failure, so most callers ignore this;
-	 * one that follows the save with bookkeeping of its own has to know not to. */
-	export async function save(): Promise<boolean> {
+	/** The path the acting workspace's write landed on, or undefined if it failed —
+	 * it toasts its own failure, so a caller only needs this to know whether to run
+	 * bookkeeping of its own, and where the item ended up. */
+	export async function save(): Promise<string | undefined> {
 		// Everything the writes send, read before the first await. The form stays
 		// editable while they are in flight, so read later these would be whatever
 		// the user has since typed — sent under an earlier workspace's path, and
@@ -347,7 +350,10 @@
 			ini: $state.snapshot(initialStates[ws]) as ResourceState,
 			existed: !!existedInitially[ws]
 		}))
-		const savedPath = payloads[0]?.s.path ?? from
+		// The path the ACTING workspace's write used. `WsSpecificVersions` can point
+		// the form at a linked workspace, and a rename made there is that workspace's
+		// alone — reporting it would move a host that is looking at this one.
+		const savedPath = payloads.find((pl) => pl.ws === effectiveWorkspace)?.s.path ?? from
 		try {
 			for (const { ws, s, ini, existed } of payloads) {
 				if (existed) {
@@ -383,7 +389,9 @@
 				// `remove`. See VariableEditor for the full rationale.
 				initialStates[ws] = s
 				existedInitially[ws] = true
-				settleDraftAfterWrite('resource', s, states[ws]?.draft, from, savedPath, { workspace: ws })
+				// `s.path`, not the reported one: each workspace settles against the path
+				// its own write used.
+				settleDraftAfterWrite('resource', s, states[ws]?.draft, from, s.path, { workspace: ws })
 				// Path now exists server-side — drop the autocomplete cache so
 				// it shows up immediately instead of after the 60s TTL.
 				invalidateWorkspacePaths(ws)
@@ -394,10 +402,10 @@
 					: `Saved resource`
 			)
 			dispatch('refresh', savedPath)
-			return true
+			return savedPath
 		} catch (err) {
 			sendUserToast(`Could not save resource: ${err.body ?? err.message}`, true)
-			return false
+			return undefined
 		}
 	}
 </script>
