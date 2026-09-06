@@ -30,7 +30,9 @@
 	}: {
 		workspace?: string
 		disableChatOffset?: boolean
-		onRestored?: () => void
+		/** A version was restored, in the workspace the history was pointed at — which
+		 * `WsSpecificVersions` can make a linked one rather than the acting workspace. */
+		onRestored?: (workspace: string) => void
 		/** Fires after Save has written, with the path it wrote to — which is not the
 		 * one it was opened on when the user renamed it — and the workspace and path
 		 * it started on. For a caller showing state derived from the resource;
@@ -328,7 +330,7 @@
 					editorGeneration++
 					// Its own callback rather than the `refresh` event: callers bind that to
 					// reopening a picker (EditorBar), which a restore should not trigger.
-					onRestored?.()
+					onRestored?.(historyWorkspace)
 				}}
 			/>
 		{/if}

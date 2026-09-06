@@ -630,8 +630,17 @@
 			if (!owner || getEffectiveWorkspaceId(s) !== ev.workspace) continue
 			for (const tab of owner.tabs) {
 				const loc = whereIs(tab)
+				if (stripBase(loc) !== page) continue
+				const key = tabKey(s.id, tab.id)
 				const entity = parseEntityEditorRoute(loc)
-				if (!entity || entity.path !== ev.path || stripBase(loc) !== page) continue
+				// A bare list tab shows every row, so any write on its page is its business
+				// — same as for a chat mutation, and its rows and `*` markers go stale
+				// otherwise.
+				if (!entity) {
+					if (mountedTabKeys.has(key)) tabHosts[key]?.reload()
+					continue
+				}
+				if (entity.path !== ev.path) continue
 				// The tab's own location, so the list it came from keeps its filters.
 				if (!ev.to) owner.retargetTabTo(tab.id, entityListHref(loc))
 				else if (ev.to !== ev.path) owner.retargetTabTo(tab.id, entityEditorHref(loc, ev.to))
@@ -640,7 +649,7 @@
 				// The reporting one has settled its own, including an edit typed while the
 				// save was in flight, which a remount would re-read from under.
 				else if (s.id !== ev.fromSessionId || tab.id !== ev.fromTabId)
-					tabHosts[tabKey(s.id, tab.id)]?.reload({ entity: 'refresh' })
+					tabHosts[key]?.reload({ entity: 'refresh' })
 			}
 		}
 	}
