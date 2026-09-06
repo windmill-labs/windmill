@@ -257,13 +257,25 @@
 		}
 	}
 
+	// The result carries the table it was fetched for: `resource` keeps the
+	// previous value while refetching, and a stale list would decorate the new
+	// table's same-named columns as foreign keys.
 	let foreignKeys = resource(
 		[() => selected.tableKey, () => selected.schemaKey, () => colDefs],
 		async ([table, schema]) => {
-			if (!table || features?.foreignKeys === false) return []
-			return await dbSchemaOps.onFetchForeignKeys({ table, schema })
+			if (!table) return undefined
+			const forTableKey = dbSupportsSchemas && schema ? `${schema}.${table}` : table
+			const fks =
+				features?.foreignKeys === false
+					? []
+					: await dbSchemaOps.onFetchForeignKeys({ table, schema })
+			return { tableKey: forTableKey, foreignKeys: fks }
 		}
 	)
+	let currentForeignKeys = $derived.by(() => {
+		const fetched = foreignKeys.current
+		return fetched && fetched.tableKey === tableKey ? fetched.foreignKeys : undefined
+	})
 
 	let askingForConfirmation:
 		| (ConfirmationModal['$$prop_def'] & { onConfirm: () => void })
@@ -593,7 +605,7 @@
 			{@const dbTableOps = dbTableOpsFactory({ colDefs: colDefs[tableKey], tableKey, whereClause })}
 			<DBTable
 				{dbTableOps}
-				foreignKeys={foreignKeys.current}
+				foreignKeys={currentForeignKeys}
 				onGoToRow={goToRow}
 				rowFilter={activeRowFilter}
 				onClearRowFilter={() => (rowFilter = undefined)}

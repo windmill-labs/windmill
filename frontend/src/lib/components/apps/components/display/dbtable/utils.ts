@@ -364,8 +364,11 @@ export function renderDbLiteral(value: unknown, dbType: DbType): string | undefi
 	}
 	if (typeof value !== 'string') return undefined
 	let escaped = value.replace(/'/g, "''")
-	// MySQL treats a backslash inside a string literal as an escape character.
-	if (dbType === 'mysql') escaped = escaped.replace(/\\/g, '\\\\')
+	// MySQL, Snowflake and BigQuery treat a backslash inside a string literal as
+	// an escape character.
+	if (dbType === 'mysql' || dbType === 'snowflake' || dbType === 'bigquery') {
+		escaped = escaped.replace(/\\/g, '\\\\')
+	}
 	return `'${escaped}'`
 }
 
