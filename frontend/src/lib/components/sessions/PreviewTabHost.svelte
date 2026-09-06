@@ -65,12 +65,14 @@
 		onLoad: (frame: HTMLIFrameElement) => void
 		/** A hosted entity editor wrote its item: saved it (`to`, the path it wrote
 		 * to) or removed it. The page reaches every tab on that item, across warm
-		 * sessions. */
+		 * sessions — `fromTabId` being the one that reported, which has settled its
+		 * own state already. */
 		onEntityWritten: (ev: {
 			kind: EntityEditorKind
 			path: string
 			workspace: string
 			to?: string
+			fromTabId: string
 		}) => void
 	} = $props()
 
@@ -196,13 +198,19 @@
 	const reportRemoved = $derived(
 		slot.kind === 'entity'
 			? (kind: EntityEditorKind, fromPath: string, fromWs: string) =>
-					onEntityWritten({ kind, path: fromPath, workspace: fromWs })
+					onEntityWritten({ kind, path: fromPath, workspace: fromWs, fromTabId: tab.id })
 			: undefined
 	)
 	const reportSaved = $derived(
 		slot.kind === 'entity'
 			? (kind: EntityEditorKind, newPath: string, fromPath: string, fromWs: string) =>
-					onEntityWritten({ kind, path: fromPath, workspace: fromWs, to: newPath })
+					onEntityWritten({
+						kind,
+						path: fromPath,
+						workspace: fromWs,
+						to: newPath,
+						fromTabId: tab.id
+					})
 			: undefined
 	)
 

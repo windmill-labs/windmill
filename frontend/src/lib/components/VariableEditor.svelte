@@ -295,15 +295,10 @@
 			ini: $state.snapshot(initialStates[ws]) as VariableState,
 			existed: !!existedInitially[ws]
 		}))
-		// The path the ACTING workspace's write used. `WsSpecificVersions` can point
-		// the form at a linked workspace, and a rename made there is that workspace's
-		// alone — reporting it would move a host that is looking at this one.
-		const savedPath = payloads.find((pl) => pl.ws === fromWs)?.s.path ?? from
-		// Set once the acting workspace's own write has committed. The workspaces are
-		// written in sequence and a later one throwing aborts the rest, but what this
-		// one wrote is already deployed — a host told nothing would stay pointed at a
-		// path it has moved off.
-		let committed: string | undefined = undefined
+		// What this editor itself follows: `WsSpecificVersions` can point the form at a
+		// linked workspace, and a rename made there is that workspace's alone.
+		const actingPath = payloads.find((pl) => pl.ws === fromWs)?.s.path ?? from
+		let actingCommitted = false
 		try {
 			for (const { ws, s, ini, existed } of payloads) {
 				if (existed) {
@@ -347,7 +342,12 @@
 				// resets the handle to it via `discard` (not `remove` — blanking the cell
 				// to `undefined` reads as dirty), and keeps an edit made mid-request. Each
 				// workspace settles against the path its own write used, not the reported one.
-				if (ws === fromWs) committed = s.path
+				if (ws === fromWs) actingCommitted = true
+				// Per workspace, as each write lands. Each carries its own workspace and
+				// the path it wrote there, so a linked workspace's rename moves the tabs
+				// acting on it and no others — and a workspace written before a later one
+				// threw is still reported, because it is deployed.
+				onSaved?.(s.path, from, ws)
 				settleDraftAfterWrite('variable', s, states[ws]?.draft, from ?? '', s.path, {
 					workspace: ws
 				})
@@ -363,22 +363,17 @@
 			// `editPath` is the variable it moved to.
 			if (editPath === from) {
 				// A rename moved the item; the drawer host closes over it, but an inline one
-				// stays mounted, so follow the new path here and tell the host about it.
-				if (savedPath && savedPath !== editPath) editPath = savedPath
+				// stays mounted, so follow the new path here.
+				if (actingPath && actingPath !== editPath) editPath = actingPath
 				drawer?.closeDrawer()
 			}
-			onSaved?.(savedPath, from, fromWs)
 		} catch (err) {
 			sendUserToast(`Could not save variable: ${err.body}`, true)
-			if (committed) {
-				onSaved?.(committed, from, fromWs)
-				// Reopened, not re-keyed: re-keying would bring the handles back from the
-				// values this drawer opened on, which describe neither what the committed
-				// workspace now has deployed nor the draft the failed one still holds at
-				// its own path. That draft stays there, listed and editable from its
-				// workspace — moving it onto a rename it never wrote would be worse.
-				if (editPath === from) editVariable(committed)
-			}
+			// Reopened, so the handles come from the server: re-keying them would bring
+			// back the values this drawer opened on, which describe neither what the
+			// committed workspace now has deployed nor the draft the failed one still
+			// holds — that one stays at its own path, editable from its workspace.
+			if (actingCommitted && actingPath && editPath === from) editVariable(actingPath)
 		}
 	}
 </script>
@@ -391,16 +386,18 @@
 		getCurrent={() => current}
 		onDiscard={async () => {
 			if (!selected) return
+			// The workspace the editor is showing, which `WsSpecificVersions` can point at
+			// a linked one: the discard deletes that workspace's draft, so that is whose
+			// tabs it is about.
 			const ws = selected
 			const from = editPath ?? ''
-			const fromWs = curWs
 			UserDraft.discard('variable', from, initialStates[ws], { workspace: ws })
 			// A draft-only variable has no deployed row under the draft, so discarding
 			// it removed the variable: `initialStates` holds a synthesized stand-in, not
 			// a baseline to fall back to. Only once the delete has landed — until then
 			// the variable is still there, and a host would leave on a row it can see.
 			const landed = await flushDraftDelete('variable', from, { workspace: ws })
-			if (!existedInitially[ws] && landed && from && fromWs) onRemoved?.(from, fromWs)
+			if (!existedInitially[ws] && landed && from) onRemoved?.(from, ws)
 		}}
 		disabled={!can_write}
 	/>

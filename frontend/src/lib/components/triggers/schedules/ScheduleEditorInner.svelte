@@ -1480,8 +1480,8 @@
 				getCurrent={() => draftSync.current}
 				onDiscard={async () => {
 					// The path the discard started from: it awaits a reload of the runnable,
-					// and an inline host can re-point the editor in the meantime — after
-					// which this discard's outcome is no longer about what is on screen.
+					// and an inline host can re-point the editor in the meantime. What it
+					// removed is still that schedule, which is what the report is about.
 					const from = initialPath
 					const fromWs = wsId
 					const wasDraftOnly = draftOnly
@@ -1491,8 +1491,7 @@
 					const landed = await flushDraftDelete('trigger_schedule', from, {
 						workspace: fromWs ?? undefined
 					})
-					if (wasDraftOnly && landed && from && fromWs && initialPath === from)
-						onRemoved?.(from, fromWs)
+					if (wasDraftOnly && landed && from && fromWs) onRemoved?.(from, fromWs)
 				}}
 				disabled={!can_write}
 			/>

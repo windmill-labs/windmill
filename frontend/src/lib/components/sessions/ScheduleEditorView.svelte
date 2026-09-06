@@ -71,13 +71,11 @@
 			showDraftBanner
 			{onRemoved}
 			onUpdate={(saved: string | undefined, from: string, fromWs: string) => {
-				// The write landed after the tab was pointed at another schedule: the
-				// remount below would take that one back through a load it never asked
-				// for, and the rename is not its rename.
-				if (from !== path) return
-				generation++
-				// A draft-only schedule opens with its path editable (saving CREATEs), so
-				// the save can land somewhere other than where the tab is pointed.
+				// Remount only while this tab is still on the schedule that was saved:
+				// pointed elsewhere since, it would be taken back through a load it never
+				// asked for. The report goes out either way — the tabs on that schedule
+				// elsewhere have to hear, and a draft-only save can land on a new path.
+				if (from === path) generation++
 				if (saved) onSavedTo?.(saved, from, fromWs)
 			}}
 		>

@@ -335,10 +335,9 @@
 		current.path = npath
 	}
 
-	/** The path the acting workspace's write landed on, or undefined if it failed —
-	 * it toasts its own failure, so a caller only needs this to know whether to run
-	 * bookkeeping of its own, and where the item ended up. */
-	export async function save(): Promise<string | undefined> {
+	/** What the save deployed: one entry per workspace written, with the path it
+	 * wrote there. Empty when nothing landed — it toasts its own failure. */
+	export async function save(): Promise<{ ws: string; path: string }[]> {
 		// Everything the writes send, read before the first await. The form stays
 		// editable while they are in flight, so read later these would be whatever
 		// the user has since typed — sent under an earlier workspace's path, and
@@ -353,12 +352,11 @@
 		// The path the ACTING workspace's write used. `WsSpecificVersions` can point
 		// the form at a linked workspace, and a rename made there is that workspace's
 		// alone — reporting it would move a host that is looking at this one.
-		const savedPath = payloads.find((pl) => pl.ws === effectiveWorkspace)?.s.path ?? from
-		// Set once the acting workspace's own write has committed. The workspaces are
-		// written in sequence and a later one throwing aborts the rest, but what this
-		// one wrote is already deployed — a caller told nothing would stay pointed at
-		// a path it has moved off.
-		let committed: string | undefined = undefined
+		// Every workspace this save wrote, in order, each with the path it wrote there.
+		// The workspaces go in sequence and a later one throwing aborts the rest, but
+		// what an earlier one wrote is deployed — a caller told nothing about it would
+		// stay pointed at a path the item has moved off.
+		const written: { ws: string; path: string }[] = []
 		try {
 			for (const { ws, s, ini, existed } of payloads) {
 				if (existed) {
@@ -394,7 +392,7 @@
 				// `remove`. See VariableEditor for the full rationale.
 				initialStates[ws] = s
 				existedInitially[ws] = true
-				if (ws === effectiveWorkspace) committed = s.path
+				written.push({ ws, path: s.path })
 				// `s.path`, not the reported one: each workspace settles against the path
 				// its own write used.
 				settleDraftAfterWrite('resource', s, states[ws]?.draft, from, s.path, { workspace: ws })
@@ -407,15 +405,14 @@
 					? `Saved resource in ${payloads.length} workspaces`
 					: `Saved resource`
 			)
-			dispatch('refresh', savedPath)
-			return savedPath
+			dispatch('refresh', written.find((w) => w.ws === effectiveWorkspace)?.path ?? from)
+			return written
 		} catch (err) {
 			sendUserToast(`Could not save resource: ${err.body ?? err.message}`, true)
-			// Following the rename remounts on the new path, so a workspace whose write
-			// never happened loses sight of its draft here — it stays on the server under
-			// the path that workspace still holds the item at, listed and editable from
-			// there. Re-keying it instead would move a path it never wrote.
-			return committed
+			// The workspaces that never got their write keep their drafts at their own
+			// paths, listed and editable from there — moving one onto a rename it never
+			// wrote would be worse than not showing it here.
+			return written
 		}
 	}
 </script>

@@ -620,6 +620,7 @@
 		workspace: string
 		/** The path it wrote to; absent when the write removed the item. */
 		to?: string
+		fromTabId: string
 	}) {
 		const page = entityListPage(ev.kind)?.path
 		if (!page) return
@@ -633,9 +634,11 @@
 				// The tab's own location, so the list it came from keeps its filters.
 				if (!ev.to) owner.retargetTabTo(tab.id, entityListHref(loc))
 				else if (ev.to !== ev.path) owner.retargetTabTo(tab.id, entityEditorHref(loc, ev.to))
-				// Same path: nothing to re-point, but every editor on it holds a baseline
-				// the deploy has replaced, and would offer to discard back to it.
-				else tabHosts[tabKey(s.id, tab.id)]?.reload({ entity: 'refresh' })
+				// Same path: nothing to re-point, but every OTHER editor on it holds a
+				// baseline the deploy has replaced and would offer to discard back to it.
+				// The reporting one has settled its own, including an edit typed while the
+				// save was in flight, which a remount would re-read from under.
+				else if (tab.id !== ev.fromTabId) tabHosts[tabKey(s.id, tab.id)]?.reload({ entity: 'refresh' })
 			}
 		}
 	}

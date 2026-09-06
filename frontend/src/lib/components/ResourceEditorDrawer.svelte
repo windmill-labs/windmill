@@ -63,8 +63,9 @@
 
 	let resourceEditor:
 		| {
-				/** The path it wrote to, or undefined when it failed; it toasts its own error. */
-				save: () => Promise<string | undefined>
+				/** One entry per workspace written, with the path it wrote there; empty when
+				 * nothing landed. It toasts its own error. */
+				save: () => Promise<{ ws: string; path: string }[]>
 				localDraftDeployed: () => unknown
 				localDraftCurrent: () => unknown
 				/** False when the discard removed the resource (it was draft-only). */
@@ -176,7 +177,10 @@
 		getCurrent={() => resourceEditor?.localDraftCurrent()}
 		onDiscard={async () => {
 			const from = path
-			const fromWs = effectiveWorkspace
+			// The workspace the editor is showing, which `WsSpecificVersions` can point at
+			// a linked one: the discard deletes that workspace's draft, so that is whose
+			// tabs it is about.
+			const fromWs = selected ?? effectiveWorkspace
 			if ((await resourceEditor?.discardLocalDraft()) === false && from)
 				onRemoved?.(from, fromWs)
 		}}
@@ -221,23 +225,24 @@
 			// caller of this drawer. `onSaved` still fires after the write lands.
 			const saving = resourceEditor?.save()
 			drawer?.closeDrawer()
-			// The path the write landed on, from the editor rather than the form: the form
-			// may be showing a linked workspace's variant, whose rename is not this host's.
-			// Undefined means the write failed — a rejected rename (a name collision, say)
-			// — and everything below would move this host onto a path it never created.
-			const submitted = await saving
-			if (!submitted) return
-			// An inline host re-pointed this editor while the write was in flight, so
-			// `path` and the mounted editor are another resource's now. Moving either
-			// onto this write's result would move that one instead.
-			if (path !== from) return
+			// What landed, per workspace, from the editor rather than the form: the form may
+			// be showing a linked workspace's variant, whose rename is not this host's.
+			const written = (await saving) ?? []
+			if (written.length === 0) return
+			const submitted = written.find((w) => w.ws === fromWs)?.path
 			// Rendered inline there is no drawer to close, so the mounted editor would
 			// otherwise keep the pre-save baseline. Follow a rename before remounting,
-			// or it comes back up on a path the save just moved the item off.
-			const savedPath = submitted
-			if (savedPath) path = savedPath
-			editorGeneration++
-			onSaved?.(savedPath, from, fromWs)
+			// or it comes back up on a path the save just moved the item off. Only while
+			// this is still the resource it saved: re-pointed mid-write, `path` and the
+			// mounted editor are another one's, and moving them would move that one.
+			if (path === from) {
+				if (submitted) path = submitted
+				editorGeneration++
+			}
+			// One report per workspace written, each carrying its own — a linked
+			// workspace's rename moves the tabs acting on it and no others. Reported
+			// even when this drawer has moved on: the write is a fact about the item.
+			for (const w of written) onSaved?.(w.path, from, w.ws)
 		}}
 		disabled={!canSave}
 	>
