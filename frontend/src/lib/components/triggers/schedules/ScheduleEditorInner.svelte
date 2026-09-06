@@ -626,10 +626,10 @@
 		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, wsId!)
 		if (isSaved) {
 			// A create deploys the schedule enabled whatever the form said (see
-			// saveScheduleFromCfg), so what counts as written records that — otherwise
-			// the baseline below claims a state the server does not have. The form
-			// follows only while it still holds what was sent: changed during the
-			// request, it is a newer edit, and `keptEdit` below is what protects it.
+			// saveScheduleFromCfg), so what counts as written records that — the
+			// baseline would otherwise claim a state the server does not have. The form
+			// follows only while it still holds what was sent; changed since, it is an
+			// edit of its own.
 			if (wasCreate) {
 				const sentEnabled = scheduleCfg.enabled
 				scheduleCfg.enabled = true
@@ -776,7 +776,20 @@
 			if (initialConfig) initialConfig.enabled = nEnabled
 			// This request carried the enabled flag alone: anything else the form has
 			// diverged into is an edit of the user's, which a remount would drop.
-			onUpdate?.(path, path, ws, !draftValuesEqual(getScheduleCfg(), initialConfig))
+			const keptEdit = !draftValuesEqual(getScheduleCfg(), initialConfig)
+			// Setting `enabled` above queued a draft against the pre-toggle baseline.
+			// It matches the new one, so nothing would ever show it again — but it is
+			// still a row on the server and a `*` on the list until it is settled away.
+			if (initialConfig)
+				settleDraftAfterWrite(
+					'trigger_schedule',
+					$state.snapshot(initialConfig),
+					getScheduleCfg(),
+					path,
+					path,
+					{ workspace: ws ?? undefined }
+				)
+			onUpdate?.(path, path, ws, keptEdit)
 		}
 	}
 

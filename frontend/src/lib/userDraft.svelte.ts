@@ -320,6 +320,10 @@ export const UserDraft = {
 	save<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
+		// The item has a draft again, so it exists again: a marker still standing
+		// (nothing consumed it, because nothing was listening) describes an item this
+		// write replaced, and would send the next editor to touch it away.
+		draftOnlyDiscards.delete(mk)
 		const entry = entries.get(mk)
 		if (entry) {
 			// The reactive effect in `acquireEntry` observes this write
@@ -463,6 +467,7 @@ export const UserDraft = {
 	seed<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
+		draftOnlyDiscards.delete(mk)
 		const entry = entries.get(mk)
 		if (!entry) {
 			noteMarker(seedMisses, mk)
@@ -483,12 +488,6 @@ export const UserDraft = {
 		noteMarker(draftOnlyDiscards, mapKey(resolveWorkspace(opts), itemKind, path))
 	},
 
-	/** Drop any removal marker for this cell — the item exists again, so a marker
-	 * still standing (nothing consumed it, because nothing was listening) would be
-	 * read by whatever touches it next and send its editor away. */
-	clearDraftOnlyDiscard(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
-		draftOnlyDiscards.delete(mapKey(resolveWorkspace(opts), itemKind, path))
-	},
 
 	/** Whether the last discard for this cell removed the item outright (see
 	 * {@link recordDraftOnlyDiscard}), clearing the record. */
@@ -953,6 +952,8 @@ function acquireEntry(
 				// copy. `untrack` so reactive reads in the predicate (the editor's
 				// post-deploy baseline) don't re-fire the mirror.
 				const atBaseline = untrack(() => val !== undefined && (discardIf?.(val) ?? false))
+				// Same as `save`: a value persisted here means the item exists again.
+				if (val !== undefined && !atBaseline) draftOnlyDiscards.delete(mk)
 				void UserDraftDbSyncer.save({
 					workspace,
 					itemKind,
