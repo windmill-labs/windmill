@@ -466,8 +466,15 @@ async fn build_plan(
     req: &SetDatatablePermissions,
 ) -> Result<(tokio_postgres::Client, RolePlan)> {
     require_datatable_permissions_license().await?;
-    ensure_save_names_what_exists(db, w_id, datatable_name, req).await?;
     let datatable = read_datatable_unchecked(db, w_id, datatable_name).await?;
+    ensure_save_names_what_exists(
+        db,
+        w_id,
+        datatable_name,
+        datatable.permissions.as_ref(),
+        req,
+    )
+    .await?;
     let (client, conn) = connect_as_admin_unchecked(db, w_id, datatable_name).await?;
     let plan = crate::datatable_permissions_oss::plan_role_changes(
         w_id,
@@ -484,6 +491,24 @@ async fn build_plan(
     // Stamped from the connection the roles are about to be created through, so
     // a resolution that lands anywhere else later can refuse.
     plan.permissions.database_identity = conn.database_identity;
+    if !req.enabled {
+        // Opting out is never refused; what it strands is said out loud.
+        let roles: HashSet<&str> = datatable
+            .permissions
+            .as_ref()
+            .map(|p| p.roles.keys().map(String::as_str))
+            .into_iter()
+            .flatten()
+            .collect();
+        let stranded = migrations_naming(db, w_id, datatable_name, &roles).await?;
+        if !stranded.is_empty() {
+            plan.warnings.push(format!(
+                "Migration(s) {} name a role in a `-- role` annotation; they will not run until \
+                 the annotation is removed.",
+                stranded.join(", ")
+            ));
+        }
+    }
     Ok((client, plan))
 }
 
@@ -725,9 +750,9 @@ pub(crate) async fn ensure_can_use_datatable_role(
     Ok(())
 }
 
-/// Permissions are turned on where this workspace is the only one reaching the
-/// database: it is not a fork, no fork below it holds a copy of the data table,
-/// and no other workspace's data table reaches the same database.
+/// Permissions are turned on where this data table is the only one reaching the
+/// database: its workspace is not a fork, no fork below holds a copy of it, and
+/// no other data table entry, in any workspace, reaches the same database.
 ///
 /// A fork's data table is either a copy pointing at the database of the workspace
 /// it was forked from, where roles created in the fork would hold grants that
@@ -738,10 +763,10 @@ pub(crate) async fn ensure_can_use_datatable_role(
 /// keep reaching the database through the copy's own connection, which owns
 /// everything in it. A dev workspace detached from this one keeps such a copy
 /// without being a fork any more, which is what the last check is for. Another
-/// workspace naming the same instance database is exact; one naming the same
-/// resource path holds a resource of its own under that path, so it counts only
-/// when that resource resolves to the same host, port, database and user — which
-/// is what a detached copy's cloned resource does.
+/// entry naming the same instance database is exact; a resource-backed entry
+/// holds a resource of its own, under whatever path, so it counts when that
+/// resource resolves to the same host, port, database and user — which is what
+/// a detached copy's cloned resource does, wherever it was moved since.
 ///
 /// Archived workspaces count. Archiving keeps the members, their session tokens
 /// and the settings, and nothing on the job path checks the flag, so an archived
@@ -824,16 +849,19 @@ async fn refuse_enabling_permissions_over_shared_access(
             )));
         }
     }
-    let same_pointer = sqlx::query!(
-        r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "name!", w.deleted AS "deleted!"
+    // Every other data table entry on the instance, this workspace's other
+    // entries included: a second entry on the same resource is a second door.
+    let entries = sqlx::query!(
+        r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "name!", w.deleted AS "deleted!",
+                  dt.value->'database' AS "database!"
            FROM workspace_settings ws
            JOIN workspace w ON w.id = ws.workspace_id,
            jsonb_each(ws.datatable->'datatables') dt
-           WHERE ws.workspace_id <> $1
-             AND dt.value->'database' = $2
+           WHERE NOT (ws.workspace_id = $1 AND dt.key = $2)
+             AND jsonb_typeof(dt.value->'database') = 'object'
            ORDER BY ws.workspace_id, dt.key"#,
         w_id,
-        database,
+        datatable_name,
     )
     .fetch_all(db)
     .await?;
@@ -841,44 +869,52 @@ async fn refuse_enabling_permissions_over_shared_access(
     match datatable.database.resource_type {
         DataTableCatalogResourceType::Instance => {
             others.extend(
-                same_pointer
-                    .into_iter()
+                entries
+                    .iter()
+                    .filter(|o| o.database == database)
                     .map(|o| describe(&o.workspace_id, &o.name, o.deleted)),
             );
         }
         DataTableCatalogResourceType::Postgresql => {
-            if !same_pointer.is_empty() {
-                let identity = datatable_database_identity(
-                    &get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?,
-                );
-                for o in same_pointer {
-                    // Not resolving is not proof of not reaching: refused, and
-                    // named, so the admin can remove that entry.
-                    let resolved =
-                        get_datatable_resource_from_db_unchecked(db, &o.workspace_id, &o.name)
-                            .await
-                            .map_err(|e| {
-                                Error::BadRequest(format!(
-                                    "Data table permissions cannot be enabled: whether {} reaches \
-                                     the same database could not be checked ({e}). Remove that \
-                                     data table first.",
-                                    describe(&o.workspace_id, &o.name, o.deleted)
-                                ))
-                            })?;
-                    if datatable_database_identity(&resolved) == identity {
-                        others.push(describe(&o.workspace_id, &o.name, o.deleted));
-                    }
+            // A resource-backed entry reaches wherever its resource points,
+            // whatever path it names: a copy of the resource under another path,
+            // in another workspace or this one, is the same database.
+            let identity = datatable_database_identity(
+                &get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?,
+            );
+            for o in entries.iter().filter(|o| {
+                o.database.get("resource_type").and_then(|t| t.as_str()) != Some("instance")
+            }) {
+                let resolved =
+                    match get_datatable_resource_from_db_unchecked(db, &o.workspace_id, &o.name)
+                        .await
+                    {
+                        Ok(resolved) => resolved,
+                        // A resource that is gone reaches nothing. Anything else is
+                        // not proof of not reaching: refused, and named.
+                        Err(Error::NotFound(_)) => continue,
+                        Err(e) => {
+                            return Err(Error::BadRequest(format!(
+                                "Data table permissions cannot be enabled: whether {} reaches the \
+                                 same database could not be checked ({e}). Remove that data \
+                                 table first.",
+                                describe(&o.workspace_id, &o.name, o.deleted)
+                            )))
+                        }
+                    };
+                if datatable_database_identity(&resolved) == identity {
+                    others.push(describe(&o.workspace_id, &o.name, o.deleted));
                 }
             }
         }
     }
     if !others.is_empty() {
         return Err(Error::BadRequest(format!(
-            "Data table permissions cannot be enabled while another workspace reaches the \
-             same database: {}. Its members would keep reaching it through that data \
-             table's own connection, as every role at once — an archived workspace \
-             included, since archiving keeps its members. Remove that data table, or delete \
-             the workspace permanently, first.",
+            "Data table permissions cannot be enabled while another data table reaches the \
+             same database: {}. Its users would keep reaching it through that data table's \
+             own connection, as every role at once — an archived workspace included, since \
+             archiving keeps its members. Remove that data table, or delete the workspace \
+             permanently, first.",
             others.join(", ")
         )));
     }
@@ -886,8 +922,8 @@ async fn refuse_enabling_permissions_over_shared_access(
 }
 
 /// Refuse a save that names something that no longer exists: a tenant whose
-/// user, group or folder is gone, or a rename of a role that stored migrations
-/// still name.
+/// user, group or folder is gone, or a role that stored migrations still name
+/// and the save no longer defines.
 ///
 /// The drawer sends the whole role list it loaded, so a save can carry a tenant
 /// that another admin's deletion took off the role in between (deleting the
@@ -896,14 +932,22 @@ async fn refuse_enabling_permissions_over_shared_access(
 /// makes the stale save visible; the admin reloads and saves again.
 ///
 /// A migration carries its role as a `-- role <name>` annotation in its own code,
-/// which a rename does not rewrite, so its next run — or the down script of one
-/// already applied — would name a role that no longer exists.
+/// which neither a rename nor a removal rewrites, so its next run — or the down
+/// script of one already applied — would name a role the data table no longer
+/// has.
+///
+/// Turning permissions off is exempt: it ignores the submitted roles and is the
+/// escape hatch that drops them. What it leaves behind is a warning on the plan.
 async fn ensure_save_names_what_exists(
     db: &DB,
     w_id: &str,
     datatable_name: &str,
+    old: Option<&DataTablePermissions>,
     req: &SetDatatablePermissions,
 ) -> Result<()> {
+    if !req.enabled {
+        return Ok(());
+    }
     let mut users = Vec::new();
     let mut groups = Vec::new();
     let mut folders = Vec::new();
@@ -970,43 +1014,59 @@ async fn ensure_save_names_what_exists(
         )));
     }
 
-    let renamed: Vec<&str> = req
-        .renames
-        .iter()
-        .filter(|r| r.from != r.to)
-        .map(|r| r.from.as_str())
+    // Renamed away or removed: every old name the save no longer defines.
+    let kept: HashSet<&str> = req.roles.iter().map(|r| r.name.as_str()).collect();
+    let gone: HashSet<&str> = old
+        .map(|old| old.roles.keys().map(String::as_str))
+        .into_iter()
+        .flatten()
+        .filter(|name| !kept.contains(name))
         .collect();
-    if !renamed.is_empty() {
-        let migrations = sqlx::query!(
-            r#"SELECT name AS "name!", code_up AS "code_up!", code_down
-               FROM datatable_migrations WHERE workspace_id = $1 AND datatable = $2
-               ORDER BY timestamp"#,
-            w_id,
-            datatable_name,
-        )
-        .fetch_all(db)
-        .await?;
-        let mut blocking = Vec::new();
-        for m in migrations {
-            let names = [Some(m.code_up.as_str()), m.code_down.as_deref()]
-                .into_iter()
-                .flatten()
-                .filter_map(SqlAnnotations::datatable_role)
-                .filter(|role| renamed.contains(&role.as_str()))
-                .collect::<HashSet<String>>();
-            for role in names {
-                blocking.push(format!("'{}' (role '{role}')", m.name));
-            }
-        }
-        if !blocking.is_empty() {
-            return Err(Error::BadRequest(format!(
-                "Migration(s) {} name a role this save renames, in a `-- role` annotation the \
-                 rename does not rewrite. Update the migration(s) first, or keep the name.",
-                blocking.join(", ")
-            )));
-        }
+    let blocking = migrations_naming(db, w_id, datatable_name, &gone).await?;
+    if !blocking.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "Migration(s) {} name a role this save removes or renames, in a `-- role` \
+             annotation the save does not rewrite. Update the migration(s) first, or keep \
+             the role.",
+            blocking.join(", ")
+        )));
     }
     Ok(())
+}
+
+/// The stored migrations of a data table whose `-- role` annotation names one of
+/// `roles`, as `'<migration>' (role '<role>')`.
+async fn migrations_naming(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+    roles: &HashSet<&str>,
+) -> Result<Vec<String>> {
+    if roles.is_empty() {
+        return Ok(vec![]);
+    }
+    let migrations = sqlx::query!(
+        r#"SELECT name AS "name!", code_up AS "code_up!", code_down
+           FROM datatable_migrations WHERE workspace_id = $1 AND datatable = $2
+           ORDER BY timestamp"#,
+        w_id,
+        datatable_name,
+    )
+    .fetch_all(db)
+    .await?;
+    let mut naming = Vec::new();
+    for m in migrations {
+        let names = [Some(m.code_up.as_str()), m.code_down.as_deref()]
+            .into_iter()
+            .flatten()
+            .filter_map(SqlAnnotations::datatable_role)
+            .filter(|role| roles.contains(role.as_str()))
+            .collect::<HashSet<String>>();
+        for role in names {
+            naming.push(format!("'{}' (role '{role}')", m.name));
+        }
+    }
+    Ok(naming)
 }
 
 /// List the roles `authed` may run this data table as. An unpermissioned data

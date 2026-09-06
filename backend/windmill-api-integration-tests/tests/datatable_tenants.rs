@@ -598,6 +598,26 @@ async fn a_save_names_only_what_exists(db: Pool<Postgres>) -> anyhow::Result<()>
     assert_eq!(status, 400, "{text}");
     assert!(text.contains("'add_orders' (role 'analyst')"), "{text}");
 
+    // Removing the role strands the migration the same way.
+    let (status, text) = preview(json!({ "enabled": true,
+        "roles": [{ "name": "admin", "tenants": [] }]
+    }))
+    .await;
+    assert_eq!(status, 400, "{text}");
+    assert!(text.contains("'add_orders' (role 'analyst')"), "{text}");
+
+    // Turning permissions off ignores the submitted roles and is never refused,
+    // stale tenant or not: it gets as far as the database this test lacks.
+    let (_, text) = preview(json!({ "enabled": false, "roles": [
+        { "name": "admin", "tenants": [] },
+        { "name": "analyst", "tenants": ["u/ghost"] }
+    ]}))
+    .await;
+    assert!(
+        !text.contains("no longer exist") && !text.contains("Migration(s)"),
+        "{text}"
+    );
+
     // The same save with what exists gets past both checks, to the database this
     // test does not have.
     let (_, text) = preview(json!({ "enabled": true, "roles": [
@@ -694,6 +714,44 @@ async fn a_same_named_resource_counts_only_when_it_reaches_the_same_database(
     .await?;
     let text = preview().await;
     assert!(!text.contains("cannot be enabled"), "{text}");
+
+    // Another path, the same database: a copy, wherever the resource was moved.
+    sqlx::query(
+        "UPDATE resource SET path = 'f/moved/pg', value = jsonb_set(value, '{dbname}', '\"prod\"')
+         WHERE workspace_id = 'detached' AND path = 'u/test-user/pg'",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        r#"UPDATE workspace_settings
+           SET datatable = jsonb_set(datatable, '{datatables,byo,database,resource_path}', '"f/moved/pg"')
+           WHERE workspace_id = 'detached'"#,
+    )
+    .execute(&db)
+    .await?;
+    let text = preview().await;
+    assert!(
+        text.contains("same database: detached (data table 'byo')"),
+        "{text}"
+    );
+
+    // A second entry of this workspace on the same resource is a second door.
+    sqlx::query("DELETE FROM workspace_settings WHERE workspace_id = 'detached'")
+        .execute(&db)
+        .await?;
+    sqlx::query(
+        r#"UPDATE workspace_settings
+           SET datatable = jsonb_set(datatable, '{datatables,byo2}', $1)
+           WHERE workspace_id = 'test-workspace'"#,
+    )
+    .bind(&byo)
+    .execute(&db)
+    .await?;
+    let text = preview().await;
+    assert!(
+        text.contains("same database: test-workspace (data table 'byo2')"),
+        "{text}"
+    );
 
     Ok(())
 }

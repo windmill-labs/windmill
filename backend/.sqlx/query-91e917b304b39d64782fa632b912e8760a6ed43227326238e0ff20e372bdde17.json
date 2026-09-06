@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT name AS \"name!\", code_up AS \"code_up!\", code_down\n               FROM datatable_migrations WHERE workspace_id = $1 AND datatable = $2\n               ORDER BY timestamp",
+  "query": "SELECT name AS \"name!\", code_up AS \"code_up!\", code_down\n           FROM datatable_migrations WHERE workspace_id = $1 AND datatable = $2\n           ORDER BY timestamp",
   "describe": {
     "columns": [
       {
@@ -31,5 +31,5 @@
       true
     ]
   },
-  "hash": "eb046d3ce00fbc3970cf568928d9d27bdfc411d3facd02018bcb46b4332be669"
+  "hash": "91e917b304b39d64782fa632b912e8760a6ed43227326238e0ff20e372bdde17"
 }

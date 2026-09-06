@@ -335,20 +335,22 @@
 </Drawer>
 
 {#if actionDatatable && ws}
-	<DataTableMigrationsButton
-		bind:this={migrationsModal}
-		hideTrigger
-		workspace={ws}
-		datatable={actionDatatable}
-		onSchemaChanged={refreshManager}
-	/>
-	<DataTablePermissionsButton
-		bind:this={permissionsDrawer}
-		hideTrigger
-		workspace={ws}
-		datatable={actionDatatable}
-		onSaved={refreshRoles}
-	/>
+	{#key actionDatatable}
+		<DataTableMigrationsButton
+			bind:this={migrationsModal}
+			hideTrigger
+			workspace={ws}
+			datatable={actionDatatable}
+			onSchemaChanged={refreshManager}
+		/>
+		<DataTablePermissionsButton
+			bind:this={permissionsDrawer}
+			hideTrigger
+			workspace={ws}
+			datatable={actionDatatable}
+			onSaved={refreshRoles}
+		/>
+	{/key}
 {/if}
 
 <Drawer bind:open={exportDrawerOpen} size="800px" offset={offset + 1}>
