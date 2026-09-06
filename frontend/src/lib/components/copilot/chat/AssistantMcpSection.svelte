@@ -233,7 +233,9 @@ switch that decides whether this chat carries its tools.
 		// A failed save leaves the connection exactly as it was, so none of the
 		// bookkeeping below may run: moving the enablement then would turn a server
 		// that still exists off, and turn on a path that was never created.
-		if (!(await resourceEditor?.save())) return
+		// `save` reports one entry per workspace it wrote, and none at all when it
+		// wrote nothing.
+		if (((await resourceEditor?.save()) ?? []).length === 0) return
 		// Enablement is keyed by path, so a rename would leave the switch on the path
 		// that no longer exists and the server itself off.
 		if (editingPath && editingPath !== server.path) {

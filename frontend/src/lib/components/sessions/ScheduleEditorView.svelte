@@ -38,8 +38,8 @@
 
 	// A save leaves the mounted editor holding the pre-save config as its deployed
 	// baseline — the drawer hides that by closing, which inline is a no-op, so the
-	// banner would go on claiming unsaved changes and Discard would restore the
-	// value the save just replaced. Remounting re-reads the saved schedule.
+	// banner would go on claiming unsaved changes. Remounting re-reads the saved
+	// schedule; the one time it must not is over an edit the save deliberately kept.
 	let generation = $state(0)
 
 	// Loads the schedule this tab holds, on the instance the `{#key}` below just
@@ -70,12 +70,10 @@
 			useDrawer={false}
 			showDraftBanner
 			{onRemoved}
-			onUpdate={(saved: string | undefined, from: string, fromWs: string) => {
-				// Remount only while this tab is still on the schedule that was saved:
-				// pointed elsewhere since, it would be taken back through a load it never
-				// asked for. The report goes out either way — the tabs on that schedule
-				// elsewhere have to hear, and a draft-only save can land on a new path.
-				if (from === path) generation++
+			onUpdate={(saved: string | undefined, from: string, fromWs: string, keptEdit: boolean) => {
+				if (from === path && !keptEdit) generation++
+				// A draft-only schedule opens with its path editable (saving CREATEs), so
+				// the save can land somewhere other than where the tab is pointed.
 				if (saved) onSavedTo?.(saved, from, fromWs)
 			}}
 		>

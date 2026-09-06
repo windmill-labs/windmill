@@ -230,15 +230,13 @@
 			const written = (await saving) ?? []
 			if (written.length === 0) return
 			const submitted = written.find((w) => w.ws === fromWs)?.path
-			// Rendered inline there is no drawer to close, so the mounted editor would
-			// otherwise keep the pre-save baseline. Follow a rename before remounting,
-			// or it comes back up on a path the save just moved the item off. Only while
-			// this is still the resource it saved: re-pointed mid-write, `path` and the
-			// mounted editor are another one's, and moving them would move that one.
-			if (path === from) {
-				if (submitted) path = submitted
-				editorGeneration++
-			}
+			// Follow a rename: rendered inline there is no drawer to close, so the mounted
+			// editor stays, and the key below remounts it on the path the item moved to.
+			// The editor adopts its own new baseline, so a same-path save needs nothing
+			// here — remounting it would re-read over an edit made during the write.
+			// Only while this is still the resource it saved: re-pointed mid-write,
+			// `path` and the mounted editor are another one's.
+			if (path === from && submitted) path = submitted
 			// One report per workspace written, each carrying its own — a linked
 			// workspace's rename moves the tabs acting on it and no others. Reported
 			// even when this drawer has moved on: the write is a fact about the item.

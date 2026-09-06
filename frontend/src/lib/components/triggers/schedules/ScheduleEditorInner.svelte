@@ -44,7 +44,7 @@
 	import { runScheduleNow } from '../scheduled/utils'
 	import { handleConfigChange } from '../utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
-	import { flushDraftDelete, settleDraftAfterWrite } from '$lib/userDraft.svelte'
+	import { draftValuesEqual, flushDraftDelete, settleDraftAfterWrite } from '$lib/userDraft.svelte'
 	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -624,6 +624,14 @@
 		deploymentLoading = true
 		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, wsId!)
 		if (isSaved) {
+			// What was sent is the deployed value now. Adopted here rather than by
+			// remounting: the form stays editable during the write, and a remount would
+			// re-read over an edit made then — which `settleDraftAfterWrite` keeps.
+			initialConfig = structuredClone(scheduleCfg)
+			// An edit made while the write was in flight is kept rather than settled away
+			// — and the host must not remount over it, which is the only thing that can
+			// tell it so.
+			const keptEdit = !draftValuesEqual(getScheduleCfg(), scheduleCfg)
 			settleDraftAfterWrite(
 				'trigger_schedule',
 				scheduleCfg,
@@ -632,7 +640,7 @@
 				scheduleCfg.path,
 				{ workspace: previousWs ?? undefined }
 			)
-			onUpdate?.(scheduleCfg.path, previousPath, previousWs)
+			onUpdate?.(scheduleCfg.path, previousPath, previousWs, keptEdit)
 			drawer?.closeDrawer()
 		}
 		deploymentLoading = false
@@ -748,7 +756,9 @@
 				return
 			}
 			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${path}`)
-			onUpdate?.(path, path, ws)
+			// Deployed state moved, so the baseline the banner compares against does too.
+			if (initialConfig) initialConfig.enabled = nEnabled
+			onUpdate?.(path, path, ws, false)
 		}
 	}
 
