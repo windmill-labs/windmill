@@ -429,7 +429,11 @@
 	{#if useDrawer}
 		<OpenInSessionButton source={sessionSource} />
 	{/if}
-	{#if edit && curWs}
+	<!-- Drawer-only, for the same reason as the hand-off above: a session tab is
+	     keyed to one workspace — its title, the chat's write targeting and the
+	     deploy set all read it — so re-pointing the editor at a linked workspace
+	     from inside one would act on an item the session is not about. -->
+	{#if edit && curWs && useDrawer}
 		<WsSpecificVersions kind="variable" workspaceId={curWs} {initialPath} bind:selected />
 	{/if}
 	<Button

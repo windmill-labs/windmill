@@ -142,6 +142,36 @@ function noteMarker(set: Set<string>, key: string): void {
 		set.delete(oldest)
 	}
 }
+/**
+ * What a cell held when its last holder let go. An editor stays editable while
+ * its save is in flight, so a tab closed in that window releases a cell that may
+ * carry an edit newer than the write — and once released there is no handle left
+ * to read it from. Same cap and reason as the marker sets; taken by whoever asks
+ * (`settleDraftAfterWrite`), and dropped when the key is acquired again, since a
+ * live entry answers for itself.
+ */
+const releasedValues = new Map<string, unknown>()
+/** Read once: what it describes is settled by the caller that reads it. */
+function takeReleasedValue<V>(
+	itemKind: UserDraftItemKind,
+	path: string,
+	opts?: UserDraftOptions
+): V | undefined {
+	const mk = mapKey(resolveWorkspace(opts), itemKind, path)
+	const value = releasedValues.get(mk) as V | undefined
+	releasedValues.delete(mk)
+	return value
+}
+
+function noteReleasedValue(key: string, value: unknown): void {
+	releasedValues.set(key, value)
+	while (releasedValues.size > MAX_WRITE_MARKERS) {
+		const oldest = releasedValues.keys().next().value
+		if (oldest === undefined || oldest === key) break
+		releasedValues.delete(oldest)
+	}
+}
+
 const liveEditorDrafts = new Map<string, LiveEditorDraft>()
 /**
  * Map keys whose entry should start `syncSuspended` on acquire. Lets
@@ -285,9 +315,12 @@ export async function settleDraftAfterWrite<V>(
 	savedPath: string,
 	opts?: UserDraftOptions
 ): Promise<void> {
-	// No cell at all is not a newer edit — the editor has been released, and its
-	// draft is precisely what nothing is watching any more.
-	const diverged = live !== undefined && !draftValuesEqual(live, written)
+	// A released cell reads as no cell at all, and its draft is then precisely what
+	// nothing is watching any more — except when the release itself is what took
+	// the handle away mid-write, in which case what it held still speaks for the
+	// user. Absent both, there is nothing newer to protect.
+	const held = live !== undefined ? live : takeReleasedValue<V>(itemKind, fromPath, opts)
+	const diverged = held !== undefined && !draftValuesEqual(held, written)
 	if (savedPath === fromPath && diverged) return
 	// Sent before this resolves, not left on the keystroke debounce: callers report
 	// the write and remount on it, and both read a cell this has to have finished
@@ -890,6 +923,7 @@ function acquireEntry(
 	canBeDisabled = false
 ): void {
 	const mk = mapKey(workspace, itemKind, path)
+	releasedValues.delete(mk)
 	const existing = entries.get(mk)
 	if (existing) {
 		existing.count++
@@ -1026,6 +1060,7 @@ function releaseEntry(mk: string): void {
 	// only here, once, at refcount 0. This is what lets multiple holders (warm
 	// session previews + the nav editor) share the entry and drop in any order.
 	if (entry.count <= 0) {
+		noteReleasedValue(mk, snapshotDraftValue(entry.state.val))
 		// The live entry was authoritative while mounted; once gone, drop any
 		// cached write for this key so a later read falls back to the server
 		// rather than a value the editor may have changed in the meantime.

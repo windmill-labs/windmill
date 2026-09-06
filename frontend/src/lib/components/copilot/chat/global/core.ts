@@ -6184,10 +6184,13 @@ async function discardLocalDraft(
 	// not leave one standing for a later action to spend, and an edit made across the
 	// delete recreates the draft — leaving the item the marker would report as gone.
 	if (removesItem && discardedKind) {
-		const settled =
-			UserDraftDbSyncer.getState({ workspace, itemKind: discardedKind, path: storagePath })
-				.state === 'none'
-		if (settled) {
+		const query = { workspace, itemKind: discardedKind, path: storagePath }
+		// Settled AND settled on the delete: an upsert queued behind it displaces the
+		// delete, and waiting for the chain then reports idle on a draft that is back.
+		const removed =
+			UserDraftDbSyncer.getState(query).state === 'none' &&
+			UserDraftDbSyncer.lastLandedWasDelete(query)
+		if (removed) {
 			UserDraft.recordDraftOnlyDiscard(discardedKind, storagePath, { workspace })
 		}
 	}

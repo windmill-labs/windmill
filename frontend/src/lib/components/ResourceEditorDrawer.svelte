@@ -206,12 +206,18 @@
 		>
 			History
 		</Button>
-		<WsSpecificVersions
-			kind="resource"
-			workspaceId={effectiveWorkspace}
-			initialPath={path}
-			bind:selected
-		/>
+		<!-- Drawer-only, for the same reason as the hand-off above: a session tab is
+		     keyed to one workspace — its title, the chat's write targeting and the
+		     deploy set all read it — so re-pointing the editor at a linked workspace
+		     from inside one would act on an item the session is not about. -->
+		{#if useDrawer}
+			<WsSpecificVersions
+				kind="resource"
+				workspaceId={effectiveWorkspace}
+				initialPath={path}
+				bind:selected
+			/>
+		{/if}
 	{/if}
 	<Button
 		variant="accent"
