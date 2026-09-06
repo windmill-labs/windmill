@@ -19,33 +19,38 @@
 		/** The item at `fromPath` is gone — a draft-only one whose draft was discarded.
 		 * Distinct from `onBack`, which moves whichever tab is active: only this tab is
 		 * the one to send back, and only while it still shows that item. */
-		onRemoved?: (fromPath: string) => void
+		onRemoved?: (fromPath: string, fromWorkspace: string) => void
 		/** The item at `fromPath` was saved under a different path. The tab addresses
 		 * it by path — as do its label, the chat's ACTIVE PREVIEW and the draft key —
 		 * so the tab has to follow, or all four keep naming an item that no longer
 		 * exists. */
-		onRenamed?: (newPath: string, fromPath: string) => void
+		onRenamed?: (newPath: string, fromPath: string, fromWorkspace: string) => void
 	} = $props()
 
 	let editor = $state<VariableEditor | undefined>()
 
-	// Re-selects when the tab is pointed at another variable; the component keeps
-	// its identity across that, as it does for the drawer's row-to-row switch.
+	// Selects the variable this tab holds, on the instance the `{#key}` below just
+	// mounted for it — `editor` is rebound per instance, so this re-runs per path.
 	$effect(() => {
-		const p = path
 		const e = editor
-		if (!p || !e) return
-		untrack(() => e.editVariable(p))
+		if (!path || !e) return
+		untrack(() => e.editVariable(path))
 	})
 </script>
 
-<VariableEditor
-	bind:this={editor}
-	useDrawer={false}
-	workspace={workspaceId}
-	{onBack}
-	{onRemoved}
-	onSaved={(saved, from) => {
-		if (saved && from && saved !== from) onRenamed?.(saved, from)
-	}}
-/>
+<!-- Keyed on the path: the editor loads asynchronously, and re-pointing a live one
+     would leave the previous item's load to finish into the new item's state — its
+     draft cell, its baseline, its permissions. A fresh instance per path has none
+     of that to overwrite. -->
+{#key path}
+	<VariableEditor
+		bind:this={editor}
+		useDrawer={false}
+		workspace={workspaceId}
+		{onBack}
+		{onRemoved}
+		onSaved={(saved, from, fromWs) => {
+			if (saved && from && fromWs && saved !== from) onRenamed?.(saved, from, fromWs)
+		}}
+	/>
+{/key}

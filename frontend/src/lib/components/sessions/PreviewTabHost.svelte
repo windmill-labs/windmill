@@ -184,9 +184,14 @@
 	// time the tab may hold something else entirely. The report is about the item it
 	// started on, so acting on anything else re-points an unrelated editor — and
 	// builds the destination out of its location.
-	function stillShowing(kind: EntityEditorKind, path: string): boolean {
+	function stillShowing(kind: EntityEditorKind, path: string, ws: string): boolean {
 		const now = resolvePreviewTab(tab.url)
-		return now.kind === 'entity' && now.entityKind === kind && now.path === path
+		return (
+			now.kind === 'entity' &&
+			now.entityKind === kind &&
+			now.path === path &&
+			ws === workspaceId
+		)
 	}
 
 	// The item is gone (a draft-only one whose draft was discarded), so the tab has
@@ -195,8 +200,8 @@
 	// another tab, which must not be the one sent to the list.
 	const returnToList = $derived(
 		slot.kind === 'entity' && runtime
-			? (kind: EntityEditorKind, fromPath: string) => {
-					if (!stillShowing(kind, fromPath)) return
+			? (kind: EntityEditorKind, fromPath: string, fromWs: string) => {
+					if (!stillShowing(kind, fromPath, fromWs)) return
 					runtime.previewTabs.retargetTabTo(tab.id, entityListHref(whereIs(tab)))
 				}
 			: undefined
@@ -207,8 +212,8 @@
 	// path — so they have to move with it, or they name an item that no longer exists.
 	const retargetTo = $derived(
 		slot.kind === 'entity' && runtime
-			? (kind: EntityEditorKind, newPath: string, fromPath: string) => {
-					if (!stillShowing(kind, fromPath)) return
+			? (kind: EntityEditorKind, newPath: string, fromPath: string, fromWs: string) => {
+					if (!stillShowing(kind, fromPath, fromWs)) return
 					runtime.previewTabs.retargetTabTo(tab.id, entityEditorHref(whereIs(tab), newPath))
 				}
 			: undefined
@@ -402,8 +407,8 @@
 						path={slot.path}
 						{workspaceId}
 						onBack={backToList}
-						onRemoved={(from) => returnToList?.('trigger_schedule', from)}
-						onRenamed={(to, from) => retargetTo?.('trigger_schedule', to, from)}
+						onRemoved={(from, ws) => returnToList?.('trigger_schedule', from, ws)}
+						onRenamed={(to, from, ws) => retargetTo?.('trigger_schedule', to, from, ws)}
 					/>
 				{/await}
 			{:else if slot.entityKind === 'resource'}
@@ -414,8 +419,8 @@
 						path={slot.path}
 						{workspaceId}
 						onBack={backToList}
-						onRemoved={(from) => returnToList?.('resource', from)}
-						onRenamed={(to, from) => retargetTo?.('resource', to, from)}
+						onRemoved={(from, ws) => returnToList?.('resource', from, ws)}
+						onRenamed={(to, from, ws) => retargetTo?.('resource', to, from, ws)}
 					/>
 				{/await}
 			{:else if slot.entityKind === 'variable'}
@@ -426,8 +431,8 @@
 						path={slot.path}
 						{workspaceId}
 						onBack={backToList}
-						onRemoved={(from) => returnToList?.('variable', from)}
-						onRenamed={(to, from) => retargetTo?.('variable', to, from)}
+						onRemoved={(from, ws) => returnToList?.('variable', from, ws)}
+						onRenamed={(to, from, ws) => retargetTo?.('variable', to, from, ws)}
 					/>
 				{/await}
 			{/if}

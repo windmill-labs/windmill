@@ -70,8 +70,8 @@
 		// session's schedule tab — opts in, or nothing says an edit is unsaved.
 		showDraftBanner = false,
 		// The schedule is gone — a draft-only one whose draft the banner discarded —
-		// with the path it was showing. A host addressing it by path (a session tab)
-		// has to stop showing it.
+		// with the workspace and path it was showing. A host addressing it by those
+		// (a session tab) has to stop showing it.
 		onRemoved = undefined
 	} = $props()
 
@@ -615,12 +615,13 @@
 
 	async function scheduleScript(): Promise<void> {
 		const previousPath = initialPath
+		const previousWs = wsId
 		const scheduleCfg = getScheduleCfg()
 		deploymentLoading = true
 		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, wsId!)
 		if (isSaved) {
 			draftSync.discard(previousPath, scheduleCfg)
-			onUpdate?.(scheduleCfg.path, previousPath)
+			onUpdate?.(scheduleCfg.path, previousPath, previousWs)
 			drawer?.closeDrawer()
 		}
 		deploymentLoading = false
@@ -719,6 +720,7 @@
 	async function handleToggleEnabled(nEnabled: boolean) {
 		const previousEnabled = enabled
 		const path = initialPath
+		const ws = wsId
 		enabled = nEnabled
 		if (!trigger?.draftConfig) {
 			const ok = await withForkConflictRetry(
@@ -735,7 +737,7 @@
 				return
 			}
 			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${path}`)
-			onUpdate?.(path, path)
+			onUpdate?.(path, path, ws)
 		}
 	}
 
@@ -1470,9 +1472,10 @@
 					// and an inline host can re-point the editor in the meantime — after
 					// which this discard's outcome is no longer about what is on screen.
 					const from = initialPath
+					const fromWs = wsId
 					const wasDraftOnly = draftOnly
 					await draftSync.resetToDeployed(from)
-					if (wasDraftOnly && from && initialPath === from) onRemoved?.(from)
+					if (wasDraftOnly && from && fromWs && initialPath === from) onRemoved?.(from, fromWs)
 				}}
 				disabled={!can_write}
 			/>

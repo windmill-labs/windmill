@@ -58,12 +58,12 @@
 		 * user should be able to get back to (a session tab that took over the list). */
 		onBack?: () => void
 		/** Fires after a save, with the path it wrote to — which is not the one it was
-		 * opened on when the user renamed it — and the one it was opened on. */
-		onSaved?: (savedPath?: string, fromPath?: string) => void
+		 * opened on when the user renamed it — and the workspace and path it started on. */
+		onSaved?: (savedPath?: string, fromPath?: string, fromWorkspace?: string) => void
 		/** The variable is gone — a draft-only one whose draft was discarded — with the
-		 * path it was showing. A host addressing it by path (a session tab) has to stop
-		 * showing it. */
-		onRemoved?: (fromPath: string) => void
+		 * workspace and path it was showing. A host addressing it by those (a session
+		 * tab) has to stop showing it. */
+		onRemoved?: (fromPath: string, fromWorkspace: string) => void
 	} = $props()
 	let curWs = $derived(workspace ?? $workspaceStore)
 
@@ -282,6 +282,7 @@
 		// would then be that variable's: the writes would send its state under this
 		// one's path, and the baseline below would overwrite its own.
 		const from = editPath
+		const fromWs = curWs
 		const savedPath = current?.path ?? from
 		const payloads = dirtyWorkspaces.map((ws) => ({
 			ws,
@@ -346,7 +347,7 @@
 				if (savedPath && savedPath !== editPath) editPath = savedPath
 				drawer?.closeDrawer()
 			}
-			onSaved?.(savedPath, from)
+			onSaved?.(savedPath, from, fromWs)
 		} catch (err) {
 			sendUserToast(`Could not save variable: ${err.body}`, true)
 		}
@@ -368,7 +369,7 @@
 			// A draft-only variable has no deployed row under the draft, so discarding
 			// it removed the variable: `initialStates` holds a synthesized stand-in,
 			// not a baseline to fall back to.
-			if (!existedInitially[selected] && from) onRemoved?.(from)
+			if (!existedInitially[selected] && from && curWs) onRemoved?.(from, curWs)
 		}}
 		disabled={!can_write}
 	/>

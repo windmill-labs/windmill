@@ -23,12 +23,12 @@
 		 * Distinct from `onBack`, which moves whichever tab is active: the discard
 		 * awaits a reload of the runnable, by which time the user may be looking at
 		 * another tab, or have pointed this one somewhere else. */
-		onRemoved?: (fromPath: string) => void
+		onRemoved?: (fromPath: string, fromWorkspace: string) => void
 		/** The item at `fromPath` was saved under a different path. The tab addresses
 		 * it by path — as do its label, the chat's ACTIVE PREVIEW and the draft key —
 		 * so the tab has to follow, or all four keep naming an item that no longer
 		 * exists. */
-		onRenamed?: (newPath: string, fromPath: string) => void
+		onRenamed?: (newPath: string, fromPath: string, fromWorkspace: string) => void
 	} = $props()
 
 	// Captured at init, so it must read the current prop rather than close over it.
@@ -42,18 +42,14 @@
 	// value the save just replaced. Remounting re-reads the saved schedule.
 	let generation = $state(0)
 
-	// Load whenever the tab is pointed at another schedule; the component keeps
-	// its identity across that, as it does for the drawer's row-to-row switch.
-	// `isFlow` is a first guess only — loadScheduleCfg sets it from the loaded
-	// config — so the tab needs no knowledge of the target beyond the path.
+	// Loads the schedule this tab holds, on the instance the `{#key}` below just
+	// mounted for it — `editor` is rebound per instance, so this re-runs per path
+	// and per generation. `isFlow` is a first guess only — loadScheduleCfg sets it
+	// from the loaded config — so the tab needs no knowledge beyond the path.
 	$effect(() => {
-		const p = path
 		const e = editor
-		// `generation` is tracked so a remount re-opens: `editor` is rebound to the
-		// fresh instance, but reading it alone would not say the instance changed.
-		generation
-		if (!p || !e) return
-		untrack(() => void e.openEdit(p, false))
+		if (!path || !e) return
+		untrack(() => void e.openEdit(path, false))
 	})
 </script>
 
@@ -61,7 +57,10 @@
 	<!-- useDrawer=false renders the editor as a Section, the same inline form the
 	     script/flow trigger panel mounts (see SchedulePanel). `customLabel` is that
 	     Section's header, which is where the way back belongs. -->
-	{#key generation}
+	<!-- Keyed on the path as well: `openEdit` loads asynchronously, and re-pointing a
+	     live editor would leave the previous schedule's load to finish into the new
+	     one's form and deployed baseline. -->
+	{#key `${path}#${generation}`}
 		<!-- No `allowDraft`: that switches the toolbar to the trigger-panel branch,
 		     whose deploy button is gated on the `trigger`/`isDeployed` a script or
 		     flow editor supplies for a trigger staged next to it. A standalone tab
@@ -72,7 +71,7 @@
 			useDrawer={false}
 			showDraftBanner
 			{onRemoved}
-			onUpdate={(saved: string | undefined, from: string) => {
+			onUpdate={(saved: string | undefined, from: string, fromWs: string) => {
 				// The write landed after the tab was pointed at another schedule: the
 				// remount below would take that one back through a load it never asked
 				// for, and the rename is not its rename.
@@ -80,7 +79,7 @@
 				generation++
 				// A draft-only schedule opens with its path editable (saving CREATEs),
 				// so the save can land somewhere other than where the tab is pointed.
-				if (saved && saved !== from) onRenamed?.(saved, from)
+				if (saved && saved !== from) onRenamed?.(saved, from, fromWs)
 			}}
 		>
 			{#snippet customLabel()}
