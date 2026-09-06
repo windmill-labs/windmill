@@ -198,12 +198,12 @@
 			draftOnly = noDeployed
 			if (!defaultCfg) {
 				// Form holds DEPLOYED here; capture it as `initialConfig` so the
-				// dirty check / banner fires whenever a saved draft exists. This is also
-				// the only point where the deployed `enabled` is on the form — the draft
-				// overlay below can carry one of its own, which the server has not taken.
+				// dirty check / banner fires whenever a saved draft exists.
 				initialConfig = structuredClone($state.snapshot(getScheduleCfg()))
-				deployedEnabled = enabled
 			}
+			// Whichever way this opened, the form holds the deployed state until the
+			// overlay below — which can carry an `enabled` the server has not taken.
+			deployedEnabled = enabled
 			if (draftOverlay) await loadScheduleCfg(draftOverlay)
 			await draftSync.maybeRestore()
 		} finally {
