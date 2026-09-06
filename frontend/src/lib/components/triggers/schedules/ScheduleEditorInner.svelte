@@ -51,6 +51,9 @@
 	import { twMerge } from 'tailwind-merge'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
+	import { untrack } from 'svelte'
+	import { getUserExt } from '$lib/user'
+	import type { UserExt } from '$lib/stores'
 
 	let {
 		useDrawer = true,
@@ -132,7 +135,17 @@
 	// re-read it, so `deployed()` depends on this instead.
 	let baselineNonce = $state(0)
 	let extraPerms: Record<string, boolean> = $state({})
-	let can_write = $state(true)
+	// The path and permissions of the loaded schedule, from which `can_write` is
+	// derived — the acting workspace can be a fork or a linked one, where this user's
+	// roles, groups and folders are not the ones `$userStore` describes.
+	let permsPath = $state('')
+	let permsExtra: Record<string, boolean> | undefined = $state(undefined)
+	let actingUser: UserExt | undefined = $state(undefined)
+	const can_write = $derived(
+		permsExtra === undefined
+			? true
+			: canWrite(permsPath, permsExtra, actingUser ?? $userStore)
+	)
 	let initNewPath = $state(false)
 	let path: string = $state('')
 	let enabled: boolean = $state(false)
@@ -169,6 +182,24 @@
 	// session override is set, so the script is created in the session workspace.
 	const wsParam = $derived(triggerWs?.() ? `&workspace=${encodeURIComponent(wsId!)}` : '')
 	const scheduleCfg = $derived.by(getScheduleCfg)
+	// Resolved for the acting workspace; until it lands `can_write` falls back to the
+	// navigation user, which is right whenever the two are the same workspace.
+	$effect(() => {
+		const ws = wsId
+		untrack(() => {
+			actingUser = undefined
+			if (!ws) return
+			if (ws === $workspaceStore) {
+				actingUser = $userStore ?? undefined
+				return
+			}
+			void getUserExt(ws)
+				.then((u) => {
+					if (wsId === ws) actingUser = u
+				})
+				.catch(() => {})
+		})
+	})
 
 	const draftSync = useTriggerDraftSync({
 		itemKind: 'trigger_schedule',
@@ -626,7 +657,8 @@
 		dynamicSkipPath = cfg.dynamic_skip
 		args = cfg.args ?? {}
 		extraPerms = cfg.extra_perms ?? {}
-		can_write = canWrite(cfg.path, cfg.extra_perms, $userStore)
+		permsPath = cfg.path
+		permsExtra = cfg.extra_perms ?? {}
 		tag = cfg.tag
 		permissionedAs = cfg.permissioned_as
 		selectedPermissionedAs = cfg.permissioned_as
@@ -666,10 +698,7 @@
 			// re-read over an edit made then — which `settleDraftAfterWrite` keeps.
 			initialConfig = structuredClone(scheduleCfg)
 			baselineNonce++
-			// An edit made while the write was in flight is kept rather than settled away
-			// — and the host must not remount over it, which is the only thing that can
-			// tell it so.
-			const keptEdit = !draftValuesEqual(getScheduleCfg(), scheduleCfg)
+
 			// The schedule is deployed now, whether it was before or not. Set here rather
 			// than left to the remount, which a kept edit skips: they decide whether the
 			// next save updates or creates, and whether a discard removes the item.
@@ -685,7 +714,15 @@
 				scheduleCfg.path,
 				{ workspace: previousWs ?? undefined }
 			)
-			onUpdate?.(scheduleCfg.path, previousPath, previousWs, keptEdit)
+			// Read after the settle, not before: that awaits a request of its own with the
+			// form still editable, and an edit made in the meantime is one the host must
+			// not remount over — which this is the only thing that can tell it.
+			onUpdate?.(
+				scheduleCfg.path,
+				previousPath,
+				previousWs,
+				!draftValuesEqual(getScheduleCfg(), scheduleCfg)
+			)
 			drawer?.closeDrawer()
 		}
 		deploymentLoading = false
@@ -807,9 +844,7 @@
 				initialConfig.enabled = nEnabled
 				baselineNonce++
 			}
-			// This request carried the enabled flag alone: anything else the form has
-			// diverged into is an edit of the user's, which a remount would drop.
-			const keptEdit = !draftValuesEqual(getScheduleCfg(), initialConfig)
+
 			// Setting `enabled` above queued a draft against the pre-toggle baseline.
 			// It matches the new one, so nothing would ever show it again — but it is
 			// still a row on the server and a `*` on the list until it is settled away.
@@ -822,7 +857,10 @@
 					path,
 					{ workspace: ws ?? undefined }
 				)
-			onUpdate?.(path, path, ws, keptEdit)
+			// This request carried the enabled flag alone, so anything else the form has
+			// diverged into is the user's — read after the settle, which awaits a request
+			// of its own with the form still editable.
+			onUpdate?.(path, path, ws, !draftValuesEqual(getScheduleCfg(), initialConfig))
 		}
 	}
 
