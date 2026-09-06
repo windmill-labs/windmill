@@ -636,9 +636,10 @@
 				const entity = parseEntityEditorRoute(loc)
 				// A bare list tab shows every row, so any write on its page is its business
 				// — same as for a chat mutation, and its rows and `*` markers go stale
-				// otherwise.
+				// otherwise. Queued rather than reloaded here, so one deploy's writes and
+				// this report collapse into a single reload.
 				if (!entity) {
-					if (mountedTabKeys.has(key)) tabHosts[key]?.reload()
+					queuePageReload(page)
 					continue
 				}
 				if (entity.path !== ev.path) continue
@@ -654,6 +655,14 @@
 			}
 		}
 	}
+	// One queue for every reason a previewed list page goes stale — a chat tool, a
+	// hosted editor's write, a draft landing afterwards — so the same frame is not
+	// reloaded several times for one deploy.
+	function queuePageReload(page: string) {
+		pendingPages.add(page)
+		clearTimeout(reloadHandle)
+		reloadHandle = setTimeout(flushReload, 500)
+	}
 	function flushReload() {
 		const pages = pendingPages
 		const mutations = pendingMutations
@@ -665,37 +674,11 @@
 	// nothing we do afterwards corrects what it already read. Rather than time our
 	// reloads against writes, reload when one lands: a draft written after a save —
 	// an edit made while it was in flight — reaches the list this way too.
-	let draftLandedHandle: ReturnType<typeof setTimeout> | undefined
-	let draftLandedPages = new Set<string>()
 	$effect(() => {
-		const stop = UserDraftDbSyncer.onAnySaved(({ workspace, itemKind }) => {
+		return UserDraftDbSyncer.onAnySaved(({ itemKind }) => {
 			const page = entityListPage(itemKind as EntityEditorKind)?.path
-			if (!page) return
-			draftLandedPages.add(`${workspace}\u0000${page}`)
-			clearTimeout(draftLandedHandle)
-			// Coalesced: a deploy lands several writes for one item back to back.
-			draftLandedHandle = setTimeout(() => {
-				const pages = draftLandedPages
-				draftLandedPages = new Set()
-				for (const s of warmSessions) {
-					const ws = getEffectiveWorkspaceId(s)
-					const owner = getRuntime(s.id)?.previewTabs
-					if (!ws || !owner) continue
-					for (const tab of owner.tabs) {
-						const loc = whereIs(tab)
-						if (parseEntityEditorRoute(loc)) continue
-						if (!pages.has(`${ws}\u0000${stripBase(loc)}`)) continue
-						const key = tabKey(s.id, tab.id)
-						if (mountedTabKeys.has(key)) tabHosts[key]?.reload()
-					}
-				}
-			}, 300)
+			if (page) queuePageReload(page)
 		})
-		return () => {
-			clearTimeout(draftLandedHandle)
-			draftLandedPages = new Set()
-			stop()
-		}
 	})
 
 	$effect(() => {

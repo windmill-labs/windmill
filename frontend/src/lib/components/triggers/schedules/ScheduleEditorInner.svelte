@@ -638,6 +638,10 @@
 			// remounting: the form stays editable during the write, and a remount would
 			// re-read over an edit made then — which `settleDraftAfterWrite` keeps.
 			initialConfig = structuredClone(scheduleCfg)
+			// An update's payload carries no `enabled` (see saveScheduleFromCfg): the
+			// toggle deploys that field on its own, so the deployed value is whatever it
+			// last set, not what this save's click-time snapshot happens to hold.
+			if (!wasCreate) initialConfig.enabled = enabled
 			// An edit made while the write was in flight is kept rather than settled away
 			// — and the host must not remount over it, which is the only thing that can
 			// tell it so.

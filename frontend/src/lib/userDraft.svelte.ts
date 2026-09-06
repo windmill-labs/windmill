@@ -295,10 +295,9 @@ export async function settleDraftAfterWrite<V>(
 }
 
 /**
- * Send whatever this cell has parked on the autosave debounce, now. For a reader
- * that cannot be corrected once it has read — a list page inside an iframe, whose
- * draft markers come from its own store — and would otherwise render a row the
- * debounce has not caught up with.
+ * Send whatever this cell has parked on the autosave debounce, now. For a caller
+ * that has to know the cell is resolved before it acts — settling after a write,
+ * before anything reports or remounts on it.
  */
 export async function flushDraftWrites(
 	itemKind: UserDraftItemKind,

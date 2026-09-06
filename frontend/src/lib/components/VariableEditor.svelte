@@ -299,6 +299,10 @@
 		// linked workspace, and a rename made there is that workspace's alone.
 		const actingPath = payloads.find((pl) => pl.ws === fromWs)?.s.path ?? from
 		let actingCommitted = false
+		// Every workspace written, with the path it wrote there. Reported once the loop
+		// is done: per workspace, each carrying its own, so a linked workspace's rename
+		// moves the tabs acting on it and no others.
+		const written: { ws: string; path: string }[] = []
 		try {
 			for (const { ws, s, ini, existed } of payloads) {
 				if (existed) {
@@ -346,12 +350,10 @@
 				await settleDraftAfterWrite('variable', s, states[ws]?.draft, from ?? '', s.path, {
 					workspace: ws
 				})
-				// Reported after settling, so what hears about the write sees a cell that
-				// has already been resolved. Per workspace, each carrying its own and the
-				// path it wrote there, so a linked workspace's rename moves the tabs acting
-				// on it and no others — and a workspace written before a later one threw is
-				// still reported, because it is deployed.
-				onSaved?.(s.path, from, ws)
+				// Collected, not reported yet: a report retargets the host, whose `{#key
+				// path}` would unmount this editor at the next workspace's await and leave
+				// that one's handle released — its draft then settles against nothing.
+				written.push({ ws, path: s.path })
 				// Path now exists server-side — drop the autocomplete cache so
 				// it shows up immediately instead of after the 60s TTL.
 				invalidateWorkspacePaths(ws)
@@ -360,6 +362,7 @@
 				edit ? `Updated variable in ${payloads.length} workspace(s)` : `Created variable`
 			)
 			dispatch('create')
+			for (const w of written) onSaved?.(w.path, from, w.ws)
 			// Only while this editor is still the one that was saved: re-pointed,
 			// `editPath` is the variable it moved to.
 			if (editPath === from) {
@@ -370,6 +373,8 @@
 			}
 		} catch (err) {
 			sendUserToast(`Could not save variable: ${err.body}`, true)
+			// Whatever committed before the throw is deployed, so it is still reported.
+			for (const w of written) onSaved?.(w.path, from, w.ws)
 			// Reopened, so the handles come from the server: re-keying them would bring
 			// back the values this drawer opened on, which describe neither what the
 			// committed workspace now has deployed nor the draft the failed one still
