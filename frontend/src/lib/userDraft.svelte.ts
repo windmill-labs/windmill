@@ -291,6 +291,20 @@ export function settleDraftAfterWrite<V>(
 }
 
 /**
+ * Send whatever this cell has parked on the autosave debounce, now. For a reader
+ * that cannot be corrected once it has read — a list page inside an iframe, whose
+ * draft markers come from its own store — and would otherwise render a row the
+ * debounce has not caught up with.
+ */
+export async function flushDraftWrites(
+	itemKind: UserDraftItemKind,
+	path: string,
+	opts?: UserDraftOptions
+): Promise<void> {
+	await UserDraftDbSyncer.flush({ workspace: resolveWorkspace(opts), itemKind, path })
+}
+
+/**
  * Wait for a queued draft delete to land, reporting whether the draft is gone. A
  * caller acts on this — a host leaves an editor whose item the discard removed —
  * so both halves have to hold: the delete is the last thing that landed, and
@@ -304,7 +318,7 @@ export async function flushDraftDelete(
 	opts?: UserDraftOptions
 ): Promise<boolean> {
 	const query = { workspace: resolveWorkspace(opts), itemKind, path }
-	await UserDraftDbSyncer.flush(query)
+	await flushDraftWrites(itemKind, path, opts)
 	return (
 		UserDraftDbSyncer.lastLandedWasDelete(query) &&
 		UserDraftDbSyncer.getState(query).state === 'none'

@@ -90,7 +90,7 @@
 		type WorkspaceItemKind
 	} from '$lib/components/workspacePicker'
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraft, flushDraftWrites } from '$lib/userDraft.svelte'
 
 	const globalEnabled = isGlobalAiEnabled()
 
@@ -614,7 +614,7 @@
 	// A hosted entity editor wrote its item. Every tab on it hears, across warm
 	// sessions: they share the one draft cell and the one server row, so one left
 	// behind edits a path that is gone or discards over a value already deployed.
-	function entityWritten(ev: {
+	async function entityWritten(ev: {
 		kind: EntityEditorKind
 		path: string
 		workspace: string
@@ -625,6 +625,11 @@
 	}) {
 		const page = entityListPage(ev.kind)?.path
 		if (!page) return
+		// The settle that follows a write parks its draft delete on the autosave
+		// debounce, and a list frame reads its `*` markers from a store of its own
+		// — read before that lands, it keeps the row's marker until something else
+		// reloads it, and nothing does.
+		await flushDraftWrites(ev.kind, ev.path, { workspace: ev.workspace })
 		for (const s of warmSessions) {
 			const owner = getRuntime(s.id)?.previewTabs
 			if (!owner || getEffectiveWorkspaceId(s) !== ev.workspace) continue
