@@ -488,7 +488,6 @@ export const UserDraft = {
 		noteMarker(draftOnlyDiscards, mapKey(resolveWorkspace(opts), itemKind, path))
 	},
 
-
 	/** Whether the last discard for this cell removed the item outright (see
 	 * {@link recordDraftOnlyDiscard}), clearing the record. */
 	takeDraftOnlyDiscard(

@@ -626,10 +626,9 @@
 		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, wsId!)
 		if (isSaved) {
 			// A create deploys the schedule enabled whatever the form said (see
-			// saveScheduleFromCfg), so what counts as written records that — the
-			// baseline would otherwise claim a state the server does not have. The form
-			// follows only while it still holds what was sent; changed since, it is an
-			// edit of its own.
+			// saveScheduleFromCfg), so what counts as written records that — the baseline
+			// would otherwise claim a state the server does not have. The form follows
+			// only while it still holds what was sent; changed since, it is its own edit.
 			if (wasCreate) {
 				const sentEnabled = scheduleCfg.enabled
 				scheduleCfg.enabled = true
