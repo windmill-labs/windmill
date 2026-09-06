@@ -64,8 +64,11 @@
 		matchPreviewPage,
 		pageKey,
 		parseArtifactRoute,
+		entityEditorHref,
 		entityKindForPage,
 		entityListHref,
+		entityListPage,
+		type EntityEditorKind,
 		parseEntityEditorRoute,
 		parsePreviewItemRoute,
 		previewLocationLabel,
@@ -605,6 +608,32 @@
 				} else if (effect === 'refresh' && mountedTabKeys.has(key)) {
 					tabHosts[key]?.reload({ entity: 'refresh' })
 				}
+			}
+		}
+	}
+	// A hosted entity editor moved its item — renamed it, or removed it by
+	// discarding the draft that was all of it. Every tab on that item follows,
+	// across warm sessions: they share the one draft cell and the one server row,
+	// so a tab left behind edits a path that is gone. Matching on the item is also
+	// what keeps a report that landed late from moving a tab that has since been
+	// re-pointed — there is nothing to match.
+	function moveEntityTabs(ev: {
+		kind: EntityEditorKind
+		path: string
+		workspace: string
+		to?: string
+	}) {
+		const page = entityListPage(ev.kind)?.path
+		if (!page) return
+		for (const s of warmSessions) {
+			const owner = getRuntime(s.id)?.previewTabs
+			if (!owner || getEffectiveWorkspaceId(s) !== ev.workspace) continue
+			for (const tab of owner.tabs) {
+				const loc = whereIs(tab)
+				const entity = parseEntityEditorRoute(loc)
+				if (!entity || entity.path !== ev.path || stripBase(loc) !== page) continue
+				// The tab's own location, so the list it came from keeps its filters.
+				owner.retargetTabTo(tab.id, ev.to ? entityEditorHref(loc, ev.to) : entityListHref(loc))
 			}
 		}
 	}
@@ -1160,6 +1189,7 @@
 												{fullscreen}
 												onNavigate={navigateEditorTo}
 												onLoad={(frame) => tabs && onTabLoad(tabs, tab, frame)}
+												onEntityMoved={moveEntityTabs}
 											/>
 										{/each}
 									{/each}

@@ -12,7 +12,6 @@
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import {
-		entityEditorHref,
 		entityListHref,
 		entityListPage,
 		resolvePreviewTab,
@@ -37,7 +36,8 @@
 		darkMode,
 		fullscreen = false,
 		onNavigate,
-		onLoad
+		onLoad,
+		onEntityMoved
 	}: {
 		tab: SessionPreviewTab
 		session: Session | undefined
@@ -63,6 +63,14 @@
 		onNavigate: (item: WorkspaceItem) => void
 		/** Iframe finished loading — the page reads back its observed location. */
 		onLoad: (frame: HTMLIFrameElement) => void
+		/** A hosted entity editor moved its item: renamed it (`to`) or removed it.
+		 * The page re-points every tab on that item, across warm sessions. */
+		onEntityMoved: (ev: {
+			kind: EntityEditorKind
+			path: string
+			workspace: string
+			to?: string
+		}) => void
 	} = $props()
 
 	// Editor vs iframe is decided purely from the tab URL (see resolvePreviewTab):
@@ -180,42 +188,26 @@
 			: undefined
 	)
 
-	// An editor reports a removal or a rename after the write it awaited, by which
-	// time the tab may hold something else entirely. The report is about the item it
-	// started on, so acting on anything else re-points an unrelated editor — and
-	// builds the destination out of its location.
-	function stillShowing(kind: EntityEditorKind, path: string, ws: string): boolean {
-		const now = resolvePreviewTab(tab.url)
-		return (
-			now.kind === 'entity' &&
-			now.entityKind === kind &&
-			now.path === path &&
-			ws === workspaceId
-		)
-	}
-
-	// The item is gone (a draft-only one whose draft was discarded), so the tab has
-	// the same destination as `backToList` — but bound to this tab by id, not to
-	// whichever is active: by the time a discard lands the user may be looking at
-	// another tab, which must not be the one sent to the list.
+	// An editor reports a removal or a rename about the item it started on, after
+	// the write it awaited — by which time this tab may hold something else, and
+	// other warm sessions may hold that same item. Both are the page's to resolve:
+	// it re-points every tab still on the item, in the workspace it was written in,
+	// which is also the only way the reporting tab is spared a report gone stale.
+	// A removal has no destination path; a rename carries the one it moved to.
 	const returnToList = $derived(
-		slot.kind === 'entity' && runtime
-			? (kind: EntityEditorKind, fromPath: string, fromWs: string) => {
-					if (!stillShowing(kind, fromPath, fromWs)) return
-					runtime.previewTabs.retargetTabTo(tab.id, entityListHref(whereIs(tab)))
-				}
+		slot.kind === 'entity'
+			? (kind: EntityEditorKind, fromPath: string, fromWs: string) =>
+					onEntityMoved({ kind, path: fromPath, workspace: fromWs })
 			: undefined
 	)
 
-	// Follow a rename: the tab, its label, the chat's ACTIVE PREVIEW and the draft
-	// key all address the item by path, so they have to move with it or they name an
-	// item that no longer exists.
+	// The tab, its label, the chat's ACTIVE PREVIEW and the draft key all address
+	// the item by path, so they have to move with it or they name an item that no
+	// longer exists.
 	const retargetTo = $derived(
-		slot.kind === 'entity' && runtime
-			? (kind: EntityEditorKind, newPath: string, fromPath: string, fromWs: string) => {
-					if (!stillShowing(kind, fromPath, fromWs)) return
-					runtime.previewTabs.retargetTabTo(tab.id, entityEditorHref(whereIs(tab), newPath))
-				}
+		slot.kind === 'entity'
+			? (kind: EntityEditorKind, newPath: string, fromPath: string, fromWs: string) =>
+					onEntityMoved({ kind, path: fromPath, workspace: fromWs, to: newPath })
 			: undefined
 	)
 

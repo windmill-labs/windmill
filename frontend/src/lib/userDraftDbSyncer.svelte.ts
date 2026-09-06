@@ -230,11 +230,12 @@ const flushes = new SvelteMap<string, number>()
 
 /**
  * Whether the last save that LANDED for a key deleted the draft or wrote one.
- * Written only here, by the response handler, which is what distinguishes it
- * from the display-level draft hint: that one is also published optimistically
- * and by the editors themselves, so it cannot say whether a POST succeeded.
- * A caller acting on a delete (leaving an editor whose item it removed) needs
- * the difference. Never cleared — "last landed" is meaningless until one has.
+ * Written only by the response handler, which is what distinguishes it from the
+ * display-level draft hint: that one is also published optimistically and by the
+ * editors themselves, so it cannot say whether a POST succeeded. A caller acting
+ * on a delete (leaving an editor whose item it removed) needs the difference.
+ * Dropped when the server stops being ours to describe — a conflict, or a resync
+ * from a load — and otherwise kept, since the key's own next landing replaces it.
  */
 const lastLanded = new Map<string, 'delete' | 'upsert'>()
 
@@ -609,10 +610,9 @@ export const UserDraftDbSyncer = {
 
 	/**
 	 * Whether the last save that landed for this key was the draft's deletion.
-	 * False while none has landed — a delete that failed or conflicted never
-	 * reaches the response handler, so it never claims to have landed, and one
-	 * that landed earlier is dropped as soon as the server's state moves outside
-	 * our writes.
+	 * False while none has landed: a delete that failed or conflicted never
+	 * reaches the response handler, and a conflict drops what an earlier one
+	 * recorded rather than letting it answer for this attempt.
 	 */
 	lastLandedWasDelete(query: UserDraftLastSyncQuery): boolean {
 		return lastLanded.get(draftKey(query.workspace, query.itemKind, query.path)) === 'delete'
