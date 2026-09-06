@@ -12,8 +12,8 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ClearableInput, Drawer, DrawerContent } from './common'
 	import { sendUserToast } from '$lib/toast'
-	import { type ColumnDef } from './apps/components/display/dbtable/utils'
-	import DBTable from './DBTable.svelte'
+	import { renderDbEqualityFilter, type ColumnDef } from './apps/components/display/dbtable/utils'
+	import DBTable, { type DbForeignKeyTarget, type DbRowFilter } from './DBTable.svelte'
 	import type { IDbSchemaOps, IDbTableOps } from './dbOps'
 	import DropdownV2 from './DropdownV2.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
@@ -46,7 +46,12 @@
 		dbSupportsSchemas: boolean
 		databaseIsEmpty?: boolean
 		colDefs: Record<string, ColumnDef[]> | undefined
-		dbTableOpsFactory: (params: { colDefs: ColumnDef[]; tableKey: string }) => IDbTableOps
+		dbTableOpsFactory: (params: {
+			colDefs: ColumnDef[]
+			tableKey: string
+			/** Raw SQL predicate AND-ed into the reads (already escaped). */
+			whereClause?: string
+		}) => IDbTableOps
 		dbSchemaOps: IDbSchemaOps
 		refresh?: () => void
 		initialSchemaKey?: string
@@ -212,6 +217,52 @@
 		dbSupportsSchemas && selected.schemaKey
 			? `${selected.schemaKey}.${selected.tableKey}`
 			: selected.tableKey
+	)
+
+	// Set by "Go to row" on a foreign-keyed cell; pinned to the table it was
+	// created for so a schema change can't carry it onto an unrelated table.
+	let rowFilter: (DbRowFilter & { tableKey: string }) | undefined = $state()
+	let activeRowFilter = $derived(rowFilter?.tableKey === tableKey ? rowFilter : undefined)
+	let whereClause = $derived(
+		activeRowFilter
+			? renderDbEqualityFilter(activeRowFilter.column, activeRowFilter.value, dbType)
+			: undefined
+	)
+
+	function selectTable(schemaKey: string | undefined, table: string) {
+		rowFilter = undefined
+		selected = { schemaKey, tableKey: table }
+	}
+
+	function goToRow(target: DbForeignKeyTarget) {
+		// Foreign key queries qualify the target as `schema.table`; the sidebar
+		// only lets a schema-less database browse its single schema entry.
+		const parts = target.table.split('.')
+		const table = parts[parts.length - 1]
+		const schemaKey =
+			dbSupportsSchemas && parts.length > 1 ? parts.slice(0, -1).join('.') : selected.schemaKey
+		if (!schemaKey || !(table in (dbSchema.schema[schemaKey] ?? {}))) {
+			sendUserToast(`Table ${target.table} not found`, true)
+			return
+		}
+		if (renderDbEqualityFilter(target.column, target.value, dbType) === undefined) {
+			sendUserToast('This value cannot be used as a filter', true)
+			return
+		}
+		selectTable(schemaKey, table)
+		rowFilter = {
+			tableKey: dbSupportsSchemas ? `${schemaKey}.${table}` : table,
+			column: target.column,
+			value: target.value
+		}
+	}
+
+	let foreignKeys = resource(
+		[() => selected.tableKey, () => selected.schemaKey, () => colDefs],
+		async ([table, schema]) => {
+			if (!table || features?.foreignKeys === false) return []
+			return await dbSchemaOps.onFetchForeignKeys({ table, schema })
+		}
 	)
 
 	let askingForConfirmation:
@@ -395,14 +446,12 @@
 							role="button"
 							tabindex="0"
 							onclick={() => {
-								selected.schemaKey = schemaKey
-								selected.tableKey = tableKey
+								selectTable(schemaKey, tableKey)
 								toggleTableSelection(schemaKey, tableKey)
 							}}
 							onkeydown={(e) => {
 								if (e.key === 'Enter' || e.key === ' ') {
-									selected.schemaKey = schemaKey
-									selected.tableKey = tableKey
+									selectTable(schemaKey, tableKey)
 									toggleTableSelection(schemaKey, tableKey)
 								}
 							}}
@@ -468,7 +517,7 @@
 					<button
 						class={'w-full text-sm font-normal flex gap-2 items-center h-10 cursor-pointer pl-3 pr-1 ' +
 							(selected.tableKey === tableKey ? 'bg-surface-secondary' : 'hover:bg-surface-hover')}
-						onclick={() => (selected.tableKey = tableKey)}
+						onclick={() => selectTable(selected.schemaKey, tableKey)}
 					>
 						{#if asset}
 							<Star
@@ -541,8 +590,15 @@
 	</Pane>
 	<Pane class="p-3 pt-1">
 		{#if tableKey && colDefs?.[tableKey]?.length}
-			{@const dbTableOps = dbTableOpsFactory({ colDefs: colDefs[tableKey], tableKey })}
-			<DBTable {dbTableOps} bind:this={_dbTable} />
+			{@const dbTableOps = dbTableOpsFactory({ colDefs: colDefs[tableKey], tableKey, whereClause })}
+			<DBTable
+				{dbTableOps}
+				foreignKeys={foreignKeys.current}
+				onGoToRow={goToRow}
+				rowFilter={activeRowFilter}
+				onClearRowFilter={() => (rowFilter = undefined)}
+				bind:this={_dbTable}
+			/>
 		{:else if databaseIsEmpty}
 			<div class="h-full w-full center-center flex-col gap-4">
 				<span class="text-hint">Database is empty</span>

@@ -352,6 +352,35 @@ export function renderDbQuotedIdentifier(identifier: string, dbType: DbType): st
 	}
 }
 
+/** Renders a cell value as a SQL literal. Returns undefined for values that
+ * have no safe literal form (null, objects, non-finite numbers). */
+export function renderDbLiteral(value: unknown, dbType: DbType): string | undefined {
+	if (value === null || value === undefined) return undefined
+	if (typeof value === 'number') return Number.isFinite(value) ? String(value) : undefined
+	if (typeof value === 'bigint') return value.toString()
+	if (typeof value === 'boolean') {
+		if (dbType === 'ms_sql_server') return value ? '1' : '0'
+		return value ? 'TRUE' : 'FALSE'
+	}
+	if (typeof value !== 'string') return undefined
+	let escaped = value.replace(/'/g, "''")
+	// MySQL treats a backslash inside a string literal as an escape character.
+	if (dbType === 'mysql') escaped = escaped.replace(/\\/g, '\\\\')
+	return `'${escaped}'`
+}
+
+/** `"column" = <literal>` predicate, or undefined when the value can't be
+ * rendered as a literal. */
+export function renderDbEqualityFilter(
+	column: string,
+	value: unknown,
+	dbType: DbType
+): string | undefined {
+	const literal = renderDbLiteral(value, dbType)
+	if (literal === undefined) return undefined
+	return `${renderDbQuotedIdentifier(column, dbType)} = ${literal}`
+}
+
 export function getLanguageByResourceType(name: string): ScriptLang {
 	const language = {
 		postgresql: 'postgresql',
