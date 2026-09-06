@@ -632,6 +632,11 @@
 			// — and the host must not remount over it, which is the only thing that can
 			// tell it so.
 			const keptEdit = !draftValuesEqual(getScheduleCfg(), scheduleCfg)
+			// The schedule is deployed now, whether it was before or not. Set here rather
+			// than left to the remount, which a kept edit skips: they decide whether the
+			// next save updates or creates, and whether a discard removes the item.
+			edit = true
+			draftOnly = false
 			settleDraftAfterWrite(
 				'trigger_schedule',
 				scheduleCfg,
@@ -758,7 +763,9 @@
 			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${path}`)
 			// Deployed state moved, so the baseline the banner compares against does too.
 			if (initialConfig) initialConfig.enabled = nEnabled
-			onUpdate?.(path, path, ws, false)
+			// This request carried the enabled flag alone: anything else the form has
+			// diverged into is an edit of the user's, which a remount would drop.
+			onUpdate?.(path, path, ws, !draftValuesEqual(getScheduleCfg(), initialConfig))
 		}
 	}
 
