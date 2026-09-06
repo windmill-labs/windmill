@@ -929,16 +929,17 @@ async fn entries_reaching(
                 let Some(raw) = o.resource.as_ref() else {
                     continue;
                 };
-                let Some(fields) = raw.as_object() else {
-                    continue;
-                };
-                let mut references = false;
+                // A value that is not an object — a `$res:` string, say — only
+                // says what it reaches once resolved.
+                let mut references = !raw.is_object();
                 let mut plain_fields_agree = true;
                 for field in DATABASE_IDENTITY_FIELDS {
-                    let theirs = fields.get(field).unwrap_or(&serde_json::Value::Null);
+                    let theirs = raw.get(field).unwrap_or(&serde_json::Value::Null);
                     if is_reference(theirs) {
                         references = true;
-                    } else if theirs != ours.get(field).unwrap_or(&serde_json::Value::Null) {
+                    } else if !references
+                        && theirs != ours.get(field).unwrap_or(&serde_json::Value::Null)
+                    {
                         plain_fields_agree = false;
                     }
                 }
@@ -991,50 +992,52 @@ pub(crate) async fn refuse_reaching_a_governed_database(
     datatable_name: &str,
     database: &windmill_common::workspaces::DataTableDatabase,
 ) -> Result<()> {
-    let pointer = serde_json::to_value(database)
-        .map_err(|e| Error::internal_err(format!("Failed to serialize the database: {e}")))?;
-    let governed = sqlx::query!(
-        r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "name!",
-                  dt.value->'database' AS "database!",
-                  dt.value->'permissions'->>'database_identity' AS identity
-           FROM workspace_settings ws, jsonb_each(ws.datatable->'datatables') dt
-           WHERE NOT (ws.workspace_id = $1 AND dt.key = $2)
-             AND COALESCE((dt.value->'permissions'->>'enabled')::boolean, false)
-           ORDER BY ws.workspace_id, dt.key"#,
-        w_id,
-        datatable_name,
-    )
-    .fetch_all(db)
-    .await?;
-    if governed.is_empty() {
-        return Ok(());
-    }
     let hit = match database.resource_type {
-        DataTableCatalogResourceType::Instance => governed.iter().find(|g| g.database == pointer),
+        DataTableCatalogResourceType::Instance => {
+            let pointer = serde_json::to_value(database).map_err(|e| {
+                Error::internal_err(format!("Failed to serialize the database: {e}"))
+            })?;
+            sqlx::query!(
+                r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "name!"
+                   FROM workspace_settings ws, jsonb_each(ws.datatable->'datatables') dt
+                   WHERE NOT (ws.workspace_id = $1 AND dt.key = $2)
+                     AND COALESCE((dt.value->'permissions'->>'enabled')::boolean, false)
+                     AND dt.value->'database' = $3
+                   ORDER BY ws.workspace_id, dt.key"#,
+                w_id,
+                datatable_name,
+                pointer,
+            )
+            .fetch_optional(db)
+            .await?
+            .map(|g| (g.workspace_id, g.name))
+        }
         DataTableCatalogResourceType::Postgresql => {
             // The stored config is what the form is about to replace, so the entry
-            // is resolved from the database it names rather than from the config.
+            // is resolved from the resource it names rather than from the config.
             let resource = windmill_common::workspaces::transform_json_value_unchecked(
                 &serde_json::Value::String(format!("$res:{}", database.resource_path)),
                 w_id,
                 db,
             )
             .await?;
-            let identity = datatable_database_identity(&resource);
-            governed
-                .iter()
-                .find(|g| g.identity.as_deref() == Some(identity.as_str()))
+            windmill_common::workspaces::governed_datatable_with_identity(
+                db,
+                &datatable_database_identity(&resource),
+                &[(w_id, datatable_name)],
+            )
+            .await?
         }
     };
-    if let Some(g) = hit {
+    if let Some((gw, gname)) = hit {
         return Err(Error::BadRequest(format!(
             "Data table '{datatable_name}' would reach the database of {}, whose role \
              permissions are enabled: every member would reach it through this data table's \
              own connection, as every role at once.",
-            if g.workspace_id == w_id {
-                format!("data table '{}'", g.name)
+            if gw == w_id {
+                format!("data table '{gname}'")
             } else {
-                format!("data table '{}' of workspace {}", g.name, g.workspace_id)
+                format!("data table '{gname}' of workspace {gw}")
             }
         )));
     }

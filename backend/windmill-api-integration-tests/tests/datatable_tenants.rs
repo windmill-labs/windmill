@@ -768,13 +768,7 @@ async fn a_same_named_resource_counts_only_when_it_reaches_the_same_database(
         .await?;
         assert_eq!(resp.status(), 200);
         let value: serde_json::Value = resp.json().await?;
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        for field in ["host", "port", "dbname", "user"] {
-            hasher.update(value.get(field).map(|v| v.to_string()).unwrap_or_default());
-            hasher.update([0u8]);
-        }
-        format!("{:x}", hasher.finalize())
+        windmill_common::workspaces::datatable_database_identity(&value)
     };
     sqlx::query(
         r#"UPDATE workspace_settings
@@ -815,6 +809,23 @@ async fn a_same_named_resource_counts_only_when_it_reaches_the_same_database(
     .await?;
     let (status, text) = save("detached", "f/moved/pg").await;
     assert_eq!(status, 200, "{text}");
+    // And the resource behind that entry cannot be pointed back at it either.
+    let resp = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/detached/resources/update/f/moved/pg"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({ "value": { "host": "db.example", "port": 5432, "dbname": "prod", "user": "app", "password": "pw", "sslmode": "disable" } }))
+    .send()
+    .await?;
+    let status = resp.status().as_u16();
+    let text = resp.text().await?;
+    assert_eq!(status, 400, "{text}");
+    assert!(
+        text.contains("data table 'byo' of workspace test-workspace"),
+        "{text}"
+    );
     sqlx::query(
         r#"UPDATE workspace_settings
            SET datatable = datatable #- '{datatables,byo,permissions}'

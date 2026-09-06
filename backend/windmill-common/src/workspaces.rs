@@ -1478,13 +1478,9 @@ pub fn redact_datatable_settings_for_export(
     Some(datatable)
 }
 
-/// The data tables with permissions enabled that reach their database through
-/// this resource.
-async fn datatables_permissioned_on_resource(
-    db: &DB,
-    w_id: &str,
-    path: &str,
-) -> Result<Vec<String>> {
+/// The data tables of the workspace that reach their database through this
+/// resource, each with whether its permissions are enabled.
+async fn datatables_on_resource(db: &DB, w_id: &str, path: &str) -> Result<Vec<(String, bool)>> {
     let datatables: std::collections::HashMap<String, DataTable> = sqlx::query_scalar!(
         "SELECT ws.datatable->'datatables' FROM workspace_settings ws WHERE ws.workspace_id = $1",
         w_id
@@ -1495,17 +1491,31 @@ async fn datatables_permissioned_on_resource(
     .and_then(|v| serde_json::from_value(v).ok())
     .unwrap_or_default();
 
-    let mut names: Vec<String> = datatables
+    let mut names: Vec<(String, bool)> = datatables
         .into_iter()
         .filter(|(_, dt)| {
             dt.database.resource_type == DataTableCatalogResourceType::Postgresql
                 && dt.database.resource_path == path
-                && dt.permissions.as_ref().is_some_and(|p| p.enabled)
         })
-        .map(|(name, _)| name)
+        .map(|(name, dt)| (name, dt.permissions.as_ref().is_some_and(|p| p.enabled)))
         .collect();
     names.sort();
     Ok(names)
+}
+
+/// The data tables with permissions enabled that reach their database through
+/// this resource.
+async fn datatables_permissioned_on_resource(
+    db: &DB,
+    w_id: &str,
+    path: &str,
+) -> Result<Vec<String>> {
+    Ok(datatables_on_resource(db, w_id, path)
+        .await?
+        .into_iter()
+        .filter(|(_, permissioned)| *permissioned)
+        .map(|(name, _)| name)
+        .collect())
 }
 
 fn resource_backs_permissioned_datatable(names: &[String]) -> Error {
@@ -1539,6 +1549,14 @@ fn resource_backs_permissioned_datatable(names: &[String]) -> Error {
 /// `new_value` absent means the value is being cleared, which is a change like
 /// any other: the next write would land on a resource with no identity to
 /// compare against.
+///
+/// The other direction holds too: a resource behind an *unpermissioned* data
+/// table may not be pointed at a database another data table governs — that
+/// entry would be a second door onto it, open to every member as the owning
+/// connection. The settings form refuses such an entry; this refuses the
+/// resource edit that would turn an existing entry into one. The new value is
+/// resolved for it, `$var:` references included, since that is what the entry
+/// would reach.
 pub async fn ensure_resource_identity_change_allowed(
     db: &DB,
     w_id: &str,
@@ -1546,10 +1564,10 @@ pub async fn ensure_resource_identity_change_allowed(
     old_value: Option<&serde_json::Value>,
     new_value: Option<&serde_json::Value>,
 ) -> Result<()> {
-    // Nothing to protect until there is a previous identity to move away from.
-    let Some(old_value) = old_value else {
+    let backing = datatables_on_resource(db, w_id, path).await?;
+    if backing.is_empty() {
         return Ok(());
-    };
+    }
     let identity = |v: &serde_json::Value| {
         (
             v.get("host").cloned(),
@@ -1558,15 +1576,76 @@ pub async fn ensure_resource_identity_change_allowed(
             v.get("user").cloned(),
         )
     };
-    if new_value.is_some_and(|new_value| identity(old_value) == identity(new_value)) {
-        return Ok(());
+    let unchanged = match (old_value, new_value) {
+        (Some(old), Some(new)) => identity(old) == identity(new),
+        _ => false,
+    };
+    // Nothing to move away from until there is a previous identity.
+    if old_value.is_some() && !unchanged {
+        let names: Vec<String> = backing
+            .iter()
+            .filter(|(_, permissioned)| *permissioned)
+            .map(|(name, _)| name.clone())
+            .collect();
+        if !names.is_empty() {
+            return Err(resource_backs_permissioned_datatable(&names));
+        }
     }
+    let Some(new_value) = new_value.filter(|_| !unchanged) else {
+        return Ok(());
+    };
+    let resolved = transform_json_unchecked(new_value, w_id, db).await?;
+    let new_identity = datatable_database_identity(&resolved);
+    let own: Vec<(&str, &str)> = backing
+        .iter()
+        .map(|(name, _)| (w_id, name.as_str()))
+        .collect();
+    if let Some((gw, gname)) = governed_datatable_with_identity(db, &new_identity, &own).await? {
+        let mut names: Vec<&str> = backing.iter().map(|(n, _)| n.as_str()).collect();
+        names.sort();
+        return Err(Error::BadRequest(format!(
+            "This resource is how data table {} reaches its database; pointed there, it would \
+             reach the database of {}, whose role permissions are enabled, and open it to \
+             every member as the owning connection.",
+            names.join(", "),
+            if gw == w_id {
+                format!("data table '{gname}'")
+            } else {
+                format!("data table '{gname}' of workspace {gw}")
+            }
+        )));
+    }
+    Ok(())
+}
 
-    let names = datatables_permissioned_on_resource(db, w_id, path).await?;
-    if names.is_empty() {
-        return Ok(());
-    }
-    Err(resource_backs_permissioned_datatable(&names))
+/// The permissioned data table, in any workspace, whose opt-in stamped
+/// `identity` — other than the `except` entries — if there is one.
+///
+/// Authorization: performs none, and needs none: it answers with a name, for a
+/// caller that only ever refuses on it.
+pub async fn governed_datatable_with_identity(
+    db: &DB,
+    identity: &str,
+    except: &[(&str, &str)],
+) -> Result<Option<(String, String)>> {
+    let governed = sqlx::query!(
+        r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "name!"
+           FROM workspace_settings ws, jsonb_each(ws.datatable->'datatables') dt
+           WHERE COALESCE((dt.value->'permissions'->>'enabled')::boolean, false)
+             AND dt.value->'permissions'->>'database_identity' = $1
+           ORDER BY ws.workspace_id, dt.key"#,
+        identity,
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(governed
+        .into_iter()
+        .find(|g| {
+            !except
+                .iter()
+                .any(|(w, n)| *w == g.workspace_id && *n == g.name)
+        })
+        .map(|g| (g.workspace_id, g.name)))
 }
 
 /// Fingerprint the database a connection resolves to, over the fields that make
