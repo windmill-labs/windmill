@@ -733,9 +733,11 @@ async fn a_same_named_resource_counts_only_when_it_reaches_the_same_database(
     let text = preview().await;
     assert!(!text.contains("cannot be enabled"), "{text}");
 
-    // Another path, the same database: a copy, wherever the resource was moved.
+    // Another path and another login, the same database: a copy, wherever the
+    // resource was moved and whoever it connects as.
     sqlx::query(
-        "UPDATE resource SET path = 'f/moved/pg', value = jsonb_set(value, '{dbname}', '\"prod\"')
+        "UPDATE resource SET path = 'f/moved/pg',
+             value = jsonb_set(jsonb_set(value, '{dbname}', '\"prod\"'), '{user}', '\"postgres\"')
          WHERE workspace_id = 'detached' AND path = 'u/test-user/pg'",
     )
     .execute(&db)
@@ -768,13 +770,13 @@ async fn a_same_named_resource_counts_only_when_it_reaches_the_same_database(
         .await?;
         assert_eq!(resp.status(), 200);
         let value: serde_json::Value = resp.json().await?;
-        windmill_common::workspaces::datatable_database_identity(&value)
+        windmill_common::workspaces::physical_database_identity(&value)
     };
     sqlx::query(
         r#"UPDATE workspace_settings
            SET datatable = jsonb_set(datatable, '{datatables,byo,permissions}',
                jsonb_build_object('enabled', true, 'roles', '{"admin": {"tenants": []}}'::jsonb,
-                                  'database_identity', $1::text))
+                                  'physical_identity', $1::text))
            WHERE workspace_id = 'test-workspace'"#,
     )
     .bind(&identity)
@@ -822,8 +824,54 @@ async fn a_same_named_resource_counts_only_when_it_reaches_the_same_database(
     let status = resp.status().as_u16();
     let text = resp.text().await?;
     assert_eq!(status, 400, "{text}");
+    assert!(text.contains("a data table of another workspace"), "{text}");
+    // Nor deleted and recreated at the path the entry still names.
+    let resp = authed(
+        client().delete(format!(
+            "http://localhost:{port}/api/w/detached/resources/delete/f/moved/pg"
+        )),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let resp = authed(
+        client().post(format!("http://localhost:{port}/api/w/detached/resources/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "path": "f/moved/pg",
+        "resource_type": "postgresql",
+        "value": { "host": "db.example", "port": 5432, "dbname": "prod", "user": "app", "password": "pw", "sslmode": "disable" }
+    }))
+    .send()
+    .await?;
+    let status = resp.status().as_u16();
+    let text = resp.text().await?;
+    assert_eq!(status, 400, "{text}");
+    assert!(text.contains("a data table of another workspace"), "{text}");
+    // A second door that got past every write-time guard — a `$var:` changed
+    // under the resource, say — is refused where it is used.
+    sqlx::query(
+        "INSERT INTO resource (workspace_id, path, value, resource_type, created_by, edited_at)
+         VALUES ('detached', 'f/moved/pg', $1, 'postgresql', 'test-user', now())",
+    )
+    .bind(json!({ "host": "db.example", "port": 5432, "dbname": "prod", "user": "postgres", "password": "pw" }))
+    .execute(&db)
+    .await?;
+    let resp = authed(
+        client().get(format!(
+            "http://localhost:{port}/api/w/detached/workspaces/get_datatable_table_schema?datatable_name=door&schema_name=public&table_name=t"
+        )),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    let status = resp.status().as_u16();
+    let text = resp.text().await?;
+    assert_eq!(status, 401, "{text}");
     assert!(
-        text.contains("data table 'byo' of workspace test-workspace"),
+        text.contains("whose role permissions are enabled"),
         "{text}"
     );
     sqlx::query(

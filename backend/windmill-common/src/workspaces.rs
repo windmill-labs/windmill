@@ -1247,6 +1247,13 @@ pub struct DataTablePermissions {
     /// repointed by editing a resource.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub database_identity: Option<String>,
+    /// The database itself, as [`physical_database_identity`] fingerprints it —
+    /// the login left out. Stamped at the opt-in, instance databases included,
+    /// and what every other data table entry is held apart from: one reaching
+    /// this database would hand its users the owning connection, whichever login
+    /// its own resource carries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub physical_identity: Option<String>,
 }
 
 impl DataTablePermissions {
@@ -1554,9 +1561,11 @@ fn resource_backs_permissioned_datatable(names: &[String]) -> Error {
 /// table may not be pointed at a database another data table governs — that
 /// entry would be a second door onto it, open to every member as the owning
 /// connection. The settings form refuses such an entry; this refuses the
-/// resource edit that would turn an existing entry into one. The new value is
+/// resource write — an edit, a create at a path an entry still names, a rename
+/// onto one — that would turn an existing entry into one. The new value is
 /// resolved for it, `$var:` references included, since that is what the entry
-/// would reach.
+/// would reach. A resource owner need not be an admin anywhere, so a governed
+/// data table of another workspace is not named to them.
 pub async fn ensure_resource_identity_change_allowed(
     db: &DB,
     w_id: &str,
@@ -1595,12 +1604,12 @@ pub async fn ensure_resource_identity_change_allowed(
         return Ok(());
     };
     let resolved = transform_json_unchecked(new_value, w_id, db).await?;
-    let new_identity = datatable_database_identity(&resolved);
+    let new_identity = physical_database_identity(&resolved);
     let own: Vec<(&str, &str)> = backing
         .iter()
         .map(|(name, _)| (w_id, name.as_str()))
         .collect();
-    if let Some((gw, gname)) = governed_datatable_with_identity(db, &new_identity, &own).await? {
+    if let Some((gw, gname)) = governed_datatable_reaching(db, &new_identity, &own).await? {
         let mut names: Vec<&str> = backing.iter().map(|(n, _)| n.as_str()).collect();
         names.sort();
         return Err(Error::BadRequest(format!(
@@ -1611,30 +1620,31 @@ pub async fn ensure_resource_identity_change_allowed(
             if gw == w_id {
                 format!("data table '{gname}'")
             } else {
-                format!("data table '{gname}' of workspace {gw}")
+                "a data table of another workspace".to_string()
             }
         )));
     }
     Ok(())
 }
 
-/// The permissioned data table, in any workspace, whose opt-in stamped
-/// `identity` — other than the `except` entries — if there is one.
+/// The permissioned data table, in any workspace, whose opt-in stamped this
+/// [`physical_database_identity`] — other than the `except` entries — if there
+/// is one.
 ///
 /// Authorization: performs none, and needs none: it answers with a name, for a
 /// caller that only ever refuses on it.
-pub async fn governed_datatable_with_identity(
+pub async fn governed_datatable_reaching(
     db: &DB,
-    identity: &str,
+    physical_identity: &str,
     except: &[(&str, &str)],
 ) -> Result<Option<(String, String)>> {
     let governed = sqlx::query!(
         r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "name!"
            FROM workspace_settings ws, jsonb_each(ws.datatable->'datatables') dt
            WHERE COALESCE((dt.value->'permissions'->>'enabled')::boolean, false)
-             AND dt.value->'permissions'->>'database_identity' = $1
+             AND dt.value->'permissions'->>'physical_identity' = $1
            ORDER BY ws.workspace_id, dt.key"#,
-        identity,
+        physical_identity,
     )
     .fetch_all(db)
     .await?;
@@ -1661,6 +1671,23 @@ pub fn datatable_database_identity(resolved: &serde_json::Value) -> String {
     // NUL-joined so a value cannot be replayed by moving characters across the
     // field boundaries, and hashed so the config does not carry the host around.
     for field in ["host", "port", "dbname", "user"] {
+        let value = resolved
+            .get(field)
+            .map(|v| v.to_string())
+            .unwrap_or_default();
+        hasher.update(value.as_bytes());
+        hasher.update([0u8]);
+    }
+    hex::encode(hasher.finalize())
+}
+
+/// Fingerprint the database a connection resolves to, without the login: the
+/// same host, port and database reached as another user is the same database,
+/// and for the question of who else reaches it, the login does not matter.
+pub fn physical_database_identity(resolved: &serde_json::Value) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    for field in ["host", "port", "dbname"] {
         let value = resolved
             .get(field)
             .map(|v| v.to_string())
@@ -2135,6 +2162,33 @@ async fn get_datatable_resource_inner(
     // `user` would make every comparison fail.
     if resolution_proves_database_identity(internal, &datatable) {
         ensure_datatable_database_unchanged(name, &datatable, &db_resource)?;
+    }
+
+    // An unpermissioned data table must not be a second door onto a database
+    // another data table governs. The writes that could make it one — the
+    // settings form, a resource write — refuse, but none of them is transactional
+    // with the opt-in, and a `$var:` a resource references changes under it
+    // through no write of the resource at all; here, on the resolved connection,
+    // is where the answer is authoritative. Internal callers are the guards
+    // themselves and the data table's own administration.
+    if !internal && !datatable.permissions.as_ref().is_some_and(|p| p.enabled) {
+        if let Some((gw, gname)) = governed_datatable_reaching(
+            db,
+            &physical_database_identity(&db_resource),
+            &[(w_id, name)],
+        )
+        .await?
+        {
+            return Err(Error::NotAuthorized(format!(
+                "Data table '{name}' reaches the database of {}, whose role permissions are \
+                 enabled: its own connection would bypass them. Use that data table instead.",
+                if gw == w_id {
+                    format!("data table '{gname}'")
+                } else {
+                    "a data table of another workspace".to_string()
+                }
+            )));
+        }
     }
 
     // The role logs in as itself rather than through `SET ROLE`, which a script
@@ -3452,6 +3506,7 @@ mod tests {
                 roles: map,
                 default_role: None,
                 database_identity: None,
+                physical_identity: None,
             }),
         }
     }

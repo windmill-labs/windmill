@@ -134,7 +134,10 @@ pub struct EditResourceType {
     /// `Option` conflates: an absent field leaves the extension alone, while an
     /// explicit `null` clears it. A hub pull relies on both — a type that stops
     /// being a file type has to stop being one locally too.
-    #[serde(default, deserialize_with = "windmill_common::more_serde::double_option")]
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option"
+    )]
     pub format_extension: Option<Option<String>>,
 }
 
@@ -1231,6 +1234,17 @@ async fn create_resource(
         .await
         .map_err(sanitize_db_error)?;
     } else {
+        // A data table entry may already name this path, its resource deleted since.
+        let nvalue: serde_json::Value = serde_json::from_str(raw_json.0.get())
+            .map_err(|e| Error::BadRequest(format!("Invalid resource value: {e}")))?;
+        windmill_common::workspaces::ensure_resource_identity_change_allowed(
+            &db,
+            &w_id,
+            &resource.path,
+            None,
+            Some(&nvalue),
+        )
+        .await?;
         // Create-only (the default): DO NOTHING + a row-count guard, so a path that appears between
         // check_path_conflict above and this insert is rejected rather than overwritten. A plain
         // DO UPDATE here would clobber a concurrently-created resource, breaking create-only callers
@@ -1842,9 +1856,32 @@ async fn update_resource(
         return Err(Error::PermissionDenied(msg));
     }
 
-    // A rename takes the resource out from under whatever names its path.
-    if ns.path.as_deref().is_some_and(|npath| npath != path) {
+    // A rename takes the resource out from under whatever names its path — and
+    // puts it under whatever names the new one.
+    if let Some(npath) = ns.path.as_deref().filter(|npath| *npath != path) {
         windmill_common::workspaces::ensure_resource_removal_allowed(&db, &w_id, path).await?;
+        let arriving: Option<serde_json::Value> = match ns.value.as_ref() {
+            Some(v) => Some(
+                serde_json::from_str(v.get())
+                    .map_err(|e| Error::BadRequest(format!("Invalid resource value: {e}")))?,
+            ),
+            None => sqlx::query_scalar!(
+                "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
+                path,
+                &w_id
+            )
+            .fetch_optional(&db)
+            .await?
+            .flatten(),
+        };
+        windmill_common::workspaces::ensure_resource_identity_change_allowed(
+            &db,
+            &w_id,
+            npath,
+            None,
+            arriving.as_ref(),
+        )
+        .await?;
     }
     // Same as `set_resource_value`: the identity a permissioned data table's
     // roles were created against is not free to move underneath them.

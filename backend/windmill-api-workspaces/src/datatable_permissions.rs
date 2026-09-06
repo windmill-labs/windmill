@@ -34,7 +34,8 @@ use windmill_common::utils::require_admin;
 use windmill_common::worker::SqlAnnotations;
 use windmill_common::workspaces::{
     can_use_datatable_role, datatable_database_identity, get_datatable_resource_from_db_unchecked,
-    DataTable, DataTableCatalogResourceType, DataTablePermissions, ADMIN_DATATABLE_ROLE,
+    physical_database_identity, DataTable, DataTableCatalogResourceType, DataTablePermissions,
+    ADMIN_DATATABLE_ROLE,
 };
 use windmill_common::{PgDatabase, DB};
 
@@ -234,6 +235,9 @@ pub(crate) struct AdminConnection {
     /// resolution can tell it has not moved. `None` for an instance database,
     /// which no workspace edit can repoint.
     pub(crate) database_identity: Option<String>,
+    /// The database without the login, instance databases included: what every
+    /// other data table entry is held apart from.
+    pub(crate) physical_identity: String,
     pub(crate) admin_pg_role: String,
     pub(crate) pg_roles: PgRoleInventory,
     /// Whether `PUBLIC` holds CREATE on schema `public`, i.e. every role in this
@@ -352,6 +356,7 @@ pub(crate) async fn connect_as_admin_unchecked(
         .resource_type
         == DataTableCatalogResourceType::Postgresql)
         .then(|| datatable_database_identity(&db_resource));
+    let physical_identity = physical_database_identity(&db_resource);
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {e}")))?;
     let dbname = pg_db.dbname.clone();
@@ -451,6 +456,7 @@ pub(crate) async fn connect_as_admin_unchecked(
         AdminConnection {
             dbname,
             database_identity,
+            physical_identity,
             admin_pg_role,
             pg_roles: PgRoleInventory { existing, adoptable },
             public_schema_is_open,
@@ -491,6 +497,7 @@ async fn build_plan(
     // Stamped from the connection the roles are about to be created through, so
     // a resolution that lands anywhere else later can refuse.
     plan.permissions.database_identity = conn.database_identity;
+    plan.permissions.physical_identity = Some(conn.physical_identity);
     if !req.enabled {
         // Opting out is never refused; what it strands is said out loud.
         let roles: HashSet<&str> = datatable
@@ -870,8 +877,9 @@ async fn refuse_enabling_permissions_over_shared_access(
 /// resource is a second door.
 ///
 /// An instance database is matched by name. A resource-backed entry reaches
-/// wherever its resource points, whatever path it names, so it is matched by the
-/// resource's host, port, database and user. Read from the stored resource rows
+/// wherever its resource points, whatever path it names and whichever login it
+/// carries, so it is matched by the resource's host, port and database. Read
+/// from the stored resource rows
 /// in one query: a field that is a `$var:` / `$res:` reference is only resolved
 /// — a per-row read, and a secret backend call where the workspace uses one —
 /// when every plain field already agrees, so the loop that decrypts runs for
@@ -920,7 +928,7 @@ async fn entries_reaching(
         }
         DataTableCatalogResourceType::Postgresql => {
             let ours = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
-            let identity = datatable_database_identity(&ours);
+            let identity = physical_database_identity(&ours);
             let is_reference = |v: &serde_json::Value| {
                 v.as_str()
                     .is_some_and(|s| s.starts_with("$var:") || s.starts_with("$res:"))
@@ -933,7 +941,7 @@ async fn entries_reaching(
                 // says what it reaches once resolved.
                 let mut references = !raw.is_object();
                 let mut plain_fields_agree = true;
-                for field in DATABASE_IDENTITY_FIELDS {
+                for field in PHYSICAL_DATABASE_FIELDS {
                     let theirs = raw.get(field).unwrap_or(&serde_json::Value::Null);
                     if is_reference(theirs) {
                         references = true;
@@ -966,7 +974,7 @@ async fn entries_reaching(
                             )))
                         }
                     };
-                if datatable_database_identity(&resolved) == identity {
+                if physical_database_identity(&resolved) == identity {
                     reaching.push(describe(&o.workspace_id, &o.name, o.deleted));
                 }
             }
@@ -975,8 +983,8 @@ async fn entries_reaching(
     Ok(reaching)
 }
 
-/// The fields [`datatable_database_identity`] hashes.
-const DATABASE_IDENTITY_FIELDS: [&str; 4] = ["host", "port", "dbname", "user"];
+/// The fields [`physical_database_identity`] hashes.
+const PHYSICAL_DATABASE_FIELDS: [&str; 3] = ["host", "port", "dbname"];
 
 /// Refuse a data table entry that reaches a database another data table governs.
 ///
@@ -1021,9 +1029,9 @@ pub(crate) async fn refuse_reaching_a_governed_database(
                 db,
             )
             .await?;
-            windmill_common::workspaces::governed_datatable_with_identity(
+            windmill_common::workspaces::governed_datatable_reaching(
                 db,
-                &datatable_database_identity(&resource),
+                &physical_database_identity(&resource),
                 &[(w_id, datatable_name)],
             )
             .await?
