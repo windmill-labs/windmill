@@ -313,6 +313,7 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 				serverTimestamp: resp.current_timestamp,
 				localLastSync: lastSync ?? null
 			})
+			lastLanded.delete(key)
 			return
 		}
 		// resp.status === 'saved' — advance lastSync (or drop on delete).
@@ -546,9 +547,11 @@ export const UserDraftDbSyncer = {
 		} else {
 			clearLastSync(query.workspace, query.itemKind, query.path)
 		}
-		// Back in sync with the server: clear any conflict / failure.
+		// Back in sync with the server: clear any conflict / failure. `lastLanded`
+		// goes with them — whatever we last wrote no longer describes what is there.
 		conflicts.delete(key)
 		failures.delete(key)
+		lastLanded.delete(key)
 	},
 
 	/**
@@ -604,16 +607,18 @@ export const UserDraftDbSyncer = {
 		}
 	},
 
-	/** Reactive conflict snapshot (if any) for a draft. */
 	/**
 	 * Whether the last save that landed for this key was the draft's deletion.
-	 * False while none has landed at all — a failed or conflicted delete never
-	 * reaches the response handler, so it never claims to have landed.
+	 * False while none has landed — a delete that failed or conflicted never
+	 * reaches the response handler, so it never claims to have landed, and one
+	 * that landed earlier is dropped as soon as the server's state moves outside
+	 * our writes.
 	 */
 	lastLandedWasDelete(query: UserDraftLastSyncQuery): boolean {
 		return lastLanded.get(draftKey(query.workspace, query.itemKind, query.path)) === 'delete'
 	},
 
+	/** Reactive conflict snapshot (if any) for a draft. */
 	getConflict(query: UserDraftLastSyncQuery): {
 		readonly conflict: DraftConflictInfo | undefined
 	} {
