@@ -572,8 +572,12 @@
 	const tabHosts: Record<string, PreviewTabHost | undefined> = {}
 
 	let reloadHandle: ReturnType<typeof setTimeout> | undefined
-	// Base-stripped list-page paths (e.g. `/schedules`) a chat round touched since
-	// the last flush — see toolReloadEffect for how tools map to pages.
+	/** A list page in the workspace it was touched in — see `queuePageReload`. */
+	function pageReloadKey(workspace: string, page: string): string {
+		return `${workspace}\u0000${page}`
+	}
+	// Pages touched since the last flush, by whatever touched them: a chat round
+	// (see toolReloadEffect), a hosted editor's write, a draft landing after one.
 	let pendingPages = new Set<string>()
 	// The same round's mutations, kept whole rather than folded into one verdict:
 	// a hosted entity editor is only affected by a mutation to its own item, in
@@ -590,7 +594,7 @@
 			const workspace = getEffectiveWorkspaceId(s)
 			// The queue names the workspace each page was touched in; this session only
 			// cares about the ones touched in its own.
-			const prefix = `${workspace}\u0000`
+			const prefix = pageReloadKey(workspace ?? '', '')
 			const mine = new Set(
 				[...pages].filter((p) => p.startsWith(prefix)).map((p) => p.slice(prefix.length))
 			)
@@ -668,7 +672,7 @@
 	// frame its scroll and everything else it holds.
 	function queuePageReload(workspace: string | undefined, page: string) {
 		if (!workspace) return
-		pendingPages.add(`${workspace}\u0000${page}`)
+		pendingPages.add(pageReloadKey(workspace, page))
 		clearTimeout(reloadHandle)
 		reloadHandle = setTimeout(flushReload, 500)
 	}
@@ -695,7 +699,7 @@
 		setToolCompletionListener((name, args, workspace) => {
 			const { pages, entity, path } = toolReloadEffect(name, args)
 			if (pages.length === 0) return
-			for (const p of pages) pendingPages.add(`${workspace}\u0000${p}`)
+			for (const p of pages) pendingPages.add(pageReloadKey(workspace, p))
 			// A write reaches a hosted editor through the draft cell it holds, but an
 			// editor still loading holds none yet and the seed no-opped past it. The
 			// miss is recorded when it happens — asking now would be too late, since

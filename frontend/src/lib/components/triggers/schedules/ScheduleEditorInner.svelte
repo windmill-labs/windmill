@@ -198,8 +198,11 @@
 			draftOnly = noDeployed
 			if (!defaultCfg) {
 				// Form holds DEPLOYED here; capture it as `initialConfig` so the
-				// dirty check / banner fires whenever a saved draft exists.
+				// dirty check / banner fires whenever a saved draft exists. This is also
+				// the only point where the deployed `enabled` is on the form — the draft
+				// overlay below can carry one of its own, which the server has not taken.
 				initialConfig = structuredClone($state.snapshot(getScheduleCfg()))
+				deployedEnabled = enabled
 			}
 			if (draftOverlay) await loadScheduleCfg(draftOverlay)
 			await draftSync.maybeRestore()
@@ -353,6 +356,8 @@
 			runnable = undefined
 			edit = false
 			draftOnly = false
+			// Nothing deployed yet, so nothing accepted.
+			deployedEnabled = false
 			// No deployed baseline for a brand-new schedule. The editor instance
 			// is reused across open() calls, so clear any baseline left by a prior
 			// openEdit — otherwise the "unsaved changes" banner / dirty check would
@@ -549,7 +554,6 @@
 		initialCronVersion = cronVersion
 		isLatestCron = cronVersion == 'v2'
 		enabled = cfg.enabled
-		deployedEnabled = cfg.enabled
 		schedule = cfg.schedule
 		initialSchedule = schedule
 		timezone = cfg.timezone

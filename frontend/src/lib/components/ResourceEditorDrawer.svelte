@@ -32,8 +32,7 @@
 		disableChatOffset?: boolean
 		/** A version was restored, at this path and in the workspace the history was
 		 * pointed at — which `WsSpecificVersions` can make a linked one rather than the
-		 * acting workspace. Both reported rather than left for the caller to read off
-		 * its own live state, which the restore's await has already outlived. */
+		 * acting workspace. */
 		onRestored?: (workspace: string, path: string) => void
 		/** Fires after Save has written, with the path it wrote to — which is not the
 		 * one it was opened on when the user renamed it — and the workspace and path
