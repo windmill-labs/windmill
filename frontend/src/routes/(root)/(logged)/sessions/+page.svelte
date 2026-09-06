@@ -90,7 +90,8 @@
 		type WorkspaceItemKind
 	} from '$lib/components/workspacePicker'
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
-	import { UserDraft, flushDraftWrites } from '$lib/userDraft.svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 	const globalEnabled = isGlobalAiEnabled()
 
@@ -614,7 +615,7 @@
 	// A hosted entity editor wrote its item. Every tab on it hears, across warm
 	// sessions: they share the one draft cell and the one server row, so one left
 	// behind edits a path that is gone or discards over a value already deployed.
-	async function entityWritten(ev: {
+	function entityWritten(ev: {
 		kind: EntityEditorKind
 		path: string
 		workspace: string
@@ -625,11 +626,6 @@
 	}) {
 		const page = entityListPage(ev.kind)?.path
 		if (!page) return
-		// The settle that follows a write parks its draft delete on the autosave
-		// debounce, and a list frame reads its `*` markers from a store of its own
-		// — read before that lands, it keeps the row's marker until something else
-		// reloads it, and nothing does.
-		await flushDraftWrites(ev.kind, ev.path, { workspace: ev.workspace })
 		for (const s of warmSessions) {
 			const owner = getRuntime(s.id)?.previewTabs
 			if (!owner || getEffectiveWorkspaceId(s) !== ev.workspace) continue
@@ -665,6 +661,43 @@
 		pendingMutations = []
 		reloadTabs(pages, mutations)
 	}
+	// A list frame reads its rows and `*` markers from a store inside the iframe, so
+	// nothing we do afterwards corrects what it already read. Rather than time our
+	// reloads against writes, reload when one lands: a draft written after a save —
+	// an edit made while it was in flight — reaches the list this way too.
+	let draftLandedHandle: ReturnType<typeof setTimeout> | undefined
+	let draftLandedPages = new Set<string>()
+	$effect(() => {
+		const stop = UserDraftDbSyncer.onAnySaved(({ workspace, itemKind }) => {
+			const page = entityListPage(itemKind as EntityEditorKind)?.path
+			if (!page) return
+			draftLandedPages.add(`${workspace}\u0000${page}`)
+			clearTimeout(draftLandedHandle)
+			// Coalesced: a deploy lands several writes for one item back to back.
+			draftLandedHandle = setTimeout(() => {
+				const pages = draftLandedPages
+				draftLandedPages = new Set()
+				for (const s of warmSessions) {
+					const ws = getEffectiveWorkspaceId(s)
+					const owner = getRuntime(s.id)?.previewTabs
+					if (!ws || !owner) continue
+					for (const tab of owner.tabs) {
+						const loc = whereIs(tab)
+						if (parseEntityEditorRoute(loc)) continue
+						if (!pages.has(`${ws}\u0000${stripBase(loc)}`)) continue
+						const key = tabKey(s.id, tab.id)
+						if (mountedTabKeys.has(key)) tabHosts[key]?.reload()
+					}
+				}
+			}, 300)
+		})
+		return () => {
+			clearTimeout(draftLandedHandle)
+			draftLandedPages = new Set()
+			stop()
+		}
+	})
+
 	$effect(() => {
 		// Debounced so a burst of writes (the AI editing several files) reloads once.
 		setToolCompletionListener((name, args, workspace) => {

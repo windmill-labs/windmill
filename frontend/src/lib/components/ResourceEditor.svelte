@@ -392,7 +392,9 @@
 				written.push({ ws, path: s.path })
 				// `s.path`, not the reported one: each workspace settles against the path
 				// its own write used.
-				settleDraftAfterWrite('resource', s, states[ws]?.draft, from, s.path, { workspace: ws })
+				await settleDraftAfterWrite('resource', s, states[ws]?.draft, from, s.path, {
+					workspace: ws
+				})
 				// Path now exists server-side — drop the autocomplete cache so
 				// it shows up immediately instead of after the 60s TTL.
 				invalidateWorkspacePaths(ws)

@@ -343,7 +343,7 @@
 				// to it via `discard` (not `remove` — blanking the cell to `undefined` reads
 				// as dirty) and keeps an edit made mid-request. Each workspace settles
 				// against the path its own write used, not the reported one.
-				settleDraftAfterWrite('variable', s, states[ws]?.draft, from ?? '', s.path, {
+				await settleDraftAfterWrite('variable', s, states[ws]?.draft, from ?? '', s.path, {
 					workspace: ws
 				})
 				// Reported after settling, so what hears about the write sees a cell that

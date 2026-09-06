@@ -277,16 +277,20 @@ export function draftValuesEqual(a: unknown, b: unknown): boolean {
  * only its own default), so the cell is reset rather than left orphaned under a
  * path the item no longer occupies.
  */
-export function settleDraftAfterWrite<V>(
+export async function settleDraftAfterWrite<V>(
 	itemKind: UserDraftItemKind,
 	written: V,
 	live: V | undefined,
 	fromPath: string,
 	savedPath: string,
 	opts?: UserDraftOptions
-): void {
+): Promise<void> {
 	if (savedPath !== fromPath || draftValuesEqual(live, written)) {
 		UserDraft.discard(itemKind, fromPath, written, opts)
+		// Sent before this resolves, not left on the keystroke debounce: callers
+		// report the write and remount on it, and both read a cell this has to have
+		// finished resolving — including through a frame with a draft store of its own.
+		await flushDraftWrites(itemKind, fromPath, opts)
 	}
 }
 

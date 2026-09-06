@@ -647,7 +647,9 @@
 			// next save updates or creates, and whether a discard removes the item.
 			edit = true
 			draftOnly = false
-			settleDraftAfterWrite(
+			// Awaited before the host hears: it remounts on the report, and a remount
+			// that overtook this would load the draft this is removing.
+			await settleDraftAfterWrite(
 				'trigger_schedule',
 				scheduleCfg,
 				getScheduleCfg(),
@@ -780,7 +782,7 @@
 			// It matches the new one, so nothing would ever show it again — but it is
 			// still a row on the server and a `*` on the list until it is settled away.
 			if (initialConfig)
-				settleDraftAfterWrite(
+				await settleDraftAfterWrite(
 					'trigger_schedule',
 					$state.snapshot(initialConfig),
 					getScheduleCfg(),
