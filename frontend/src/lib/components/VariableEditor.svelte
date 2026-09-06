@@ -304,7 +304,9 @@
 			payloads.find((pl) => pl.ws === shownWs)?.s.path ??
 			payloads.find((pl) => pl.ws === fromWs)?.s.path ??
 			from
-		let actingCommitted = false
+		// Committed by the workspace the form is showing — the one `actingPath` follows,
+		// so the two cannot disagree about who this editor is tracking.
+		let shownCommitted = false
 		// Every workspace written, with the path it wrote there. Reported once the loop
 		// is done: per workspace, each carrying its own, so a linked workspace's rename
 		// moves the tabs acting on it and no others.
@@ -348,7 +350,7 @@
 					initialStates[ws] = s
 					existedInitially[ws] = true
 				}
-				if (ws === fromWs) actingCommitted = true
+				if (ws === (shownWs ?? fromWs)) shownCommitted = true
 				// The just-saved state is the new deployed baseline; this resets the handle
 				// to it via `discard` (not `remove` — blanking the cell to `undefined` reads
 				// as dirty) and keeps an edit made mid-request. Each workspace settles
@@ -385,7 +387,13 @@
 			// back the values this drawer opened on, which describe neither what the
 			// committed workspace now has deployed nor the draft the failed one still
 			// holds — that one stays at its own path, editable from its workspace.
-			if (actingCommitted && actingPath && editPath === from) editVariable(actingPath)
+			if (shownCommitted && actingPath && editPath === from) {
+				// Reopen on the workspace whose write this is following, not on the one the
+				// editor defaults to: `editVariable` selects `curWs`, which for a linked
+				// version would load a different workspace's item at this path.
+				editVariable(actingPath)
+				if (shownWs) selected = shownWs
+			}
 		}
 	}
 </script>

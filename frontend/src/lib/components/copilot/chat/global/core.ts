@@ -6182,9 +6182,16 @@ async function discardLocalDraft(
 	// Published only now: the delete above can throw, and the marker is read by the
 	// tool-completion listener, which a throw never reaches — leaving it to be
 	// consumed by some later action on this item, which would send its editor away
-	// while the item is still there.
+	// while the item is still there. Nor is it published when a write is queued
+	// behind the delete: the form stays editable across it, and an edit made then
+	// recreates the draft, so the item the marker would report as gone is not.
 	if (removesItem && discardedKind) {
-		UserDraft.recordDraftOnlyDiscard(discardedKind, storagePath, { workspace })
+		const settled =
+			UserDraftDbSyncer.getState({ workspace, itemKind: discardedKind, path: storagePath })
+				.state === 'none'
+		if (settled) {
+			UserDraft.recordDraftOnlyDiscard(discardedKind, storagePath, { workspace })
+		}
 	}
 
 	// The chat's touch on the item is undone — drop it from the mask so a
