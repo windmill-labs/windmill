@@ -337,7 +337,22 @@
 
 	/** What the save deployed: one entry per workspace written, with the path it
 	 * wrote there. Empty when nothing landed — it toasts its own failure. */
-	export async function save(): Promise<{ ws: string; path: string }[]> {
+	/**
+	 * Whether the save completed, as this component's packaged API has always
+	 * reported it: it is an entry point of `windmill-components`, so callers
+	 * outside this repo branch on the boolean. A host that has to follow what each
+	 * workspace wrote takes `saveWritten` instead.
+	 */
+	export async function save(): Promise<boolean> {
+		return (await runSave()).ok
+	}
+
+	/** Every workspace this save wrote, in order, each with the path it wrote there. */
+	export async function saveWritten(): Promise<{ ws: string; path: string }[]> {
+		return (await runSave()).written
+	}
+
+	async function runSave(): Promise<{ written: { ws: string; path: string }[]; ok: boolean }> {
 		// Everything the writes send, read before the first await. The form stays
 		// editable while they are in flight, so read later these would be whatever
 		// the user has since typed — sent under an earlier workspace's path, and
@@ -349,7 +364,6 @@
 			ini: $state.snapshot(initialStates[ws]) as ResourceState,
 			existed: !!existedInitially[ws]
 		}))
-		// Every workspace this save wrote, in order, each with the path it wrote there.
 		// The workspaces go in sequence and a later one throwing aborts the rest, but
 		// what an earlier one wrote is deployed — a caller told nothing about it would
 		// stay pointed at a path the item has moved off.
@@ -405,13 +419,13 @@
 					: `Saved resource`
 			)
 			dispatch('refresh', written.find((w) => w.ws === effectiveWorkspace)?.path ?? from)
-			return written
+			return { written, ok: true }
 		} catch (err) {
 			sendUserToast(`Could not save resource: ${err.body ?? err.message}`, true)
 			// The workspaces that never got their write keep their drafts at their own
 			// paths, listed and editable from there — moving one onto a rename it never
 			// wrote would be worse than not showing it here.
-			return written
+			return { written, ok: false }
 		}
 	}
 </script>

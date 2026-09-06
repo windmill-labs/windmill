@@ -142,13 +142,16 @@ function noteMarker(set: Set<string>, key: string): void {
 		set.delete(oldest)
 	}
 }
+// Only the kinds whose settle can read the record back. For the rest, recording one
+// would retain a whole flow, script or app draft that nothing will ever ask about.
+const RELEASE_RECORDED_KINDS: readonly UserDraftItemKind[] = ['resource', 'variable']
+
 /**
  * What a cell held when its last holder let go: an editor stays editable while its
  * save is in flight, so a tab left in that window releases a cell carrying an edit
- * newer than the write. Only for the kinds whose settle reads it back — elsewhere
- * it would retain a whole flow or app draft, or a variable's decrypted secret.
+ * newer than the write, and no handle is left to read it from. Same cap and reason
+ * as the marker sets above.
  */
-const RELEASE_RECORDED_KINDS: readonly UserDraftItemKind[] = ['resource', 'variable']
 const releasedValues = new Map<string, unknown>()
 /** Read once: what it describes is settled by the caller that reads it. */
 function takeReleasedValue<V>(

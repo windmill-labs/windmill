@@ -68,7 +68,7 @@
 		| {
 				/** One entry per workspace written, with the path it wrote there; empty when
 				 * nothing landed. It toasts its own error. */
-				save: () => Promise<{ ws: string; path: string }[]>
+				saveWritten: () => Promise<{ ws: string; path: string }[]>
 				localDraftDeployed: () => unknown
 				localDraftCurrent: () => unknown
 				/** False when the discard removed the resource (it was draft-only). */
@@ -236,7 +236,7 @@
 			// Closed before the write is awaited, the way it always was: `save()` toasts its
 			// own failures and never rejects, so waiting would only add visible lag to every
 			// caller of this drawer. `onSaved` still fires after the write lands.
-			const saving = resourceEditor?.save()
+			const saving = resourceEditor?.saveWritten()
 			drawer?.closeDrawer()
 			// What landed, per workspace, from the editor rather than the form: the form may
 			// be showing a linked workspace's variant, whose rename is not this host's.

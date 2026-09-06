@@ -235,7 +235,7 @@ switch that decides whether this chat carries its tools.
 		// that still exists off, and turn on a path that was never created.
 		// `save` reports one entry per workspace it wrote, and none at all when it
 		// wrote nothing.
-		if (((await resourceEditor?.save()) ?? []).length === 0) return
+		if (!(await resourceEditor?.save())) return
 		// Enablement is keyed by path, so a rename would leave the switch on the path
 		// that no longer exists and the server itself off.
 		if (editingPath && editingPath !== server.path) {
