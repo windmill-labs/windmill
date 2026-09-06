@@ -72,9 +72,19 @@ export async function schemaAsEditorMounts(
 	kind: Script['kind'] | undefined
 ): Promise<Schema> {
 	const copy: Schema = schema ? structuredClone(schema as Schema) : emptySchema()
-	try {
+	const infer = async () => {
 		await inferArgs(language, content, copy, kind === 'preprocessor' ? 'preprocessor' : undefined)
 		injectPartitionArg(copy, undefined, language, content)
-	} catch {}
+	}
+	try {
+		await infer()
+	} catch {
+		// The editors retry a failed mount inference once (transient wasm init);
+		// the baseline has to land where that retry leaves the editor.
+		if (!content || !language) return copy
+		try {
+			await infer()
+		} catch {}
+	}
 	return copy
 }

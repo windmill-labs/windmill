@@ -101,8 +101,11 @@
 	// the autosave baseline is taken as the mounted editor holds it
 	// (`schemaAsEditorMounts`), so the descriptor is re-inferred on mount rather
 	// than only on its first edit — otherwise the two only agree once edited.
-	onMount(() => {
-		void inferSchema(code)
+	onMount(async () => {
+		await inferSchema(code)
+		// Same single retry as ScriptEditor: the first parse can lose a transient
+		// wasm init race, and the baseline (`schemaAsEditorMounts`) retries too.
+		if (!validDescriptor && code) await inferSchema(code)
 	})
 
 	function flushOpenFile() {
