@@ -207,9 +207,9 @@
 			: undefined
 	)
 
-	// Follow a rename: the editor stays mounted and keeps editing the item, but the
-	// tab, its label, the chat's ACTIVE PREVIEW and the draft key all address it by
-	// path — so they have to move with it, or they name an item that no longer exists.
+	// Follow a rename: the tab, its label, the chat's ACTIVE PREVIEW and the draft
+	// key all address the item by path, so they have to move with it or they name an
+	// item that no longer exists.
 	const retargetTo = $derived(
 		slot.kind === 'entity' && runtime
 			? (kind: EntityEditorKind, newPath: string, fromPath: string, fromWs: string) => {

@@ -145,11 +145,10 @@
 </script>
 
 {#snippet editorBody()}
-	<!-- ResourceEditor reads `path` once, at init, and every fetch/draft handle/save
-	     inside it goes through that captured value — so it has to be remounted, not
-	     re-pointed, whenever what this host shows changes. `editorGeneration` covers
-	     the changes the path alone doesn't name: restoring an old version replaces
-	     the deployed value the mounted editor still holds as its baseline. -->
+	<!-- ResourceEditor captures `path` at init and routes every fetch, draft handle and
+	     save through it, so it must be remounted rather than re-pointed.
+	     `editorGeneration` covers what the path doesn't name: a restore replaces the
+	     deployed value the mounted editor still holds as its baseline. -->
 	{#key `${path ?? ''}#${editorGeneration}`}
 		{#await import('./ResourceEditor.svelte')}
 			<Loader2 class="animate-spin" />

@@ -61,11 +61,10 @@
 	     live editor would leave the previous schedule's load to finish into the new
 	     one's form and deployed baseline. -->
 	{#key `${path}#${generation}`}
-		<!-- No `allowDraft`: that switches the toolbar to the trigger-panel branch,
-		     whose deploy button is gated on the `trigger`/`isDeployed` a script or
-		     flow editor supplies for a trigger staged next to it. A standalone tab
-		     has neither, which leaves the schedule permanently unsavable — its
-		     situation is the drawer's, whose plain Save this restores. -->
+		<!-- No `allowDraft`: it switches the toolbar to the trigger-panel branch, whose
+		     deploy button is gated on the `trigger`/`isDeployed` a script or flow editor
+		     supplies alongside a staged trigger. A standalone tab has neither, and would
+		     be left permanently unsavable; this keeps the drawer's plain Save. -->
 		<ScheduleEditorInner
 			bind:this={editor}
 			useDrawer={false}
