@@ -621,9 +621,17 @@
 		// `labels` alias live state, so an edit made while the request is in flight
 		// would read back as part of what was sent.
 		const scheduleCfg = $state.snapshot(getScheduleCfg()) as Record<string, any>
+		const wasCreate = !edit
 		deploymentLoading = true
 		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, wsId!)
 		if (isSaved) {
+			// A create deploys the schedule enabled whatever the form said (see
+			// saveScheduleFromCfg), so both the form and what counts as written adopt it
+			// — otherwise the baseline below records a state the server does not have.
+			if (wasCreate) {
+				enabled = true
+				scheduleCfg.enabled = true
+			}
 			// What was sent is the deployed value now. Adopted here rather than by
 			// remounting: the form stays editable during the write, and a remount would
 			// re-read over an edit made then — which `settleDraftAfterWrite` keeps.

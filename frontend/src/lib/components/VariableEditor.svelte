@@ -338,16 +338,16 @@
 					initialStates[ws] = s
 					existedInitially[ws] = true
 				}
-				// The just-saved state is the new deployed baseline; `settleDraftAfterWrite`
-				// resets the handle to it via `discard` (not `remove` — blanking the cell
-				// to `undefined` reads as dirty), and keeps an edit made mid-request. Each
-				// workspace settles against the path its own write used, not the reported one.
 				if (ws === fromWs) actingCommitted = true
 				// Per workspace, as each write lands. Each carries its own workspace and
 				// the path it wrote there, so a linked workspace's rename moves the tabs
 				// acting on it and no others — and a workspace written before a later one
 				// threw is still reported, because it is deployed.
 				onSaved?.(s.path, from, ws)
+				// The just-saved state is the new deployed baseline; this resets the handle
+				// to it via `discard` (not `remove` — blanking the cell to `undefined` reads
+				// as dirty) and keeps an edit made mid-request. Each workspace settles
+				// against the path its own write used, not the reported one.
 				settleDraftAfterWrite('variable', s, states[ws]?.draft, from ?? '', s.path, {
 					workspace: ws
 				})
