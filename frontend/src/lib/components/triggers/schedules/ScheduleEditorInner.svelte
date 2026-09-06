@@ -189,10 +189,10 @@
 		untrack(() => {
 			actingUser = undefined
 			if (!ws) return
-			if (ws === $workspaceStore) {
-				actingUser = $userStore ?? undefined
-				return
-			}
+			// Same workspace: leave it unset so `can_write` reads the live `$userStore`,
+			// which the layout refreshes periodically — a snapshot here would stop
+			// following that.
+			if (ws === $workspaceStore) return
 			void getUserExt(ws)
 				.then((u) => {
 					if (wsId === ws) actingUser = u

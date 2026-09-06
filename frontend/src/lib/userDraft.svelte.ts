@@ -481,16 +481,28 @@ export const UserDraft = {
 	 * recorded for {@link takeSeedMiss}, since the value then reached the server
 	 * without reaching the editor that will show it.
 	 */
-	seed<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: UserDraftOptions): void {
+	seed<V>(
+		itemKind: UserDraftItemKind,
+		path: string,
+		value: V,
+		opts?: UserDraftOptions & {
+			/** This seed carries what the editor just loaded, not a new value — so it
+			 * says nothing about a write that missed the cell before the editor had it,
+			 * and may well be older than one. Such a seed leaves the miss standing. */
+			baseline?: boolean
+		}
+	): void {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
-		draftOnlyDiscards.delete(mk)
+		// A real write gives the item a draft again whether or not an editor is holding
+		// the cell, so it voids a removal recorded for it either way.
+		if (!opts?.baseline) draftOnlyDiscards.delete(mk)
 		const entry = entries.get(mk)
 		if (!entry) {
-			noteMarker(seedMisses, mk)
+			if (!opts?.baseline) noteMarker(seedMisses, mk)
 			return
 		}
-		seedMisses.delete(mk)
+		if (!opts?.baseline) seedMisses.delete(mk)
 		entry.seedNextWrite = true
 		entry.state.val = snapshotDraftValue(value)
 	},

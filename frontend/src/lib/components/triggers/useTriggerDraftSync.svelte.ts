@@ -222,7 +222,8 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 			const cfg = opts.getCfg()
 			if (ws && p && cfg != null) {
 				UserDraft.seed(opts.itemKind, p, structuredClone($state.snapshot(cfg)) as Cfg, {
-					workspace: ws
+					workspace: ws,
+					baseline: true
 				})
 			}
 		},

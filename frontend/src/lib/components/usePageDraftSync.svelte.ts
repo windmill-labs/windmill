@@ -97,7 +97,7 @@ export function usePageDraftSync<V = unknown>(opts: PageDraftSyncOptions<V>): Pa
 			const ws = opts.workspace()
 			const p = opts.path()
 			if (!ws || !p) return
-			UserDraft.seed(opts.itemKind, p, value, { workspace: ws })
+			UserDraft.seed(opts.itemKind, p, value, { workspace: ws, baseline: true })
 		},
 		recordRemoteSync(draftSavedAt: string | undefined) {
 			const ws = opts.workspace()
