@@ -226,6 +226,10 @@
 			// must not run for a write that failed — a rejected rename (a name
 			// collision, say) would point the tab at a path this save never created.
 			if (!(await saving)) return
+			// An inline host re-pointed this editor while the write was in flight, so
+			// `path`, `livePath` and the mounted editor are another resource's now.
+			// Moving any of them onto this write's result would move that one instead.
+			if (path !== from) return
 			// Rendered inline there is no drawer to close, so the mounted editor would
 			// otherwise keep the pre-save baseline. Follow a rename before remounting,
 			// or it comes back up on a path the save just moved the item off.

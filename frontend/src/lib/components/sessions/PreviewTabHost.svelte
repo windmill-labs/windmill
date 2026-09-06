@@ -20,6 +20,7 @@
 		parsePreviewSelectedId,
 		showsView
 	} from './previewRouter'
+	import type { EntityEditorKind } from './previewRouter'
 	import type { EntityToolEffect } from './previewReload'
 	import { withMenuHidden } from './sessionMode.svelte'
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
@@ -179,15 +180,13 @@
 			: undefined
 	)
 
-	// An editor reports a removal or a rename after the write it awaited, and the tab
-	// it was mounted for may have moved on in the meantime — retargeted onto another
-	// item, or onto a different page entirely. The report belongs to the item it
-	// started on, so both callbacks below act only while the tab is still showing it:
-	// otherwise they would re-point whatever the tab holds now, and build the URL out
-	// of that unrelated location.
-	function stillShowing(path: string): boolean {
+	// An editor reports a removal or a rename after the write it awaited, by which
+	// time the tab may hold something else entirely. The report is about the item it
+	// started on, so acting on anything else re-points an unrelated editor — and
+	// builds the destination out of its location.
+	function stillShowing(kind: EntityEditorKind, path: string): boolean {
 		const now = resolvePreviewTab(tab.url)
-		return now.kind === 'entity' && now.path === path
+		return now.kind === 'entity' && now.entityKind === kind && now.path === path
 	}
 
 	// The item is gone (a draft-only one whose draft was discarded), so the tab has
@@ -196,8 +195,8 @@
 	// another tab, which must not be the one sent to the list.
 	const returnToList = $derived(
 		slot.kind === 'entity' && runtime
-			? (fromPath: string) => {
-					if (!stillShowing(fromPath)) return
+			? (kind: EntityEditorKind, fromPath: string) => {
+					if (!stillShowing(kind, fromPath)) return
 					runtime.previewTabs.retargetTabTo(tab.id, entityListHref(whereIs(tab)))
 				}
 			: undefined
@@ -208,8 +207,8 @@
 	// path — so they have to move with it, or they name an item that no longer exists.
 	const retargetTo = $derived(
 		slot.kind === 'entity' && runtime
-			? (newPath: string, fromPath: string) => {
-					if (!stillShowing(fromPath)) return
+			? (kind: EntityEditorKind, newPath: string, fromPath: string) => {
+					if (!stillShowing(kind, fromPath)) return
 					runtime.previewTabs.retargetTabTo(tab.id, entityEditorHref(whereIs(tab), newPath))
 				}
 			: undefined
@@ -403,8 +402,8 @@
 						path={slot.path}
 						{workspaceId}
 						onBack={backToList}
-						onRemoved={returnToList}
-						onRenamed={retargetTo}
+						onRemoved={(from) => returnToList?.('trigger_schedule', from)}
+						onRenamed={(to, from) => retargetTo?.('trigger_schedule', to, from)}
 					/>
 				{/await}
 			{:else if slot.entityKind === 'resource'}
@@ -415,8 +414,8 @@
 						path={slot.path}
 						{workspaceId}
 						onBack={backToList}
-						onRemoved={returnToList}
-						onRenamed={retargetTo}
+						onRemoved={(from) => returnToList?.('resource', from)}
+						onRenamed={(to, from) => retargetTo?.('resource', to, from)}
 					/>
 				{/await}
 			{:else if slot.entityKind === 'variable'}
@@ -427,8 +426,8 @@
 						path={slot.path}
 						{workspaceId}
 						onBack={backToList}
-						onRemoved={returnToList}
-						onRenamed={retargetTo}
+						onRemoved={(from) => returnToList?.('variable', from)}
+						onRenamed={(to, from) => retargetTo?.('variable', to, from)}
 					/>
 				{/await}
 			{/if}

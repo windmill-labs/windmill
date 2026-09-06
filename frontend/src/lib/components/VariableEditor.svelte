@@ -277,16 +277,21 @@
 	}
 
 	async function save(): Promise<void> {
-		const dirty = dirtyWorkspaces
-		// The path this save started from. Read before the awaits: an inline host can
-		// re-point the editor at another variable while the write is in flight, and the
-		// caller needs to know which one the result belongs to.
+		// Everything the writes need, read before the first await. An inline host can
+		// re-point this editor at another variable mid-flight, and every one of these
+		// would then be that variable's: the writes would send its state under this
+		// one's path, and the baseline below would overwrite its own.
 		const from = editPath
+		const savedPath = current?.path ?? from
+		const payloads = dirtyWorkspaces.map((ws) => ({
+			ws,
+			s: $state.snapshot(states[ws].draft!) as VariableState,
+			ini: $state.snapshot(initialStates[ws]) as VariableState,
+			existed: !!existedInitially[ws]
+		}))
 		try {
-			for (const ws of dirty) {
-				const s = states[ws].draft!
-				const ini = initialStates[ws]
-				if (existedInitially[ws]) {
+			for (const { ws, s, ini, existed } of payloads) {
+				if (existed) {
 					await VariableService.updateVariable({
 						workspace: ws,
 						path: ini.path,
@@ -320,20 +325,27 @@
 				// handle to it via `discard` (not `remove` — blanking the cell to
 				// `undefined` reads as dirty). The `value: null` POST also deletes
 				// the server draft row so `is_draft` clears on refetch.
-				initialStates[ws] = $state.snapshot(s) as VariableState
-				existedInitially[ws] = true
-				UserDraft.discard('variable', editPath ?? '', s, { workspace: ws })
+				UserDraft.discard('variable', from ?? '', s, { workspace: ws })
 				// Path now exists server-side — drop the autocomplete cache so
 				// it shows up immediately instead of after the 60s TTL.
 				invalidateWorkspacePaths(ws)
 			}
-			sendUserToast(edit ? `Updated variable in ${dirty.length} workspace(s)` : `Created variable`)
+			sendUserToast(
+				edit ? `Updated variable in ${payloads.length} workspace(s)` : `Created variable`
+			)
 			dispatch('create')
-			// A rename moved the item; the drawer host closes over it, but an inline one
-			// stays mounted, so follow the new path here and tell the host about it.
-			const savedPath = current?.path ?? from
-			if (savedPath && savedPath !== editPath) editPath = savedPath
-			drawer?.closeDrawer()
+			// Only while this editor is still the one that was saved: re-pointed, the
+			// baseline and path below are the variable it moved to.
+			if (editPath === from) {
+				for (const { ws, s } of payloads) {
+					initialStates[ws] = s
+					existedInitially[ws] = true
+				}
+				// A rename moved the item; the drawer host closes over it, but an inline one
+				// stays mounted, so follow the new path here and tell the host about it.
+				if (savedPath && savedPath !== editPath) editPath = savedPath
+				drawer?.closeDrawer()
+			}
 			onSaved?.(savedPath, from)
 		} catch (err) {
 			sendUserToast(`Could not save variable: ${err.body}`, true)

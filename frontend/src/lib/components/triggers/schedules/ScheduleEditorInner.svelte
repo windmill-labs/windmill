@@ -1467,11 +1467,12 @@
 				getCurrent={() => draftSync.current}
 				onDiscard={async () => {
 					// The path the discard started from: it awaits a reload of the runnable,
-					// and an inline host can re-point the editor in the meantime.
+					// and an inline host can re-point the editor in the meantime — after
+					// which this discard's outcome is no longer about what is on screen.
 					const from = initialPath
 					const wasDraftOnly = draftOnly
 					await draftSync.resetToDeployed(from)
-					if (wasDraftOnly && from) onRemoved?.(from)
+					if (wasDraftOnly && from && initialPath === from) onRemoved?.(from)
 				}}
 				disabled={!can_write}
 			/>
