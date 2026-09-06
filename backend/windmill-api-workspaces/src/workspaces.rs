@@ -3876,6 +3876,21 @@ async fn edit_datatable_config(
                 schema: old.schema.clone(),
             }),
         };
+        // An entry that is new, or points somewhere new, must not reach a database
+        // another data table governs.
+        let points_elsewhere = old.is_none_or(|old| {
+            old.database.resource_path != dt.database.resource_path
+                || old.database.resource_type != dt.database.resource_type
+        });
+        if points_elsewhere {
+            crate::datatable_permissions::refuse_reaching_a_governed_database(
+                &db,
+                &w_id,
+                name,
+                &dt.database,
+            )
+            .await?;
+        }
         // The roles live in the database this data table points at: their logins
         // were created there and every grant they hold is recorded there. Carried
         // onto another database they authenticate against a cluster that never
@@ -8407,6 +8422,20 @@ async fn create_workspace_fork(
            WHERE workspace_id = $1 AND jsonb_typeof(datatable->'datatables') = 'object'"#,
         &forked_id,
         &forked_datatable_names[..],
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // The migrations were cloned for every data table; the ones left out above
+    // would otherwise keep a history for a data table the fork does not have.
+    sqlx::query!(
+        r#"DELETE FROM datatable_migrations m
+           WHERE m.workspace_id = $1
+             AND NOT EXISTS (
+                 SELECT 1 FROM workspace_settings ws
+                 WHERE ws.workspace_id = $1 AND ws.datatable->'datatables' ? m.datatable
+             )"#,
+        &forked_id,
     )
     .execute(&mut *tx)
     .await?;

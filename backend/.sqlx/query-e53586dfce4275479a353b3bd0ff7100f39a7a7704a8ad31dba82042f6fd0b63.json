@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ws.workspace_id AS \"workspace_id!\", dt.key AS \"name!\", w.deleted AS \"deleted!\",\n                  dt.value->'database' AS \"database!\", r.value AS \"resource?\"\n           FROM workspace_settings ws\n           JOIN workspace w ON w.id = ws.workspace_id\n           CROSS JOIN LATERAL jsonb_each(ws.datatable->'datatables') dt\n           LEFT JOIN resource r ON r.workspace_id = ws.workspace_id\n                AND dt.value->'database'->>'resource_type' <> 'instance'\n                AND r.path = dt.value->'database'->>'resource_path'\n           WHERE NOT (ws.workspace_id = $1 AND dt.key = $2)\n             AND jsonb_typeof(dt.value->'database') = 'object'\n           ORDER BY ws.workspace_id, dt.key",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "deleted!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "database!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "resource?",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      false,
+      null,
+      true
+    ]
+  },
+  "hash": "e53586dfce4275479a353b3bd0ff7100f39a7a7704a8ad31dba82042f6fd0b63"
+}

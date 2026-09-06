@@ -499,6 +499,7 @@ async fn build_plan(
             .map(|p| p.roles.keys().map(String::as_str))
             .into_iter()
             .flatten()
+            .filter(|name| *name != ADMIN_DATATABLE_ROLE)
             .collect();
         let stranded = migrations_naming(db, w_id, datatable_name, &roles).await?;
         if !stranded.is_empty() {
@@ -849,65 +850,7 @@ async fn refuse_enabling_permissions_over_shared_access(
             )));
         }
     }
-    // Every other data table entry on the instance, this workspace's other
-    // entries included: a second entry on the same resource is a second door.
-    let entries = sqlx::query!(
-        r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "name!", w.deleted AS "deleted!",
-                  dt.value->'database' AS "database!"
-           FROM workspace_settings ws
-           JOIN workspace w ON w.id = ws.workspace_id,
-           jsonb_each(ws.datatable->'datatables') dt
-           WHERE NOT (ws.workspace_id = $1 AND dt.key = $2)
-             AND jsonb_typeof(dt.value->'database') = 'object'
-           ORDER BY ws.workspace_id, dt.key"#,
-        w_id,
-        datatable_name,
-    )
-    .fetch_all(db)
-    .await?;
-    let mut others = Vec::new();
-    match datatable.database.resource_type {
-        DataTableCatalogResourceType::Instance => {
-            others.extend(
-                entries
-                    .iter()
-                    .filter(|o| o.database == database)
-                    .map(|o| describe(&o.workspace_id, &o.name, o.deleted)),
-            );
-        }
-        DataTableCatalogResourceType::Postgresql => {
-            // A resource-backed entry reaches wherever its resource points,
-            // whatever path it names: a copy of the resource under another path,
-            // in another workspace or this one, is the same database.
-            let identity = datatable_database_identity(
-                &get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?,
-            );
-            for o in entries.iter().filter(|o| {
-                o.database.get("resource_type").and_then(|t| t.as_str()) != Some("instance")
-            }) {
-                let resolved =
-                    match get_datatable_resource_from_db_unchecked(db, &o.workspace_id, &o.name)
-                        .await
-                    {
-                        Ok(resolved) => resolved,
-                        // A resource that is gone reaches nothing. Anything else is
-                        // not proof of not reaching: refused, and named.
-                        Err(Error::NotFound(_)) => continue,
-                        Err(e) => {
-                            return Err(Error::BadRequest(format!(
-                                "Data table permissions cannot be enabled: whether {} reaches the \
-                                 same database could not be checked ({e}). Remove that data \
-                                 table first.",
-                                describe(&o.workspace_id, &o.name, o.deleted)
-                            )))
-                        }
-                    };
-                if datatable_database_identity(&resolved) == identity {
-                    others.push(describe(&o.workspace_id, &o.name, o.deleted));
-                }
-            }
-        }
-    }
+    let others = entries_reaching(db, w_id, datatable_name, &datatable.database).await?;
     if !others.is_empty() {
         return Err(Error::BadRequest(format!(
             "Data table permissions cannot be enabled while another data table reaches the \
@@ -916,6 +859,183 @@ async fn refuse_enabling_permissions_over_shared_access(
              archiving keeps its members. Remove that data table, or delete the workspace \
              permanently, first.",
             others.join(", ")
+        )));
+    }
+    Ok(())
+}
+
+/// `<workspace>[, archived] (data table '<name>')` for every data table entry on
+/// the instance, other than `(w_id, datatable_name)`, that reaches `database` —
+/// this workspace's other entries included: a second entry on the same
+/// resource is a second door.
+///
+/// An instance database is matched by name. A resource-backed entry reaches
+/// wherever its resource points, whatever path it names, so it is matched by the
+/// resource's host, port, database and user. Read from the stored resource rows
+/// in one query: a field that is a `$var:` / `$res:` reference is only resolved
+/// — a per-row read, and a secret backend call where the workspace uses one —
+/// when every plain field already agrees, so the loop that decrypts runs for
+/// candidates that can match and not for every data table on the instance. A
+/// resource that no longer exists reaches nothing.
+async fn entries_reaching(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+    database: &windmill_common::workspaces::DataTableDatabase,
+) -> Result<Vec<String>> {
+    let pointer = serde_json::to_value(database)
+        .map_err(|e| Error::internal_err(format!("Failed to serialize the database: {e}")))?;
+    let describe = |workspace_id: &str, name: &str, deleted: bool| {
+        format!(
+            "{workspace_id}{} (data table '{name}')",
+            if deleted { ", archived" } else { "" }
+        )
+    };
+    let entries = sqlx::query!(
+        r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "name!", w.deleted AS "deleted!",
+                  dt.value->'database' AS "database!", r.value AS "resource?"
+           FROM workspace_settings ws
+           JOIN workspace w ON w.id = ws.workspace_id
+           CROSS JOIN LATERAL jsonb_each(ws.datatable->'datatables') dt
+           LEFT JOIN resource r ON r.workspace_id = ws.workspace_id
+                AND dt.value->'database'->>'resource_type' <> 'instance'
+                AND r.path = dt.value->'database'->>'resource_path'
+           WHERE NOT (ws.workspace_id = $1 AND dt.key = $2)
+             AND jsonb_typeof(dt.value->'database') = 'object'
+           ORDER BY ws.workspace_id, dt.key"#,
+        w_id,
+        datatable_name,
+    )
+    .fetch_all(db)
+    .await?;
+    let mut reaching = Vec::new();
+    match database.resource_type {
+        DataTableCatalogResourceType::Instance => {
+            reaching.extend(
+                entries
+                    .iter()
+                    .filter(|o| o.database == pointer)
+                    .map(|o| describe(&o.workspace_id, &o.name, o.deleted)),
+            );
+        }
+        DataTableCatalogResourceType::Postgresql => {
+            let ours = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+            let identity = datatable_database_identity(&ours);
+            let is_reference = |v: &serde_json::Value| {
+                v.as_str()
+                    .is_some_and(|s| s.starts_with("$var:") || s.starts_with("$res:"))
+            };
+            for o in entries.iter() {
+                let Some(raw) = o.resource.as_ref() else {
+                    continue;
+                };
+                let Some(fields) = raw.as_object() else {
+                    continue;
+                };
+                let mut references = false;
+                let mut plain_fields_agree = true;
+                for field in DATABASE_IDENTITY_FIELDS {
+                    let theirs = fields.get(field).unwrap_or(&serde_json::Value::Null);
+                    if is_reference(theirs) {
+                        references = true;
+                    } else if theirs != ours.get(field).unwrap_or(&serde_json::Value::Null) {
+                        plain_fields_agree = false;
+                    }
+                }
+                if !plain_fields_agree {
+                    continue;
+                }
+                if !references {
+                    reaching.push(describe(&o.workspace_id, &o.name, o.deleted));
+                    continue;
+                }
+                let resolved =
+                    match get_datatable_resource_from_db_unchecked(db, &o.workspace_id, &o.name)
+                        .await
+                    {
+                        Ok(resolved) => resolved,
+                        Err(Error::NotFound(_)) => continue,
+                        // Not resolving is not proof of not reaching: refused, and
+                        // named.
+                        Err(e) => {
+                            return Err(Error::BadRequest(format!(
+                                "Whether {} reaches the same database could not be checked \
+                                 ({e}). Remove that data table first.",
+                                describe(&o.workspace_id, &o.name, o.deleted)
+                            )))
+                        }
+                    };
+                if datatable_database_identity(&resolved) == identity {
+                    reaching.push(describe(&o.workspace_id, &o.name, o.deleted));
+                }
+            }
+        }
+    }
+    Ok(reaching)
+}
+
+/// The fields [`datatable_database_identity`] hashes.
+const DATABASE_IDENTITY_FIELDS: [&str; 4] = ["host", "port", "dbname", "user"];
+
+/// Refuse a data table entry that reaches a database another data table governs.
+///
+/// The opt-in refuses while any other entry reaches the database; this is the
+/// same rule from the other side, for the settings form that adds an entry or
+/// points one elsewhere. Without it a second entry on a governed database is a
+/// second door, open to every member as the owning connection. Governed entries
+/// are matched by the identity their opt-in stamped, so nothing of theirs is
+/// resolved; the entry being saved is resolved once, and must resolve.
+pub(crate) async fn refuse_reaching_a_governed_database(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+    database: &windmill_common::workspaces::DataTableDatabase,
+) -> Result<()> {
+    let pointer = serde_json::to_value(database)
+        .map_err(|e| Error::internal_err(format!("Failed to serialize the database: {e}")))?;
+    let governed = sqlx::query!(
+        r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "name!",
+                  dt.value->'database' AS "database!",
+                  dt.value->'permissions'->>'database_identity' AS identity
+           FROM workspace_settings ws, jsonb_each(ws.datatable->'datatables') dt
+           WHERE NOT (ws.workspace_id = $1 AND dt.key = $2)
+             AND COALESCE((dt.value->'permissions'->>'enabled')::boolean, false)
+           ORDER BY ws.workspace_id, dt.key"#,
+        w_id,
+        datatable_name,
+    )
+    .fetch_all(db)
+    .await?;
+    if governed.is_empty() {
+        return Ok(());
+    }
+    let hit = match database.resource_type {
+        DataTableCatalogResourceType::Instance => governed.iter().find(|g| g.database == pointer),
+        DataTableCatalogResourceType::Postgresql => {
+            // The stored config is what the form is about to replace, so the entry
+            // is resolved from the database it names rather than from the config.
+            let resource = windmill_common::workspaces::transform_json_value_unchecked(
+                &serde_json::Value::String(format!("$res:{}", database.resource_path)),
+                w_id,
+                db,
+            )
+            .await?;
+            let identity = datatable_database_identity(&resource);
+            governed
+                .iter()
+                .find(|g| g.identity.as_deref() == Some(identity.as_str()))
+        }
+    };
+    if let Some(g) = hit {
+        return Err(Error::BadRequest(format!(
+            "Data table '{datatable_name}' would reach the database of {}, whose role \
+             permissions are enabled: every member would reach it through this data table's \
+             own connection, as every role at once.",
+            if g.workspace_id == w_id {
+                format!("data table '{}'", g.name)
+            } else {
+                format!("data table '{}' of workspace {}", g.name, g.workspace_id)
+            }
         )));
     }
     Ok(())
@@ -1016,11 +1136,13 @@ async fn ensure_save_names_what_exists(
 
     // Renamed away or removed: every old name the save no longer defines.
     let kept: HashSet<&str> = req.roles.iter().map(|r| r.name.as_str()).collect();
+    // `admin` resolves to the data table's own connection whether or not it is
+    // named, so a migration naming it never strands.
     let gone: HashSet<&str> = old
         .map(|old| old.roles.keys().map(String::as_str))
         .into_iter()
         .flatten()
-        .filter(|name| !kept.contains(name))
+        .filter(|name| !kept.contains(name) && *name != ADMIN_DATATABLE_ROLE)
         .collect();
     let blocking = migrations_naming(db, w_id, datatable_name, &gone).await?;
     if !blocking.is_empty() {

@@ -428,9 +428,20 @@ async fn a_kept_original_does_not_inherit_the_clone_stamp(
             "byo": {
                 "database": { "resource_type": "postgresql", "resource_path": "u/test-user/pg" },
                 "forked_from": { "schema": {} }
+            },
+            "governed": {
+                "database": { "resource_type": "instance", "resource_path": "dt_governed" },
+                "permissions": { "enabled": true, "roles": { "admin": { "tenants": [] } } }
             }
         }
     }))
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up)
+         VALUES ('test-workspace', 'governed', 1, 'init', 'SELECT 1'),
+                ('test-workspace', 'byo', 1, 'init', 'SELECT 1')",
+    )
     .execute(&db)
     .await?;
 
@@ -450,6 +461,13 @@ async fn a_kept_original_does_not_inherit_the_clone_stamp(
     .await?;
     assert_eq!(copy["database"]["resource_path"], json!("u/test-user/pg"));
     assert!(copy.get("forked_from").is_none(), "{copy}");
+    // The permissioned data table stayed out of the fork, its migrations with it.
+    let migrated: Vec<String> = sqlx::query_scalar(
+        "SELECT datatable FROM datatable_migrations WHERE workspace_id = 'wm-fork-kept' ORDER BY 1",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(migrated, vec!["byo".to_string()]);
 
     let resp = authed(
         client().post(format!("{ws}/workspaces/datatable_permissions/byo/preview")),
@@ -734,6 +752,76 @@ async fn a_same_named_resource_counts_only_when_it_reaches_the_same_database(
         text.contains("same database: detached (data table 'byo')"),
         "{text}"
     );
+
+    // The same rule from the other side: once `byo` is governed, the settings
+    // form cannot add an entry that reaches its database, in this workspace or
+    // another, and the pointer alone does not decide it.
+    let identity: String = {
+        // Stamped by the opt-in in the real flow; here from the same resource.
+        let resp = authed(
+            client().get(format!(
+                "http://localhost:{port}/api/w/test-workspace/resources/get_value_interpolated/u/test-user/pg"
+            )),
+            "SECRET_TOKEN",
+        )
+        .send()
+        .await?;
+        assert_eq!(resp.status(), 200);
+        let value: serde_json::Value = resp.json().await?;
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        for field in ["host", "port", "dbname", "user"] {
+            hasher.update(value.get(field).map(|v| v.to_string()).unwrap_or_default());
+            hasher.update([0u8]);
+        }
+        format!("{:x}", hasher.finalize())
+    };
+    sqlx::query(
+        r#"UPDATE workspace_settings
+           SET datatable = jsonb_set(datatable, '{datatables,byo,permissions}',
+               jsonb_build_object('enabled', true, 'roles', '{"admin": {"tenants": []}}'::jsonb,
+                                  'database_identity', $1::text))
+           WHERE workspace_id = 'test-workspace'"#,
+    )
+    .bind(&identity)
+    .execute(&db)
+    .await?;
+    let save = |w: &'static str, path: &'static str| async move {
+        let resp = authed(
+            client().post(format!(
+                "http://localhost:{port}/api/w/{w}/workspaces/edit_datatable_config"
+            )),
+            "SECRET_TOKEN",
+        )
+        .json(&json!({ "settings": { "datatables": {
+            "door": { "database": { "resource_type": "postgresql", "resource_path": path } }
+        }}}))
+        .send()
+        .await
+        .unwrap();
+        (resp.status().as_u16(), resp.text().await.unwrap())
+    };
+    let (status, text) = save("detached", "f/moved/pg").await;
+    assert_eq!(status, 400, "{text}");
+    assert!(
+        text.contains("data table 'byo' of workspace test-workspace"),
+        "{text}"
+    );
+    sqlx::query(
+        "UPDATE resource SET value = jsonb_set(value, '{dbname}', '\"other\"')
+         WHERE workspace_id = 'detached' AND path = 'f/moved/pg'",
+    )
+    .execute(&db)
+    .await?;
+    let (status, text) = save("detached", "f/moved/pg").await;
+    assert_eq!(status, 200, "{text}");
+    sqlx::query(
+        r#"UPDATE workspace_settings
+           SET datatable = datatable #- '{datatables,byo,permissions}'
+           WHERE workspace_id = 'test-workspace'"#,
+    )
+    .execute(&db)
+    .await?;
 
     // A second entry of this workspace on the same resource is a second door.
     sqlx::query("DELETE FROM workspace_settings WHERE workspace_id = 'detached'")
