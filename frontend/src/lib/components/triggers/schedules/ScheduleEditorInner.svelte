@@ -44,6 +44,8 @@
 	import { runScheduleNow } from '../scheduled/utils'
 	import { handleConfigChange } from '../utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
+	import { deepEqual } from 'fast-equals'
+	import { normalizeDraftForCompare } from '$lib/userDraft.svelte'
 	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -620,7 +622,17 @@
 		deploymentLoading = true
 		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, wsId!)
 		if (isSaved) {
-			draftSync.discard(previousPath, scheduleCfg)
+			// Drop the local draft only while the form still holds what was saved: it
+			// stays editable during the request, and an edit made then is a change on
+			// top of the save, which the reset would silently swallow.
+			if (
+				deepEqual(
+					normalizeDraftForCompare($state.snapshot(getScheduleCfg())),
+					normalizeDraftForCompare(scheduleCfg)
+				)
+			) {
+				draftSync.discard(previousPath, scheduleCfg)
+			}
 			onUpdate?.(scheduleCfg.path, previousPath, previousWs)
 			drawer?.closeDrawer()
 		}

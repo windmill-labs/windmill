@@ -366,10 +366,14 @@
 					})
 				}
 				// Reset the handle to the new deployed baseline via `discard`, not
-				// `remove`. See VariableEditor for the full rationale.
-				initialStates[ws] = $state.snapshot(s) as ResourceState
+				// `remove`. See VariableEditor for the full rationale — including why the
+				// cell is only dropped while it still holds what was written.
+				const written = $state.snapshot(s) as ResourceState
+				initialStates[ws] = written
 				existedInitially[ws] = true
-				UserDraft.discard('resource', initialPath ?? '', s, { workspace: ws })
+				if (draftValuesEqual(states[ws]?.draft, written)) {
+					UserDraft.discard('resource', initialPath ?? '', written, { workspace: ws })
+				}
 				// Path now exists server-side — drop the autocomplete cache so
 				// it shows up immediately instead of after the 60s TTL.
 				invalidateWorkspacePaths(ws)

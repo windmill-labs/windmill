@@ -322,11 +322,22 @@
 						}
 					})
 				}
+				// Per workspace, as each write lands: a later one throwing must not leave
+				// this one's draft dropped below a baseline that never moved, which reads
+				// as dirty and retries the create it already made.
+				if (editPath === from) {
+					initialStates[ws] = s
+					existedInitially[ws] = true
+				}
 				// The just-saved state is the new deployed baseline; reset the
 				// handle to it via `discard` (not `remove` — blanking the cell to
 				// `undefined` reads as dirty). The `value: null` POST also deletes
-				// the server draft row so `is_draft` clears on refetch.
-				UserDraft.discard('variable', from ?? '', s, { workspace: ws })
+				// the server draft row so `is_draft` clears on refetch. Only while the
+				// cell still holds what was written: the form stays editable during the
+				// request, and an edit made then is a change on top of the save.
+				if (draftValuesEqual(states[ws]?.draft, s)) {
+					UserDraft.discard('variable', from ?? '', s, { workspace: ws })
+				}
 				// Path now exists server-side — drop the autocomplete cache so
 				// it shows up immediately instead of after the 60s TTL.
 				invalidateWorkspacePaths(ws)
@@ -336,12 +347,8 @@
 			)
 			dispatch('create')
 			// Only while this editor is still the one that was saved: re-pointed, the
-			// baseline and path below are the variable it moved to.
+			// path below is the variable it moved to.
 			if (editPath === from) {
-				for (const { ws, s } of payloads) {
-					initialStates[ws] = s
-					existedInitially[ws] = true
-				}
 				// A rename moved the item; the drawer host closes over it, but an inline one
 				// stays mounted, so follow the new path here and tell the host about it.
 				if (savedPath && savedPath !== editPath) editPath = savedPath
