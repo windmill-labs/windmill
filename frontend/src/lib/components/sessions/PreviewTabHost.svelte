@@ -22,6 +22,7 @@
 	import type { EntityEditorKind } from './previewRouter'
 	import type { EntityToolEffect } from './previewReload'
 	import { withMenuHidden } from './sessionMode.svelte'
+	import { pageHref, RUNS_PATH } from './previewPaths'
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
 	import { setOverlayHost } from '../common/overlayHost.svelte'
 
@@ -190,6 +191,21 @@
 							label: page.label
 						})
 				}
+			: undefined
+	)
+
+	// "View runs" from a hosted editor: the Runs page is a preview page like any
+	// other, so it belongs in the preview rather than in the top-level document the
+	// anchor would navigate — and the frame gives it the acting workspace. Re-points
+	// this tab, like the way back to the list: the runs are where the editor was.
+	const viewRuns = $derived(
+		runtime
+			? (query: string) =>
+					runtime.previewTabs.navigate({
+						type: 'page',
+						href: `${pageHref(RUNS_PATH)}?${query}`,
+						label: 'Runs'
+					})
 			: undefined
 	)
 
@@ -413,6 +429,7 @@
 						onBack={backToList}
 						onRemoved={(from, ws) => reportRemoved?.('trigger_schedule', from, ws)}
 						onSavedTo={(to, from, ws) => reportSaved?.('trigger_schedule', to, from, ws)}
+						onViewRuns={viewRuns}
 					/>
 				{/await}
 			{:else if slot.entityKind === 'resource'}

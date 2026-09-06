@@ -10,7 +10,8 @@
 		workspaceId,
 		onBack,
 		onRemoved,
-		onSavedTo
+		onSavedTo,
+		onViewRuns
 	}: {
 		/** The schedule this tab edits (the row its location deep-links). */
 		path: string
@@ -29,6 +30,8 @@
 		 * ACTIVE PREVIEW and the draft key all do — and a plain save moves none but
 		 * leaves the others holding a baseline the deploy has replaced. */
 		onSavedTo?: (newPath: string, fromPath: string, fromWorkspace: string) => void
+		/** Show this schedule's runs, given the Runs page's filter query. */
+		onViewRuns?: (query: string) => void
 	} = $props()
 
 	// Captured at init, so it must read the current prop rather than close over it.
@@ -70,6 +73,7 @@
 			useDrawer={false}
 			showDraftBanner
 			{onRemoved}
+			{onViewRuns}
 			onUpdate={(saved: string | undefined, from: string, fromWs: string, keptEdit: boolean) => {
 				if (from === path && !keptEdit) generation++
 				// A draft-only schedule opens with its path editable (saving CREATEs), so

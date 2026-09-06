@@ -76,7 +76,12 @@
 		// The schedule is gone — a draft-only one whose draft the banner discarded —
 		// with the workspace and path it was showing. A host addressing it by those
 		// (a session tab) has to stop showing it.
-		onRemoved = undefined
+		onRemoved = undefined,
+		// Where "View runs" goes, given the filter query for this schedule. A host
+		// mounted inside a page of its own (a session tab) takes it: the plain
+		// anchor navigates the whole app, which from there means leaving the session
+		// — and lands on the navigation workspace rather than the acting one.
+		onViewRuns = undefined
 	} = $props()
 
 	let optionTabSelected:
@@ -893,13 +898,15 @@
 		>
 			{#snippet extra()}
 				{#if !drawerLoading && edit}
+					{@const runsQuery = `schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
 					<div class="mr-12 flex flex-row gap-3">
 						<Button
 							size="sm"
 							variant="default"
 							startIcon={{ icon: List }}
 							disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
-							href={`${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
+							href={onViewRuns ? undefined : `${base}/runs/?${runsQuery}`}
+							on:click={() => onViewRuns?.(runsQuery)}
 						>
 							View runs
 						</Button>

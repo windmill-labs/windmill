@@ -143,13 +143,12 @@ function noteMarker(set: Set<string>, key: string): void {
 	}
 }
 /**
- * What a cell held when its last holder let go. An editor stays editable while
- * its save is in flight, so a tab closed in that window releases a cell that may
- * carry an edit newer than the write — and once released there is no handle left
- * to read it from. Same cap and reason as the marker sets; taken by whoever asks
- * (`settleDraftAfterWrite`), and dropped when the key is acquired again, since a
- * live entry answers for itself.
+ * What a cell held when its last holder let go: an editor stays editable while its
+ * save is in flight, so a tab left in that window releases a cell carrying an edit
+ * newer than the write. Only for the kinds whose settle reads it back — elsewhere
+ * it would retain a whole flow or app draft, or a variable's decrypted secret.
  */
+const RELEASE_RECORDED_KINDS: readonly UserDraftItemKind[] = ['resource', 'variable']
 const releasedValues = new Map<string, unknown>()
 /** Read once: what it describes is settled by the caller that reads it. */
 function takeReleasedValue<V>(
@@ -1060,7 +1059,9 @@ function releaseEntry(mk: string): void {
 	// only here, once, at refcount 0. This is what lets multiple holders (warm
 	// session previews + the nav editor) share the entry and drop in any order.
 	if (entry.count <= 0) {
-		noteReleasedValue(mk, snapshotDraftValue(entry.state.val))
+		if (RELEASE_RECORDED_KINDS.includes(entry.itemKind)) {
+			noteReleasedValue(mk, snapshotDraftValue(entry.state.val))
+		}
 		// The live entry was authoritative while mounted; once gone, drop any
 		// cached write for this key so a later read falls back to the server
 		// rather than a value the editor may have changed in the meantime.
