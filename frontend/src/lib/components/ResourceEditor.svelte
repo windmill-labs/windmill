@@ -335,8 +335,6 @@
 		current.path = npath
 	}
 
-	/** What the save deployed: one entry per workspace written, with the path it
-	 * wrote there. Empty when nothing landed — it toasts its own failure. */
 	/**
 	 * Whether the save completed, as this component's packaged API has always
 	 * reported it: it is an entry point of `windmill-components`, so callers
