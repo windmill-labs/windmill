@@ -126,6 +126,11 @@
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
 	let initialConfig: Record<string, any> | undefined = undefined
+	// Bumped whenever the baseline above moves. `initialConfig` itself stays a plain
+	// value — made reactive, the trigger sync's effects track every field of it and
+	// a reset provokes a write that races its own delete — but the banner has to
+	// re-read it, so `deployed()` depends on this instead.
+	let baselineNonce = $state(0)
 	let extraPerms: Record<string, boolean> = $state({})
 	let can_write = $state(true)
 	let initNewPath = $state(false)
@@ -172,7 +177,10 @@
 		drawerLoading: () => drawerLoading,
 		getCfg: () => scheduleCfg,
 		applyCfg: loadScheduleCfg,
-		deployed: () => initialConfig
+		deployed: () => {
+			baselineNonce
+			return initialConfig
+		}
 	})
 
 	export async function openEdit(
@@ -200,9 +208,12 @@
 				// Form holds DEPLOYED here; capture it as `initialConfig` so the
 				// dirty check / banner fires whenever a saved draft exists.
 				initialConfig = structuredClone($state.snapshot(getScheduleCfg()))
+				baselineNonce++
 			}
-			// Whichever way this opened, the form holds the deployed state until the
-			// overlay below — which can carry an `enabled` the server has not taken.
+			// The form's `enabled` before the draft overlay below, which can carry one the
+			// server has not taken. Opened on a loaded schedule that is the deployed
+			// value; opened on a config handed in — a trigger panel staging one — it is
+			// that panel's, which is as close to deployed as this path can see.
 			deployedEnabled = enabled
 			if (draftOverlay) await loadScheduleCfg(draftOverlay)
 			await draftSync.maybeRestore()
@@ -363,6 +374,7 @@
 			// openEdit — otherwise the "unsaved changes" banner / dirty check would
 			// compare against a stale config.
 			initialConfig = undefined
+			baselineNonce++
 			itemKind = (s?.is_flow ?? nis_flow) ? 'flow' : 'script'
 			initialScriptPath = initial_script_path ?? ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
@@ -653,6 +665,7 @@
 			// remounting: the form stays editable during the write, and a remount would
 			// re-read over an edit made then — which `settleDraftAfterWrite` keeps.
 			initialConfig = structuredClone(scheduleCfg)
+			baselineNonce++
 			// An edit made while the write was in flight is kept rather than settled away
 			// — and the host must not remount over it, which is the only thing that can
 			// tell it so.
@@ -790,7 +803,10 @@
 			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${path}`)
 			// Deployed state moved, so the baseline the banner compares against does too.
 			deployedEnabled = nEnabled
-			if (initialConfig) initialConfig.enabled = nEnabled
+			if (initialConfig) {
+				initialConfig.enabled = nEnabled
+				baselineNonce++
+			}
 			// This request carried the enabled flag alone: anything else the form has
 			// diverged into is an edit of the user's, which a remount would drop.
 			const keptEdit = !draftValuesEqual(getScheduleCfg(), initialConfig)
