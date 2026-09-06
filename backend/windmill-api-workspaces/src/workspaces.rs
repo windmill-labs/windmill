@@ -3863,6 +3863,19 @@ async fn edit_datatable_config(
         // Same for permissions, owned by the datatable_permissions endpoints.
         let old = old_datatables.get(lookup);
         dt.permissions = old.and_then(|old| old.permissions.clone());
+        // `forked_from` is stamped by the fork clone and read by the permissions
+        // opt-in as "this entry has a database of its own": the form may update the
+        // schema snapshot inside it, never add or remove the stamp.
+        dt.forked_from = match (
+            old.and_then(|old| old.forked_from.as_ref()),
+            dt.forked_from.take(),
+        ) {
+            (None, _) => None,
+            (Some(_), Some(new)) => Some(new),
+            (Some(old), None) => Some(windmill_common::workspaces::DataTableForkedFrom {
+                schema: old.schema.clone(),
+            }),
+        };
         // The roles live in the database this data table points at: their logins
         // were created there and every grant they hold is recorded there. Carried
         // onto another database they authenticate against a cluster that never
@@ -8371,6 +8384,10 @@ async fn create_workspace_fork(
     // would never reach the copy, and the fork would keep running as the role it named. So
     // a permissioned data table is not shared into a fork at all; the fork can fork it, or
     // go without it.
+    //
+    // A copy that was not forked here also loses any `forked_from` it inherited: the stamp
+    // means "cloned into this workspace's own database", which is what the permissions
+    // opt-in reads it as, and a copy of the parent's clone points where the parent points.
     let forked_datatable_names: Vec<String> = nw
         .forked_datatables
         .iter()
@@ -8381,7 +8398,7 @@ async fn create_workspace_fork(
            SET datatable = jsonb_set(datatable, '{datatables}', (
                SELECT COALESCE(jsonb_object_agg(
                    key,
-                   CASE WHEN key = ANY($2) THEN value - 'permissions' ELSE value END
+                   CASE WHEN key = ANY($2) THEN value - 'permissions' ELSE value - 'forked_from' END
                ), '{}'::jsonb)
                FROM jsonb_each(datatable->'datatables')
                WHERE key = ANY($2)

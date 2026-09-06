@@ -218,6 +218,8 @@ async fn enabling_permissions_is_refused_while_a_fork_exists(
     )
     .execute(&db)
     .await?;
+    // Past the refusal the preview fails on the resource, which this test does
+    // not have; the refusal is what is pinned.
     let resp = authed(client().post(&byo), "SECRET_TOKEN")
         .json(&body)
         .send()
@@ -401,6 +403,89 @@ async fn a_rename_leaves_no_datatable_under_the_old_id(db: Pool<Postgres>) -> an
         new_value["main"]["permissions"]["roles"]["analyst"]["pg_password"],
         json!("s3cret")
     );
+
+    Ok(())
+}
+
+/// A fork that keeps the original copies the parent's entry verbatim, `forked_from`
+/// included when the parent's own entry is a clone (a detached dev workspace keeps
+/// its clones). The stamp means "cloned into this workspace's own database", and
+/// the opt-in trusts it, so a copy must not carry one.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn a_kept_original_does_not_inherit_the_clone_stamp(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    sqlx::query(
+        r#"UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = 'test-workspace'"#,
+    )
+    .bind(json!({
+        "datatables": {
+            "byo": {
+                "database": { "resource_type": "postgresql", "resource_path": "u/test-user/pg" },
+                "forked_from": { "schema": {} }
+            }
+        }
+    }))
+    .execute(&db)
+    .await?;
+
+    let resp = authed(
+        client().post(format!("{ws}/workspaces/create_fork")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({ "id": "wm-fork-kept", "name": "kept" }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    let copy: serde_json::Value = sqlx::query_scalar(
+        "SELECT datatable->'datatables'->'byo' FROM workspace_settings WHERE workspace_id = 'wm-fork-kept'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(copy["database"]["resource_path"], json!("u/test-user/pg"));
+    assert!(copy.get("forked_from").is_none(), "{copy}");
+
+    let resp = authed(
+        client().post(format!("{ws}/workspaces/datatable_permissions/byo/preview")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({ "enabled": true, "roles": [] }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 400);
+    let text = resp.text().await?;
+    assert!(text.contains("wm-fork-kept (data table 'byo')"), "{text}");
+
+    // The form cannot stamp the copy either.
+    let resp = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/wm-fork-kept/workspaces/edit_datatable_config"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "settings": { "datatables": {
+            "byo": {
+                "database": { "resource_type": "postgresql", "resource_path": "u/test-user/pg" },
+                "forked_from": { "schema": {} }
+            }
+        }}
+    }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let copy: serde_json::Value = sqlx::query_scalar(
+        "SELECT datatable->'datatables'->'byo' FROM workspace_settings WHERE workspace_id = 'wm-fork-kept'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert!(copy.get("forked_from").is_none(), "{copy}");
 
     Ok(())
 }
