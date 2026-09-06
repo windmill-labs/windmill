@@ -37,7 +37,7 @@
 		fullscreen = false,
 		onNavigate,
 		onLoad,
-		onEntityMoved
+		onEntityWritten
 	}: {
 		tab: SessionPreviewTab
 		session: Session | undefined
@@ -63,9 +63,10 @@
 		onNavigate: (item: WorkspaceItem) => void
 		/** Iframe finished loading — the page reads back its observed location. */
 		onLoad: (frame: HTMLIFrameElement) => void
-		/** A hosted entity editor moved its item: renamed it (`to`) or removed it.
-		 * The page re-points every tab on that item, across warm sessions. */
-		onEntityMoved: (ev: {
+		/** A hosted entity editor wrote its item: saved it (`to`, the path it wrote
+		 * to) or removed it. The page reaches every tab on that item, across warm
+		 * sessions. */
+		onEntityWritten: (ev: {
 			kind: EntityEditorKind
 			path: string
 			workspace: string
@@ -188,26 +189,20 @@
 			: undefined
 	)
 
-	// An editor reports a removal or a rename about the item it started on, after
-	// the write it awaited — by which time this tab may hold something else, and
-	// other warm sessions may hold that same item. Both are the page's to resolve:
-	// it re-points every tab still on the item, in the workspace it was written in,
-	// which is also the only way the reporting tab is spared a report gone stale.
-	// A removal has no destination path; a rename carries the one it moved to.
-	const returnToList = $derived(
+	// What an editor reports is about an item, not about this tab: other warm
+	// sessions can hold the same one, and by the time the write it awaited returns
+	// this tab may hold something else. The page resolves both by matching on the
+	// item, so a report gone stale simply finds nothing.
+	const reportRemoved = $derived(
 		slot.kind === 'entity'
 			? (kind: EntityEditorKind, fromPath: string, fromWs: string) =>
-					onEntityMoved({ kind, path: fromPath, workspace: fromWs })
+					onEntityWritten({ kind, path: fromPath, workspace: fromWs })
 			: undefined
 	)
-
-	// The tab, its label, the chat's ACTIVE PREVIEW and the draft key all address
-	// the item by path, so they have to move with it or they name an item that no
-	// longer exists.
-	const retargetTo = $derived(
+	const reportSaved = $derived(
 		slot.kind === 'entity'
 			? (kind: EntityEditorKind, newPath: string, fromPath: string, fromWs: string) =>
-					onEntityMoved({ kind, path: fromPath, workspace: fromWs, to: newPath })
+					onEntityWritten({ kind, path: fromPath, workspace: fromWs, to: newPath })
 			: undefined
 	)
 
@@ -399,8 +394,8 @@
 						path={slot.path}
 						{workspaceId}
 						onBack={backToList}
-						onRemoved={(from, ws) => returnToList?.('trigger_schedule', from, ws)}
-						onRenamed={(to, from, ws) => retargetTo?.('trigger_schedule', to, from, ws)}
+						onRemoved={(from, ws) => reportRemoved?.('trigger_schedule', from, ws)}
+						onSavedTo={(to, from, ws) => reportSaved?.('trigger_schedule', to, from, ws)}
 					/>
 				{/await}
 			{:else if slot.entityKind === 'resource'}
@@ -411,8 +406,8 @@
 						path={slot.path}
 						{workspaceId}
 						onBack={backToList}
-						onRemoved={(from, ws) => returnToList?.('resource', from, ws)}
-						onRenamed={(to, from, ws) => retargetTo?.('resource', to, from, ws)}
+						onRemoved={(from, ws) => reportRemoved?.('resource', from, ws)}
+						onSavedTo={(to, from, ws) => reportSaved?.('resource', to, from, ws)}
 					/>
 				{/await}
 			{:else if slot.entityKind === 'variable'}
@@ -423,8 +418,8 @@
 						path={slot.path}
 						{workspaceId}
 						onBack={backToList}
-						onRemoved={(from, ws) => returnToList?.('variable', from, ws)}
-						onRenamed={(to, from, ws) => retargetTo?.('variable', to, from, ws)}
+						onRemoved={(from, ws) => reportRemoved?.('variable', from, ws)}
+						onSavedTo={(to, from, ws) => reportSaved?.('variable', to, from, ws)}
 					/>
 				{/await}
 			{/if}

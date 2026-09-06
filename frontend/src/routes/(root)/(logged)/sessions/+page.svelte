@@ -611,16 +611,14 @@
 			}
 		}
 	}
-	// A hosted entity editor moved its item — renamed it, or removed it by
-	// discarding the draft that was all of it. Every tab on that item follows,
-	// across warm sessions: they share the one draft cell and the one server row,
-	// so a tab left behind edits a path that is gone. Matching on the item is also
-	// what keeps a report that landed late from moving a tab that has since been
-	// re-pointed — there is nothing to match.
-	function moveEntityTabs(ev: {
+	// A hosted entity editor wrote its item. Every tab on it hears, across warm
+	// sessions: they share the one draft cell and the one server row, so one left
+	// behind edits a path that is gone or discards over a value already deployed.
+	function entityWritten(ev: {
 		kind: EntityEditorKind
 		path: string
 		workspace: string
+		/** The path it wrote to; absent when the write removed the item. */
 		to?: string
 	}) {
 		const page = entityListPage(ev.kind)?.path
@@ -633,7 +631,11 @@
 				const entity = parseEntityEditorRoute(loc)
 				if (!entity || entity.path !== ev.path || stripBase(loc) !== page) continue
 				// The tab's own location, so the list it came from keeps its filters.
-				owner.retargetTabTo(tab.id, ev.to ? entityEditorHref(loc, ev.to) : entityListHref(loc))
+				if (!ev.to) owner.retargetTabTo(tab.id, entityListHref(loc))
+				else if (ev.to !== ev.path) owner.retargetTabTo(tab.id, entityEditorHref(loc, ev.to))
+				// Same path: nothing to re-point, but every editor on it holds a baseline
+				// the deploy has replaced, and would offer to discard back to it.
+				else tabHosts[tabKey(s.id, tab.id)]?.reload({ entity: 'refresh' })
 			}
 		}
 	}
@@ -1189,7 +1191,7 @@
 												{fullscreen}
 												onNavigate={navigateEditorTo}
 												onLoad={(frame) => tabs && onTabLoad(tabs, tab, frame)}
-												onEntityMoved={moveEntityTabs}
+												onEntityWritten={entityWritten}
 											/>
 										{/each}
 									{/each}

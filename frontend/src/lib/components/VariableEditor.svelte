@@ -304,17 +304,6 @@
 		// one wrote is already deployed — a host told nothing would stay pointed at a
 		// path it has moved off.
 		let committed: string | undefined = undefined
-		// Follow the rename locally and tell the host, for whatever committed. Guarded
-		// on this editor still being the one that was saved: re-pointed, `editPath` is
-		// the variable it moved to. `close` only when every workspace is done — after a
-		// partial failure the drawer is where the one that still needs saving is retried.
-		const reportSaved = (saved: string | undefined, close: boolean) => {
-			if (editPath === from) {
-				if (saved && saved !== editPath) editPath = saved
-				if (close) drawer?.closeDrawer()
-			}
-			onSaved?.(saved, from, fromWs)
-		}
 		try {
 			for (const { ws, s, ini, existed } of payloads) {
 				if (existed) {
@@ -370,14 +359,26 @@
 				edit ? `Updated variable in ${payloads.length} workspace(s)` : `Created variable`
 			)
 			dispatch('create')
-			reportSaved(savedPath, true)
+			// Only while this editor is still the one that was saved: re-pointed,
+			// `editPath` is the variable it moved to.
+			if (editPath === from) {
+				// A rename moved the item; the drawer host closes over it, but an inline one
+				// stays mounted, so follow the new path here and tell the host about it.
+				if (savedPath && savedPath !== editPath) editPath = savedPath
+				drawer?.closeDrawer()
+			}
+			onSaved?.(savedPath, from, fromWs)
 		} catch (err) {
 			sendUserToast(`Could not save variable: ${err.body}`, true)
-			// Following the rename re-keys every workspace's handle, so a workspace whose
-			// write never happened loses sight of its draft here — it stays on the server
-			// under the path that workspace still holds the item at, listed and editable
-			// from there. Re-keying it instead would move a path it never wrote.
-			if (committed) reportSaved(committed, false)
+			if (committed) {
+				onSaved?.(committed, from, fromWs)
+				// Reopened, not re-keyed: re-keying would bring the handles back from the
+				// values this drawer opened on, which describe neither what the committed
+				// workspace now has deployed nor the draft the failed one still holds at
+				// its own path. That draft stays there, listed and editable from its
+				// workspace — moving it onto a rename it never wrote would be worse.
+				if (editPath === from) editVariable(committed)
+			}
 		}
 	}
 </script>

@@ -7,7 +7,7 @@
 		workspaceId,
 		onBack,
 		onRemoved,
-		onRenamed
+		onSavedTo
 	}: {
 		/** The resource this tab edits (the row its location deep-links). */
 		path: string
@@ -20,11 +20,11 @@
 		 * Distinct from `onBack`, which moves whichever tab is active: only this tab is
 		 * the one to send back, and only while it still shows that item. */
 		onRemoved?: (fromPath: string, fromWorkspace: string) => void
-		/** The item at `fromPath` was saved under a different path. The tab addresses
-		 * it by path — as do its label, the chat's ACTIVE PREVIEW and the draft key —
-		 * so the tab has to follow, or all four keep naming an item that no longer
-		 * exists. */
-		onRenamed?: (newPath: string, fromPath: string, fromWorkspace: string) => void
+		/** The item at `fromPath` was saved, to `newPath`. Every tab on it has to hear:
+		 * a rename moves the ones addressing it by path — their label, the chat's
+		 * ACTIVE PREVIEW and the draft key all do — and a plain save moves none but
+		 * leaves the others holding a baseline the deploy has replaced. */
+		onSavedTo?: (newPath: string, fromPath: string, fromWorkspace: string) => void
 	} = $props()
 
 	let editor = $state<ResourceEditorDrawer | undefined>()
@@ -46,6 +46,6 @@
 	{onBack}
 	{onRemoved}
 	onSaved={(saved, from, fromWs) => {
-		if (saved && from && fromWs && saved !== from) onRenamed?.(saved, from, fromWs)
+		if (saved && from && fromWs) onSavedTo?.(saved, from, fromWs)
 	}}
 />

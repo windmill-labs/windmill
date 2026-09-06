@@ -10,7 +10,7 @@
 		workspaceId,
 		onBack,
 		onRemoved,
-		onRenamed
+		onSavedTo
 	}: {
 		/** The schedule this tab edits (the row its location deep-links). */
 		path: string
@@ -24,11 +24,11 @@
 		 * awaits a reload of the runnable, by which time the user may be looking at
 		 * another tab, or have pointed this one somewhere else. */
 		onRemoved?: (fromPath: string, fromWorkspace: string) => void
-		/** The item at `fromPath` was saved under a different path. The tab addresses
-		 * it by path — as do its label, the chat's ACTIVE PREVIEW and the draft key —
-		 * so the tab has to follow, or all four keep naming an item that no longer
-		 * exists. */
-		onRenamed?: (newPath: string, fromPath: string, fromWorkspace: string) => void
+		/** The item at `fromPath` was saved, to `newPath`. Every tab on it has to hear:
+		 * a rename moves the ones addressing it by path — their label, the chat's
+		 * ACTIVE PREVIEW and the draft key all do — and a plain save moves none but
+		 * leaves the others holding a baseline the deploy has replaced. */
+		onSavedTo?: (newPath: string, fromPath: string, fromWorkspace: string) => void
 	} = $props()
 
 	// Captured at init, so it must read the current prop rather than close over it.
@@ -76,9 +76,9 @@
 				// for, and the rename is not its rename.
 				if (from !== path) return
 				generation++
-				// A draft-only schedule opens with its path editable (saving CREATEs),
-				// so the save can land somewhere other than where the tab is pointed.
-				if (saved && saved !== from) onRenamed?.(saved, from, fromWs)
+				// A draft-only schedule opens with its path editable (saving CREATEs), so
+				// the save can land somewhere other than where the tab is pointed.
+				if (saved) onSavedTo?.(saved, from, fromWs)
 			}}
 		>
 			{#snippet customLabel()}
