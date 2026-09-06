@@ -1,13 +1,25 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 const discard = vi.fn()
+// Whether the key ends up settled on the delete after a flush — false stands for a
+// form that keeps queueing writes behind it.
+let settles = true
 vi.mock('./gen', () => ({ DraftService: { updateDraft: vi.fn() } }))
 vi.mock('./gen/core/OpenAPI', () => ({ OpenAPI: { BASE: '' } }))
 vi.mock('./localDraftHints.svelte', () => ({ setLocalDraftHint: vi.fn() }))
+vi.mock('./userDraftDbSyncer.svelte', () => ({
+	UserDraftDbSyncer: {
+		save: vi.fn(),
+		flush: vi.fn(async () => {}),
+		lastLandedWasDelete: vi.fn(() => settles),
+		getState: vi.fn(() => ({ state: 'none' }))
+	}
+}))
 
 import { settleDraftAfterWrite, UserDraft } from './userDraft.svelte'
 
 beforeEach(() => {
+	settles = true
 	discard.mockClear()
 	vi.spyOn(UserDraft, 'discard').mockImplementation(discard as any)
 })
@@ -51,6 +63,21 @@ describe('settleDraftAfterWrite', () => {
 			OPTS
 		)
 		expect(discard).toHaveBeenCalledWith('variable', 'u/me/a', sent, OPTS)
+	})
+
+	// The form stays editable across the delete's own request, so an edit made then
+	// parks a write that would put the draft back — under a path the item has left,
+	// once the callers re-key. The delete is re-sent while that is the case, and
+	// bounded, because a form being typed into can always add one more.
+	it('re-sends the delete while the key will not settle on it, and gives up bounded', async () => {
+		settles = false
+		await settleDraftAfterWrite('variable', sent, { ...sent }, 'u/me/a', 'u/me/b', OPTS)
+		expect(discard).toHaveBeenCalledTimes(3)
+	})
+
+	it('sends it once when the key settles', async () => {
+		await settleDraftAfterWrite('variable', sent, { ...sent }, 'u/me/a', 'u/me/b', OPTS)
+		expect(discard).toHaveBeenCalledTimes(1)
 	})
 
 	it('compares through the draft normalization, so a nested edit is not missed', () => {

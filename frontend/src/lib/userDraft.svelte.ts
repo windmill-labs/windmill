@@ -285,12 +285,18 @@ export async function settleDraftAfterWrite<V>(
 	savedPath: string,
 	opts?: UserDraftOptions
 ): Promise<void> {
-	if (savedPath !== fromPath || draftValuesEqual(live, written)) {
+	if (savedPath === fromPath && !draftValuesEqual(live, written)) return
+	// Sent before this resolves, not left on the keystroke debounce: callers report
+	// the write and remount on it, and both read a cell this has to have finished
+	// resolving — including through a frame with a draft store of its own.
+	//
+	// Re-sent while the key is not settled on that delete: the form stays editable
+	// across the request, and an edit made then parks a write behind it that would
+	// put a draft back — under a path the item has left, once the callers re-key.
+	// Bounded, because a form still being typed into can always add one more.
+	for (let attempt = 0; attempt < 3; attempt++) {
 		UserDraft.discard(itemKind, fromPath, written, opts)
-		// Sent before this resolves, not left on the keystroke debounce: callers
-		// report the write and remount on it, and both read a cell this has to have
-		// finished resolving — including through a frame with a draft store of its own.
-		await flushDraftWrites(itemKind, fromPath, opts)
+		if (await flushDraftDelete(itemKind, fromPath, opts)) return
 	}
 }
 
