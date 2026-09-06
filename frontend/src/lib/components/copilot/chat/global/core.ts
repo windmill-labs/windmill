@@ -6179,12 +6179,10 @@ async function discardLocalDraft(
 
 	await deleteGlobalDraft(workspace, type, path, triggerKind)
 
-	// Published only now: the delete above can throw, and the marker is read by the
-	// tool-completion listener, which a throw never reaches — leaving it to be
-	// consumed by some later action on this item, which would send its editor away
-	// while the item is still there. Nor is it published when a write is queued
-	// behind the delete: the form stays editable across it, and an edit made then
-	// recreates the draft, so the item the marker would report as gone is not.
+	// Published only now, and only if nothing is queued behind the delete: the marker
+	// sends a hosted editor away from an item it says is gone, so a throw above must
+	// not leave one standing for a later action to spend, and an edit made across the
+	// delete recreates the draft — leaving the item the marker would report as gone.
 	if (removesItem && discardedKind) {
 		const settled =
 			UserDraftDbSyncer.getState({ workspace, itemKind: discardedKind, path: storagePath })
