@@ -22,7 +22,12 @@
 	import { resource } from 'runed'
 	import { getUserExt } from '$lib/user'
 	import type { UserExt } from '$lib/stores'
-	import { UserDraft, draftValuesEqual, type UserDraftHandle } from '$lib/userDraft.svelte'
+	import {
+		UserDraft,
+		draftValuesEqual,
+		settleDraftAfterWrite,
+		type UserDraftHandle
+	} from '$lib/userDraft.svelte'
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
 	import { isEncryptedDraftValue } from '$lib/encryptedDraft'
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
@@ -329,15 +334,13 @@
 					initialStates[ws] = s
 					existedInitially[ws] = true
 				}
-				// The just-saved state is the new deployed baseline; reset the
-				// handle to it via `discard` (not `remove` — blanking the cell to
-				// `undefined` reads as dirty). The `value: null` POST also deletes
-				// the server draft row so `is_draft` clears on refetch. Only while the
-				// cell still holds what was written: the form stays editable during the
-				// request, and an edit made then is a change on top of the save.
-				if (draftValuesEqual(states[ws]?.draft, s)) {
-					UserDraft.discard('variable', from ?? '', s, { workspace: ws })
-				}
+				// The just-saved state is the new deployed baseline; `settleDraftAfterWrite`
+				// resets the handle to it via `discard` (not `remove` — blanking the cell
+				// to `undefined` reads as dirty), and carries a mid-request edit onto the
+				// path the save wrote to.
+				settleDraftAfterWrite('variable', s, states[ws]?.draft, from ?? '', savedPath ?? '', {
+					workspace: ws
+				})
 				// Path now exists server-side — drop the autocomplete cache so
 				// it shows up immediately instead of after the 60s TTL.
 				invalidateWorkspacePaths(ws)

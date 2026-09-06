@@ -44,8 +44,7 @@
 	import { runScheduleNow } from '../scheduled/utils'
 	import { handleConfigChange } from '../utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
-	import { deepEqual } from 'fast-equals'
-	import { normalizeDraftForCompare } from '$lib/userDraft.svelte'
+	import { settleDraftAfterWrite } from '$lib/userDraft.svelte'
 	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -618,21 +617,21 @@
 	async function scheduleScript(): Promise<void> {
 		const previousPath = initialPath
 		const previousWs = wsId
-		const scheduleCfg = getScheduleCfg()
+		// Snapshotted, not just built: the object is fresh but its `args`, `retry` and
+		// `labels` alias live state, so an edit made while the request is in flight
+		// would read back as part of what was sent.
+		const scheduleCfg = $state.snapshot(getScheduleCfg()) as Record<string, any>
 		deploymentLoading = true
 		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, wsId!)
 		if (isSaved) {
-			// Drop the local draft only while the form still holds what was saved: it
-			// stays editable during the request, and an edit made then is a change on
-			// top of the save, which the reset would silently swallow.
-			if (
-				deepEqual(
-					normalizeDraftForCompare($state.snapshot(getScheduleCfg())),
-					normalizeDraftForCompare(scheduleCfg)
-				)
-			) {
-				draftSync.discard(previousPath, scheduleCfg)
-			}
+			settleDraftAfterWrite(
+				'trigger_schedule',
+				scheduleCfg,
+				getScheduleCfg(),
+				previousPath,
+				scheduleCfg.path,
+				{ workspace: previousWs ?? undefined }
+			)
 			onUpdate?.(scheduleCfg.path, previousPath, previousWs)
 			drawer?.closeDrawer()
 		}

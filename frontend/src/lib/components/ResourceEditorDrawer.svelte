@@ -218,6 +218,10 @@
 			// workspace, while the write is in flight.
 			const from = path
 			const fromWs = effectiveWorkspace
+			// The path the form holds now is the one `save()` is about to send; read
+			// after the await it would be a rename the user typed meanwhile, and the
+			// tab would follow to a path this write never created.
+			const submitted = livePath ?? path
 			// Closed before the write is awaited, the way it always was: `save()` toasts its
 			// own failures and never rejects, so waiting would only add visible lag to every
 			// caller of this drawer. `onSaved` still fires after the write lands.
@@ -234,7 +238,7 @@
 			// Rendered inline there is no drawer to close, so the mounted editor would
 			// otherwise keep the pre-save baseline. Follow a rename before remounting,
 			// or it comes back up on a path the save just moved the item off.
-			const savedPath = livePath ?? path
+			const savedPath = submitted
 			if (savedPath) path = savedPath
 			editorGeneration++
 			onSaved?.(savedPath, from, fromWs)

@@ -12,7 +12,12 @@
 	import { resource } from 'runed'
 	import { getUserExt } from '$lib/user'
 	import type { UserExt } from '$lib/stores'
-	import { UserDraft, draftValuesEqual, type UserDraftHandle } from '$lib/userDraft.svelte'
+	import {
+		UserDraft,
+		draftValuesEqual,
+		settleDraftAfterWrite,
+		type UserDraftHandle
+	} from '$lib/userDraft.svelte'
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 
 	interface Props {
@@ -331,12 +336,21 @@
 	/** Whether the write landed. It toasts its own failure, so most callers ignore this;
 	 * one that follows the save with bookkeeping of its own has to know not to. */
 	export async function save(): Promise<boolean> {
-		const dirty = dirtyWorkspaces
+		// Everything the writes send, read before the first await. The form stays
+		// editable while they are in flight, so read later these would be whatever
+		// the user has since typed — sent under an earlier workspace's path, and
+		// adopted as a baseline the server never saw.
+		const from = initialPath ?? ''
+		const payloads = dirtyWorkspaces.map((ws) => ({
+			ws,
+			s: $state.snapshot(states[ws].draft!) as ResourceState,
+			ini: $state.snapshot(initialStates[ws]) as ResourceState,
+			existed: !!existedInitially[ws]
+		}))
+		const savedPath = payloads[0]?.s.path ?? from
 		try {
-			for (const ws of dirty) {
-				const s = states[ws].draft!
-				const ini = initialStates[ws]
-				if (existedInitially[ws]) {
+			for (const { ws, s, ini, existed } of payloads) {
+				if (existed) {
 					await ResourceService.updateResource({
 						workspace: ws,
 						path: ini.path,
@@ -366,22 +380,20 @@
 					})
 				}
 				// Reset the handle to the new deployed baseline via `discard`, not
-				// `remove`. See VariableEditor for the full rationale — including why the
-				// cell is only dropped while it still holds what was written.
-				const written = $state.snapshot(s) as ResourceState
-				initialStates[ws] = written
+				// `remove`. See VariableEditor for the full rationale.
+				initialStates[ws] = s
 				existedInitially[ws] = true
-				if (draftValuesEqual(states[ws]?.draft, written)) {
-					UserDraft.discard('resource', initialPath ?? '', written, { workspace: ws })
-				}
+				settleDraftAfterWrite('resource', s, states[ws]?.draft, from, savedPath, { workspace: ws })
 				// Path now exists server-side — drop the autocomplete cache so
 				// it shows up immediately instead of after the 60s TTL.
 				invalidateWorkspacePaths(ws)
 			}
 			sendUserToast(
-				dirty.length > 1 ? `Saved resource in ${dirty.length} workspaces` : `Saved resource`
+				payloads.length > 1
+					? `Saved resource in ${payloads.length} workspaces`
+					: `Saved resource`
 			)
-			dispatch('refresh', current?.path ?? path)
+			dispatch('refresh', savedPath)
 			return true
 		} catch (err) {
 			sendUserToast(`Could not save resource: ${err.body ?? err.message}`, true)

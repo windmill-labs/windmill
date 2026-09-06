@@ -268,6 +268,28 @@ export function draftValuesEqual(a: unknown, b: unknown): boolean {
 	return deepEqual(normalizeDraftForCompare(a), normalizeDraftForCompare(b))
 }
 
+/**
+ * Settle a draft cell after the write of `written` — the value actually sent —
+ * landed. A form stays editable while its request is in flight, so `live` may
+ * hold a newer edit; that is a change on top of the save rather than part of it,
+ * and resetting the cell would swallow it silently. A save that also moved the
+ * item is the exception: the edit cannot follow (a freshly acquired cell reads
+ * only its own default), so the cell is reset rather than left orphaned under a
+ * path the item no longer occupies.
+ */
+export function settleDraftAfterWrite<V>(
+	itemKind: UserDraftItemKind,
+	written: V,
+	live: V | undefined,
+	fromPath: string,
+	savedPath: string,
+	opts?: UserDraftOptions
+): void {
+	if (savedPath !== fromPath || draftValuesEqual(live, written)) {
+		UserDraft.discard(itemKind, fromPath, written, opts)
+	}
+}
+
 export type UserDraftHandle<V> = {
 	get draft(): V | undefined
 	set draft(value: V | undefined)
