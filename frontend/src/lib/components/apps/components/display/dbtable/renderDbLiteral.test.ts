@@ -13,6 +13,10 @@ describe('renderDbLiteral', () => {
 		expect(renderDbLiteral('C:\\dir\\', 'snowflake')).toBe("'C:\\\\dir\\\\'")
 	})
 
+	it('marks SQL Server strings as Unicode constants', () => {
+		expect(renderDbLiteral("Zoë's", 'ms_sql_server')).toBe("N'Zoë''s'")
+	})
+
 	it('renders numbers and booleans without quotes', () => {
 		expect(renderDbLiteral(42, 'postgresql')).toBe('42')
 		expect(renderDbLiteral(true, 'postgresql')).toBe('TRUE')
@@ -29,7 +33,7 @@ describe('renderDbLiteral', () => {
 describe('renderDbEqualityFilter', () => {
 	it('quotes the identifier per dialect', () => {
 		expect(renderDbEqualityFilter('user id', 'x', 'postgresql')).toBe(`"user id" = 'x'`)
-		expect(renderDbEqualityFilter('user id', 'x', 'ms_sql_server')).toBe(`[user id] = 'x'`)
+		expect(renderDbEqualityFilter('user id', 'x', 'ms_sql_server')).toBe(`[user id] = N'x'`)
 		expect(renderDbEqualityFilter('user id', 'x', 'mysql')).toBe("`user id` = 'x'")
 		expect(renderDbEqualityFilter('user id', null, 'postgresql')).toBeUndefined()
 	})

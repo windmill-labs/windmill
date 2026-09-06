@@ -234,26 +234,33 @@
 		selected = { schemaKey, tableKey: table }
 	}
 
-	function goToRow(target: DbForeignKeyTarget) {
-		// Foreign key queries qualify the target as `schema.table` on every dialect.
-		const parts = target.table.split('.')
+	/** Where a foreign key's `schema.table` target lives in the sidebar, or
+	 * undefined when it cannot be opened from here. */
+	function resolveForeignKeyTarget(
+		targetTable: string
+	): { schemaKey: string; table: string } | undefined {
+		const parts = targetTable.split('.')
 		const table = parts[parts.length - 1]
 		const qualifier = parts.length > 1 ? parts.slice(0, -1).join('.') : undefined
 		// Without schema support the sidebar browses the connection's default
 		// schema only, and unqualified reads would hit a same-named local table.
-		if (!dbSupportsSchemas && qualifier && qualifier !== selected.schemaKey) {
-			sendUserToast(`Table ${target.table} is outside the browsed schema`, true)
-			return
-		}
+		if (!dbSupportsSchemas && qualifier && qualifier !== selected.schemaKey) return undefined
 		const schemaKey = dbSupportsSchemas && qualifier ? qualifier : selected.schemaKey
-		if (!schemaKey || !(table in (dbSchema.schema[schemaKey] ?? {}))) {
-			sendUserToast(`Table ${target.table} not found`, true)
+		if (!schemaKey || !(table in (dbSchema.schema[schemaKey] ?? {}))) return undefined
+		return { schemaKey, table }
+	}
+
+	function goToRow(target: DbForeignKeyTarget) {
+		const resolved = resolveForeignKeyTarget(target.table)
+		if (!resolved) {
+			sendUserToast(`Table ${target.table} cannot be opened from this schema`, true)
 			return
 		}
 		if (renderDbEqualityFilter(target.column, target.value, dbType) === undefined) {
 			sendUserToast('This value cannot be used as a filter', true)
 			return
 		}
+		const { schemaKey, table } = resolved
 		selectTable(schemaKey, table)
 		rowFilter = {
 			tableKey: dbSupportsSchemas ? `${schemaKey}.${table}` : table,
@@ -280,9 +287,13 @@
 			return { tableKey: forTableKey, foreignKeys: fks }
 		}
 	)
+	// Only keys whose target the sidebar can open get the "Go to row" affordance.
 	let currentForeignKeys = $derived.by(() => {
 		const fetched = foreignKeys.current
-		return fetched && fetched.tableKey === tableKey ? fetched.foreignKeys : undefined
+		if (!fetched || fetched.tableKey !== tableKey) return undefined
+		return fetched.foreignKeys.filter(
+			(fk) => fk.targetTable && resolveForeignKeyTarget(fk.targetTable) !== undefined
+		)
 	})
 
 	let askingForConfirmation:

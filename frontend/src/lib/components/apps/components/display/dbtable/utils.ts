@@ -368,7 +368,9 @@ export function renderDbLiteral(value: unknown, dbType: DbType): string | undefi
 	if (dbType === 'mysql' || dbType === 'snowflake' || dbType === 'bigquery') {
 		escaped = escaped.replace(/\\/g, '\\\\')
 	}
-	return `'${escaped}'`
+	// A plain constant is varchar on SQL Server and goes through the database
+	// code page; the N prefix keeps it Unicode against nvarchar columns.
+	return dbType === 'ms_sql_server' ? `N'${escaped}'` : `'${escaped}'`
 }
 
 /** `"column" = <literal>` predicate, or undefined when the value can't be
