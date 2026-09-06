@@ -285,16 +285,21 @@ export async function settleDraftAfterWrite<V>(
 	savedPath: string,
 	opts?: UserDraftOptions
 ): Promise<void> {
-	if (savedPath === fromPath && !draftValuesEqual(live, written)) return
+	// No cell at all is not a newer edit — the editor has been released, and its
+	// draft is precisely what nothing is watching any more.
+	const diverged = live !== undefined && !draftValuesEqual(live, written)
+	if (savedPath === fromPath && diverged) return
 	// Sent before this resolves, not left on the keystroke debounce: callers report
 	// the write and remount on it, and both read a cell this has to have finished
 	// resolving — including through a frame with a draft store of its own.
-	//
-	// Re-sent while the key is not settled on that delete: the form stays editable
-	// across the request, and an edit made then parks a write behind it that would
-	// put a draft back — under a path the item has left, once the callers re-key.
-	// Bounded, because a form still being typed into can always add one more.
-	for (let attempt = 0; attempt < 3; attempt++) {
+	UserDraft.discard(itemKind, fromPath, written, opts)
+	if (await flushDraftDelete(itemKind, fromPath, opts)) return
+	// Only a moved item forces the point. The form stays editable across that
+	// request, so an edit made then parks a write behind it: under the path the
+	// item has left that write would strand a draft no editor is on, but under an
+	// unchanged path it is the user's, and is meant to stand and read dirty.
+	if (savedPath === fromPath) return
+	for (let attempt = 0; attempt < 2; attempt++) {
 		UserDraft.discard(itemKind, fromPath, written, opts)
 		if (await flushDraftDelete(itemKind, fromPath, opts)) return
 	}
@@ -958,6 +963,10 @@ function acquireEntry(
 					// stays armed: an undefined-seeded cell's initial run lands
 					// here, and page editors rely on it to swallow their load write.)
 					if (entry.seedNextWrite) entry.seedNextWrite = false
+					// Same for a `discard`/`remove` whose fallback equals what the cell
+					// already holds — settling a save that changed nothing does exactly
+					// that — which otherwise leaves the guard armed for the next edit.
+					if (entry.skipNextSync) entry.skipNextSync = false
 					return
 				}
 				lastSerialized = next

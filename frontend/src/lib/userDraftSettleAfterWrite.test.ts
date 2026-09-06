@@ -75,6 +75,22 @@ describe('settleDraftAfterWrite', () => {
 		expect(discard).toHaveBeenCalledTimes(3)
 	})
 
+	// A released handle reads as no cell at all. That is not somebody's newer edit —
+	// it is a draft nothing is watching — so the cleanup still has to run.
+	it('cleans up when the editor has been released', async () => {
+		await settleDraftAfterWrite('variable', sent, undefined, 'u/me/a', 'u/me/a', OPTS)
+		expect(discard).toHaveBeenCalledWith('variable', 'u/me/a', sent, OPTS)
+	})
+
+	// Retrying resets the cell to what was written, so it may only chase a path the
+	// item has left. On an unchanged path an edit made during the delete is the
+	// user's, and re-sending would revert it.
+	it('does not retry over an edit made on an unchanged path', async () => {
+		settles = false
+		await settleDraftAfterWrite('variable', sent, { ...sent }, 'u/me/a', 'u/me/a', OPTS)
+		expect(discard).toHaveBeenCalledTimes(1)
+	})
+
 	it('sends it once when the key settles', async () => {
 		await settleDraftAfterWrite('variable', sent, { ...sent }, 'u/me/a', 'u/me/b', OPTS)
 		expect(discard).toHaveBeenCalledTimes(1)
