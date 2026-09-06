@@ -487,5 +487,213 @@ async fn a_kept_original_does_not_inherit_the_clone_stamp(
     .await?;
     assert!(copy.get("forked_from").is_none(), "{copy}");
 
+    // Where the stamp exists it survives a save that omits it — the form
+    // round-trips configs the client trimmed — and its schema snapshot follows a
+    // save that carries one, which is how the schema diff records its baseline.
+    let save = |datatables: serde_json::Value| {
+        let ws = ws.clone();
+        async move {
+            let resp = authed(
+                client().post(format!("{ws}/workspaces/edit_datatable_config")),
+                "SECRET_TOKEN",
+            )
+            .json(&json!({ "settings": { "datatables": datatables } }))
+            .send()
+            .await
+            .unwrap();
+            assert_eq!(resp.status(), 200, "{}", resp.text().await.unwrap());
+        }
+    };
+    let stamp = |db: Pool<Postgres>| async move {
+        let entry: serde_json::Value = sqlx::query_scalar(
+            "SELECT datatable->'datatables'->'byo' FROM workspace_settings WHERE workspace_id = 'test-workspace'",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        entry["forked_from"].clone()
+    };
+    save(json!({ "byo": {
+        "database": { "resource_type": "postgresql", "resource_path": "u/test-user/pg" }
+    }}))
+    .await;
+    assert_eq!(stamp(db.clone()).await, json!({ "schema": {} }));
+    save(json!({ "byo": {
+        "database": { "resource_type": "postgresql", "resource_path": "u/test-user/pg" },
+        "forked_from": { "schema": { "t": ["id"] } }
+    }}))
+    .await;
+    assert_eq!(
+        stamp(db.clone()).await,
+        json!({ "schema": { "t": ["id"] } })
+    );
+
+    Ok(())
+}
+
+/// A save carries the whole role list the drawer loaded, so it can name a tenant
+/// another admin's deletion took off the role in between, and a rename can name
+/// a role that stored migrations still carry in their `-- role` annotation. Both
+/// are refused rather than written back.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn a_save_names_only_what_exists(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    sqlx::query(
+        r#"UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = 'test-workspace'"#,
+    )
+    .bind(json!({
+        "datatables": {
+            "main": {
+                "database": { "resource_type": "instance", "resource_path": "dt_main" },
+                "permissions": { "enabled": true, "roles": {
+                    "admin": { "tenants": [] },
+                    "analyst": { "tenants": ["u/test-user"] }
+                }}
+            }
+        }
+    }))
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down)
+         VALUES ('test-workspace', 'main', 1, 'add_orders', '-- role analyst\nCREATE TABLE orders ()', NULL)",
+    )
+    .execute(&db)
+    .await?;
+
+    let preview = |body: serde_json::Value| {
+        let ws = ws.clone();
+        async move {
+            let resp = authed(
+                client().post(format!(
+                    "{ws}/workspaces/datatable_permissions/main/preview"
+                )),
+                "SECRET_TOKEN",
+            )
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+            (resp.status().as_u16(), resp.text().await.unwrap())
+        }
+    };
+
+    let (status, text) = preview(json!({ "enabled": true, "roles": [
+        { "name": "admin", "tenants": [] },
+        { "name": "analyst", "tenants": ["u/test-user", "u/ghost", "g/nobody", "f/nowhere", "*"] }
+    ]}))
+    .await;
+    assert_eq!(status, 400, "{text}");
+    assert!(text.contains("f/nowhere, g/nobody, u/ghost"), "{text}");
+
+    let (status, text) = preview(json!({ "enabled": true,
+        "roles": [{ "name": "admin", "tenants": [] }, { "name": "reader", "tenants": ["u/test-user"] }],
+        "renames": [{ "from": "analyst", "to": "reader" }]
+    }))
+    .await;
+    assert_eq!(status, 400, "{text}");
+    assert!(text.contains("'add_orders' (role 'analyst')"), "{text}");
+
+    // The same save with what exists gets past both checks, to the database this
+    // test does not have.
+    let (_, text) = preview(json!({ "enabled": true, "roles": [
+        { "name": "admin", "tenants": [] },
+        { "name": "analyst", "tenants": ["u/test-user", "*"] }
+    ]}))
+    .await;
+    assert!(
+        !text.contains("no longer exist") && !text.contains("Migration(s)"),
+        "{text}"
+    );
+
+    Ok(())
+}
+
+/// Another workspace naming the same resource path holds a resource of its own,
+/// which counts only when it resolves to the same database — a detached dev
+/// workspace's cloned resource does, an unrelated workspace's same-named one
+/// does not.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn a_same_named_resource_counts_only_when_it_reaches_the_same_database(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::query(
+        "INSERT INTO workspace (id, name, owner) VALUES ('detached', 'detached', 'test-user')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('detached', 'test@windmill.dev', 'test-user', true, 'Admin')",
+    )
+    .execute(&db)
+    .await?;
+    let byo =
+        json!({ "database": { "resource_type": "postgresql", "resource_path": "u/test-user/pg" } });
+    for w in ["test-workspace", "detached"] {
+        sqlx::query(
+            "INSERT INTO workspace_settings (workspace_id, datatable) VALUES ($1, $2)
+             ON CONFLICT (workspace_id) DO UPDATE SET datatable = EXCLUDED.datatable",
+        )
+        .bind(w)
+        .bind(json!({ "datatables": { "byo": byo } }))
+        .execute(&db)
+        .await?;
+    }
+    let create_pg = |w: &'static str, dbname: &'static str| async move {
+        let resp = authed(
+            client().post(format!("http://localhost:{port}/api/w/{w}/resources/create")),
+            "SECRET_TOKEN",
+        )
+        .json(&json!({
+            "path": "u/test-user/pg",
+            "resource_type": "postgresql",
+            "value": { "host": "db.example", "port": 5432, "dbname": dbname, "user": "app", "password": "pw", "sslmode": "disable" }
+        }))
+        .send()
+        .await
+        .unwrap();
+        assert_eq!(resp.status(), 201, "{w}: {}", resp.text().await.unwrap());
+    };
+    create_pg("test-workspace", "prod").await;
+    create_pg("detached", "prod").await;
+
+    let preview = || async {
+        let resp = authed(
+            client().post(format!(
+                "http://localhost:{port}/api/w/test-workspace/workspaces/datatable_permissions/byo/preview"
+            )),
+            "SECRET_TOKEN",
+        )
+        .json(&json!({ "enabled": true, "roles": [] }))
+        .send()
+        .await
+        .unwrap();
+        resp.text().await.unwrap()
+    };
+    let text = preview().await;
+    assert!(
+        text.contains("same database: detached (data table 'byo')"),
+        "{text}"
+    );
+
+    // Same path, another database: not a copy.
+    sqlx::query(
+        "UPDATE resource SET value = jsonb_set(value, '{dbname}', '\"other\"')
+         WHERE workspace_id = 'detached' AND path = 'u/test-user/pg'",
+    )
+    .execute(&db)
+    .await?;
+    let text = preview().await;
+    assert!(!text.contains("cannot be enabled"), "{text}");
+
     Ok(())
 }

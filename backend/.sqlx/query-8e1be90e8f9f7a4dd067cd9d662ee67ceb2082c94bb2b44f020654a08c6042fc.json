@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ws.workspace_id AS \"workspace_id!\", dt.key AS \"name!\", w.deleted AS \"deleted!\"\n           FROM workspace_settings ws\n           JOIN workspace w ON w.id = ws.workspace_id,\n           jsonb_each(ws.datatable->'datatables') dt\n           WHERE ws.workspace_id <> $1\n             AND dt.value->'database' = $2\n           ORDER BY ws.workspace_id, dt.key",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "deleted!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "8e1be90e8f9f7a4dd067cd9d662ee67ceb2082c94bb2b44f020654a08c6042fc"
+}

@@ -31,6 +31,7 @@ use windmill_common::ensure_instance_db_grant_options_unchecked;
 use windmill_common::error::{pg_error_message, Error, JsonResult, Result};
 use windmill_common::query_builders::{render_db_quoted_identifier, DbType};
 use windmill_common::utils::require_admin;
+use windmill_common::worker::SqlAnnotations;
 use windmill_common::workspaces::{
     can_use_datatable_role, datatable_database_identity, get_datatable_resource_from_db_unchecked,
     DataTable, DataTableCatalogResourceType, DataTablePermissions, ADMIN_DATATABLE_ROLE,
@@ -465,6 +466,7 @@ async fn build_plan(
     req: &SetDatatablePermissions,
 ) -> Result<(tokio_postgres::Client, RolePlan)> {
     require_datatable_permissions_license().await?;
+    ensure_save_names_what_exists(db, w_id, datatable_name, req).await?;
     let datatable = read_datatable_unchecked(db, w_id, datatable_name).await?;
     let (client, conn) = connect_as_admin_unchecked(db, w_id, datatable_name).await?;
     let plan = crate::datatable_permissions_oss::plan_role_changes(
@@ -725,7 +727,7 @@ pub(crate) async fn ensure_can_use_datatable_role(
 
 /// Permissions are turned on where this workspace is the only one reaching the
 /// database: it is not a fork, no fork below it holds a copy of the data table,
-/// and no other workspace's data table names the same instance database.
+/// and no other workspace's data table reaches the same database.
 ///
 /// A fork's data table is either a copy pointing at the database of the workspace
 /// it was forked from, where roles created in the fork would hold grants that
@@ -735,10 +737,11 @@ pub(crate) async fn ensure_can_use_datatable_role(
 /// member of that fork — including members this workspace does not have — would
 /// keep reaching the database through the copy's own connection, which owns
 /// everything in it. A dev workspace detached from this one keeps such a copy
-/// without being a fork any more, which is what the last check is for; it is
-/// exact for an instance database, whose only credential holders are the data
-/// tables naming it, and meaningless for a resource-backed one, where whoever
-/// holds the resource's credentials reaches the database regardless.
+/// without being a fork any more, which is what the last check is for. Another
+/// workspace naming the same instance database is exact; one naming the same
+/// resource path holds a resource of its own under that path, so it counts only
+/// when that resource resolves to the same host, port, database and user — which
+/// is what a detached copy's cloned resource does.
 ///
 /// Archived workspaces count. Archiving keeps the members, their session tokens
 /// and the settings, and nothing on the job path checks the flag, so an archived
@@ -821,33 +824,185 @@ async fn refuse_enabling_permissions_over_shared_access(
             )));
         }
     }
-    if datatable.database.resource_type == DataTableCatalogResourceType::Instance {
-        let others = sqlx::query!(
-            r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "name!", w.deleted AS "deleted!"
-               FROM workspace_settings ws
-               JOIN workspace w ON w.id = ws.workspace_id,
-               jsonb_each(ws.datatable->'datatables') dt
-               WHERE ws.workspace_id <> $1
-                 AND dt.value->'database'->>'resource_type' = 'instance'
-                 AND dt.value->'database'->>'resource_path' = $2
-               ORDER BY ws.workspace_id, dt.key"#,
+    let same_pointer = sqlx::query!(
+        r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "name!", w.deleted AS "deleted!"
+           FROM workspace_settings ws
+           JOIN workspace w ON w.id = ws.workspace_id,
+           jsonb_each(ws.datatable->'datatables') dt
+           WHERE ws.workspace_id <> $1
+             AND dt.value->'database' = $2
+           ORDER BY ws.workspace_id, dt.key"#,
+        w_id,
+        database,
+    )
+    .fetch_all(db)
+    .await?;
+    let mut others = Vec::new();
+    match datatable.database.resource_type {
+        DataTableCatalogResourceType::Instance => {
+            others.extend(
+                same_pointer
+                    .into_iter()
+                    .map(|o| describe(&o.workspace_id, &o.name, o.deleted)),
+            );
+        }
+        DataTableCatalogResourceType::Postgresql => {
+            if !same_pointer.is_empty() {
+                let identity = datatable_database_identity(
+                    &get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?,
+                );
+                for o in same_pointer {
+                    // Not resolving is not proof of not reaching: refused, and
+                    // named, so the admin can remove that entry.
+                    let resolved =
+                        get_datatable_resource_from_db_unchecked(db, &o.workspace_id, &o.name)
+                            .await
+                            .map_err(|e| {
+                                Error::BadRequest(format!(
+                                    "Data table permissions cannot be enabled: whether {} reaches \
+                                     the same database could not be checked ({e}). Remove that \
+                                     data table first.",
+                                    describe(&o.workspace_id, &o.name, o.deleted)
+                                ))
+                            })?;
+                    if datatable_database_identity(&resolved) == identity {
+                        others.push(describe(&o.workspace_id, &o.name, o.deleted));
+                    }
+                }
+            }
+        }
+    }
+    if !others.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "Data table permissions cannot be enabled while another workspace reaches the \
+             same database: {}. Its members would keep reaching it through that data \
+             table's own connection, as every role at once — an archived workspace \
+             included, since archiving keeps its members. Remove that data table, or delete \
+             the workspace permanently, first.",
+            others.join(", ")
+        )));
+    }
+    Ok(())
+}
+
+/// Refuse a save that names something that no longer exists: a tenant whose
+/// user, group or folder is gone, or a rename of a role that stored migrations
+/// still name.
+///
+/// The drawer sends the whole role list it loaded, so a save can carry a tenant
+/// that another admin's deletion took off the role in between (deleting the
+/// principal removes its tenant, see `remove_datatable_tenant`): written back,
+/// whoever is given that username next would inherit the role. Refusing is what
+/// makes the stale save visible; the admin reloads and saves again.
+///
+/// A migration carries its role as a `-- role <name>` annotation in its own code,
+/// which a rename does not rewrite, so its next run — or the down script of one
+/// already applied — would name a role that no longer exists.
+async fn ensure_save_names_what_exists(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+    req: &SetDatatablePermissions,
+) -> Result<()> {
+    let mut users = Vec::new();
+    let mut groups = Vec::new();
+    let mut folders = Vec::new();
+    for tenant in req.roles.iter().flat_map(|r| r.tenants.iter()) {
+        match tenant.split_once('/') {
+            Some(("u", user)) => users.push(user.to_string()),
+            Some(("g", group)) => groups.push(group.to_string()),
+            Some(("f", folder)) => folders.push(folder.to_string()),
+            _ => {}
+        }
+    }
+    let mut missing = Vec::new();
+    if !users.is_empty() {
+        let found = sqlx::query_scalar!(
+            r#"SELECT username AS "username!" FROM usr WHERE workspace_id = $1 AND username = ANY($2)"#,
             w_id,
-            &datatable.database.resource_path,
+            &users[..],
         )
         .fetch_all(db)
         .await?;
-        if !others.is_empty() {
-            let others: Vec<String> = others
+        missing.extend(
+            users
+                .iter()
+                .filter(|u| !found.contains(u))
+                .map(|u| format!("u/{u}")),
+        );
+    }
+    if !groups.is_empty() {
+        let found = sqlx::query_scalar!(
+            r#"SELECT name AS "name!" FROM group_ WHERE workspace_id = $1 AND name = ANY($2)"#,
+            w_id,
+            &groups[..],
+        )
+        .fetch_all(db)
+        .await?;
+        missing.extend(
+            groups
+                .iter()
+                .filter(|g| !found.contains(g))
+                .map(|g| format!("g/{g}")),
+        );
+    }
+    if !folders.is_empty() {
+        let found = sqlx::query_scalar!(
+            r#"SELECT name AS "name!" FROM folder WHERE workspace_id = $1 AND name = ANY($2)"#,
+            w_id,
+            &folders[..],
+        )
+        .fetch_all(db)
+        .await?;
+        missing.extend(
+            folders
+                .iter()
+                .filter(|f| !found.contains(f))
+                .map(|f| format!("f/{f}")),
+        );
+    }
+    if !missing.is_empty() {
+        missing.sort();
+        missing.dedup();
+        return Err(Error::BadRequest(format!(
+            "Tenant(s) {} no longer exist in this workspace. Reload the roles and save again.",
+            missing.join(", ")
+        )));
+    }
+
+    let renamed: Vec<&str> = req
+        .renames
+        .iter()
+        .filter(|r| r.from != r.to)
+        .map(|r| r.from.as_str())
+        .collect();
+    if !renamed.is_empty() {
+        let migrations = sqlx::query!(
+            r#"SELECT name AS "name!", code_up AS "code_up!", code_down
+               FROM datatable_migrations WHERE workspace_id = $1 AND datatable = $2
+               ORDER BY timestamp"#,
+            w_id,
+            datatable_name,
+        )
+        .fetch_all(db)
+        .await?;
+        let mut blocking = Vec::new();
+        for m in migrations {
+            let names = [Some(m.code_up.as_str()), m.code_down.as_deref()]
                 .into_iter()
-                .map(|o| describe(&o.workspace_id, &o.name, o.deleted))
-                .collect();
+                .flatten()
+                .filter_map(SqlAnnotations::datatable_role)
+                .filter(|role| renamed.contains(&role.as_str()))
+                .collect::<HashSet<String>>();
+            for role in names {
+                blocking.push(format!("'{}' (role '{role}')", m.name));
+            }
+        }
+        if !blocking.is_empty() {
             return Err(Error::BadRequest(format!(
-                "Data table permissions cannot be enabled while another workspace reaches the \
-                 same database: {}. Its members would keep reaching it through that data \
-                 table's own connection, as every role at once — an archived workspace \
-                 included, since archiving keeps its members. Remove that data table, or delete \
-                 the workspace permanently, first.",
-                others.join(", ")
+                "Migration(s) {} name a role this save renames, in a `-- role` annotation the \
+                 rename does not rewrite. Update the migration(s) first, or keep the name.",
+                blocking.join(", ")
             )));
         }
     }
