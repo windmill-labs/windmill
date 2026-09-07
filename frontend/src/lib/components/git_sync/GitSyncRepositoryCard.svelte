@@ -219,23 +219,24 @@
 			}
 		}
 		if (days > 30) return undefined
-		// Two different things stop a renewal, and they need opposite advice: a token
-		// that may not rotate itself, or one Windmill does not hold. Scopes say
-		// which, because a token Windmill holds and that may rotate itself is
-		// renewed, and so never reaches here.
+		// Renewal needs two things, and the advice differs by which is missing: a
+		// scope that permits self-rotation, and a credential this workspace holds.
+		// Scopes answer the first; `managedCredential` is the client's signal for the
+		// second, and naming the URL as the cause would be wrong for a fork, which
+		// borrows an ancestor's token and holds none of its own.
 		const canSelfRotate = (credential.scopes ?? []).some((s) => s === 'api' || s === 'self_rotate')
+		const remedy = managedCredential
+			? // The remedy lives with the credential, which the resource owns; saying
+				// where stops the warning being a dead end.
+				` Replace it on the ${repo?.git_repo_resource_path?.replace(/^\$res:/, '') ?? 'repository'} resource.`
+			: ' Connect the repository with the GitLab button to hand the token to Windmill, or replace it before it expires.'
 		return {
 			type: days <= 7 ? ('error' as const) : days <= 14 ? ('warning' as const) : ('info' as const),
 			title: `Repository token ${when}`,
 			body:
 				(canSelfRotate
-					? 'Windmill only renews a token it holds, and this one is written into the repository URL. Connect the repository with the GitLab button to hand the token over, or replace it before it expires.'
-					: 'Give the token the api or self_rotate scope and Windmill will renew it on its own. Otherwise, replace it before it expires to keep sync running.') +
-				// The remedy lives with the credential, which the resource owns; saying
-				// where stops the warning being a dead end.
-				(managedCredential
-					? ` Replace it on the ${repo?.git_repo_resource_path?.replace(/^\$res:/, '') ?? 'repository'} resource.`
-					: '')
+					? 'Windmill is not the holder of this token, so it does not renew it.'
+					: 'Give the token the api or self_rotate scope so Windmill can renew it.') + remedy
 		}
 	})
 
@@ -642,11 +643,14 @@
 					Repository token expires on {repo.credential.expires_at}. Renewing it automatically
 					requires an enterprise license.
 				{:else if (repo.credential.scopes ?? []).some((s) => s === 'api' || s === 'self_rotate')}
-					Repository token expires on {repo.credential.expires_at}. Windmill only renews a token it
-					holds, and this repository authenticates with one it does not.
-				{:else}
+					Repository token expires on {repo.credential.expires_at}. Windmill renews only a token it
+					holds, and it does not hold this one.
+				{:else if managedCredential}
 					Repository token expires on {repo.credential.expires_at}. Give it the api or self_rotate
-					scope to let Windmill renew it automatically.
+					scope so Windmill can renew it.
+				{:else}
+					Repository token expires on {repo.credential.expires_at}. Windmill renews only a token it
+					holds, and this one would also need the api or self_rotate scope.
 				{/if}
 			</div>
 		{/if}

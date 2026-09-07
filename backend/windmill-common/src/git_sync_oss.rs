@@ -5,7 +5,10 @@ pub use crate::git_sync_ee::*;
 use sqlx::{Pool, Postgres};
 use url::Url;
 
-#[cfg(not(feature = "private"))]
+/// Gated on the pair for the same reason as [`with_stored_credential`] below:
+/// `private` alone would leave this undefined, which only stays harmless while
+/// every caller is itself `enterprise`-gated.
+#[cfg(not(all(feature = "private", feature = "enterprise")))]
 pub async fn get_github_app_token_internal(
     _db: &Pool<Postgres>,
     _job_token: &str,

@@ -67,11 +67,15 @@
 		loading = true
 		listError = undefined
 		try {
+			// Captured before the await, not after: the field stays editable while the
+			// request is in flight, and reading it on the way back would record a
+			// token this listing was never checked against.
+			const listedWith = token
 			projects = await GitSyncService.listGitlabProjects({
 				workspace: ws,
-				requestBody: { base_url: baseUrl, token, search: search || undefined }
+				requestBody: { base_url: baseUrl, token: listedWith, search: search || undefined }
 			})
-			listedToken = token
+			listedToken = listedWith
 			selectedProject = projects[0]?.path_with_namespace
 			if (projects.length === 0) {
 				listError = 'The token can see no project with at least the Developer role'
@@ -120,6 +124,7 @@
 			branch: args.branch || chosen.default_branch || undefined
 		})
 		token = ''
+		listedToken = ''
 		projects = []
 		selectedProject = undefined
 		sendUserToast(`${chosen.path_with_namespace} selected and its token stored`)
