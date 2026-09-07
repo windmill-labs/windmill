@@ -401,14 +401,22 @@ pub async fn fetch_draft_only_list_rows(
     Ok(rows)
 }
 
-/// Delete the draft behind a synthesized draft-only list row, for the DELETE
-/// route of a kind whose list calls `fetch_draft_only_list_rows`. With no
-/// deployed row at the path the entry exists only as that draft, so dropping it
-/// IS the delete — 404-ing instead strands a row the user can see but never
-/// remove. Same reach as the synthesis (own draft + legacy NULL-email row), and
-/// the `NOT EXISTS` keeps a deployed row's draft untouched, so a route can call
-/// this on its not-found branch without second-guessing why the row was missing.
-/// `Ok(false)` means nothing was deleted: the caller reports its own error.
+/// Delete the caller's OWN draft behind a synthesized draft-only list row, for
+/// the DELETE route of a kind whose list calls `fetch_draft_only_list_rows`.
+/// With no deployed row at the path the entry exists only as that draft, so
+/// dropping it IS the delete — 404-ing instead strands a row the user can see
+/// but never remove. The `NOT EXISTS` keeps a deployed row's draft untouched, so
+/// a route can call this on its not-found branch without second-guessing why the
+/// row was missing. `Ok(false)` means nothing was deleted: the caller reports
+/// its own error.
+///
+/// Requires no permission check, and callers must not add one: an email-scoped
+/// row belongs to the authed user, who can always discard it — the same reason
+/// `update_draft` exempts an own-discard from `require_can_write_path`. That is
+/// also why the reach stops short of the synthesis, which additionally surfaces
+/// LEGACY (`email IS NULL`) rows: those are owned by nobody and keep the write
+/// gate, so discarding one stays on the `update_draft` / migrate routes that
+/// apply it.
 pub async fn delete_draft_only_for_path(
     db: &DB,
     w_id: &str,
@@ -423,7 +431,7 @@ pub async fn delete_draft_only_for_path(
     let sql = format!(
         "DELETE FROM draft \
          WHERE workspace_id = $1 AND typ = $2::text::DRAFT_KIND AND path = $3 \
-           AND (email = $4 OR email IS NULL) \
+           AND email = $4 \
            AND NOT EXISTS (SELECT 1 FROM {table} t \
              WHERE t.workspace_id = draft.workspace_id AND t.path = draft.path)"
     );
