@@ -43,30 +43,34 @@
 	/**
 	 * Whether the policy is settled, which is what this form may not submit without:
 	 * `automateUsername` starts at the common case, and posting that guess to an instance
-	 * that derives no usernames sends none where one is required. A load that fails settles
-	 * it by handing over to the full form, which asks for a username outright instead of
-	 * inferring one — so this is never true while the answer is still a guess.
+	 * that derives no usernames sends none where one is required. `loadUsernamePolicy`
+	 * always answers — "ask for one" when it cannot read the setting — so this turns true
+	 * on a known answer rather than on the attempt finishing.
 	 */
 	let policyLoaded = $state(false)
 	/** Someone typed while the prefill was in flight; their name wins over the suggestion. */
 	let nameEdited = false
 
 	async function load() {
-		try {
-			const [me, policy] = await Promise.all([UserService.globalWhoami(), loadUsernamePolicy()])
-			if (!nameEdited) name = defaultWorkspaceName(me.name, me.email)
-			automateUsername = policy.automate
-			suggestedUsername = policy.suggested
-			if (!policy.automate && !policy.suggested) advanced = true
-			policyLoaded = true
-		} catch (error) {
-			console.error('Could not prefill the workspace name:', error)
-			if (!nameEdited) name = 'My workspace'
-			// The policy is what failed, so there is nothing to submit against. The full form
-			// carries its own username field, which is the version that needs no policy.
-			advanced = true
-			policyLoaded = true
+		// Settled apart: the policy decides whether this form may submit at all, the suggested
+		// name is cosmetic, and neither failure should decide the other.
+		const [me, policy] = await Promise.allSettled([
+			UserService.globalWhoami(),
+			loadUsernamePolicy()
+		])
+		if (!nameEdited) {
+			name =
+				me.status === 'fulfilled'
+					? defaultWorkspaceName(me.value.name, me.value.email)
+					: 'My workspace'
 		}
+		// `loadUsernamePolicy` answers "ask for one" rather than rejecting when the setting
+		// cannot be read, so the fallback here is the same answer by another route.
+		const answer = policy.status === 'fulfilled' ? policy.value : { automate: false }
+		automateUsername = answer.automate
+		suggestedUsername = answer.suggested
+		if (!answer.automate && !answer.suggested) advanced = true
+		policyLoaded = true
 	}
 	void load()
 

@@ -1,13 +1,22 @@
 import { describe, expect, it, vi } from 'vitest'
 
 // The module reaches the API for the username policy and the workspace list; the name
-// helper touches neither.
-vi.mock('./gen', () => ({ SettingService: {}, UserService: {}, WorkspaceService: {} }))
+// helper touches neither. `getGlobal` is a spy so the policy's failure path can be driven.
+const getGlobal = vi.fn()
+vi.mock('./gen', () => ({
+	SettingService: {
+		get getGlobal() {
+			return getGlobal
+		}
+	},
+	UserService: {},
+	WorkspaceService: {}
+}))
 vi.mock('./stores', () => ({ usersWorkspaceStore: { set: () => {} } }))
 vi.mock('./storeUtils', () => ({ switchWorkspace: () => {} }))
 vi.mock('./cloud', () => ({ isCloudHosted: () => false }))
 
-import { defaultWorkspaceName, usernameFromName } from './workspaceCreation'
+import { defaultWorkspaceName, loadUsernamePolicy, usernameFromName } from './workspaceCreation'
 
 describe('defaultWorkspaceName', () => {
 	it('names the workspace after the person, not the address', () => {
@@ -58,5 +67,21 @@ describe('usernameFromName', () => {
 		// and `create_workspace` inserts it untruncated.
 		expect(usernameFromName('a'.repeat(50))).toBe('a'.repeat(50))
 		expect(usernameFromName('a'.repeat(51))).toBeUndefined()
+	})
+})
+
+describe('loadUsernamePolicy', () => {
+	// Fail-closed matters because a caller told "automated" hides its username field and
+	// posts none: an instance that derives none refuses that, with nowhere to supply one.
+	it('asks for a username when the setting cannot be read', async () => {
+		getGlobal.mockRejectedValueOnce(new Error('502'))
+		expect(await loadUsernamePolicy()).toEqual({ automate: false })
+	})
+
+	it('automates when the setting says so, and when it is unset', async () => {
+		getGlobal.mockResolvedValueOnce(true)
+		expect(await loadUsernamePolicy()).toEqual({ automate: true })
+		getGlobal.mockResolvedValueOnce(null)
+		expect(await loadUsernamePolicy()).toEqual({ automate: true })
 	})
 })
