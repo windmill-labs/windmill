@@ -17,13 +17,14 @@ export type PopularityCounts = Record<string, number>
  */
 const CACHE_MS = 60_000
 
-const hubPicksCached = createCache(
-	async ({ workspace }: { workspace: string }): Promise<PopularityCounts> => {
+type HubResourceTypeInfo = { name: string; app: string; picks: number }
+
+const hubInfoCached = createCache(
+	async ({ workspace }: { workspace: string }): Promise<HubResourceTypeInfo[]> => {
 		try {
-			const picked = await ResourceService.listHubPickedResourceTypes({ workspace })
-			return Object.fromEntries(picked.map((rt) => [rt.name, rt.picks]))
+			return await ResourceService.listHubResourceTypeInfo({ workspace })
 		} catch {
-			return {}
+			return []
 		}
 	},
 	{ invalidateMs: CACHE_MS }
@@ -46,18 +47,53 @@ const localCountsCached = createCache(
  * and on an instance that has switched the hub off — a closed environment must not spend a
  * request on hub.windmill.dev just to order a list.
  */
-export function hubResourceTypePicks(workspace: string): Promise<PopularityCounts> {
-	if (get(disableHubStore)) return Promise.resolve({})
-	return hubPicksCached({ workspace })
+export async function hubResourceTypePicks(workspace: string): Promise<PopularityCounts> {
+	if (get(disableHubStore)) return {}
+	const info = await hubInfoCached({ workspace })
+	return Object.fromEntries(info.map((rt) => [rt.name, rt.picks]))
 }
 
 /**
  * How many resources of each type this workspace holds — the only evidence about this
- * particular team, and the same map the flow step picker reads for an integration, since an
- * integration and the resource type authenticating it share a name.
+ * particular team. Keyed by resource type, which is what the add-resource drawer lists.
  */
 export function localResourceTypeCounts(workspace: string): Promise<PopularityCounts> {
 	return localCountsCached({ workspace })
+}
+
+/**
+ * The same counts totalled per integration, which is what the flow step picker lists.
+ *
+ * A type usually shares its integration's name, but often enough it does not:
+ * `discord_webhook` and `discord_bot_configuration` are both Discord, `ms_teams_webhook` and
+ * `azure_bot` are both MS Teams. Only the hub knows that, so a workspace whose Discord
+ * credential is a `discord_webhook` would otherwise read as one that has never touched
+ * Discord — and since local usage is the leading tier, that decides which half of the list
+ * the integration lands in, not merely its position within one.
+ *
+ * A type the hub has no mapping for counts under its own name, which is the right guess and
+ * also what an unreachable hub leaves every type with.
+ */
+export async function localCountsByIntegration(workspace: string): Promise<PopularityCounts> {
+	const [counts, info] = await Promise.all([
+		localCountsCached({ workspace }),
+		get(disableHubStore) ? Promise.resolve([]) : hubInfoCached({ workspace })
+	])
+	return totalLocalCountsByApp(counts, info)
+}
+
+/** The mapping half of {@link localCountsByIntegration}, separated so it can be tested alone. */
+export function totalLocalCountsByApp(
+	counts: PopularityCounts,
+	hub: { name: string; app: string }[]
+): PopularityCounts {
+	const appOf = new Map(hub.map((rt) => [rt.name, rt.app]))
+	const byApp: PopularityCounts = {}
+	for (const [name, count] of Object.entries(counts)) {
+		const app = appOf.get(name) ?? name
+		byApp[app] = (byApp[app] ?? 0) + count
+	}
+	return byApp
 }
 
 /**

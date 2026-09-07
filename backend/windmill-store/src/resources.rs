@@ -90,7 +90,7 @@ pub fn workspaced_service() -> Router {
         .route("/type/list", get(list_resource_types))
         .route("/type/listnames", get(list_resource_types_names))
         .route("/type/resource_counts", get(list_resource_counts_by_type))
-        .route("/type/hub/picked", get(list_hub_picked_resource_types))
+        .route("/type/hub/info", get(list_hub_resource_type_info))
         .route("/type/hub/pick/{name}", post(pick_hub_resource_type))
         .route("/type/get/{name}", get(get_resource_type))
         .route("/type/exists/{name}", get(exists_resource_type))
@@ -2618,8 +2618,9 @@ struct HubCached<T> {
 const HUB_RT_IDS_TTL: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 const HUB_RT_PICKS_TTL: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 
-static HUB_RT_IDS: LazyLock<std::sync::RwLock<Option<HubCached<HashMap<String, i64>>>>> =
-    LazyLock::new(|| std::sync::RwLock::new(None));
+static HUB_RT_IDS: LazyLock<
+    std::sync::RwLock<Option<HubCached<HashMap<String, HubResourceType>>>>,
+> = LazyLock::new(|| std::sync::RwLock::new(None));
 static HUB_RT_PICKS: LazyLock<std::sync::RwLock<Option<HubCached<Vec<HubResourceTypePicks>>>>> =
     LazyLock::new(|| std::sync::RwLock::new(None));
 
@@ -2645,17 +2646,30 @@ fn hub_cache_put<T>(cache: &std::sync::RwLock<Option<HubCached<T>>>, hub_base_ur
 }
 
 #[derive(Deserialize)]
-struct HubResourceTypeId {
+struct HubResourceTypeEntry {
     id: i64,
     name: String,
+    app: String,
 }
 
-/// Maps a resource type's name to the id the hub addresses it by. Windmill knows types by
-/// name — the hub id is not stored anywhere locally — so reporting a pick has to resolve
-/// one. `None` when the hub cannot be reached or does not answer with a list.
-async fn hub_resource_type_ids(db: &DB, hub_base_url: &str) -> Option<HashMap<String, i64>> {
-    if let Some(ids) = hub_cache_get(&HUB_RT_IDS, hub_base_url, HUB_RT_IDS_TTL) {
-        return Some(ids);
+#[derive(Clone)]
+struct HubResourceType {
+    id: i64,
+    /// The integration the type belongs to. Usually the type's own name, but not always:
+    /// `discord_webhook` and `discord_bot_configuration` are both `discord`, and only the
+    /// hub knows that. Without it a workspace holding a `discord_webhook` resource looks
+    /// like one that has never touched Discord.
+    app: String,
+}
+
+/// What the hub knows about every published resource type, keyed by the name Windmill
+/// addresses it by. `None` when the hub cannot be reached or does not answer with a list.
+async fn hub_resource_types(
+    db: &DB,
+    hub_base_url: &str,
+) -> Option<HashMap<String, HubResourceType>> {
+    if let Some(index) = hub_cache_get(&HUB_RT_IDS, hub_base_url, HUB_RT_IDS_TTL) {
+        return Some(index);
     }
     let response = windmill_common::utils::http_get_from_hub(
         &windmill_common::utils::HTTP_CLIENT,
@@ -2669,17 +2683,17 @@ async fn hub_resource_type_ids(db: &DB, hub_base_url: &str) -> Option<HashMap<St
     if !response.status().is_success() {
         return None;
     }
-    // Only the ids are kept. That listing carries every type's schema — around a megabyte
-    // — and none of it has anything to do with reporting a pick.
-    let ids: HashMap<String, i64> = response
-        .json::<Vec<HubResourceTypeId>>()
+    // Only the id and the app are kept. That listing carries every type's schema — around
+    // a megabyte — and neither reporting a pick nor grouping types by integration needs it.
+    let index: HashMap<String, HubResourceType> = response
+        .json::<Vec<HubResourceTypeEntry>>()
         .await
         .ok()?
         .into_iter()
-        .map(|rt| (rt.name, rt.id))
+        .map(|rt| (rt.name, HubResourceType { id: rt.id, app: rt.app }))
         .collect();
-    hub_cache_put(&HUB_RT_IDS, hub_base_url, ids.clone());
-    Some(ids)
+    hub_cache_put(&HUB_RT_IDS, hub_base_url, index.clone());
+    Some(index)
 }
 
 #[derive(Serialize)]
@@ -2706,10 +2720,7 @@ async fn pick_hub_resource_type(
     check_scopes(&authed, || "resources:write".to_string())?;
     let hub_base_url = (**windmill_common::HUB_BASE_URL.load()).clone();
     let success = async {
-        let id = hub_resource_type_ids(&db, &hub_base_url)
-            .await?
-            .get(&name)
-            .copied()?;
+        let id = hub_resource_types(&db, &hub_base_url).await?.get(&name)?.id;
         let response = windmill_common::utils::http_get_from_hub(
             &windmill_common::utils::HTTP_CLIENT,
             &format!("{hub_base_url}/resource_types/{id}/pick"),
@@ -2766,42 +2777,75 @@ mod hub_picks_tests {
     }
 }
 
-/// The hub's own popularity ranking for resource types. Empty rather than an error when
-/// the hub has no such endpoint, so the pickers reading this treat an older or private hub
-/// as "no hub signal" and fall back to what the workspace itself uses.
-async fn list_hub_picked_resource_types(
-    Extension(db): Extension<DB>,
-) -> JsonResult<Vec<HubResourceTypePicks>> {
-    let hub_base_url = (**windmill_common::HUB_BASE_URL.load()).clone();
-    if let Some(picks) = hub_cache_get(&HUB_RT_PICKS, &hub_base_url, HUB_RT_PICKS_TTL) {
-        return Ok(Json(picks));
-    }
-    let picks = async {
-        let response = windmill_common::utils::http_get_from_hub(
-            &windmill_common::utils::HTTP_CLIENT,
-            &format!("{hub_base_url}/resource_types/picked"),
-            false,
-            Some(vec![("limit", "200".to_string())]),
-            Some(&db),
-        )
-        .await
-        .ok()?;
-        if !response.status().is_success() {
-            return None;
-        }
-        Some(
-            response
-                .json::<HubPickedResourceTypes>()
-                .await
-                .ok()?
-                .resource_types,
-        )
-    }
-    .await
-    .unwrap_or_default();
+/// One hub resource type as the pickers need it.
+#[derive(Serialize, Clone)]
+struct HubResourceTypeInfo {
+    name: String,
+    /// The integration it belongs to, so a caller can total a workspace's resources per
+    /// integration rather than per type.
+    app: String,
+    picks: i64,
+}
 
-    hub_cache_put(&HUB_RT_PICKS, &hub_base_url, picks.clone());
-    Ok(Json(picks))
+/// What the hub knows about its resource types: which integration each belongs to, and how
+/// often each has been picked.
+///
+/// Empty rather than an error when the hub answers neither read, so the pickers treat an
+/// older or private hub as "no hub signal" and fall back to what the workspace itself uses.
+/// The two reads degrade independently: a hub that lists types but has no `picked` route
+/// still supplies the type-to-integration mapping, which is what decides whether a
+/// workspace's resources are recognised as belonging to an integration at all.
+async fn list_hub_resource_type_info(
+    Extension(db): Extension<DB>,
+) -> JsonResult<Vec<HubResourceTypeInfo>> {
+    let hub_base_url = (**windmill_common::HUB_BASE_URL.load()).clone();
+    let picks = match hub_cache_get(&HUB_RT_PICKS, &hub_base_url, HUB_RT_PICKS_TTL) {
+        Some(picks) => picks,
+        None => {
+            let fetched = async {
+                let response = windmill_common::utils::http_get_from_hub(
+                    &windmill_common::utils::HTTP_CLIENT,
+                    &format!("{hub_base_url}/resource_types/picked"),
+                    false,
+                    Some(vec![("limit", "200".to_string())]),
+                    Some(&db),
+                )
+                .await
+                .ok()?;
+                if !response.status().is_success() {
+                    return None;
+                }
+                Some(
+                    response
+                        .json::<HubPickedResourceTypes>()
+                        .await
+                        .ok()?
+                        .resource_types,
+                )
+            }
+            .await
+            .unwrap_or_default();
+            hub_cache_put(&HUB_RT_PICKS, &hub_base_url, fetched.clone());
+            fetched
+        }
+    };
+
+    let picks_by_name: HashMap<String, i64> =
+        picks.into_iter().map(|rt| (rt.name, rt.picks)).collect();
+    let index = hub_resource_types(&db, &hub_base_url)
+        .await
+        .unwrap_or_default();
+
+    Ok(Json(
+        index
+            .into_iter()
+            .map(|(name, rt)| HubResourceTypeInfo {
+                picks: picks_by_name.get(&name).copied().unwrap_or(0),
+                name,
+                app: rt.app,
+            })
+            .collect(),
+    ))
 }
 
 async fn get_resource_type(

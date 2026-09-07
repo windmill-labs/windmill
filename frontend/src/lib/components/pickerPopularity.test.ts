@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { alphabetical, byPopularity } from './pickerPopularity'
+import { alphabetical, byPopularity, totalLocalCountsByApp } from './pickerPopularity'
 
 const order = (names: string[], hub: Record<string, number>, local: Record<string, number> = {}) =>
 	[...names].sort(byPopularity(hub, local))
@@ -49,5 +49,32 @@ describe('byPopularity', () => {
 	// HashMap's iteration order, so the resting comparator has to sort rather than no-op.
 	it('leaves an alphabetical order with no signal at all', () => {
 		expect(['stripe', 'ably', 'github'].sort(alphabetical)).toEqual(['ably', 'github', 'stripe'])
+	})
+})
+
+describe('totalLocalCountsByApp', () => {
+	const HUB = [
+		{ name: 'discord_webhook', app: 'discord', picks: 0 },
+		{ name: 'discord_bot_configuration', app: 'discord', picks: 0 },
+		{ name: 'ms_teams_webhook', app: 'msteams', picks: 0 },
+		{ name: 'slack', app: 'slack', picks: 0 }
+	]
+
+	// The integration pickers list app names, the counts arrive keyed by resource type, and
+	// the two only usually agree. Without the mapping a workspace whose Discord credential is
+	// a `discord_webhook` never reaches the used-here tier at all.
+	it('totals a resource type under the integration it belongs to', () => {
+		expect(totalLocalCountsByApp({ discord_webhook: 2 }, HUB)).toEqual({ discord: 2 })
+	})
+
+	it('sums the several types one integration can have', () => {
+		expect(
+			totalLocalCountsByApp({ discord_webhook: 2, discord_bot_configuration: 1 }, HUB)
+		).toEqual({ discord: 3 })
+	})
+
+	// What a workspace-made type, and an unreachable hub, both leave every entry with.
+	it('keeps a type the hub has no mapping for under its own name', () => {
+		expect(totalLocalCountsByApp({ c_acme: 1, slack: 2 }, HUB)).toEqual({ c_acme: 1, slack: 2 })
 	})
 })

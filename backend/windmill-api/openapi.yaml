@@ -8554,17 +8554,17 @@ paths:
                     - resource_type
                     - count
 
-  /w/{workspace}/resources/type/hub/picked:
+  /w/{workspace}/resources/type/hub/info:
     get:
-      summary: list the hub's most picked resource types
-      operationId: listHubPickedResourceTypes
+      summary: list what the hub knows about its resource types
+      operationId: listHubResourceTypeInfo
       tags:
         - resource
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       responses:
         "200":
-          description: resource types ranked by hub picks, empty if the hub has no such ranking
+          description: each hub resource type with its integration and pick count, empty if the hub answers neither read
           content:
             application/json:
               schema:
@@ -8574,10 +8574,14 @@ paths:
                   properties:
                     name:
                       type: string
+                    app:
+                      description: the integration the resource type belongs to, which is not always its own name
+                      type: string
                     picks:
                       type: integer
                   required:
                     - name
+                    - app
                     - picks
 
   /w/{workspace}/resources/type/hub/pick/{name}:

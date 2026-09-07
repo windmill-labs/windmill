@@ -13,7 +13,7 @@
 	import {
 		alphabetical,
 		byPopularity,
-		localResourceTypeCounts
+		localCountsByIntegration
 	} from '$lib/components/pickerPopularity'
 
 	interface Props {
@@ -62,11 +62,12 @@
 		if ($disableHubStore) return
 		try {
 			hubNotAvailable = false
-			const integrations = await IntegrationService.listHubIntegrations({
-				kind: filterKind
-			})
+			// Independent reads, so they share one round trip before first paint.
+			const [integrations, local] = await Promise.all([
+				IntegrationService.listHubIntegrations({ kind: filterKind }),
+				$workspaceStore ? localCountsByIntegration($workspaceStore) : {}
+			])
 			const hubPicks = Object.fromEntries(integrations.map((x) => [x.name, x.picks ?? 0]))
-			const local = $workspaceStore ? await localResourceTypeCounts($workspaceStore) : {}
 			popularity = byPopularity(hubPicks, local)
 			allApps = integrations.map((x) => x.name).sort(popularity)
 		} catch (err) {

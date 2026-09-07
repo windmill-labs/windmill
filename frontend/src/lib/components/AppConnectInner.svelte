@@ -387,9 +387,10 @@
 	}
 
 	/**
-	 * Orders the browse list: what the hub sees people pick, then what this workspace already
-	 * has resources of. Both signals are fetched, so the rows render in the order the lists
-	 * arrived in and re-sort when this lands.
+	 * Orders the browse list: the types this workspace already has resources of lead, ranked
+	 * among themselves by the hub's pick counts, then everything else on the same counts.
+	 * `byPopularity` carries the full rule. Both signals are fetched, so the rows render
+	 * alphabetically and re-sort when this lands.
 	 */
 	let popularity: (a: string, b: string) => number = $state(alphabetical)
 
@@ -998,6 +999,9 @@
 		if (step == 1) {
 			loadConnects()
 			loadResourceTypes()
+			// Opened on a specific type, `open()` skipped this; backing out to the browse
+			// list is the first time it is needed.
+			loadPopularity()
 		}
 	}
 

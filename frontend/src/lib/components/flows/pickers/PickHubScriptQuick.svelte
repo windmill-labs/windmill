@@ -53,7 +53,7 @@
 	import {
 		alphabetical,
 		byPopularity,
-		localResourceTypeCounts
+		localCountsByIntegration
 	} from '$lib/components/pickerPopularity'
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
@@ -112,9 +112,12 @@
 		if ($disableHubStore) return
 		try {
 			hubNotAvailable = false
-			const integrations = await listHubIntegrationsCached({ kind: filterKind, refreshCount })
+			// Independent reads, so they share one round trip before first paint.
+			const [integrations, local] = await Promise.all([
+				listHubIntegrationsCached({ kind: filterKind, refreshCount }),
+				$workspaceStore ? localCountsByIntegration($workspaceStore) : {}
+			])
 			const hubPicks = Object.fromEntries(integrations.map((x) => [x.name, x.picks ?? 0]))
-			const local = $workspaceStore ? await localResourceTypeCounts($workspaceStore) : {}
 			popularity = byPopularity(hubPicks, local)
 			allApps = integrations.map((x) => x.name).sort(popularity)
 		} catch (err) {
