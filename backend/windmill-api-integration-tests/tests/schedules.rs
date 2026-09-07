@@ -228,10 +228,9 @@ async fn test_schedule_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// A schedule that exists only as a draft is listed (synthesized from the
-/// `draft` table) but has no `schedule` row, so its DELETE used to 404 and
-/// leave the row unremovable. It must drop the draft instead, and still 404
-/// once nothing is left at the path.
+/// A schedule with no `schedule` row is listed from the `draft` table, so its
+/// DELETE drops that draft, then 404s once nothing is left at the path. A legacy
+/// (`email IS NULL`) draft is owned by nobody and stays put.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_delete_draft_only_schedule(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;

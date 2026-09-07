@@ -401,22 +401,16 @@ pub async fn fetch_draft_only_list_rows(
     Ok(rows)
 }
 
-/// Delete the caller's OWN draft behind a synthesized draft-only list row, for
-/// the DELETE route of a kind whose list calls `fetch_draft_only_list_rows`.
-/// With no deployed row at the path the entry exists only as that draft, so
-/// dropping it IS the delete — 404-ing instead strands a row the user can see
-/// but never remove. The `NOT EXISTS` keeps a deployed row's draft untouched, so
-/// a route can call this on its not-found branch without second-guessing why the
-/// row was missing. `Ok(false)` means nothing was deleted: the caller reports
-/// its own error.
+/// Delete the caller's OWN draft at a path with no deployed row, for the DELETE
+/// route of a kind whose list synthesizes such rows via
+/// `fetch_draft_only_list_rows`. The `NOT EXISTS` leaves a deployed row's draft
+/// alone, so a route may call this on its not-found branch whatever the reason
+/// for the miss. `Ok(false)` means nothing matched: the caller reports its own error.
 ///
-/// Requires no permission check, and callers must not add one: an email-scoped
-/// row belongs to the authed user, who can always discard it — the same reason
-/// `update_draft` exempts an own-discard from `require_can_write_path`. That is
-/// also why the reach stops short of the synthesis, which additionally surfaces
-/// LEGACY (`email IS NULL`) rows: those are owned by nobody and keep the write
-/// gate, so discarding one stays on the `update_draft` / migrate routes that
-/// apply it.
+/// Takes no permission check and callers must not add one: an email-scoped row
+/// belongs to the caller, who can always discard it, as `update_draft`'s
+/// own-discard does. Legacy (`email IS NULL`) rows are owned by nobody and keep
+/// their write gate, so discarding one stays on the `update_draft` route.
 pub async fn delete_draft_only_for_path(
     db: &DB,
     w_id: &str,

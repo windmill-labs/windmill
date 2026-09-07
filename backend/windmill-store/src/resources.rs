@@ -1313,12 +1313,10 @@ async fn delete_resource(
 
     check_scopes(&authed, || format!("resources:write:{}", path))?;
 
-    // Ahead of the deployment rules, which gate deployments: nothing is deployed
-    // at a draft-only path, and discarding one's own draft is already ungated on
-    // the drafts routes. Gating it here would leave the row undeletable in a
-    // protected workspace. Also ahead of the transaction, unlike the other kinds,
-    // which take this case on their not-found branch: here that branch is the
-    // `not_found_if_none` below, with the linked-variable cascade already staged.
+    // Ahead of the deploy rules: nothing is deployed at a draft-only path, so
+    // gating this discard on them would strand the row in a protected workspace.
+    // Ahead of the transaction too — the not-found branch other kinds hang this
+    // off is the `not_found_if_none` below, past the linked-variable cascade.
     if delete_draft_only_for_path(&db, &w_id, UserDraftItemKind::Resource, path, &authed.email)
         .await?
     {
