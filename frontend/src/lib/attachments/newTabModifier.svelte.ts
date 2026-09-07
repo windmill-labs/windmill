@@ -21,6 +21,7 @@ let hovered: HTMLElement | undefined
 function stop(node: HTMLElement) {
 	if (hovered !== node) return
 	hovered = undefined
+	node.removeEventListener('mousemove', sync)
 	window.removeEventListener('keydown', sync, true)
 	window.removeEventListener('keyup', sync, true)
 	window.removeEventListener('blur', clear)
@@ -39,6 +40,9 @@ export const trackNewTabModifier: Attachment<HTMLElement> = (node) => {
 		// Seeded from the hover itself: mouse events carry the same modifier flags as key events,
 		// so a modifier already held before the pointer arrived reads correctly.
 		sync(event)
+		// Same reason the hover seeds: a modifier held across a keyboard app switch delivers no
+		// keydown on the way back, so the pointer is all that is left to re-read it from.
+		node.addEventListener('mousemove', sync)
 		// Capture: editors and menus stopPropagation the keys they handle, hiding the modifier
 		// from a bubble-phase listener whenever focus sits in one.
 		window.addEventListener('keydown', sync, true)

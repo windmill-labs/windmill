@@ -15,8 +15,9 @@ function pill() {
 	attached.push(cleanup)
 	const hover = (init: MouseEventInit = {}) =>
 		node.dispatchEvent(new MouseEvent('mouseenter', init))
+	const move = (init: MouseEventInit = {}) => node.dispatchEvent(new MouseEvent('mousemove', init))
 	const unhover = () => node.dispatchEvent(new MouseEvent('mouseleave'))
-	return { hover, unhover, cleanup }
+	return { hover, move, unhover, cleanup }
 }
 
 const keydown = (init: KeyboardEventInit) =>
@@ -62,6 +63,19 @@ describe('trackNewTabModifier', () => {
 		input.dispatchEvent(
 			new KeyboardEvent('keydown', { key: 'Control', ctrlKey: true, bubbles: true })
 		)
+		expect(newTabModifier.held).toBe(true)
+	})
+
+	// A modifier held across a keyboard app switch is cleared by the blur and delivers no keydown
+	// on the way back, while the pointer parked on the pill fires no fresh mouseenter either.
+	it('re-seeds from pointer movement after the window lost focus', () => {
+		onPlatform(LINUX)
+		const { hover, move } = pill()
+		hover({ ctrlKey: true })
+		window.dispatchEvent(new Event('blur'))
+		expect(newTabModifier.held).toBe(false)
+
+		move({ ctrlKey: true })
 		expect(newTabModifier.held).toBe(true)
 	})
 
