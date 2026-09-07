@@ -191,7 +191,9 @@
 	 */
 	const credentialAlert = $derived.by(() => {
 		const credential = repo.credential
-		if (!credential) return undefined
+		// The status describes the repository the resource named when it was
+		// checked; once nothing is held for the one it names now, it is stale.
+		if (!credential || !hasManagedCredential) return undefined
 		if (credential.error) {
 			return {
 				type: 'error' as const,
@@ -640,7 +642,7 @@
 			<Alert type={credentialAlert.type} title={credentialAlert.title} size="xs">
 				{credentialAlert.body}
 			</Alert>
-		{:else if repo.credential && !repo.credential.error}
+		{:else if hasManagedCredential && repo.credential && !repo.credential.error}
 			<div class="text-xs text-secondary">
 				{#if credentialDaysLeft === undefined}
 					Repository token does not expire.
