@@ -427,7 +427,7 @@
 				path = `/apps/get/${e.path}`
 				break
 			case 'raw_app':
-				path = `/raw_apps/get/${e.path}`
+				path = `/apps_raw/get/${e.path}`
 				break
 			default:
 				path = '/'
