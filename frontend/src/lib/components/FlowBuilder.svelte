@@ -287,7 +287,7 @@
 			const { response, draft: current } = await fetchAgentWithDraft(agent.path, ws)
 			if (!draftValuesEqual(current, agent.state)) {
 				throw new Error(
-					`The draft for ${agent.path} changed since this dialog opened. Nothing was deployed for it — reopen the deploy dialog to see the current one.`
+					`The draft for ${agent.path} changed since this dialog opened, so nothing was deployed for it. Reopen the deploy dialog to see the current one.`
 				)
 			}
 			// The type is as old as the dialog otherwise: were the path deleted and recreated as

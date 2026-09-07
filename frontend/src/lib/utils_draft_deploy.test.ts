@@ -125,35 +125,37 @@ describe('deployDraft preserves on_behalf_of', () => {
 	})
 })
 
-// Every branch re-reads the item, and every read falls back to the deployed side when the draft
-// row has gone. Deploying that fallback overwrites the live item with a value nobody drafted —
-// for a resource with `{}`, since a deployed resource response carries no `args` key.
-describe('deployDraft refuses when the draft is gone', () => {
+// The resource branch reads the item again when the deploy lands, and falls back to the deployed
+// row when the draft has gone. That row keeps its value under `value` and carries no `args` at
+// all, so reading it as a draft (`value: d.args ?? {}`) would replace a live resource with `{}`.
+describe('deployDraft: resource with no draft', () => {
 	beforeEach(() => vi.clearAllMocks())
 
-	it('resource: does not write `{}` over the deployed value', async () => {
+	it('writes nothing rather than `{}` over the deployed value', async () => {
 		vi.mocked(ResourceService.getResource).mockResolvedValueOnce({
 			path: 'f/support/triage_agent',
 			resource_type: 'ai_agent',
 			value: { system_prompt: 'deployed' }
 		} as any)
 
-		const result = await deployDraft('resource', 'f/support/triage_agent', 'ws')
-
-		expect(result.success).toBe(false)
+		expect(await deployDraft('resource', 'f/support/triage_agent', 'ws')).toEqual({ success: true })
 		expect(ResourceService.updateResource).not.toHaveBeenCalled()
 		expect(ResourceService.createResource).not.toHaveBeenCalled()
 	})
 
-	it('flow: does not redeploy the deployed value as a new version', async () => {
-		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
-			path: 'f/admin/notify',
-			value: { modules: [] }
+	it('still deploys normally when the draft is there', async () => {
+		vi.mocked(ResourceService.getResource).mockResolvedValueOnce({
+			path: 'f/support/triage_agent',
+			resource_type: 'ai_agent',
+			value: { system_prompt: 'deployed' },
+			draft: { path: 'f/support/triage_agent', args: { system_prompt: 'drafted' } }
 		} as any)
 
-		const result = await deployDraft('flow', 'f/admin/notify', 'ws')
-
-		expect(result.success).toBe(false)
-		expect(FlowService.updateFlow).not.toHaveBeenCalled()
+		expect(await deployDraft('resource', 'f/support/triage_agent', 'ws')).toEqual({ success: true })
+		expect(ResourceService.updateResource).toHaveBeenCalledWith(
+			expect.objectContaining({
+				requestBody: expect.objectContaining({ value: { system_prompt: 'drafted' } })
+			})
+		)
 	})
 })

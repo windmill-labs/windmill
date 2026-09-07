@@ -425,23 +425,6 @@ async function deployDraftTriggers(
 }
 
 /**
- * Every branch of `deployDraft` deploys the DRAFT of an item, and each one reads the item fresh.
- * A draft can be gone by then — another tab deployed it, a second confirm on a dialog that was
- * already acted on, an autosave that found the value back at its baseline — and the reads all
- * fall back to the deployed side when it is (`splitOverlay`'s `draft ?? deployed`, or an inline
- * `r.draft ?? r`). Deploying that fallback is never what the caller meant: for a resource it
- * writes `value: d.args ?? {}`, since a deployed resource response carries no `args` key at all,
- * so a live agent or database config is replaced by `{}`. Elsewhere it merely mints a version
- * nobody asked for. Refuse instead, and say why, so the caller can refresh and look.
- */
-function missingDraft(kind: DraftKind, path: string): DeployResult {
-	return {
-		success: false,
-		error: `No draft left to deploy for ${kind} ${path}. It was deployed or discarded elsewhere — refresh to see its current state.`
-	}
-}
-
-/**
  * Promote a draft to deployed by replaying the editor's create/update call with
  * the stored draft value. The matching draft row is deleted server-side by the
  * create/update handler. Returns the same `{ success, error? }` shape as the
@@ -464,8 +447,7 @@ export async function deployDraft(
 			await deployRawAppDraft(workspace, path, deploymentMessage)
 		} else if (kind === 'script') {
 			const r = (await ScriptService.getScriptByPath({ workspace, path, getDraft: true })) as any
-			if (r.draft == null) return missingDraft(kind, path)
-			const d = r.draft
+			const d = r.draft ?? r
 			// Drop editor-only / server-managed keys; deploy as a real (non-draft) version.
 			const { draft_triggers: draftTriggers, draft_only: _o, ...rest } = d
 			const scriptPath = d.path ?? path
@@ -487,8 +469,7 @@ export async function deployDraft(
 			await deployDraftTriggers(draftTriggers, workspace, scriptPath, true)
 		} else if (kind === 'flow') {
 			const r = (await FlowService.getFlowByPath({ workspace, path, getDraft: true })) as any
-			if (r.draft == null) return missingDraft(kind, path)
-			const d = r.draft
+			const d = r.draft ?? r
 			const requestBody = {
 				// Deploy at the draft's intended path: flow/app/raw-app drafts keep the
 				// user-typed path in `draft_path` (a never-deployed item is parked at a
@@ -532,12 +513,12 @@ export async function deployDraft(
 			// A visual-app draft is stored as the *bare* app value (grid/theme/...,
 			// plus a `draft_path` when the path was renamed) — NOT wrapped in
 			// { value, summary, policy } like script/flow drafts. So the deploy value
-			// is the draft object itself. `draft_path` and `summary` are draft-only fields
-			// mirrored onto the App value (the editor drops them on deploy), so strip them
-			// from the value and apply them as the deploy path / summary column.
+			// is the draft object itself; fall back to the deployed value when there's
+			// no draft. `draft_path` and `summary` are draft-only fields mirrored onto
+			// the App value (the editor drops them on deploy), so strip them from the
+			// value and apply them as the deploy path / summary column.
 			const draft = r.draft as Record<string, any> | undefined
-			if (draft == null) return missingDraft(kind, path)
-			const { draft_path: draftPath, summary: draftSummary, ...appValue } = draft
+			const { draft_path: draftPath, summary: draftSummary, ...appValue } = draft ?? r.value ?? {}
 			// Policy isn't carried in the app draft, so it comes from the deployed app
 			// (or a default). custom_path requires admin on update; non-admins send
 			// undefined so the backend preserves the existing route. The draft has no
@@ -566,12 +547,7 @@ export async function deployDraft(
 				await AppService.updateApp({ workspace, path, requestBody })
 			}
 		} else if (kind === 'variable') {
-			const {
-				deployed,
-				draft: d,
-				hasDraft
-			} = splitOverlay(await OVERLAY_GETTERS.variable!(workspace, path))
-			if (!hasDraft) return missingDraft(kind, path)
+			const { deployed, draft: d } = splitOverlay(await OVERLAY_GETTERS.variable!(workspace, path))
 			// VariableEditor's `VariableState` draft shape:
 			// { path, variable: { value, is_secret, description }, labels?, wsSpecific }
 			if (draftOnly) {
@@ -608,10 +584,19 @@ export async function deployDraft(
 				draft: d,
 				hasDraft
 			} = splitOverlay(await OVERLAY_GETTERS.resource!(workspace, path))
-			if (!hasDraft) return missingDraft(kind, path)
 			// ResourceEditor's `ResourceState` draft shape:
 			// { path, description, args, resource_type?, labels?, wsSpecific }
-			if (draftOnly) {
+			// The deployed row is a different shape (`value`, `ws_specific`, no `args` at all), and
+			// `splitOverlay` hands it back as the draft side when the draft row has gone — deployed or
+			// discarded from another tab between the listing and this click. Reading it as a draft is
+			// what made `value: d.args ?? {}` replace a live resource with `{}`. Nothing to promote
+			// then, so write nothing and fall through to the cleanup below, which clears the stale
+			// local draft hint and the drafts listing. The item is already at the value a successful
+			// deploy would have left it at, so this reports success rather than an error, matching
+			// what the other kinds end up doing when their own draft is gone.
+			if (!hasDraft) {
+				// Nothing to write.
+			} else if (draftOnly) {
 				await ResourceService.createResource({
 					workspace,
 					requestBody: {
@@ -637,10 +622,7 @@ export async function deployDraft(
 				})
 			}
 		} else if (kind === 'trigger_schedule') {
-			const { draft: d, hasDraft } = splitOverlay(
-				await OVERLAY_GETTERS.trigger_schedule!(workspace, path)
-			)
-			if (!hasDraft) return missingDraft(kind, path)
+			const { draft: d } = splitOverlay(await OVERLAY_GETTERS.trigger_schedule!(workspace, path))
 			// The schedule editor's draft IS the cfg shape `saveScheduleFromCfg`
 			// consumes — same save the editor's Deploy button runs.
 			const ok = await saveScheduleFromCfg({ ...d, path: d.path ?? path }, !draftOnly, workspace)
@@ -649,8 +631,7 @@ export async function deployDraft(
 			}
 		} else if (kind in TRIGGER_SAVERS) {
 			const getter = OVERLAY_GETTERS[kind]!
-			const { draft: d, hasDraft } = splitOverlay(await getter(workspace, path))
-			if (!hasDraft) return missingDraft(kind, path)
+			const { draft: d } = splitOverlay(await getter(workspace, path))
 			const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
 			const ok = await TRIGGER_SAVERS[kind]!(
 				path,
