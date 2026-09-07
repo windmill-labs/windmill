@@ -83,9 +83,23 @@
 		// partway — so the list behind this dialog is stale either way, and only `finish()`
 		// was reloading it. Closing a landed import with the X left an emptied-out home
 		// showing its placeholder rows over a workspace that now holds a project.
-		if (!finishing && execution) onImported?.()
+		if (!finishing && execution) void reloadWhenSettled(execution, onImported)
 		finishing = false
 		onClose()
+	}
+
+	/**
+	 * Reloads the caller's list once the run is no longer writing. Immediate for a run that
+	 * has finished, which is the common dismissal — but `abandon()` only stops the *next*
+	 * phase, and the request already sent still lands, so a reload issued at that moment can
+	 * read the list before that write commits and leave it stale again. The cap is there so a
+	 * run that never settles still ends in a reload rather than in nothing.
+	 */
+	async function reloadWhenSettled(run: ImportExecution, reload: (() => void) | undefined) {
+		for (let i = 0; i < 60 && run.running; i++) {
+			await new Promise((resolve) => setTimeout(resolve, 250))
+		}
+		reload?.()
 	}
 
 	// The wizard route asks step 1 which workspace to import into and step 2 which one it
