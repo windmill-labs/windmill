@@ -291,6 +291,9 @@
 	const saveInFlight = $derived(
 		dirtyWorkspaces.some((ws) => isDraftSaving('variable', editPath, { workspace: ws }))
 	)
+	// A create has no cell to key that on — its form is the detached handle an empty
+	// path gets — so the one case the shared window cannot see keeps a local flag.
+	let creating = $state(false)
 
 	async function save(): Promise<void> {
 		// Everything the writes need, read before the first await. An inline host can
@@ -326,6 +329,10 @@
 		// is in flight for this cell, so a second editor on it cannot start one —
 		// checked before the first is opened, or this would see its own.
 		if (payloads.some(({ ws }) => isDraftSaving('variable', from, { workspace: ws }))) return
+		if (!from) {
+			if (creating) return
+			creating = true
+		}
 		const closeSettleWindows = from
 			? payloads.map(({ ws }) => beginDraftSettleWindow('variable', from, { workspace: ws }))
 			: []
@@ -373,11 +380,10 @@
 				// to it via `discard` (not `remove` — blanking the cell to `undefined` reads
 				// as dirty) and keeps an edit made mid-request. Each workspace settles
 				// against the path its own write used, not the reported one.
-				// The live cell only while this editor is still on the item it saved: the
-				// drawer is reused, so after a re-point `states` is the next item's, and
-				// reading it here would take that for an edit made over this write —
-				// leaving this item's draft behind. Re-pointed, the cell it released
-				// during the write is what answers.
+				// The live cell only while this editor is still on the item it saved: reused
+				// for the next one, `states` is that one's, and reading it here would take
+				// it for an edit made over this write. Re-pointed, the cell released
+				// during the write answers instead.
 				await settleDraftAfterWrite(
 					'variable',
 					s,
@@ -426,6 +432,7 @@
 			}
 		} finally {
 			for (const close of closeSettleWindows) close()
+			creating = false
 		}
 	}
 </script>
@@ -470,7 +477,12 @@
 	{/if}
 	<Button
 		on:click={save}
-		disabled={saveInFlight || !anyDirty || !dirtyValid || !dirtyCanWrite || pathError != ''}
+		disabled={saveInFlight ||
+			creating ||
+			!anyDirty ||
+			!dirtyValid ||
+			!dirtyCanWrite ||
+			pathError != ''}
 		startIcon={{ icon: Save }}
 		variant="accent"
 		unifiedSize="sm"

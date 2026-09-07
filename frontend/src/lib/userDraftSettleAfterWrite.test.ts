@@ -42,11 +42,6 @@ beforeEach(() => {
 const OPTS = { workspace: 'ws' }
 const sent = { path: 'u/me/a', value: 'sent' }
 
-/**
- * The forms stay editable while their save is in flight, so the cell can hold a
- * newer edit by the time the write returns. Resetting it unconditionally — what
- * every editor did — swallows that edit with no trace.
- */
 // Duplicate tabs and warm sessions mount several editors over one cell, so what
 // says "a write is in flight for this item" cannot live in any of them. The
 // window each save opens is per key, and every editor's Save reads it.
@@ -70,6 +65,11 @@ describe('isDraftSaving', () => {
 	})
 })
 
+/**
+ * The forms stay editable while their save is in flight, so the cell can hold a
+ * newer edit by the time the write returns. Resetting it unconditionally — what
+ * every editor did — swallows that edit with no trace.
+ */
 describe('settleDraftAfterWrite', () => {
 	it('resets the cell when it still holds what was written', () => {
 		settleDraftAfterWrite('variable', sent, { ...sent }, 'u/me/a', 'u/me/a', OPTS)

@@ -855,6 +855,10 @@
 		const previousEnabled = enabled
 		const path = initialPath
 		const ws = wsId
+		// The baseline of the schedule being toggled, read before the request: this
+		// editor is reused for whatever the drawer opens next, and `initialConfig` is
+		// then that one's.
+		const baselineBefore = initialConfig ? ($state.snapshot(initialConfig) as any) : undefined
 		enabled = nEnabled
 		if (!trigger?.draftConfig) {
 			const ok = await withForkConflictRetry(
@@ -866,26 +870,31 @@
 					}),
 				'schedule'
 			)
+			// Nothing read or written below describes the toggled schedule once this
+			// editor has moved on — only the request's own outcome does.
+			const stillHere = initialPath === path && wsId === ws
 			if (!ok) {
-				enabled = previousEnabled
+				if (stillHere) enabled = previousEnabled
 				return
 			}
 			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${path}`)
-			// Deployed state moved, so the baseline the banner compares against does too.
-			deployedEnabled = nEnabled
-			if (initialConfig) {
-				initialConfig.enabled = nEnabled
-				baselineNonce++
+			if (stillHere) {
+				// Deployed state moved, so the baseline the banner compares against does too.
+				deployedEnabled = nEnabled
+				if (initialConfig) {
+					initialConfig.enabled = nEnabled
+					baselineNonce++
+				}
 			}
 
 			// Setting `enabled` above queued a draft against the pre-toggle baseline.
 			// It matches the new one, so nothing would ever show it again — but it is
 			// still a row on the server and a `*` on the list until it is settled away.
-			if (initialConfig)
+			if (baselineBefore)
 				await settleDraftAfterWrite(
 					'trigger_schedule',
-					$state.snapshot(initialConfig),
-					getScheduleCfg(),
+					{ ...baselineBefore, enabled: nEnabled },
+					stillHere ? getScheduleCfg() : undefined,
 					path,
 					path,
 					{ workspace: ws ?? undefined }
@@ -893,7 +902,7 @@
 			// This request carried the enabled flag alone, so anything else the form has
 			// diverged into is the user's — read after the settle, which awaits a request
 			// of its own with the form still editable.
-			onUpdate?.(path, path, ws, !draftValuesEqual(getScheduleCfg(), initialConfig))
+			onUpdate?.(path, path, ws, stillHere && !draftValuesEqual(getScheduleCfg(), initialConfig))
 		}
 	}
 
