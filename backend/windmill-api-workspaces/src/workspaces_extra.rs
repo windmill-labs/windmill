@@ -1354,18 +1354,37 @@ pub struct DropForkedDatatableDatabasesRequest {
 /// was created in. The permissions row stays until the drop succeeds — with its
 /// logins gone every role is refused meanwhile — and is forgotten by the caller
 /// once the database is. Returns the key of that database's permissions when
-/// roles were dropped.
+/// this workspace owns them and nothing stands in the way of forgetting them:
+/// a row with no logins to drop included, or the database's next namesake would
+/// find it governed by a workspace that is gone.
 async fn drop_datatable_roles_before_its_database(
     db: &DB,
     w_id: &str,
     dt_name: &str,
 ) -> Option<String> {
-    let planned =
-        crate::datatable_permissions::plan_drop_of_datatable_roles(db, w_id, dt_name).await?;
-    let key = planned.2.clone();
-    crate::datatable_permissions::run_planned_drop_keeping_record(db, w_id, dt_name, planned)
+    let (_, _, key) =
+        windmill_common::workspaces::resolve_datatable_database_unchecked(db, w_id, dt_name)
+            .await
+            .ok()?;
+    let record = windmill_common::workspaces::database_permissions_by_key(db, &key)
         .await
-        .then_some(key)
+        .ok()
+        .flatten()?;
+    if record.owner_workspace_id.as_deref() != Some(w_id) {
+        return None;
+    }
+    if let Some(planned) =
+        crate::datatable_permissions::plan_drop_of_datatable_roles(db, w_id, dt_name).await
+    {
+        if !crate::datatable_permissions::run_planned_drop_keeping_record(
+            db, w_id, dt_name, planned,
+        )
+        .await
+        {
+            return None;
+        }
+    }
+    Some(key)
 }
 
 /// Drop forked datatable databases. Returns errors per datatable that failed.

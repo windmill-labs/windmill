@@ -1300,12 +1300,13 @@ pub fn datatable_database_key(
             use sha2::{Digest, Sha256};
             // As the connection reads them, not as the JSON spells them: a port
             // left out is 5432, a number and its string are one port, a host is
-            // one host whatever its case.
+            // one host whatever its case. A database name is taken exactly — `"prod "`
+            // is a database of its own to Postgres.
             let text = |field: &str| {
                 resolved
                     .get(field)
                     .map(|v| match v.as_str() {
-                        Some(s) => s.trim().to_string(),
+                        Some(s) => s.to_string(),
                         None => v.to_string(),
                     })
                     .unwrap_or_default()
@@ -3476,7 +3477,11 @@ mod tests {
         // A host is one host whatever its case, as DNS reads it.
         assert_eq!(
             datatable_database_key(&pg("u/a/pg"), &resolved("db.example", "prod", "app")),
-            datatable_database_key(&pg("u/a/pg"), &resolved(" DB.Example ", "prod", "app"))
+            datatable_database_key(&pg("u/a/pg"), &resolved("DB.Example", "prod", "app"))
+        );
+        assert_ne!(
+            datatable_database_key(&pg("u/a/pg"), &resolved("db", "prod", "app")),
+            datatable_database_key(&pg("u/a/pg"), &resolved("db", "prod ", "app"))
         );
     }
 

@@ -1764,8 +1764,12 @@ pub(crate) async fn tarball_workspace(
     // the database, with roles and tenants — no passwords, which are direct
     // database logins, and no login names, which a re-save generates. A database
     // no entry of the workspace reaches any more cannot be named, and is left out.
-    let permissions =
-        windmill_common::workspaces::database_permissions_owned_by(&mut *tx, &w_id).await?;
+    // Admin-only, like the settings and like the drawer that shows the same thing.
+    let permissions = if include_settings.unwrap_or(false) {
+        windmill_common::workspaces::database_permissions_owned_by(&mut *tx, &w_id).await?
+    } else {
+        vec![]
+    };
     if !permissions.is_empty() {
         let mut reaching: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
