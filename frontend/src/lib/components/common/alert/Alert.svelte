@@ -71,7 +71,9 @@
 	style={bgStyle}
 >
 	<div class="flex flex-row items-center">
-		<div class="flex h-8 w-8 items-center justify-center rounded-full">
+		<!-- shrink-0: the badge's min-content width is the 16px icon, so without it a
+		     narrow container squeezes the circle into an oval. -->
+		<div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full">
 			<SvelteComponent
 				class={twMerge(classes[type].iconClass, iconClass)}
 				style={iconStyle}
