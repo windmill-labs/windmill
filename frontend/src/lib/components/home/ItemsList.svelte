@@ -1688,9 +1688,12 @@
 		}}
 	>
 		{#if !contentActive}
-			<!-- Kept mounted, not hidden, so the toolbar doesn't reflow the moment the first
-			     item lands: `inert` takes it out of the tab order and off the pointer too. -->
-			<div class="flex justify-start" class:opacity-40={workspaceEmpty} inert={workspaceEmpty}>
+			<!-- Kept mounted, not hidden, so the toolbar doesn't reflow the moment the first item
+			     lands. Dimmed but still usable: "empty" here means the default listing found
+			     nothing, and a workspace whose items are all archived looks exactly the same —
+			     these controls are how it says so, and taking them off the pointer would leave
+			     those items unreachable. -->
+			<div class="flex justify-start" class:opacity-40={workspaceEmpty}>
 				<ToggleButtonGroup
 					selected={itemKind}
 					onSelected={(v) => {
@@ -1789,10 +1792,11 @@
 		{/if}
 
 		<div class="flex grow items-center justify-end gap-2 min-w-0">
+			<!-- Dimmed, never inert: "Only archived" lives in here, and it is the one thing a
+			     workspace with nothing but archived items still needs. -->
 			<div
 				class="relative text-primary w-full min-w-[200px] max-w-[26rem]"
 				class:opacity-40={workspaceEmpty}
-				inert={workspaceEmpty}
 			>
 				<FilterSearchbar
 					schema={searchbarSchema}
