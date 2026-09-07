@@ -17,9 +17,15 @@
 		archivedOnly?: boolean
 		/** Switches the list to the archived view. */
 		onShowArchived: () => void
+		/**
+		 * Whether to offer the template import and the create menu. Neither checks permissions
+		 * itself, so an operator gets the state described without the two actions it may not
+		 * take — the archived link stays, since reading archived items is not a write.
+		 */
+		canCreate?: boolean
 	}
 
-	let { onPick, archivedOnly = false, onShowArchived }: Props = $props()
+	let { onPick, archivedOnly = false, onShowArchived, canCreate = true }: Props = $props()
 
 	// Row opacities: the list fading out of existence. Static on purpose — motion is what
 	// makes a skeleton mean "loading", and this state means "empty".
@@ -81,56 +87,58 @@
 		{:else}
 			Your scripts, flows and apps will show up here.
 		{/if}
-		<!-- The hub half goes when the instance has the hub turned off, and the remaining link
+		{#if canCreate}
+			<!-- The hub half goes when the instance has the hub turned off, and the remaining link
 		     opens the sentence instead of continuing it. -->
-		{#if !$disableHubStore}
-			<!-- Opens downward into the page rather than upward into the hero: the caption sits
+			{#if !$disableHubStore}
+				<!-- Opens downward into the page rather than upward into the hero: the caption sits
 			     high when the AI composer is hidden, so the room is below it. `fitViewport` caps
 			     the box on a short viewport, which is why the height below is definite and the
 			     list inside fills it — a squeezed box with a fixed-height list inside overflows
 			     its own frame. -->
-			<Popover
-				floatingConfig={{
-					placement: 'bottom',
-					strategy: 'absolute',
-					gutter: 8,
-					overflowPadding: 16,
-					flip: { fallbackPlacements: ['top', 'bottom-start', 'top-start'] },
-					fitViewport: true,
-					overlap: false
-				}}
-				contentClasses="p-0 flex"
-				contentStyle="height: min(72vh, 520px);"
-				class="border-b border-transparent text-accent hover:border-accent"
-				triggerAttrs={{ 'aria-label': 'Start from a template' }}
-				on:openChange={(e) =>
-					e.detail && logFeatureUsage('home', 'template_picker_open', { key: 'empty_state' })}
-			>
-				{#snippet trigger()}Start from a template{/snippet}
-				{#snippet content({ close })}
-					<HubTemplatePicker
-						onPick={(project) => {
-							close()
-							onPick(project)
-						}}
-					/>
-				{/snippet}
-			</Popover>
-			or
-		{/if}
-		<CreateActionsMenu source="empty_state" triggerElement={newLinkEl}>
-			{#snippet trigger()}
-				<!-- A bare <button> for a link inside a sentence, signed off by design: <Button>
+				<Popover
+					floatingConfig={{
+						placement: 'bottom',
+						strategy: 'absolute',
+						gutter: 8,
+						overflowPadding: 16,
+						flip: { fallbackPlacements: ['top', 'bottom-start', 'top-start'] },
+						fitViewport: true,
+						overlap: false
+					}}
+					contentClasses="p-0 flex"
+					contentStyle="height: min(72vh, 520px);"
+					class="border-b border-transparent text-accent hover:border-accent"
+					triggerAttrs={{ 'aria-label': 'Start from a template' }}
+					on:openChange={(e) =>
+						e.detail && logFeatureUsage('home', 'template_picker_open', { key: 'empty_state' })}
+				>
+					{#snippet trigger()}Start from a template{/snippet}
+					{#snippet content({ close })}
+						<HubTemplatePicker
+							onPick={(project) => {
+								close()
+								onPick(project)
+							}}
+						/>
+					{/snippet}
+				</Popover>
+				or
+			{/if}
+			<CreateActionsMenu source="empty_state" triggerElement={newLinkEl}>
+				{#snippet trigger()}
+					<!-- A bare <button> for a link inside a sentence, signed off by design: <Button>
 				     carries its own padding and background and cannot sit inline in running text.
 				     Inline links take `text-accent`, never a raw Tailwind blue.
 				     The full stop rides inside the snippet: across a component boundary Svelte
 				     keeps the markup whitespace, which would leave a gap before it. -->
-				<button
-					bind:this={newLinkEl}
-					class="border-b border-transparent text-accent hover:border-accent"
-					>{$disableHubStore ? 'Create a new one' : 'create a new one'}</button
-				>.
-			{/snippet}
-		</CreateActionsMenu>
+					<button
+						bind:this={newLinkEl}
+						class="border-b border-transparent text-accent hover:border-accent"
+						>{$disableHubStore ? 'Create a new one' : 'create a new one'}</button
+					>.
+				{/snippet}
+			</CreateActionsMenu>
+		{/if}
 	</div>
 </div>

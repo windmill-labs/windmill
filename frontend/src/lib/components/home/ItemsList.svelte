@@ -700,6 +700,10 @@
 	// runnables an owner holds. A scope change (sort/archive/kind/…) doesn't go
 	// through here: the counts resource keys on those itself.
 	async function reloadItemsAndCounts(): Promise<void> {
+		// The answer can change with the rows: archiving the last item leaves the listing empty
+		// with something archived behind it, and a cached "nothing archived" would then call
+		// the workspace empty and hide the way to it until a page load.
+		archivedProbe = undefined
 		// A mutated row can be gone, or sit at a new path, afterwards: snapshot what
 		// was on screen so the selection can drop what this reload removes instead of
 		// keeping a dead path. `tick` lets the reloaded rows re-register first.
@@ -1023,7 +1027,16 @@
 	})
 	async function probeArchived(workspace: string) {
 		try {
-			const res = await ScriptService.listRunnables({ workspace, showArchived: true, perPage: 1 })
+			// `includeWithoutMain` to match the listing: the backend drops `auto_kind = 'lib'`
+			// without it, so a workspace holding only archived library scripts would answer
+			// "nothing archived". Always true here — hiding library scripts puts a filter in
+			// `activeFilters`, which `workspaceEmpty` requires to be empty.
+			const res = await ScriptService.listRunnables({
+				workspace,
+				showArchived: true,
+				includeWithoutMain: true,
+				perPage: 1
+			})
 			archivedProbe = { workspace, hasArchived: (res.items?.length ?? 0) > 0 }
 		} catch (error) {
 			console.error('Could not check for archived items:', error)
@@ -1031,6 +1044,13 @@
 		}
 	}
 	let emptyStateAnswered = $derived(archivedProbe?.workspace === $workspaceStore)
+	/**
+	 * Whether this user may be offered the create actions. The empty state's template import
+	 * and create menu do no permission check of their own, so an operator — or a workspace
+	 * whose direct-deploy protection cleared `showEditButtons` — must not be shown them.
+	 * Reading archived items is not a write, so it is not gated on this.
+	 */
+	let canCreateHere = $derived(!$userStore?.operator && showEditButtons)
 
 	// The workspace itself holds nothing — no filter is narrowing the list away. It stays
 	// false until the first load resolves: a skeleton already means "loading", and the
@@ -1894,20 +1914,24 @@
 			<!-- Pipelines aren't part of the text filter, so only fall through to show
 			     them (list rows / injected tree folders) when not actively searching;
 			     a no-match search still reads as empty. -->
-			<!-- Same gate as the create menu above: the empty state offers a template import and
-			     that very menu, and neither does a permission check of its own. An operator, or a
-			     workspace whose direct-deploy protection cleared `showEditButtons`, gets the plain
-			     message instead of two actions it may not take. -->
-			{#if workspaceEmpty && !$userStore?.operator && showEditButtons}
+			{#if workspaceEmpty}
 				<!-- Held until the archived probe answers rather than drawn and swapped: the two
 				     placeholders say different things, and showing the wrong one first says the
 				     workspace is empty when it is not. -->
 				{#if emptyStateAnswered}
-					<WorkspaceEmptyState
-						archivedOnly={archivedProbe?.hasArchived === true}
-						onPick={(project) => (hubPick = project)}
-						onShowArchived={() => (filterValues.val = { ...filterValues.val, archived: true })}
-					/>
+					{#if archivedProbe?.hasArchived || canCreateHere}
+						<!-- Shown to whoever has something to do here: the archived notice to
+						     everyone, since reading archived items is not a write, and the create
+						     actions only to a user who may take them. -->
+						<WorkspaceEmptyState
+							archivedOnly={archivedProbe?.hasArchived === true}
+							canCreate={canCreateHere}
+							onPick={(project) => (hubPick = project)}
+							onShowArchived={() => (filterValues.val = { ...filterValues.val, archived: true })}
+						/>
+					{:else}
+						<NoItemFound {activeFilters} />
+					{/if}
 				{/if}
 			{:else}
 				<NoItemFound {activeFilters} />
