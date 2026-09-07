@@ -1025,7 +1025,15 @@
 					(x) => x.key,
 					(x) => resourceTypeDescriptions[x.key]
 				)
-			: [...items].sort((a, b) => popularity(a.key, b.key)))
+			: // Both signals are keyed by resource type, and a sandbox client is a second row
+				// against one (`salesforce_sandbox` saves a `salesforce`), so it ranks on the
+				// parent's popularity. Its own key still breaks the tie the pair then have, or
+				// the two would order arbitrarily.
+				[...items].sort(
+					(a, b) =>
+						popularity(stripSandboxSuffix(a.key), stripSandboxSuffix(b.key)) ||
+						a.key.localeCompare(b.key)
+				))
 	let rankedConnects = $derived(rank(filteredConnects))
 	let rankedConnectsManual = $derived(
 		rank(filteredConnectsManual) as typeof filteredConnectsManual | undefined
