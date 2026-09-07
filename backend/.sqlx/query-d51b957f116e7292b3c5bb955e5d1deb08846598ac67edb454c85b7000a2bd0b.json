@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM datatable_database_permissions WHERE database_key = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d51b957f116e7292b3c5bb955e5d1deb08846598ac67edb454c85b7000a2bd0b"
+}

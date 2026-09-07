@@ -11,16 +11,67 @@ fn authed(builder: reqwest::RequestBuilder, token: &str) -> reqwest::RequestBuil
     builder.header("Authorization", format!("Bearer {token}"))
 }
 
-/// Who the data table's one role currently lets run as it.
-async fn tenants(db: &Pool<Postgres>) -> Vec<String> {
-    let value: Option<serde_json::Value> = sqlx::query_scalar(
-        "SELECT datatable->'datatables'->'main'->'permissions'->'roles'->'analyst'->'tenants'
-         FROM workspace_settings WHERE workspace_id = 'test-workspace'",
+const MAIN_KEY: &str = "instance:dt_main";
+
+/// A data table `main` on the instance database `dt_main`, in `w`.
+async fn plant_main(db: &Pool<Postgres>, w: &str) {
+    sqlx::query(
+        "INSERT INTO workspace_settings (workspace_id, datatable) VALUES ($1, $2)
+         ON CONFLICT (workspace_id) DO UPDATE SET datatable = EXCLUDED.datatable",
     )
+    .bind(w)
+    .bind(json!({
+        "datatables": {
+            "main": { "database": { "resource_type": "instance", "resource_path": "dt_main" } }
+        }
+    }))
+    .execute(db)
+    .await
+    .unwrap();
+}
+
+/// Permissions on a database, owned by `owner`, with one `analyst` role.
+async fn plant_permissions(db: &Pool<Postgres>, key: &str, owner: &str, analyst_tenants: &[&str]) {
+    sqlx::query(
+        "INSERT INTO datatable_database_permissions (database_key, owner_workspace_id, permissions)
+         VALUES ($1, $2, $3)",
+    )
+    .bind(key)
+    .bind(owner)
+    .bind(json!({ "enabled": true, "roles": {
+        "admin": { "tenants": [] },
+        "analyst": { "tenants": analyst_tenants, "pg_rolename": "wm_analyst_x", "pg_password": "pw" }
+    }}))
+    .execute(db)
+    .await
+    .unwrap();
+}
+
+/// Who the `analyst` role of `key` currently lets run as it.
+async fn tenants(db: &Pool<Postgres>, key: &str) -> Vec<String> {
+    let value: serde_json::Value = sqlx::query_scalar(
+        "SELECT permissions->'roles'->'analyst'->'tenants'
+         FROM datatable_database_permissions WHERE database_key = $1",
+    )
+    .bind(key)
     .fetch_one(db)
     .await
     .unwrap();
-    serde_json::from_value(value.unwrap()).unwrap()
+    serde_json::from_value(value).unwrap()
+}
+
+async fn usable_roles(port: u16, w: &str, datatable: &str, token: &str) -> serde_json::Value {
+    let resp = authed(
+        client().get(format!(
+            "http://localhost:{port}/api/w/{w}/workspaces/datatable_usable_roles/{datatable}"
+        )),
+        token,
+    )
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200, "{}", resp.text().await.unwrap());
+    resp.json().await.unwrap()
 }
 
 /// A tenant is a name, and a name outlives the principal that held it: whoever
@@ -34,24 +85,20 @@ async fn freeing_a_principal_takes_its_datatable_tenant(db: Pool<Postgres>) -> a
     let port = server.addr.port();
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
-    sqlx::query(
-        r#"UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = 'test-workspace'"#,
+    plant_main(&db, "test-workspace").await;
+    plant_permissions(
+        &db,
+        MAIN_KEY,
+        "test-workspace",
+        &[
+            "*",
+            "u/test-user-2",
+            "u/test-user-3",
+            "g/leaving_group",
+            "f/leaving_folder",
+        ],
     )
-    .bind(json!({
-        "datatables": {
-            "main": {
-                "database": { "resource_type": "instance", "resource_path": "dt_main" },
-                "permissions": { "enabled": true, "roles": {
-                    "admin": { "tenants": [] },
-                    "analyst": { "tenants": [
-                        "*", "u/test-user-2", "u/test-user-3", "g/leaving_group", "f/leaving_folder"
-                    ]}
-                }}
-            }
-        }
-    }))
-    .execute(&db)
-    .await?;
+    .await;
 
     for (endpoint, body) in [
         ("groups/create", json!({ "name": "leaving_group" })),
@@ -71,7 +118,9 @@ async fn freeing_a_principal_takes_its_datatable_tenant(db: Pool<Postgres>) -> a
     .send()
     .await?;
     assert_eq!(resp.status(), 200, "delete group: {}", resp.text().await?);
-    assert!(!tenants(&db).await.contains(&"g/leaving_group".to_string()));
+    assert!(!tenants(&db, MAIN_KEY)
+        .await
+        .contains(&"g/leaving_group".to_string()));
 
     let resp = authed(
         client().delete(format!("{ws}/folders/delete/leaving_folder")),
@@ -80,14 +129,18 @@ async fn freeing_a_principal_takes_its_datatable_tenant(db: Pool<Postgres>) -> a
     .send()
     .await?;
     assert_eq!(resp.status(), 200, "delete folder: {}", resp.text().await?);
-    assert!(!tenants(&db).await.contains(&"f/leaving_folder".to_string()));
+    assert!(!tenants(&db, MAIN_KEY)
+        .await
+        .contains(&"f/leaving_folder".to_string()));
 
     // Leaving frees the username as surely as an admin removing the member does.
     let resp = authed(client().post(format!("{ws}/users/leave")), "SECRET_TOKEN_2")
         .send()
         .await?;
     assert_eq!(resp.status(), 200, "leave: {}", resp.text().await?);
-    assert!(!tenants(&db).await.contains(&"u/test-user-2".to_string()));
+    assert!(!tenants(&db, MAIN_KEY)
+        .await
+        .contains(&"u/test-user-2".to_string()));
 
     let resp = authed(
         client().delete(format!(
@@ -98,275 +151,188 @@ async fn freeing_a_principal_takes_its_datatable_tenant(db: Pool<Postgres>) -> a
     .send()
     .await?;
     assert_eq!(resp.status(), 200, "global delete: {}", resp.text().await?);
-    assert!(!tenants(&db).await.contains(&"u/test-user-3".to_string()));
+    assert!(!tenants(&db, MAIN_KEY)
+        .await
+        .contains(&"u/test-user-3".to_string()));
 
     // What no deletion named is left alone — the wildcard above all, which is
     // not a principal and cannot be freed.
-    assert_eq!(tenants(&db).await, vec!["*".to_string()]);
+    assert_eq!(tenants(&db, MAIN_KEY).await, vec!["*".to_string()]);
 
     Ok(())
 }
 
-/// A fork made while the data table was unpermissioned carries a copy of it that
-/// points at the same database; opting in would leave every member of the fork
-/// reaching that database through the copy's own connection. Pinned on the save
-/// and on the preview, since a plan the save refuses to run must not be offered.
+/// The permissions are the database's, so a fork's copy of the data table reaches
+/// the same roles — evaluated as a member of the workspace that owns them. Being
+/// admin of the fork, which any member is of a fork they made, counts for
+/// nothing; a superadmin reaches every role from anywhere; and the roles are
+/// managed from the owning workspace alone.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn enabling_permissions_is_refused_while_a_fork_exists(
+async fn a_fork_copy_is_evaluated_as_a_member_of_the_owning_workspace(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
-    let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
-    sqlx::query(
-        r#"UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = 'test-workspace'"#,
-    )
-    .bind(json!({
-        "datatables": {
-            "main": { "database": { "resource_type": "instance", "resource_path": "dt_main" } },
-            "byo": { "database": { "resource_type": "postgresql", "resource_path": "u/test-user/pg" } }
-        }
-    }))
-    .execute(&db)
-    .await?;
+    plant_main(&db, "test-workspace").await;
+    plant_permissions(&db, MAIN_KEY, "test-workspace", &["u/test-user-3"]).await;
     sqlx::query(
         "INSERT INTO workspace (id, name, owner, parent_workspace_id)
-         VALUES ('wm-fork-t', 'wm-fork-t', 'test-user', 'test-workspace')",
+         VALUES ('wm-fork-t', 'wm-fork-t', 'test2@windmill.dev', 'test-workspace')",
+    )
+    .execute(&db)
+    .await?;
+    plant_main(&db, "wm-fork-t").await;
+    // test-user-2 made the fork and is admin of it, and is no member of the parent.
+    sqlx::query(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role) VALUES
+           ('wm-fork-t', 'test2@windmill.dev', 'test-user-2', true, 'Admin'),
+           ('wm-fork-t', 'test3@windmill.dev', 'test-user-3', false, 'User')",
     )
     .execute(&db)
     .await?;
     sqlx::query(
-        "INSERT INTO workspace_settings (workspace_id, datatable) VALUES ('wm-fork-t', $1)",
-    )
-    .bind(json!({
-        "datatables": {
-            "main": { "database": { "resource_type": "instance", "resource_path": "dt_main" } },
-            "byo": { "database": { "resource_type": "postgresql", "resource_path": "u/test-user/pg" } }
-        }
-    }))
-    .execute(&db)
-    .await?;
-
-    let body = json!({ "enabled": true, "roles": [] });
-    for endpoint in [
-        "workspaces/datatable_permissions/main/preview",
-        "workspaces/datatable_permissions/main",
-    ] {
-        let resp = authed(client().post(format!("{ws}/{endpoint}")), "SECRET_TOKEN")
-            .json(&body)
-            .send()
-            .await?;
-        let status = resp.status();
-        let text = resp.text().await?;
-        assert_eq!(status, 400, "{endpoint}: {text}");
-        assert!(
-            text.contains("wm-fork-t (data table 'main')"),
-            "{endpoint}: {text}"
-        );
-    }
-
-    // Only the opt-in is gated: once permissions are on, forks made afterwards
-    // never receive the data table, and editing the roles — revoking a tenant
-    // above all — has to keep working while they exist. The preview then gets as
-    // far as the database, which this test does not have.
-    sqlx::query(
-        r#"UPDATE workspace_settings
-           SET datatable = jsonb_set(datatable, '{datatables,main,permissions}',
-               '{"enabled": true, "roles": {"admin": {"tenants": []}}}')
-           WHERE workspace_id = 'test-workspace'"#,
+        "DELETE FROM usr WHERE workspace_id = 'test-workspace' AND email = 'test2@windmill.dev'",
     )
     .execute(&db)
     .await?;
-    let edit = json!({ "enabled": true, "roles": [
-        { "name": "admin", "tenants": [] }, { "name": "analyst", "tenants": ["u/test-user"] }
-    ]});
+
+    let fork_admin = usable_roles(port, "wm-fork-t", "main", "SECRET_TOKEN_2").await;
+    assert_eq!(fork_admin["enabled"], json!(true));
+    assert_eq!(fork_admin["roles"], json!([]), "{fork_admin}");
+
+    let tenant = usable_roles(port, "wm-fork-t", "main", "SECRET_TOKEN_3").await;
+    assert_eq!(tenant["roles"], json!(["analyst"]), "{tenant}");
+
+    let superadmin = usable_roles(port, "wm-fork-t", "main", "SECRET_TOKEN").await;
+    assert_eq!(
+        superadmin["roles"],
+        json!(["admin", "analyst"]),
+        "{superadmin}"
+    );
+
+    // Managed from the owning workspace: the fork's admin reads them, changes nothing.
     let resp = authed(
-        client().post(format!(
-            "{ws}/workspaces/datatable_permissions/main/preview"
+        client().get(format!(
+            "http://localhost:{port}/api/w/wm-fork-t/workspaces/datatable_permissions/main"
         )),
-        "SECRET_TOKEN",
+        "SECRET_TOKEN_2",
     )
-    .json(&edit)
     .send()
     .await?;
-    let text = resp.text().await?;
-    assert!(!text.contains("cannot be enabled"), "{text}");
-    sqlx::query(
-        r#"UPDATE workspace_settings
-           SET datatable = datatable #- '{datatables,main,permissions}'
-           WHERE workspace_id = 'test-workspace'"#,
-    )
-    .execute(&db)
-    .await?;
-
-    // A resource-backed copy keeps the parent's pointer when cloned — the cloned
-    // resource is what changes — so `forked_from` is what tells the two apart.
-    let byo = format!("{ws}/workspaces/datatable_permissions/byo/preview");
-    let resp = authed(client().post(&byo), "SECRET_TOKEN")
-        .json(&body)
-        .send()
-        .await?;
-    assert_eq!(resp.status(), 400);
-    let text = resp.text().await?;
-    assert!(text.contains("wm-fork-t (data table 'byo')"), "{text}");
-    sqlx::query(
-        r#"UPDATE workspace_settings
-           SET datatable = jsonb_set(datatable, '{datatables,byo,forked_from}', '{"schema": {}}')
-           WHERE workspace_id = 'wm-fork-t'"#,
-    )
-    .execute(&db)
-    .await?;
-    // Past the refusal the preview fails on the resource, which this test does
-    // not have; the refusal is what is pinned.
-    let resp = authed(client().post(&byo), "SECRET_TOKEN")
-        .json(&body)
-        .send()
-        .await?;
-    let text = resp.text().await?;
-    assert!(!text.contains("cannot be enabled"), "{text}");
-
-    // Archiving keeps the fork's members and its copy, so it still counts; a fork
-    // whose copy is a clone of its own does not.
-    sqlx::query("UPDATE workspace SET deleted = true WHERE id = 'wm-fork-t'")
-        .execute(&db)
-        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let info: serde_json::Value = resp.json().await?;
+    assert_eq!(info["owner_workspace_id"], json!("test-workspace"));
+    assert_eq!(info["editable"], json!(false));
     let resp = authed(
         client().post(format!(
-            "{ws}/workspaces/datatable_permissions/main/preview"
+            "http://localhost:{port}/api/w/wm-fork-t/workspaces/datatable_permissions/main"
         )),
-        "SECRET_TOKEN",
+        "SECRET_TOKEN_2",
     )
-    .json(&body)
+    .json(&json!({ "enabled": true, "roles": [
+        { "name": "admin", "tenants": [] }, { "name": "analyst", "tenants": ["u/test-user-2"] }
+    ]}))
     .send()
     .await?;
-    assert_eq!(resp.status(), 400);
+    let status = resp.status().as_u16();
     let text = resp.text().await?;
+    assert_eq!(status, 401, "{text}");
     assert!(
-        text.contains("wm-fork-t, archived (data table 'main')"),
+        text.contains("managed from workspace 'test-workspace'"),
         "{text}"
     );
-    sqlx::query(
-        r#"UPDATE workspace_settings
-           SET datatable = jsonb_set(
-               jsonb_set(datatable, '{datatables,main,forked_from}', '{"schema": {}}'),
-               '{datatables,main,database,resource_path}', '"wm_fork_dt_main"')
-           WHERE workspace_id = 'wm-fork-t'"#,
-    )
-    .execute(&db)
-    .await?;
-    let resp = authed(
-        client().post(format!(
-            "{ws}/workspaces/datatable_permissions/main/preview"
-        )),
-        "SECRET_TOKEN",
-    )
-    .json(&body)
-    .send()
-    .await?;
-    let text = resp.text().await?;
-    assert!(!text.contains("cannot be enabled"), "{text}");
-
-    // A workspace that is no longer a fork — a detached dev workspace — keeps its
-    // copy of the data table, pointing at the same instance database.
-    sqlx::query("DELETE FROM workspace_settings WHERE workspace_id = 'wm-fork-t'")
-        .execute(&db)
-        .await?;
-    sqlx::query("DELETE FROM workspace WHERE id = 'wm-fork-t'")
-        .execute(&db)
-        .await?;
-    sqlx::query(
-        "INSERT INTO workspace (id, name, owner) VALUES ('detached', 'detached', 'test-user')",
-    )
-    .execute(&db)
-    .await?;
-    sqlx::query("INSERT INTO workspace_settings (workspace_id, datatable) VALUES ('detached', $1)")
-        .bind(json!({
-            "datatables": {
-                "copy": { "database": { "resource_type": "instance", "resource_path": "dt_main" } }
-            }
-        }))
-        .execute(&db)
-        .await?;
-    let resp = authed(
-        client().post(format!(
-            "{ws}/workspaces/datatable_permissions/main/preview"
-        )),
-        "SECRET_TOKEN",
-    )
-    .json(&body)
-    .send()
-    .await?;
-    assert_eq!(resp.status(), 400);
-    let text = resp.text().await?;
-    assert!(text.contains("detached (data table 'copy')"), "{text}");
-
-    // Archived, it still counts; with the copy gone the refusal lifts, and the
-    // preview then gets as far as the database, which this test does not have.
-    sqlx::query("UPDATE workspace SET deleted = true WHERE id = 'detached'")
-        .execute(&db)
-        .await?;
-    let resp = authed(
-        client().post(format!(
-            "{ws}/workspaces/datatable_permissions/main/preview"
-        )),
-        "SECRET_TOKEN",
-    )
-    .json(&body)
-    .send()
-    .await?;
-    let text = resp.text().await?;
-    assert!(
-        text.contains("detached, archived (data table 'copy')"),
-        "{text}"
-    );
-    sqlx::query("DELETE FROM workspace_settings WHERE workspace_id = 'detached'")
-        .execute(&db)
-        .await?;
-    let resp = authed(
-        client().post(format!(
-            "{ws}/workspaces/datatable_permissions/main/preview"
-        )),
-        "SECRET_TOKEN",
-    )
-    .json(&body)
-    .send()
-    .await?;
-    let text = resp.text().await?;
-    assert!(!text.contains("cannot be enabled"), "{text}");
 
     Ok(())
 }
 
-/// The rename keeps a copy of the settings under the archived id, and commits it
-/// before the old id is archived. No data table may be in that copy: a
-/// permissioned one without its `permissions` block would resolve, for anyone
-/// still using the old id, to the owner connection, and any one naming the same
-/// instance database would keep the renamed workspace from opting in.
+/// A resource-backed database is the host, port and database its resource
+/// resolves to: entries naming it under other paths and other logins, in other
+/// workspaces, reach the same permissions; a resource pointed at another database
+/// reaches none.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn a_rename_leaves_no_datatable_under_the_old_id(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn entries_reaching_one_database_share_its_permissions(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
+    sqlx::query("INSERT INTO workspace (id, name, owner) VALUES ('other', 'other', 'test-user')")
+        .execute(&db)
+        .await?;
     sqlx::query(
-        r#"UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = 'test-workspace'"#,
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('other', 'test3@windmill.dev', 'user-three', false, 'User')",
     )
-    .bind(json!({
-        "datatables": {
-            "open": { "database": { "resource_type": "instance", "resource_path": "dt_open" } },
-            "main": {
-                "database": { "resource_type": "instance", "resource_path": "dt_main" },
-                "permissions": { "enabled": true, "roles": {
-                    "admin": { "tenants": [] },
-                    "analyst": { "tenants": ["*"], "pg_rolename": "wm_x", "pg_password": "s3cret" }
-                }}
-            }
-        }
-    }))
     .execute(&db)
     .await?;
+    let plant = |w: &'static str, path: &'static str, user: &'static str, dbname: &'static str| {
+        let db = db.clone();
+        async move {
+            sqlx::query(
+                "INSERT INTO resource (workspace_id, path, value, resource_type, created_by, edited_at)
+                 VALUES ($1, $2, $3, 'postgresql', 'test-user', now())",
+            )
+            .bind(w)
+            .bind(path)
+            .bind(json!({ "host": "db.example", "port": 5432, "dbname": dbname, "user": user, "password": "pw" }))
+            .execute(&db)
+            .await
+            .unwrap();
+            sqlx::query(
+                "INSERT INTO workspace_settings (workspace_id, datatable) VALUES ($1, $2)
+                 ON CONFLICT (workspace_id) DO UPDATE SET datatable = EXCLUDED.datatable",
+            )
+            .bind(w)
+            .bind(json!({ "datatables": {
+                "byo": { "database": { "resource_type": "postgresql", "resource_path": path } }
+            }}))
+            .execute(&db)
+            .await
+            .unwrap();
+        }
+    };
+    plant("test-workspace", "u/test-user/pg", "app", "prod").await;
+    plant("other", "f/moved/pg", "postgres", "prod").await;
+
+    let key = windmill_common::workspaces::datatable_database_key(
+        &windmill_common::workspaces::DataTableDatabase {
+            resource_type: windmill_common::workspaces::DataTableCatalogResourceType::Postgresql,
+            resource_path: "u/test-user/pg".to_string(),
+        },
+        &json!({ "host": "db.example", "port": 5432, "dbname": "prod" }),
+    );
+    plant_permissions(&db, &key, "test-workspace", &["u/test-user-3"]).await;
+
+    // test-user-3 is `test-user-3` in the owning workspace and `user-three` in
+    // `other`: the tenant is matched where it was written.
+    let from_other = usable_roles(port, "other", "byo", "SECRET_TOKEN_3").await;
+    assert_eq!(from_other["enabled"], json!(true));
+    assert_eq!(from_other["roles"], json!(["analyst"]), "{from_other}");
+
+    sqlx::query(
+        "UPDATE resource SET value = jsonb_set(value, '{dbname}', '\"staging\"')
+         WHERE workspace_id = 'other' AND path = 'f/moved/pg'",
+    )
+    .execute(&db)
+    .await?;
+    let elsewhere = usable_roles(port, "other", "byo", "SECRET_TOKEN_3").await;
+    assert_eq!(elsewhere["enabled"], json!(false), "{elsewhere}");
+
+    Ok(())
+}
+
+/// The permissions a workspace owns follow it through a change of its id.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn a_rename_moves_the_permissions_it_owns(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    plant_main(&db, "test-workspace").await;
+    plant_permissions(&db, MAIN_KEY, "test-workspace", &["u/test-user-3"]).await;
 
     let resp = authed(
         client().post(format!(
@@ -379,38 +345,24 @@ async fn a_rename_leaves_no_datatable_under_the_old_id(db: Pool<Postgres>) -> an
     .await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
 
-    let names = |w: &'static str| {
-        let db = db.clone();
-        async move {
-            let value: serde_json::Value = sqlx::query_scalar(
-                "SELECT datatable->'datatables' FROM workspace_settings WHERE workspace_id = $1",
-            )
-            .bind(w)
-            .fetch_one(&db)
-            .await
-            .unwrap();
-            let mut keys: Vec<String> = value.as_object().unwrap().keys().cloned().collect();
-            keys.sort();
-            (keys, value)
-        }
-    };
-    let (old_names, _) = names("test-workspace").await;
-    assert!(old_names.is_empty(), "{old_names:?}");
-    let (new_names, new_value) = names("renamed-ws").await;
-    assert_eq!(new_names, vec!["main".to_string(), "open".to_string()]);
-    assert_eq!(new_value["main"]["permissions"]["enabled"], json!(true));
-    assert_eq!(
-        new_value["main"]["permissions"]["roles"]["analyst"]["pg_password"],
-        json!("s3cret")
-    );
+    let owner: String = sqlx::query_scalar(
+        "SELECT owner_workspace_id FROM datatable_database_permissions WHERE database_key = $1",
+    )
+    .bind(MAIN_KEY)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(owner, "renamed-ws");
+    let roles = usable_roles(port, "renamed-ws", "main", "SECRET_TOKEN_3").await;
+    assert_eq!(roles["roles"], json!(["analyst"]), "{roles}");
 
     Ok(())
 }
 
 /// A fork that keeps the original copies the parent's entry verbatim, `forked_from`
-/// included when the parent's own entry is a clone (a detached dev workspace keeps
-/// its clones). The stamp means "cloned into this workspace's own database", and
-/// the opt-in trusts it, so a copy must not carry one.
+/// included when the parent's own entry is a clone. The stamp means "cloned into
+/// this workspace's own database" — it is what lets the fork's deletion drop that
+/// database — so a copy must not carry one, and the config form may update the
+/// schema snapshot inside an existing stamp but never add or remove one.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn a_kept_original_does_not_inherit_the_clone_stamp(
     db: Pool<Postgres>,
@@ -428,20 +380,9 @@ async fn a_kept_original_does_not_inherit_the_clone_stamp(
             "byo": {
                 "database": { "resource_type": "postgresql", "resource_path": "u/test-user/pg" },
                 "forked_from": { "schema": {} }
-            },
-            "governed": {
-                "database": { "resource_type": "instance", "resource_path": "dt_governed" },
-                "permissions": { "enabled": true, "roles": { "admin": { "tenants": [] } } }
             }
         }
     }))
-    .execute(&db)
-    .await?;
-    sqlx::query(
-        "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up)
-         VALUES ('test-workspace', 'governed', 1, 'init', 'SELECT 1'),
-                ('test-workspace', 'byo', 1, 'init', 'SELECT 1')",
-    )
     .execute(&db)
     .await?;
 
@@ -461,88 +402,56 @@ async fn a_kept_original_does_not_inherit_the_clone_stamp(
     .await?;
     assert_eq!(copy["database"]["resource_path"], json!("u/test-user/pg"));
     assert!(copy.get("forked_from").is_none(), "{copy}");
-    // The permissioned data table stayed out of the fork, its migrations with it.
-    let migrated: Vec<String> = sqlx::query_scalar(
-        "SELECT datatable FROM datatable_migrations WHERE workspace_id = 'wm-fork-kept' ORDER BY 1",
-    )
-    .fetch_all(&db)
-    .await?;
-    assert_eq!(migrated, vec!["byo".to_string()]);
 
-    let resp = authed(
-        client().post(format!("{ws}/workspaces/datatable_permissions/byo/preview")),
-        "SECRET_TOKEN",
-    )
-    .json(&json!({ "enabled": true, "roles": [] }))
-    .send()
-    .await?;
-    assert_eq!(resp.status(), 400);
-    let text = resp.text().await?;
-    assert!(text.contains("wm-fork-kept (data table 'byo')"), "{text}");
-
-    // The form cannot stamp the copy either.
-    let resp = authed(
-        client().post(format!(
-            "http://localhost:{port}/api/w/wm-fork-kept/workspaces/edit_datatable_config"
-        )),
-        "SECRET_TOKEN",
-    )
-    .json(&json!({
-        "settings": { "datatables": {
-            "byo": {
-                "database": { "resource_type": "postgresql", "resource_path": "u/test-user/pg" },
-                "forked_from": { "schema": {} }
-            }
-        }}
-    }))
-    .send()
-    .await?;
-    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
-    let copy: serde_json::Value = sqlx::query_scalar(
-        "SELECT datatable->'datatables'->'byo' FROM workspace_settings WHERE workspace_id = 'wm-fork-kept'",
-    )
-    .fetch_one(&db)
-    .await?;
-    assert!(copy.get("forked_from").is_none(), "{copy}");
-
-    // Where the stamp exists it survives a save that omits it — the form
-    // round-trips configs the client trimmed — and its schema snapshot follows a
-    // save that carries one, which is how the schema diff records its baseline.
-    let save = |datatables: serde_json::Value| {
-        let ws = ws.clone();
-        async move {
-            let resp = authed(
-                client().post(format!("{ws}/workspaces/edit_datatable_config")),
-                "SECRET_TOKEN",
-            )
-            .json(&json!({ "settings": { "datatables": datatables } }))
-            .send()
-            .await
-            .unwrap();
-            assert_eq!(resp.status(), 200, "{}", resp.text().await.unwrap());
-        }
-    };
-    let stamp = |db: Pool<Postgres>| async move {
-        let entry: serde_json::Value = sqlx::query_scalar(
-            "SELECT datatable->'datatables'->'byo' FROM workspace_settings WHERE workspace_id = 'test-workspace'",
+    let save = |w: &'static str, datatables: serde_json::Value| async move {
+        let resp = authed(
+            client().post(format!(
+                "http://localhost:{port}/api/w/{w}/workspaces/edit_datatable_config"
+            )),
+            "SECRET_TOKEN",
         )
-        .fetch_one(&db)
+        .json(&json!({ "settings": { "datatables": datatables } }))
+        .send()
         .await
         .unwrap();
-        entry["forked_from"].clone()
+        assert_eq!(resp.status(), 200, "{}", resp.text().await.unwrap());
     };
-    save(json!({ "byo": {
-        "database": { "resource_type": "postgresql", "resource_path": "u/test-user/pg" }
-    }}))
+    let stamp = |w: &'static str| {
+        let db = db.clone();
+        async move {
+            let entry: serde_json::Value = sqlx::query_scalar(
+                "SELECT datatable->'datatables'->'byo' FROM workspace_settings WHERE workspace_id = $1",
+            )
+            .bind(w)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+            entry["forked_from"].clone()
+        }
+    };
+    let byo =
+        json!({ "database": { "resource_type": "postgresql", "resource_path": "u/test-user/pg" } });
+    // The form cannot stamp the copy...
+    save(
+        "wm-fork-kept",
+        json!({ "byo": {
+            "database": byo["database"], "forked_from": { "schema": {} }
+        }}),
+    )
     .await;
-    assert_eq!(stamp(db.clone()).await, json!({ "schema": {} }));
-    save(json!({ "byo": {
-        "database": { "resource_type": "postgresql", "resource_path": "u/test-user/pg" },
-        "forked_from": { "schema": { "t": ["id"] } }
-    }}))
+    assert_eq!(stamp("wm-fork-kept").await, serde_json::Value::Null);
+    // ...nor take the parent's stamp away, and it may update the snapshot inside it.
+    save("test-workspace", json!({ "byo": byo })).await;
+    assert_eq!(stamp("test-workspace").await, json!({ "schema": {} }));
+    save(
+        "test-workspace",
+        json!({ "byo": {
+            "database": byo["database"], "forked_from": { "schema": { "t": ["id"] } }
+        }}),
+    )
     .await;
     assert_eq!(
-        stamp(db.clone()).await,
+        stamp("test-workspace").await,
         json!({ "schema": { "t": ["id"] } })
     );
 
@@ -550,9 +459,9 @@ async fn a_kept_original_does_not_inherit_the_clone_stamp(
 }
 
 /// A save carries the whole role list the drawer loaded, so it can name a tenant
-/// another admin's deletion took off the role in between, and a rename can name
-/// a role that stored migrations still carry in their `-- role` annotation. Both
-/// are refused rather than written back.
+/// another admin's deletion took off the role in between, and it can leave a
+/// role stored migrations still carry in their `-- role` annotation undefined.
+/// Both are refused rather than written; turning permissions off is not.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn a_save_names_only_what_exists(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -560,22 +469,8 @@ async fn a_save_names_only_what_exists(db: Pool<Postgres>) -> anyhow::Result<()>
     let port = server.addr.port();
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
-    sqlx::query(
-        r#"UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = 'test-workspace'"#,
-    )
-    .bind(json!({
-        "datatables": {
-            "main": {
-                "database": { "resource_type": "instance", "resource_path": "dt_main" },
-                "permissions": { "enabled": true, "roles": {
-                    "admin": { "tenants": [] },
-                    "analyst": { "tenants": ["u/test-user"] }
-                }}
-            }
-        }
-    }))
-    .execute(&db)
-    .await?;
+    plant_main(&db, "test-workspace").await;
+    plant_permissions(&db, MAIN_KEY, "test-workspace", &["u/test-user"]).await;
     sqlx::query(
         "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down)
          VALUES ('test-workspace', 'main', 1, 'add_orders', '-- role analyst\nCREATE TABLE orders ()', NULL)",
@@ -616,7 +511,6 @@ async fn a_save_names_only_what_exists(db: Pool<Postgres>) -> anyhow::Result<()>
     assert_eq!(status, 400, "{text}");
     assert!(text.contains("'add_orders' (role 'analyst')"), "{text}");
 
-    // Removing the role strands the migration the same way.
     let (status, text) = preview(json!({ "enabled": true,
         "roles": [{ "name": "admin", "tenants": [] }]
     }))
@@ -645,258 +539,6 @@ async fn a_save_names_only_what_exists(db: Pool<Postgres>) -> anyhow::Result<()>
     .await;
     assert!(
         !text.contains("no longer exist") && !text.contains("Migration(s)"),
-        "{text}"
-    );
-
-    Ok(())
-}
-
-/// Another workspace naming the same resource path holds a resource of its own,
-/// which counts only when it resolves to the same database — a detached dev
-/// workspace's cloned resource does, an unrelated workspace's same-named one
-/// does not.
-#[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn a_same_named_resource_counts_only_when_it_reaches_the_same_database(
-    db: Pool<Postgres>,
-) -> anyhow::Result<()> {
-    initialize_tracing().await;
-    let server = ApiServer::start(db.clone()).await?;
-    let port = server.addr.port();
-
-    sqlx::query(
-        "INSERT INTO workspace (id, name, owner) VALUES ('detached', 'detached', 'test-user')",
-    )
-    .execute(&db)
-    .await?;
-    sqlx::query(
-        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
-         VALUES ('detached', 'test@windmill.dev', 'test-user', true, 'Admin')",
-    )
-    .execute(&db)
-    .await?;
-    let byo =
-        json!({ "database": { "resource_type": "postgresql", "resource_path": "u/test-user/pg" } });
-    for w in ["test-workspace", "detached"] {
-        sqlx::query(
-            "INSERT INTO workspace_settings (workspace_id, datatable) VALUES ($1, $2)
-             ON CONFLICT (workspace_id) DO UPDATE SET datatable = EXCLUDED.datatable",
-        )
-        .bind(w)
-        .bind(json!({ "datatables": { "byo": byo } }))
-        .execute(&db)
-        .await?;
-    }
-    let create_pg = |w: &'static str, dbname: &'static str| async move {
-        let resp = authed(
-            client().post(format!("http://localhost:{port}/api/w/{w}/resources/create")),
-            "SECRET_TOKEN",
-        )
-        .json(&json!({
-            "path": "u/test-user/pg",
-            "resource_type": "postgresql",
-            "value": { "host": "db.example", "port": 5432, "dbname": dbname, "user": "app", "password": "pw", "sslmode": "disable" }
-        }))
-        .send()
-        .await
-        .unwrap();
-        assert_eq!(resp.status(), 201, "{w}: {}", resp.text().await.unwrap());
-    };
-    create_pg("test-workspace", "prod").await;
-    create_pg("detached", "prod").await;
-
-    let preview = || async {
-        let resp = authed(
-            client().post(format!(
-                "http://localhost:{port}/api/w/test-workspace/workspaces/datatable_permissions/byo/preview"
-            )),
-            "SECRET_TOKEN",
-        )
-        .json(&json!({ "enabled": true, "roles": [] }))
-        .send()
-        .await
-        .unwrap();
-        resp.text().await.unwrap()
-    };
-    let text = preview().await;
-    assert!(
-        text.contains("same database: detached (data table 'byo')"),
-        "{text}"
-    );
-
-    // Same path, another database: not a copy.
-    sqlx::query(
-        "UPDATE resource SET value = jsonb_set(value, '{dbname}', '\"other\"')
-         WHERE workspace_id = 'detached' AND path = 'u/test-user/pg'",
-    )
-    .execute(&db)
-    .await?;
-    let text = preview().await;
-    assert!(!text.contains("cannot be enabled"), "{text}");
-
-    // Another path and another login, the same database: a copy, wherever the
-    // resource was moved and whoever it connects as.
-    sqlx::query(
-        "UPDATE resource SET path = 'f/moved/pg',
-             value = jsonb_set(jsonb_set(value, '{dbname}', '\"prod\"'), '{user}', '\"postgres\"')
-         WHERE workspace_id = 'detached' AND path = 'u/test-user/pg'",
-    )
-    .execute(&db)
-    .await?;
-    sqlx::query(
-        r#"UPDATE workspace_settings
-           SET datatable = jsonb_set(datatable, '{datatables,byo,database,resource_path}', '"f/moved/pg"')
-           WHERE workspace_id = 'detached'"#,
-    )
-    .execute(&db)
-    .await?;
-    let text = preview().await;
-    assert!(
-        text.contains("same database: detached (data table 'byo')"),
-        "{text}"
-    );
-
-    // The same rule from the other side: once `byo` is governed, the settings
-    // form cannot add an entry that reaches its database, in this workspace or
-    // another, and the pointer alone does not decide it.
-    let identity: String = {
-        // Stamped by the opt-in in the real flow; here from the same resource.
-        let resp = authed(
-            client().get(format!(
-                "http://localhost:{port}/api/w/test-workspace/resources/get_value_interpolated/u/test-user/pg"
-            )),
-            "SECRET_TOKEN",
-        )
-        .send()
-        .await?;
-        assert_eq!(resp.status(), 200);
-        let value: serde_json::Value = resp.json().await?;
-        windmill_common::workspaces::physical_database_identity(&value)
-    };
-    sqlx::query(
-        r#"UPDATE workspace_settings
-           SET datatable = jsonb_set(datatable, '{datatables,byo,permissions}',
-               jsonb_build_object('enabled', true, 'roles', '{"admin": {"tenants": []}}'::jsonb,
-                                  'physical_identity', $1::text))
-           WHERE workspace_id = 'test-workspace'"#,
-    )
-    .bind(&identity)
-    .execute(&db)
-    .await?;
-    let save = |w: &'static str, path: &'static str| async move {
-        let resp = authed(
-            client().post(format!(
-                "http://localhost:{port}/api/w/{w}/workspaces/edit_datatable_config"
-            )),
-            "SECRET_TOKEN",
-        )
-        .json(&json!({ "settings": { "datatables": {
-            "door": { "database": { "resource_type": "postgresql", "resource_path": path } }
-        }}}))
-        .send()
-        .await
-        .unwrap();
-        (resp.status().as_u16(), resp.text().await.unwrap())
-    };
-    let (status, text) = save("detached", "f/moved/pg").await;
-    assert_eq!(status, 400, "{text}");
-    assert!(
-        text.contains("data table 'byo' of workspace test-workspace"),
-        "{text}"
-    );
-    sqlx::query(
-        "UPDATE resource SET value = jsonb_set(value, '{dbname}', '\"other\"')
-         WHERE workspace_id = 'detached' AND path = 'f/moved/pg'",
-    )
-    .execute(&db)
-    .await?;
-    let (status, text) = save("detached", "f/moved/pg").await;
-    assert_eq!(status, 200, "{text}");
-    // And the resource behind that entry cannot be pointed back at it either.
-    let resp = authed(
-        client().post(format!(
-            "http://localhost:{port}/api/w/detached/resources/update/f/moved/pg"
-        )),
-        "SECRET_TOKEN",
-    )
-    .json(&json!({ "value": { "host": "db.example", "port": 5432, "dbname": "prod", "user": "app", "password": "pw", "sslmode": "disable" } }))
-    .send()
-    .await?;
-    let status = resp.status().as_u16();
-    let text = resp.text().await?;
-    assert_eq!(status, 400, "{text}");
-    assert!(text.contains("a data table of another workspace"), "{text}");
-    // Nor deleted and recreated at the path the entry still names.
-    let resp = authed(
-        client().delete(format!(
-            "http://localhost:{port}/api/w/detached/resources/delete/f/moved/pg"
-        )),
-        "SECRET_TOKEN",
-    )
-    .send()
-    .await?;
-    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
-    let resp = authed(
-        client().post(format!("http://localhost:{port}/api/w/detached/resources/create")),
-        "SECRET_TOKEN",
-    )
-    .json(&json!({
-        "path": "f/moved/pg",
-        "resource_type": "postgresql",
-        "value": { "host": "db.example", "port": 5432, "dbname": "prod", "user": "app", "password": "pw", "sslmode": "disable" }
-    }))
-    .send()
-    .await?;
-    let status = resp.status().as_u16();
-    let text = resp.text().await?;
-    assert_eq!(status, 400, "{text}");
-    assert!(text.contains("a data table of another workspace"), "{text}");
-    // A second door that got past every write-time guard — a `$var:` changed
-    // under the resource, say — is refused where it is used.
-    sqlx::query(
-        "INSERT INTO resource (workspace_id, path, value, resource_type, created_by, edited_at)
-         VALUES ('detached', 'f/moved/pg', $1, 'postgresql', 'test-user', now())",
-    )
-    .bind(json!({ "host": "db.example", "port": 5432, "dbname": "prod", "user": "postgres", "password": "pw" }))
-    .execute(&db)
-    .await?;
-    let resp = authed(
-        client().get(format!(
-            "http://localhost:{port}/api/w/detached/workspaces/get_datatable_table_schema?datatable_name=door&schema_name=public&table_name=t"
-        )),
-        "SECRET_TOKEN",
-    )
-    .send()
-    .await?;
-    let status = resp.status().as_u16();
-    let text = resp.text().await?;
-    assert_eq!(status, 401, "{text}");
-    assert!(
-        text.contains("whose role permissions are enabled"),
-        "{text}"
-    );
-    sqlx::query(
-        r#"UPDATE workspace_settings
-           SET datatable = datatable #- '{datatables,byo,permissions}'
-           WHERE workspace_id = 'test-workspace'"#,
-    )
-    .execute(&db)
-    .await?;
-
-    // A second entry of this workspace on the same resource is a second door.
-    sqlx::query("DELETE FROM workspace_settings WHERE workspace_id = 'detached'")
-        .execute(&db)
-        .await?;
-    sqlx::query(
-        r#"UPDATE workspace_settings
-           SET datatable = jsonb_set(datatable, '{datatables,byo2}', $1)
-           WHERE workspace_id = 'test-workspace'"#,
-    )
-    .bind(&byo)
-    .execute(&db)
-    .await?;
-    let text = preview().await;
-    assert!(
-        text.contains("same database: test-workspace (data table 'byo2')"),
         "{text}"
     );
 

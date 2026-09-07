@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO datatable_database_permissions (database_key, owner_workspace_id, permissions)\n           VALUES ($1, $2, $3)\n           ON CONFLICT (database_key) DO UPDATE SET permissions = EXCLUDED.permissions, updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f17b405bb47b4633675b75caffe25d51261c12c016218df01b2897abe94096fe"
+}

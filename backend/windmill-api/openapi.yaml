@@ -34220,7 +34220,7 @@ components:
           type: string
     DatatablePermissions:
       type: object
-      required: [enabled, roles, default_role]
+      required: [enabled, roles, default_role, editable]
       properties:
         enabled:
           type: boolean
@@ -34231,6 +34231,12 @@ components:
         default_role:
           description: the role a script gets when it names none
           type: string
+        owner_workspace_id:
+          description: the workspace that turned the permissions on, whose admins manage them and whose principals the tenants are; absent while they are off
+          type: string
+        editable:
+          description: whether the caller may change them from this workspace (an admin of the owning workspace, or a superadmin)
+          type: boolean
     SetDatatablePermissions:
       type: object
       required: [enabled, roles]

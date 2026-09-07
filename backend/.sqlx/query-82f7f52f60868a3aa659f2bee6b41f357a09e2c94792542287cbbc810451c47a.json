@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT database_key, owner_workspace_id, permissions\n           FROM datatable_database_permissions WHERE owner_workspace_id = $1\n           ORDER BY database_key FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "database_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "owner_workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "permissions",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "82f7f52f60868a3aa659f2bee6b41f357a09e2c94792542287cbbc810451c47a"
+}

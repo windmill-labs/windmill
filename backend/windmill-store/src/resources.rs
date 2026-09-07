@@ -1196,27 +1196,6 @@ async fn create_resource(
         .await?;
     }
     if update_if_exists {
-        // An upsert over an existing row is an edit, so it answers to the same
-        // rule: a permissioned data table's roles live in the database its
-        // resource names, and that is not free to move while they exist.
-        let previous = sqlx::query_scalar!(
-            "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
-            resource.path,
-            w_id
-        )
-        .fetch_optional(&db)
-        .await?
-        .flatten();
-        let nvalue: serde_json::Value = serde_json::from_str(raw_json.0.get())
-            .map_err(|e| Error::BadRequest(format!("Invalid resource value: {e}")))?;
-        windmill_common::workspaces::ensure_resource_identity_change_allowed(
-            &db,
-            &w_id,
-            &resource.path,
-            previous.as_ref(),
-            Some(&nvalue),
-        )
-        .await?;
         sqlx::query!(
             "INSERT INTO resource
                 (workspace_id, path, value, description, resource_type, created_by, edited_at, labels)
@@ -1234,17 +1213,6 @@ async fn create_resource(
         .await
         .map_err(sanitize_db_error)?;
     } else {
-        // A data table entry may already name this path, its resource deleted since.
-        let nvalue: serde_json::Value = serde_json::from_str(raw_json.0.get())
-            .map_err(|e| Error::BadRequest(format!("Invalid resource value: {e}")))?;
-        windmill_common::workspaces::ensure_resource_identity_change_allowed(
-            &db,
-            &w_id,
-            &resource.path,
-            None,
-            Some(&nvalue),
-        )
-        .await?;
         // Create-only (the default): DO NOTHING + a row-count guard, so a path that appears between
         // check_path_conflict above and this insert is rejected rather than overwritten. A plain
         // DO UPDATE here would clobber a concurrently-created resource, breaking create-only callers
@@ -1355,7 +1323,6 @@ async fn delete_resource(
     {
         return Err(Error::PermissionDenied(msg));
     }
-    windmill_common::workspaces::ensure_resource_removal_allowed(&db, &w_id, path).await?;
     let mut tx = user_db.begin(&authed).await?;
 
     // Capture resource data for trashbin before deleting
@@ -1662,10 +1629,6 @@ async fn delete_resources_bulk(
     {
         return Err(Error::PermissionDenied(msg));
     }
-    for path in &request.paths {
-        windmill_common::workspaces::ensure_resource_removal_allowed(&db, &w_id, path).await?;
-    }
-
     let mut tx = user_db.begin(&authed).await?;
 
     // Capture resources for trashbin per path before bulk delete, and
@@ -1854,56 +1817,6 @@ async fn update_resource(
     .await?
     {
         return Err(Error::PermissionDenied(msg));
-    }
-
-    // A rename takes the resource out from under whatever names its path — and
-    // puts it under whatever names the new one.
-    if let Some(npath) = ns.path.as_deref().filter(|npath| *npath != path) {
-        windmill_common::workspaces::ensure_resource_removal_allowed(&db, &w_id, path).await?;
-        let arriving: Option<serde_json::Value> = match ns.value.as_ref() {
-            Some(v) => Some(
-                serde_json::from_str(v.get())
-                    .map_err(|e| Error::BadRequest(format!("Invalid resource value: {e}")))?,
-            ),
-            None => sqlx::query_scalar!(
-                "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
-                path,
-                &w_id
-            )
-            .fetch_optional(&db)
-            .await?
-            .flatten(),
-        };
-        windmill_common::workspaces::ensure_resource_identity_change_allowed(
-            &db,
-            &w_id,
-            npath,
-            None,
-            arriving.as_ref(),
-        )
-        .await?;
-    }
-    // Same as `set_resource_value`: the identity a permissioned data table's
-    // roles were created against is not free to move underneath them.
-    if let Some(nvalue) = ns.value.as_ref() {
-        let previous = sqlx::query_scalar!(
-            "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
-            path,
-            &w_id
-        )
-        .fetch_optional(&db)
-        .await?
-        .flatten();
-        let nvalue: serde_json::Value = serde_json::from_str(nvalue.get())
-            .map_err(|e| Error::BadRequest(format!("Invalid resource value: {e}")))?;
-        windmill_common::workspaces::ensure_resource_identity_change_allowed(
-            &db,
-            &w_id,
-            path,
-            previous.as_ref(),
-            Some(&nvalue),
-        )
-        .await?;
     }
 
     let mut sqlb = SqlBuilder::update_table("resource");
@@ -2220,23 +2133,6 @@ async fn set_resource_value(
 
     // A data table's roles live in the database its resource points at, so the
     // identity behind that path is not free to move while they exist.
-    let previous = sqlx::query_scalar!(
-        "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
-        path,
-        w_id
-    )
-    .fetch_optional(db)
-    .await?
-    .flatten();
-    windmill_common::workspaces::ensure_resource_identity_change_allowed(
-        db,
-        w_id,
-        path,
-        previous.as_ref(),
-        value.as_ref(),
-    )
-    .await?;
-
     let mut tx = user_db.clone().begin(authed).await?;
 
     // `RETURNING resource_type` rather than a second lookup: the advisory below has to know the

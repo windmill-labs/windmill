@@ -30,12 +30,16 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::error::{pg_error_message, Error, JsonResult, Result};
 use windmill_common::workspaces::{
-    can_use_datatable_role, get_datatable_resource_from_db,
-    get_datatable_resource_from_db_unchecked, DatatableAccess, ADMIN_DATATABLE_ROLE,
+    get_datatable_resource_from_db, get_datatable_resource_from_db_unchecked, DatatableAccess,
+    ADMIN_DATATABLE_ROLE,
 };
 use windmill_common::{PgDatabase, DB};
 
-use crate::datatable_permissions::{connect_as_admin_unchecked, read_datatable_unchecked};
+use crate::datatable_permissions::{connect_as_admin_unchecked, usable_roles};
+use windmill_common::workspaces::{
+    database_permissions_by_key, lock_database_permissions, resolve_datatable_database_unchecked,
+    DatabasePermissions,
+};
 
 pub(crate) fn routes() -> Router {
     Router::new()
@@ -254,12 +258,7 @@ async fn connect_as_caller(
     // lists are what say who reaches which. Without permissions every member
     // resolves to the data table's own connection, which owns everything — so
     // there it is the workspace admins' to change, as the roles themselves are.
-    if !authed.is_admin
-        && !read_datatable_unchecked(db, w_id, datatable_name)
-            .await?
-            .permissions
-            .is_some_and(|p| p.enabled)
-    {
+    if !authed.is_admin && database_record(db, w_id, datatable_name).await?.is_none() {
         return Err(Error::NotAuthorized(format!(
             "Only an admin can manage access on data table '{datatable_name}', which has no roles"
         )));
@@ -406,6 +405,18 @@ async fn first_unmanageable_object(
     Ok(row.map(|row| format!("{schema}.{}", row.get::<_, String>(0))))
 }
 
+/// The permissions of the database the data table reaches, when they are on.
+async fn database_record(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+) -> Result<Option<DatabasePermissions>> {
+    let (_, _, key) = resolve_datatable_database_unchecked(db, w_id, datatable_name).await?;
+    Ok(database_permissions_by_key(db, &key)
+        .await?
+        .filter(|r| r.permissions.enabled))
+}
+
 /// The data table roles `authed` may themselves run as.
 async fn usable_role_names(
     db: &DB,
@@ -413,15 +424,16 @@ async fn usable_role_names(
     datatable_name: &str,
     authed: &ApiAuthed,
 ) -> Result<Vec<String>> {
-    let authed_ref = authed.to_authed_ref();
-    let datatable = read_datatable_unchecked(db, w_id, datatable_name).await?;
-    Ok(match datatable.permissions.filter(|p| p.enabled) {
-        Some(p) => p
-            .roles
-            .iter()
-            .filter(|(_, role)| can_use_datatable_role(role, &authed_ref))
-            .map(|(name, _)| name.clone())
-            .collect(),
+    Ok(match database_record(db, w_id, datatable_name).await? {
+        Some(record) => {
+            usable_roles(
+                db,
+                w_id,
+                &record,
+                &DatatableAccess::Authed(authed.to_authed_ref()),
+            )
+            .await?
+        }
         None => vec![ADMIN_DATATABLE_ROLE.to_string()],
     })
 }
@@ -470,11 +482,10 @@ async fn role_map(
     datatable_name: &str,
     admin_pg_role: &str,
 ) -> Result<BTreeMap<String, String>> {
-    let datatable = read_datatable_unchecked(db, w_id, datatable_name).await?;
     let mut map = BTreeMap::new();
     map.insert(ADMIN_DATATABLE_ROLE.to_string(), admin_pg_role.to_string());
-    if let Some(permissions) = datatable.permissions.filter(|p| p.enabled) {
-        for (name, role) in permissions.roles {
+    if let Some(record) = database_record(db, w_id, datatable_name).await? {
+        for (name, role) in record.permissions.roles {
             if let Some(pg_rolename) = role.pg_rolename {
                 map.insert(name, pg_rolename);
             }
@@ -1045,7 +1056,9 @@ async fn apply_datatable_acl(
     // off the catalog and the config, and a role save running at the same time
     // is what changes both under it. Held to the end of this handler.
     let mut lock_tx = db.begin().await?;
-    windmill_common::workspaces::lock_workspace_settings_unchecked(&mut lock_tx, &w_id).await?;
+    let (_, _, database_key) =
+        resolve_datatable_database_unchecked(&db, &w_id, &datatable_name).await?;
+    lock_database_permissions(&mut lock_tx, &database_key).await?;
 
     // Authorization first: the repair below opens a connection as the instance's
     // own Postgres user, which is not something a request that is about to be

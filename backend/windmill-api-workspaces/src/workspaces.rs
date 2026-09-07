@@ -45,12 +45,11 @@ use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
-    can_use_datatable_role, check_deploy_rules, check_user_against_rule,
-    get_datatable_resource_from_db, get_datatable_resource_from_db_unchecked,
-    redact_datatable_settings_for_export, validate_dev_workspace_id, validate_fork_workspace_id,
-    validate_workspace_name, DataTable, DataTableCatalogResourceType, DataTableForkBehavior,
-    DatatableAccess, ProtectionRuleKind, ProtectionRules, ProtectionRuleset, RuleCheckResult,
-    WorkspaceGitSyncSettings, ADMIN_DATATABLE_ROLE, DEV_WORKSPACE_LOCK_RULE_NAME,
+    check_deploy_rules, check_user_against_rule, get_datatable_resource_from_db,
+    get_datatable_resource_from_db_unchecked, validate_dev_workspace_id,
+    validate_fork_workspace_id, validate_workspace_name, DataTable, DataTableCatalogResourceType,
+    DataTableForkBehavior, DatatableAccess, ProtectionRuleKind, ProtectionRules, ProtectionRuleset,
+    RuleCheckResult, WorkspaceGitSyncSettings, ADMIN_DATATABLE_ROLE, DEV_WORKSPACE_LOCK_RULE_NAME,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -364,8 +363,6 @@ pub struct WorkspacePublicSettings {
     pub deploy_ui: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub large_file_storage: Option<serde_json::Value>,
-    /// Carries each data table role's generated login as stored, so it only
-    /// leaves the server through `redact_datatable_settings_for_export`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub datatable: Option<serde_json::Value>,
 }
@@ -1117,7 +1114,6 @@ async fn get_settings(
     if let Some(git_sync) = settings.git_sync.as_mut() {
         redact_git_sync_webhook_secrets(git_sync);
     }
-    settings.datatable = redact_datatable_settings_for_export(settings.datatable);
 
     Ok(Json(settings))
 }
@@ -1154,12 +1150,11 @@ async fn get_public_settings(
     .await
     .map_err(|e| Error::internal_err(format!("getting public settings: {e:#}")))?;
 
-    let mut settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
     tx.commit().await?;
 
     // Every workspace member reads this one, so the generated role logins go
     // through the same redaction as the admin settings and the tarball.
-    settings.datatable = redact_datatable_settings_for_export(settings.datatable);
 
     Ok(Json(settings))
 }
@@ -2452,42 +2447,38 @@ async fn list_datatable_tables(
 }
 
 /// Which roles the caller may use on each data table of the workspace, and the
-/// one they get by default. Read in one go: the tree lists every data table, and
-/// this is config only, so it costs a single query rather than one per table.
+/// one they get by default. The tree lists every data table, so each one is
+/// resolved to its database and its permissions read; a data table that does not
+/// resolve reports the default alone.
 async fn list_datatable_roles(
     db: &DB,
     authed: &ApiAuthed,
     w_id: &str,
 ) -> Result<HashMap<String, (Vec<String>, String)>> {
-    let Some(datatables) = sqlx::query_scalar!(
-        "SELECT ws.datatable->'datatables' FROM workspace_settings ws WHERE ws.workspace_id = $1",
-        w_id
-    )
-    .fetch_optional(db)
-    .await?
-    .flatten()
-    .and_then(|v| serde_json::from_value::<HashMap<String, DataTable>>(v).ok()) else {
-        return Ok(HashMap::new());
-    };
-
-    let authed_ref = authed.to_authed_ref();
-    Ok(datatables
-        .into_iter()
-        .map(|(name, dt)| {
-            let info = match dt.permissions.filter(|p| p.enabled) {
-                Some(p) => (
-                    p.roles
-                        .iter()
-                        .filter(|(_, role)| can_use_datatable_role(role, &authed_ref))
-                        .map(|(role_name, _)| role_name.clone())
-                        .collect(),
-                    p.default_role().to_string(),
-                ),
-                None => (vec![], ADMIN_DATATABLE_ROLE.to_string()),
-            };
-            (name, info)
-        })
-        .collect())
+    let names = list_datatable_names(db, w_id).await?;
+    let access = DatatableAccess::Authed(authed.to_authed_ref());
+    let mut roles = HashMap::new();
+    for name in names {
+        let record = match windmill_common::workspaces::resolve_datatable_database_unchecked(
+            db, w_id, &name,
+        )
+        .await
+        {
+            Ok((_, _, key)) => windmill_common::workspaces::database_permissions_by_key(db, &key)
+                .await?
+                .filter(|r| r.permissions.enabled),
+            Err(_) => None,
+        };
+        let info = match record {
+            Some(record) => (
+                crate::datatable_permissions::usable_roles(db, w_id, &record, &access).await?,
+                record.permissions.default_role().to_string(),
+            ),
+            None => (vec![], ADMIN_DATATABLE_ROLE.to_string()),
+        };
+        roles.insert(name, info);
+    }
+    Ok(roles)
 }
 
 async fn get_datatable_table_schema(
@@ -3138,46 +3129,6 @@ pub(crate) async fn is_instance_datatable(db: &DB, w_id: &str, name: &str) -> Re
         .unwrap_or(false))
 }
 
-/// Refuse to clone a data table whose role permissions are enabled.
-///
-/// A clone lands in a brand-new database where none of the roles exist, and the
-/// fork's copy of the config is stripped of its permissions — so every member of
-/// the fork resolves to the copy's own owner connection and reads, in full, the
-/// data the roles existed to divide. Reproducing the roles in the copy is a
-/// separate piece of work; until it exists, a fork goes without the data table
-/// (the fork creation leaves a permissioned one out of the fork's config).
-///
-/// Authorization: performs none. It reads whether `w_id`'s data table is
-/// permissioned, for any `w_id` it is handed, so callers MUST already have
-/// authorized the caller for that workspace.
-pub(crate) async fn refuse_clone_of_permissioned_datatable(
-    db: &DB,
-    w_id: &str,
-    source: &str,
-) -> Result<()> {
-    let Some(name) = source.strip_prefix("datatable://") else {
-        return Ok(());
-    };
-    let enabled = sqlx::query_scalar!(
-        "SELECT COALESCE((datatable->'datatables'->$2->'permissions'->>'enabled')::boolean, false)
-         FROM workspace_settings WHERE workspace_id = $1",
-        w_id,
-        name,
-    )
-    .fetch_optional(db)
-    .await?
-    .flatten()
-    .unwrap_or(false);
-    if enabled {
-        return Err(Error::BadRequest(format!(
-            "Data table '{name}' has role permissions enabled and cannot be cloned into a fork: \
-             the copy cannot carry its roles, so it would be readable in full by every member of \
-             the fork. The fork goes without it; disable its permissions first to clone it."
-        )));
-    }
-    Ok(())
-}
-
 /// Same as [`is_instance_datatable`], for the `datatable://<name>` / `$res:<path>` form the
 /// import endpoints take.
 async fn is_instance_datatable_source(db: &DB, w_id: &str, source: &str) -> Result<bool> {
@@ -3506,7 +3457,6 @@ async fn create_pg_database(
     Json(req): Json<CreatePgDatabaseRequest>,
 ) -> Result<String> {
     windmill_common::validate_dbname(&req.target_dbname)?;
-    refuse_clone_of_permissioned_datatable(&db, &w_id, &req.source).await?;
 
     // Non-superadmin: restrict dbname to wm_fork_ prefix
     if !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
@@ -3596,13 +3546,6 @@ async fn import_pg_database(
                 "Importing schema and data is not available on cloud".to_string(),
             ));
         }
-    }
-
-    // Only the fork clone flow overrides the target database name; a plain
-    // database-to-database import is an admin moving data between databases they
-    // already reach, and lands nowhere that strips permissions.
-    if req.target_dbname_override.is_some() {
-        refuse_clone_of_permissioned_datatable(&db, &w_id, &req.source).await?;
     }
 
     let schema_only = req.fork_behavior == DataTableForkBehavior::SchemaOnly;
@@ -3800,15 +3743,15 @@ async fn edit_datatable_config(
     let is_superadmin = require_super_admin(&db, &authed).await.is_ok();
 
     let mut tx = db.begin().await?;
-    // This form carries the whole config forward — permissions restored from the
-    // old value included — so it reads and writes the settings under the same
-    // lock as the role save and the principal cleanups, or it puts back what one
-    // of them just took away.
     let old_datatables: HashMap<String, DataTable> = serde_json::from_value(
-        windmill_common::workspaces::lock_workspace_settings_unchecked(&mut tx, &w_id)
-            .await?
-            .and_then(|d| d.get("datatables").cloned())
-            .unwrap_or(serde_json::Value::Null),
+        sqlx::query_scalar!(
+            "SELECT datatable->'datatables' FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
+            &w_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten()
+        .unwrap_or(serde_json::Value::Null),
     )
     .unwrap_or_default();
 
@@ -3860,12 +3803,10 @@ async fn edit_datatable_config(
                 Some(true)
             }
         };
-        // Same for permissions, owned by the datatable_permissions endpoints.
+        // `forked_from` is stamped by the fork clone and read by the fork's
+        // database drop as "this entry has a database of its own": the form may
+        // update the schema snapshot inside it, never add or remove the stamp.
         let old = old_datatables.get(lookup);
-        dt.permissions = old.and_then(|old| old.permissions.clone());
-        // `forked_from` is stamped by the fork clone and read by the permissions
-        // opt-in as "this entry has a database of its own": the form may update the
-        // schema snapshot inside it, never add or remove the stamp.
         dt.forked_from = match (
             old.and_then(|old| old.forked_from.as_ref()),
             dt.forked_from.take(),
@@ -3876,55 +3817,9 @@ async fn edit_datatable_config(
                 schema: old.schema.clone(),
             }),
         };
-        // An entry that is new, or points somewhere new, must not reach a database
-        // another data table governs.
-        let points_elsewhere = old.is_none_or(|old| {
-            old.database.resource_path != dt.database.resource_path
-                || old.database.resource_type != dt.database.resource_type
-        });
-        if points_elsewhere {
-            crate::datatable_permissions::refuse_reaching_a_governed_database(
-                &db,
-                &w_id,
-                name,
-                &dt.database,
-            )
-            .await?;
-        }
-        // The roles live in the database this data table points at: their logins
-        // were created there and every grant they hold is recorded there. Carried
-        // onto another database they authenticate against a cluster that never
-        // heard of the grants, so the switch has to go through opting out first —
-        // which is also what drops the roles from the database they belong to.
-        if let Some(old) = old.filter(|_| dt.permissions.as_ref().is_some_and(|p| p.enabled)) {
-            if old.database.resource_path != dt.database.resource_path
-                || old.database.resource_type != dt.database.resource_type
-            {
-                return Err(Error::BadRequest(format!(
-                    "Data table '{name}' has permissions enabled, so it cannot be pointed at \
-                     another database: disable them first, which drops its roles from the \
-                     database they were created in."
-                )));
-            }
-            // A generated login is named from the data table's name, so a renamed
-            // one keeps logins named for the name it left — and a data table
-            // created under that name next generates those same names, adopts
-            // those logins and resets their passwords. Renaming is rare; sharing
-            // a login between two data tables is not something to leave open.
-            if lookup != name.as_str() {
-                return Err(Error::BadRequest(format!(
-                    "Data table '{lookup}' has permissions enabled, so it cannot be renamed to \
-                     '{name}': its Postgres logins are named after '{lookup}' and a data table \
-                     created under that name would take them over. Disable its permissions \
-                     first, which drops those logins, then rename and enable them again."
-                )));
-            }
-        }
     }
 
-    // The settings carry each role's generated login password.
-    let args_for_audit =
-        windmill_common::workspaces::datatable_settings_for_audit(&new_config.settings);
+    let args_for_audit = serde_json::to_string(&new_config.settings).unwrap_or_default();
     audit_log(
         &mut *tx,
         &authed,
@@ -3955,27 +3850,6 @@ async fn edit_datatable_config(
         }
     }
 
-    // Planned before the config is overwritten, while the data tables about to
-    // disappear can still be resolved to a connection, and run once it has
-    // committed: `DROP OWNED` discards the roles' grants for good, so a save that
-    // rolls back after this point must not have destroyed anything.
-    //
-    // What is disappearing is read from the two configs rather than from the
-    // request's `deleted_datatables`: a save that drops a name and adds another
-    // declares no rename and no deletion, and the logins of the name it dropped
-    // would be left for whatever data table is created under it next.
-    let mut planned_role_drops = Vec::new();
-    for gone in old_datatables
-        .keys()
-        .filter(|name| !new_config.settings.datatables.contains_key(*name))
-    {
-        if let Some(planned) =
-            crate::datatable_permissions::plan_drop_of_deleted_datatable(&db, &w_id, gone).await
-        {
-            planned_role_drops.push((gone.clone(), planned));
-        }
-    }
-
     let config: serde_json::Value = serde_json::to_value(new_config.settings)
         .map_err(|err| Error::internal_err(err.to_string()))?;
 
@@ -3998,10 +3872,6 @@ async fn edit_datatable_config(
         .await?;
 
     tx.commit().await?;
-
-    for (deleted, planned) in planned_role_drops {
-        crate::datatable_permissions::run_planned_drop(&db, &w_id, &deleted, planned).await;
-    }
 
     for substrate in created_substrates {
         windmill_common::feature_usage::log_feature_usage("datatable", "created", substrate);
@@ -7851,10 +7721,6 @@ async fn apply_forked_datatable(
     fdt: &ForkedDatatableInfo,
 ) -> Result<()> {
     windmill_common::validate_dbname(&fdt.new_dbname)?;
-    // The clone endpoints refuse this too; this is the one a caller cannot go
-    // around, since it is what wires the fork's config to the copied database.
-    refuse_clone_of_permissioned_datatable(db, parent_w_id, &format!("datatable://{}", fdt.name))
-        .await?;
     if !fdt.new_dbname.starts_with("wm_fork_") {
         return Err(Error::BadRequest(format!(
             "Forked datatable database name '{}' must start with 'wm_fork_'",
@@ -8288,14 +8154,6 @@ async fn create_workspace_fork(
         .await?;
     }
 
-    // Enabling a data table's permissions is refused while a fork holds a copy of it, and
-    // that check runs under this same row: a fork still being created has either committed,
-    // and is found, or copies the parent's settings only after the opt-in landed, so the
-    // permissioned data table is stripped from it below. Pairing lock first, as
-    // `lock_workspace_settings_unchecked` states.
-    windmill_common::workspaces::lock_workspace_settings_unchecked(&mut tx, &parent_workspace_id)
-        .await?;
-
     let forked_id = nw.id;
 
     sqlx::query!(
@@ -8388,21 +8246,10 @@ async fn create_workspace_fork(
         apply_forked_datatable(&db, &mut tx, &parent_workspace_id, &forked_id, fdt).await?;
     }
 
-    // A forked data table now points at a fresh database where the parent's roles hold
-    // nothing, so its cloned `permissions` block is meaningless and is dropped — the fork
-    // opts in on its own.
-    //
-    // A data table that was NOT forked still points at the parent's database, where those
-    // roles do hold grants, and neither answer is safe: dropping the block would let a
-    // fork (which any member may create) reach the parent's data as root, while keeping it
-    // freezes who may run as what at the moment of the fork — the parent revoking a tenant
-    // would never reach the copy, and the fork would keep running as the role it named. So
-    // a permissioned data table is not shared into a fork at all; the fork can fork it, or
-    // go without it.
-    //
-    // A copy that was not forked here also loses any `forked_from` it inherited: the stamp
-    // means "cloned into this workspace's own database", which is what the permissions
-    // opt-in reads it as, and a copy of the parent's clone points where the parent points.
+    // A copy that was not forked here loses any `forked_from` it inherited: the stamp
+    // means "cloned into this workspace's own database" — it is what lets the fork's
+    // deletion drop that database — and a copy of the parent's clone points where the
+    // parent points.
     let forked_datatable_names: Vec<String> = nw
         .forked_datatables
         .iter()
@@ -8413,29 +8260,13 @@ async fn create_workspace_fork(
            SET datatable = jsonb_set(datatable, '{datatables}', (
                SELECT COALESCE(jsonb_object_agg(
                    key,
-                   CASE WHEN key = ANY($2) THEN value - 'permissions' ELSE value - 'forked_from' END
+                   CASE WHEN key = ANY($2) THEN value ELSE value - 'forked_from' END
                ), '{}'::jsonb)
                FROM jsonb_each(datatable->'datatables')
-               WHERE key = ANY($2)
-                  OR COALESCE((value->'permissions'->>'enabled')::boolean, false) = false
            ))
            WHERE workspace_id = $1 AND jsonb_typeof(datatable->'datatables') = 'object'"#,
         &forked_id,
         &forked_datatable_names[..],
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    // The migrations were cloned for every data table; the ones left out above
-    // would otherwise keep a history for a data table the fork does not have.
-    sqlx::query!(
-        r#"DELETE FROM datatable_migrations m
-           WHERE m.workspace_id = $1
-             AND NOT EXISTS (
-                 SELECT 1 FROM workspace_settings ws
-                 WHERE ws.workspace_id = $1 AND ws.datatable->'datatables' ? m.datatable
-             )"#,
-        &forked_id,
     )
     .execute(&mut *tx)
     .await?;

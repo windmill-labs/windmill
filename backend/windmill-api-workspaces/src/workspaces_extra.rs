@@ -62,11 +62,10 @@ pub(crate) async fn change_workspace_id(
     // rename moves the chain from one to the other.
     crate::workspaces::lock_dev_pairing(&mut tx, &[&old_id, &rw.new_id]).await?;
 
-    // The settings are copied below, and a permissions save holds this row while it changes
-    // the roles in the database and then the config: copied without it, the new workspace
-    // could carry the config from before that save while the database has the roles from
-    // after it. Pairing lock first, as `lock_workspace_settings_unchecked` states.
-    windmill_common::workspaces::lock_workspace_settings_unchecked(&mut tx, &old_id).await?;
+    // The permissions this workspace owns move to the new id below, so a save of them
+    // holds still meanwhile. Pairing lock first, as `lock_datatable_permissions_unchecked`
+    // states.
+    windmill_common::workspaces::lock_datatable_permissions_unchecked(&mut tx, &old_id).await?;
 
     check_w_id_conflict(&mut tx, &rw.new_id).await?;
 
@@ -126,24 +125,11 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
-    // The archived copy keeps no data tables. Two configs would otherwise name the same
-    // databases and, for a permissioned one, the same Postgres logins, which only the renamed
-    // workspace owns: deleting the archived id would plan drops for logins still in use, and
-    // — since this transaction commits before the old id is archived — a copy without its
-    // `permissions` block would hand every caller of the old id the owner connection in
-    // between. An archived shell that still named an instance database would also keep the
-    // renamed workspace from ever opting in, as another workspace reaching the same database.
-    // A missing data table fails closed.
-    //
-    // The renamed workspace keeps the roles and keeps working: a role's `pg_rolename` is
-    // what resolution uses, and the generated name only decides what a *new* role is called.
-    // Its next permissions save finds the stored name no longer matches the one this
-    // workspace id generates and renames the login to match, under the ownership proof that
-    // rename already carries.
+    // The permissions of every database this workspace turned on follow it: their tenants
+    // are its principals, which the rows below move too.
     sqlx::query!(
-        "UPDATE workspace_settings
-         SET datatable = jsonb_set(datatable, '{datatables}', '{}'::jsonb)
-         WHERE workspace_id = $1 AND jsonb_typeof(datatable->'datatables') = 'object'",
+        "UPDATE datatable_database_permissions SET owner_workspace_id = $1 WHERE owner_workspace_id = $2",
+        &rw.new_id,
         &old_id,
     )
     .execute(&mut *tx)
@@ -1007,17 +993,21 @@ pub(crate) async fn delete_workspace(
             vec![]
         });
 
-    // Same shape, same reason: a permissioned data table's logins live in a
-    // database whose only record is the settings row below, so what to drop is
-    // resolved while that row is here and the drop itself runs after the commit.
-    // Nothing is dropped here.
-    // The first row this transaction locks — see `lock_workspace_settings_unchecked`.
-    // Without it a permissions save that commits between this read and the row's
-    // deletion adds a login nothing then drops, and the config that named it is
-    // gone.
+    // Same shape, same reason: the logins behind the workspace's data tables live in
+    // databases that go with it, so what to drop is resolved while the config is here
+    // and the drop itself runs after the commit. Nothing is dropped here.
+    // The first rows this transaction locks — see `lock_datatable_permissions_unchecked`.
+    // Without it a permissions save that commits between this read and the rows'
+    // deletion adds a login nothing then drops.
     let mut planned_role_drops = Vec::new();
-    let datatable_config =
-        windmill_common::workspaces::lock_workspace_settings_unchecked(&mut tx, &w_id).await?;
+    windmill_common::workspaces::lock_datatable_permissions_unchecked(&mut tx, &w_id).await?;
+    let datatable_config = sqlx::query_scalar!(
+        "SELECT datatable FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
     for name in datatable_config
         .as_ref()
         .and_then(|c| c.get("datatables"))
@@ -1026,7 +1016,7 @@ pub(crate) async fn delete_workspace(
         .unwrap_or_default()
     {
         if let Some(planned) =
-            crate::datatable_permissions::plan_drop_of_deleted_datatable(&db, &w_id, &name).await
+            crate::datatable_permissions::plan_drop_of_datatable_roles(&db, &w_id, &name).await
         {
             planned_role_drops.push((name, planned));
         }
@@ -1358,94 +1348,23 @@ pub struct DropForkedDatatableDatabasesRequest {
     datatable_names: Vec<String>,
 }
 
-/// Take a data table's generated logins away before its database goes.
-///
-/// A login is cluster-wide, so it outlives the database it was created in and
-/// stays adoptable by whatever takes this workspace's id and this data table's
-/// name next. The config stops naming them first: a data table whose database is
-/// being dropped has no business claiming roles in it, and that is also what the
-/// drop reads to know they are nobody's.
-///
-/// Returns the block it removed, which the caller must put back if the drop it
-/// was clearing the way for does not happen: a data table that keeps its
-/// database and loses its permissions leaves every member of the workspace
-/// resolving to the data table's own connection, which owns everything in it.
+/// Take the generated logins of a data table's database away before that
+/// database goes: a login is cluster-wide, so it would outlive the database it
+/// was created in. The permissions row stays until the drop succeeds — with its
+/// logins gone every role is refused meanwhile — and is forgotten by the caller
+/// once the database is. Returns the key of that database's permissions when
+/// roles were dropped.
 async fn drop_datatable_roles_before_its_database(
     db: &DB,
     w_id: &str,
     dt_name: &str,
-    errors: &mut Vec<String>,
-) -> Option<serde_json::Value> {
+) -> Option<String> {
     let planned =
-        crate::datatable_permissions::plan_drop_of_deleted_datatable(db, w_id, dt_name).await?;
-    // Read and clear under the settings lock, so what comes back is what was
-    // taken away and is what putting it back would restore.
-    let cleared = async {
-        let mut tx = db.begin().await?;
-        let removed = windmill_common::workspaces::lock_workspace_settings_unchecked(&mut tx, w_id)
-            .await?
-            .and_then(|c| {
-                c.get("datatables")
-                    .and_then(|d| d.get(dt_name))
-                    .and_then(|d| d.get("permissions"))
-                    .cloned()
-            });
-        sqlx::query!(
-            "UPDATE workspace_settings
-             SET datatable = datatable #- ARRAY['datatables', $2, 'permissions']
-             WHERE workspace_id = $1",
-            w_id,
-            dt_name,
-        )
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        Ok::<_, windmill_common::error::Error>(removed)
-    }
-    .await;
-    match cleared {
-        Ok(removed) => {
-            crate::datatable_permissions::run_planned_drop(db, w_id, dt_name, planned).await;
-            removed
-        }
-        Err(e) => {
-            errors.push(format!(
-                "Could not clear the permissions of datatable://{}: {}",
-                dt_name, e
-            ));
-            None
-        }
-    }
-}
-
-/// Put back the block a drop that did not happen took away. The logins it names
-/// are already gone, so every role now resolves to nothing and is refused — the
-/// safe answer, and the one a re-save of the data table's permissions repairs by
-/// recreating them.
-async fn restore_datatable_permissions(
-    db: &DB,
-    w_id: &str,
-    dt_name: &str,
-    permissions: serde_json::Value,
-    errors: &mut Vec<String>,
-) {
-    if let Err(e) = sqlx::query!(
-        "UPDATE workspace_settings
-         SET datatable = jsonb_set(datatable, ARRAY['datatables', $2, 'permissions'], $3)
-         WHERE workspace_id = $1
-           AND datatable->'datatables' ? $2",
-        w_id,
-        dt_name,
-        permissions,
-    )
-    .execute(db)
-    .await
-    {
-        errors.push(format!(
-            "Could not restore the permissions of datatable://{}, which is now open to every member of the workspace: {}",
-            dt_name, e
-        ));
-    }
+        crate::datatable_permissions::plan_drop_of_datatable_roles(db, w_id, dt_name).await?;
+    let key = planned.2.clone();
+    crate::datatable_permissions::run_planned_drop_keeping_record(db, w_id, dt_name, planned)
+        .await
+        .then_some(key)
 }
 
 /// Drop forked datatable databases. Returns errors per datatable that failed.
@@ -1510,17 +1429,18 @@ pub async fn drop_forked_datatable_databases(
                 ));
                 continue;
             }
-            let removed =
-                drop_datatable_roles_before_its_database(&db, &w_id, dt_name, &mut errors).await;
-            if let Err(e) = windmill_common::drop_custom_instance_database(&db, db_to_drop).await {
-                errors.push(format!(
+            let permissions_key =
+                drop_datatable_roles_before_its_database(&db, &w_id, dt_name).await;
+            match windmill_common::drop_custom_instance_database(&db, db_to_drop).await {
+                Ok(()) => {
+                    if let Some(key) = permissions_key {
+                        crate::datatable_permissions::forget_database_permissions(&db, &key).await;
+                    }
+                }
+                Err(e) => errors.push(format!(
                     "Could not drop instance database '{}' for datatable://{}: {}",
                     db_to_drop, dt_name, e
-                ));
-                if let Some(permissions) = removed {
-                    restore_datatable_permissions(&db, &w_id, dt_name, permissions, &mut errors)
-                        .await;
-                }
+                )),
             }
         } else {
             let fork_pg = match crate::workspaces::resolve_pg_source_checked(
@@ -1581,27 +1501,24 @@ pub async fn drop_forked_datatable_databases(
             match parent_pg.connect(Some(&db)).await {
                 Ok((client, connection)) => {
                     let join_handle = tokio::spawn(async move { connection.await });
-                    let removed =
-                        drop_datatable_roles_before_its_database(&db, &w_id, dt_name, &mut errors)
-                            .await;
-                    if let Err(e) = client
+                    let permissions_key =
+                        drop_datatable_roles_before_its_database(&db, &w_id, dt_name).await;
+                    match client
                         .execute(&format!("DROP DATABASE \"{}\"", db_to_drop), &[])
                         .await
                     {
-                        errors.push(format!(
+                        Ok(_) => {
+                            if let Some(key) = permissions_key {
+                                crate::datatable_permissions::forget_database_permissions(
+                                    &db, &key,
+                                )
+                                .await;
+                            }
+                        }
+                        Err(e) => errors.push(format!(
                             "Could not drop database '{}' for datatable://{}: {}",
                             db_to_drop, dt_name, e
-                        ));
-                        if let Some(permissions) = removed {
-                            restore_datatable_permissions(
-                                &db,
-                                &w_id,
-                                dt_name,
-                                permissions,
-                                &mut errors,
-                            )
-                            .await;
-                        }
+                        )),
                     }
                     drop(client);
                     let _ = windmill_common::shutdown_pg_connection(join_handle).await;

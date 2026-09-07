@@ -33,9 +33,10 @@ use windmill_common::query_builders::{render_db_quoted_identifier, DbType};
 use windmill_common::utils::require_admin;
 use windmill_common::worker::SqlAnnotations;
 use windmill_common::workspaces::{
-    can_use_datatable_role, datatable_database_identity, get_datatable_resource_from_db_unchecked,
-    physical_database_identity, DataTable, DataTableCatalogResourceType, DataTablePermissions,
-    ADMIN_DATATABLE_ROLE,
+    can_use_datatable_role_in_owner_workspace, database_permissions_by_key,
+    delete_database_permissions, lock_database_permissions, resolve_datatable_database_unchecked,
+    upsert_database_permissions, DataTable, DataTableCatalogResourceType, DataTablePermissions,
+    DatabasePermissions, DatatableAccess, ADMIN_DATATABLE_ROLE,
 };
 use windmill_common::{PgDatabase, DB};
 
@@ -74,6 +75,13 @@ pub struct DatatablePermissionsInfo {
     pub roles: Vec<DatatableRoleInfo>,
     /// The role a script gets when it names none.
     pub default_role: String,
+    /// The workspace whose admins manage these permissions and whose principals
+    /// the tenants are: the one that turned them on. Absent while they are off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_workspace_id: Option<String>,
+    /// Whether the caller may change them from here: an admin of the owning
+    /// workspace, or a superadmin.
+    pub editable: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -175,10 +183,8 @@ pub(crate) fn quote_ident(ident: &str) -> String {
 
 /// Read a data table's config, whatever the caller is.
 ///
-/// Authorization: performs none. What it returns is the config as stored,
-/// generated role passwords included, so callers MUST have authorized the read,
-/// and MUST NOT pass the value outward without
-/// [`windmill_common::workspaces::redact_datatable_settings_for_export`].
+/// Authorization: performs none, for any workspace it is handed, so callers
+/// MUST have authorized the read.
 pub(crate) async fn read_datatable_unchecked(
     db: &DB,
     w_id: &str,
@@ -231,13 +237,9 @@ pub(crate) async fn ensure_instance_db_can_delegate(db: &DB, w_id: &str, datatab
 /// database rather than assumed from its config.
 pub(crate) struct AdminConnection {
     pub(crate) dbname: String,
-    /// The database this resolved to, as the config records it so a later
-    /// resolution can tell it has not moved. `None` for an instance database,
-    /// which no workspace edit can repoint.
-    pub(crate) database_identity: Option<String>,
-    /// The database without the login, instance databases included: what every
-    /// other data table entry is held apart from.
-    pub(crate) physical_identity: String,
+    /// The key of the database this connection reaches, which is what its
+    /// permissions are stored under.
+    pub(crate) database_key: String,
     pub(crate) admin_pg_role: String,
     pub(crate) pg_roles: PgRoleInventory,
     /// Whether `PUBLIC` holds CREATE on schema `public`, i.e. every role in this
@@ -349,14 +351,8 @@ pub(crate) async fn connect_as_admin_unchecked(
     w_id: &str,
     datatable_name: &str,
 ) -> Result<(tokio_postgres::Client, AdminConnection)> {
-    let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
-    let database_identity = (read_datatable_unchecked(db, w_id, datatable_name)
-        .await?
-        .database
-        .resource_type
-        == DataTableCatalogResourceType::Postgresql)
-        .then(|| datatable_database_identity(&db_resource));
-    let physical_identity = physical_database_identity(&db_resource);
+    let (_, db_resource, database_key) =
+        resolve_datatable_database_unchecked(db, w_id, datatable_name).await?;
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {e}")))?;
     let dbname = pg_db.dbname.clone();
@@ -441,9 +437,9 @@ pub(crate) async fn connect_as_admin_unchecked(
     // own, plus the connection they were all created from.
     let mut own_pg_roles = vec![admin_pg_role.clone()];
     own_pg_roles.extend(
-        read_datatable_unchecked(db, w_id, datatable_name)
+        database_permissions_by_key(db, &database_key)
             .await?
-            .permissions
+            .map(|r| r.permissions)
             .filter(|p| p.enabled)
             .into_iter()
             .flat_map(|p| p.roles.into_values())
@@ -455,8 +451,7 @@ pub(crate) async fn connect_as_admin_unchecked(
         client,
         AdminConnection {
             dbname,
-            database_identity,
-            physical_identity,
+            database_key,
             admin_pg_role,
             pg_roles: PgRoleInventory { existing, adoptable },
             public_schema_is_open,
@@ -465,44 +460,31 @@ pub(crate) async fn connect_as_admin_unchecked(
     ))
 }
 
+/// Plan `req` against the database the data table reaches, whose permissions
+/// are `old` (read under the caller's lock, or absent when none are on yet).
 async fn build_plan(
     db: &DB,
     w_id: &str,
     datatable_name: &str,
+    old: Option<&DataTablePermissions>,
     req: &SetDatatablePermissions,
-) -> Result<(tokio_postgres::Client, RolePlan)> {
+) -> Result<(tokio_postgres::Client, AdminConnection, RolePlan)> {
     require_datatable_permissions_license().await?;
-    let datatable = read_datatable_unchecked(db, w_id, datatable_name).await?;
-    ensure_save_names_what_exists(
-        db,
-        w_id,
-        datatable_name,
-        datatable.permissions.as_ref(),
-        req,
-    )
-    .await?;
+    ensure_save_names_what_exists(db, w_id, datatable_name, old, req).await?;
     let (client, conn) = connect_as_admin_unchecked(db, w_id, datatable_name).await?;
-    let plan = crate::datatable_permissions_oss::plan_role_changes(
-        w_id,
-        datatable_name,
+    let mut plan = crate::datatable_permissions_oss::plan_role_changes(
+        &conn.database_key,
         &conn.dbname,
         &conn.admin_pg_role,
-        datatable.permissions.as_ref(),
+        old,
         req,
         &conn.pg_roles,
         conn.public_schema_is_open,
         &conn.default_acl_rules,
     )?;
-    let mut plan = plan;
-    // Stamped from the connection the roles are about to be created through, so
-    // a resolution that lands anywhere else later can refuse.
-    plan.permissions.database_identity = conn.database_identity;
-    plan.permissions.physical_identity = Some(conn.physical_identity);
     if !req.enabled {
         // Opting out is never refused; what it strands is said out loud.
-        let roles: HashSet<&str> = datatable
-            .permissions
-            .as_ref()
+        let roles: HashSet<&str> = old
             .map(|p| p.roles.keys().map(String::as_str))
             .into_iter()
             .flatten()
@@ -517,24 +499,26 @@ async fn build_plan(
             ));
         }
     }
-    Ok((client, plan))
+    Ok((client, conn, plan))
 }
 
-/// The connection and statements that drop a deleted data table's roles, giving
-/// its objects back to admin first.
+/// The connection and statements that drop every role of the database a data
+/// table reaches, giving their objects back to admin first, with the key of that
+/// database.
 ///
 /// Resolved separately from being run: resolving needs the data table's config,
-/// which the save is about to remove, while running is irreversible and must not
-/// happen until that save has committed.
-pub(crate) type PlannedRoleDrop = (tokio_postgres::Client, RolePlan);
+/// which a deletion may be about to remove, while running is irreversible and
+/// must not happen until that deletion has committed.
+pub(crate) type PlannedRoleDrop = (tokio_postgres::Client, RolePlan, String);
 
-/// Plan the removal of every Postgres role of a data table that is being
-/// deleted, against the config as it still stands.
+/// Plan the removal of every Postgres role of the database a data table reaches,
+/// for a database that is going away with the data table — a workspace being
+/// deleted, a fork's clone being dropped.
 ///
-/// A data table whose database is already unreachable must still be removable
-/// from the config, so a failure here is logged and the deletion goes ahead
-/// without a plan — leaving roles that only a `DROP ROLE` by hand will clear.
-pub(crate) async fn plan_drop_of_deleted_datatable(
+/// A database that is already unreachable must not block the deletion, so a
+/// failure here is logged and the deletion goes ahead without a plan — leaving
+/// roles that only a `DROP ROLE` by hand will clear.
+pub(crate) async fn plan_drop_of_datatable_roles(
     db: &DB,
     w_id: &str,
     datatable_name: &str,
@@ -546,66 +530,54 @@ pub(crate) async fn plan_drop_of_deleted_datatable(
         renames: vec![],
     };
     let res = async {
-        let datatable = read_datatable_unchecked(db, w_id, datatable_name).await?;
-        if !datatable
-            .permissions
-            .as_ref()
-            .is_some_and(|p| p.enabled && p.roles.len() > 1)
-        {
-            return Ok(None);
-        }
-        build_plan(db, w_id, datatable_name, &req).await.map(Some)
+        let (_, _, key) = resolve_datatable_database_unchecked(db, w_id, datatable_name).await?;
+        let Some(record) = database_permissions_by_key(db, &key)
+            .await?
+            .filter(|r| r.permissions.enabled && r.permissions.roles.len() > 1)
+        else {
+            return Ok::<_, Error>(None);
+        };
+        let (client, _, plan) =
+            build_plan(db, w_id, datatable_name, Some(&record.permissions), &req).await?;
+        Ok(Some((client, plan, key)))
     }
     .await;
     match res {
         Ok(planned) => planned,
         Err(e) => {
             tracing::error!(
-                "Could not plan dropping the Postgres roles of deleted data table {datatable_name} in {w_id}: {e:#}"
+                "Could not plan dropping the Postgres roles behind data table {datatable_name} in {w_id}: {e:#}"
             );
             None
         }
     }
 }
 
-/// The Postgres logins the workspace's config currently names.
-fn pg_rolenames_in_use(settings: Option<&serde_json::Value>) -> HashSet<String> {
-    settings
-        .and_then(|s| s.get("datatables"))
-        .and_then(|d| d.as_object())
-        .map(|datatables| {
-            datatables
-                .values()
-                .filter_map(|dt| dt.pointer("/permissions/roles")?.as_object())
-                .flat_map(|roles| roles.values())
-                .filter_map(|role| role.get("pg_rolename")?.as_str())
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Destroy the roles a committed config stopped naming.
+/// Destroy the roles a committed save stopped naming.
 ///
-/// Asked under the settings row, one role at a time: a role the config names
-/// again — a data table recreated under the same name, or a save that put the
-/// role back — is left alone, and one it does not name is dropped whatever else
-/// has changed in the meantime. Nobody else can be planning against these
-/// between the question and the answer, since that row is what every save takes
-/// first.
+/// Asked under the database's permissions row, one role at a time: a role the
+/// row names again — a save that put the role back — is left alone, and one it
+/// does not name is dropped whatever else has changed in the meantime. Nobody
+/// else can be planning against these between the question and the answer,
+/// since that row is what every save takes first.
 ///
-/// Best-effort: a role outliving its config is recoverable, dropping one a live
-/// data table depends on is not.
-async fn drop_roles_the_config_no_longer_names(
+/// Best-effort: a role outliving its row is recoverable, dropping one a live
+/// role depends on is not.
+async fn drop_roles_the_record_no_longer_names(
     db: &DB,
-    w_id: &str,
+    database_key: &str,
     client: &mut tokio_postgres::Client,
     statements: &[&PlannedStatement],
 ) -> Result<()> {
     let mut tx = db.begin().await?;
-    let settings =
-        windmill_common::workspaces::lock_workspace_settings_unchecked(&mut tx, w_id).await?;
-    let in_use = pg_rolenames_in_use(settings.as_ref());
+    let in_use: HashSet<String> = lock_database_permissions(&mut tx, database_key)
+        .await?
+        .map(|r| r.permissions)
+        .filter(|p| p.enabled)
+        .into_iter()
+        .flat_map(|p| p.roles.into_values())
+        .filter_map(|role| role.pg_rolename)
+        .collect();
     let to_run: Vec<&PlannedStatement> = statements
         .iter()
         .filter(|s| {
@@ -623,10 +595,9 @@ async fn drop_roles_the_config_no_longer_names(
         attempted.sort();
         attempted.dedup();
         let ran = async {
-            // The settings row is held for as long as these run, and they run on a
-            // database this workspace does not control — a lock held there, or a
-            // role with a great deal to reassign, would otherwise stall every save
-            // of every data table in the workspace behind it.
+            // The row is held for as long as these run, and they run on a database
+            // Windmill does not control — a lock held there, or a role with a great
+            // deal to reassign, would otherwise stall every save behind it.
             client
                 .batch_execute("SET statement_timeout = '60s'")
                 .await
@@ -640,9 +611,9 @@ async fn drop_roles_the_config_no_longer_names(
         }
         .await;
         // Named here rather than by the caller, and on every way out: which of
-        // them were skipped because the config names them again is only known
-        // under the lock above, and whatever failed, the config that stopped
-        // naming these has committed and nothing comes back for them.
+        // them were skipped because the row names them again is only known under
+        // the lock above, and whatever failed, the save that stopped naming these
+        // has committed and nothing comes back for them.
         ran.map_err(|e| {
             Error::ExecutionErr(format!("{e}. Roles left behind: {}", attempted.join(", ")))
         })?;
@@ -651,20 +622,54 @@ async fn drop_roles_the_config_no_longer_names(
     Ok(())
 }
 
-/// Drop the roles of a data table that was deleted, once the config saying so
-/// has committed.
+/// Drop the roles of a database that is going away, once the deletion saying so
+/// has committed, and forget its permissions.
 pub(crate) async fn run_planned_drop(
     db: &DB,
     w_id: &str,
     datatable_name: &str,
-    (mut client, plan): PlannedRoleDrop,
+    planned: PlannedRoleDrop,
 ) {
+    let key = planned.2.clone();
+    if run_planned_drop_keeping_record(db, w_id, datatable_name, planned).await {
+        forget_database_permissions(db, &key).await;
+    }
+}
+
+/// Drop the roles a plan names, leaving the database's permissions row in place:
+/// with its logins gone every role is refused and `admin` stays the owning
+/// workspace's alone, which is the safe state for a database that was meant to go
+/// and did not. Returns whether the roles were dropped.
+pub(crate) async fn run_planned_drop_keeping_record(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+    (mut client, plan, database_key): PlannedRoleDrop,
+) -> bool {
     let statements: Vec<&PlannedStatement> = plan.statements.iter().collect();
-    if let Err(e) = drop_roles_the_config_no_longer_names(db, w_id, &mut client, &statements).await
-    {
-        tracing::error!(
-            "Could not drop the Postgres roles of deleted data table {datatable_name} in {w_id}: {e:#}"
-        );
+    match drop_roles_the_record_no_longer_names(db, &database_key, &mut client, &statements).await {
+        Ok(()) => true,
+        Err(e) => {
+            tracing::error!(
+                "Could not drop the Postgres roles behind data table {datatable_name} in {w_id}: {e:#}"
+            );
+            false
+        }
+    }
+}
+
+/// Forget a database's permissions: for a database that is gone, roles and all.
+pub(crate) async fn forget_database_permissions(db: &DB, database_key: &str) {
+    let forgotten = async {
+        let mut tx = db.begin().await?;
+        lock_database_permissions(&mut tx, database_key).await?;
+        delete_database_permissions(&mut tx, database_key).await?;
+        tx.commit().await?;
+        Ok::<(), Error>(())
+    }
+    .await;
+    if let Err(e) = forgotten {
+        tracing::error!("Could not forget the permissions of {database_key}: {e:#}");
     }
 }
 
@@ -697,18 +702,52 @@ async fn run_statements(
     })
 }
 
-async fn get_datatable_permissions(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path((w_id, datatable_name)): Path<(String, String)>,
-) -> JsonResult<DatatablePermissionsInfo> {
+/// The permissions the caller may manage from `w_id` for the database a data
+/// table reaches: an admin of the owning workspace, or a superadmin. A record
+/// that does not exist yet is created by the workspace that opts in — not from a
+/// fork, whose data table is either a copy of a database another workspace owns
+/// or a clone the fork can drop, roles and all.
+async fn ensure_can_manage_permissions(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    record: Option<&DatabasePermissions>,
+    enabling: bool,
+) -> Result<()> {
     require_admin(authed.is_admin, &authed.username)?;
-    let datatable = read_datatable_unchecked(&db, &w_id, &datatable_name).await?;
-    let permissions = datatable.permissions.unwrap_or_default();
-    let default_role = permissions.default_role().to_string();
-    Ok(Json(DatatablePermissionsInfo {
+    match record {
+        Some(record) if record.owner_workspace_id != w_id => {
+            if !windmill_common::auth::is_super_admin_email(db, &authed.email).await? {
+                return Err(Error::NotAuthorized(format!(
+                    "The permissions of this database are managed from workspace '{}', \
+                     which turned them on.",
+                    record.owner_workspace_id
+                )));
+            }
+        }
+        Some(_) => {}
+        None => {
+            if enabling && crate::workspaces_extra::workspace_is_fork(db, w_id).await? {
+                return Err(Error::BadRequest(
+                    "Data table permissions cannot be enabled from a fork workspace: its data \
+                     table points either at the database of the workspace it was forked from, \
+                     which is where to set them, or at a copy the fork can drop."
+                        .to_string(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn permissions_info(
+    record: Option<&DatabasePermissions>,
+    editable: bool,
+) -> DatatablePermissionsInfo {
+    let permissions = record.map(|r| r.permissions.clone()).unwrap_or_default();
+    DatatablePermissionsInfo {
         enabled: permissions.enabled,
-        default_role,
+        default_role: permissions.default_role().to_string(),
         roles: permissions
             .roles
             .into_iter()
@@ -718,7 +757,23 @@ async fn get_datatable_permissions(
                 pg_rolename: role.pg_rolename,
             })
             .collect(),
-    }))
+        owner_workspace_id: record.map(|r| r.owner_workspace_id.clone()),
+        editable,
+    }
+}
+
+async fn get_datatable_permissions(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, datatable_name)): Path<(String, String)>,
+) -> JsonResult<DatatablePermissionsInfo> {
+    require_admin(authed.is_admin, &authed.username)?;
+    let (_, _, key) = resolve_datatable_database_unchecked(&db, &w_id, &datatable_name).await?;
+    let record = database_permissions_by_key(&db, &key).await?;
+    let editable = ensure_can_manage_permissions(&db, &authed, &w_id, record.as_ref(), false)
+        .await
+        .is_ok();
+    Ok(Json(permissions_info(record.as_ref(), editable)))
 }
 
 /// Refuse a data table operation that would run as a role `authed` may not use.
@@ -734,8 +789,11 @@ pub(crate) async fn ensure_can_use_datatable_role(
     authed: &ApiAuthed,
     context: &str,
 ) -> Result<()> {
-    let datatable = read_datatable_unchecked(db, w_id, datatable_name).await?;
-    let Some(permissions) = datatable.permissions.filter(|p| p.enabled) else {
+    let (_, _, key) = resolve_datatable_database_unchecked(db, w_id, datatable_name).await?;
+    let Some(record) = database_permissions_by_key(db, &key)
+        .await?
+        .filter(|r| r.permissions.enabled)
+    else {
         // Unpermissioned: only the built-in role exists, and everyone reaches it.
         return match role {
             Some(role) if role != ADMIN_DATATABLE_ROLE => Err(Error::BadRequest(format!(
@@ -744,13 +802,21 @@ pub(crate) async fn ensure_can_use_datatable_role(
             _ => Ok(()),
         };
     };
-    let role_name = role.unwrap_or_else(|| permissions.default_role());
-    let entry = permissions.roles.get(role_name).ok_or_else(|| {
+    let role_name = role.unwrap_or_else(|| record.permissions.default_role());
+    let entry = record.permissions.roles.get(role_name).ok_or_else(|| {
         Error::NotFound(format!(
             "{context} names role '{role_name}', which is not defined on data table '{datatable_name}'"
         ))
     })?;
-    if !can_use_datatable_role(entry, &authed.to_authed_ref()) {
+    let allowed = can_use_datatable_role_in_owner_workspace(
+        db,
+        &record.owner_workspace_id,
+        w_id,
+        entry,
+        &DatatableAccess::Authed(authed.to_authed_ref()),
+    )
+    .await?;
+    if !allowed {
         return Err(Error::NotAuthorized(format!(
             "{context} runs as role '{role_name}' of data table '{datatable_name}', which you are not allowed to use"
         )));
@@ -758,298 +824,28 @@ pub(crate) async fn ensure_can_use_datatable_role(
     Ok(())
 }
 
-/// Permissions are turned on where this data table is the only one reaching the
-/// database: its workspace is not a fork, no fork below holds a copy of it, and
-/// no other data table entry, in any workspace, reaches the same database.
-///
-/// A fork's data table is either a copy pointing at the database of the workspace
-/// it was forked from, where roles created in the fork would hold grants that
-/// workspace's own config does not name, or a clone whose whole database the fork
-/// can drop, taking the roles with it. In the other direction, a fork made while
-/// the data table was unpermissioned carries a verbatim copy of it, and every
-/// member of that fork — including members this workspace does not have — would
-/// keep reaching the database through the copy's own connection, which owns
-/// everything in it. A dev workspace detached from this one keeps such a copy
-/// without being a fork any more, which is what the last check is for. Another
-/// entry naming the same instance database is exact; a resource-backed entry
-/// holds a resource of its own, under whatever path, so it counts when that
-/// resource resolves to the same host, port, database and user — which is what
-/// a detached copy's cloned resource does, wherever it was moved since.
-///
-/// Archived workspaces count. Archiving keeps the members, their session tokens
-/// and the settings, and nothing on the job path checks the flag, so an archived
-/// fork reaches the database exactly as a live one does. Only a permanent
-/// deletion, or removing the copy, takes that away. The shell a rename archives
-/// is left with no data tables at all, so it never counts.
-///
-/// All three are properties of the opt-in, so only the save that turns
-/// permissions on is checked. Forks made afterwards never receive a permissioned
-/// data table (see the strip in the fork creation), and a save that edits the
-/// roles of a live config must keep working while they exist — revoking a tenant
-/// above all. Turning permissions off is never refused.
-///
-/// The save calls this under the settings row lock, which fork creation takes on
-/// the parent before copying its settings: a fork mid-creation has either
-/// committed, and is listed here, or copies the config after the opt-in landed.
-async fn refuse_enabling_permissions_over_shared_access(
+/// The roles of a database `access`, made from `w_id`, may run as.
+pub(crate) async fn usable_roles(
     db: &DB,
     w_id: &str,
-    datatable_name: &str,
-    enabled: bool,
-) -> Result<()> {
-    if !enabled {
-        return Ok(());
-    }
-    let datatable = read_datatable_unchecked(db, w_id, datatable_name).await?;
-    if datatable.permissions.as_ref().is_some_and(|p| p.enabled) {
-        return Ok(());
-    }
-    if crate::workspaces_extra::workspace_is_fork(db, w_id).await? {
-        return Err(Error::BadRequest(
-            "Data table permissions cannot be enabled from a fork workspace: a fork's data \
-             table points either at the database of the workspace it was forked from, where \
-             roles created here would be invisible to that workspace's own configuration, or \
-             at a copy the fork can drop. Set them where the data table belongs. Disabling \
-             them here is allowed."
-                .to_string(),
-        ));
-    }
-    let database = serde_json::to_value(&datatable.database)
-        .map_err(|e| Error::internal_err(format!("Failed to serialize the database: {e}")))?;
-    let describe = |workspace_id: &str, name: &str, deleted: bool| {
-        format!(
-            "{workspace_id}{} (data table '{name}')",
-            if deleted { ", archived" } else { "" }
-        )
-    };
-    let forks = windmill_common::workspaces::list_fork_descendants(db, w_id).await?;
-    if !forks.is_empty() {
-        // A clone (`forked_from`) points at a database of its own and does not
-        // count. It is not told apart by the pointer alone: cloning a
-        // resource-backed data table rewrites the cloned resource, not the path
-        // the entry names, so the pointer still equals the parent's.
-        let copies = sqlx::query!(
-            r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "name!", w.deleted AS "deleted!"
-               FROM workspace_settings ws
-               JOIN workspace w ON w.id = ws.workspace_id,
-               jsonb_each(ws.datatable->'datatables') dt
-               WHERE ws.workspace_id = ANY($1)
-                 AND dt.value->'database' = $2
-                 AND dt.value->'forked_from' IS NULL
-               ORDER BY ws.workspace_id, dt.key"#,
-            &forks[..],
-            database,
-        )
-        .fetch_all(db)
-        .await?;
-        if !copies.is_empty() {
-            let copies: Vec<String> = copies
-                .into_iter()
-                .map(|c| describe(&c.workspace_id, &c.name, c.deleted))
-                .collect();
-            return Err(Error::BadRequest(format!(
-                "Data table permissions cannot be enabled while a fork of this workspace holds a \
-                 copy of the data table pointing at the same database: {}. Its members would \
-                 keep reaching it through the copy's own connection, as every role at once — an \
-                 archived fork included, since archiving keeps its members. Remove the data \
-                 table from the fork, or delete the fork permanently, first.",
-                copies.join(", ")
-            )));
-        }
-    }
-    let others = entries_reaching(db, w_id, datatable_name, &datatable.database).await?;
-    if !others.is_empty() {
-        return Err(Error::BadRequest(format!(
-            "Data table permissions cannot be enabled while another data table reaches the \
-             same database: {}. Its users would keep reaching it through that data table's \
-             own connection, as every role at once — an archived workspace included, since \
-             archiving keeps its members. Remove that data table, or delete the workspace \
-             permanently, first.",
-            others.join(", ")
-        )));
-    }
-    Ok(())
-}
-
-/// `<workspace>[, archived] (data table '<name>')` for every data table entry on
-/// the instance, other than `(w_id, datatable_name)`, that reaches `database` —
-/// this workspace's other entries included: a second entry on the same
-/// resource is a second door.
-///
-/// An instance database is matched by name. A resource-backed entry reaches
-/// wherever its resource points, whatever path it names and whichever login it
-/// carries, so it is matched by the resource's host, port and database. Read
-/// from the stored resource rows
-/// in one query: a field that is a `$var:` / `$res:` reference is only resolved
-/// — a per-row read, and a secret backend call where the workspace uses one —
-/// when every plain field already agrees, so the loop that decrypts runs for
-/// candidates that can match and not for every data table on the instance. A
-/// resource that no longer exists reaches nothing.
-async fn entries_reaching(
-    db: &DB,
-    w_id: &str,
-    datatable_name: &str,
-    database: &windmill_common::workspaces::DataTableDatabase,
+    record: &DatabasePermissions,
+    access: &DatatableAccess<'_>,
 ) -> Result<Vec<String>> {
-    let pointer = serde_json::to_value(database)
-        .map_err(|e| Error::internal_err(format!("Failed to serialize the database: {e}")))?;
-    let describe = |workspace_id: &str, name: &str, deleted: bool| {
-        format!(
-            "{workspace_id}{} (data table '{name}')",
-            if deleted { ", archived" } else { "" }
+    let mut usable = Vec::new();
+    for (name, role) in record.permissions.roles.iter() {
+        if can_use_datatable_role_in_owner_workspace(
+            db,
+            &record.owner_workspace_id,
+            w_id,
+            role,
+            access,
         )
-    };
-    let entries = sqlx::query!(
-        r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "name!", w.deleted AS "deleted!",
-                  dt.value->'database' AS "database!", r.value AS "resource?"
-           FROM workspace_settings ws
-           JOIN workspace w ON w.id = ws.workspace_id
-           CROSS JOIN LATERAL jsonb_each(ws.datatable->'datatables') dt
-           LEFT JOIN resource r ON r.workspace_id = ws.workspace_id
-                AND dt.value->'database'->>'resource_type' <> 'instance'
-                AND r.path = dt.value->'database'->>'resource_path'
-           WHERE NOT (ws.workspace_id = $1 AND dt.key = $2)
-             AND jsonb_typeof(dt.value->'database') = 'object'
-           ORDER BY ws.workspace_id, dt.key"#,
-        w_id,
-        datatable_name,
-    )
-    .fetch_all(db)
-    .await?;
-    let mut reaching = Vec::new();
-    match database.resource_type {
-        DataTableCatalogResourceType::Instance => {
-            reaching.extend(
-                entries
-                    .iter()
-                    .filter(|o| o.database == pointer)
-                    .map(|o| describe(&o.workspace_id, &o.name, o.deleted)),
-            );
-        }
-        DataTableCatalogResourceType::Postgresql => {
-            let ours = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
-            let identity = physical_database_identity(&ours);
-            let is_reference = |v: &serde_json::Value| {
-                v.as_str()
-                    .is_some_and(|s| s.starts_with("$var:") || s.starts_with("$res:"))
-            };
-            for o in entries.iter() {
-                let Some(raw) = o.resource.as_ref() else {
-                    continue;
-                };
-                // A value that is not an object — a `$res:` string, say — only
-                // says what it reaches once resolved.
-                let mut references = !raw.is_object();
-                let mut plain_fields_agree = true;
-                for field in PHYSICAL_DATABASE_FIELDS {
-                    let theirs = raw.get(field).unwrap_or(&serde_json::Value::Null);
-                    if is_reference(theirs) {
-                        references = true;
-                    } else if !references
-                        && theirs != ours.get(field).unwrap_or(&serde_json::Value::Null)
-                    {
-                        plain_fields_agree = false;
-                    }
-                }
-                if !plain_fields_agree {
-                    continue;
-                }
-                if !references {
-                    reaching.push(describe(&o.workspace_id, &o.name, o.deleted));
-                    continue;
-                }
-                let resolved =
-                    match get_datatable_resource_from_db_unchecked(db, &o.workspace_id, &o.name)
-                        .await
-                    {
-                        Ok(resolved) => resolved,
-                        Err(Error::NotFound(_)) => continue,
-                        // Not resolving is not proof of not reaching: refused, and
-                        // named.
-                        Err(e) => {
-                            return Err(Error::BadRequest(format!(
-                                "Whether {} reaches the same database could not be checked \
-                                 ({e}). Remove that data table first.",
-                                describe(&o.workspace_id, &o.name, o.deleted)
-                            )))
-                        }
-                    };
-                if physical_database_identity(&resolved) == identity {
-                    reaching.push(describe(&o.workspace_id, &o.name, o.deleted));
-                }
-            }
+        .await?
+        {
+            usable.push(name.clone());
         }
     }
-    Ok(reaching)
-}
-
-/// The fields [`physical_database_identity`] hashes.
-const PHYSICAL_DATABASE_FIELDS: [&str; 3] = ["host", "port", "dbname"];
-
-/// Refuse a data table entry that reaches a database another data table governs.
-///
-/// The opt-in refuses while any other entry reaches the database; this is the
-/// same rule from the other side, for the settings form that adds an entry or
-/// points one elsewhere. Without it a second entry on a governed database is a
-/// second door, open to every member as the owning connection. Governed entries
-/// are matched by the identity their opt-in stamped, so nothing of theirs is
-/// resolved; the entry being saved is resolved once, and must resolve.
-pub(crate) async fn refuse_reaching_a_governed_database(
-    db: &DB,
-    w_id: &str,
-    datatable_name: &str,
-    database: &windmill_common::workspaces::DataTableDatabase,
-) -> Result<()> {
-    let hit = match database.resource_type {
-        DataTableCatalogResourceType::Instance => {
-            let pointer = serde_json::to_value(database).map_err(|e| {
-                Error::internal_err(format!("Failed to serialize the database: {e}"))
-            })?;
-            sqlx::query!(
-                r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "name!"
-                   FROM workspace_settings ws, jsonb_each(ws.datatable->'datatables') dt
-                   WHERE NOT (ws.workspace_id = $1 AND dt.key = $2)
-                     AND COALESCE((dt.value->'permissions'->>'enabled')::boolean, false)
-                     AND dt.value->'database' = $3
-                   ORDER BY ws.workspace_id, dt.key"#,
-                w_id,
-                datatable_name,
-                pointer,
-            )
-            .fetch_optional(db)
-            .await?
-            .map(|g| (g.workspace_id, g.name))
-        }
-        DataTableCatalogResourceType::Postgresql => {
-            // The stored config is what the form is about to replace, so the entry
-            // is resolved from the resource it names rather than from the config.
-            let resource = windmill_common::workspaces::transform_json_value_unchecked(
-                &serde_json::Value::String(format!("$res:{}", database.resource_path)),
-                w_id,
-                db,
-            )
-            .await?;
-            windmill_common::workspaces::governed_datatable_reaching(
-                db,
-                &physical_database_identity(&resource),
-                &[(w_id, datatable_name)],
-            )
-            .await?
-        }
-    };
-    if let Some((gw, gname)) = hit {
-        return Err(Error::BadRequest(format!(
-            "Data table '{datatable_name}' would reach the database of {}, whose role \
-             permissions are enabled: every member would reach it through this data table's \
-             own connection, as every role at once.",
-            if gw == w_id {
-                format!("data table '{gname}'")
-            } else {
-                format!("data table '{gname}' of workspace {gw}")
-            }
-        )));
-    }
-    Ok(())
+    Ok(usable)
 }
 
 /// Refuse a save that names something that no longer exists: a tenant whose
@@ -1209,24 +1005,28 @@ async fn list_usable_datatable_roles(
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
 ) -> JsonResult<UsableDatatableRoles> {
-    let datatable = read_datatable_unchecked(&db, &w_id, &datatable_name).await?;
-    let Some(permissions) = datatable.permissions.filter(|p| p.enabled) else {
+    let (_, _, key) = resolve_datatable_database_unchecked(&db, &w_id, &datatable_name).await?;
+    let Some(record) = database_permissions_by_key(&db, &key)
+        .await?
+        .filter(|r| r.permissions.enabled)
+    else {
         return Ok(Json(UsableDatatableRoles {
             enabled: false,
             roles: vec![],
             default_role: ADMIN_DATATABLE_ROLE.to_string(),
         }));
     };
-    let authed_ref = authed.to_authed_ref();
+    let roles = usable_roles(
+        &db,
+        &w_id,
+        &record,
+        &DatatableAccess::Authed(authed.to_authed_ref()),
+    )
+    .await?;
     Ok(Json(UsableDatatableRoles {
         enabled: true,
-        default_role: permissions.default_role().to_string(),
-        roles: permissions
-            .roles
-            .iter()
-            .filter(|(_, role)| can_use_datatable_role(role, &authed_ref))
-            .map(|(name, _)| name.clone())
-            .collect(),
+        default_role: record.permissions.default_role().to_string(),
+        roles,
     }))
 }
 
@@ -1236,12 +1036,19 @@ async fn preview_datatable_permissions(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Json(req): Json<SetDatatablePermissions>,
 ) -> JsonResult<DatatablePermissionsPreview> {
-    require_admin(authed.is_admin, &authed.username)?;
-    // Refused here too: the preview connects to the database and reads its roles,
-    // and offering a plan that the save will not run is its own kind of wrong.
-    refuse_enabling_permissions_over_shared_access(&db, &w_id, &datatable_name, req.enabled)
-        .await?;
-    let (_client, plan) = build_plan(&db, &w_id, &datatable_name, &req).await?;
+    let (_, _, key) = resolve_datatable_database_unchecked(&db, &w_id, &datatable_name).await?;
+    let record = database_permissions_by_key(&db, &key).await?;
+    // Refused here too: offering a plan that the save will not run is its own
+    // kind of wrong.
+    ensure_can_manage_permissions(&db, &authed, &w_id, record.as_ref(), req.enabled).await?;
+    let (_client, _, plan) = build_plan(
+        &db,
+        &w_id,
+        &datatable_name,
+        record.as_ref().map(|r| &r.permissions),
+        &req,
+    )
+    .await?;
     Ok(Json(DatatablePermissionsPreview {
         statements: plan.statements.into_iter().map(|s| s.display).collect(),
         warnings: plan.warnings,
@@ -1255,16 +1062,21 @@ async fn set_datatable_permissions(
     Json(req): Json<SetDatatablePermissions>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+    let (_, _, key) = resolve_datatable_database_unchecked(&db, &w_id, &datatable_name).await?;
 
-    // Reading the config, planning against it, running the plan and persisting
-    // it are one operation: interleaved with another save, or with the removal
-    // of a principal some role names as a tenant, this would store a block it
-    // computed before the other committed. The settings row is what everything
-    // touching that config takes, so taking it here is what serializes them.
+    // Reading the permissions, planning against them, running the plan and
+    // persisting them are one operation: interleaved with another save, or with
+    // the removal of a principal some role names as a tenant, this would store
+    // roles it computed before the other committed. The database's row is what
+    // everything touching its permissions takes, so taking it here is what
+    // serializes them — whether or not the row exists yet.
     let mut tx = db.begin().await?;
-    windmill_common::workspaces::lock_workspace_settings_unchecked(&mut tx, &w_id).await?;
-    refuse_enabling_permissions_over_shared_access(&db, &w_id, &datatable_name, req.enabled)
-        .await?;
+    let record = lock_database_permissions(&mut tx, &key).await?;
+    ensure_can_manage_permissions(&db, &authed, &w_id, record.as_ref(), req.enabled).await?;
+    let owner_workspace_id = record
+        .as_ref()
+        .map(|r| r.owner_workspace_id.clone())
+        .unwrap_or_else(|| w_id.clone());
 
     // The roles about to be created are handed privileges by this connection,
     // which cannot pass on what it holds without the grant option.
@@ -1272,12 +1084,19 @@ async fn set_datatable_permissions(
 
     // The plan is rebuilt here rather than trusted from the preview: the client
     // never gets to choose what runs against the database.
-    let (mut client, plan) = build_plan(&db, &w_id, &datatable_name, &req).await?;
+    let (mut client, _, plan) = build_plan(
+        &db,
+        &w_id,
+        &datatable_name,
+        record.as_ref().map(|r| &r.permissions),
+        &req,
+    )
+    .await?;
 
-    // Creating and renaming roles is committed before the config: a Windmill-side
-    // failure after this point leaves roles the config does not know about, which
+    // Creating and renaming roles is committed before the row: a Windmill-side
+    // failure after this point leaves roles the row does not know about, which
     // the next plan adopts (it reads `pg_roles`), whereas the reverse order would
-    // leave the config naming roles that were never created. Dropping one has no
+    // leave the row naming roles that were never created. Dropping one has no
     // such way back, so those wait below — except where this save gives the freed
     // name to another role, which only works in one order.
     let keeps_the_name = |statement: &PlannedStatement| {
@@ -1295,26 +1114,10 @@ async fn set_datatable_permissions(
         .partition(|s| s.drops_role.is_some() && !keeps_the_name(s));
     run_statements(&mut client, &immediate).await?;
 
-    let permissions = serde_json::to_value(&plan.permissions)
-        .map_err(|e| Error::internal_err(format!("Failed to serialize permissions: {e}")))?;
-
-    // Written at the permissions path only, so a concurrent edit of the data
-    // table's own settings is not clobbered.
-    let updated = sqlx::query_scalar!(
-        "UPDATE workspace_settings
-         SET datatable = jsonb_set(datatable, ARRAY['datatables', $2, 'permissions'], $3)
-         WHERE workspace_id = $1 AND datatable->'datatables' ? $2
-         RETURNING workspace_id",
-        &w_id,
-        &datatable_name,
-        permissions,
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
-    if updated.is_none() {
-        return Err(Error::NotFound(format!(
-            "Data table '{datatable_name}' not found"
-        )));
+    if req.enabled {
+        upsert_database_permissions(&mut tx, &key, &owner_workspace_id, &plan.permissions).await?;
+    } else {
+        delete_database_permissions(&mut tx, &key).await?;
     }
 
     audit_log(
@@ -1327,6 +1130,7 @@ async fn set_datatable_permissions(
         Some(
             [
                 ("datatable", datatable_name.as_str()),
+                ("database", key.as_str()),
                 ("enabled", if req.enabled { "true" } else { "false" }),
             ]
             .into(),
@@ -1336,24 +1140,21 @@ async fn set_datatable_permissions(
 
     tx.commit().await?;
 
-    // What the config no longer names, now that it says so. A failure here is the
-    // end of the line for these logins: the config that named them has committed,
-    // so no later plan diffs against them and nothing will try again. Say which
-    // ones, since dropping them is now a database administrator's job.
+    // What the row no longer names, now that it says so. A failure here is the
+    // end of the line for these logins: the save that stopped naming them has
+    // committed, so no later plan diffs against them and nothing will try again.
+    // Say which ones, since dropping them is now a database administrator's job.
     if !deferred.is_empty() {
-        drop_roles_the_config_no_longer_names(&db, &w_id, &mut client, &deferred)
+        drop_roles_the_record_no_longer_names(&db, &key, &mut client, &deferred)
             .await
             .map_err(|e| {
                 Error::ExecutionErr(format!(
-                    "Permissions of data table {datatable_name} were saved, but the Postgres \
-                     logins they no longer name could not be removed: {e}. Saving again will not \
-                     retry them — the config no longer names them, so they have to be dropped by \
-                     hand."
+                    "The permissions were saved, but some roles could not be dropped: {e}"
                 ))
             })?;
     }
 
     Ok(format!(
-        "Updated permissions of data table {datatable_name}"
+        "Permissions of data table {datatable_name} updated"
     ))
 }

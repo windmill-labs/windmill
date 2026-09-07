@@ -833,10 +833,16 @@ async fn offboard_user_from_workspace<'c>(
     new_permissioned_as: &str,
 ) -> Result<OffboardSummary> {
     // Before this transaction locks anything else — see
-    // `lock_workspace_settings_unchecked`. Everything below reassigns rows a
-    // rename or a deletion writes while holding this row.
-    let datatable_settings =
-        windmill_common::workspaces::lock_workspace_settings_unchecked(tx, w_id).await?;
+    // `lock_datatable_permissions_unchecked`. Everything below reassigns rows a
+    // rename or a deletion writes while holding those.
+    windmill_common::workspaces::lock_datatable_permissions_unchecked(tx, w_id).await?;
+    let datatable_settings = sqlx::query_scalar!(
+        "SELECT datatable FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
+        w_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?
+    .flatten();
 
     let new_prefix = reassign_to.to_string();
     let departing = windmill_common::users::username_to_permissioned_as(username);

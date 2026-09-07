@@ -321,11 +321,17 @@ async fn update_username_in_workpsace<'c>(
     w_id: &str,
 ) -> error::Result<()> {
     // Before anything else in the transaction — see
-    // `lock_workspace_settings_unchecked`. `rename_user` walks memberships in
+    // `lock_datatable_permissions_unchecked`. `rename_user` walks memberships in
     // `workspace_id` order, so a rename spanning workspaces takes their rows in
     // that order too.
-    let datatable_settings =
-        windmill_common::workspaces::lock_workspace_settings_unchecked(tx, w_id).await?;
+    windmill_common::workspaces::lock_datatable_permissions_unchecked(tx, w_id).await?;
+    let datatable_settings = sqlx::query_scalar!(
+        "SELECT datatable FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
+        w_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?
+    .flatten();
 
     // ---- instance and workspace users ----
 
@@ -944,21 +950,22 @@ async fn update_username_in_workpsace<'c>(
     // executor compares it against the caller's name. Left behind, the rename
     // takes the role away from the user it followed and hands it to whoever
     // takes the old name next.
+    windmill_common::workspaces::rename_datatable_tenant_in_workspace_unchecked(
+        w_id,
+        &format!("u/{old_username}"),
+        &format!("u/{new_username}"),
+        tx,
+    )
+    .await?;
     if let Some(mut settings) = datatable_settings {
-        let mut renamed = windmill_common::workspaces::rename_datatable_tenant(
-            &mut settings,
-            &format!("u/{old_username}"),
-            &format!("u/{new_username}"),
-        );
         // The resource rewrite above moves a data table's own postgres resource
         // with everything else the user owns; the config names it by path, so it
         // has to travel too.
-        renamed |= windmill_common::workspaces::move_datatable_resource_paths(
+        if windmill_common::workspaces::move_datatable_resource_paths(
             &mut settings,
             &format!("u/{old_username}/"),
             &format!("u/{new_username}/"),
-        );
-        if renamed {
+        ) {
             sqlx::query!(
                 "UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = $2",
                 settings,

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE datatable_database_permissions SET owner_workspace_id = $1 WHERE owner_workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3f11db5b3f8af739cb287f45071f8e315e3e078b3d130d0db48277306b189ea9"
+}

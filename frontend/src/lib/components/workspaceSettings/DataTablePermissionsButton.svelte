@@ -49,14 +49,17 @@
 		onSaved?: () => void
 	} = $props()
 
-	// The server refuses to enable permissions in a fork: its data table points
-	// either at the database of the workspace it was forked from, where the roles
-	// would be invisible to that workspace's own config, or at a copy the fork can
-	// drop. Turning them off stays available, so one that already has them can be
-	// rid of them.
+	// The server refuses to turn permissions on from a fork: its data table points
+	// either at the database of the workspace it was forked from, which is where
+	// to set them, or at a copy the fork can drop.
 	const isFork = $derived(
 		!!$userWorkspaces.find((w) => w.id === workspace)?.parent_workspace_id
 	)
+	// Permissions belong to the database, and are managed from the workspace that
+	// turned them on; from any other workspace reaching the same database they are
+	// read-only here.
+	let editable = $state(true)
+	let ownerWorkspace = $state<string | undefined>(undefined)
 
 	// Matches every workspace member, unlike the `all` group whose membership is
 	// bookkeeping that can drift.
@@ -127,6 +130,8 @@
 				loaded.unshift({ id: randomUUID(), name: ADMIN_DATATABLE_ROLE, tenants: [] })
 			}
 			enabled = res.enabled
+			editable = res.editable
+			ownerWorkspace = res.owner_workspace_id
 			roles = loaded
 			defaultRoleId = loaded.find((r) => r.name === res.default_role)?.id ?? loaded[0]?.id
 			saved = {
@@ -263,7 +268,7 @@
 			<div class="flex flex-col gap-4">
 				<Toggle
 					bind:checked={enabled}
-					disabled={isFork && !enabled}
+					disabled={!editable || (isFork && !enabled)}
 					options={{
 						right: 'Enable permissions',
 						rightTooltip:
@@ -271,11 +276,16 @@
 					}}
 				/>
 
-				{#if isFork && !enabled}
+				{#if !editable && ownerWorkspace}
+					<Alert type="info" title="Managed from workspace {ownerWorkspace}" size="xs">
+						This data table reaches a database whose permissions were turned on in workspace
+						{ownerWorkspace}. Its roles and tenants are that workspace's, and its admins change them
+						there.
+					</Alert>
+				{:else if isFork && !enabled}
 					<Alert type="info" title="Permissions belong to the workspace this was forked from" size="xs">
-						A fork's data table points either at that workspace's database, where roles created
-						here would be invisible to its own configuration, or at a copy this fork can drop.
-						Enable permissions there instead, once this fork is deleted.
+						A fork's data table points either at that workspace's database, which is where to
+						enable permissions, or at a copy this fork can drop.
 					</Alert>
 				{/if}
 
@@ -382,7 +392,7 @@
 			<Button
 				variant="accent"
 				unifiedSize="md"
-				disabled={!hasUnsavedChanges || loading || !!loadError || !!nameError}
+				disabled={!editable || !hasUnsavedChanges || loading || !!loadError || !!nameError}
 				loading={saving}
 				on:click={requestPreview}
 			>

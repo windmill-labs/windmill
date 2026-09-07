@@ -28,8 +28,7 @@ use {
 
 #[cfg(not(all(feature = "private", feature = "enterprise")))]
 pub(crate) fn plan_role_changes(
-    _w_id: &str,
-    _datatable: &str,
+    _database_key: &str,
     _dbname: &str,
     _admin_pg_role: &str,
     _old: Option<&DataTablePermissions>,
