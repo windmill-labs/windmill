@@ -196,7 +196,9 @@ const USER_CANCEL_REASON = 'user_cancelled'
 // so past that point it is a copy of the script's declarations — password and file
 // defaults with them — persisted for the life of the chat.
 const settledRunForm = (runForm: RunFormDisplay): RunFormDisplay =>
-	runForm.submitted || runForm.canceled ? { ...runForm, schema: undefined } : runForm
+	runForm.submitted || runForm.canceled
+		? { ...runForm, schema: undefined, code: undefined, lang: undefined }
+		: runForm
 // Built-in `/compact` session command — summarizes the conversation locally
 // instead of sending a turn to the model. Matched on the whole input so a
 // regular message that merely mentions "/compact" mid-sentence is unaffected.

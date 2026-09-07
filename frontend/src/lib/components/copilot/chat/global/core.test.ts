@@ -4390,6 +4390,7 @@ describe('global AI tools', () => {
 
 		let opened: Record<string, any> | undefined
 		let kind: string | undefined
+		let helperSource: { code?: string; lang?: string } | undefined
 		await withCompletedTestJob(() =>
 			callGlobalTool(
 				'test_run_script',
@@ -4399,6 +4400,7 @@ describe('global AI tools', () => {
 					requestRunArgs: async (_toolId, form) => {
 						opened = form.args
 						kind = form.kind
+						helperSource = { code: form.code, lang: form.lang }
 						return { name: 'Grace' }
 					}
 				}
@@ -4408,6 +4410,12 @@ describe('global AI tools', () => {
 		expect(opened).toEqual({ name: 'Ada' })
 		// Drives the card's tense: a test says it tested, not that it ran.
 		expect(kind).toBe('test')
+		// The draft itself, so a dynselect field offers the options this code returns rather
+		// than the deployed version's — which is stale, or absent for a draft never deployed.
+		expect(helperSource).toEqual({
+			code: 'export async function main(name: string) {}',
+			lang: 'bun'
+		})
 		expect(JobService.runScriptPreview).toHaveBeenCalledWith({
 			workspace: WORKSPACE,
 			requestBody: {

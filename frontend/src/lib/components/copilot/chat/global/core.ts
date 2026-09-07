@@ -5457,6 +5457,8 @@ async function testRunScriptByPath(
 			schema,
 			summary: script.summary,
 			kind: 'test',
+			code: script.content,
+			lang: script.language,
 			// Never "deployed" here: the code about to run is the draft the model is still
 			// writing, and a line telling it to re-read the deployed schema would send it
 			// to the wrong version.
@@ -5509,6 +5511,11 @@ type FormRunSpec = {
 	schema: Record<string, any>
 	summary?: string
 	kind: 'run' | 'test'
+	/** The code a test run is about to preview, so its form can offer the same dynamic-option
+	 * pickers the script editor's test panel does. Omitted for a deployed run, which names a
+	 * path instead. */
+	code?: string
+	lang?: ScriptLang
 	/** How the lines the model reads back name the version this ran: telling it to re-read
 	 * the "deployed schema" of a draft would send it to the wrong code. */
 	schemaNoun: string
@@ -5617,6 +5624,8 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		summary: spec.summary || undefined,
 		kind: spec.kind,
 		schema: autoAccepted ? undefined : schema,
+		code: autoAccepted ? undefined : spec.code,
+		lang: autoAccepted ? undefined : spec.lang,
 		submitted: autoAccepted || undefined,
 		args: proposed,
 		clearedKeys: coerced.clearedKeys.length ? coerced.clearedKeys : undefined,

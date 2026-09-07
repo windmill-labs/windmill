@@ -566,6 +566,11 @@ export type RunFormDisplay = {
 	 * below unmounts that form: kept, every settled card would carry a copy of the schema
 	 * — password and file defaults included — in history forever. */
 	schema?: Record<string, any>
+	/** The draft a test run previews, for the `dynselect-` helper only — a deployed helper
+	 * would answer for the wrong version. Set on a test run alone, and dropped with the
+	 * schema once the form unmounts, so no settled card carries a copy of the code. */
+	code?: string
+	lang?: ScriptLang
 	/** Prefill only: the card's `parameters` records what the job started with. */
 	args: Record<string, any>
 	/** Proposed arguments emptied because their declared type had no reading of them.
