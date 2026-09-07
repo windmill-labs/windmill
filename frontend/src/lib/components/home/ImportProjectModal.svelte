@@ -89,18 +89,14 @@
 	}
 
 	/**
-	 * The one way this dialog reloads the caller's list: once the run is no longer writing.
-	 * Both exits use it, because both can be taken mid-write — `abandon()` only stops the
-	 * *next* phase and the request already sent still lands, and `done` survives a retry so
-	 * Finish is clickable while the run is going again. A reload issued at either of those
-	 * moments reads the list before the write commits and leaves it stale, which is what the
-	 * reload exists to prevent. Immediate when nothing is running, which is the common case.
-	 * The cap is there so a run that never settles still ends in a reload rather than nothing.
+	 * The one way this dialog reloads the caller's list: after the run stops writing. Both
+	 * exits use it, because both can be taken mid-write — `abandon()` only stops the *next*
+	 * phase and the request already sent still lands, and `done` survives a retry so Finish is
+	 * clickable while the run is going again. Reading the list at either of those moments
+	 * reads it before the write commits, which is what the reload exists to prevent.
 	 */
 	async function reloadWhenSettled(run: ImportExecution, reload: (() => void) | undefined) {
-		for (let i = 0; i < 60 && run.running; i++) {
-			await new Promise((resolve) => setTimeout(resolve, 250))
-		}
+		await run.whenIdle()
 		reload?.()
 	}
 

@@ -229,6 +229,23 @@ export class ImportExecution {
 	 */
 	async run(): Promise<void> {
 		if (this.running) return
+		const settled = this.#runInternal()
+		this.#idle = settled.catch(() => {})
+		return settled
+	}
+
+	/**
+	 * Resolves when nothing is being written — immediately when no run is in flight. Callers
+	 * that act on what a run left behind need this rather than a poll on `running`: `abandon()`
+	 * stops the run at the next phase boundary, so the request already sent lands after it, and
+	 * reading the workspace before then reads it mid-write.
+	 */
+	whenIdle(): Promise<void> {
+		return this.#idle
+	}
+	#idle: Promise<void> = Promise.resolve()
+
+	async #runInternal(): Promise<void> {
 		this.#abandoned = false
 		this.running = true
 		runState.active = true
