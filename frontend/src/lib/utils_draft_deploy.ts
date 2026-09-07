@@ -435,8 +435,13 @@ export async function deployDraft(
 	path: string,
 	workspace: string,
 	opts: { draftOnly?: boolean; rawApp?: boolean; deploymentMessage?: string } = {}
-): Promise<DeployResult> {
+): Promise<DeployResult & { noop?: boolean }> {
 	const { draftOnly = false, rawApp = false, deploymentMessage } = opts
+	// Set when the branch found nothing to promote and wrote nothing. Success, because the item is
+	// already at the value a deploy would have left it at and its stale draft state still wants
+	// clearing — but a caller deploying one specific draft it showed the user has to be able to tell
+	// that apart from having deployed it.
+	let noop = false
 	try {
 		if (kind === 'raw_app' || (kind === 'app' && rawApp)) {
 			// Raw apps bundle their source files and deploy via the raw-app
@@ -595,7 +600,7 @@ export async function deployDraft(
 			// deploy would have left it at, so this reports success rather than an error, matching
 			// what the other kinds end up doing when their own draft is gone.
 			if (!hasDraft) {
-				// Nothing to write.
+				noop = true
 			} else if (draftOnly) {
 				await ResourceService.createResource({
 					workspace,
@@ -673,7 +678,7 @@ export async function deployDraft(
 		// so the syncer-owned hint won't auto-clear — clear it explicitly.
 		// (Idempotent: the drawer-kind delete above already cleared it.)
 		setLocalDraftHint(workspace, kind, path, false)
-		return { success: true }
+		return noop ? { success: true, noop: true } : { success: true }
 	} catch (e: any) {
 		return { success: false, error: e?.body ?? e?.message ?? String(e) }
 	}

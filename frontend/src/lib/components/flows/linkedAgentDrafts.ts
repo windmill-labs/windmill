@@ -89,10 +89,21 @@ export function agentDraftCanWrite(draft: LinkedAgentDraft, user: UserExt | unde
 	return canWrite(draft.path, draft.extraPerms, user)
 }
 
+/** A link that cannot resolve for the user rather than because something went wrong: the agent was
+ *  deleted, or sits in a folder they cannot read. Both are ordinary states of a rigid link, and
+ *  neither should stop the caller — the flow still tests and deploys, against the deployed agent.
+ *  Every other failure is an outage, and answering "no draft" to one would quietly run or deploy
+ *  the wrong configuration, which is the whole thing this module exists to prevent. */
+function isExpectedLinkFailure(err: unknown): boolean {
+	const status = (err as { status?: number } | null | undefined)?.status
+	return status === 401 || status === 403 || status === 404
+}
+
 /**
- * The unsaved draft of every given `ai_agent` path, for the paths that have one. A path that fails
- * to load is reported as having no draft rather than throwing: a broken or unreadable link must not
- * block the test or the deploy that asked.
+ * The unsaved draft of every given `ai_agent` path, for the paths that have one.
+ *
+ * Throws when a path fails to load for any reason other than being missing or unreadable, so a
+ * caller cannot mistake an outage for an agent with nothing unsaved.
  */
 export async function loadLinkedAgentDrafts(
 	paths: string[],
@@ -102,19 +113,22 @@ export async function loadLinkedAgentDrafts(
 	if (!workspace || paths.length === 0) return out
 	await Promise.all(
 		paths.map(async (path) => {
+			let response: Resource
+			let draft: AgentResourceState | undefined
 			try {
-				const { response, draft } = await fetchAgentWithDraft(path, workspace)
-				if (!draft) return
-				out.set(path, {
-					path,
-					args: (draft.args ?? {}) as AIAgentConfig,
-					state: draft,
-					noDeployed: Boolean((response as { no_deployed?: boolean }).no_deployed),
-					extraPerms: response.extra_perms ?? {}
-				})
-			} catch {
-				// No draft we can act on.
+				;({ response, draft } = await fetchAgentWithDraft(path, workspace))
+			} catch (err) {
+				if (isExpectedLinkFailure(err)) return
+				throw new Error(`Could not load the agent ${path}: ${err}`)
 			}
+			if (!draft) return
+			out.set(path, {
+				path,
+				args: (draft.args ?? {}) as AIAgentConfig,
+				state: draft,
+				noDeployed: Boolean((response as { no_deployed?: boolean }).no_deployed),
+				extraPerms: response.extra_perms ?? {}
+			})
 		})
 	)
 	return out

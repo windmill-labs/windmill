@@ -1,7 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { inlineAgentDraft, inlineAgentDrafts, type LinkedAgentDraft } from './linkedAgentDrafts'
-import type { FlowModule, FlowValue } from '$lib/gen'
+import {
+	inlineAgentDraft,
+	inlineAgentDrafts,
+	loadLinkedAgentDrafts,
+	type LinkedAgentDraft
+} from './linkedAgentDrafts'
+import { ResourceService, type FlowModule, type FlowValue } from '$lib/gen'
 
 type AiAgentValue = Extract<FlowModule['value'], { type: 'aiagent' }>
 
@@ -110,5 +115,34 @@ describe('inlineAgentDrafts', () => {
 		})
 		// The input the flow supplies survives the rewrite.
 		expect(inner.value.input_transforms.user_message).toEqual({ type: 'static', value: 'hi' })
+	})
+})
+
+// A link the user cannot resolve is an ordinary state and must not block the flow; anything else is
+// an outage, and answering "no draft" to one would silently test or deploy against the deployed
+// agent while the editor shows the draft.
+describe('loadLinkedAgentDrafts error handling', () => {
+	function failWith(status: number | undefined) {
+		return async () => {
+			const err: Error & { status?: number } = new Error('boom')
+			err.status = status
+			throw err
+		}
+	}
+
+	beforeEach(() => {
+		vi.restoreAllMocks()
+	})
+
+	it.each([401, 403, 404])('treats %i as no draft', async (status) => {
+		vi.spyOn(ResourceService, 'getResource').mockImplementation(failWith(status) as any)
+		await expect(loadLinkedAgentDrafts(['f/team/support'], 'ws')).resolves.toEqual(new Map())
+	})
+
+	it.each([500, undefined])('propagates %s rather than reporting no draft', async (status) => {
+		vi.spyOn(ResourceService, 'getResource').mockImplementation(failWith(status) as any)
+		await expect(loadLinkedAgentDrafts(['f/team/support'], 'ws')).rejects.toThrow(
+			'Could not load the agent f/team/support'
+		)
 	})
 })

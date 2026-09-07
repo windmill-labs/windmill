@@ -138,7 +138,12 @@ describe('deployDraft: resource with no draft', () => {
 			value: { system_prompt: 'deployed' }
 		} as any)
 
-		expect(await deployDraft('resource', 'f/support/triage_agent', 'ws')).toEqual({ success: true })
+		// `noop` is what lets a caller deploying one specific draft tell "nothing to promote" apart
+		// from "deployed", instead of reporting an agent as deployed that was never written.
+		expect(await deployDraft('resource', 'f/support/triage_agent', 'ws')).toEqual({
+			success: true,
+			noop: true
+		})
 		expect(ResourceService.updateResource).not.toHaveBeenCalled()
 		expect(ResourceService.createResource).not.toHaveBeenCalled()
 	})

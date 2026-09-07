@@ -278,8 +278,11 @@
 				logReusableAgentUsage('draft_kept_on_deploy')
 			}
 		}
+		// Validate every agent before writing any. Interleaving the two would let a mismatch on the
+		// second agent abort the deploy with the first already written and the flow itself not saved,
+		// which is a worse state than either outcome the dialog offered.
 		for (const agent of agents) {
-			// The dialog can sit open indefinitely, so the draft may have moved under it — another tab,
+			// The dialog can sit open indefinitely, so the draft may have moved under it: another tab,
 			// the generic resource editor, the agent editor's own Deploy. `deployDraft` reads the draft
 			// again, and deploying whatever is there now would write a config the dialog never showed
 			// and its refusal rule never checked. So compare first and refuse on a mismatch, letting
@@ -291,13 +294,15 @@
 				)
 			}
 			// The type is as old as the dialog otherwise: were the path deleted and recreated as
-			// something else meanwhile, the update below would put an agent config inside it.
+			// something else meanwhile, the write below would put an agent config inside it.
 			const notAnAgent = agent.noDeployed
 				? undefined
 				: agentEditorRefusal(agent.path, response.resource_type)
 			if (notAnAgent) {
 				throw new Error(`Could not deploy agent ${agent.path}: ${notAnAgent}`)
 			}
+		}
+		for (const agent of agents) {
 			// Same call the Review & Deploy page makes for this draft row: one deploy mechanism per
 			// draft kind. It writes the resource, deletes the draft row, and clears the local hint and
 			// the workspace drafts cache.
@@ -307,8 +312,17 @@
 			if (!deployed.success) {
 				throw new Error(`Could not deploy agent ${agent.path}: ${deployed.error}`)
 			}
+			// A draft that went between the check above and this write leaves `deployDraft` with
+			// nothing to promote, which is a success for a caller deploying whatever a listing held but
+			// not for this one: it named a specific draft, and reporting that agent as deployed would
+			// be a lie the toggle was there to prevent.
+			if (deployed.noop) {
+				throw new Error(
+					`The draft for ${agent.path} was deployed or discarded elsewhere while this deploy ran, so nothing was written for it.`
+				)
+			}
 			// `deployDraft` deletes the row through the syncer, which leaves any in-memory cell for
-			// this key untouched — and that cell is what `agentDraftState` prefers, so without this a
+			// this key untouched, and that cell is what `agentDraftState` prefers: without this a
 			// second deploy in the same session would list the agent again from a draft that is gone.
 			UserDraft.remove('resource', agent.path, { workspace: ws })
 			// Every linked card and the graph key on this to refetch the agent they display.
