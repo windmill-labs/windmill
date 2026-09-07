@@ -30,10 +30,9 @@
 		logFeatureUsage('home', 'empty_state_view')
 	})
 
-	// The catalogue is fetched when the picker opens, not warmed on render. Warming it
-	// meant a request nobody had asked for, which had to be gated on `disable_hub` and
-	// then raced that setting's own load — two problems bought for the time between this
-	// caption appearing and someone clicking it. The picker shows its list loading instead.
+	// The catalogue is fetched when the picker opens, never on render: `disable_hub` says an
+	// instance makes no hub requests at all, and it loads asynchronously, so anything fired
+	// from here goes out before the setting that forbids it is known.
 </script>
 
 <div
