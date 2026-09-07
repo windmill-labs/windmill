@@ -79,6 +79,11 @@
 				sendUserToast('Import stopped. What it already added stays; reopen the project to finish.')
 			}
 		}
+		// A run that started wrote items, whether it finished, was abandoned midway or failed
+		// partway — so the list behind this dialog is stale either way, and only `finish()`
+		// was reloading it. Closing a landed import with the X left an emptied-out home
+		// showing its placeholder rows over a workspace that now holds a project.
+		if (!finishing && execution) onImported?.()
 		finishing = false
 		onClose()
 	}

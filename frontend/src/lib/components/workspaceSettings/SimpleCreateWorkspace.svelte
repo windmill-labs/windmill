@@ -118,8 +118,10 @@
 		creating = true
 		const workspaceName = name.trim()
 		const started = Date.now()
+
+		let id: string | undefined
 		try {
-			const id = await freeWorkspaceId(idSeed(workspaceName))
+			id = await freeWorkspaceId(idSeed(workspaceName))
 			if (!id) {
 				sendUserToast(
 					'No workspace ID could be derived from that name. Pick one in advanced settings.',
@@ -136,19 +138,29 @@
 					username: automateUsername ? undefined : suggestedUsername
 				}
 			})
-			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-			switchWorkspace(id)
-			const left = WORKSPACE_HANDOVER_MS - (Date.now() - started)
-			if (left > 0) await new Promise((resolve) => setTimeout(resolve, left))
-			// Left up rather than cleared: the navigation it hands over to loads the workspace
-			// layout for the first time, and dropping back to the form under it would show the
-			// button again for as long as that takes.
-			onCreated()
 		} catch (error) {
 			console.error('Could not create the workspace:', error)
 			sendUserToast('Could not create the workspace: ' + (error?.body || error?.message), true)
 			creating = false
+			return
 		}
+
+		// The workspace exists from here on, so nothing below may report failure or hand the
+		// form back: a retry would pick the next free id and create a second one. A refresh
+		// that fails is worth a log and nothing more — the list reloads on the next page load,
+		// and the workspace this hands over to is real either way.
+		try {
+			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+		} catch (error) {
+			console.error('Created the workspace but could not refresh the list:', error)
+		}
+		switchWorkspace(id)
+		const left = WORKSPACE_HANDOVER_MS - (Date.now() - started)
+		if (left > 0) await new Promise((resolve) => setTimeout(resolve, left))
+		// Left up rather than cleared: the navigation it hands over to loads the workspace
+		// layout for the first time, and dropping back to the form under it would show the
+		// button again for as long as that takes.
+		onCreated()
 	}
 </script>
 
@@ -197,7 +209,7 @@
 				<button
 					class="text-xs text-secondary hover:text-emphasis disabled:opacity-50 disabled:hover:text-secondary"
 					disabled={!policyLoaded}
-					title={policyLoaded ? undefined : "This instance's settings could not be read"}
+					title={policyFailed ? "This instance's settings could not be read" : undefined}
 					onclick={() => (advanced = true)}
 				>
 					Advanced settings
