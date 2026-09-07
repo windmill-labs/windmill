@@ -22,6 +22,8 @@
 		flowModules?: FlowModule[]
 		/** Wider centered column, for the full-page chat. */
 		wideLayout?: boolean
+		/** Whether the editor's own test chats are listed. On where testing happens. */
+		showTestChats?: boolean
 	}
 
 	let {
@@ -32,18 +34,21 @@
 		hideSidebar = false,
 		inputSchema = undefined,
 		flowModules = undefined,
-		wideLayout = false
+		wideLayout = false,
+		showTestChats = false
 	}: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const manager = createFlowChatManager()
 	manager.operatingWorkspace = () => flowEditorContext?.opWorkspace?.()
+	manager.showTestChats = showTestChats
 
 	// Initialize manager when component mounts
 	$effect(() => {
 		if ($workspaceStore) {
 			manager.initialize(onRunFlow, path, useStreaming)
+			void manager.selectLatestConversation()
 		}
 
 		return () => {
@@ -79,7 +84,11 @@
 	})
 </script>
 
-<div class="flex border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-1">
+<!-- border-t: the line the chat starts at, dividing it from whatever header sits above.
+     pb-3: the transcript and composer stop short of the panel edge, the way the session
+     chat sits in its own panel. The column's max width and side padding come from
+     AIChatDisplay itself. -->
+<div class="flex overflow-hidden flex-1 pb-3 border-t">
 	{#if !hideSidebar}
 		<FlowConversationsSidebar {manager} />
 	{/if}

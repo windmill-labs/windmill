@@ -35,6 +35,7 @@
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
+	import ScrollFade from '$lib/components/ScrollFade.svelte'
 	import McpConnections from './McpConnections.svelte'
 	import SkillsPicker from './SkillsPicker.svelte'
 	import ChatMode from './ChatMode.svelte'
@@ -837,6 +838,8 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					{/if}
 				</div>
 			</div>
+			<!-- Sits below the scroll-to-latest button, which carries z-10. -->
+			<ScrollFade scroller={scrollElement} />
 			{#if showScrollToLatest}
 				<div
 					transition:fade={{ duration: 120 }}
@@ -862,10 +865,12 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		</div>
 	{/if}
 
+	<!-- Same horizontal padding as the transcript above: the composer's edges line up with
+	     the messages rather than sitting closer to the panel edge. -->
 	<div
 		class={wideLayout
-			? 'relative w-full max-w-3xl mx-auto px-6 pb-2'
-			: 'relative w-full max-w-2xl mx-auto px-2 pb-2'}
+			? 'relative w-full max-w-3xl mx-auto px-7 pb-2'
+			: 'relative w-full max-w-2xl mx-auto px-3 pb-2'}
 	>
 		{#if showFlowPendingActionControls}
 			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">

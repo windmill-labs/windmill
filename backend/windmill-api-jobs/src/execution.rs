@@ -633,6 +633,7 @@ pub async fn handle_chat_conversation_messages(
     run_query: &RunJobQuery,
     user_message_raw: Option<&Box<serde_json::value::RawValue>>,
     job_id: Uuid,
+    is_test: bool,
 ) -> error::Result<()> {
     let memory_id = run_query.memory_id.ok_or_else(|| {
         windmill_common::error::Error::BadRequest(
@@ -660,6 +661,7 @@ pub async fn handle_chat_conversation_messages(
         &authed.username,
         &user_message,
         memory_id,
+        is_test,
     )
     .await?;
 
@@ -795,6 +797,7 @@ pub async fn run_flow<'c>(
             &run_query,
             args.args.get("user_message"),
             uuid,
+            false,
         )
         .await?;
     }

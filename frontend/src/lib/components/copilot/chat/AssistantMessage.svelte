@@ -14,12 +14,24 @@
 	} from './workspaceItems.svelte'
 	import { markdownProse } from '$lib/components/markdownProse'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
+	import { ExternalLink } from 'lucide-svelte'
+	import CopyButton from '$lib/components/common/button/CopyButton.svelte'
+	import { base } from '$lib/base'
+	import { displayDate } from '$lib/utils'
 
 	interface Props {
 		message: DisplayMessage
 	}
 
 	let { message }: Props = $props()
+
+	// The run this answer came out of. Only a flow chat has one — a copilot turn runs in
+	// the browser — so the footer is absent rather than empty elsewhere.
+	const jobId = $derived(message.role === 'assistant' ? message.jobId : undefined)
+	const createdAt = $derived(message.role === 'assistant' ? message.createdAt : undefined)
+	const runHref = $derived(
+		jobId ? `${base}/run/${jobId}?workspace=${$workspaceStore}` : undefined
+	)
 
 	const reasoning = $derived(
 		message.role === 'assistant' ? message.reasoning?.trim() || undefined : undefined
@@ -135,5 +147,32 @@
 {:else if message.content}
 	<div class="w-full space-y-2 {markdownProse.sm}">
 		<Markdown md={message.content} {plugins} />
+	</div>
+{/if}
+
+{#if message.content || createdAt || runHref}
+	<!-- Present but invisible until the answer is hovered: kept in flow so revealing it
+	     does not nudge the message below. -->
+	<div
+		class="mt-1.5 flex items-center gap-2 text-2xs text-tertiary opacity-0 transition-opacity duration-150 group-hover/answer:opacity-100 focus-within:opacity-100"
+	>
+		{#if message.content}
+			<CopyButton value={message.content} title="Copy answer" class="-ml-1" />
+		{/if}
+		{#if createdAt}
+			<span>{displayDate(createdAt)}</span>
+		{/if}
+		{#if runHref}
+			<a
+				href={runHref}
+				target="_blank"
+				rel="noopener noreferrer"
+				class="inline-flex items-center gap-1 hover:text-primary hover:underline"
+				title="Open this run"
+			>
+				<span>job <span class="font-mono">{jobId?.slice(0, 8)}</span></span>
+				<ExternalLink size={11} class="shrink-0" />
+			</a>
+		{/if}
 	</div>
 {/if}

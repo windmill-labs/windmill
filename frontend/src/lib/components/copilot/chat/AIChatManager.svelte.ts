@@ -3569,6 +3569,9 @@ export class AIChatManager implements ChatViewHost {
 								{
 									role: 'assistant',
 									content: this.currentReply,
+									// Stamped as it lands. A chat restored from history predates this and
+									// simply shows no time rather than a made-up one.
+									createdAt: new Date().toISOString(),
 									...(this.currentReasoning
 										? { reasoning: this.currentReasoning, reasoningDurationMs }
 										: {}),

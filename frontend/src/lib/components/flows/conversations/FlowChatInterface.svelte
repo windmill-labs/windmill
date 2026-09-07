@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { Loader2, MessageCircle } from 'lucide-svelte'
+	import { Loader2, MessageCircle, SlidersHorizontal } from 'lucide-svelte'
 	import { FlowChatManager } from './FlowChatManager.svelte'
 	import { FlowChatViewHost } from './flowChatViewHost.svelte'
 	import AIChatDisplay from '$lib/components/copilot/chat/AIChatDisplay.svelte'
@@ -11,12 +11,14 @@
 	import { CancelError, WorkspaceService, type FlowModule } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { resource } from 'runed'
-	import FlowChatSettings from './FlowChatSettings.svelte'
+	import FlowChatModelSettings from './FlowChatModelSettings.svelte'
 	import {
+		agentModelGap,
+		agentModelWiringInputs,
 		isEmptyAgentChatInputValue,
 		PER_TURN_AGENT_CHAT_INPUT_KEY,
 		resolveAgentChatInputs,
-		resolveStaticAgentModel
+		resolveAgentModelWiring
 	} from './agentChatInputs'
 
 	interface Props {
@@ -87,14 +89,20 @@
 		if (!loaded || loaded.ws !== chatWorkspace) return false
 		return loaded.settings.large_file_storage?.s3_resource_path !== undefined
 	})
-	const settingInputs = $derived(
-		agentChatInputs.filter((input) => input.key !== PER_TURN_AGENT_CHAT_INPUT_KEY)
-	)
-	const staticModel = $derived(resolveStaticAgentModel(flowModules))
+	// The model gets its own button, shaped like the copilot's model settings, driven by
+	// whichever provider fields the flow exposes. Attachments are the paperclip's. Nothing
+	// else is promoted, so every other flow input is asked for in the Configure-inputs modal.
+	const modelWiring = $derived(resolveAgentModelWiring(flowModules))
+	// An agent with nothing to call cannot answer, and the composer cannot fix it, so the
+	// chat says what to go and do instead of offering controls that write nowhere.
+	const modelGap = $derived(agentModelGap(modelWiring))
 
 	const modalSchema = $derived.by(() => {
 		if (!additionalInputsSchema) return undefined
-		const promoted = new Set(agentChatInputs.map((input) => input.name))
+		const promoted = new Set([
+			...agentChatInputs.map((input) => input.name),
+			...agentModelWiringInputs(modelWiring)
+		])
 		const properties = Object.fromEntries(
 			Object.entries(additionalInputsSchema.properties ?? {}).filter(([key]) => !promoted.has(key))
 		)
@@ -206,16 +214,31 @@
 {/snippet}
 
 {#snippet footerSettings()}
-	<FlowChatSettings
-		inputs={settingInputs}
-		values={inputValues}
-		onChange={setInputValue}
-		{staticModel}
-		onOpenInputs={modalSchema ? openInputsModal : undefined}
-		inputsMissingRequired={modalMissingRequired}
-		workspace={chatWorkspace}
-		helperScript={dynamicInputHelperScript}
-	/>
+	{#if modalSchema}
+		<div class="relative">
+			<Button
+				unifiedSize="2xs"
+				variant="subtle"
+				startIcon={{ icon: SlidersHorizontal }}
+				btnClasses="text-secondary font-normal"
+				title="Configure the flow inputs sent with each message"
+				onClick={openInputsModal}
+			>
+				Inputs
+			</Button>
+			{#if modalMissingRequired}
+				<span class="absolute -top-0.5 -right-0.5 w-2 h-2 bg-yellow-500 rounded-full"></span>
+			{/if}
+		</div>
+	{/if}
+	{#if modelWiring}
+		<FlowChatModelSettings
+			wiring={modelWiring}
+			values={inputValues}
+			setValue={setInputValue}
+			workspace={chatWorkspace}
+		/>
+	{/if}
 {/snippet}
 
 <!-- The transcript scroller fills its flex row, which needs a height to resolve
@@ -238,12 +261,10 @@
 		hideModeSelector
 		{wideLayout}
 		{emptyHint}
-		footerSettings={settingInputs.length > 0 || modalSchema || staticModel
-			? footerSettings
-			: undefined}
+		footerSettings={modalSchema || modelWiring ? footerSettings : undefined}
 		placeholder="Send a message to run the flow"
-		disabled={deploymentInProgress}
-		disabledMessage="Deployment in progress"
+		disabled={deploymentInProgress || !!modelGap}
+		disabledMessage={deploymentInProgress ? 'Deployment in progress' : (modelGap ?? '')}
 		loadPastChat={() => {}}
 		deletePastChat={() => {}}
 		saveAndClear={() => {}}

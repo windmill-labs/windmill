@@ -11746,6 +11746,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: include_test
+          description: include conversations started from the flow editor's test panel
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: flow conversations list
@@ -26970,6 +26975,9 @@ components:
         created_by:
           type: string
           description: Username who created the conversation
+        is_test:
+          type: boolean
+          description: Started from the flow editor's test panel rather than a deployed run
 
     FlowConversationMessage:
       type: object

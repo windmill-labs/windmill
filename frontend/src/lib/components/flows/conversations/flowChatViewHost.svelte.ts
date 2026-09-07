@@ -5,6 +5,8 @@ import type {
 import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
 import type { ChatMessage, FlowChatManager } from './FlowChatManager.svelte'
 import { AIAutonomyMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
+import { isPlanCardTool } from '$lib/components/copilot/chat/planMode'
+import { ToolCallStore, type ToolCallDetails } from './toolCallContext.svelte'
 import { AttachedFilesStore } from '$lib/components/copilot/chat/files/attachedFiles.svelte'
 import { SessionArtifactsStore } from '$lib/components/copilot/chat/artifacts/artifactsState.svelte'
 import { dataUrlToBlob, type AttachedBlob } from '$lib/components/copilot/chat/blobUtils'
@@ -31,11 +33,26 @@ export type FlowChatViewHostOptions = {
 	canAttach?: () => boolean
 }
 
+/**
+ * A tool's arguments and result reach us as strings: the provider's JSON for the call, and
+ * whatever the tool returned, which is often but not always JSON. Parsed where it parses so
+ * the card can fold it, kept verbatim where it does not.
+ */
+function parseToolPayload(raw: string | null | undefined): any {
+	if (raw === undefined || raw === null || raw === '') return undefined
+	try {
+		return JSON.parse(raw)
+	} catch {
+		return raw
+	}
+}
+
 function toDisplayMessage(
 	message: ChatMessage,
 	userIndex: number,
 	showStepNames: boolean,
 	inputs: MessageInputsStore,
+	toolCalls: ToolCallStore,
 	failed: boolean
 ): DisplayMessage {
 	switch (message.message_type) {
@@ -53,24 +70,46 @@ function toDisplayMessage(
 				contextElements: contextElements.length > 0 ? contextElements : undefined
 			}
 		}
-		case 'tool':
-			// Both producers of a tool row — the agent executor and the frontend's own
-			// stream parser — write the whole message as a one-line description of the
-			// call ("Used web_search tool"). There is no result to reveal, so the row
-			// is the label and nothing else. `toolName` stays unset: it drives the
-			// copilot's plan-card detection, which a flow step summary must not trip.
+		case 'tool': {
+			const failed = message.success === false
+			// While the turn streams, the events carry the call; afterwards the same details
+			// come from the tool's own job. A row shows whichever it has.
+			const streamed: ToolCallDetails = {
+				toolName: message.tool_name,
+				parameters: parseToolPayload(message.tool_arguments),
+				result: parseToolPayload(message.tool_result)
+			}
+			const fromJob = toolCalls.get(message.job_id)
+			const toolName = streamed.toolName ?? fromJob.toolName
+			const parameters = streamed.parameters ?? fromJob.parameters
+			const result = failed ? undefined : (streamed.result ?? fromJob.result)
 			return {
 				role: 'tool',
 				tool_call_id: message.id,
 				content: message.content,
+				// Withheld for the copilot's two plan-mode names: `toolName` is what makes
+				// ToolExecutionDisplay render a plan card, and an agent tool that happened to
+				// share one would silently become one.
+				toolName: isPlanCardTool(toolName) ? undefined : toolName,
+				parameters,
+				result,
+				// The card's fold is opt-in (ToolExecutionDisplay reads showDetails), so it is
+				// offered only when there is a call or a result behind it to reveal.
+				showDetails: parameters !== undefined || result !== undefined,
+				error: failed ? message.content : undefined,
 				isLoading: message.loading
 			}
+		}
 		default:
 			return {
 				role: 'assistant',
 				content: message.content,
 				streaming: message.streaming,
-				stepName: showStepNames ? (message.step_name ?? undefined) : undefined
+				stepName: showStepNames ? (message.step_name ?? undefined) : undefined,
+				// The run behind the answer, so a reader can open what produced it. Absent on
+				// the temp message a stream builds, which has no job id until it settles.
+				jobId: message.job_id || undefined,
+				createdAt: message.created_at
 			}
 	}
 }
@@ -112,6 +151,7 @@ export class FlowChatViewHost implements ChatViewHost {
 	)
 
 	#messageInputs = new MessageInputsStore(() => this.#options.workspace?.())
+	#toolCalls = new ToolCallStore(() => this.#options.workspace?.())
 
 	displayMessages = $derived.by(() => {
 		let userIndex = 0
@@ -123,6 +163,7 @@ export class FlowChatViewHost implements ChatViewHost {
 				message.message_type === 'user' ? userIndex++ : -1,
 				showStepNames,
 				this.#messageInputs,
+				this.#toolCalls,
 				message.message_type === 'user' && turnFailed(messages, i)
 			)
 		)

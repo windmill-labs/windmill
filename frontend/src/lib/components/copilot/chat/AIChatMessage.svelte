@@ -126,7 +126,7 @@
 		{:else}
 			<div class={twMerge('text-sm py-1 px-2', message.role === 'tool' && 'text-primary py-0')}>
 				{#if message.role === 'assistant'}
-					<div class="px-[1px]"><AssistantMessage {message} /></div>
+					<div class="px-[1px] group/answer"><AssistantMessage {message} /></div>
 				{:else if message.role === 'tool'}
 					<div class="px-[1px]"
 						><ToolExecutionDisplay message={message as ToolDisplayMessage} /></div

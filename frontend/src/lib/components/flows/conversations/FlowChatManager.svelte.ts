@@ -6,12 +6,20 @@ import { tick } from 'svelte'
 import InfiniteList from '$lib/components/InfiniteList.svelte'
 import { workspaceStore, userStore } from '$lib/stores'
 import { get } from 'svelte/store'
-import { parseStreamDeltas } from '$lib/components/chat/utils'
+import { parseStreamEvents, toolSummary } from '$lib/components/chat/utils'
 import { randomUUID } from '$lib/utils/uuid'
 
 export interface ChatMessage extends FlowConversationMessage {
 	loading?: boolean
 	streaming?: boolean
+	/**
+	 * The call behind a tool row, as the stream reports it. Local to a running turn: the
+	 * server stores only the summary sentence, and once the run settles the same details
+	 * are read back from the tool's own job instead (see toolCallContext).
+	 */
+	tool_name?: string
+	tool_arguments?: string
+	tool_result?: string
 }
 
 export interface ConversationWithDraft extends FlowConversation {
@@ -36,6 +44,12 @@ export class FlowChatManager {
 	conversations = $state<ConversationWithDraft[]>([])
 	deletingConversationId = $state<string | undefined>(undefined)
 	isSidebarExpanded = $state(false)
+	/**
+	 * Whether the list includes chats run from the editor's test panel. On in the editor,
+	 * where testing is the point; off on a deployed flow, so someone's trial runs are not
+	 * mixed into the real conversations.
+	 */
+	showTestChats = $state(false)
 	selectedConversationId = $state<string | undefined>(undefined)
 	conversationListComponent = $state<InfiniteList | undefined>(undefined)
 
@@ -160,6 +174,29 @@ export class FlowChatManager {
 		}
 	}
 
+	/**
+	 * Open this flow's most recent conversation, unless the caller already chose one.
+	 *
+	 * Every turn is stored the moment it runs — a preview from the editor exactly like a
+	 * deployed run — so a chat that has been used before should come back to it instead of
+	 * to an empty pane. The editor needs this most: it hides the conversations sidebar, so
+	 * without it there is no way back to what was said.
+	 */
+	async selectLatestConversation() {
+		if (this.selectedConversationId || !this.#workspace() || !this.#path) return
+		const [latest] = await this.loadConversations(1, 1)
+		// Re-checked after the await: a message sent meanwhile has already opened its own.
+		if (!latest || this.selectedConversationId) return
+		await this.selectConversation(latest.id)
+	}
+
+	/** Flip the test-chat filter and reload the list under it. */
+	async setShowTestChats(show: boolean) {
+		if (this.showTestChats === show) return
+		this.showTestChats = show
+		await this.refreshConversations()
+	}
+
 	async refreshConversations() {
 		await this.conversationListComponent?.loadData('forceRefresh')
 	}
@@ -221,6 +258,7 @@ export class FlowChatManager {
 			const response = await FlowConversationsService.listFlowConversations({
 				workspace: this.#workspace()!,
 				flowPath: this.#path,
+				includeTest: this.showTestChats,
 				page: page,
 				perPage: perPage
 			})
@@ -473,6 +511,49 @@ export class FlowChatManager {
 		this.focusInput()
 	}
 
+	/** Temp tool rows by the call id the stream gives them, so four events edit one row. */
+	#toolMessageIds = new Map<string, string>()
+
+	/** The assistant text stops growing once something else takes over the transcript. */
+	#settleStreamingMessage() {
+		this.messages = this.messages.map((msg) =>
+			msg.streaming ? { ...msg, streaming: false } : msg
+		)
+	}
+
+	/**
+	 * Create or update the row for one tool call. A call arrives as up to four events
+	 * (call, arguments, execution, result), each carrying a little more, and they must land
+	 * on the same row rather than stacking up as separate cards.
+	 */
+	#upsertToolMessage(conversationId: string, callId: string, patch: Partial<ChatMessage>) {
+		const existingId = this.#toolMessageIds.get(callId)
+		if (existingId) {
+			this.messages = this.messages.map((msg) =>
+				msg.id === existingId ? { ...msg, ...patch } : msg
+			)
+			return
+		}
+		const id = 'temp-' + randomUUID()
+		this.#toolMessageIds.set(callId, id)
+		this.messages = [
+			...this.messages,
+			{
+				id,
+				content: '',
+				created_at: new Date().toISOString(),
+				created_seq: 0,
+				message_type: 'tool',
+				conversation_id: conversationId,
+				job_id: '',
+				loading: false,
+				streaming: false,
+				success: true,
+				...patch
+			}
+		]
+	}
+
 	private async handleStreamingMessage(
 		messageContent: string,
 		currentConversationId: string,
@@ -483,6 +564,9 @@ export class FlowChatManager {
 		if (this.currentEventSource) {
 			this.currentEventSource.close()
 		}
+
+		// Rows from the previous turn are settled and must not be edited by this one.
+		this.#toolMessageIds.clear()
 
 		// Track stream state for this message
 		let accumulatedContent = ''
@@ -561,68 +645,60 @@ export class FlowChatManager {
 						if (data.new_result_stream) {
 							// Stop polling since we are receiving last step streaming
 							this.stopPolling()
-							const {
-								type,
-								content: newContent,
-								success
-							} = parseStreamDeltas(data.new_result_stream)
-							accumulatedContent += newContent
-
-							// Create tool message if type is tool_result
-							if (type === 'tool_result') {
-								// set last message streaming to false
-								this.messages = this.messages.map((msg) =>
-									msg.id === this.messages[this.messages.length - 1].id
-										? { ...msg, streaming: false }
-										: msg
-								)
-
-								this.messages = [
-									...this.messages,
-									{
-										id: 'temp-' + randomUUID(),
-										content: newContent,
-										created_at: new Date().toISOString(),
-										created_seq: 0,
-										message_type: 'tool',
-										conversation_id: currentConversationId,
-										job_id: '',
-										loading: false,
-										streaming: false,
-										success
-									}
-								]
-								// Reset assistant message ID since we are creating a tool message
-								assistantMessageId = ''
-								accumulatedContent = ''
+							// One chunk can carry several events, so each is applied in turn: a
+							// chunk holding a call and its result must produce both.
+							for (const event of parseStreamEvents(data.new_result_stream)) {
+								if (event.kind === 'tool_call' || event.kind === 'tool_execution') {
+									// The assistant text so far is finished; the tool row follows it.
+									this.#settleStreamingMessage()
+									assistantMessageId = ''
+									accumulatedContent = ''
+									this.#upsertToolMessage(currentConversationId, event.callId, {
+										tool_name: event.name,
+										content: `Running ${event.name}`,
+										loading: true
+									})
+								} else if (event.kind === 'tool_arguments') {
+									this.#upsertToolMessage(currentConversationId, event.callId, {
+										tool_name: event.name,
+										tool_arguments: event.arguments
+									})
+								} else if (event.kind === 'tool_result') {
+									this.#upsertToolMessage(currentConversationId, event.callId, {
+										tool_name: event.name,
+										tool_result: event.result,
+										content: toolSummary(event.name, event.success),
+										success: event.success,
+										loading: false
+									})
+								} else if (event.kind === 'token') {
+									accumulatedContent += event.content
+								}
 							}
-
-							// Create message on first content
-							else if (
-								type === 'message' &&
-								assistantMessageId.length === 0 &&
-								accumulatedContent.length > 0
-							) {
-								assistantMessageId = 'temp-' + randomUUID()
-								this.messages = [
-									...this.messages,
-									{
-										id: assistantMessageId,
-										content: accumulatedContent,
-										created_at: new Date().toISOString(),
-										created_seq: 0,
-										message_type: 'assistant',
-										conversation_id: currentConversationId,
-										job_id: '',
-										loading: false,
-										streaming: true
-									}
-								]
-							} else {
-								// Update existing message
-								this.messages = this.messages.map((msg) =>
-									msg.id === assistantMessageId ? { ...msg, content: accumulatedContent } : msg
-								)
+							// The assistant's own text is one growing message until a tool
+							// interrupts it, which is what resets the id above.
+							if (accumulatedContent.length > 0) {
+								if (assistantMessageId.length === 0) {
+									assistantMessageId = 'temp-' + randomUUID()
+									this.messages = [
+										...this.messages,
+										{
+											id: assistantMessageId,
+											content: accumulatedContent,
+											created_at: new Date().toISOString(),
+											created_seq: 0,
+											message_type: 'assistant',
+											conversation_id: currentConversationId,
+											job_id: '',
+											loading: false,
+											streaming: true
+										}
+									]
+								} else {
+									this.messages = this.messages.map((msg) =>
+										msg.id === assistantMessageId ? { ...msg, content: accumulatedContent } : msg
+									)
+								}
 							}
 						}
 

@@ -1,6 +1,16 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { MessageCircle, Plus, Trash2, PanelLeftClose, PanelLeftOpen } from 'lucide-svelte'
+	import {
+		MessageCircle,
+		Plus,
+		Trash2,
+		PanelLeftClose,
+		PanelLeftOpen,
+		FlaskConical
+	} from 'lucide-svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import { Filter } from 'lucide-svelte'
 	import { type FlowConversation } from '$lib/gen'
 	import CountBadge from '$lib/components/common/badge/CountBadge.svelte'
 	import InfiniteList from '$lib/components/InfiniteList.svelte'
@@ -25,7 +35,7 @@
 		: 'w-[44px]'}"
 >
 	<!-- Header -->
-	<div class="flex-shrink-0 border-b">
+	<div class="flex-shrink-0">
 		<div class="flex flex-col gap-2 p-1">
 			<Button
 				unifiedSize="md"
@@ -41,17 +51,57 @@
 			>
 				<div transition:fade={{ duration: 100 }}> Conversations </div>
 			</Button>
-			<Button
-				unifiedSize="md"
-				variant="subtle"
-				startIcon={{ icon: Plus, classes: 'ml-[2px]' }}
-				onClick={() => manager.createConversation({ clearMessages: true })}
-				title="Start new conversation"
-				iconOnly={!manager.isSidebarExpanded}
-				btnClasses={'justify-start transition-all duration-150 whitespace-nowrap'}
+			<!-- Side by side while there is width for both labels; stacked once collapsed,
+			     where the rail fits one icon across. -->
+			<div
+				class={manager.isSidebarExpanded
+					? 'flex flex-row gap-1 items-center'
+					: 'flex flex-col gap-2'}
 			>
-				<div transition:fade={{ duration: 100 }}> New chat </div>
-			</Button>
+				<Button
+					unifiedSize="md"
+					variant="subtle"
+					startIcon={{ icon: Plus, classes: 'ml-[2px]' }}
+					onClick={() => manager.createConversation({ clearMessages: true })}
+					title="Start new conversation"
+					iconOnly={!manager.isSidebarExpanded}
+					wrapperClasses={manager.isSidebarExpanded ? 'grow min-w-0' : ''}
+					btnClasses={'w-full justify-start transition-all duration-150 whitespace-nowrap'}
+				>
+					<div transition:fade={{ duration: 100 }}> New chat </div>
+				</Button>
+				<Popover placement="bottom-start" closeButton={false}>
+					{#snippet trigger()}
+						<Button
+							nonCaptureEvent
+							unifiedSize="md"
+							variant="subtle"
+							startIcon={{ icon: Filter, classes: 'ml-[2px]' }}
+							title="Filter conversations"
+							iconOnly={!manager.isSidebarExpanded}
+							btnClasses={'w-full justify-start transition-all duration-150 whitespace-nowrap'}
+						>
+							<div transition:fade={{ duration: 100 }}>
+								Filter{manager.showTestChats ? ' · 1' : ''}
+							</div>
+						</Button>
+					{/snippet}
+					{#snippet content()}
+						<div class="p-3">
+							<Toggle
+								size="xs"
+								checked={manager.showTestChats}
+								on:change={(e) => manager.setShowTestChats(e.detail)}
+								options={{ right: 'Show test chats' }}
+							/>
+							<p class="text-2xs text-tertiary mt-1.5 max-w-[190px]">
+								Chats run from the flow editor's test panel, kept apart from the flow's real
+								conversations.
+							</p>
+						</div>
+					{/snippet}
+				</Popover>
+			</div>
 		</div>
 	</div>
 
@@ -102,6 +152,11 @@
 							selected={manager.selectedConversationId === conversation.id}
 							btnClasses="transition-all duration-150 group"
 						>
+							{#if conversation.is_test}
+								<!-- Both kinds share this list whenever the filter is on, so a test chat
+								     has to be readable as one at a glance. -->
+								<FlaskConical size={12} class="shrink-0 mr-1 text-tertiary" />
+							{/if}
 							<span class="flex-1 text-left truncate">
 								{getConversationTitle(conversation)}
 							</span>

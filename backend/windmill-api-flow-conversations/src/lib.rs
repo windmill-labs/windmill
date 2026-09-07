@@ -41,6 +41,9 @@ pub struct FlowConversationMessage {
 #[derive(Deserialize)]
 pub struct ListConversationsQuery {
     pub flow_path: Option<String>,
+    /// Include conversations started from the editor's test panel. Off by default: a
+    /// deployed flow's chat should not surface someone's trial runs.
+    pub include_test: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -67,11 +70,16 @@ async fn list_conversations(
         "created_at",
         "updated_at",
         "created_by",
+        "is_test",
     ])
     .and_where_eq("workspace_id", "?".bind(&w_id));
 
     if let Some(flow_path) = &query.flow_path {
         sqlb.and_where_eq("flow_path", "?".bind(flow_path));
+    }
+
+    if !query.include_test.unwrap_or(false) {
+        sqlb.and_where_eq("is_test", "false");
     }
 
     sqlb.order_by("updated_at", true)
@@ -101,7 +109,7 @@ async fn delete_conversation(
     // Verify the conversation exists and belongs to the user
     let conversation = sqlx::query_as!(
         FlowConversation,
-        "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by
+        "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by, is_test
          FROM flow_conversation
          WHERE id = $1 AND workspace_id = $2",
         conversation_id,

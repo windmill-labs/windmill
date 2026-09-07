@@ -26,6 +26,8 @@ pub struct FlowConversation {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub created_by: String,
+    /// Started from the flow editor's test panel rather than a deployed run.
+    pub is_test: bool,
 }
 
 pub async fn get_or_create_conversation_with_id(
@@ -35,11 +37,12 @@ pub async fn get_or_create_conversation_with_id(
     username: &str,
     title: &str,
     conversation_id: Uuid,
+    is_test: bool,
 ) -> Result<FlowConversation> {
     // Check if conversation already exists
     let existing_conversation = sqlx::query_as!(
         FlowConversation,
-        "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by
+        "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by, is_test
          FROM flow_conversation
          WHERE id = $1 AND workspace_id = $2",
         conversation_id,
@@ -58,14 +61,15 @@ pub async fn get_or_create_conversation_with_id(
     // Create new conversation with provided ID
     let conversation = sqlx::query_as!(
         FlowConversation,
-        "INSERT INTO flow_conversation (id, workspace_id, flow_path, created_by, title)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, workspace_id, flow_path, title, created_at, updated_at, created_by",
+        "INSERT INTO flow_conversation (id, workspace_id, flow_path, created_by, title, is_test)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, workspace_id, flow_path, title, created_at, updated_at, created_by, is_test",
         conversation_id,
         w_id,
         flow_path,
         username,
-        title
+        title,
+        is_test
     )
     .fetch_one(&mut **tx)
     .await?;

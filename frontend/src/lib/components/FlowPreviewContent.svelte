@@ -481,7 +481,7 @@
 							)
 							return jobId ?? ''
 						}}
-						hideSidebar={true}
+						showTestChats
 						path={$pathStore}
 						inputSchema={flowStore.val.schema}
 						flowModules={flowStore.val.value?.modules}
