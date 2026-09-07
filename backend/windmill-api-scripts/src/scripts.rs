@@ -3871,7 +3871,12 @@ async fn delete_script_by_hash(
     )
     .bind(&hash.0)
     .bind(&w_id)
-    .fetch_one(&db)
+    // In the SAME transaction as the cleanup below, as `archive_script_by_hash`
+    // already does. Committed on its own, it opens a window where the path has
+    // no live version and a concurrent deploy can take it — and the retirement
+    // guard below then finds that new script live, keeps the old project's dbt
+    // state, and leaves the replacement able to defer through its manifest.
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("deleting script by hash {w_id}: {e:#}")))?;
 

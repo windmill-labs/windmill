@@ -236,7 +236,11 @@ async fn clearing_one_version_leaves_the_others(db: Pool<Postgres>) {
     // this is where two versions coexist: it pins the batched edge insert
     // against a real database as well as the version scoping.
     assert_eq!(edges_for(&db, 1).await, 0, "the cleared version's edges go");
-    assert_eq!(edges_for(&db, 2).await, 1, "the other version keeps its own");
+    assert_eq!(
+        edges_for(&db, 2).await,
+        1,
+        "the other version keeps its own"
+    );
 }
 
 /// The routes that hard-delete a path clear no graph rows: they delete the
@@ -364,7 +368,11 @@ async fn only_the_newest_deploys_keep_their_graph(db: Pool<Postgres>) {
     // The newest is always among them: losing the live version's graph would
     // empty the page of every run of it.
     assert_eq!(nodes_for(&db, over, DEPLOYED_GRAPH).await, 1);
-    assert_eq!(nodes_for(&db, 1, DEPLOYED_GRAPH).await, 0, "the oldest is reclaimed");
+    assert_eq!(
+        nodes_for(&db, 1, DEPLOYED_GRAPH).await,
+        0,
+        "the oldest is reclaimed"
+    );
 }
 
 /// The third provenance: a `parse` of the EDITOR's buffer, which names no
@@ -487,13 +495,21 @@ async fn a_version_clear_spares_editor_graphs_and_a_path_clear_does_not(db: Pool
     tx.commit().await.unwrap();
 
     assert_eq!(nodes_for(&db, 1, DEPLOYED_GRAPH).await, 0);
-    assert_eq!(editor_nodes(&db, job).await, 1, "the buffer's graph survives");
+    assert_eq!(
+        editor_nodes(&db, job).await,
+        1,
+        "the buffer's graph survives"
+    );
 
     let mut tx = db.begin().await.unwrap();
     clear_dbt_editor_graphs(&mut tx, WS, PATH).await.unwrap();
     tx.commit().await.unwrap();
 
-    assert_eq!(editor_nodes(&db, job).await, 0, "retiring the path takes it");
+    assert_eq!(
+        editor_nodes(&db, job).await,
+        0,
+        "retiring the path takes it"
+    );
 }
 
 /// A preview names its own PATH and needs only `jobs:run`, so a bound over the
@@ -574,19 +590,57 @@ async fn environment_state_follows_the_script(db: Pool<Postgres>) {
     assert_eq!(environment_states(&db, PATH).await, 0);
     assert_eq!(environment_states(&db, MOVED).await, 1);
 
-    // Still live at the old path as far as `script` is concerned, so a clear
-    // conditioned on retirement leaves it be.
+    let mut tx = db.begin().await.unwrap();
+    clear_dbt_script_state(&mut tx, WS, MOVED).await.unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(environment_states(&db, MOVED).await, 0);
+}
+
+/// Archiving or deleting ONE version must not take the path's state with it —
+/// the live version's next deferral still needs it — while the last one leaving
+/// must, or a script later created at that path inherits the previous project's
+/// manifest. The condition is a `NOT EXISTS` in raw SQL, so both directions are
+/// pinned against a real database.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn state_goes_only_once_no_live_version_is_left(db: Pool<Postgres>) {
+    deploy_script(&db, 1).await;
+    deploy_script(&db, 2).await;
+    publish_environment_state(&db, PATH).await;
+
+    retire(&db, 1).await;
     let mut tx = db.begin().await.unwrap();
     clear_dbt_script_state_if_path_retired(&mut tx, WS, PATH)
         .await
         .unwrap();
     tx.commit().await.unwrap();
-    assert_eq!(environment_states(&db, MOVED).await, 1);
+    assert_eq!(
+        environment_states(&db, PATH).await,
+        1,
+        "another version is still live here"
+    );
 
+    retire(&db, 2).await;
     let mut tx = db.begin().await.unwrap();
-    clear_dbt_script_state(&mut tx, WS, MOVED).await.unwrap();
+    clear_dbt_script_state_if_path_retired(&mut tx, WS, PATH)
+        .await
+        .unwrap();
     tx.commit().await.unwrap();
-    assert_eq!(environment_states(&db, MOVED).await, 0);
+    assert_eq!(
+        environment_states(&db, PATH).await,
+        0,
+        "the last one leaving takes it"
+    );
+}
+
+async fn retire(db: &Pool<Postgres>, hash: i64) {
+    sqlx::query!(
+        "UPDATE script SET archived = true WHERE workspace_id = $1 AND hash = $2",
+        WS,
+        hash
+    )
+    .execute(db)
+    .await
+    .unwrap();
 }
 
 /// The worker publishes under a guard naming the version that ran, and the whole
