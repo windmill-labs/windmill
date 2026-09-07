@@ -375,8 +375,10 @@
 			// `editPath` is the variable it moved to.
 			if (editPath === from) {
 				// A rename moved the item; the drawer host closes over it, but an inline one
-				// stays mounted, so follow the new path here.
-				if (actingPath && actingPath !== editPath) editPath = actingPath
+				// stays mounted, so follow the new path here. Only a move: pointing a create
+				// at the path it just made re-keys the blank form's cell onto it, and the
+				// mirror then posts that blank state as the new item's draft.
+				if (editPath && actingPath && actingPath !== editPath) editPath = actingPath
 				drawer?.closeDrawer()
 			}
 		} catch (err) {

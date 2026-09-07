@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 const discard = vi.fn()
+const { toast } = vi.hoisted(() => ({ toast: vi.fn() }))
+vi.mock('./utils', async (orig) => ({ ...((await orig()) as object), sendUserToast: toast }))
 // Whether the key ends up settled on the delete after a flush — false stands for a
 // form that keeps queueing writes behind it.
 let settles = true
@@ -20,6 +22,7 @@ import { settleDraftAfterWrite, UserDraft } from './userDraft.svelte'
 
 beforeEach(() => {
 	settles = true
+	toast.mockClear()
 	discard.mockClear()
 	vi.spyOn(UserDraft, 'discard').mockImplementation(discard as any)
 })
@@ -65,14 +68,21 @@ describe('settleDraftAfterWrite', () => {
 		expect(discard).toHaveBeenCalledWith('variable', 'u/me/a', sent, OPTS)
 	})
 
-	// The form stays editable across the delete's own request, so an edit made then
-	// parks a write that would put the draft back — under a path the item has left,
-	// once the callers re-key. The delete is re-sent while that is the case, and
-	// bounded, because a form being typed into can always add one more.
-	it('re-sends the delete while the key will not settle on it, and gives up bounded', async () => {
+	// A rename suspends the old key first, so nothing can queue behind the delete and
+	// re-sending it could only repeat a request the server already refused. What is
+	// left is a draft under a path the item has left, which has to be reported.
+	it('sends the delete once on a rename and reports one that will not land', async () => {
 		settles = false
 		await settleDraftAfterWrite('variable', sent, { ...sent }, 'u/me/a', 'u/me/b', OPTS)
-		expect(discard).toHaveBeenCalledTimes(3)
+		expect(discard).toHaveBeenCalledTimes(1)
+		expect(toast).toHaveBeenCalledTimes(1)
+	})
+
+	// A create's form cell is the detached handle an empty path gets, wired to no
+	// key: every request made for one is addressed to `/drafts/update/<kind>/`.
+	it('settles nothing for a create', async () => {
+		await settleDraftAfterWrite('variable', sent, undefined, '', 'u/me/a', OPTS)
+		expect(discard).not.toHaveBeenCalled()
 	})
 
 	// A released handle reads as no cell at all. That is not somebody's newer edit —
@@ -82,13 +92,14 @@ describe('settleDraftAfterWrite', () => {
 		expect(discard).toHaveBeenCalledWith('variable', 'u/me/a', sent, OPTS)
 	})
 
-	// Retrying resets the cell to what was written, so it may only chase a path the
-	// item has left. On an unchanged path an edit made during the delete is the
-	// user's, and re-sending would revert it.
-	it('does not retry over an edit made on an unchanged path', async () => {
+	// On an unchanged path an edit made during the delete is the user's: the key is
+	// left accepting writes, and a draft standing there is the intended outcome
+	// rather than something to report.
+	it('leaves an edit made during the delete on an unchanged path', async () => {
 		settles = false
 		await settleDraftAfterWrite('variable', sent, { ...sent }, 'u/me/a', 'u/me/a', OPTS)
 		expect(discard).toHaveBeenCalledTimes(1)
+		expect(toast).not.toHaveBeenCalled()
 	})
 
 	it('sends it once when the key settles', async () => {

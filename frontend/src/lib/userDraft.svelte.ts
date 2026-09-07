@@ -2,7 +2,7 @@ import { get } from 'svelte/store'
 import { onDestroy, untrack } from 'svelte'
 import { deepEqual } from 'fast-equals'
 import { workspaceStore } from './stores'
-import { readFieldsRecursively } from './utils'
+import { readFieldsRecursively, sendUserToast } from './utils'
 import { UserDraftDbSyncer } from './userDraftDbSyncer.svelte'
 import type { UserDraftItemKind } from './gen'
 
@@ -317,6 +317,10 @@ export async function settleDraftAfterWrite<V>(
 	savedPath: string,
 	opts?: UserDraftOptions
 ): Promise<void> {
+	// A create has nothing to settle: the blank form's cell is the detached handle
+	// `useMany` hands an empty path, wired to no key, so every request made for one
+	// is addressed to `/drafts/update/<kind>/` and 404s.
+	if (!fromPath) return
 	// A released cell reads as no cell at all, and its draft is then precisely what
 	// nothing is watching any more — except when the release itself is what took
 	// the handle away mid-write, in which case what it held still speaks for the
@@ -324,20 +328,30 @@ export async function settleDraftAfterWrite<V>(
 	const held = live !== undefined ? live : takeReleasedValue<V>(itemKind, fromPath, opts)
 	const diverged = held !== undefined && !draftValuesEqual(held, written)
 	if (savedPath === fromPath && diverged) return
-	// Sent before this resolves, not left on the keystroke debounce: callers report
-	// the write and remount on it, and both read a cell this has to have finished
-	// resolving — including through a frame with a draft store of its own.
-	UserDraft.discard(itemKind, fromPath, written, opts)
-	if (await flushDraftDelete(itemKind, fromPath, opts)) return
-	// Only a moved item forces the point. The form stays editable across that
-	// request, so an edit made then parks a write behind it: under the path the
-	// item has left that write would strand a draft no editor is on, but under an
-	// unchanged path it is the user's, and is meant to stand and read dirty.
-	if (savedPath === fromPath) return
-	for (let attempt = 0; attempt < 2; attempt++) {
+	// The form stays editable across the delete's own request, so a keystroke made
+	// then queues a write behind it. Under an unchanged path that write is the
+	// user's and is meant to stand; under a path the item has left it would put the
+	// draft back where no editor is, so the old key stops accepting writes for the
+	// length of the delete — which is what makes one attempt final. The edit stays
+	// in the form, and could not have followed the rename in either case.
+	const moved = savedPath !== fromPath
+	if (moved) UserDraft.stopSync(itemKind, fromPath, opts)
+	try {
+		// Sent before this resolves, not left on the keystroke debounce: callers report
+		// the write and remount on it, and both read a cell this has to have finished
+		// resolving — including through a frame with a draft store of its own.
 		UserDraft.discard(itemKind, fromPath, written, opts)
 		if (await flushDraftDelete(itemKind, fromPath, opts)) return
+	} finally {
+		if (moved) UserDraft.restartSync(itemKind, fromPath, opts)
 	}
+	if (!moved) return
+	// A rename whose delete could not land — a conflict, or a failed request; no
+	// number of retries changes either. What is left is a draft-only item at a path
+	// nothing is editing. Callers still follow the rename, since the item really is
+	// at `savedPath` and leaving them behind would strand the editor too, so this is
+	// the only thing that says the leftover is there to be discarded.
+	sendUserToast(`Saved, but the draft left at ${fromPath} could not be cleared`, true)
 }
 
 /**

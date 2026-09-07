@@ -249,8 +249,10 @@
 			// The editor adopts its own new baseline, so a same-path save needs nothing
 			// here — remounting it would re-read over an edit made during the write.
 			// Only while this is still the resource it saved: re-pointed mid-write,
-			// `path` and the mounted editor are another one's.
-			if (path === from && submitted) path = submitted
+			// `path` and the mounted editor are another one's. And only a move: pointing a
+			// create at the path it just made re-keys the blank form's cell onto it, and
+			// the mirror then posts that blank state as the new item's draft.
+			if (path && path === from && submitted) path = submitted
 			// One report per workspace written, each carrying its own — a linked
 			// workspace's rename moves the tabs acting on it and no others. Reported
 			// even when this drawer has moved on: the write is a fact about the item.
