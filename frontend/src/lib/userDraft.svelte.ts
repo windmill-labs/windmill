@@ -142,17 +142,39 @@ function noteMarker(set: Set<string>, key: string): void {
 		set.delete(oldest)
 	}
 }
-// Only the kinds whose settle can read the record back. For the rest, recording one
-// would retain a whole flow, script or app draft that nothing will ever ask about.
-const RELEASE_RECORDED_KINDS: readonly UserDraftItemKind[] = ['resource', 'variable']
-
 /**
- * What a cell held when its last holder let go: an editor stays editable while its
- * save is in flight, so a tab left in that window releases a cell carrying an edit
- * newer than the write, and no handle is left to read it from. Same cap and reason
- * as the marker sets above.
+ * What a cell held when its last holder let go, recorded only while a write it
+ * could be newer than is in flight (see `beginDraftSettleWindow`). Outside one a
+ * release is an editor simply closing, and remembering its value would retain a
+ * whole resource — or a variable's decrypted secret — for the tab's lifetime.
  */
 const releasedValues = new Map<string, unknown>()
+/** Keys with a write in flight, by how many are. */
+const settleWindows = new Map<string, number>()
+
+/**
+ * Open the window in which a release of this cell is worth remembering: the editor
+ * stays editable while its save is in flight, so a tab left then hands the settle
+ * that follows a cell nothing holds any more. Pair with the returned disposer.
+ */
+export function beginDraftSettleWindow(
+	itemKind: UserDraftItemKind,
+	path: string,
+	opts?: UserDraftOptions
+): () => void {
+	const mk = mapKey(resolveWorkspace(opts), itemKind, path)
+	settleWindows.set(mk, (settleWindows.get(mk) ?? 0) + 1)
+	return () => {
+		const left = (settleWindows.get(mk) ?? 0) - 1
+		if (left > 0) {
+			settleWindows.set(mk, left)
+			return
+		}
+		settleWindows.delete(mk)
+		// Nothing is left to read it: the settle it was recorded for is over.
+		releasedValues.delete(mk)
+	}
+}
 /** Read once: what it describes is settled by the caller that reads it. */
 function takeReleasedValue<V>(
 	itemKind: UserDraftItemKind,
@@ -163,15 +185,6 @@ function takeReleasedValue<V>(
 	const value = releasedValues.get(mk) as V | undefined
 	releasedValues.delete(mk)
 	return value
-}
-
-function noteReleasedValue(key: string, value: unknown): void {
-	releasedValues.set(key, value)
-	while (releasedValues.size > MAX_WRITE_MARKERS) {
-		const oldest = releasedValues.keys().next().value
-		if (oldest === undefined || oldest === key) break
-		releasedValues.delete(oldest)
-	}
 }
 
 const liveEditorDrafts = new Map<string, LiveEditorDraft>()
@@ -329,11 +342,9 @@ export async function settleDraftAfterWrite<V>(
 	const diverged = held !== undefined && !draftValuesEqual(held, written)
 	if (savedPath === fromPath && diverged) return
 	// The form stays editable across the delete's own request, so a keystroke made
-	// then queues a write behind it. Under an unchanged path that write is the
-	// user's and is meant to stand; under a path the item has left it would put the
-	// draft back where no editor is, so the old key stops accepting writes for the
-	// length of the delete — which is what makes one attempt final. The edit stays
-	// in the form, and could not have followed the rename in either case.
+	// then queues a write behind it: under an unchanged path that write is the
+	// user's and stands, but under a path the item has left it would put the draft
+	// back where no editor is. Suspending that key is what makes one attempt final.
 	const moved = savedPath !== fromPath
 	if (moved) UserDraft.stopSync(itemKind, fromPath, opts)
 	try {
@@ -346,11 +357,10 @@ export async function settleDraftAfterWrite<V>(
 		if (moved) UserDraft.restartSync(itemKind, fromPath, opts)
 	}
 	if (!moved) return
-	// A rename whose delete could not land — a conflict, or a failed request; no
-	// number of retries changes either. What is left is a draft-only item at a path
-	// nothing is editing. Callers still follow the rename, since the item really is
-	// at `savedPath` and leaving them behind would strand the editor too, so this is
-	// the only thing that says the leftover is there to be discarded.
+	// A conflict or a failed request, which no retry changes: what is left is a draft
+	// at a path nothing is editing. Callers still follow the rename — the item is at
+	// `savedPath`, and leaving them behind would strand the editor too — so this is
+	// the only thing that says the leftover is there.
 	sendUserToast(`Saved, but the draft left at ${fromPath} could not be cleared`, true)
 }
 
@@ -1076,9 +1086,7 @@ function releaseEntry(mk: string): void {
 	// only here, once, at refcount 0. This is what lets multiple holders (warm
 	// session previews + the nav editor) share the entry and drop in any order.
 	if (entry.count <= 0) {
-		if (RELEASE_RECORDED_KINDS.includes(entry.itemKind)) {
-			noteReleasedValue(mk, snapshotDraftValue(entry.state.val))
-		}
+		if (settleWindows.has(mk)) releasedValues.set(mk, snapshotDraftValue(entry.state.val))
 		// The live entry was authoritative while mounted; once gone, drop any
 		// cached write for this key so a later read falls back to the server
 		// rather than a value the editor may have changed in the meantime.

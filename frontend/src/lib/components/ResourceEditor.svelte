@@ -16,6 +16,7 @@
 		UserDraft,
 		draftValuesEqual,
 		flushDraftDelete,
+		beginDraftSettleWindow,
 		settleDraftAfterWrite,
 		type UserDraftHandle
 	} from '$lib/userDraft.svelte'
@@ -366,6 +367,11 @@
 		// what an earlier one wrote is deployed — a caller told nothing about it would
 		// stay pointed at a path the item has moved off.
 		const written: { ws: string; path: string }[] = []
+		// A host left mid-write releases the cell each settle below reads; only inside
+		// this window is what it was holding remembered.
+		const closeSettleWindows = payloads.map(({ ws }) =>
+			beginDraftSettleWindow('resource', from, { workspace: ws })
+		)
 		try {
 			for (const { ws, s, ini, existed } of payloads) {
 				if (existed) {
@@ -424,6 +430,8 @@
 			// paths, listed and editable from there — moving one onto a rename it never
 			// wrote would be worse than not showing it here.
 			return { written, ok: false }
+		} finally {
+			for (const close of closeSettleWindows) close()
 		}
 	}
 </script>

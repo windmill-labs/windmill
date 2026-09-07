@@ -7578,7 +7578,9 @@ async function deployDraft(
 	// fork comparisons before the fallible draft cleanup below.
 	invalidateWorkspaceComparison(workspace)
 
-	await deleteGlobalDraft(workspace, type, path, triggerKind, { preserveLiveDraft: true })
+	const draftIssue = await clearDraftAfterMutation(workspace, type, path, triggerKind, {
+		preserveLiveDraft: true
+	})
 
 	// Move the chat's mask entry to the deployed path: a draft-only item's
 	// synthetic storage key never exists deployed, so the entry would otherwise
@@ -7611,9 +7613,15 @@ async function deployDraft(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Deployed draft ${type} "${path}" to the workspace. Draft removed.${
-				deployNote ? ` ${deployNote}` : ''
-			}`,
+			message: [
+				`Deployed draft ${type} "${path}" to the workspace.`,
+				draftIssue
+					? `The draft could NOT be removed (${draftIssue}), so the item may still show unsaved changes.`
+					: 'Draft removed.',
+				deployNote
+			]
+				.filter(Boolean)
+				.join(' '),
 			type,
 			path,
 			triggerKind
@@ -7716,6 +7724,23 @@ async function deployedItemExists(
 	}
 }
 
+/**
+ * Clear the draft of an item whose deployed state has already changed. A failure
+ * here cannot undo that change, and throwing would report the mutation as not
+ * having happened — to the model, and to the hosts, which hear about one only
+ * from a tool that returned. Reported in the result instead.
+ */
+async function clearDraftAfterMutation(
+	...args: Parameters<typeof deleteGlobalDraft>
+): Promise<string | undefined> {
+	try {
+		await deleteGlobalDraft(...args)
+		return undefined
+	} catch (e) {
+		return e instanceof Error ? e.message : String(e)
+	}
+}
+
 async function deleteWorkspaceItem(
 	args: { type: WorkspaceItemType; path: string; trigger_kind?: TriggerKind },
 	ctx: WriteDraftCtx
@@ -7759,7 +7784,7 @@ async function deleteWorkspaceItem(
 	// are no longer trustworthy (same rule as deploy success). Before the
 	// draft cleanup: a cleanup failure must not leave stale comparisons.
 	invalidateWorkspaceComparison(workspace)
-	await deleteGlobalDraft(workspace, type, path, triggerKind)
+	const draftIssue = await clearDraftAfterMutation(workspace, type, path, triggerKind)
 
 	// Record the deletion in the chat's modified-items mask. In a fork this leaves a
 	// reviewable "removed" diff vs the parent that stays scoped to this chat. Keyed
@@ -7779,7 +7804,11 @@ async function deleteWorkspaceItem(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Deleted ${type} "${path}" from the workspace. Any matching draft was also cleared.`,
+			message:
+				`Deleted ${type} "${path}" from the workspace. ` +
+				(draftIssue
+					? `Its draft could NOT be cleared (${draftIssue}), so the path may still list one.`
+					: 'Any matching draft was also cleared.'),
 			type,
 			path,
 			triggerKind

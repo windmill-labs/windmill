@@ -2160,6 +2160,25 @@ describe('global AI tools', () => {
 		expect(UserDraft.takeDraftOnlyDiscard('resource', path, { workspace: WORKSPACE })).toBe(true)
 	})
 
+	// The listener that refreshes hosted editors runs only for a tool that returned,
+	// so a throw after the entity is gone leaves a tab open on an item that no longer
+	// exists — and the cleanup cannot un-delete it either way.
+	it('reports a delete whose draft cleanup failed instead of throwing', async () => {
+		const path = 'f/resources/deleted-with-stuck-draft'
+		await callGlobalTool('write_resource', {
+			path,
+			resource_type: 'postgresql',
+			value: { host: 'localhost' }
+		})
+		// The cleanup is a `value: null` draft write, so failing that write fails it.
+		failingWrites.add(`resource:${path}`)
+
+		const result = await callGlobalTool('delete_workspace_item', { type: 'resource', path })
+
+		expect(ResourceService.deleteResource).toHaveBeenCalled()
+		expect(JSON.parse(result).message).toMatch(/draft could NOT be cleared/)
+	})
+
 	// Nothing consumes a marker outside a session, so one can outlive the item it
 	// was about. Recreating the item must void it, or the next action on the
 	// recreated item reads it and sends a perfectly valid editor back to its list.

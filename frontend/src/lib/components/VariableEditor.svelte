@@ -26,6 +26,7 @@
 		UserDraft,
 		draftValuesEqual,
 		flushDraftDelete,
+		beginDraftSettleWindow,
 		settleDraftAfterWrite,
 		type UserDraftHandle
 	} from '$lib/userDraft.svelte'
@@ -311,6 +312,11 @@
 		// is done: per workspace, each carrying its own, so a linked workspace's rename
 		// moves the tabs acting on it and no others.
 		const written: { ws: string; path: string }[] = []
+		// A host left mid-write releases the cell each settle below reads; only inside
+		// this window is what it was holding remembered.
+		const closeSettleWindows = payloads.map(({ ws }) =>
+			beginDraftSettleWindow('variable', from ?? '', { workspace: ws })
+		)
 		try {
 			for (const { ws, s, ini, existed } of payloads) {
 				if (existed) {
@@ -396,6 +402,8 @@
 				editVariable(actingPath)
 				if (shownWs) selected = shownWs
 			}
+		} finally {
+			for (const close of closeSettleWindows) close()
 		}
 	}
 </script>

@@ -20,11 +20,18 @@ vi.mock('./userDraftDbSyncer.svelte', () => ({
 
 import { settleDraftAfterWrite, UserDraft } from './userDraft.svelte'
 
+const stopSync = vi.fn()
+const restartSync = vi.fn()
+
 beforeEach(() => {
 	settles = true
 	toast.mockClear()
 	discard.mockClear()
+	stopSync.mockClear()
+	restartSync.mockClear()
 	vi.spyOn(UserDraft, 'discard').mockImplementation(discard as any)
+	vi.spyOn(UserDraft, 'stopSync').mockImplementation(stopSync as any)
+	vi.spyOn(UserDraft, 'restartSync').mockImplementation(restartSync as any)
 })
 
 const OPTS = { workspace: 'ws' }
@@ -100,6 +107,20 @@ describe('settleDraftAfterWrite', () => {
 		await settleDraftAfterWrite('variable', sent, { ...sent }, 'u/me/a', 'u/me/a', OPTS)
 		expect(discard).toHaveBeenCalledTimes(1)
 		expect(toast).not.toHaveBeenCalled()
+	})
+
+	// What makes the single attempt safe: the moved-from key stops accepting writes
+	// for the length of the delete, so a keystroke cannot queue behind it. Dropping
+	// the bracket would leave every other case here green.
+	it('suspends the key it is deleting, and only for a rename', async () => {
+		await settleDraftAfterWrite('variable', sent, { ...sent }, 'u/me/a', 'u/me/b', OPTS)
+		expect(stopSync).toHaveBeenCalledWith('variable', 'u/me/a', OPTS)
+		expect(restartSync).toHaveBeenCalledWith('variable', 'u/me/a', OPTS)
+		stopSync.mockClear()
+		restartSync.mockClear()
+		await settleDraftAfterWrite('variable', sent, { ...sent }, 'u/me/a', 'u/me/a', OPTS)
+		expect(stopSync).not.toHaveBeenCalled()
+		expect(restartSync).not.toHaveBeenCalled()
 	})
 
 	it('sends it once when the key settles', async () => {
