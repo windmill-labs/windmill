@@ -151,24 +151,19 @@
 	let loadingResourceInfo = $state(false)
 	// Only GitHub App-backed repos can register webhooks; PAT repos poll only.
 	let isGithubApp = $state(false)
-	/** Whether Windmill holds this repository's credential, answered by the server
-	 * rather than inferred from the resource. `undefined` until the lookup lands. */
-	let managedCredential = $state<string | undefined>(undefined)
-	/** `held` when this workspace stores the credential, `borrowed` when an
-	 * ancestor does. A borrowed one is not this workspace's to renew or replace,
-	 * which is what keeps a fork from warning about a token it must not touch. */
+	/** Where the credential Windmill uses for this repository lives, answered by
+	 * the server rather than inferred from the resource: `held` when this
+	 * workspace stores it, `borrowed` when an ancestor does. A borrowed one is not
+	 * this workspace's to renew or replace, which is what keeps a fork from
+	 * warning about a token it must not touch. `undefined` until the lookup
+	 * lands, and when nothing in the chain holds one. */
 	let credentialOrigin = $state<'held' | 'borrowed' | undefined>(undefined)
 	// Whether Windmill itself holds a credential for the repository, which is
 	// what the managed features (webhooks, pull requests, commit checks) need.
 	// A GitHub App installation qualifies, and so does a token the server keeps.
-	//
-	// The resource has to answer this, not just the recorded credential status:
-	// that status is written when the repository is saved, and the defaults below
-	// only apply to a connection that has not been saved yet, so relying on it
-	// alone left every managed control hidden while a repository was being set up.
-	let hasManagedCredential = $derived(
-		isGithubApp || managedCredential != null || (repo?.credential != null && !repo.credential.error)
-	)
+	// Not the recorded status: that is keyed by resource path and outlives a
+	// repoint, while the origin follows the repository the URL names now.
+	let hasManagedCredential = $derived(isGithubApp || credentialOrigin !== undefined)
 
 	const MS_PER_DAY = 86_400_000
 
@@ -210,8 +205,9 @@
 			days <= 0 ? 'has expired' : days === 1 ? 'expires tomorrow' : `expires in ${days} days`
 		// Renewed here, or by the workspace above that holds it. Either way this
 		// workspace has nothing to do, and telling a fork to replace a borrowed
-		// token would split the credential in two.
-		if ((credential.rotatable && $enterpriseLicense) || credentialOrigin === 'borrowed') {
+		// token would split the credential in two. Renewal is licensed per
+		// instance, so a fork knows as well as its parent when nothing renews.
+		if ((credential.rotatable || credentialOrigin === 'borrowed') && $enterpriseLicense) {
 			// A token Windmill renews needs no countdown: a renewal that fails records
 			// an error, which is handled above. Reaching the expiry date anyway is the
 			// one state that proves renewal never happened, and it is the only one
@@ -228,14 +224,14 @@
 			}
 		}
 		if (days > 30) return undefined
-		// Why nothing renews it is the server's answer to give, not this card's to
-		// infer: it alone can tell a token the operator owns from one an ancestor
-		// holds and renews. The card asks only whether anything renews it, and says
-		// where to act when nothing does.
+		const where =
+			credentialOrigin === 'borrowed'
+				? 'in the workspace that holds it'
+				: `on the ${repo?.git_repo_resource_path?.replace(/^\$res:/, '') ?? 'repository'} resource`
 		return {
 			type: days <= 7 ? ('error' as const) : days <= 14 ? ('warning' as const) : ('info' as const),
 			title: `Repository token ${when}`,
-			body: `Windmill does not renew this token. Replace it on the ${repo?.git_repo_resource_path?.replace(/^\$res:/, '') ?? 'repository'} resource${days <= 0 ? ' to restore sync.' : ' before it expires.'}`
+			body: `Windmill does not renew this token. Replace it ${where}${days <= 0 ? ' to restore sync.' : ' before it expires.'}`
 		}
 	})
 
@@ -274,7 +270,6 @@
 				// Clear stale app state up front so a resource change or a failed
 				// fetch can't leave webhook/fork controls showing for the wrong repo.
 				isGithubApp = false
-				managedCredential = undefined
 				credentialOrigin = undefined
 				try {
 					// The server answers whether it holds this repository's credential;
@@ -295,7 +290,6 @@
 
 					if (!abortController.signal.aborted) {
 						credentialOrigin = origin?.origin
-						managedCredential = origin?.origin ? (origin.provider ?? 'gitlab') : undefined
 					}
 					if (!abortController.signal.aborted && resource?.value) {
 						// Extract git URL from resource value
@@ -396,7 +390,6 @@
 			} else {
 				resourceInfo = null
 				isGithubApp = false
-				managedCredential = undefined
 				credentialOrigin = undefined
 			}
 		}
@@ -651,13 +644,13 @@
 			<div class="text-xs text-secondary">
 				{#if credentialDaysLeft === undefined}
 					Repository token does not expire.
-				{:else if credentialOrigin === 'borrowed'}
+				{:else if credentialOrigin === 'borrowed' && $enterpriseLicense}
 					Repository token expires on {repo.credential.expires_at}, and the workspace that holds it
-					manages renewal.
+					renews it.
 				{:else if repo.credential.rotatable && $enterpriseLicense}
 					Repository token expires on {repo.credential.expires_at}, and Windmill renews it
 					automatically.
-				{:else if repo.credential.rotatable}
+				{:else if repo.credential.rotatable || credentialOrigin === 'borrowed'}
 					Repository token expires on {repo.credential.expires_at}. Renewing it automatically
 					requires an enterprise license.
 				{:else}

@@ -20,16 +20,32 @@ use windmill_common::workspaces::GitCredentialProvider;
 const REPO: &str = "$res:u/admin/repo";
 const URL: &str = "https://gitlab.com/grp/proj.git";
 
+/// A repository is managed when a credential is held for the repository its
+/// URL names now and the last check found it healthy. The recorded status is
+/// keyed by resource path, so alone it would outlive a repoint; the held
+/// credential alone says nothing about whether the host still accepts it.
 #[sqlx::test(fixtures("git_sync_fork_credential"))]
 async fn credential_status_is_a_workspaces_own(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert!(
+        !repo_supports_managed_git_features(&db, "parent-ws", REPO).await,
+        "a healthy status with nothing held behind it does not qualify"
+    );
+    set_git_credential(
+        &db,
+        "parent-ws",
+        URL,
+        "glpat-secret",
+        GitCredentialProvider::Gitlab,
+    )
+    .await?;
+    assert!(
         repo_supports_managed_git_features(&db, "parent-ws", REPO).await,
-        "the workspace holding the recorded status qualifies"
+        "the workspace holding both the credential and the recorded status qualifies"
     );
     assert!(
         !repo_supports_managed_git_features(&db, "fork-ws", REPO).await,
-        "a fork with no record of its own does not borrow the parent's: the status \
-         describes one repository, and this fork's resource could name another"
+        "a fork borrowing the credential with no record of its own does not: the \
+         status describes one repository, and this fork's resource could name another"
     );
     assert!(
         !repo_supports_managed_git_features(&db, "errored-fork-ws", REPO).await,
