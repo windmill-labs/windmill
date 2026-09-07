@@ -35,7 +35,7 @@
 		workspace?: string
 		/** A git credential the picker chose, for the drawer to store once it has
 		 * saved the resource and its path is final. */
-		onCredentialSelected?: (credential: { token: string; repoUrl: string }) => void
+		onCredentialStored?: () => void
 		onSynced?: () => void
 	}
 
@@ -48,7 +48,7 @@
 		linkedSecretCandidates = undefined,
 		description = $bindable(undefined),
 		workspace = undefined,
-		onCredentialSelected,
+		onCredentialStored,
 		onSynced = undefined
 	}: Props = $props()
 
@@ -265,7 +265,7 @@
 			{resourceType}
 			{args}
 			{workspace}
-			{onCredentialSelected}
+			{onCredentialStored}
 			onArgsUpdate={(newArgs) => {
 				args = newArgs
 				rawCode = JSON.stringify(args, null, 2)

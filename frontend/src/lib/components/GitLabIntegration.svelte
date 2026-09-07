@@ -16,9 +16,9 @@
 		 * one being navigated: the credential has to land where the resource will
 		 * look for it. */
 		workspace?: string
-		/** The picked project's token, handed over for the form to store once the
-		 * resource is saved and its path is final. */
-		onCredentialSelected?: (credential: { token: string; repoUrl: string }) => void
+		/** Fired once the picked project's token is stored, so a form that would
+		 * otherwise file the URL as a secret knows it no longer holds one. */
+		onCredentialStored?: () => void
 		onArgsUpdate?: (args: Record<string, any>) => void
 	}
 
@@ -26,7 +26,7 @@
 		resourceType,
 		args = {},
 		workspace = undefined,
-		onCredentialSelected,
+		onCredentialStored,
 		onArgsUpdate
 	}: Props = $props()
 
@@ -39,6 +39,8 @@
 	let selectedProject: string | undefined = $state(undefined)
 	let loading = $state(false)
 	let listError: string | undefined = $state(undefined)
+	let applying = $state(false)
+	let applyError: string | undefined = $state(undefined)
 
 	// Shown alongside the GitHub App button and on the same terms, so the two
 	// read as one choice rather than one option and one absence.
@@ -77,15 +79,29 @@
 		}
 	}
 
-	function apply(close: (_: any) => void) {
-		if (!project || !token) return
+	async function apply(close: (_: any) => void) {
+		if (!project || !token || applying) return
 		const chosen = project
 		const url = chosen.http_url_to_repo
-		// Handed to the form instead of stored now. The credential is filed under
-		// the resource's path, which is not settled until the resource is saved,
-		// and writing here would outlive an edit the user then cancels: picking a
-		// different project and backing out would have replaced a working token.
-		onCredentialSelected?.({ token, repoUrl: url })
+		applying = true
+		applyError = undefined
+		try {
+			// Stored against the project it was issued for, the way a GitHub App
+			// installation is stored against the account it covers. Nothing waits on
+			// the resource: its path is not settled while it is being created, and
+			// deferring the write would tie one repository's token to another
+			// repository's save succeeding.
+			await GitSyncService.setGitCredential({
+				workspace: ws!,
+				requestBody: { repo_url: url, token }
+			})
+		} catch (err) {
+			applyError = err?.body ?? err?.message ?? String(err)
+			return
+		} finally {
+			applying = false
+		}
+		onCredentialStored?.()
 		onArgsUpdate?.({
 			...args,
 			url,
@@ -100,7 +116,7 @@
 		token = ''
 		projects = []
 		selectedProject = undefined
-		sendUserToast(`${chosen.path_with_namespace} selected. Its token is stored when you save.`)
+		sendUserToast(`${chosen.path_with_namespace} selected and its token stored`)
 		close(null)
 	}
 </script>
@@ -174,12 +190,18 @@
 								clearable={false}
 							/>
 						</div>
+						{#if applyError}
+							<Alert type="error" title="Could not store the token" size="xs">{applyError}</Alert>
+						{/if}
 						<div class="flex justify-end">
 							<Button
 								variant="accent"
 								unifiedSize="sm"
-								disabled={!project || !token}
-								startIcon={{ icon: GitBranch }}
+								disabled={!project || !token || applying}
+								startIcon={{
+									icon: applying ? Loader2 : GitBranch,
+									classes: applying ? 'animate-spin' : ''
+								}}
 								onclick={() => apply(close)}
 							>
 								Use this project

@@ -50,7 +50,7 @@
 		workspace?: string | undefined
 		/** A git credential the picker chose, for the editor to store once it has
 		 * saved the resource and its path is final. */
-		onCredentialSelected?: (credential: { token: string; repoUrl: string }) => void
+		onCredentialStored?: () => void
 	}
 
 	let {
@@ -73,7 +73,7 @@
 		resourceToEdit,
 		onLoadResourceType,
 		workspace = undefined,
-		onCredentialSelected
+		onCredentialStored
 	}: Props = $props()
 
 	let ws = $derived(workspace ?? $workspaceStore)
@@ -266,7 +266,7 @@
 				resourceType={resource_type}
 				{args}
 				workspace={ws}
-				{onCredentialSelected}
+				{onCredentialStored}
 				onArgsUpdate={(newArgs) => {
 					args = newArgs
 					// The raw editor is also what a workspace missing the resource type

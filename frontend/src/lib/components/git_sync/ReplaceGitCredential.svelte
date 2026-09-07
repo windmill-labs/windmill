@@ -9,17 +9,16 @@
 
 	interface Props {
 		workspace: string
-		/** Resource the credential is filed under. */
-		resourcePath: string
-		/** The repository as currently saved. The new token is bound to it, so a
-		 * URL edited but not yet saved would bind the credential to something the
-		 * resource does not point at; the caller disables this until it is saved. */
+		/** The repository as currently saved, which is the key the token is stored
+		 * under. A URL edited but not yet saved would file the token against a
+		 * repository the resource does not point at, so the caller disables this
+		 * until it is saved. */
 		repoUrl: string
 		disabled?: boolean
 		onReplaced?: () => void
 	}
 
-	let { workspace, resourcePath, repoUrl, disabled = false, onReplaced }: Props = $props()
+	let { workspace, repoUrl, disabled = false, onReplaced }: Props = $props()
 
 	let token = $state('')
 	let saving = $state(false)
@@ -50,7 +49,14 @@
 			if (parts) {
 				const projects = await GitSyncService.listGitlabProjects({
 					workspace,
-					requestBody: { base_url: parts.base, token }
+					// Searched by name rather than listed whole: the listing is one
+					// capped page, so a token that reaches more projects than fit
+					// would not show this one and a working token would be refused.
+					requestBody: {
+						base_url: parts.base,
+						token,
+						search: parts.project.split('/').pop()
+					}
 				})
 				if (!projects.some((p) => p.path_with_namespace === parts.project)) {
 					error = `That token cannot push to ${parts.project}. Check its role and that it belongs to this project.`
@@ -59,7 +65,7 @@
 			}
 			await GitSyncService.setGitCredential({
 				workspace,
-				requestBody: { repo_path: resourcePath, repo_url: repoUrl, token }
+				requestBody: { repo_url: repoUrl, token }
 			})
 			token = ''
 			sendUserToast('Token replaced')

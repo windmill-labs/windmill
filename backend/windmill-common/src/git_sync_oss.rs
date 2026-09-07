@@ -21,7 +21,6 @@ pub async fn get_github_app_token_internal(
 pub async fn with_stored_credential(
     _db: &Pool<Postgres>,
     _w_id: &str,
-    _resource_path: &str,
     url: String,
 ) -> crate::error::Result<String> {
     Ok(url)

@@ -2940,20 +2940,17 @@ paths:
             schema:
               type: object
               properties:
-                repo_path:
-                  type: string
-                  description: Path of the git repository resource the credential authenticates
                 repo_url:
                   type: string
                   description: >-
-                    The repository the credential is for. The token is only used
-                    against this repository, so repointing the resource elsewhere
-                    cannot carry it along.
+                    The repository the credential is for, and the key it is
+                    stored under. It is served for this repository and no other,
+                    so repointing a resource elsewhere cannot carry the token
+                    along.
                 token:
                   type: string
                   description: The access token, as pasted
               required:
-                - repo_path
                 - repo_url
                 - token
       responses:

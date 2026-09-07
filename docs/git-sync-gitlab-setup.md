@@ -57,15 +57,18 @@ paste the instance URL and the token, pick a project from the list, and Windmill
 keeps the token for you. The resource itself gets the plain remote URL
 (`"url": "https://gitlab.com/group/project.git"`), with no credential in it.
 
-The token is stored encrypted on the workspace, keyed by the resource's path, and
-recorded against the repository it was issued for. Nothing reads it back out over
-the API: the server attaches it when it talks to GitLab, and a sync job receives
-it only against its own job token. Because it is bound to one repository,
-repointing the resource's `url` at somewhere else does not carry the token along;
-a repository that genuinely moved needs its token entered again.
+The token is stored encrypted on the workspace, keyed by the repository it was
+issued for rather than by the resource naming it, the same way a GitHub App
+installation is held against the account it covers. Nothing reads it back out
+over the API: the server attaches it when it talks to GitLab, and a sync job
+receives it only against its own job token. Repointing a resource's `url` asks
+for a different repository's token and finds none, so the edit carries nothing
+with it; a repository that genuinely moved needs its token entered again.
 
-Give the resource its final path before picking a project. The token is filed
-under that path, so renaming afterwards leaves it behind.
+Because the repository is the key, the token is stored the moment you pick the
+project, before the resource is saved. Renaming the resource later keeps it, and
+cancelling the edit leaves a stored token that nothing uses until some resource
+points at that repository again.
 
 Forks of the workspace read this one copy rather than getting their own, so
 renewal reaches all of them at once and the token is not duplicated into every
@@ -93,9 +96,14 @@ replacement back where the credential is stored, and verifies it. Only the token
 can rotate itself, so a token without `api` (or `self_rotate`) is a permanent
 warning rather than something Windmill can fix.
 
-Only the workspace that stores a credential rotates it. A fork reading its
-parent's shows the same expiry but is not itself rotatable, so one rotation
-serves the whole family instead of each fork racing to renew its own copy.
+Only the workspace that issued a credential rotates it, so one rotation serves
+the whole family instead of each fork racing to renew the same token. A fork
+either reads the parent's stored credential or, for a repository whose token
+lives in the URL, holds a copy of it that forking made; either way the token is
+the parent's to renew. A fork that carries a genuinely different token rotates
+it itself. The fork reports the same expiry from its own first check onwards; a
+fork created since the parent's last check shows none until the maintenance pass
+reaches it.
 
 Rotation is deliberately never retried. GitLab revokes the old token the instant
 it issues the replacement, and presenting an already-rotated token to `/rotate`
