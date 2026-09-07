@@ -175,16 +175,17 @@ export function beginDraftSettleWindow(
 		releasedValues.delete(mk)
 	}
 }
-/** Read once: what it describes is settled by the caller that reads it. */
-function takeReleasedValue<V>(
+/**
+ * Only reads: the window that recorded it owns its lifetime. Two saves of the same
+ * cell can be in flight at once, and the second settle has to see the same edit the
+ * first did, or it reads the released cell as "nothing newer" and deletes it.
+ */
+function releasedValue<V>(
 	itemKind: UserDraftItemKind,
 	path: string,
 	opts?: UserDraftOptions
 ): V | undefined {
-	const mk = mapKey(resolveWorkspace(opts), itemKind, path)
-	const value = releasedValues.get(mk) as V | undefined
-	releasedValues.delete(mk)
-	return value
+	return releasedValues.get(mapKey(resolveWorkspace(opts), itemKind, path)) as V | undefined
 }
 
 const liveEditorDrafts = new Map<string, LiveEditorDraft>()
@@ -338,7 +339,7 @@ export async function settleDraftAfterWrite<V>(
 	// nothing is watching any more — except when the release itself is what took
 	// the handle away mid-write, in which case what it held still speaks for the
 	// user. Absent both, there is nothing newer to protect.
-	const held = live !== undefined ? live : takeReleasedValue<V>(itemKind, fromPath, opts)
+	const held = live !== undefined ? live : releasedValue<V>(itemKind, fromPath, opts)
 	const diverged = held !== undefined && !draftValuesEqual(held, written)
 	if (savedPath === fromPath && diverged) return
 	// The form stays editable across the delete's own request, so a keystroke made
