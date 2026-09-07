@@ -662,8 +662,8 @@ export async function deployDraft(
 			return { success: false, error: `Deploy not supported for draft kind ${kind}` }
 		}
 		// Delete the draft at its STORAGE path (the row key, = the `path` arg).
-		// Two reasons it must happen here for every kind, mirroring the editors'
-		// post-deploy `discardDraftAfterDeploy(draftPath)`:
+		// Two reasons it must happen here for every kind that promoted something,
+		// mirroring the editors' post-deploy `discardDraftAfterDeploy(draftPath)`:
 		//  - Drawer kinds (variable / resource / triggers) aren't deleted by
 		//    their create/update endpoints at all.
 		//  - script/flow/app/raw_app DO delete server-side, but only the draft at

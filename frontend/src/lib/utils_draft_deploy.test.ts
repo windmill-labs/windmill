@@ -179,5 +179,13 @@ describe('deployDraft: resource with no draft', () => {
 			{ workspace: 'ws', itemKind: 'resource', path: 'f/support/triage_agent' },
 			'2026-01-01T00:00:00Z'
 		)
+		expect(UserDraftDbSyncer.save).toHaveBeenCalledWith(
+			expect.objectContaining({ path: 'f/support/triage_agent', value: null, immediate: true })
+		)
+		// Order is the whole point: a delete issued before the seed carries whatever baseline the tab
+		// happened to hold, which for a caller that only read through a listing is none at all.
+		expect(vi.mocked(UserDraftDbSyncer.recordRemoteSync).mock.invocationCallOrder[0]).toBeLessThan(
+			vi.mocked(UserDraftDbSyncer.save).mock.invocationCallOrder[0]
+		)
 	})
 })

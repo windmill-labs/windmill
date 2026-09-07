@@ -265,9 +265,9 @@
 	}
 
 	/** Deploy each selected agent's draft, the same way the Review & Deploy page deploys the same
-	 *  row: hand the path to `deployDraft` and let it promote whatever the draft holds. No re-read
-	 *  to check the draft still matches what the dialog listed, so this deploys on the same terms as
-	 *  every other surface in the product. Agents left out keep their draft untouched. */
+	 *  row: hand the path to `deployDraft` and let it promote whatever the draft holds, with no
+	 *  re-read to check it still matches what the dialog listed. Agents left out keep their draft
+	 *  untouched. */
 	async function deployAgentDrafts(agents: LinkedAgentDraft[]) {
 		const ws = opWorkspace
 		if (!ws) return
