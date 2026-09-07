@@ -5197,7 +5197,9 @@ async function schemaForTestRun(script: {
 	language: ScriptLang
 	schema?: Record<string, any>
 }): Promise<Record<string, any>> {
-	if (script.schema?.properties) return script.schema
+	// Emptily declared is not declared: a stored `properties: {}` means the schema predates
+	// the arguments the code now takes, so infer rather than offer a form with no fields.
+	if (Object.keys(script.schema?.properties ?? {}).length > 0) return script.schema!
 	const schema = emptySchema()
 	try {
 		await inferArgs(script.language, script.content, schema)
