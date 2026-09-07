@@ -82,11 +82,20 @@ vi.mock('$lib/gen', async () => {
 			runScriptPreview: vi.fn(async () => 'job-script-preview'),
 			runFlowPreview: vi.fn(async () => 'job-flow-preview'),
 			runFlowByPath: vi.fn(async () => 'job-flow-by-path'),
+			runScriptByPath: vi.fn(async () => 'job-script-by-path'),
 			getJob: vi.fn(async () => ({
 				type: 'CompletedJob',
 				success: true,
 				result: { ok: true },
 				logs: 'test logs'
+			})),
+			// What every job wait polls first; unmocked it reaches the real client and the
+			// wait never returns. Answers completed, so one tick settles the job.
+			getJobUpdates: vi.fn(async () => ({
+				completed: true,
+				running: false,
+				new_logs: 'test logs',
+				log_offset: 'test logs'.length
 			})),
 			getJobLogs: vi.fn(async () => 'job log line 1\njob log line 2'),
 			listJobs: vi.fn(async () => [
@@ -368,7 +377,10 @@ function getBackendDraft<V = any>(kind: string, path: string, _opts?: unknown): 
 
 const toolCallbacks: ToolCallbacks = {
 	setToolStatus: vi.fn(),
-	removeToolStatus: vi.fn()
+	removeToolStatus: vi.fn(),
+	// Every host that can run a script mounts the form, so the default answers it with what it
+	// opened with. A test meaning to exercise a host without one overrides this with undefined.
+	requestRunArgs: async (_toolId, form) => form.args
 }
 
 function getGlobalTool(name: string): Tool<{}> {
@@ -4318,8 +4330,7 @@ describe('global AI tools', () => {
 
 		const result = await withCompletedTestJob(() =>
 			callGlobalTool('test_run_script', {
-				path: 'f/scripts/draft-test',
-				args: { name: 'Ada' }
+				path: 'f/scripts/draft-test'
 			})
 		)
 
@@ -4328,7 +4339,7 @@ describe('global AI tools', () => {
 			requestBody: {
 				path: 'f/scripts/draft-test',
 				content,
-				args: { name: 'Ada' },
+				args: {},
 				language: 'bun'
 			}
 		})
@@ -4347,8 +4358,7 @@ describe('global AI tools', () => {
 
 		await withCompletedTestJob(() =>
 			callGlobalTool('test_run_script', {
-				path: 'f/scripts/deployed-test',
-				args: { name: 'Grace' }
+				path: 'f/scripts/deployed-test'
 			})
 		)
 
@@ -4361,10 +4371,338 @@ describe('global AI tools', () => {
 			requestBody: {
 				path: 'f/scripts/deployed-test',
 				content: 'def main(name):\n    return name',
-				args: { name: 'Grace' },
+				args: {},
 				language: 'python3'
 			}
 		})
+	})
+
+	// A test run meets the same card as a deployed one, so what previews is what the form
+	// submitted — not what the model proposed.
+	it('test_run_script previews the arguments the form submitted', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/formed-test',
+			summary: 'Formed test script',
+			content: 'export async function main(name: string) {}',
+			language: 'bun',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any)
+
+		let opened: Record<string, any> | undefined
+		let kind: string | undefined
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_script',
+				{ path: 'f/scripts/formed-test', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => {
+						opened = form.args
+						kind = form.kind
+						return { name: 'Grace' }
+					}
+				}
+			)
+		)
+
+		expect(opened).toEqual({ name: 'Ada' })
+		// Drives the card's tense: a test says it tested, not that it ran.
+		expect(kind).toBe('test')
+		expect(JobService.runScriptPreview).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/scripts/formed-test',
+				content: 'export async function main(name: string) {}',
+				args: { name: 'Grace' },
+				language: 'bun'
+			}
+		})
+	})
+
+	// The bypass posture answers a run form as it answers any other confirmation, for a
+	// deployed run as much as a test. The card must never render one first: a form nobody
+	// will fill in is attached already settled, so no field is ever mounted, and the schema
+	// it would have built them from never reaches the transcript.
+	it('mounts no field on either run form under yolo', async () => {
+		const script = {
+			path: 'f/scripts/yolo',
+			content: 'export async function main(name: string) {}',
+			language: 'bun',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce(script)
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce(script)
+
+		const statuses: any[] = []
+		const requestRunArgs = vi.fn(async (_toolId: string, form: any) => form.args)
+		const yolo = {
+			...toolCallbacks,
+			setToolStatus: (_toolId: string, status: any) => statuses.push(status),
+			shouldAutoAcceptToolConfirmations: () => true,
+			requestRunArgs
+		}
+
+		await withCompletedTestJob(() =>
+			callGlobalTool('test_run_script', { path: 'f/scripts/yolo', args: { name: 'Ada' } }, yolo)
+		)
+
+		const testForm = statuses.find((s) => s.runForm)?.runForm
+		expect(testForm.submitted).toBe(true)
+		// Nothing is left to render it, and a card carrying one persists it forever.
+		expect(testForm.schema).toBeUndefined()
+		// Told the form is already answered, or the loop parks on a card with no fields.
+		expect(requestRunArgs.mock.calls[0][2]).toEqual({ autoAccepted: true })
+		expect(JobService.runScriptPreview).toHaveBeenCalledWith(
+			expect.objectContaining({ requestBody: expect.objectContaining({ args: { name: 'Ada' } }) })
+		)
+
+		statuses.length = 0
+		await withCompletedTestJob(() =>
+			callGlobalTool('run_script', { path: 'f/scripts/yolo', args: { name: 'Ada' } }, yolo)
+		)
+
+		const deployedForm = statuses.find((s) => s.runForm)?.runForm
+		expect(deployedForm.submitted).toBe(true)
+		expect(deployedForm.schema).toBeUndefined()
+		expect(JobService.runScriptByPath).toHaveBeenCalledWith(
+			expect.objectContaining({ requestBody: { name: 'Ada' } })
+		)
+	})
+
+	// The posture answers for consent, not for information. A secret is never the model's to
+	// send and a required field it left empty was never answered, so the form still opens under
+	// the bypass — otherwise the run starts on a value nobody supplied.
+	it('opens a run form under yolo when only the user can fill it', async () => {
+		const yolo = (statuses: any[]) => ({
+			...toolCallbacks,
+			setToolStatus: (_toolId: string, status: any) => statuses.push(status),
+			shouldAutoAcceptToolConfirmations: () => true,
+			requestRunArgs: async (_toolId: string, form: any) => form.args
+		})
+
+		// A required field the model did not send.
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/needs',
+			schema: { properties: { name: { type: 'string' } }, required: ['name'] }
+		} as any)
+		const missing: any[] = []
+		await withCompletedTestJob(() =>
+			callGlobalTool('run_script', { path: 'f/scripts/needs', args: {} }, yolo(missing))
+		)
+		expect(missing.find((x) => x.runForm)?.runForm.submitted).toBeUndefined()
+
+		// A secret, which is stripped from the proposal whatever the posture.
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/secret',
+			schema: {
+				properties: { token: { type: 'string', password: true } },
+				required: ['token']
+			}
+		} as any)
+		const secret: any[] = []
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/secret', args: { token: 'hunter2' } },
+				yolo(secret)
+			)
+		)
+		expect(secret.find((x) => x.runForm)?.runForm.submitted).toBeUndefined()
+
+		// Nothing outstanding: the posture answers and no field is ever mounted.
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/ready',
+			schema: { properties: { name: { type: 'string' } }, required: ['name'] }
+		} as any)
+		const ready: any[] = []
+		await withCompletedTestJob(() =>
+			callGlobalTool('run_script', { path: 'f/scripts/ready', args: { name: 'Ada' } }, yolo(ready))
+		)
+		expect(ready.find((x) => x.runForm)?.runForm.submitted).toBe(true)
+	})
+
+	// What the mounted form would have refused to submit, the bypass must not start: ArgInput
+	// marks a required empty scalar invalid and disables Run, and a nested required field is a
+	// question the form would have shown. Neither is a value the posture can answer for.
+	it('opens a run form under yolo for an empty or nested-missing required field', async () => {
+		const yolo = (statuses: any[]) => ({
+			...toolCallbacks,
+			setToolStatus: (_toolId: string, status: any) => statuses.push(status),
+			shouldAutoAcceptToolConfirmations: () => true,
+			requestRunArgs: async (_toolId: string, form: any) => form.args
+		})
+
+		// Required, and the model sent the empty string the form refuses to submit.
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/blank',
+			schema: { properties: { name: { type: 'string' } }, required: ['name'] }
+		} as any)
+		const blank: any[] = []
+		await withCompletedTestJob(() =>
+			callGlobalTool('run_script', { path: 'f/scripts/blank', args: { name: '' } }, yolo(blank))
+		)
+		expect(blank.find((x) => x.runForm)?.runForm.submitted).toBeUndefined()
+
+		// Required below the top level, where the declaration says exactly which fields the
+		// form would have rendered.
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/nested',
+			schema: {
+				properties: {
+					config: {
+						type: 'object',
+						properties: { api_key: { type: 'string' } },
+						required: ['api_key']
+					}
+				},
+				required: ['config']
+			}
+		} as any)
+		const nested: any[] = []
+		await withCompletedTestJob(() =>
+			callGlobalTool('run_script', { path: 'f/scripts/nested', args: { config: {} } }, yolo(nested))
+		)
+		expect(nested.find((x) => x.runForm)?.runForm.submitted).toBeUndefined()
+
+		// Answered at both levels: nothing is outstanding, so the posture still answers and no
+		// field is mounted. Without this the guard above could pass by never bypassing at all.
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/filled',
+			schema: {
+				properties: {
+					config: {
+						type: 'object',
+						properties: { api_key: { type: 'string' } },
+						required: ['api_key']
+					}
+				},
+				required: ['config']
+			}
+		} as any)
+		const filled: any[] = []
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/filled', args: { config: { api_key: 'k' } } },
+				yolo(filled)
+			)
+		)
+		expect(filled.find((x) => x.runForm)?.runForm.submitted).toBe(true)
+	})
+
+	// The bypass is the user's standing answer, not a licence for the host to skip asking:
+	// a chat with nowhere to put a form still refuses the run under any other posture.
+	it('run_script refuses a host with no form unless the posture answers for it', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
+			path: 'f/scripts/noform',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any)
+
+		const refused = await callGlobalTool(
+			'run_script',
+			{ path: 'f/scripts/noform', args: { name: 'Ada' } },
+			{ ...toolCallbacks, requestRunArgs: undefined }
+		)
+
+		expect(JobService.runScriptByPath).not.toHaveBeenCalled()
+		expect(refused).toContain('cannot show a run form')
+	})
+
+	// The posture answers for a host that has a form; it cannot answer for one that has none.
+	// A secret is stripped from the proposal whatever the posture, so bypassing here would run
+	// the script missing the very argument the model tried to supply.
+	it('run_script refuses a formless host under yolo when a field is left unanswered', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
+			path: 'f/scripts/noform-secret',
+			schema: {
+				properties: { token: { type: 'string', password: true } },
+				required: ['token']
+			}
+		} as any)
+
+		const refused = await callGlobalTool(
+			'run_script',
+			{ path: 'f/scripts/noform-secret', args: { token: 'hunter2' } },
+			{
+				...toolCallbacks,
+				requestRunArgs: undefined,
+				shouldAutoAcceptToolConfirmations: () => true
+			}
+		)
+
+		expect(JobService.runScriptByPath).not.toHaveBeenCalled()
+		expect(refused).toContain('cannot show a run form')
+	})
+
+	// The transcript is re-cloned into IndexedDB on every save, and a form takes as much text
+	// as the user pastes. What the card stores is bounded; what the job runs is not.
+	it('run_script stores a marker for oversized arguments but runs them in full', async () => {
+		const huge = 'x'.repeat(120_000)
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
+			path: 'f/scripts/big',
+			content: 'export async function main(blob: string) {}',
+			language: 'bun',
+			schema: { properties: { blob: { type: 'string' } } }
+		} as any)
+
+		const statuses: any[] = []
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/big', args: { blob: 'small' } },
+				{
+					...toolCallbacks,
+					setToolStatus: (_toolId: string, status: any) => statuses.push(status),
+					// The user pastes into the field the model left small: the model's own
+					// proposal is bounded by what it can emit, this is not.
+					requestRunArgs: async () => ({ blob: huge })
+				}
+			)
+		)
+
+		expect(JobService.runScriptByPath).toHaveBeenCalledWith(
+			expect.objectContaining({ requestBody: { blob: huge } })
+		)
+		const persisted = statuses.filter((s) => s.parameters !== undefined).at(-1)?.parameters
+		expect(persisted).toEqual({ reason: 'WINDMILL_TOO_BIG' })
+		expect(JSON.stringify(statuses)).not.toContain(huge)
+	})
+
+	// A schema with no fields is the one shape that used to run without asking: the form it
+	// would have built was empty, so the tool skipped it and started the job. An empty form
+	// is still the Run button, and that button is the whole confirmation this tool has.
+	it('test_run_script opens a form and starts no job when the schema declares no field', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
+			path: 'f/scripts/noargs-test',
+			content: 'export async function main() {}',
+			language: 'bun',
+			schema: { properties: {} }
+		} as any)
+
+		const cancelled = await callGlobalTool(
+			'test_run_script',
+			{ path: 'f/scripts/noargs-test', args: { force_delete: true } },
+			{ ...toolCallbacks, requestRunArgs: async () => undefined }
+		)
+
+		expect(JobService.runScriptPreview).not.toHaveBeenCalled()
+		expect(cancelled).toContain('The user cancelled the run form')
+
+		// Answered, the run carries the argument even though the schema names no field for
+		// it: the worker reads the draft's own signature, not this schema.
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_script',
+				{ path: 'f/scripts/noargs-test', args: { force_delete: true } },
+				{ ...toolCallbacks, requestRunArgs: async (_toolId, form) => form.args }
+			)
+		)
+
+		expect(JobService.runScriptPreview).toHaveBeenCalledWith(
+			expect.objectContaining({
+				requestBody: expect.objectContaining({ args: { force_delete: true } })
+			})
+		)
 	})
 
 	it('test_run_flow previews draft flow content by path', async () => {
@@ -4631,6 +4969,183 @@ describe('global AI tools', () => {
 				args: { name: 'Ada' }
 			}
 		})
+	})
+
+	// The form IS the consent, so a dismissed one must leave the script unrun.
+	it('run_script starts no job when the user cancels the form', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/deployed',
+			summary: 'Deployed',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any)
+
+		const result = await callGlobalTool(
+			'run_script',
+			{ path: 'f/scripts/deployed', args: { name: 'Ada' } },
+			{ ...toolCallbacks, requestRunArgs: async () => undefined }
+		)
+
+		expect(JobService.runScriptByPath).not.toHaveBeenCalled()
+		expect(result).toContain('The user cancelled the run form')
+		expect(result).toContain('Do not call run_script again')
+	})
+
+	// job_args.test.ts owns what each step of the argument pipeline does; this owns that
+	// run_script still runs them. Delete a call from runThroughForm and every one of those
+	// unit tests still passes, so one call has to cross all of them here.
+	it('run_script puts the proposed arguments through the whole pipeline', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/everything',
+			schema: {
+				properties: {
+					count: { type: 'number' },
+					ratio: { type: 'number' },
+					size: { type: 'number' },
+					token: { type: 'string', password: true },
+					locked: { type: 'string', default: 'fixed', disabled: true },
+					doc: { type: 'string', contentEncoding: 'base64' }
+				}
+			}
+		} as any)
+
+		const bytes = 'QUJD'.repeat(1024)
+		const statuses: any[] = []
+		let shown: Record<string, any> | undefined
+		let cleared: string[] | undefined
+		let reset: string[] | undefined
+		const result = await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{
+					path: 'f/scripts/everything',
+					args: {
+						count: '7',
+						ratio: 'abc',
+						size: '$var:u/admin/batch_size',
+						token: 'hunter2',
+						locked: 'tampered',
+						doc: bytes,
+						force_delete: true
+					}
+				},
+				{
+					...toolCallbacks,
+					setToolStatus: (_toolId: string, status: any) => statuses.push(status),
+					requestRunArgs: async (_toolId, form) => {
+						shown = form.args
+						cleared = form.clearedKeys
+						reset = form.resetKeys
+						// What the user does with the form: attaches the file no model can produce,
+						// and names a variable for the secret it was not allowed to fill.
+						return { ...form.args, doc: bytes, token: '$var:u/ada/prod_api_key' }
+					}
+				}
+			)
+		)
+
+		// Coerced, cleared, left alone, emptied, reset and stripped — every rule reached
+		// through the tool rather than called directly.
+		expect(shown).toEqual({
+			count: 7,
+			size: '$var:u/admin/batch_size',
+			locked: 'fixed',
+			force_delete: true
+		})
+		expect(cleared).toEqual(['ratio'])
+		expect(reset).toEqual(['locked'])
+
+		// The bytes belong in the job request and nowhere else: the card is persisted, and a
+		// file small enough to survive truncation would otherwise reach the model whole.
+		expect(JobService.runScriptByPath).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/scripts/everything',
+			requestBody: {
+				count: 7,
+				size: '$var:u/admin/batch_size',
+				locked: 'fixed',
+				force_delete: true,
+				doc: bytes,
+				token: '$var:u/ada/prod_api_key'
+			}
+		})
+		expect(result).toContain('<file: 3 KB>')
+		for (const leak of [bytes, 'hunter2', 'prod_api_key']) {
+			expect(result).not.toContain(leak)
+			expect(JSON.stringify(statuses)).not.toContain(leak)
+		}
+		// Named, or an emptied field reads as the user having deleted the value and the next
+		// call proposes the same secret again.
+		for (const named of ['ratio', 'token', 'locked']) expect(result).toContain(named)
+	})
+
+	// The form is its own confirmation, so it never reaches processToolCall's second gate.
+	// Plan mode can be switched on while it sits open, and the job must not start.
+	it('run_script starts no job when plan mode is entered while the form is open', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/noargs',
+			schema: { properties: {} }
+		} as any)
+
+		let planning = false
+		const result = await callGlobalTool(
+			'run_script',
+			{ path: 'f/scripts/noargs', args: {} },
+			{
+				...toolCallbacks,
+				isPlanModeActive: () => planning,
+				requestRunArgs: async (_toolId, form) => {
+					planning = true
+					return form.args
+				}
+			}
+		)
+
+		expect(JobService.runScriptByPath).not.toHaveBeenCalled()
+		expect(result).toContain('plan mode is active')
+	})
+
+	it('run_script runs the arguments the user submitted, not the ones proposed', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/greet',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any)
+
+		const result = await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/greet', args: { name: 'Ada' } },
+				{ ...toolCallbacks, requestRunArgs: async () => ({ name: 'Grace' }) }
+			)
+		)
+
+		expect(JobService.runScriptByPath).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/scripts/greet',
+			requestBody: { name: 'Grace' }
+		})
+		// The model must not assume its proposal is what ran.
+		expect(result).toContain('Ran with arguments: {"name":"Grace"}')
+	})
+
+	// The arguments are already in the call this result answers, and every way the form's
+	// own differ from the proposed ones has its own clause — so an untouched form has
+	// nothing to name, and naming it anyway pays for the copy on every later iteration.
+	it('run_script names the arguments only when the user changed them', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/greet',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any)
+
+		const result = await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/greet', args: { name: 'Ada' } },
+				{ ...toolCallbacks, requestRunArgs: async (_toolId, form) => form.args }
+			)
+		)
+
+		expect(result).not.toContain('Ran with arguments')
+		expect(result).toContain('unedited')
 	})
 
 	it('test_run_step lists nested step ids when a step is not found', async () => {
@@ -5323,6 +5838,9 @@ describe('session-only preview tools gating', () => {
 		expect(names).not.toContain('list_app_runs')
 		expect(names).not.toContain('search_dom')
 		expect(names).not.toContain('read_dom')
+		// Not withheld: without it the side panel's only route to a deployed run is the raw
+		// endpoint, which confirms an opaque request body instead of the arguments.
+		expect(names).toContain('run_script')
 		// other tools are still present
 		expect(names).toContain('write_script')
 	})
@@ -5335,6 +5853,7 @@ describe('session-only preview tools gating', () => {
 		expect(names).toContain('list_app_runs')
 		expect(names).toContain('search_dom')
 		expect(names).toContain('read_dom')
+		expect(names).toContain('run_script')
 		// The session set is the full globalTools minus capability-gated tools:
 		// this environment is not Chromium, so take_screenshot is withheld (DOM
 		// capture is only faithful on Blink). search_dom / read_dom are not gated.
