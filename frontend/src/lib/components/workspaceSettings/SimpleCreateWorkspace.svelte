@@ -191,8 +191,13 @@
 				{@render leading?.()}
 				<!-- A bare <button> as a quiet text link, signed off by design: a second <Button> here
 				     would compete with Create workspace for the eye. -->
+				<!-- Closed while the policy is unknown, or it would be a way around the gate beside
+				     it: the full form asks the same question of the same setting and submits on
+				     its own optimistic default, so with no policy neither route creates. -->
 				<button
-					class="text-xs text-secondary hover:text-emphasis"
+					class="text-xs text-secondary hover:text-emphasis disabled:opacity-50 disabled:hover:text-secondary"
+					disabled={!policyLoaded}
+					title={policyLoaded ? undefined : "This instance's settings could not be read"}
 					onclick={() => (advanced = true)}
 				>
 					Advanced settings
