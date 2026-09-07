@@ -2930,7 +2930,7 @@ paths:
                   description: The GitLab instance, e.g. https://gitlab.com
                 token:
                   type: string
-                  description: A group access token or group service account personal access token
+                  description: A project access token with the api scope, or a group token that reaches the project
                 search:
                   type: string
                   description: Narrow the list to projects matching this text
