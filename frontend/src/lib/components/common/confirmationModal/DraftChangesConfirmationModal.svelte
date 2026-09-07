@@ -107,11 +107,22 @@
 	})
 
 	const runnable = $derived(isFlow ? 'flow' : 'script')
+
+	// Named after what is actually listed, so the title is not a second, vaguer copy of the section
+	// headings below it. "Unsaved changes detected" is taken by the leave-the-page guard, which means
+	// the opposite of this dialog: there, unlisted work is about to be lost.
+	const title = $derived.by(() => {
+		const triggers = draftTriggers.length > 0
+		const agents = draftAgents.length > 0
+		if (triggers && agents) return 'Draft triggers and agents detected'
+		if (agents) return 'Draft agents detected'
+		return 'Draft triggers detected'
+	})
 </script>
 
 <ConfirmationModal
 	{open}
-	title="Unsaved changes detected"
+	{title}
 	confirmationText={isFlow ? 'Deploy Flow' : 'Deploy Script'}
 	type="reload"
 	showIcon={false}
