@@ -21,7 +21,9 @@ vi.mock('$lib/gen', () => ({
 	AzureTriggerService: {},
 	EmailTriggerService: {}
 }))
-vi.mock('$lib/userDraftDbSyncer.svelte', () => ({ UserDraftDbSyncer: { save: vi.fn() } }))
+vi.mock('$lib/userDraftDbSyncer.svelte', () => ({
+	UserDraftDbSyncer: { save: vi.fn(), recordRemoteSync: vi.fn() }
+}))
 vi.mock('$lib/workspaceDrafts.svelte', () => ({ invalidateWorkspaceDrafts: vi.fn() }))
 vi.mock('$lib/workspaceComparison', () => ({ invalidateWorkspaceComparison: vi.fn() }))
 vi.mock('$lib/localDraftHints.svelte', () => ({ setLocalDraftHint: vi.fn() }))

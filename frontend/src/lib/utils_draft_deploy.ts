@@ -584,11 +584,17 @@ export async function deployDraft(
 			}
 			void deployed
 		} else if (kind === 'resource') {
-			const {
-				deployed,
-				draft: d,
-				hasDraft
-			} = splitOverlay(await OVERLAY_GETTERS.resource!(workspace, path))
+			const overlay = await OVERLAY_GETTERS.resource!(workspace, path)
+			// Adopt the row this promote is based on as the baseline for the delete below. Without one
+			// the backend deletes unconditionally, so a draft saved between that read and the delete is
+			// destroyed having never been deployed — a caller that only ever read through a listing has
+			// no baseline of its own to supply. With it the delete is refused instead and the newer
+			// draft survives, which is the recoverable outcome of the two.
+			UserDraftDbSyncer.recordRemoteSync(
+				{ workspace, itemKind: kind, path },
+				overlay?.draft_saved_at
+			)
+			const { deployed, draft: d, hasDraft } = splitOverlay(overlay)
 			// ResourceEditor's `ResourceState` draft shape:
 			// { path, description, args, resource_type?, labels?, wsSpecific }
 			// The deployed row is a different shape (`value`, `ws_specific`, no `args` at all), and

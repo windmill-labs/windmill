@@ -292,6 +292,18 @@
 			if (!deployed.success) {
 				throw new Error(`Could not deploy agent ${agent.path}: ${deployed.error}`)
 			}
+			// Nothing was promoted: the draft had gone by the time the helper read it. Saying the agent
+			// deployed would be a lie about the one thing the toggle decides.
+			if (deployed.noop) {
+				throw new Error(
+					`The draft for ${agent.path} was deployed or discarded elsewhere while this deploy ran, so nothing was written for it.`
+				)
+			}
+			// `deployDraft` deletes the server row but leaves any in-memory cell for this key, and that
+			// cell is what `agentDraftState` prefers — a still-mounted holder would otherwise keep
+			// feeding a phantom draft to the cards and to the next deploy dialog. Local only: `remove`
+			// would POST a second delete, debounced and past the baseline the first one cleared.
+			UserDraft.forgetLocal('resource', agent.path, { workspace: ws })
 			// Every linked card and the graph key on this to refetch the agent they display.
 			markAgentWritten(ws, agent.path)
 			logReusableAgentUsage('draft_deployed_with_flow')

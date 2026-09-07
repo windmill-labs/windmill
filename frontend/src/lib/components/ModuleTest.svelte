@@ -160,7 +160,11 @@
 					// caller neither awaits nor catches: without this the rejection is unhandled and the
 					// button appears to do nothing, with the test already marked as started.
 					sendUserToast(`Could not run test: ${err?.body ?? err}`, true)
-					modulesTestStates.states[mod.id].loading = false
+					// Guarded like every other access to it here: the entry is only created for steps the
+					// panel is tracking, and this runs on a path where it may never have been.
+					if (modulesTestStates.states[mod.id]) {
+						modulesTestStates.states[mod.id].loading = false
+					}
 					return
 				}
 			}
