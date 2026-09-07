@@ -57,7 +57,6 @@
 	import { base } from '$lib/base'
 	import BulkActionsBar from './BulkActionsBar.svelte'
 	import { HomeSelection, setHomeSelection, toBulkItem } from './homeSelection.svelte'
-	import { SELECTION_GUTTER_CLASS } from '../common/table/rowSelection'
 	interface Props {
 		subtab?: 'flow' | 'script' | 'app'
 		showEditButtons?: boolean
@@ -1860,9 +1859,6 @@
 							href="{base}/pipeline/{encodeURIComponent(folder)}"
 							class="w-full inline-flex items-center gap-4 px-4 py-3 border-b last:border-b-0 hover:bg-surface-hover transition-colors text-sm first-of-type:rounded-t-md"
 						>
-							{#if homeSelection.available}
-								<div class={SELECTION_GUTTER_CLASS}></div>
-							{/if}
 							<NetworkIcon size={16} class="text-emerald-600 dark:text-emerald-400" />
 							<span class="text-xs font-medium text-emphasis truncate">Pipeline · f/{folder}</span>
 						</a>

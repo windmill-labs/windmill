@@ -19,9 +19,6 @@
 		depth?: number
 		menuOpen?: boolean
 		keyboardSelected?: boolean
-		/** A legacy raw app can't join a multi-selection, but it shares the list
-		 * with rows that can and has to hold their gutter open to stay aligned. */
-		reserveSelectionGutter?: boolean
 	}
 
 	let {
@@ -31,8 +28,7 @@
 		deploymentDrawer,
 		depth = 0,
 		menuOpen = $bindable(false),
-		keyboardSelected = false,
-		reserveSelectionGutter = false
+		keyboardSelected = false
 	}: Props = $props()
 </script>
 
@@ -46,7 +42,6 @@
 	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
 	canFavorite={true}
 	{depth}
-	{reserveSelectionGutter}
 >
 	{#snippet badges()}
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
