@@ -630,6 +630,34 @@ export async function getEffectiveSettings(
   return effective;
 }
 
+// Resolve workspace name from a --branch override (git branch → workspace name).
+// Falls back to using the branch value as-is (backward compat: old key = branch name).
+function resolveWsNameFromBranch(opts: SyncOptions, branchName: string): string {
+  const match = findWorkspaceByGitBranch(opts.workspaces, branchName);
+  return match ? match[0] : branchName;
+}
+
+// Resolve wsNameForConfig from CLI flags. Prefers --branch → matching config key,
+// then --workspace → matching config key (incl. when --base-url is set). Returns
+// undefined when no flag-based resolution applies; callers then fall back to
+// inferWsNameFromProfile on the resolved workspace profile.
+export function resolveWsNameForConfigFromFlags(
+  opts: SyncOptions & { branch?: string; workspace?: string }
+): string | undefined {
+  if (opts.branch) {
+    return resolveWsNameFromBranch(opts, opts.branch);
+  }
+  if (opts.workspace) {
+    // Use getWorkspaceNames so reserved keys (e.g. commonSpecificItems) are filtered out,
+    // matching the behavior of findWorkspaceByGitBranch / inferWsNameFromProfile.
+    const validKeys = getWorkspaceNames(opts.workspaces);
+    if (validKeys.includes(opts.workspace)) {
+      return opts.workspace;
+    }
+  }
+  return undefined;
+}
+
 /**
  * Match a workspace config entry to a resolved workspace profile by remote +
  * workspace id. The fallback for when no flag names the entry outright.
@@ -667,11 +695,8 @@ export async function readEffectiveSyncBehavior(
   opts: { workspace?: string },
   profile?: { remote: string; workspaceId: string }
 ): Promise<string | undefined> {
-  const config = await readConfigFile();
-  const named =
-    opts.workspace && getWorkspaceNames(config.workspaces).includes(opts.workspace)
-      ? opts.workspace
-      : undefined;
+  const config = await readConfigFile({ warnIfMissing: false });
+  const named = resolveWsNameForConfigFromFlags({ ...config, ...opts });
   const effective = await getEffectiveSettings(
     config,
     undefined,

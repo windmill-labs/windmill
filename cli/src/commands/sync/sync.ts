@@ -76,8 +76,8 @@ import {
 } from "../../utils/utils.ts";
 import {
   getEffectiveSettings,
-  getWorkspaceNames,
   inferWsNameFromProfile,
+  resolveWsNameForConfigFromFlags,
   mergeConfigWithConfigFile,
   parseSyncBehavior,
   SyncOptions,
@@ -433,37 +433,6 @@ export function computeWsSpecificFlagOnlyPushes(
   return out;
 }
 
-// Resolve workspace name from a --branch override (git branch → workspace name).
-// Falls back to using the branch value as-is (backward compat: old key = branch name).
-function resolveWsNameFromBranch(
-  opts: SyncOptions,
-  branchName: string,
-): string {
-  const match = findWorkspaceByGitBranch(opts.workspaces, branchName);
-  return match ? match[0] : branchName;
-}
-
-// Resolve wsNameForConfig from CLI flags. Prefers --branch → matching config key,
-// then --workspace → matching config key (incl. when --base-url is set). Returns
-// undefined when no flag-based resolution applies; callers then fall back to
-// inferWsNameFromProfile on the resolved workspace profile.
-export function resolveWsNameForConfigFromFlags(
-  opts: SyncOptions & { branch?: string; workspace?: string },
-): string | undefined {
-  if (opts.branch) {
-    return resolveWsNameFromBranch(opts, opts.branch);
-  }
-  if (opts.workspace) {
-    // Use getWorkspaceNames so reserved keys (e.g. commonSpecificItems) are filtered out,
-    // matching the behavior of findWorkspaceByGitBranch / inferWsNameFromProfile.
-    const validKeys = getWorkspaceNames(opts.workspaces);
-    if (validKeys.includes(opts.workspace)) {
-      return opts.workspace;
-    }
-  }
-  return undefined;
-}
-
 // Warn if --workspace overrides auto-detected branch or if workspace not in config.
 function warnWorkspaceOverride(
   opts: SyncOptions,
@@ -511,8 +480,6 @@ function resolveWsNameForFiles(_opts: SyncOptions, wsName: string): string {
   return wsName;
 }
 
-// After resolveWorkspace, infer the workspace config name from the resolved profile
-// by matching baseUrl + workspaceId against the workspaces config entries.
 // Merge CLI options with effective settings, preserving CLI flags as overrides
 function mergeCliWithEffectiveOptions<
   T extends GlobalOptions & SyncOptions & { repository?: string },

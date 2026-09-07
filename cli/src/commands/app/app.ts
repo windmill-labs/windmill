@@ -409,7 +409,8 @@ async function push(
   if (isRawAppByName || hasRawAppYaml) {
     const { pushRawApp } = await import("./raw_apps.ts");
     const merged = await mergeConfigWithConfigFile(opts);
-    // Raw apps have no policy, so no ownership to preserve.
+    // Raw-app ownership preservation is not implemented on either push
+    // path: sync push hands pushRawApp no context either.
     await pushRawApp(
       workspace.workspaceId,
       remotePath,
