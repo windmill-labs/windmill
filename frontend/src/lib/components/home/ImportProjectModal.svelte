@@ -88,6 +88,8 @@
 		onClose()
 	}
 
+	const RELOAD_BACKSTOP_MS = 15_000
+
 	/**
 	 * The one way this dialog reloads the caller's list: after the run stops writing. Both
 	 * exits use it, because both can be taken mid-write — `abandon()` only stops the *next*
@@ -96,7 +98,16 @@
 	 * reads it before the write commits, which is what the reload exists to prevent.
 	 */
 	async function reloadWhenSettled(run: ImportExecution, reload: (() => void) | undefined) {
+		// A backstop as well, because `installProject` issues its writes serially and takes no
+		// signal: one request left pending after earlier items committed would leave those
+		// invisible until the next page load. It does not replace the settlement reload — that
+		// was the flaw in the timeout this grew out of — so a hung run reloads on the bound and
+		// again if it ever finishes.
+		const backstop = setTimeout(() => {
+			if (run.running) reload?.()
+		}, RELOAD_BACKSTOP_MS)
 		await run.whenIdle()
+		clearTimeout(backstop)
 		reload?.()
 	}
 
