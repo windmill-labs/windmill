@@ -39,8 +39,8 @@ use sqlx::{FromRow, Postgres, Transaction};
 use std::{collections::HashMap, sync::Arc};
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
-use windmill_dep_map::{lock_hash::record_lock_hashes, process_relative_imports};
 use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
+use windmill_dep_map::{lock_hash::record_lock_hashes, process_relative_imports};
 
 use windmill_common::{
     assets::{
@@ -1081,6 +1081,57 @@ fn lock_hash_entry(path: &str, lock: &str) -> [(String, i64); 1] {
     [(path.to_string(), hash_script(lock))]
 }
 
+/// The `dbt://` relation both halves of a deploy have to agree on: a whole
+/// `<warehouse>/<schema>/<name>`, under a warehouse this workspace configures.
+///
+/// Every producer is held to exactly this — a `// materialize` target here, a
+/// descriptor's `profile.warehouse` in the worker — so a subscription to anything
+/// else names a relation nothing can ever write. No later deploy fixes that and
+/// no dormant-edge warning reports it, since the warning fires on a dbt project's
+/// ingest and no project can claim a relation under a warehouse that isn't there.
+/// Asking here rather than at each site is what keeps the two from drifting into
+/// refusing and accepting the same string.
+async fn validate_dbt_relation(
+    db: &sqlx::Pool<Postgres>,
+    w_id: &str,
+    relation: &str,
+    what: &str,
+) -> Result<()> {
+    if !windmill_parser::asset_parser::is_full_relation_path(relation) {
+        return Err(Error::BadRequest(format!(
+            "{what} `dbt://{relation}` is not a whole warehouse relation \
+             (`dbt://<warehouse>/<schema>/<name>`)."
+        )));
+    }
+    // `asset.path` is VARCHAR(255) and the manifest ingest drops a relation that
+    // outgrows it rather than failing the whole graph, so past the column no
+    // producer row can exist on either side — a write would be rejected by
+    // Postgres mid-deploy, and `script_trigger.trigger_ref` is unbounded text
+    // that would take the subscription and keep it dormant for good.
+    let max = windmill_common::dbt_manifest::MAX_ASSET_PATH_LEN;
+    if relation.chars().count() > max {
+        return Err(Error::BadRequest(format!(
+            "{what} `dbt://{relation}` is longer than the {max} characters an asset path \
+             holds, so it cannot be recorded."
+        )));
+    }
+    let warehouse = relation.split('/').next().unwrap_or_default();
+    // Only the resolver's own "no such warehouse" is the annotation's fault. Its
+    // other failures — the query, and a setting entry with no `resource_path` —
+    // keep their own error: blaming the warehouse name for those misdescribes
+    // them, and flattening the malformed-setting one to a 400 hides a server
+    // fault behind a client one.
+    windmill_common::workspaces::dbt_warehouse_exists(db, w_id, warehouse)
+        .await
+        .map_err(|e| match e {
+            Error::NotFound(_) => Error::BadRequest(format!(
+                "{what} `dbt://{relation}` names a warehouse this workspace does not \
+                 configure: {e}"
+            )),
+            other => other,
+        })
+}
+
 async fn create_script_internal<'c>(
     mut ns: NewScript,
     w_id: String,
@@ -1565,34 +1616,90 @@ async fn create_script_internal<'c>(
     // membership; parsed writes tell us what is produced (we don't record
     // them in auto_kind itself).
     let pipeline_annotations = parse_pipeline_annotations(&ns.content);
-    // `// materialize` materializes a `ducklake://<name>/<table>` target from a
-    // DuckDB script. These two constraints hold for *both* modes: a non-DuckLake
-    // target would otherwise deploy, register a producer in the asset graph, then
-    // silently no-op at run time (`build_materialized_query` returns `Ok(None)`),
-    // and a non-DuckDB script never reaches the executor that records state. The
-    // managed-only checks (single trailing SELECT, no SQL args) come after — a
-    // `manual` script owns its DDL and skips them.
+    // `// materialize` names what this script produces. Two target kinds, and the
+    // runtime behind each is what constrains the annotation:
+    //   • `ducklake://<name>/<table>` — the DuckDB executor generates the write
+    //     (or, in `manual` mode, records the state the script wrote itself), so
+    //     the script has to be a DuckDB one and the target has to name a table.
+    //     A non-DuckDB script never reaches that executor.
+    //   • `dbt://<warehouse>/<schema>/<name>` — a warehouse relation. Nothing
+    //     generates warehouse DDL, so the declaration is track-only (`manual`)
+    //     and any language but dbt's own may make it: the script writes the
+    //     relation, the worker records the materialization, and the relation's
+    //     asset node is shared with whatever dbt model reads it. A dbt project's
+    //     own writes are read from its manifest, so it may not declare one.
+    // Any other kind would deploy, register a producer in the asset graph, then
+    // silently no-op at run time (`build_materialized_query` returns `Ok(None)`).
+    // The managed-only checks (single trailing SELECT, no SQL args) come after —
+    // a `manual` script owns its DDL and skips them.
     if let Some(m) = pipeline_annotations.materialize.as_ref() {
-        if ns.language != ScriptLang::DuckDb {
-            return Err(Error::BadRequest(format!(
-                "`// materialize` is only supported for DuckDB scripts, not {}. Use the \
-                 wmll.ducklake helpers to materialize from other languages.",
-                ns.language.as_str()
-            )));
-        }
-        if m.target_kind != windmill_parser::asset_parser::AssetKind::Ducklake {
+        use windmill_parser::asset_parser::AssetKind as PAssetKind;
+        // The producer half of the rule the trigger loop below applies to `// on`:
+        // a dbt project's writes come from its manifest, and the graph ingest
+        // republishes this path's asset rows wholesale, so a declared one would be
+        // wiped by the very deploy that accepted it while its runs kept stamping
+        // the relation.
+        if ns.language == ScriptLang::Dbt {
             return Err(Error::BadRequest(
-                "`// materialize` only supports a DuckLake target \
-                 (`ducklake://<name>/<table>`); other asset kinds aren't materializable."
+                "a dbt script cannot declare `// materialize`: what a project builds is read \
+                 from its manifest and published by the graph ingest, not annotated."
                     .to_string(),
             ));
         }
-        if !m.target_path.contains('/') {
-            return Err(Error::BadRequest(format!(
-                "`// materialize` needs a table in the target: \
-                 `ducklake://{0}/<table>` (got `ducklake://{0}`).",
-                m.target_path
-            )));
+        match m.target_kind {
+            PAssetKind::Ducklake => {
+                if ns.language != ScriptLang::DuckDb {
+                    return Err(Error::BadRequest(format!(
+                        "`// materialize` is only supported for DuckDB scripts, not {}. Use the \
+                         wmll.ducklake helpers to materialize from other languages, or declare a \
+                         warehouse relation with `// materialize manual dbt://…`.",
+                        ns.language.as_str()
+                    )));
+                }
+                if !m.target_path.contains('/') {
+                    return Err(Error::BadRequest(format!(
+                        "`// materialize` needs a table in the target: \
+                         `ducklake://{0}/<table>` (got `ducklake://{0}`).",
+                        m.target_path
+                    )));
+                }
+            }
+            PAssetKind::Dbt => {
+                // `// data_test` runs as verifier probes the DuckDB executor
+                // splices around a MANAGED write. Nothing generates a warehouse
+                // write, so nothing would run them — and unlike the DuckLake
+                // `manual` case, which at least fails loudly in that executor, a
+                // declarer in another language would deploy green with its
+                // data-quality assertions silently never executed.
+                if !pipeline_annotations.data_tests.is_empty() {
+                    return Err(Error::BadRequest(
+                        "`// data_test` is not supported with a `dbt://` target: the checks run \
+                         against a managed materialization, and a warehouse relation is \
+                         written by the script itself. Assert on the relation with a dbt \
+                         test in the project that reads it."
+                            .to_string(),
+                    ));
+                }
+                if !m.manual {
+                    return Err(Error::BadRequest(
+                        "`// materialize dbt://…` must be `manual`: Windmill generates no \
+                         warehouse DDL, so the script issues its own write and only the outcome \
+                         is recorded. Write \
+                         `// materialize manual dbt://<warehouse>/<schema>/<name>`."
+                            .to_string(),
+                    ));
+                }
+                validate_dbt_relation(&db, &w_id, &m.target_path, "`// materialize` target")
+                    .await?;
+            }
+            _ => {
+                return Err(Error::BadRequest(
+                    "`// materialize` only supports a DuckLake (`ducklake://<name>/<table>`) or \
+                     warehouse-relation (`dbt://<warehouse>/<schema>/<name>`) target; other asset \
+                     kinds aren't materializable."
+                        .to_string(),
+                ));
+            }
         }
         if !m.manual {
             if let Err(e) = windmill_parser::sql_materialize::classify_wrap(&ns.content) {
@@ -2375,16 +2482,43 @@ async fn create_script_internal<'c>(
         let Some((trigger_kind, trigger_ref)) = trigger_spec_to_row(spec) else {
             continue;
         };
-        // A `dbt://` subscription can never fire: dbt is the only producer of a
-        // warehouse relation (`// materialize` takes DuckLake targets only) and a
-        // dbt run does not dispatch. Refusing beats persisting a row that draws a
-        // cascade arrow on the canvas and then never wakes anything.
-        if trigger_ref.starts_with("dbt://") {
-            return Err(Error::BadRequest(format!(
-                "`{trigger_ref}` cannot be subscribed to: a dbt run does not trigger downstream \
-                 runs, and nothing else writes a warehouse relation. Declare the read without \
-                 `on` to keep the lineage edge, or schedule this script."
-            )));
+        // A `dbt://` subscription fires only when a NON-dbt job materialized the
+        // relation: `// materialize manual dbt://…` declares such a write, while a
+        // dbt run records its models and does not dispatch. So refuse exactly the
+        // edge that cannot fire — one whose relation is already claimed by dbt and
+        // by nothing else — rather than every `dbt://` edge (`sole_dbt_producer`,
+        // which takes the workspace pool: under RLS an unreadable native producer
+        // would refuse a live subscription).
+        if let Some(relation) = trigger_ref.strip_prefix("dbt://") {
+            // The subscriber side of the same rule: a dbt project is not woken by
+            // the asset cascade. Its graph ingest clears these rows for its own
+            // path, so accepting one here would deploy an edge the dependency job
+            // then silently removes.
+            if ns.language == ScriptLang::Dbt {
+                return Err(Error::BadRequest(format!(
+                    "a dbt script cannot subscribe to `{trigger_ref}`: dbt orders its own DAG \
+                     and a project is run on its schedule, not woken by an asset cascade."
+                )));
+            }
+            validate_dbt_relation(&db, &w_id, relation, "subscription target").await?;
+            // Both paths under a rename: the old one's committed write row is
+            // still there and this transaction is about to remove it.
+            let deploying_paths = match p_path_opt.as_deref().filter(|old| *old != ns.path) {
+                Some(old) => vec![ns.path.clone(), old.to_string()],
+                None => vec![ns.path.clone()],
+            };
+            if let Some(dbt_owner) =
+                windmill_common::assets::sole_dbt_producer(&db, &w_id, relation, &deploying_paths)
+                    .await?
+            {
+                return Err(Error::BadRequest(format!(
+                    "`{trigger_ref}` cannot be subscribed to: it is built by the dbt project at \
+                     `{dbt_owner}`, and a dbt run does not trigger downstream runs. Declare the \
+                     read without `on` to keep the lineage edge, or schedule this script. A \
+                     relation written by a `// materialize manual {trigger_ref}` script can be \
+                     subscribed to."
+                )));
+            }
         }
         // Effective debounce for this edge: per-`// on debounce=` wins,
         // else the script-level `// debounce` default. Debounce only
