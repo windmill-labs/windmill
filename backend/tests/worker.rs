@@ -5637,6 +5637,83 @@ async fn test_whileloop_propagates_inner_iterator_eval_failure(
 
 #[cfg(all(feature = "quickjs", feature = "python"))]
 #[sqlx::test(fixtures("base"))]
+async fn test_whileloop_skip_if_evaluated_once_at_entry(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    // Regression test for #11007: `skip_if` on a while-loop module must be
+    // evaluated once, at loop entry, using the preceding step's result.
+    // Re-evaluating it on every iteration aliases `results.first` to the
+    // previous iteration's own result instead, which here lacks `.ok` and
+    // makes `skip_if` incorrectly turn true after the first iteration.
+    let port = 123;
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [
+            {
+                "id": "first",
+                "value": {
+                    "type": "rawscript",
+                    "language": "python3",
+                    "content": "def main(): return {\"ok\": True}",
+                },
+            },
+            {
+                "id": "outer",
+                "value": {
+                    "type": "whileloopflow",
+                    "skip_failures": false,
+                    "modules": [
+                        {
+                            "id": "inner",
+                            "value": {
+                                "input_transforms": {
+                                    "i": {
+                                        "type": "javascript",
+                                        "expr": "flow_input.iter.index",
+                                    },
+                                },
+                                "type": "rawscript",
+                                "language": "python3",
+                                "content": "def main(i): return i",
+                            },
+                        },
+                    ],
+                },
+                "skip_if": { "expr": "!results.first.ok" },
+                "stop_after_if": {
+                    "expr": "result >= 2",
+                    "skip_if_stopped": false,
+                },
+            },
+        ],
+    }))
+    .unwrap();
+    let job = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
+
+    let cjob = RunJob::from(job).run_until_complete(&db, false, port).await;
+
+    assert!(cjob.success, "flow should succeed");
+
+    let outer_module = get_module(&cjob, "outer").expect("outer module status");
+    match outer_module {
+        windmill_common::flow_status::FlowStatusModule::Success { skipped, flow_jobs, .. } => {
+            assert!(
+                !skipped,
+                "while-loop must not be skipped: skip_if should only run once, at entry"
+            );
+            assert_eq!(
+                flow_jobs.map(|v| v.len()),
+                Some(3),
+                "while-loop should run 3 iterations before stop_after_if halts it"
+            );
+        }
+        other => panic!("expected outer module to be Success, got {other:?}"),
+    }
+
+    Ok(())
+}
+
+#[cfg(all(feature = "quickjs", feature = "python"))]
+#[sqlx::test(fixtures("base"))]
 async fn test_stop_after_all_iters_if_bad_expr_parallel_branchall(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
