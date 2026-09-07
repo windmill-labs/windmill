@@ -3178,7 +3178,7 @@ async fn ingest_from_run(
     let snapshot_job = p.graph_refresh.snapshot_job(job.id);
     match conn {
         Connection::Sql(db) => {
-            persist_ingest(
+            let published = persist_ingest(
                 db,
                 &job.workspace_id,
                 script_path,
@@ -3191,6 +3191,13 @@ async fn ingest_from_run(
                 p.graph_refresh.publishes_ownership(),
             )
             .await?;
+            // Publishing ownership from a RUN makes this project the owner of
+            // those relations exactly as a deploy does, so it can be what leaves
+            // a subscription accepted while the relation had no producer with dbt
+            // as its only one. Same warning the deploy emits.
+            if published && p.graph_refresh.publishes_ownership() {
+                warn_dormant_subscribers(db, &job.workspace_id, &job.id, &ingested, conn).await;
+            }
         }
         // An agent worker reaches these tables only through the API. Publishing
         // is the whole of what it needs: a worker that can replace the graph

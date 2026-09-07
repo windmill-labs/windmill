@@ -744,10 +744,13 @@ producer that wakes it, which it could not be anyway (the dispatcher skips
 self-loops).
 
 What that leaves is a subscription accepted while it was live and later orphaned.
-A dbt project deployed afterwards that claims the relation names those edges in
-its own log rather than leaving them silently dormant — the same "an edge that can
-never fire is worse than saying so" the refusal is for, at the other point where
-it is knowable.
+A dbt project that claims the relation afterwards names those edges in its own log
+rather than leaving them silently dormant — the same "an edge that can never fire
+is worse than saying so" the refusal is for, at the other point where it is
+knowable. Both points that publish ownership warn, the deploy and a run whose
+static descriptor found its profile moved; an agent worker is the exception, since
+it reaches these tables only through the API and its ingest publishes without
+reading back.
 
 Two orphanings are reported nowhere, and both are accepted rather than overlooked.
 A native producer that drops its `// materialize` and leaves dbt alone on the
