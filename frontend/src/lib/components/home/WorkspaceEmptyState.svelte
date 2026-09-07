@@ -2,8 +2,8 @@
 	import { onMount } from 'svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import { preloadHubProjects, type HubProjectPick } from '$lib/hubProject'
-	import { disableHubStore, workspaceStore } from '$lib/stores'
+	import type { HubProjectPick } from '$lib/hubProject'
+	import { disableHubStore } from '$lib/stores'
 	import CreateActionsMenu from './CreateActionsMenu.svelte'
 	import HubTemplatePicker from './HubTemplatePicker.svelte'
 
@@ -30,13 +30,10 @@
 		logFeatureUsage('home', 'empty_state_view')
 	})
 
-	// Warmed as soon as the empty state renders rather than on the first click: the
-	// catalogue is one request for the whole hub, and paying for it here is what makes
-	// the picker open on content. Not on an instance with the hub turned off, where the
-	// request is one the operator has said not to make.
-	$effect(() => {
-		if ($workspaceStore && !$disableHubStore) preloadHubProjects($workspaceStore)
-	})
+	// The catalogue is fetched when the picker opens, not warmed on render. Warming it
+	// meant a request nobody had asked for, which had to be gated on `disable_hub` and
+	// then raced that setting's own load — two problems bought for the time between this
+	// caption appearing and someone clicking it. The picker shows its list loading instead.
 </script>
 
 <div

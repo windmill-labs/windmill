@@ -185,10 +185,6 @@ export function hubProjectCatalogue(workspace: string): Promise<HubProjectPick[]
 	return catalogue.projects
 }
 
-/** Warms the catalogue so the picker opens on content instead of a spinner. */
-export function preloadHubProjects(workspace: string): void {
-	void hubProjectCatalogue(workspace).catch(() => {})
-}
 
 async function loadCatalogue(workspace: string): Promise<HubProjectPick[]> {
 	const raw = await HubPublishService.listHubProjects({ workspace })
