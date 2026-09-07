@@ -4,7 +4,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { ResourceService, type InputTransform } from '$lib/gen'
+	import { ResourceService, type InputTransform, type Resource } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { Bot, ChevronDown, ChevronUp, Save, Unlink, Pencil } from 'lucide-svelte'
@@ -32,7 +32,8 @@
 	} from '../linkedAgentToolsStore.svelte'
 	import { logReusableAgentUsage } from '../agentTelemetry'
 	import { claimLinkedToolsFetch } from '../flowState'
-	import { fetchAgentWithDraft } from '../linkedAgentDrafts'
+	import { AgentDraftUnavailable, fetchAgentWithDraft } from '../linkedAgentDrafts'
+	import type { AgentResourceState } from '../agentDraft.svelte'
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import type { AgentTool as AgentToolStrict } from '../agentToolUtils'
@@ -122,7 +123,18 @@
 					providerOk: true
 				}
 			}
-			const { response, draft } = await fetchAgentWithDraft(path, ws)
+			let response: Resource
+			let draft: AgentResourceState | undefined
+			try {
+				;({ response, draft } = await fetchAgentWithDraft(path, ws))
+			} catch (err) {
+				// Only the DRAFT was unreadable. This card is a display, so fall back to the deployed
+				// agent rather than rendering one with no brain and no tools, which reads as "the agent
+				// is empty" while the Draft badge still says it has unsaved changes. Same fallback the
+				// graph's tool nodes take; the paths that run or deploy the draft still refuse.
+				if (!(err instanceof AgentDraftUnavailable)) throw err
+				response = await ResourceService.getResource({ workspace: ws, path })
+			}
 			const cfg = (draft?.args ?? response.value ?? {}) as AIAgentConfig & {
 				provider?: { resource?: string }
 			}
@@ -400,13 +412,15 @@
 		// `tools` is one array per module value, so it identifies the step itself — the path alone
 		// would not, since a replacement can carry the same link.
 		const stepMarker = tools
-		const res = await ResourceService.getResource({ workspace: ws, path })
+		// The draft, like the card above and like a test of this step: forking the deployed value
+		// while the card displays a drafted prompt would hand back something the user never saw.
+		const { response, draft } = await fetchAgentWithDraft(path, ws)
 		// The module may have been replaced while the fetch was in flight (undo, session drafts);
 		// applying a stale fork would overwrite the restored state.
 		if (agent !== path || tools !== stepMarker) {
 			return false
 		}
-		const cfg = (res.value ?? {}) as AIAgentConfig
+		const cfg = (draft?.args ?? response.value ?? {}) as AIAgentConfig
 		// Preserve the flow-local inputs already wired in the step.
 		const local: Record<string, InputTransform> = {}
 		for (const key of AGENT_FLOW_LOCAL_KEYS) {

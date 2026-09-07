@@ -297,8 +297,6 @@
 					`The draft for ${agent.path} changed since this dialog opened, so nothing was deployed for it. Reopen the deploy dialog to see the current one.`
 				)
 			}
-			// The type is as old as the dialog otherwise: were the path deleted and recreated as
-			// something else meanwhile, the write below would put an agent config inside it.
 			// Adopt what was just read as the baseline for this key. `deployDraft` finishes by deleting
 			// the draft row, and that delete is only conditional when a baseline exists: without one the
 			// server has nothing to compare against and deletes unconditionally, so an edit landing
@@ -344,7 +342,9 @@
 			// `deployDraft` deletes the row through the syncer, which leaves any in-memory cell for
 			// this key untouched, and that cell is what `agentDraftState` prefers: without this a
 			// second deploy in the same session would list the agent again from a draft that is gone.
-			UserDraft.remove('resource', agent.path, { workspace: ws })
+			// Local only — `remove` would POST a second delete, debounced and with the baseline the
+			// first one cleared, which would land unconditionally and take a newer edit with it.
+			UserDraft.forgetLocal('resource', agent.path, { workspace: ws })
 			// Every linked card and the graph key on this to refetch the agent they display.
 			markAgentWritten(ws, agent.path)
 			logReusableAgentUsage('draft_deployed_with_flow')
