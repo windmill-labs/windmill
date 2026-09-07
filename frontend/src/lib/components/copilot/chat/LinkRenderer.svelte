@@ -68,7 +68,11 @@
 
 {#if href}
 	{#if wmKind}
-		<span class="group inline-flex items-baseline" {@attach trackNewTabModifier}>
+		<!-- Only a preview pill can change icon, so only it is worth tracking the modifier for. -->
+		<span
+			class="group inline-flex items-baseline"
+			{@attach previewAction ? trackNewTabModifier : undefined}
+		>
 			<a
 				{href}
 				target={previewAction ? undefined : '_blank'}
