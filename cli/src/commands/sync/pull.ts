@@ -150,7 +150,18 @@ export async function downloadZip(
   }
 
   if (zipResponse.status === 404 || body.includes("no rows returned")) {
-    log.info(colors.red(`Workspace '${workspace.workspaceId}' not found on ${workspace.remote}. Please check your --workspace and try again.`));
+    log.info(
+      colors.red(
+        `Workspace id '${workspace.workspaceId}' not found on ${workspace.remote}` +
+          (workspace.name !== workspace.workspaceId
+            ? ` (resolved from profile '${workspace.name}')`
+            : "") +
+          `.\n` +
+          `Note this is the workspace *id* sent to the API, which is not necessarily what you passed to --workspace:\n` +
+          `  - check 'wmill workspace list' (the 'workspace id' column)\n` +
+          `  - check the 'workspaces' block of wmill.yaml ('workspaceId' overrides the workspace name)`
+      )
+    );
   } else {
     log.info(colors.red(`Failed to request tarball from API: ${zipResponse.status} ${zipResponse.statusText}`));
     if (body) log.info(colors.red(body));
