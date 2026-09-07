@@ -50,9 +50,9 @@ use windmill_common::{
     error::{self, Error, JsonResult, Result},
     get_database_url,
     user_drafts::{
-        delete_all_drafts_for_path, delete_own_draft_for_path, fetch_draft_only,
-        fetch_draft_only_list_rows, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay,
-        WithDraftQuery,
+        delete_all_drafts_for_path, delete_draft_only_for_path, delete_own_draft_for_path,
+        fetch_draft_only, fetch_draft_only_list_rows, maybe_overlay_draft, UserDraftItemKind,
+        WithDraftOverlay, WithDraftQuery,
     },
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
@@ -134,7 +134,10 @@ pub struct EditResourceType {
     /// `Option` conflates: an absent field leaves the extension alone, while an
     /// explicit `null` clears it. A hub pull relies on both — a type that stops
     /// being a file type has to stop being one locally too.
-    #[serde(default, deserialize_with = "windmill_common::more_serde::double_option")]
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option"
+    )]
     pub format_extension: Option<Option<String>>,
 }
 
@@ -1309,6 +1312,17 @@ async fn delete_resource(
     let path = path.to_path();
 
     check_scopes(&authed, || format!("resources:write:{}", path))?;
+
+    // Ahead of the deploy rules: nothing is deployed at a draft-only path, so
+    // gating this discard on them would strand the row in a protected workspace.
+    // Ahead of the transaction too — the not-found branch other kinds hang this
+    // off is the `not_found_if_none` below, past the linked-variable cascade.
+    if delete_draft_only_for_path(&db, &w_id, UserDraftItemKind::Resource, path, &authed.email)
+        .await?
+    {
+        return Ok(format!("draft-only resource {} deleted", path));
+    }
+
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -1320,6 +1334,7 @@ async fn delete_resource(
     {
         return Err(Error::PermissionDenied(msg));
     }
+
     let mut tx = user_db.begin(&authed).await?;
 
     // Capture resource data for trashbin before deleting

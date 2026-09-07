@@ -12,7 +12,11 @@ import * as wmill from "../../../gen/services.gen.ts";
 import { ListableApp, Policy } from "../../../gen/types.gen.ts";
 
 import { GlobalOptions, isSuperset } from "../../types.ts";
-import { getWmillYamlPath, mergeConfigWithConfigFile } from "../../core/conf.ts";
+import {
+  getWmillYamlPath,
+  mergeConfigWithConfigFile,
+  readEffectiveSyncBehavior,
+} from "../../core/conf.ts";
 import { readInlinePathSync } from "../../utils/utils.ts";
 import devCommand from "./dev.ts";
 import lintCommand from "./lint.ts";
@@ -21,6 +25,7 @@ import newCommand from "./new.ts";
 import generateAgentsCommand from "./generate_agents.ts";
 import { isVersionsGeq1585 } from "../sync/global.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { buildPermissionedAsContext } from "../../core/permissioned_as.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 
 export interface AppFile {
@@ -420,6 +425,8 @@ async function push(
   if (isRawAppByName || hasRawAppYaml) {
     const { pushRawApp } = await import("./raw_apps.ts");
     const merged = await mergeConfigWithConfigFile(opts);
+    // Raw-app ownership preservation is not implemented on either push
+    // path: sync push hands pushRawApp no context either.
     await pushRawApp(
       workspace.workspaceId,
       remotePath,
@@ -429,7 +436,16 @@ async function push(
     );
     log.info(colors.bold.underline.green("Raw app pushed"));
   } else {
-    await pushApp(workspace.workspaceId, remotePath, absoluteFilePath);
+    await pushApp(
+      workspace.workspaceId,
+      remotePath,
+      absoluteFilePath,
+      undefined,
+      await buildPermissionedAsContext(
+        workspace.workspaceId,
+        await readEffectiveSyncBehavior(opts, workspace),
+      ),
+    );
     log.info(colors.bold.underline.green("App pushed"));
   }
 }

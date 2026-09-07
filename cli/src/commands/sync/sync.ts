@@ -76,7 +76,8 @@ import {
 } from "../../utils/utils.ts";
 import {
   getEffectiveSettings,
-  getWorkspaceNames,
+  inferWsNameFromProfile,
+  resolveWsNameForConfigFromFlags,
   mergeConfigWithConfigFile,
   parseSyncBehavior,
   SyncOptions,
@@ -85,7 +86,10 @@ import {
   WorkspaceEntryConfig,
 } from "../../core/conf.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
-import { preCheckPermissionedAs } from "../../core/permissioned_as.ts";
+import {
+  buildPermissionedAsContext,
+  preCheckPermissionedAs,
+} from "../../core/permissioned_as.ts";
 import {
   fromWorkspaceSpecificPath,
   toWorkspaceSpecificPath,
@@ -429,37 +433,6 @@ export function computeWsSpecificFlagOnlyPushes(
   return out;
 }
 
-// Resolve workspace name from a --branch override (git branch → workspace name).
-// Falls back to using the branch value as-is (backward compat: old key = branch name).
-function resolveWsNameFromBranch(
-  opts: SyncOptions,
-  branchName: string,
-): string {
-  const match = findWorkspaceByGitBranch(opts.workspaces, branchName);
-  return match ? match[0] : branchName;
-}
-
-// Resolve wsNameForConfig from CLI flags. Prefers --branch → matching config key,
-// then --workspace → matching config key (incl. when --base-url is set). Returns
-// undefined when no flag-based resolution applies; callers then fall back to
-// inferWsNameFromProfile on the resolved workspace profile.
-export function resolveWsNameForConfigFromFlags(
-  opts: SyncOptions & { branch?: string; workspace?: string },
-): string | undefined {
-  if (opts.branch) {
-    return resolveWsNameFromBranch(opts, opts.branch);
-  }
-  if (opts.workspace) {
-    // Use getWorkspaceNames so reserved keys (e.g. commonSpecificItems) are filtered out,
-    // matching the behavior of findWorkspaceByGitBranch / inferWsNameFromProfile.
-    const validKeys = getWorkspaceNames(opts.workspaces);
-    if (validKeys.includes(opts.workspace)) {
-      return opts.workspace;
-    }
-  }
-  return undefined;
-}
-
 // Warn if --workspace overrides auto-detected branch or if workspace not in config.
 function warnWorkspaceOverride(
   opts: SyncOptions,
@@ -505,33 +478,6 @@ function warnWorkspaceOverride(
 // This is a pass-through — the workspace name (config key) IS the suffix.
 function resolveWsNameForFiles(_opts: SyncOptions, wsName: string): string {
   return wsName;
-}
-
-// After resolveWorkspace, infer the workspace config name from the resolved profile
-// by matching baseUrl + workspaceId against the workspaces config entries.
-function inferWsNameFromProfile(
-  opts: SyncOptions,
-  profile: { remote: string; workspaceId: string },
-): string | undefined {
-  if (!opts.workspaces) return undefined;
-  const wsNames = Object.keys(opts.workspaces).filter(
-    (k) => k !== "commonSpecificItems",
-  );
-  for (const name of wsNames) {
-    const entry = (opts.workspaces as any)[name] as WorkspaceEntryConfig;
-    if (!entry?.baseUrl) continue;
-    try {
-      const entryUrl = new URL(entry.baseUrl).toString();
-      const profileUrl = new URL(profile.remote).toString();
-      const entryWsId = entry.workspaceId ?? name;
-      if (entryUrl === profileUrl && entryWsId === profile.workspaceId) {
-        return name;
-      }
-    } catch {
-      continue;
-    }
-  }
-  return undefined;
 }
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
@@ -5540,27 +5486,19 @@ export async function push(
       return;
     }
 
-    let permissionedAsContext: PermissionedAsContext | undefined = undefined;
-    if (parseSyncBehavior(opts.syncBehavior) >= 1) {
-      const user = await wmill.whoami({ workspace: workspace.workspaceId });
-      const userIsAdminOrDeployer =
-        user.is_admin || (user.groups ?? []).includes("wm_deployers");
-      log.debug(
-        `permissioned_as: user=${user.email}, is_admin=${user.is_admin}, groups=${JSON.stringify(user.groups)}, isAdminOrDeployer=${userIsAdminOrDeployer}`,
+    const permissionedAsContext: PermissionedAsContext | undefined =
+      await buildPermissionedAsContext(
+        workspace.workspaceId,
+        opts.syncBehavior,
       );
-      permissionedAsContext = {
-        userCache: new Map(),
-        userIsAdminOrDeployer,
-        userEmail: user.email,
-      };
-
+    if (permissionedAsContext) {
       // ws_specific_flag changes have no content payload, so they don't
       // affect permissioned_as resolution — filter them out before the
       // pre-check (which expects only added/edited/deleted).
       await preCheckPermissionedAs(
         changes.filter((c) => c.name !== "ws_specific_flag"),
-        user.email,
-        userIsAdminOrDeployer,
+        permissionedAsContext.userEmail,
+        permissionedAsContext.userIsAdminOrDeployer,
         opts.acceptOverridingPermissionedAsWithSelf ?? false,
         !!process.stdin.isTTY,
       );
