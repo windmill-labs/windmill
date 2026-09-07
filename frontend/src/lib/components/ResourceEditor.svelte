@@ -1,11 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import {
-		ResourceService,
-		WorkspaceService,
-		type Resource,
-		type ResourceType
-	} from '$lib/gen'
+	import { ResourceService, WorkspaceService, type Resource, type ResourceType } from '$lib/gen'
 	import { canWrite } from '$lib/utils'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -411,9 +406,8 @@
 			<Alert type="info" title="Windmill holds this repository's access token">
 				<div class="flex flex-col items-start gap-2">
 					<div>
-						The URL below carries no credential. Windmill renews the token before it expires and
-						hands it to this workspace's sync jobs, and forks of this workspace use it without
-						storing their own copy.
+						The URL carries no credential. Windmill stores the token and renews it before it
+						expires.
 						{#if urlDirty}
 							Save your URL change to replace the token.
 						{/if}

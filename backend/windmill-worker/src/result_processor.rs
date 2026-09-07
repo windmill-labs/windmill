@@ -1384,7 +1384,7 @@ async fn maybe_post_git_sync_check(
         (None, Some(deploy)) => (true, deploy),
         (None, None) => return,
     };
-    let Ok(mut check) = serde_json::from_value::<GitSyncCheck>(marker) else {
+    let Ok(check) = serde_json::from_value::<GitSyncCheck>(marker) else {
         return;
     };
     // Job args are persisted, so the repository URL is not among them: it is
@@ -1395,7 +1395,11 @@ async fn maybe_post_git_sync_check(
     // carries the identity to check it against. A marker written before that
     // identity existed keeps using the URL it captured at enqueue, which cannot
     // have been repointed since.
-    let repo_url = match (check.repo.is_some(), row.repo_path.as_deref(), check.repo_url.clone()) {
+    let repo_url = match (
+        check.repo.is_some(),
+        row.repo_path.as_deref(),
+        check.repo_url.clone(),
+    ) {
         // The resource path is mutable, so following it is only safe when the
         // marker also carries the identity to check the result against.
         (true, Some(path), _) => {
@@ -1426,8 +1430,7 @@ async fn maybe_post_git_sync_check(
     };
     // A resource repointed while the diff was running would otherwise close a
     // check, or post a preview, on a repository that has nothing to do with it.
-    if check.repo.is_some()
-        && windmill_common::git_sync_ee::repo_identity(&repo_url) != check.repo
+    if check.repo.is_some() && windmill_common::git_sync_ee::repo_identity(&repo_url) != check.repo
     {
         tracing::warn!(
             "git sync-check: the repository moved since the check was created; leaving it alone"

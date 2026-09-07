@@ -354,7 +354,9 @@ pub async fn initial_load(
                     )
                 }
             });
-            pass.action(windmill_common::min_version::store_min_keep_alive_version(db));
+            pass.action(windmill_common::min_version::store_min_keep_alive_version(
+                db,
+            ));
             pass.setting(
                 windmill_common::global_settings::INSTANCE_EVENTS_WEBHOOK_SETTING,
                 false,
@@ -708,7 +710,6 @@ pub async fn initial_load(
 
     pass.run(conn).await;
 }
-
 
 pub fn apply_metrics_enabled(value: Option<serde_json::Value>) {
     if let Some(serde_json::Value::Bool(t)) = value {
@@ -1066,8 +1067,8 @@ pub fn apply_fork_workspace_tag_append_fork_suffix(value: Option<serde_json::Val
 }
 
 pub async fn reload_critical_alert_mute_ui_setting(conn: &Connection) -> error::Result<()> {
-    let v =
-        load_value_from_global_settings_with_conn(conn, CRITICAL_ALERT_MUTE_UI_SETTING, true).await?;
+    let v = load_value_from_global_settings_with_conn(conn, CRITICAL_ALERT_MUTE_UI_SETTING, true)
+        .await?;
     apply_critical_alert_mute_ui_setting(v);
     Ok(())
 }
@@ -2732,7 +2733,6 @@ pub async fn reload_timeout_wait_result_setting(conn: &Connection) {
     .await;
 }
 
-
 pub async fn reload_extra_pip_index_url_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
         conn,
@@ -2822,7 +2822,6 @@ pub async fn reload_bunfig_install_scopes_setting(conn: &Connection) {
     )
     .await;
 }
-
 
 pub async fn reload_nuget_config_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
@@ -2930,7 +2929,6 @@ pub async fn reload_ruby_repos_setting(conn: &Connection) {
     )
     .await;
 }
-
 
 pub async fn reload_workspace_registries_setting(conn: &Connection) {
     match load_value_from_global_settings_with_conn(
@@ -3184,7 +3182,6 @@ pub async fn apply_job_isolation_setting(value: Option<serde_json::Value>) {
         );
     }
 }
-
 
 async fn resolve_license_key_value(conn: &Connection, quiet: bool) -> anyhow::Result<String> {
     let q = load_value_from_global_settings_with_conn(conn, LICENSE_KEY_SETTING, true)
@@ -3480,7 +3477,10 @@ impl<'a> SettingsPass<'a> {
         // on compile-time defaults until the next full reload. Only the single-query transport
         // can fail this way; over HTTP the batch already is the per-setting read.
         if matches!(conn, Connection::Sql(_)) && values.is_empty() && !names.is_empty() {
-            tracing::warn!("Falling back to per-setting reads for {} settings", names.len());
+            tracing::warn!(
+                "Falling back to per-setting reads for {} settings",
+                names.len()
+            );
             values = fetch_settings_individually(conn, &names).await;
         }
         for (name, http) in &declared {
@@ -3871,7 +3871,6 @@ pub fn parse_setting_value<T: FromStr + DeserializeOwned + Display>(
 
     value
 }
-
 
 #[cfg(feature = "prometheus")]
 pub async fn monitor_pool(db: &DB) {
@@ -4718,6 +4717,7 @@ const GIT_CREDENTIAL_LOCK_ID: i64 = 737_483_923;
 /// rotation must never be cancelled between GitLab issuing a token and Windmill
 /// storing it, so the pass stops at a repository boundary instead and the
 /// least-recently-checked ordering brings the rest along on the next tick.
+#[cfg(all(feature = "enterprise", feature = "private"))]
 const GIT_CREDENTIAL_PASS_BUDGET: Duration = Duration::from_secs(180);
 
 /// Refresh every git-sync repository's credential status and rotate the ones near
@@ -4856,9 +4856,12 @@ async fn maintain_git_credentials_inner(db: &Pool<Postgres>) -> error::Result<()
             });
             if needs_hook {
                 let mut repo = repo.clone();
-                if let Err(e) =
-                    windmill_common::git_sync_ee::sync_repo_webhook(db, &row.workspace_id, &mut repo)
-                        .await
+                if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(
+                    db,
+                    &row.workspace_id,
+                    &mut repo,
+                )
+                .await
                 {
                     tracing::warn!(
                         "git credentials: could not reconcile the webhook for {path} in workspace {}: {e:#}",
@@ -6772,7 +6775,6 @@ pub async fn reload_critical_alerts_on_db_oversize(conn: &DB) -> error::Result<(
 
     Ok(())
 }
-
 
 pub async fn reload_jwt_secret_setting(db: &DB) -> error::Result<()> {
     let v = load_value_from_global_settings(db, JWT_SECRET_SETTING).await?;
