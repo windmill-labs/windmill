@@ -670,6 +670,83 @@ export async function getEffectiveSettings(
   return effective;
 }
 
+// Resolve workspace name from a --branch override (git branch → workspace name).
+// Falls back to using the branch value as-is (backward compat: old key = branch name).
+function resolveWsNameFromBranch(opts: SyncOptions, branchName: string): string {
+  const match = findWorkspaceByGitBranch(opts.workspaces, branchName);
+  return match ? match[0] : branchName;
+}
+
+// Resolve wsNameForConfig from CLI flags. Prefers --branch → matching config key,
+// then --workspace → matching config key (incl. when --base-url is set). Returns
+// undefined when no flag-based resolution applies; callers then fall back to
+// inferWsNameFromProfile on the resolved workspace profile.
+export function resolveWsNameForConfigFromFlags(
+  opts: SyncOptions & { branch?: string; workspace?: string }
+): string | undefined {
+  if (opts.branch) {
+    return resolveWsNameFromBranch(opts, opts.branch);
+  }
+  if (opts.workspace) {
+    // Use getWorkspaceNames so reserved keys (e.g. commonSpecificItems) are filtered out,
+    // matching the behavior of findWorkspaceByGitBranch / inferWsNameFromProfile.
+    const validKeys = getWorkspaceNames(opts.workspaces);
+    if (validKeys.includes(opts.workspace)) {
+      return opts.workspace;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Match a workspace config entry to a resolved workspace profile by remote +
+ * workspace id. The fallback for when no flag names the entry outright.
+ */
+export function inferWsNameFromProfile(
+  opts: SyncOptions,
+  profile: { remote: string; workspaceId: string }
+): string | undefined {
+  if (!opts.workspaces) return undefined;
+  for (const name of getWorkspaceNames(opts.workspaces)) {
+    const entry = (opts.workspaces as any)[name] as WorkspaceEntryConfig;
+    if (!entry?.baseUrl) continue;
+    try {
+      const entryUrl = new URL(entry.baseUrl).toString();
+      const profileUrl = new URL(profile.remote).toString();
+      const entryWsId = entry.workspaceId ?? name;
+      if (entryUrl === profileUrl && entryWsId === profile.workspaceId) {
+        return name;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * `syncBehavior` as the workspace being pushed to sees it. The top level alone
+ * misses a `workspaces.<name>.overrides.syncBehavior`, which is where a repo
+ * that varies settings per workspace puts it, and the entry to read is the one
+ * `--workspace` names — falling back to the profile, then to the git branch —
+ * the same order `sync push` resolves it in.
+ */
+export async function readEffectiveSyncBehavior(
+  opts: { workspace?: string },
+  profile?: { remote: string; workspaceId: string }
+): Promise<string | undefined> {
+  const config = await readConfigFile({ warnIfMissing: false });
+  const named = resolveWsNameForConfigFromFlags({ ...config, ...opts });
+  const effective = await getEffectiveSettings(
+    config,
+    undefined,
+    false,
+    true,
+    named ?? (profile ? inferWsNameFromProfile(config, profile) : undefined)
+  );
+  return effective.syncBehavior;
+}
+
 const RESERVED_WORKSPACE_KEYS = new Set(["commonSpecificItems"]);
 
 /**
