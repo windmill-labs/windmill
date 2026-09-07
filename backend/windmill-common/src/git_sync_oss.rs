@@ -1,7 +1,7 @@
 #[cfg(feature = "private")]
 #[allow(unused)]
 pub use crate::git_sync_ee::*;
-#[cfg(not(feature = "private"))]
+#[cfg(not(all(feature = "private", feature = "enterprise")))]
 use sqlx::{Pool, Postgres};
 use url::Url;
 
@@ -17,7 +17,11 @@ pub async fn get_github_app_token_internal(
 
 /// Server-held git credentials are an enterprise feature, so on this build a
 /// repository URL authenticates with whatever it already carries.
-#[cfg(not(feature = "private"))]
+///
+/// Gated on the pair rather than on `private` alone: `private` does not imply
+/// `enterprise`, and the callers are plain (no `#[cfg]`), so a build with one
+/// and not the other would find neither this nor the enterprise definition.
+#[cfg(not(all(feature = "private", feature = "enterprise")))]
 pub async fn with_stored_credential(
     _db: &Pool<Postgres>,
     _w_id: &str,

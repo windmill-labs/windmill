@@ -441,8 +441,11 @@ pub struct GitCredentialStatus {
     /// different credential here", which look identical at the API otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_fingerprint: Option<String>,
-    /// Rotation needs both a scope that permits it (`api` or `self_rotate`) and a
-    /// URL Windmill can write back to. `scopes` says which of the two is missing.
+    /// Whether Windmill renews this credential itself. That needs a scope which
+    /// permits it (`api` or `self_rotate`) and a credential this workspace holds:
+    /// a token carried in the repository URL is the operator's to manage, and one
+    /// resolved from an ancestor is the ancestor's, so neither is renewed here.
+    /// `scopes` therefore only tells the scope half apart.
     pub rotatable: bool,
     /// Unix timestamp (seconds) of the last check.
     pub checked_at: i64,

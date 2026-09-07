@@ -41,6 +41,10 @@
 	let listError: string | undefined = $state(undefined)
 	let applying = $state(false)
 	let applyError: string | undefined = $state(undefined)
+	/** The token the current listing was made with. Editing the token afterwards
+	 * leaves projects on screen that were never checked against it, and applying
+	 * would store the new token for a project chosen under the old one. */
+	let listedToken = $state('')
 
 	// Shown alongside the GitHub App button and on the same terms, so the two
 	// read as one choice rather than one option and one absence.
@@ -56,6 +60,7 @@
 	let enabled = $derived(!!$enterpriseLicense)
 
 	let project = $derived(projects.find((p) => p.path_with_namespace === selectedProject))
+	let staleListing = $derived(projects.length > 0 && token !== listedToken)
 
 	async function listProjects() {
 		if (!ws) return
@@ -66,6 +71,7 @@
 				workspace: ws,
 				requestBody: { base_url: baseUrl, token, search: search || undefined }
 			})
+			listedToken = token
 			selectedProject = projects[0]?.path_with_namespace
 			if (projects.length === 0) {
 				listError = 'The token can see no project with at least the Developer role'
@@ -80,7 +86,7 @@
 	}
 
 	async function apply(close: (_: any) => void) {
-		if (!project || !token || applying) return
+		if (!project || !token || applying || staleListing) return
 		const chosen = project
 		const url = chosen.http_url_to_repo
 		applying = true
@@ -178,7 +184,12 @@
 					{#if listError}
 						<Alert type="error" title="Could not list projects" size="xs">{listError}</Alert>
 					{/if}
-					{#if projects.length > 0}
+					{#if staleListing}
+						<div class="text-xs font-normal text-secondary">
+							The token changed. List the projects again to choose one it can reach.
+						</div>
+					{/if}
+					{#if projects.length > 0 && !staleListing}
 						<div class="flex flex-col gap-y-1">
 							<div class="text-xs font-semibold text-emphasis">Project</div>
 							<Select

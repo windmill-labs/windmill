@@ -641,6 +641,9 @@
 				{:else if repo.credential.rotatable}
 					Repository token expires on {repo.credential.expires_at}. Renewing it automatically
 					requires an enterprise license.
+				{:else if (repo.credential.scopes ?? []).some((s) => s === 'api' || s === 'self_rotate')}
+					Repository token expires on {repo.credential.expires_at}. Windmill only renews a token it
+					holds, and this repository authenticates with one it does not.
 				{:else}
 					Repository token expires on {repo.credential.expires_at}. Give it the api or self_rotate
 					scope to let Windmill renew it automatically.
