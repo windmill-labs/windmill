@@ -627,10 +627,11 @@
 		labels = cfg.labels ?? undefined
 		description = cfg.description ?? ''
 		script_path = cfg.script_path ?? ''
-		// Before the fetch, which reads it: a flow-backed schedule looked up through
-		// ScriptService 404s into the swallowed catch below, leaving the form with no
-		// runnable — no arguments schema, no runnable actions.
-		itemKind = cfg.is_flow ? 'flow' : 'script'
+		// Before the fetch, which reads it: a flow looked up through ScriptService 404s
+		// into the swallowed catch below, leaving the form with no runnable. A config
+		// that does not state its kind keeps the one it was opened with, as `openNew`
+		// already does — some carry a flow path and no `is_flow`.
+		itemKind = (cfg.is_flow ?? is_flow) ? 'flow' : 'script'
 		await loadScript(script_path, generation)
 		if (generation !== applyGeneration) return
 
@@ -756,11 +757,10 @@
 					scheduleCfg.path,
 					{ workspace: previousWs ?? undefined }
 				)
-				// Read after the settle, not before: that awaits a request of its own with the
-				// form still editable, and an edit made in the meantime is one the host must
-				// not remount over — which this is the only thing that can tell it. That
-				// request is also long enough for the drawer to have moved on, so the
-				// identity is re-read rather than carried over from before it.
+				// After the settle, not before: an edit made across it is one the host must not
+				// remount over, and this is the only thing that can tell it. The identity is
+				// re-read there too — that request is long enough for the drawer to have
+				// moved on since the check before it.
 				const stillHereNow = initialPath === previousPath && wsId === previousWs
 				onUpdate?.(
 					scheduleCfg.path,
@@ -870,11 +870,9 @@
 		const previousEnabled = enabled
 		const path = initialPath
 		const ws = wsId
-		// A write this cell is already settling — this editor's or another's over the
-		// same schedule. Before anything is mutated, so a refused toggle leaves the
-		// switch where it was.
-		// `false`, not a bare return: the switch has already flipped itself, and that is
-		// what tells it to snap back (see TriggerModeToggle).
+		// Refused while a write for this schedule is in flight, this editor's or
+		// another's. `false`, not a bare return: the switch flipped itself on the click,
+		// and that is what tells it to snap back (see TriggerModeToggle).
 		if (isDraftSaving('trigger_schedule', path, { workspace: ws })) return false
 		// The baseline of the schedule being toggled, read before the request: this
 		// editor is reused for whatever the drawer opens next, and `initialConfig` is

@@ -352,12 +352,12 @@ export async function settleDraftAfterWrite<V>(
 	// `useMany` hands an empty path, wired to no key, so every request made for one
 	// is addressed to `/drafts/update/<kind>/` and 404s.
 	if (!fromPath) return
-	// A released cell reads as no cell at all, and its draft is then precisely what
-	// nothing is watching any more — except when the release itself is what took
-	// the handle away mid-write, in which case what it held still speaks for the
-	// user. Absent both, there is nothing newer to protect.
-	const held = live !== undefined ? live : releasedValue<V>(itemKind, fromPath, opts)
-	const diverged = held !== undefined && !draftValuesEqual(held, written)
+	// Anything this cell held during the write counts, not just what it holds now:
+	// an editor that let go mid-write and was reopened before this ran leaves a
+	// freshly loaded entry standing over the edit it released, and reading only the
+	// live one would take that baseline for "nothing newer" and delete the edit.
+	const newer = (v: V | undefined) => v !== undefined && !draftValuesEqual(v, written)
+	const diverged = newer(live) || newer(releasedValue<V>(itemKind, fromPath, opts))
 	if (savedPath === fromPath && diverged) return
 	// The form stays editable across the delete's own request, so a keystroke made
 	// then queues a write behind it: under an unchanged path that write is the
