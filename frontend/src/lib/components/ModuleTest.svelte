@@ -17,9 +17,11 @@
 	import {
 		inlineAgentDraft,
 		loadLinkedAgentDrafts,
-		normalizeAgentRef
+		normalizeAgentRef,
+		type LinkedAgentDraft
 	} from './flows/linkedAgentDrafts'
 	import { AGENT_FLOW_LOCAL_KEYS } from './flows/agentResourceUtils'
+	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		mod: FlowModule
@@ -148,11 +150,20 @@
 			// whole-flow preview and the agent editor's own test pane run it. `inlineAgentDraft`
 			// clears `agent` and moves the draft's brain and tools onto the step, so the branches
 			// below then treat it as a standalone agent.
-			const draft = val.agent
-				? (await loadLinkedAgentDrafts([normalizeAgentRef(val.agent)], opWs)).get(
-						normalizeAgentRef(val.agent)
-					)
-				: undefined
+			let draft: LinkedAgentDraft | undefined
+			if (val.agent) {
+				const linked = normalizeAgentRef(val.agent)
+				try {
+					draft = (await loadLinkedAgentDrafts([linked], opWs)).get(linked)
+				} catch (err: any) {
+					// The load refuses when the agent's unsaved changes cannot be read, and this function's
+					// caller neither awaits nor catches: without this the rejection is unhandled and the
+					// button appears to do nothing, with the test already marked as started.
+					sendUserToast(`Could not run test: ${err?.body ?? err}`, true)
+					modulesTestStates.states[mod.id].loading = false
+					return
+				}
+			}
 			const agentVal = draft ? inlineAgentDraft(val, draft.args) : val
 
 			// `args` is built from the whole AI agent schema whatever the step is, so on a linked step

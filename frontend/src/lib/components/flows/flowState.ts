@@ -5,7 +5,7 @@ import { get } from 'svelte/store'
 import { workspaceStore } from '$lib/stores'
 import { isFlowModuleTool, agentToolToFlowModule, type AgentTool } from './agentToolUtils'
 import { linkedToolsScope, setLinkedAgentTools } from './linkedAgentToolsStore.svelte'
-import { AgentDraftUnavailable, fetchAgentWithDraft, normalizeAgentRef } from './linkedAgentDrafts'
+import { fetchAgentWithDraft, normalizeAgentRef } from './linkedAgentDrafts'
 import { loadFlowModuleState } from './flowStateUtils.svelte'
 import { emptyFlowModuleState } from './utils.svelte'
 import type { StateStore } from '$lib/utils'
@@ -176,12 +176,13 @@ export async function resolveLinkedAgentTools(
 				const { response, draft } = await fetchAgentWithDraft(path, ws)
 				const value = (draft?.args ?? response.value) as { tools?: AgentTool[] } | undefined
 				return (value?.tools ?? []) as AgentTool[]
-			} catch (err) {
-				// Only the DRAFT was unreadable. This is a display, not a run, so fall back to the
-				// deployed tools rather than showing an agent with none: an empty node list reads as
+			} catch {
+				// The draft read failed for any reason. This is a display, not a run, so fall through to
+				// the deployed tools rather than showing an agent with none: an empty node list reads as
 				// "the agent lost its tools" instead of "we could not reach the server". The paths that
 				// act on a draft — the previews and the deploy dialog — surface the failure instead.
-				if (!(err instanceof AgentDraftUnavailable)) throw err
+				// Not rethrowing anything here: the outer catch turns every throw into `[]`, so a
+				// rethrow would skip the very fallback this exists for.
 			}
 		}
 		const res = await ResourceService.getResource({ workspace: ws, path })

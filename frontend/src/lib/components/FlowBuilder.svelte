@@ -101,7 +101,6 @@
 	import DraftChangesConfirmationModal from './common/confirmationModal/DraftChangesConfirmationModal.svelte'
 	import {
 		agentDraftCanWrite,
-		fetchAgentWithDraft,
 		linkedAgentPaths,
 		loadLinkedAgentDrafts,
 		type LinkedAgentDraft
@@ -109,7 +108,6 @@
 	import { agentDraftDeployRefusal } from './flows/agentDraft.svelte'
 	import { markAgentWritten } from './flows/agentEditorStore.svelte'
 	import { logReusableAgentUsage } from './flows/agentTelemetry'
-	import { agentEditorRefusal } from './flows/agentResourceUtils'
 	import { deployDraft } from '$lib/utils_draft_deploy'
 	import { getUserExt } from '$lib/user'
 	import { Triggers } from './triggers/triggers.svelte'
@@ -127,7 +125,7 @@
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
-	import { UserDraft, draftValuesEqual } from '$lib/userDraft.svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 
 	let {
@@ -266,10 +264,12 @@
 		confirmDeploymentCallback({ triggers: selectedTriggers, agents: selectedAgents })
 	}
 
-	/** Write each selected agent's draft to its resource. Deployed rather than dropped is the whole
-	 *  point of the toggle, so a failure aborts the deploy the way a failing trigger does: a flow
-	 *  saved against agents that were meant to change with it would be a half state nobody asked
-	 *  for. Agents left out keep their draft untouched. */
+	/** Deploy each selected agent's draft, the same way the Review & Deploy page deploys the same
+	 *  row: hand the path to `deployDraft` and let it promote whatever the draft holds. Deliberately
+	 *  no pre-read to check the draft still matches what the dialog listed — that guarantee is one
+	 *  no deploy surface in Windmill offers, and upholding it here meant carrying a `last_sync`
+	 *  baseline across three round trips and evicting an in-memory cell, which cost more correctness
+	 *  than it bought. Agents left out keep their draft untouched. */
 	async function deployAgentDrafts(agents: LinkedAgentDraft[]) {
 		const ws = opWorkspace
 		if (!ws) return
@@ -282,69 +282,16 @@
 				logReusableAgentUsage('draft_kept_on_deploy')
 			}
 		}
-		// Validate every agent before writing any. Interleaving the two would let a mismatch on the
-		// second agent abort the deploy with the first already written and the flow itself not saved,
-		// which is a worse state than either outcome the dialog offered.
 		for (const agent of agents) {
-			// The dialog can sit open indefinitely, so the draft may have moved under it: another tab,
-			// the generic resource editor, the agent editor's own Deploy. `deployDraft` reads the draft
-			// again, and deploying whatever is there now would write a config the dialog never showed
-			// and its refusal rule never checked. So compare first and refuse on a mismatch, letting
-			// the user look at what changed.
-			const { response, draft: current } = await fetchAgentWithDraft(agent.path, ws)
-			if (!draftValuesEqual(current, agent.state)) {
-				throw new Error(
-					`The draft for ${agent.path} changed since this dialog opened, so nothing was deployed for it. Reopen the deploy dialog to see the current one.`
-				)
-			}
-			// Adopt what was just read as the baseline for this key. `deployDraft` finishes by deleting
-			// the draft row, and that delete is only conditional when a baseline exists: without one the
-			// server has nothing to compare against and deletes unconditionally, so an edit landing
-			// between its read and its delete would be destroyed having never been deployed. With this,
-			// the row is newer than the baseline and the delete is refused instead. Safe to seed here
-			// and not inside `fetchAgentWithDraft`, which the step card also calls: this clears the
-			// failure state the agent editor's save indicator reads, and the checks above have already
-			// established there is none.
-			// Cast as in `loadLinkedAgentDrafts`: the `get_draft` overlay fields ride on the response but
-			// are not on the generated `Resource` type.
-			UserDraftDbSyncer.recordRemoteSync(
-				{ workspace: ws, itemKind: 'resource', path: agent.path },
-				(response as { draft_saved_at?: string }).draft_saved_at
-			)
-			// The type is as old as the dialog otherwise: were the path deleted and recreated as
-			// something else meanwhile, the write below would put an agent config inside it.
-			const notAnAgent = agent.noDeployed
-				? undefined
-				: agentEditorRefusal(agent.path, response.resource_type)
-			if (notAnAgent) {
-				throw new Error(`Could not deploy agent ${agent.path}: ${notAnAgent}`)
-			}
-		}
-		for (const agent of agents) {
-			// Same call the Review & Deploy page makes for this draft row: one deploy mechanism per
-			// draft kind. It writes the resource, deletes the draft row, and clears the local hint and
-			// the workspace drafts cache.
+			// Writes the resource, deletes the draft row, and clears the local hint and the workspace
+			// drafts cache. A failure aborts the flow save the way a failing trigger does, rather than
+			// deploying a flow against agents that were meant to change with it.
 			const deployed = await deployDraft('resource', agent.path, ws, {
 				draftOnly: agent.noDeployed
 			})
 			if (!deployed.success) {
 				throw new Error(`Could not deploy agent ${agent.path}: ${deployed.error}`)
 			}
-			// A draft that went between the check above and this write leaves `deployDraft` with
-			// nothing to promote, which is a success for a caller deploying whatever a listing held but
-			// not for this one: it named a specific draft, and reporting that agent as deployed would
-			// be a lie the toggle was there to prevent.
-			if (deployed.noop) {
-				throw new Error(
-					`The draft for ${agent.path} was deployed or discarded elsewhere while this deploy ran, so nothing was written for it.`
-				)
-			}
-			// `deployDraft` deletes the row through the syncer, which leaves any in-memory cell for
-			// this key untouched, and that cell is what `agentDraftState` prefers: without this a
-			// second deploy in the same session would list the agent again from a draft that is gone.
-			// Local only — `remove` would POST a second delete, debounced and with the baseline the
-			// first one cleared, which would land unconditionally and take a newer edit with it.
-			UserDraft.forgetLocal('resource', agent.path, { workspace: ws })
 			// Every linked card and the graph key on this to refetch the agent they display.
 			markAgentWritten(ws, agent.path)
 			logReusableAgentUsage('draft_deployed_with_flow')

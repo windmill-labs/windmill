@@ -6,6 +6,7 @@ import { sendUserToast } from '$lib/toast'
 import { canWrite } from '$lib/utils'
 import { userStore } from '$lib/stores'
 import { getUserExt } from '$lib/user'
+import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { useTriggerDraftSync, type TriggerDraftSync } from '../triggers/useTriggerDraftSync.svelte'
 import { logReusableAgentUsage } from './agentTelemetry'
 import {
@@ -308,6 +309,16 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 						// config before the autosave lands.
 						state =
 							((r as any).draft as AgentResourceState | undefined) ?? structuredClone(deployedState)
+						// Adopt the row's timestamp as this tab's baseline. Without it the first save from
+						// each tab goes out with no `last_sync`, which the backend treats as unconditional
+						// and so silently overwrites another tab's newer draft. It also clears any parked
+						// conflict or failure for the key: a conflict is deliberately sticky (the retry
+						// keeps the same baseline), and nothing else mounts a resolver for `resource`
+						// drafts, so re-opening the agent is the only place it can be resolved.
+						UserDraftDbSyncer.recordRemoteSync(
+							{ workspace: ws, itemKind: 'resource', path },
+							(r as { draft_saved_at?: string }).draft_saved_at
+						)
 						loading = false
 						await sync.maybeRestore()
 					},
