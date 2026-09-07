@@ -6,6 +6,8 @@ pub const ALLOW_PRIVATE_MCP_SERVER_URLS_ENV: &str = "ALLOW_PRIVATE_MCP_SERVER_UR
 
 pub const ALLOW_PRIVATE_SAML_METADATA_URLS_ENV: &str = "ALLOW_PRIVATE_SAML_METADATA_URLS";
 
+pub const ALLOW_PRIVATE_GUEST_JWKS_URLS_ENV: &str = "ALLOW_PRIVATE_GUEST_JWKS_URLS";
+
 /// Why a URL failed SSRF validation.
 ///
 /// The distinction matters for callers that gate private endpoints behind a
@@ -18,6 +20,9 @@ pub enum SsrfValidationError {
     InvalidUrl(String),
     /// Scheme is not `http`/`https`.
     DisallowedScheme(String),
+    /// The URL uses `http` where `https` is required (guest JWKS). The private-host opt-in
+    /// also permits `http`, so, unlike the other scheme errors, this one the flag can fix.
+    HttpsRequired,
     /// No host in the URL.
     MissingHost,
     /// DNS resolution failed for the host.
@@ -37,6 +42,9 @@ impl std::fmt::Display for SsrfValidationError {
                 f,
                 "URL scheme '{s}' is not allowed, only http and https are permitted"
             ),
+            SsrfValidationError::HttpsRequired => {
+                write!(f, "URL must use https")
+            }
             SsrfValidationError::MissingHost => write!(f, "URL must have a host"),
             SsrfValidationError::ResolutionFailed { host, source } => {
                 write!(f, "Failed to resolve host '{host}': {source}")
@@ -207,6 +215,36 @@ pub async fn validate_saml_metadata_url(url: &str) -> Result<ValidatedTarget, Ss
     let host = parsed.host_str().ok_or(SsrfValidationError::MissingHost)?;
 
     if allow_private_saml_metadata_urls() {
+        return Ok(ValidatedTarget::unpinned(host));
+    }
+
+    validate_url_for_ssrf(url).await
+}
+
+/// Validate a workspace admin's guest-JWKS URL and return the [`ValidatedTarget`] so
+/// the fetch can pin the connect. `https` is required (the JWKS authenticates guest JWTs);
+/// `ALLOW_PRIVATE_GUEST_JWKS_URLS` opts a private range AND plaintext `http` in, for dev.
+pub async fn validate_guest_jwks_url(url: &str) -> Result<ValidatedTarget, SsrfValidationError> {
+    let parsed =
+        url::Url::parse(url).map_err(|e| SsrfValidationError::InvalidUrl(e.to_string()))?;
+
+    let allow_private = std::env::var(ALLOW_PRIVATE_GUEST_JWKS_URLS_ENV)
+        .ok()
+        .is_some_and(|v| v == "true" || v == "1");
+
+    match parsed.scheme() {
+        "https" => {}
+        // Plaintext HTTP only under the explicit operator opt-in that also allows private
+        // hosts (dev/loopback): the JWKS supplies the keys that authenticate guest JWTs, so an
+        // on-path attacker who could replace an http response could forge accepted tokens.
+        "http" if allow_private => {}
+        "http" => return Err(SsrfValidationError::HttpsRequired),
+        scheme => return Err(SsrfValidationError::DisallowedScheme(scheme.to_string())),
+    }
+
+    let host = parsed.host_str().ok_or(SsrfValidationError::MissingHost)?;
+
+    if allow_private {
         return Ok(ValidatedTarget::unpinned(host));
     }
 

@@ -2065,10 +2065,35 @@ fn apply_completed_job_cloud_usage(
     queued_job: &MiniCompletedJob,
     _duration: i64,
 ) {
-    if *CLOUD_HOSTED && !queued_job.is_flow() && _duration > 1000 {
+    if !queued_job.is_flow() {
+        meter_execution_seconds(
+            db,
+            &queued_job.workspace_id,
+            &queued_job.permissioned_as_email,
+            _duration,
+        );
+    }
+}
+
+/// Charge `_duration` of execution time to the cloud usage meters: the workspace's
+/// monthly row, plus the per-user row on non-premium plans.
+///
+/// The unit is one finished **segment**, not one job. A Workflow-as-Code parent parks on
+/// a sleep, an approval or its children and resumes with a fresh timer, so its compute
+/// arrives here as several calls; metering only the one at completion would drop
+/// everything it ran before its first park.
+///
+/// Fire-and-forget, like every other write to `usage`: billing must never hold up the
+/// job that produced it.
+///
+/// `w_id` and `email` are billed as given and authorize nothing on their own — take them
+/// from a job the caller already holds, never from request input.
+#[cfg(feature = "cloud")]
+pub fn meter_execution_seconds(db: &Pool<Postgres>, w_id: &str, email: &str, _duration: i64) {
+    if *CLOUD_HOSTED && _duration > 1000 {
         let db = db.clone();
-        let w_id = queued_job.workspace_id.clone();
-        let email = queued_job.permissioned_as_email.clone();
+        let w_id = w_id.to_string();
+        let email = email.to_string();
         let w_id2 = w_id.clone();
         let email2 = email.clone();
         tokio::task::spawn(async move {
@@ -7283,13 +7308,17 @@ async fn check_workspace_queue_cap<'c>(
 //     Ok(())
 // }
 
-pub fn canceled_job_to_result(job: &MiniPulledJob) -> serde_json::Value {
-    let reason = job
-        .canceled_reason
-        .as_deref()
-        .unwrap_or_else(|| "no reason given");
-    let canceler = job.canceled_by.as_deref().unwrap_or_else(|| "unknown");
+/// The result payload a job cancelled anywhere carries. Callers that hold the cancel
+/// outside a `MiniPulledJob` — a row read after the pull, say — go through this rather
+/// than rebuilding the shape.
+pub fn canceled_result(reason: Option<&str>, canceler: Option<&str>) -> serde_json::Value {
+    let reason = reason.unwrap_or("no reason given");
+    let canceler = canceler.unwrap_or("unknown");
     serde_json::json!({"message": format!("Job canceled: {reason} by {canceler}"), "name": "Canceled", "reason": reason, "canceler": canceler})
+}
+
+pub fn canceled_job_to_result(job: &MiniPulledJob) -> serde_json::Value {
+    canceled_result(job.canceled_reason.as_deref(), job.canceled_by.as_deref())
 }
 
 /// Helper function to create a restarted module for branch/iteration restart

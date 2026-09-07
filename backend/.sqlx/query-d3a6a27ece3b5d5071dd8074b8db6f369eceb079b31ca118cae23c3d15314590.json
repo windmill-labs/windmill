@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT usage_kind::text AS \"kind!\", COUNT(*)::BIGINT AS \"count!\"\n             FROM asset WHERE kind = 'datatable' AND usage_kind <> 'job'\n             GROUP BY 1\n           UNION ALL\n           SELECT 'job_recent'::text, COUNT(DISTINCT (workspace_id, path))::BIGINT\n             FROM asset\n             WHERE kind = 'datatable' AND usage_kind = 'job'\n               AND created_at > now() - interval '30 days'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "kind!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "d3a6a27ece3b5d5071dd8074b8db6f369eceb079b31ca118cae23c3d15314590"
+}
