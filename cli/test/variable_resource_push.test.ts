@@ -454,11 +454,31 @@ describe("variable", () => {
       );
       expect(noOpinionResult.code).toEqual(0);
 
+      const noOpinionApiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/get/${varPath}`
+      );
+      expect((await noOpinionApiResp.json()).extra_perms).toEqual({
+        "g/all": false,
+      });
+
+      // An owner present remotely but absent from a *present* map is revoked —
+      // the one direction that can destroy a grant.
+      await writeFile(
+        localPath,
+        `description: "Variable for extra_perms test"\nvalue: perms_test_value\nis_secret: false\nextra_perms: {}\n`,
+        "utf-8"
+      );
+      const revokeResult = await backend.runCLICommand(
+        ["sync", "push", "--yes"],
+        tempDir
+      );
+      expect(revokeResult.code).toEqual(0);
+
       const finalResp = await backend.apiRequest!(
         `/api/w/${backend.workspace}/variables/get/${varPath}`
       );
       const final = await finalResp.json();
-      expect(final.extra_perms).toEqual({ "g/all": false });
+      expect(final.extra_perms).toEqual({});
     });
   });
 });
