@@ -40,17 +40,27 @@
 	let advanced = $state(false)
 	let automateUsername = $state(true)
 	let suggestedUsername = $state<string | undefined>(undefined)
+	/**
+	 * Whether the username policy has landed. Nothing may be submitted before it does:
+	 * `automateUsername` starts at the common case, and posting that guess to an instance
+	 * that derives no usernames sends none where one is required.
+	 */
+	let policyLoaded = $state(false)
+	/** Someone typed while the prefill was in flight; their name wins over the suggestion. */
+	let nameEdited = false
 
 	async function load() {
 		try {
 			const [me, policy] = await Promise.all([UserService.globalWhoami(), loadUsernamePolicy()])
-			name = defaultWorkspaceName(me.name, me.email)
+			if (!nameEdited) name = defaultWorkspaceName(me.name, me.email)
 			automateUsername = policy.automate
 			suggestedUsername = policy.suggested
 			if (!policy.automate && !policy.suggested) advanced = true
 		} catch (error) {
 			console.error('Could not prefill the workspace name:', error)
-			name = 'My workspace'
+			if (!nameEdited) name = 'My workspace'
+		} finally {
+			policyLoaded = true
 		}
 	}
 	void load()
@@ -91,7 +101,7 @@
 	}
 
 	async function create() {
-		if (problem || creating) return
+		if (problem || creating || !policyLoaded) return
 		creating = true
 		const workspaceName = name.trim()
 		const started = Date.now()
@@ -149,6 +159,7 @@
 			inputProps={{
 				autofocus: true,
 				maxlength: WORKSPACE_NAME_MAX_LENGTH,
+				oninput: () => (nameEdited = true),
 				onkeydown: (e) => e.key === 'Enter' && create()
 			}}
 		/>
@@ -168,7 +179,12 @@
 					Advanced settings
 				</button>
 			</div>
-			<Button variant="accent" unifiedSize="md" disabled={!!problem} onClick={create}>
+			<Button
+				variant="accent"
+				unifiedSize="md"
+				disabled={!!problem || !policyLoaded}
+				onClick={create}
+			>
 				Create workspace
 			</Button>
 		</div>
