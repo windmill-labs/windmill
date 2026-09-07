@@ -1166,10 +1166,13 @@ Success is half of the contract: a relation a later run defers to has to exist.
 The workspace warehouse's name, the target dbt actually runs, and the database
 and schema that target resolves to — the pair `relation_root` reports to the
 graph's drift check. Each component is length-prefixed rather than joined on a
-separator (`4:main|4:prod|9:analytics|12:warehouse`): a target name and a schema
-are both the user's own strings, so `prod|analytics` + `scratch` and `prod` +
+separator — `<warehouse>|<target>|<schema>|<database>`, each written `<len>:<value>`,
+so `main`/`prod`/`analytics`/`dbt_wh_defer` is stored as
+`4:main|4:prod|9:analytics|12:dbt_wh_defer`. A target name and a schema are both
+the user's own strings, so `prod|analytics` + `scratch` and `prod` +
 `analytics|scratch` would otherwise be one key, and a profile moving between them
-would read as the same environment rather than as one nothing has published.
+would read as the same environment rather than as one nothing has published. What
+a message names is spelled out instead, never the encoded key.
 
 The target is the EFFECTIVE one, not the descriptor's `profile.target`: a
 descriptor naming none inherits the workspace warehouse's, or the default in the

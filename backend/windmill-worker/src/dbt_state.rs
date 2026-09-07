@@ -72,8 +72,9 @@ pub(crate) fn environment(p: &PreparedProject) -> String {
 /// arbitrary strings a profile may quote — so `prod|analytics` + `scratch` and
 /// `prod` + `analytics|scratch` would otherwise be one key, and a profile moving
 /// between them would read as the same environment rather than as one nothing
-/// has published. Same reasoning as `stable_digest`, and readable for the same
-/// reason the row is: `4:main|4:prod|9:analytics|12:warehouse`.
+/// has published. Same reasoning as `stable_digest`, and still legible in a row:
+/// `4:main|4:prod|9:analytics|12:dbt_wh_defer`. What a MESSAGE names is
+/// `environment_label`, since this encoding is for storage.
 fn environment_key(
     warehouse: Option<&str>,
     target: Option<&str>,
@@ -88,6 +89,23 @@ fn environment_key(
         })
         .collect::<Vec<_>>()
         .join("|")
+}
+
+/// The environment as a message names it: the key above is length-prefixed for
+/// storage, which is not something to put in front of a caller.
+fn environment_label(p: &PreparedProject) -> String {
+    format!(
+        "warehouse `{}`, target `{}`, relations in `{}`",
+        p.warehouse.as_deref().unwrap_or("(none)"),
+        p.effective_target
+            .as_deref()
+            .unwrap_or("(the profile's default)"),
+        match (p.default_database.as_deref(), p.default_schema.as_deref()) {
+            (Some(db), Some(schema)) => format!("{db}.{schema}"),
+            (None, Some(schema)) => schema.to_string(),
+            _ => "(the adapter's default)".to_string(),
+        }
+    )
 }
 
 /// The state one environment last published.
@@ -632,7 +650,7 @@ pub(crate) async fn prepare_deferral(
              does any run of a descriptor that interpolates a `{{{{ }}}}` placeholder into `vars` \
              or a `$var:` into `env` — those describe a model set the caller's arguments decided. \
              Run this script once without `defer` and without overrides",
-            environment(p)
+            environment_label(p)
         )));
     };
     write_state_dir(
