@@ -142,11 +142,9 @@
 				{#if hasArgs}
 					<!-- The one thing here that runs before Run: a `dynselect-`/`dynmultiselect-`
 			argument makes DynamicInput execute that entrypoint on mount to fill its options — a
-			real job carrying the other args as proposed, which Cancel does not undo. For a test
-			run that code is the draft the model just wrote, so displaying this form executes it.
-			Accepted deliberately: the job is permissioned as the user and can reach nothing they
-			could not, and a field whose options never load is a free-text box for a value that
-			has a real option set. Everything else here waits for the user.
+			real job carrying the other args as proposed, which Cancel does not undo. For a test run
+			that code is the draft the model just wrote; the job is permissioned as the user and
+			reaches nothing they could not. Everything else here waits for the user.
 
 			A test run names its draft by code, not by path: `deployed` would resolve a version
 			that is stale, or absent for a draft never deployed. Withheld entirely under plan
