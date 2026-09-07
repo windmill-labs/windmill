@@ -149,6 +149,12 @@ describe('deployDraft: resource with no draft', () => {
 		})
 		expect(ResourceService.updateResource).not.toHaveBeenCalled()
 		expect(ResourceService.createResource).not.toHaveBeenCalled()
+		// Nor does it touch the draft row. There was none of this user's to delete, so the only row
+		// the cleanup could reach is one written after the read: an edit destroyed without ever
+		// having been deployed. Clearing the baseline would be the same bug by another route, since
+		// a delete with no baseline is the unconditional one.
+		expect(UserDraftDbSyncer.save).not.toHaveBeenCalled()
+		expect(UserDraftDbSyncer.recordRemoteSync).not.toHaveBeenCalled()
 	})
 
 	it('still deploys normally when the draft is there, and keys the cleanup to the row it read', async () => {

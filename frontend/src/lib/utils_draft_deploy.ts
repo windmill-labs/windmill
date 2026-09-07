@@ -589,11 +589,15 @@ export async function deployDraft(
 			// the backend deletes unconditionally, so a draft saved between that read and the delete is
 			// destroyed having never been deployed — a caller that only ever read through a listing has
 			// no baseline of its own to supply. With it the delete is refused instead and the newer
-			// draft survives, which is the recoverable outcome of the two.
-			UserDraftDbSyncer.recordRemoteSync(
-				{ workspace, itemKind: kind, path },
-				overlay?.draft_saved_at
-			)
+			// draft survives, which is the recoverable outcome of the two. Only ever seeded, never
+			// cleared: passing no timestamp drops whatever baseline the tab already held, which would
+			// turn that same delete back into an unconditional one.
+			if (overlay?.draft_saved_at) {
+				UserDraftDbSyncer.recordRemoteSync(
+					{ workspace, itemKind: kind, path },
+					overlay.draft_saved_at
+				)
+			}
 			const { deployed, draft: d, hasDraft } = splitOverlay(overlay)
 			// ResourceEditor's `ResourceState` draft shape:
 			// { path, description, args, resource_type?, labels?, wsSpecific }
@@ -667,13 +671,18 @@ export async function deployDraft(
 		//    synthetic `u/{user}/draft_{uuid}` storage path ≠ `d.path`, so its
 		//    draft row survives the deploy and keeps listing. Deleting the
 		//    storage-path draft removes it (a no-op when the server already did).
-		await UserDraftDbSyncer.save({
-			workspace,
-			itemKind: kind,
-			path,
-			value: null,
-			immediate: true
-		})
+		// Skipped when nothing was promoted: the read that set `noop` found no draft of this user's to
+		// delete, so the only row this could reach is one written after it — destroying an edit that
+		// was never deployed, and never even listed.
+		if (!noop) {
+			await UserDraftDbSyncer.save({
+				workspace,
+				itemKind: kind,
+				path,
+				value: null,
+				immediate: true
+			})
+		}
 		// Mutated the workspace's Server Drafts — refresh every mounted reader.
 		invalidateWorkspaceDrafts(workspace)
 		// The DEPLOYED state moved: cached fork comparisons involving this
