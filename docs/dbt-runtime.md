@@ -1163,9 +1163,13 @@ Success is half of the contract: a relation a later run defers to has to exist.
 
 ### The environment is the warehouse, the target and where they resolve to
 
-`<warehouse>|<target>|<schema>|<database>` — the workspace warehouse's name and
-the target dbt actually runs, plus the database and schema that target resolves
-to, which is the same `relation_root` the graph's drift check reads.
+The workspace warehouse's name, the target dbt actually runs, and the database
+and schema that target resolves to — the pair `relation_root` reports to the
+graph's drift check. Each component is length-prefixed rather than joined on a
+separator (`4:main|4:prod|9:analytics|12:warehouse`): a target name and a schema
+are both the user's own strings, so `prod|analytics` + `scratch` and `prod` +
+`analytics|scratch` would otherwise be one key, and a profile moving between them
+would read as the same environment rather than as one nothing has published.
 
 The target is the EFFECTIVE one, not the descriptor's `profile.target`: a
 descriptor naming none inherits the workspace warehouse's, or the default in the

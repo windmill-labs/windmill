@@ -54,7 +54,10 @@ pub(crate) fn environment(p: &PreparedProject) -> String {
         // workspace warehouse's and to the project's own default, so reading the
         // descriptor's would put two inherited targets under one empty name.
         p.effective_target.as_deref(),
-        &p.relation_root(),
+        // The pair `relation_root` reports to the graph's drift check, taken
+        // apart so neither can absorb the other's delimiter below.
+        p.default_schema.as_deref(),
+        p.default_database.as_deref(),
     )
 }
 
@@ -64,15 +67,27 @@ pub(crate) fn environment(p: &PreparedProject) -> String {
 /// and a manifest is a list of relation names, so a deferral has no other way to
 /// notice. A move therefore reads as an environment nothing has published yet.
 ///
-/// `relation_root` rather than the two fields, so the one definition of where a
-/// run's relations live serves both this and the graph's drift check.
-fn environment_key(warehouse: Option<&str>, target: Option<&str>, relation_root: &str) -> String {
-    format!(
-        "{}|{}|{}",
-        warehouse.unwrap_or(""),
-        target.unwrap_or(""),
-        relation_root,
-    )
+/// Length-prefixed rather than joined on a separator. Every component but the
+/// warehouse is spelled by the user — a dbt target name and a schema are both
+/// arbitrary strings a profile may quote — so `prod|analytics` + `scratch` and
+/// `prod` + `analytics|scratch` would otherwise be one key, and a profile moving
+/// between them would read as the same environment rather than as one nothing
+/// has published. Same reasoning as `stable_digest`, and readable for the same
+/// reason the row is: `4:main|4:prod|9:analytics|12:warehouse`.
+fn environment_key(
+    warehouse: Option<&str>,
+    target: Option<&str>,
+    schema: Option<&str>,
+    database: Option<&str>,
+) -> String {
+    [warehouse, target, schema, database]
+        .iter()
+        .map(|v| {
+            let v = v.unwrap_or("");
+            format!("{}:{v}", v.len())
+        })
+        .collect::<Vec<_>>()
+        .join("|")
 }
 
 /// The state one environment last published.
@@ -638,26 +653,53 @@ mod tests {
     // state at all rather than as state that silently no longer fits.
     #[test]
     fn a_moved_profile_is_another_environment() {
-        let here = environment_key(Some("main"), Some("prod"), "analytics|warehouse");
+        let here = environment_key(Some("main"), Some("prod"), Some("analytics"), Some("wh"));
         assert_eq!(
             here,
-            environment_key(Some("main"), Some("prod"), "analytics|warehouse")
+            environment_key(Some("main"), Some("prod"), Some("analytics"), Some("wh"))
         );
         assert_ne!(
             here,
-            environment_key(Some("other"), Some("prod"), "analytics|warehouse")
+            environment_key(Some("other"), Some("prod"), Some("analytics"), Some("wh"))
         );
         assert_ne!(
             here,
-            environment_key(Some("main"), Some("dev"), "analytics|warehouse")
+            environment_key(Some("main"), Some("dev"), Some("analytics"), Some("wh"))
         );
         assert_ne!(
             here,
-            environment_key(Some("main"), Some("prod"), "marts|warehouse")
+            environment_key(Some("main"), Some("prod"), Some("marts"), Some("wh"))
         );
         assert_ne!(
             here,
-            environment_key(Some("main"), Some("prod"), "analytics|other_db")
+            environment_key(
+                Some("main"),
+                Some("prod"),
+                Some("analytics"),
+                Some("other_db")
+            )
+        );
+    }
+
+    // A target name and a schema are both the user's own strings, so a component
+    // carrying the separator must not be able to spell another tuple's key: a
+    // profile moving between the two would read as the same environment and
+    // defer through the manifest of relations that are somewhere else.
+    #[test]
+    fn a_component_cannot_spell_another_environments_key() {
+        assert_ne!(
+            environment_key(Some("main"), Some("prod|analytics"), Some("scratch"), None),
+            environment_key(Some("main"), Some("prod"), Some("analytics|scratch"), None)
+        );
+        assert_ne!(
+            environment_key(Some("main"), Some("prod"), Some("a"), Some("b|c")),
+            environment_key(Some("main"), Some("prod"), Some("a|b"), Some("c"))
+        );
+        // A component the profile leaves out is the same environment as one it
+        // spells empty: there is no target named "".
+        assert_eq!(
+            environment_key(Some("main"), None, Some("a"), None),
+            environment_key(Some("main"), Some(""), Some("a"), Some(""))
         );
     }
 
