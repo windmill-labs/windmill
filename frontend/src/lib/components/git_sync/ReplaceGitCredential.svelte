@@ -40,18 +40,22 @@
 		if (!token || saving) return
 		saving = true
 		error = undefined
-		// Pinned before the first await: the field stays editable while the check
-		// runs, so re-reading it afterwards would store a token the check never saw.
+		// Pinned before the first await, all three: the field stays editable and the
+		// props follow the drawer's selected workspace and deployed URL, so
+		// re-reading any of them afterwards would store the token against something
+		// the check never validated.
 		const candidate = token
+		const forRepo = repoUrl
+		const inWorkspace = workspace
 		try {
 			// Check the token before storing it. The server binds a credential to its
 			// repository but only refuses it when something tries to use it, so a
 			// wrong token would otherwise be accepted here and surface as a failed
 			// sync later.
-			const parts = repoParts(repoUrl)
+			const parts = repoParts(forRepo)
 			if (parts) {
 				const projects = await GitSyncService.listGitlabProjects({
-					workspace,
+					workspace: inWorkspace,
 					// Searched by name rather than listed whole: the listing is one
 					// capped page, so a token that reaches more projects than fit
 					// would not show this one and a working token would be refused.
@@ -67,8 +71,8 @@
 				}
 			}
 			await GitSyncService.setGitCredential({
-				workspace,
-				requestBody: { repo_url: repoUrl, token: candidate }
+				workspace: inWorkspace,
+				requestBody: { repo_url: forRepo, token: candidate }
 			})
 			token = ''
 			sendUserToast('Token replaced')
