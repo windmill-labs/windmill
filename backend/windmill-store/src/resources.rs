@@ -134,7 +134,10 @@ pub struct EditResourceType {
     /// `Option` conflates: an absent field leaves the extension alone, while an
     /// explicit `null` clears it. A hub pull relies on both — a type that stops
     /// being a file type has to stop being one locally too.
-    #[serde(default, deserialize_with = "windmill_common::more_serde::double_option")]
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option"
+    )]
     pub format_extension: Option<Option<String>>,
 }
 
@@ -1309,6 +1312,19 @@ async fn delete_resource(
     let path = path.to_path();
 
     check_scopes(&authed, || format!("resources:write:{}", path))?;
+
+    // Ahead of the deployment rules, which gate deployments: nothing is deployed
+    // at a draft-only path, and discarding one's own draft is already ungated on
+    // the drafts routes. Gating it here would leave the row undeletable in a
+    // protected workspace. Also ahead of the transaction, unlike the other kinds,
+    // which take this case on their not-found branch: here that branch is the
+    // `not_found_if_none` below, with the linked-variable cascade already staged.
+    if delete_draft_only_for_path(&db, &w_id, UserDraftItemKind::Resource, path, &authed.email)
+        .await?
+    {
+        return Ok(format!("draft-only resource {} deleted", path));
+    }
+
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -1319,15 +1335,6 @@ async fn delete_resource(
     .await?
     {
         return Err(Error::PermissionDenied(msg));
-    }
-
-    // The draft-only case is taken up front, unlike the other kinds, which take
-    // it on their not-found branch: here that branch is the `not_found_if_none`
-    // below, mid-transaction with the linked-variable cascade already staged.
-    if delete_draft_only_for_path(&db, &w_id, UserDraftItemKind::Resource, path, &authed.email)
-        .await?
-    {
-        return Ok(format!("draft-only resource {} deleted", path));
     }
 
     let mut tx = user_db.begin(&authed).await?;
