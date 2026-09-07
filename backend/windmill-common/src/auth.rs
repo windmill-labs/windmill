@@ -19,7 +19,7 @@ use crate::{
 };
 
 /// Whether `label` denotes a user-created token rather than a system token
-/// (`session`, `ephemeral*`, `debugger-token`, `mcp-oauth-*`). System-token
+/// (`session`, `guest_session`, `ephemeral*`, `debugger-token`, `mcp-oauth-*`). System-token
 /// labels are load-bearing — session cleanup, super_admin propagation, expiry
 /// notifications and username overrides all key off them — so they must not be
 /// user-editable. `None` (no label) is treated as a user token.
@@ -36,6 +36,7 @@ pub fn is_user_token(label: Option<&str>) -> bool {
             // frontend mirror (`label.toLowerCase().startsWith('ephemeral')`) and
             // the SQL `lower(label) NOT LIKE 'ephemeral%'` guard.
             l != "session"
+                && l != GUEST_SESSION_LABEL
                 && !l.to_lowercase().starts_with("ephemeral")
                 && l != "debugger-token"
                 && !l.starts_with("mcp-oauth-")
@@ -56,7 +57,38 @@ pub fn is_server_minted_label(label: &str) -> bool {
         || label.starts_with("ephemeral-script-end-user-")
         || label == "ephemeral-script"
         || label == "session"
+        || label == GUEST_SESSION_LABEL
         || label.starts_with("mcp-oauth-")
+}
+
+/// Label on a guest session (the `guest` app execution mode). This is the *grant*:
+/// `AuthCache` will resolve a token carrying it into an identity with no account behind
+/// it, which nothing else can do. It must therefore stay unforgeable, which is what
+/// listing it in [`is_server_minted_label`] buys — `/users/tokens/create` refuses it.
+///
+/// Do not move this test onto the token's scopes. Scopes on a user-minted token are
+/// caller-supplied and only ever *narrow* (`app_embed`, `raw_app_sdk`), so a scope
+/// that granted non-member access would be free for anyone to declare.
+pub const GUEST_SESSION_LABEL: &str = "guest_session";
+
+/// Whether `label` marks a guest session. See [`GUEST_SESSION_LABEL`].
+///
+/// Reserved in [`is_user_token`] as well as [`is_server_minted_label`]: the former
+/// gates relabelling, and a user token that could be relabelled *into* this
+/// namespace would become a guest session with no workspace pin — one that
+/// authenticates everywhere.
+pub fn is_guest_session_label(label: Option<&str>) -> bool {
+    label == Some(GUEST_SESSION_LABEL)
+}
+
+/// Whether `path` can be spliced into a scope as one literal resource. The scope
+/// grammar reserves three characters: `:` separates the parts, `,` separates
+/// resources, `*` is a wildcard. App paths are otherwise free-form (spaces, `@`). A
+/// leading `/` is refused too: routes strip it, so the scope would never match.
+pub fn is_scope_literal_path(path: &str) -> bool {
+    !path.is_empty()
+        && !path.starts_with('/')
+        && !path.chars().any(|c| matches!(c, ':' | ',' | '*'))
 }
 
 /// Whether `label` is the one minted for a browser session at login. [`is_server_minted_label`]

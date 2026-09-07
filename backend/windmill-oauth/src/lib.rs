@@ -88,6 +88,8 @@ pub struct OAuthConfig {
     #[serde(default = "empty_string")]
     pub token_url: String,
     pub userinfo_url: Option<String>,
+    /// The registry JSON may also carry `scope_options`, a frontend-only pick
+    /// list for the connect dialog; it is deliberately not modelled here.
     pub scopes: Option<Vec<String>>,
     /// Default scopes for the client-credentials (2-legged) flow. These differ
     /// from the authorization-code `scopes` for most providers (member/consent

@@ -1937,6 +1937,15 @@ pub async fn delete_expired_items(db: &DB) -> () {
         tracing::error!("Error deleting old feature_usage rows: {e}");
     }
 
+    // Guest sign-ins, kept a month longer than the seat window they feed so a late
+    // telemetry send still sees a whole month.
+    if let Err(e) = sqlx::query!("DELETE FROM guest_activity WHERE day < CURRENT_DATE - 60")
+        .execute(db)
+        .await
+    {
+        tracing::error!("Error deleting old guest_activity rows: {e}");
+    }
+
     match sqlx::query_scalar!(
         "DELETE FROM agent_token_blacklist WHERE expires_at <= now() RETURNING token",
     )

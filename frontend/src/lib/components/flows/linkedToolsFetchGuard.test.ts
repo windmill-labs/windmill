@@ -57,7 +57,7 @@ describe('linked tools fetch guard', () => {
 		)
 
 		const inFlight = publishLinkedAgentTools('f/a/old', 'ws', scope, 'step')
-		setLinkedAgentTools(scope, 'step', [tool('kept')])
+		setLinkedAgentTools(scope, 'step', [tool('kept')], 'u/admin/a')
 
 		invalidateLinkedToolsFetches(scope)
 		release?.({ value: { tools: [tool('stale')] } })
@@ -75,7 +75,7 @@ describe('linked tools fetch guard', () => {
 
 		const inFlight = publishLinkedAgentTools('f/a/old', 'ws', scope, 'step')
 		claimLinkedToolsFetch(scope, 'step')
-		setLinkedAgentTools(scope, 'step', [tool('direct')])
+		setLinkedAgentTools(scope, 'step', [tool('direct')], 'u/admin/a')
 		release?.({ value: { tools: [tool('stale')] } })
 		await inFlight
 

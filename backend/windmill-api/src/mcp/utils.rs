@@ -1421,6 +1421,7 @@ mod tests {
             token_prefix: None,
             read_only: false,
             job_id,
+            credential_expiry: None,
         }
     }
 

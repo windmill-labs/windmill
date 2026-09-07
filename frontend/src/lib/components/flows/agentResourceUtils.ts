@@ -1,5 +1,6 @@
 import { deepEqual } from 'fast-equals'
 import type { InputTransform } from '$lib/gen'
+import { AGENT_FIELDS } from './agentFormFields'
 
 // The brain fields stored flat in an `ai_agent` resource value. The flow-local inputs
 // (user_message/user_attachments) are intentionally excluded — they are supplied per-flow.
@@ -18,6 +19,21 @@ export const AGENT_BRAIN_KEYS = [
 export const AGENT_FLOW_LOCAL_KEYS = ['user_message', 'user_attachments'] as const
 
 export type AgentTool = Record<string, any>
+
+/**
+ * Why this resource cannot be edited as an agent, if it cannot. A path with no deployed row answers
+ * with its own draft, whose type the generic resource editor never writes, so an unknown type is
+ * refused rather than assumed: deploying it would create that path as an agent.
+ */
+export function agentEditorRefusal(
+	path: string,
+	resourceType: string | undefined
+): string | undefined {
+	if (resourceType === 'ai_agent') return undefined
+	return resourceType
+		? `${path} is a ${resourceType} resource, not an agent.`
+		: `${path} has no deployed agent to edit.`
+}
 
 /** Brain keys whose step transform is non-static and would be dropped by a save-as-agent snapshot. */
 export function nonStaticBrainKeys(
@@ -87,30 +103,12 @@ export function inputTransformsToAgentConfig(
 	const config: AIAgentConfig = { tools: tools ?? [] }
 	for (const key of AGENT_BRAIN_KEYS) {
 		const t = inputTransforms?.[key] as any
-		if (t && t.type === 'static' && t.value !== undefined) {
+		// `null` as well as `undefined`: a placeholder transform is `{"type":"static"}`, and it comes
+		// back from the API — and from a schema backfill — with an explicit null. Writing it through
+		// would put `memory: null` in the saved agent and show as a change against a config that
+		// simply omits the key.
+		if (t && t.type === 'static' && t.value !== undefined && t.value !== null) {
 			;(config as any)[key] = t.value
-		}
-	}
-	return config
-}
-
-/**
- * The configuration as the step holds it, in the shape of the saved config: a static transform as
- * its value, any other transform as itself. The saved config keeps static values only, so a
- * comparison in that shape is blind to an expression — which the step runs, and linking strips.
- */
-export function agentConfigAsEdited(
-	inputTransforms: Record<string, InputTransform> | undefined,
-	tools: AgentTool[] | undefined
-): Record<string, unknown> {
-	const config: Record<string, unknown> = { tools: tools ?? [] }
-	for (const key of AGENT_BRAIN_KEYS) {
-		const t = inputTransforms?.[key] as any
-		if (!t) continue
-		if (t.type === 'static') {
-			if (t.value !== undefined) config[key] = t.value
-		} else {
-			config[key] = t
 		}
 	}
 	return config
@@ -138,16 +136,26 @@ export function flowLocalAgentSchema(schema: any): any {
 	}
 }
 
-const AGENT_BRAIN_LABELS: Record<string, string> = {
-	provider: 'Model',
-	output_type: 'Output type',
-	system_prompt: 'System prompt',
-	streaming: 'Streaming',
-	memory: 'Memory',
-	output_schema: 'Output schema',
-	max_completion_tokens: 'Max tokens',
-	temperature: 'Temperature',
-	max_iterations: 'Max iterations'
+/** Read off the form's own registry, so a linked agent's summary cannot name a field differently
+ *  from the form that edits it. */
+export const AGENT_BRAIN_LABELS: Record<string, string> = Object.fromEntries(
+	AGENT_FIELDS.map((f) => [f.key, f.label])
+)
+
+/**
+ * Brain keys set to an input transform rather than to a value, which a saved agent's plain JSON
+ * cannot hold. Matched on the tag so the whole `InputTransform` union is covered: a payload-key
+ * test would miss `{"type":"ai"}`, which carries none.
+ */
+export function transformValuedBrainKeys(args: Record<string, any> | undefined): string[] {
+	return AGENT_BRAIN_KEYS.filter((key) => {
+		const v = args?.[key]
+		return (
+			v !== null &&
+			typeof v === 'object' &&
+			(v.type === 'javascript' || v.type === 'ai' || v.type === 'static')
+		)
+	})
 }
 
 /** Flatten a saved agent's brain config into human-readable label/value rows for a read-only

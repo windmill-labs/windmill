@@ -55,6 +55,7 @@ pub fn global_service() -> Router {
         .route("/rename/{user}", post(rename_user))
         .route("/onboarding", post(submit_onboarding_data))
         .route("/ext_jwt_tokens", get(list_ext_jwt_tokens))
+        .route("/guests", get(list_guests))
         .route(
             "/offboard_preview/{user}",
             get(crate::offboarding::global_offboard_preview),
@@ -139,6 +140,58 @@ async fn list_ext_jwt_tokens(
     .await?;
 
     Ok(Json(rows))
+}
+
+#[derive(serde::Serialize, sqlx::FromRow)]
+pub struct GuestActivity {
+    pub email: String,
+    pub workspaces: Vec<String>,
+    pub first_seen: chrono::NaiveDate,
+    pub last_seen: chrono::NaiveDate,
+}
+
+#[derive(serde::Serialize)]
+pub struct GuestList {
+    pub usage: windmill_common::workspaces::GuestUsage,
+    pub guests: Vec<GuestActivity>,
+}
+
+#[derive(serde::Deserialize)]
+struct ListGuestsQuery {
+    page: Option<usize>,
+    per_page: Option<usize>,
+}
+
+/// The distinct guests of the trailing window, the set the allowance is counted on,
+/// most recently seen first.
+async fn list_guests(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Query(query): Query<ListGuestsQuery>,
+) -> Result<Json<GuestList>> {
+    require_super_admin(&db, &authed).await?;
+
+    let (per_page, offset) = windmill_common::utils::paginate(windmill_common::utils::Pagination {
+        page: query.page,
+        per_page: query.per_page,
+    });
+    let usage = windmill_common::workspaces::guest_usage(&db).await?;
+    let guests = sqlx::query_as::<_, GuestActivity>(
+        "SELECT email, array_agg(DISTINCT workspace_id) AS workspaces,
+                MIN(day) AS first_seen, MAX(day) AS last_seen
+         FROM guest_activity
+         WHERE day > CURRENT_DATE - $3
+         GROUP BY email
+         ORDER BY MAX(day) DESC, email
+         LIMIT $1 OFFSET $2",
+    )
+    .bind(per_page as i64)
+    .bind(offset as i64)
+    .bind(windmill_common::workspaces::GUEST_WINDOW_DAYS)
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(GuestList { usage, guests }))
 }
 
 async fn set_password(

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import type { FlowDiffManager } from '../flowDiffManager.svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { Bug, X } from 'lucide-svelte'
@@ -7,7 +8,6 @@
 	import { insertNewFailureModule } from '$lib/components/flows/flowStateUtils.svelte'
 	import type { RawScript, ScriptLang } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
-	import { refreshFlowStateStore } from '$lib/components/flows/flowStoreRefresh.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DiffActionBar from './DiffActionBar.svelte'
 	import { getNodeColorClasses, aiActionToNodeState } from '$lib/components/graph'
@@ -58,7 +58,7 @@
 		}
 
 		selectionManager.selectId('failure')
-		refreshFlowStateStore(flowStore)
+		refreshStateStore(flowStore)
 	}
 
 	function deleteFailureModule() {

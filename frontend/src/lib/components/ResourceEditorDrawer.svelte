@@ -52,6 +52,7 @@
 
 	let path: string | undefined = $state(undefined)
 	let selected: string | undefined = $state(undefined)
+	let viewJsonSchema = $state(false)
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
 	// The editor renders whichever workspace-specific variant `selected` points at, so history has
@@ -65,10 +66,29 @@
 		historyWorkspace === $workspaceStore && isOwner(path ?? '', $userStore, $workspaceStore)
 	)
 
-	export async function initEdit(p: string): Promise<void> {
+	// A close reaches `on:close` on a later flush, by which point a caller that closed this drawer to
+	// open another editor has already anchored the new one. Clearing then would strip that anchor.
+	let keepAnchorOnClose = false
+
+	/** Shut this drawer without going through its own close button, for a caller opening the other
+	 *  editor over the same list. `keepAnchor` when that caller anchors what it opens instead. */
+	export function close(opts?: { keepAnchor?: boolean }): void {
+		keepAnchorOnClose = opts?.keepAnchor ?? false
+		drawer?.closeDrawer?.()
+	}
+
+	/** `json` opens on the JSON editor instead of the resource type's form. For a type with a
+	 *  dedicated editor elsewhere: the generic form would render its configuration field by field,
+	 *  and materialize a default into every one the value leaves out. */
+	export async function initEdit(p: string, opts?: { json?: boolean }): Promise<void> {
+		// A `close({ keepAnchor })` on an already-closed drawer emits no close event, so the flag
+		// would still be standing when the next drawer session ends and would swallow that one's
+		// anchor clear. Every session starts having to clear its own.
+		keepAnchorOnClose = false
 		resource_type = undefined
 		path = p
 		selected = effectiveWorkspace
+		viewJsonSchema = opts?.json ?? false
 		drawer?.openDrawer?.()
 		setPageDrawerAnchor(RESOURCES_PATH, p)
 	}
@@ -77,10 +97,15 @@
 		resourceType: string,
 		nDefaultValues?: Record<string, any>
 	): Promise<void> {
+		keepAnchorOnClose = false
 		path = undefined
 		resource_type = resourceType
 		defaultValues = nDefaultValues
 		selected = effectiveWorkspace
+		// This drawer outlives what it opens on, so the view has to be set by every entry point
+		// rather than left where the last one put it: a new resource is a typed form, whoever was
+		// looking at JSON before.
+		viewJsonSchema = false
 		drawer?.openDrawer?.()
 	}
 
@@ -97,7 +122,13 @@
 	bind:this={drawer}
 	size="50rem"
 	{disableChatOffset}
-	on:close={() => clearPageDrawerAnchor(RESOURCES_PATH)}
+	on:close={() => {
+		if (keepAnchorOnClose) {
+			keepAnchorOnClose = false
+			return
+		}
+		clearPageDrawerAnchor(RESOURCES_PATH)
+	}}
 >
 	<DrawerContent
 		title={mode == 'edit' ? 'Edit ' + path : addResourceTitle(resource_type)}
@@ -121,6 +152,7 @@
 				bind:this={resourceEditor}
 				bind:canSave
 				bind:selected
+				bind:viewJsonSchema
 				onDraftStateChange={(v) => (hasLocalDraft = v)}
 				onCanWriteChange={(v) => (canWriteSelected = v)}
 			/>

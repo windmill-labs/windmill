@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import { ButtonType } from '$lib/components/common/button/model'
 	import { getContext, tick, untrack } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
@@ -43,11 +44,11 @@
 	import SideBarTab from '$lib/components/meltComponents/SideBarTab.svelte'
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 	import { isObjectTooBig, readFieldsRecursively } from '$lib/utils'
-	import { refreshFlowStateStore } from '$lib/components/flows/flowStoreRefresh.svelte'
 	import type { AiAgent, InputTransform, ScriptLang } from '$lib/gen'
 	import { deepEqual } from 'fast-equals'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AI_AGENT_SCHEMA } from '../flowInfers'
+	import { agentStreamingEnabled } from '../agentFormFields'
 	import { nextId } from '../flowModuleNextId'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import FlowChat from '../conversations/FlowChat.svelte'
@@ -99,11 +100,8 @@
 	let shouldUseStreaming = $derived.by(() => {
 		const modules = flowStore.val.value?.modules
 		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
-		return (
-			lastModule?.value?.type === 'aiagent' &&
-			lastModule?.value?.input_transforms?.streaming?.type === 'static' &&
-			lastModule?.value?.input_transforms?.streaming?.value === true
-		)
+		if (lastModule?.value?.type !== 'aiagent') return false
+		return agentStreamingEnabled(lastModule.value)
 	})
 	let showChatModeWarning = $state(false)
 	let showAdditionalInputs = $state(false)
@@ -890,7 +888,7 @@
 									onAddNew={(argName) => {
 										handleEditSchema('inputEditor')
 										editableSchemaForm?.openField(argName)
-										refreshFlowStateStore(flowStore)
+										refreshStateStore(flowStore)
 									}}
 								>
 									{#snippet trigger()}
