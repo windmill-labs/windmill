@@ -75,16 +75,31 @@ export function recordHubResourceTypePick(workspace: string, resourceType: strin
  * Orders the lists that offer hub content: integrations in the flow step picker, resource
  * types in the add-resource drawer.
  *
- * What the hub sees people pick ranks first, being drawn from every Windmill instance; what
- * this workspace already uses breaks its ties. Alphabetical is the floor, and it is where a
- * hub that ranks nothing leaves every entry it has no count for.
+ * Four tiers. **Whether this workspace already holds a resource of the type leads**, then the
+ * hub's pick count, then how many local resources there are, then the name.
+ *
+ * Used-here leads rather than merely breaking hub ties because the two counts are on
+ * incomparable scales: a hub pick count is global and grows without bound, a local count is
+ * usually single digits. Ranked the other way round, local usage only ever sorts the slice
+ * where hub counts are equal — which, since they are distinct integers, is just the tail
+ * that nobody has picked. That reads fine on a hub with few picks and silently stops
+ * mattering as one fills up, so the ordering would drift away from the workspace's own
+ * stack with no change to this code.
+ *
+ * Within each half the hub decides, so "yours" and "everyone's" are both honoured rather
+ * than blended with a weighting constant that would need tuning. Alphabetical is the floor,
+ * and it is where an entry neither signal knows about lands.
  */
 export function byPopularity(
 	hub: PopularityCounts,
 	local: PopularityCounts
 ): (a: string, b: string) => number {
+	const usedHere = (name: string) => ((local[name] ?? 0) > 0 ? 1 : 0)
 	return (a, b) =>
-		(hub[b] ?? 0) - (hub[a] ?? 0) || (local[b] ?? 0) - (local[a] ?? 0) || a.localeCompare(b)
+		usedHere(b) - usedHere(a) ||
+		(hub[b] ?? 0) - (hub[a] ?? 0) ||
+		(local[b] ?? 0) - (local[a] ?? 0) ||
+		a.localeCompare(b)
 }
 
 /**

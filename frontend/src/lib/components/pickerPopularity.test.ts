@@ -5,14 +5,31 @@ const order = (names: string[], hub: Record<string, number>, local: Record<strin
 	[...names].sort(byPopularity(hub, local))
 
 describe('byPopularity', () => {
-	it('ranks hub picks above local usage', () => {
-		expect(order(['slack', 'stripe'], { slack: 1 }, { stripe: 40 })).toEqual(['slack', 'stripe'])
+	// The tier that stops a filling-up hub from squeezing the workspace's own stack out of
+	// the ordering: a global pick count grows without bound, a local one does not.
+	it('leads with what the workspace uses, whatever the hub says', () => {
+		expect(order(['slack', 'stripe'], { slack: 900 }, { stripe: 1 })).toEqual(['stripe', 'slack'])
 	})
 
-	it('breaks a hub tie on local usage', () => {
-		expect(order(['slack', 'stripe'], { slack: 5, stripe: 5 }, { stripe: 2 })).toEqual([
+	it('ranks the used types among themselves by hub picks', () => {
+		expect(order(['slack', 'stripe'], { slack: 900 }, { slack: 1, stripe: 1 })).toEqual([
+			'slack',
+			'stripe'
+		])
+	})
+
+	it('breaks a hub tie on how much the workspace uses it', () => {
+		expect(order(['slack', 'stripe'], { slack: 5, stripe: 5 }, { slack: 1, stripe: 2 })).toEqual([
 			'stripe',
 			'slack'
+		])
+	})
+
+	it('ranks the unused types by hub picks, below every used one', () => {
+		expect(order(['ably', 'github', 'stripe'], { ably: 900, github: 5 }, { stripe: 1 })).toEqual([
+			'stripe',
+			'ably',
+			'github'
 		])
 	})
 
