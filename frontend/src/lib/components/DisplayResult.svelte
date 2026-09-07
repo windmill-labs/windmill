@@ -32,6 +32,7 @@
 	import Alert from './common/alert/Alert.svelte'
 	import AutoDataTable from './table/AutoDataTable.svelte'
 	import Markdown from 'svelte-exmarkdown'
+	import { markdownProse } from './markdownProse'
 	import Toggle from './Toggle.svelte'
 	import FileDownload from './common/fileDownload/FileDownload.svelte'
 
@@ -1229,7 +1230,7 @@
 						</div>
 					</div>
 				{:else if !forceJson && resultKind === 'markdown'}
-					<div class="prose-xs dark:prose-invert !list-disc !list-outside">
+					<div class={markdownProse.sm}>
 						<Markdown md={result?.md ?? result?.markdown} />
 					</div>
 				{:else if largeObject || hasBigInt}
