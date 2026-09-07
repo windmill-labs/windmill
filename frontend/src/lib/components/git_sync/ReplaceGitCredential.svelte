@@ -40,6 +40,9 @@
 		if (!token || saving) return
 		saving = true
 		error = undefined
+		// Pinned before the first await: the field stays editable while the check
+		// runs, so re-reading it afterwards would store a token the check never saw.
+		const candidate = token
 		try {
 			// Check the token before storing it. The server binds a credential to its
 			// repository but only refuses it when something tries to use it, so a
@@ -54,7 +57,7 @@
 					// would not show this one and a working token would be refused.
 					requestBody: {
 						base_url: parts.base,
-						token,
+						token: candidate,
 						search: parts.project.split('/').pop()
 					}
 				})
@@ -65,7 +68,7 @@
 			}
 			await GitSyncService.setGitCredential({
 				workspace,
-				requestBody: { repo_url: repoUrl, token }
+				requestBody: { repo_url: repoUrl, token: candidate }
 			})
 			token = ''
 			sendUserToast('Token replaced')

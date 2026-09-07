@@ -155,6 +155,13 @@
 	/** The host named by the resource's `managed_credential`, when Windmill holds
 	 * the repository's token rather than it being written into the URL. */
 	let managedCredential = $state<string | undefined>(undefined)
+	/** Whether the token may rotate itself. Renewal also needs Windmill to hold it,
+	 * which `managedCredential` stands in for; the card states both, and the alert
+	 * and the quiet status line below must not disagree about either, so each is
+	 * derived once here rather than recomputed per branch. */
+	let canSelfRotate = $derived(
+		(repo?.credential?.scopes ?? []).some((s) => s === 'api' || s === 'self_rotate')
+	)
 	// Whether Windmill itself holds a credential for the repository, which is
 	// what the managed features (webhooks, pull requests, commit checks) need.
 	// A GitHub App installation qualifies, and so does a token the server keeps.
@@ -224,7 +231,6 @@
 		// Scopes answer the first; `managedCredential` is the client's signal for the
 		// second, and naming the URL as the cause would be wrong for a fork, which
 		// borrows an ancestor's token and holds none of its own.
-		const canSelfRotate = (credential.scopes ?? []).some((s) => s === 'api' || s === 'self_rotate')
 		const remedy = managedCredential
 			? // The remedy lives with the credential, which the resource owns; saying
 				// where stops the warning being a dead end.
@@ -642,7 +648,7 @@
 				{:else if repo.credential.rotatable}
 					Repository token expires on {repo.credential.expires_at}. Renewing it automatically
 					requires an enterprise license.
-				{:else if (repo.credential.scopes ?? []).some((s) => s === 'api' || s === 'self_rotate')}
+				{:else if canSelfRotate}
 					Repository token expires on {repo.credential.expires_at}. Windmill renews only a token it
 					holds, and it does not hold this one.
 				{:else if managedCredential}
