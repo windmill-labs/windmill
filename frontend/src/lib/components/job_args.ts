@@ -33,9 +33,10 @@ export function enforceDisabledDefaults(
 }
 
 /**
- * What a mounted `ArgInput` would put in a field the caller left empty. Applied whether or
- * not a form is shown, so a run the autonomy posture accepts without one sends the same
- * arguments the user would have seen and submitted.
+ * The declared defaults a mounted `ArgInput` puts in a field left empty or null, so a run the
+ * autonomy posture accepts without a form does not start missing one. Only the declared ones:
+ * `ArgInput` also synthesises a value where there is no default (`''`, `false`, `[]`, a required
+ * enum's first member), which the worker supplies from the code's own signature instead.
  */
 export function applySchemaDefaults(
 	args: Record<string, any>,
@@ -45,16 +46,17 @@ export function applySchemaDefaults(
 	if (!schema?.properties) return { ...result }
 	for (const [key, prop] of Object.entries<any>(schema.properties)) {
 		const value = result[key]
-		if (value === undefined) {
+		// Null as well as absent: `ArgInput` compares loosely, so it fills both.
+		if (value === undefined || value === null) {
 			if (prop?.default !== undefined) result[key] = prop.default
 			continue
 		}
-		// Descends exactly where `requiredUnanswered` (global toolset) credits a nested default
-		// as answered. Kept identical, or the posture skips a form over a default never applied.
+		// Every object declaration the form would render fields for, which is a superset of
+		// where `requiredUnanswered` (global toolset) credits a nested default as answered —
+		// narrower here and the posture skips a form over a default this never applied.
 		if (
 			!Array.isArray(prop?.oneOf) &&
 			prop?.properties &&
-			Array.isArray(prop?.required) &&
 			typeof value === 'object' &&
 			!Array.isArray(value)
 		) {

@@ -163,6 +163,9 @@ describe('applySchemaDefaults', () => {
 				properties: { region: { type: 'string', default: 'eu' }, tag: { type: 'string' } },
 				required: ['region']
 			},
+			// Every field optional, which an inferred schema gives any object whose members all
+			// carry defaults — and where the form still fills them.
+			opts: { type: 'object', properties: { level: { type: 'string', default: 'info' } } },
 			either: {
 				oneOf: [
 					{ title: 'a', properties: { x: { type: 'string', default: 'no' } }, required: ['x'] }
@@ -172,11 +175,18 @@ describe('applySchemaDefaults', () => {
 	}
 
 	it('fills a missing default at the depth the form would', () => {
-		expect(applySchemaDefaults({ name: 'Ada', config: { tag: 'v1' } }, schema)).toEqual({
+		expect(applySchemaDefaults({ name: 'Ada', config: { tag: 'v1' }, opts: {} }, schema)).toEqual({
 			name: 'Ada',
 			retries: 3,
-			config: { tag: 'v1', region: 'eu' }
+			config: { tag: 'v1', region: 'eu' },
+			opts: { level: 'info' }
 		})
+	})
+
+	it('fills a null the same as an absent value', () => {
+		// ArgInput compares loosely, so null reaches the field as its default too — sending it
+		// on would run with null where the form would have run with 3.
+		expect(applySchemaDefaults({ retries: null }, schema)).toEqual({ retries: 3 })
 	})
 
 	it('leaves a supplied value and an ambiguous declaration alone', () => {
