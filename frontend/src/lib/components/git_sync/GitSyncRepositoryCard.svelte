@@ -154,6 +154,10 @@
 	/** Whether Windmill holds this repository's credential, answered by the server
 	 * rather than inferred from the resource. `undefined` until the lookup lands. */
 	let managedCredential = $state<string | undefined>(undefined)
+	/** `held` when this workspace stores the credential, `borrowed` when an
+	 * ancestor does. A borrowed one is not this workspace's to renew or replace,
+	 * which is what keeps a fork from warning about a token it must not touch. */
+	let credentialOrigin = $state<'held' | 'borrowed' | undefined>(undefined)
 	// Whether Windmill itself holds a credential for the repository, which is
 	// what the managed features (webhooks, pull requests, commit checks) need.
 	// A GitHub App installation qualifies, and so does a token the server keeps.
@@ -204,7 +208,10 @@
 		if (days === undefined) return undefined
 		const when =
 			days <= 0 ? 'has expired' : days === 1 ? 'expires tomorrow' : `expires in ${days} days`
-		if (credential.renewed) {
+		// Renewed here, or by the workspace above that holds it. Either way this
+		// workspace has nothing to do, and telling a fork to replace a borrowed
+		// token would split the credential in two.
+		if ((credential.rotatable && $enterpriseLicense) || credentialOrigin === 'borrowed') {
 			// A token Windmill renews needs no countdown: a renewal that fails records
 			// an error, which is handled above. Reaching the expiry date anyway is the
 			// one state that proves renewal never happened, and it is the only one
@@ -214,7 +221,10 @@
 			return {
 				type: 'error' as const,
 				title: 'Repository token has expired',
-				body: 'Windmill renews this token automatically but has not managed to. Check that the instance can reach GitLab, then replace the token to restore sync.'
+				body:
+					credentialOrigin === 'borrowed'
+						? 'The workspace that holds this token renews it, but it has expired anyway. Replace it there to restore sync.'
+						: 'Windmill renews this token automatically but has not managed to. Check that the instance can reach GitLab, then replace the token to restore sync.'
 			}
 		}
 		if (days > 30) return undefined
@@ -225,7 +235,7 @@
 		return {
 			type: days <= 7 ? ('error' as const) : days <= 14 ? ('warning' as const) : ('info' as const),
 			title: `Repository token ${when}`,
-			body: `Windmill does not renew this token. Replace it on the ${repo?.git_repo_resource_path?.replace(/^\$res:/, '') ?? 'repository'} resource before it expires.`
+			body: `Windmill does not renew this token. Replace it on the ${repo?.git_repo_resource_path?.replace(/^\$res:/, '') ?? 'repository'} resource${days <= 0 ? ' to restore sync.' : ' before it expires.'}`
 		}
 	})
 
@@ -265,6 +275,7 @@
 				// fetch can't leave webhook/fork controls showing for the wrong repo.
 				isGithubApp = false
 				managedCredential = undefined
+				credentialOrigin = undefined
 				try {
 					// The server answers whether it holds this repository's credential;
 					// the resource cannot, because the marker that used to claim it was
@@ -276,6 +287,7 @@
 					})
 						.then((r) => {
 							if (!abortController.signal.aborted) {
+								credentialOrigin = r?.origin
 								managedCredential = r?.origin ? (r.provider ?? 'gitlab') : undefined
 							}
 						})
@@ -385,6 +397,7 @@
 				resourceInfo = null
 				isGithubApp = false
 				managedCredential = undefined
+				credentialOrigin = undefined
 			}
 		}
 
@@ -638,12 +651,15 @@
 			<div class="text-xs text-secondary">
 				{#if credentialDaysLeft === undefined}
 					Repository token does not expire.
-				{:else if repo.credential.renewed && $enterpriseLicense}
+				{:else if repo.credential.rotatable && $enterpriseLicense}
 					Repository token expires on {repo.credential.expires_at}, and Windmill renews it
 					automatically.
-				{:else if repo.credential.renewed}
+				{:else if repo.credential.rotatable}
 					Repository token expires on {repo.credential.expires_at}. Renewing it automatically
 					requires an enterprise license.
+				{:else if credentialOrigin === 'borrowed'}
+					Repository token expires on {repo.credential.expires_at}, and the workspace that holds it
+					manages renewal.
 				{:else}
 					Repository token expires on {repo.credential.expires_at}, and Windmill does not renew it.
 				{/if}
