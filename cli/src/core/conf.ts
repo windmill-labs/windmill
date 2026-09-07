@@ -145,7 +145,9 @@ function getGitRepoRoot(): string | null {
 }
 
 export const GLOBAL_CONFIG_OPT = { noCdToRoot: false };
-function findWmillYaml(): string | null {
+
+// Pure upward search: no chdir, no logging. findWmillYaml() adds the chdir.
+function locateWmillYaml(): string | null {
   const startDir = resolve(process.cwd());
   const isInGitRepo = isGitRepository();
   const gitRoot = isInGitRepo ? getGitRepoRoot() : null;
@@ -176,6 +178,13 @@ function findWmillYaml(): string | null {
     currentDir = parentDir;
   }
 
+  return foundPath;
+}
+
+function findWmillYaml(): string | null {
+  const startDir = resolve(process.cwd());
+  const foundPath = locateWmillYaml();
+
   // If wmill.yaml was found in a parent directory, warn the user and change working directory
   if (
     !GLOBAL_CONFIG_OPT.noCdToRoot &&
@@ -196,6 +205,37 @@ function findWmillYaml(): string | null {
 
 export function getWmillYamlPath(): string | null {
   return findWmillYaml();
+}
+
+/**
+ * Look up one `workspaces` entry, for diagnostics only. readConfigFile() must
+ * not be used for that: it chdirs to the config's directory, exits on an
+ * unsupported syncBehavior and throws on a malformed file. A diagnostic may
+ * never fail, move or slow down the command it is diagnosing.
+ */
+export async function peekWorkspaceEntry(
+  workspaceName: string
+): Promise<WorkspaceEntryConfig | undefined> {
+  if (RESERVED_WORKSPACE_KEYS.has(workspaceName)) {
+    return undefined;
+  }
+  const wmillYamlPath = locateWmillYaml();
+  if (!wmillYamlPath) {
+    return undefined;
+  }
+  try {
+    const conf = (await yamlParseFile(wmillYamlPath)) as SyncOptions;
+    const workspaces =
+      conf?.workspaces ??
+      conf?.gitBranches ??
+      conf?.environments ??
+      conf?.git_branches;
+    const entry = (workspaces as any)?.[workspaceName];
+    return typeof entry === "object" && entry !== null ? entry : undefined;
+  } catch (e) {
+    log.debug(`Failed to parse ${wmillYamlPath} for workspace lookup: ${e}`);
+    return undefined;
+  }
 }
 
 let legacyConfigWarned = false;

@@ -20,6 +20,7 @@ import {
 import { getLastUsedProfile, setLastUsedProfile } from "./branch-profiles.ts";
 import {
   readConfigFile,
+  peekWorkspaceEntry,
   findWorkspaceByGitBranch,
   getEffectiveWorkspaceId,
   getWmillYamlPath,
@@ -507,30 +508,7 @@ export async function resolveWorkspace(
         return process.exit(-1);
       }
 
-      // --base-url pins the target: `--workspace` is the remote workspace id
-      // and wmill.yaml's `workspaces` block is never consulted. Say so when it
-      // maps that name to a different id, or the request 404s on an id the
-      // user never typed. Only peek at a wmill.yaml sitting in the cwd:
-      // readConfigFile chdirs to the directory of a config found further up,
-      // and this branch must not gain that side effect.
-      if (existsSync(join(process.cwd(), "wmill.yaml"))) {
-        const config = await readConfigFile({ warnIfMissing: false });
-        const yamlEntry = config.workspaces?.[opts.workspace] as
-          | WorkspaceEntryConfig
-          | undefined;
-        const yamlWorkspaceId = yamlEntry
-          ? getEffectiveWorkspaceId(opts.workspace, yamlEntry)
-          : undefined;
-        if (yamlWorkspaceId && yamlWorkspaceId !== opts.workspace) {
-          log.warnStderr(
-            colors.yellow(
-              `⚠️  --base-url is set, so '--workspace ${opts.workspace}' is used as the workspace id directly and wmill.yaml is ignored.\n` +
-                `   wmill.yaml maps workspace '${opts.workspace}' to workspace id '${yamlWorkspaceId}'${yamlEntry!.baseUrl ? ` on ${yamlEntry!.baseUrl}` : ""}.\n` +
-                `   Use '--workspace ${yamlWorkspaceId}', or drop --base-url/--token to resolve through wmill.yaml.`
-            )
-          );
-        }
-      }
+      let resolved: Workspace | undefined;
 
       // Try to find existing workspace profile by name, then by workspaceId + remote
       if (opts.workspace) {
@@ -569,27 +547,43 @@ export async function resolveWorkspace(
             );
             return process.exit(-1);
           }
-          log.infoStderr(
-            `Using workspace id '${existingWorkspace.workspaceId}' on ${normalizedBaseUrl} (from --base-url, profile '${existingWorkspace.name}')`
-          );
-          const resolved = {
+          resolved = {
             ...existingWorkspace,
             token: opts.token,
           };
-          (opts as any).__secret_workspace = resolved;
-          return resolved;
         }
       }
 
-      log.infoStderr(
-        `Using workspace id '${opts.workspace}' on ${normalizedBaseUrl} (from --base-url/--workspace)`
-      );
-      const resolved = {
+      resolved ??= {
         remote: normalizedBaseUrl,
         workspaceId: opts.workspace,
         name: opts.workspace,
         token: opts.token,
       };
+
+      // --base-url pins the target, so wmill.yaml's `workspaces` block is never
+      // consulted and `--workspace` reaches the API as a workspace id. Name the
+      // id being sent, and the mapping being skipped, before the request 404s
+      // on an id the user never typed.
+      const yamlEntry = await peekWorkspaceEntry(opts.workspace);
+      const yamlWorkspaceId = yamlEntry
+        ? getEffectiveWorkspaceId(opts.workspace, yamlEntry)
+        : undefined;
+      if (yamlWorkspaceId && yamlWorkspaceId !== resolved.workspaceId) {
+        log.warnStderr(
+          colors.yellow(
+            `⚠️  --base-url is set, so wmill.yaml is not consulted: workspace id '${resolved.workspaceId}' is sent to the API.\n` +
+              `   wmill.yaml maps workspace '${opts.workspace}' to workspace id '${yamlWorkspaceId}'${yamlEntry!.baseUrl ? ` on ${yamlEntry!.baseUrl}` : ""}.\n` +
+              `   Use '--workspace ${yamlWorkspaceId}', or drop --base-url/--token to resolve through wmill.yaml.`
+          )
+        );
+      }
+      log.infoStderr(
+        `Using workspace id '${resolved.workspaceId}' on ${normalizedBaseUrl} (--base-url given` +
+          (resolved.name !== resolved.workspaceId
+            ? `, profile '${resolved.name}')`
+            : ")")
+      );
       (opts as any).__secret_workspace = resolved;
       return resolved;
     } else {
