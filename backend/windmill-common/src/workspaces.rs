@@ -1408,6 +1408,12 @@ pub async fn lock_database_permissions(
 
 /// Write the database's permissions, creating the row for `owner_workspace_id`
 /// when none exists. An existing row keeps its owner, unless it lost it.
+///
+/// Authorization: performs none. Callers MUST have authorized the caller as an
+/// admin of the row's owning workspace (or a superadmin), and MUST hold the
+/// key ([`lock_database_permissions_key`]) and the owning workspace's lock
+/// ([`lock_datatable_permissions_unchecked`]) in `tx`, or the write lands over
+/// a save or a principal deletion that is still reading.
 pub async fn upsert_database_permissions(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     database_key: &str,
@@ -1433,7 +1439,12 @@ pub async fn upsert_database_permissions(
 }
 
 /// Forget the database's permissions: what the opt-out does once the roles are
-/// dropped.
+/// dropped, and a deletion once the database itself is gone.
+///
+/// Authorization: performs none. Callers MUST have authorized the caller as an
+/// admin of the row's owning workspace (or a superadmin), or be acting on a
+/// database that no longer exists, and MUST hold the key lock
+/// ([`lock_database_permissions_key`]) in `tx`.
 pub async fn delete_database_permissions(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     database_key: &str,

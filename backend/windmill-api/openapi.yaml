@@ -5320,7 +5320,7 @@ paths:
 
   /w/{workspace}/workspaces/datatable_permissions_import:
     post:
-      summary: restore exported datatable permissions on databases nobody governs yet (admins only); passwords are not restored, so every role is refused until saved again
+      summary: restore exported datatable permissions on the databases the named data tables reach and nobody governs yet (admins only); passwords are not restored, so every role is refused until saved again
       operationId: importDatatablePermissions
       tags:
         - workspace
@@ -5334,15 +5334,16 @@ paths:
               type: array
               items:
                 type: object
-                required: [database_key, permissions]
+                required: [datatable, permissions]
                 properties:
-                  database_key:
+                  datatable:
+                    description: a data table of this workspace reaching the database
                     type: string
                   permissions:
                     type: object
       responses:
         "200":
-          description: the database keys that were already governed and left as they were
+          description: the data tables whose database was already governed and left as it was
           content:
             application/json:
               schema:

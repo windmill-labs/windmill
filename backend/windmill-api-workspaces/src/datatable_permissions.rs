@@ -89,11 +89,13 @@ pub struct DatatablePermissionsInfo {
     pub editable: bool,
 }
 
-/// A database's permissions as a workspace export carries them: the roles and
-/// their tenants, the login names, never the passwords.
+/// A database's permissions as a workspace export carries them: named by a data
+/// table of the workspace that reaches the database — the key is the server's
+/// to derive, never the client's to choose — with the roles and their tenants
+/// and the login names, never the passwords.
 #[derive(Deserialize, Debug)]
 pub struct ImportedDatabasePermissions {
-    pub database_key: String,
+    pub datatable: String,
     pub permissions: DataTablePermissions,
 }
 
@@ -687,6 +689,9 @@ pub(crate) async fn run_planned_drop_keeping_record(
 }
 
 /// Forget a database's permissions: for a database that is gone, roles and all.
+///
+/// Authorization: performs none. Callers MUST be acting on a database they have
+/// just dropped, on behalf of a caller authorized to drop it.
 pub(crate) async fn forget_database_permissions(db: &DB, database_key: &str) {
     let forgotten = async {
         let mut tx = db.begin().await?;
@@ -1001,9 +1006,10 @@ async fn ensure_save_names_what_exists(
 ///
 /// Roles are the database's, so a migration of another entry reaching it — in
 /// this workspace or a fork's copy — is stranded by a removal exactly as this
-/// entry's own would be. Only migrations carrying an annotation are read, and
-/// only the entries those name are resolved; an entry that does not resolve
-/// reaches nothing.
+/// entry's own would be. Only migrations that could carry an annotation are
+/// read — the filter is looser than the parser, never tighter, so a spelling the
+/// executor honours is never missed — and only the entries those name are
+/// resolved; an entry that does not resolve reaches nothing.
 async fn migrations_naming(
     db: &DB,
     database_key: &str,
@@ -1016,7 +1022,7 @@ async fn migrations_naming(
         r#"SELECT workspace_id AS "workspace_id!", datatable AS "datatable!", name AS "name!",
                   code_up AS "code_up!", code_down
            FROM datatable_migrations
-           WHERE code_up LIKE '%-- role %' OR code_down LIKE '%-- role %'
+           WHERE code_up LIKE '%--%role%' OR code_down LIKE '%--%role%'
            ORDER BY workspace_id, datatable, timestamp"#,
     )
     .fetch_all(db)
@@ -1237,10 +1243,11 @@ async fn set_datatable_permissions(
     ))
 }
 
-/// Restore exported permissions on databases nobody governs yet, owned by this
-/// workspace. The export carries no passwords, so every role is refused until an
-/// admin saves the drawer again, which recreates the logins; a database that is
-/// already governed is left as it is and reported.
+/// Restore exported permissions on the databases this workspace's data tables
+/// reach and nobody governs yet, owned by this workspace. The export carries no
+/// passwords, so every role is refused until an admin saves the drawer again,
+/// which recreates the logins; a database that is already governed is left as
+/// it is and reported, by the data table that reaches it.
 async fn import_datatable_permissions(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1256,16 +1263,19 @@ async fn import_datatable_permissions(
     }
     let mut skipped = Vec::new();
     for row in rows {
+        let (_, _, database_key) =
+            resolve_datatable_database_unchecked(&db, &w_id, &row.datatable).await?;
         let mut tx = db.begin().await?;
-        lock_database_permissions_key(&mut tx, &row.database_key).await?;
-        if database_permissions_by_key(&mut *tx, &row.database_key)
+        lock_database_permissions_key(&mut tx, &database_key).await?;
+        if database_permissions_by_key(&mut *tx, &database_key)
             .await?
             .is_some()
         {
-            skipped.push(row.database_key);
+            skipped.push(row.datatable);
             continue;
         }
         let mut permissions = row.permissions;
+        validate_imported_permissions(&permissions)?;
         for role in permissions.roles.values_mut() {
             role.pg_password = None;
         }
@@ -1275,7 +1285,7 @@ async fn import_datatable_permissions(
                 .insert(ADMIN_DATATABLE_ROLE.to_string(), Default::default());
         }
         lock_datatable_permissions_unchecked(&mut tx, &w_id).await?;
-        upsert_database_permissions(&mut tx, &row.database_key, &w_id, &permissions).await?;
+        upsert_database_permissions(&mut tx, &database_key, &w_id, &permissions).await?;
         audit_log(
             &mut *tx,
             &authed,
@@ -1283,10 +1293,51 @@ async fn import_datatable_permissions(
             ActionKind::Create,
             &w_id,
             Some(&authed.email),
-            Some([("database", row.database_key.as_str())].into()),
+            Some(
+                [
+                    ("datatable", row.datatable.as_str()),
+                    ("database", database_key.as_str()),
+                ]
+                .into(),
+            ),
         )
         .await?;
         tx.commit().await?;
     }
     Ok(Json(skipped))
+}
+
+/// The shape a save would have refused: role and tenant names as the planner
+/// and the tenant matcher read them.
+fn validate_imported_permissions(permissions: &DataTablePermissions) -> Result<()> {
+    for (name, role) in permissions.roles.iter() {
+        if name.is_empty()
+            || name.len() > 63
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        {
+            return Err(Error::BadRequest(format!("Invalid role name '{name}'")));
+        }
+        for tenant in role.tenants.iter() {
+            let valid = tenant == windmill_common::workspaces::DATATABLE_TENANT_WILDCARD
+                || matches!(
+                    tenant.split_once('/'),
+                    Some(("u" | "g" | "f", rest)) if !rest.is_empty()
+                );
+            if !valid {
+                return Err(Error::BadRequest(format!(
+                    "Invalid tenant '{tenant}' on role '{name}'"
+                )));
+            }
+        }
+    }
+    if let Some(default_role) = permissions.default_role.as_deref() {
+        if !permissions.roles.contains_key(default_role) {
+            return Err(Error::BadRequest(format!(
+                "Default role '{default_role}' is not one of the roles"
+            )));
+        }
+    }
+    Ok(())
 }

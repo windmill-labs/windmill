@@ -1760,21 +1760,43 @@ pub(crate) async fn tarball_workspace(
     }
 
     // The permissions of the databases this workspace governs, as the import
-    // endpoint takes them back: roles, tenants and login names, never passwords —
-    // those are direct database logins, and a re-save recreates them.
+    // endpoint takes them back: named by a data table of this workspace reaching
+    // the database, with roles, tenants and login names, never passwords — those
+    // are direct database logins, and a re-save recreates them. A database no
+    // entry of the workspace reaches any more cannot be named, and is left out.
     let permissions =
         windmill_common::workspaces::database_permissions_owned_by(&mut *tx, &w_id).await?;
     if !permissions.is_empty() {
+        let mut reaching: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        let datatables: Vec<String> = sqlx::query_scalar!(
+            "SELECT jsonb_object_keys(datatable->'datatables') FROM workspace_settings WHERE workspace_id = $1",
+            &w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .flatten()
+        .collect();
+        for name in datatables {
+            if let Ok((_, _, key)) =
+                windmill_common::workspaces::resolve_datatable_database_unchecked(&db, &w_id, &name)
+                    .await
+            {
+                reaching.entry(key).or_insert(name);
+            }
+        }
         let exported: Vec<serde_json::Value> = permissions
             .into_iter()
-            .map(|mut row| {
+            .filter_map(|mut row| {
+                let datatable = reaching.get(&row.database_key)?;
                 for role in row.permissions.roles.values_mut() {
                     role.pg_password = None;
                 }
-                serde_json::json!({
-                    "database_key": row.database_key,
+                Some(serde_json::json!({
+                    "datatable": datatable,
                     "permissions": row.permissions,
-                })
+                }))
             })
             .collect();
         let json = serde_json::to_string_pretty(&exported)

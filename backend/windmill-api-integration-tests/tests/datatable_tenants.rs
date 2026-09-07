@@ -471,9 +471,10 @@ async fn a_save_names_only_what_exists(db: Pool<Postgres>) -> anyhow::Result<()>
 
     plant_main(&db, "test-workspace").await;
     plant_permissions(&db, MAIN_KEY, "test-workspace", &["u/test-user"]).await;
+    // Spelled the way the parser accepts and a `-- role ` search would miss.
     sqlx::query(
         "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down)
-         VALUES ('test-workspace', 'main', 1, 'add_orders', '-- role analyst\nCREATE TABLE orders ()', NULL)",
+         VALUES ('test-workspace', 'main', 1, 'add_orders', '--role analyst\nCREATE TABLE orders ()', NULL)",
     )
     .execute(&db)
     .await?;
@@ -688,7 +689,16 @@ async fn imported_permissions_govern_without_logins(db: Pool<Postgres>) -> anyho
     let port = server.addr.port();
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
-    plant_main(&db, "test-workspace").await;
+    sqlx::query(
+        "INSERT INTO workspace_settings (workspace_id, datatable) VALUES ('test-workspace', $1)
+         ON CONFLICT (workspace_id) DO UPDATE SET datatable = EXCLUDED.datatable",
+    )
+    .bind(json!({ "datatables": {
+        "main": { "database": { "resource_type": "instance", "resource_path": "dt_main" } },
+        "other": { "database": { "resource_type": "instance", "resource_path": "dt_other" } }
+    }}))
+    .execute(&db)
+    .await?;
     plant_permissions(&db, "instance:dt_other", "test-workspace", &["*"]).await;
     let import = |rows: serde_json::Value| {
         let ws = ws.clone();
@@ -707,15 +717,21 @@ async fn imported_permissions_govern_without_logins(db: Pool<Postgres>) -> anyho
         }
     };
     let exported = json!([
-        { "database_key": MAIN_KEY, "permissions": { "enabled": true, "roles": {
+        { "datatable": "main", "permissions": { "enabled": true, "roles": {
             "admin": { "tenants": [] },
             "analyst": { "tenants": ["u/test-user-3"], "pg_rolename": "wm_analyst_x", "pg_password": "leaked?" }
         }}},
-        { "database_key": "instance:dt_other", "permissions": { "enabled": true, "roles": { "admin": { "tenants": [] } } } }
+        { "datatable": "other", "permissions": { "enabled": true, "roles": { "admin": { "tenants": [] } } } }
     ]);
     let (status, text) = import(exported).await;
     assert_eq!(status, 200, "{text}");
-    assert_eq!(text, "[\"instance:dt_other\"]");
+    assert_eq!(text, "[\"other\"]");
+    // A database is named through a data table of this workspace, never by key.
+    let (status, text) = import(json!([
+        { "datatable": "nope", "permissions": { "enabled": true, "roles": { "admin": { "tenants": [] } } } }
+    ]))
+    .await;
+    assert_eq!(status, 404, "{text}");
 
     let row: (Option<String>, serde_json::Value) = sqlx::query_as(
         "SELECT owner_workspace_id, permissions FROM datatable_database_permissions WHERE database_key = $1",

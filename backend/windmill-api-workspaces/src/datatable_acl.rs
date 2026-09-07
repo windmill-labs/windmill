@@ -245,6 +245,11 @@ struct CallerConnection {
     dbname: String,
     /// The Postgres role this connection authenticated as.
     current_user: String,
+    /// Whether the caller administers the database's permissions: an admin of
+    /// the workspace that owns them — the calling one, while the database is
+    /// unpermissioned — or a superadmin. Being admin of a workspace that merely
+    /// reaches the database, a fork's say, counts for nothing.
+    administers: bool,
 }
 
 async fn connect_as_caller(
@@ -258,7 +263,13 @@ async fn connect_as_caller(
     // lists are what say who reaches which. Without permissions every member
     // resolves to the data table's own connection, which owns everything — so
     // there it is the workspace admins' to change, as the roles themselves are.
-    if !authed.is_admin && database_record(db, w_id, datatable_name).await?.is_none() {
+    let record = database_record(db, w_id, datatable_name).await?;
+    let administers = match &record {
+        None => authed.is_admin,
+        Some(r) if r.owner_workspace_id.as_deref() == Some(w_id) => authed.is_admin,
+        Some(_) => windmill_common::auth::is_super_admin_email(db, &authed.email).await?,
+    };
+    if record.is_none() && !administers {
         return Err(Error::NotAuthorized(format!(
             "Only an admin can manage access on data table '{datatable_name}', which has no roles"
         )));
@@ -290,7 +301,10 @@ async fn connect_as_caller(
             ))
         })?
         .get(0);
-    Ok((client, CallerConnection { dbname, current_user }))
+    Ok((
+        client,
+        CallerConnection { dbname, current_user, administers },
+    ))
 }
 
 /// The classes of object a change reaches beyond the target itself: `relkind`s,
@@ -742,10 +756,11 @@ async fn get_datatable_acl(
     let owner: String = owner_row.get(0);
     // Membership in the owning role is what Postgres asks for before an ALTER
     // ... OWNER or a GRANT on something you do not own; `admin` holds every role
-    // this feature creates, so it passes everywhere. A workspace admin manages
-    // the data table itself and is never shut out of it — a schema Windmill did
-    // not create, `public` above all, is owned by neither.
-    let can_manage: bool = authed.is_admin || owner_row.get::<_, bool>(1);
+    // this feature creates, so it passes everywhere. An admin of the workspace
+    // that owns the permissions manages the database itself and is never shut
+    // out of it — a schema Windmill did not create, `public` above all, is owned
+    // by neither.
+    let can_manage: bool = conn.administers || owner_row.get::<_, bool>(1);
 
     let mut grants = read_grants(&client, &target, &roles).await?;
     grants.sort_by(|a, b| {
@@ -961,7 +976,7 @@ async fn build_acl_plan(
     // want on its own — handing an object to a role you are not a member of is
     // refused outright, and granting on one you own needs the grant option — so
     // this is the check, and the statements run as the data table's admin below.
-    if !authed.is_admin {
+    if !conn.administers {
         if !can_manage_target(&client, &req.target).await? {
             return Err(Error::NotAuthorized(format!(
                 "{} is owned by a role you are not a member of",
@@ -1012,7 +1027,7 @@ async fn build_acl_plan(
         .iter()
         .filter(|(name, pg)| {
             pg.as_str() != pg_role.as_str()
-                && (authed.is_admin || usable.iter().any(|u| u == name.as_str()))
+                && (conn.administers || usable.iter().any(|u| u == name.as_str()))
         })
         .map(|(_, pg)| pg.clone())
         .collect();
