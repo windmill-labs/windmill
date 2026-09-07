@@ -63,6 +63,7 @@ fn test_authed() -> ApiAuthed {
         token_prefix: None,
         read_only: false,
         job_id: None,
+        credential_expiry: None,
     }
 }
 

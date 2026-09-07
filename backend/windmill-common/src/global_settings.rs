@@ -65,6 +65,10 @@ pub const EXPOSE_METRICS_SETTING: &str = "expose_metrics";
 pub const EXPOSE_DEBUG_METRICS_SETTING: &str = "expose_debug_metrics";
 pub const KEEP_JOB_DIR_SETTING: &str = "keep_job_dir";
 pub const REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING: &str = "require_preexisting_user_for_oauth";
+/// Superadmin switch over guest sessions for the whole instance, above the per-workspace
+/// one. Read from the table, uncached, by the same gates that read the workspace switch;
+/// the superadmin Guests list writes it through `/settings/global/{key}` by this name.
+pub const GUEST_ACCESS_DISABLED_SETTING: &str = "guest_access_disabled";
 pub const JOB_ISOLATION_SETTING: &str = "job_isolation";
 pub const NSJAIL_TMPFS_SIZE_MB_SETTING: &str = "nsjail_tmpfs_size_mb";
 pub const NSJAIL_TMP_BACKING_SETTING: &str = "nsjail_tmp_backing";

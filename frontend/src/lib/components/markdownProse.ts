@@ -22,13 +22,13 @@ const base =
 
 // One vertical rhythm for sm/doc; heading margins stay per-preset (fixed, not
 // the plugin's em-based ones) so 'doc' can breathe more between sections.
-const rhythm = 'prose-sm leading-snug prose-ul:!pl-6'
+const rhythm = 'prose-sm leading-snug'
 
 const bodyXs =
 	'text-primary prose-p:text-primary prose-li:text-primary prose-p:text-xs prose-li:text-xs prose-code:text-xs prose-pre:text-xs prose-table:text-xs'
 
 export const markdownProse = {
-	xs: `${base} prose-sm leading-snug prose-ul:!pl-5 prose-p:text-2xs prose-li:text-2xs prose-code:text-2xs prose-pre:text-2xs prose-headings:font-medium prose-headings:text-secondary prose-headings:mt-2 prose-headings:mb-1 prose-h1:text-2xs prose-h2:text-2xs prose-h3:text-2xs prose-h4:text-2xs prose-h5:text-2xs prose-h6:text-2xs prose-strong:text-secondary`,
+	xs: `${base} prose-sm leading-snug prose-p:text-2xs prose-li:text-2xs prose-code:text-2xs prose-pre:text-2xs prose-headings:font-medium prose-headings:text-secondary prose-headings:mt-2 prose-headings:mb-1 prose-h1:text-2xs prose-h2:text-2xs prose-h3:text-2xs prose-h4:text-2xs prose-h5:text-2xs prose-h6:text-2xs prose-strong:text-secondary`,
 	sm: `${base} ${rhythm} ${bodyXs} prose-headings:mt-3 prose-headings:mb-1 prose-headings:font-medium prose-headings:text-emphasis prose-h1:text-sm prose-h2:text-xs prose-h3:text-xs prose-h4:text-xs prose-h5:text-xs prose-h6:text-xs`,
 	doc: `${base} ${rhythm} ${bodyXs} prose-headings:mt-8 prose-headings:mb-2 prose-headings:font-semibold prose-headings:text-emphasis prose-h1:text-lg prose-h2:text-base prose-h3:text-sm prose-h4:text-xs prose-h5:text-xs prose-h6:text-xs prose-pre:bg-transparent prose-pre:p-0`
 } as const

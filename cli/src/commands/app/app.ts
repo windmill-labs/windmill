@@ -24,6 +24,7 @@ import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 
 export interface AppFile {
+  guests?: boolean;
   value: any;
   public?: boolean;
   summary: string;
@@ -110,6 +111,28 @@ export function replaceInlineScripts(
 export function isExecutionModeAnonymous(app: any) {
   return app?.["policy"]?.["execution_mode"] == "anonymous";
 }
+export function isExecutionModeGuest(app: any) {
+  return app?.["policy"]?.["execution_mode"] == "guest";
+}
+export type AppExecutionMode = "anonymous" | "guest" | "publisher";
+/** The access mode is the one policy field a tracked app keeps, as `public` (anonymous)
+ * or `guests` (guest); the rest of the policy is regenerated on push. */
+export function markAccessFromPolicy(app: any) {
+  if (isExecutionModeAnonymous(app)) {
+    app.public = true;
+  } else if (isExecutionModeGuest(app)) {
+    app.guests = true;
+  }
+}
+export function executionModeFromAppFile(app: any): AppExecutionMode {
+  if (app?.["public"] ?? isExecutionModeAnonymous(app)) {
+    return "anonymous";
+  }
+  if (app?.["guests"] ?? isExecutionModeGuest(app)) {
+    return "guest";
+  }
+  return "publisher";
+}
 export async function pushApp(
   workspace: string,
   remotePath: string,
@@ -140,9 +163,7 @@ export async function pushApp(
     remoteOnBehalfOfEmail = app.policy.on_behalf_of_email;
   }
 
-  if (isExecutionModeAnonymous(app)) {
-    app.public = true;
-  }
+  markAccessFromPolicy(app);
   // console.log(app);
   if (app) {
     app.policy = undefined;
@@ -155,12 +176,7 @@ export async function pushApp(
   const localApp = (await yamlParseFile(path)) as AppFile;
 
   replaceInlineScripts(localApp.value, localPath, true);
-  await generatingPolicy(
-    localApp,
-    remotePath,
-    localApp?.["public"] ??
-      localApp?.["policy"]?.["execution_mode"] == "anonymous"
-  );
+  await generatingPolicy(localApp, remotePath, executionModeFromAppFile(localApp));
 
   const preserveFields: { preserve_on_behalf_of?: boolean } = {};
   if (permissionedAsContext?.userIsAdminOrDeployer) {
@@ -230,12 +246,12 @@ export async function pushApp(
 export async function generatingPolicy(
   app: any,
   path: string,
-  publicApp: boolean
+  executionMode: AppExecutionMode
 ) {
   log.info(colors.gray(`Generating fresh policy for app ${path}...`));
   try {
     app.policy = await windmillUtils.updatePolicy(app.value, undefined);
-    app.policy.execution_mode = publicApp ? "anonymous" : "publisher";
+    app.policy.execution_mode = executionMode;
   } catch (e) {
     log.error(colors.red(`Error generating policy for app ${path}: ${e}`));
     throw e;

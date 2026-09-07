@@ -28,6 +28,7 @@
 		type InstanceAISummary,
 		type GetSettingsResponse
 	} from '$lib/gen'
+	import type { GuestUsage } from '$lib/gen'
 	import {
 		enterpriseLicense,
 		superadmin,
@@ -187,6 +188,22 @@
 	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let publicAppRateLimitPerMinute: number | undefined = $state(undefined)
+	let guestAccessEnabled: boolean = $state(false)
+	let guestUsage: GuestUsage | undefined = $state(undefined)
+	let initialGuestAccessEnabled: boolean = $state(false)
+	// A guest JWT is verified against one key: a PEM public key, or a JWKS URL. The
+	// type picks which field is live; the other is cleared on save.
+	let guestJwtKeyType = $state<'pem' | 'jwks'>('pem')
+	let guestJwtPublicKey: string = $state('')
+	let guestJwtJwksUrl: string = $state('')
+	let initialGuestJwtPublicKey: string = $state('')
+	let initialGuestJwtJwksUrl: string = $state('')
+	// The pair actually saved: only the selected type's field, trimmed. The unselected
+	// one is empty, so switching type and saving clears what was there.
+	let effectiveGuestJwt = $derived({
+		pem: guestJwtKeyType === 'pem' ? guestJwtPublicKey.trim() : '',
+		jwks: guestJwtKeyType === 'jwks' ? guestJwtJwksUrl.trim() : ''
+	})
 	let initialPublicAppRateLimitPerMinute: number | undefined = $state(undefined)
 
 	let hasInstanceAiConfig = $state(false)
@@ -522,12 +539,49 @@
 	}
 
 	async function saveDefaultAppSettings(): Promise<void> {
+		// Guest access and the guest JWT key are the writes of this card available on every plan;
+		// save them first so a refused Enterprise-only write after cannot swallow them.
+		if (guestAccessEnabled !== initialGuestAccessEnabled) {
+			await editGuestAccess()
+		}
+		if (
+			effectiveGuestJwt.pem !== initialGuestJwtPublicKey ||
+			effectiveGuestJwt.jwks !== initialGuestJwtJwksUrl
+		) {
+			await editGuestJwtKey()
+		}
 		if (workspaceDefaultAppPath !== initialWorkspaceDefaultAppPath) {
 			await editWorkspaceDefaultApp()
 		}
 		if (publicAppRateLimitPerMinute !== initialPublicAppRateLimitPerMinute) {
 			await editPublicAppRateLimit()
 		}
+	}
+
+	async function editGuestJwtKey(): Promise<void> {
+		await WorkspaceService.editGuestJwtKey({
+			workspace: $workspaceStore!,
+			requestBody: {
+				public_key: effectiveGuestJwt.pem || undefined,
+				jwks_url: effectiveGuestJwt.jwks || undefined
+			}
+		})
+		initialGuestJwtPublicKey = effectiveGuestJwt.pem
+		initialGuestJwtJwksUrl = effectiveGuestJwt.jwks
+		sendUserToast('Guest JWT key updated')
+	}
+
+	async function editGuestAccess(): Promise<void> {
+		await WorkspaceService.editGuestAccess({
+			workspace: $workspaceStore!,
+			requestBody: { guest_access_enabled: guestAccessEnabled }
+		})
+		initialGuestAccessEnabled = guestAccessEnabled
+		sendUserToast(
+			guestAccessEnabled
+				? 'Guests can now open apps set to Guests in this workspace'
+				: 'Guests can no longer sign in to this workspace'
+		)
 	}
 
 	async function loadWorkspaceEncryptionKey(): Promise<void> {
@@ -623,6 +677,16 @@
 		initialCriticalAlertUIMuted = settings.mute_critical_alerts
 		publicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
 		initialPublicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
+		guestAccessEnabled = settings.guest_access_enabled ?? false
+		initialGuestAccessEnabled = settings.guest_access_enabled ?? false
+		guestJwtPublicKey = settings.guest_jwt_public_key ?? ''
+		guestJwtJwksUrl = settings.guest_jwt_jwks_url ?? ''
+		initialGuestJwtPublicKey = guestJwtPublicKey
+		initialGuestJwtJwksUrl = guestJwtJwksUrl
+		guestJwtKeyType = guestJwtJwksUrl ? 'jwks' : 'pem'
+		WorkspaceService.getGuestUsage({ workspace: $workspaceStore! })
+			.then((u) => (guestUsage = u))
+			.catch(() => (guestUsage = undefined))
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
 		} else if (
@@ -1024,11 +1088,17 @@
 		return {
 			savedValue: {
 				defaultAppPath: initialWorkspaceDefaultAppPath,
-				publicAppRateLimitPerMinute: initialPublicAppRateLimitPerMinute
+				publicAppRateLimitPerMinute: initialPublicAppRateLimitPerMinute,
+				guestAccessEnabled: initialGuestAccessEnabled,
+				guestJwtPem: initialGuestJwtPublicKey,
+				guestJwtJwks: initialGuestJwtJwksUrl
 			},
 			modifiedValue: {
 				defaultAppPath: workspaceDefaultAppPath,
-				publicAppRateLimitPerMinute: publicAppRateLimitPerMinute
+				publicAppRateLimitPerMinute: publicAppRateLimitPerMinute,
+				guestAccessEnabled: guestAccessEnabled,
+				guestJwtPem: effectiveGuestJwt.pem,
+				guestJwtJwks: effectiveGuestJwt.jwks
 			}
 		}
 	}
@@ -1037,6 +1107,10 @@
 	function discardDefaultAppSettingsChanges() {
 		workspaceDefaultAppPath = initialWorkspaceDefaultAppPath
 		publicAppRateLimitPerMinute = initialPublicAppRateLimitPerMinute
+		guestAccessEnabled = initialGuestAccessEnabled
+		guestJwtPublicKey = initialGuestJwtPublicKey
+		guestJwtJwksUrl = initialGuestJwtJwksUrl
+		guestJwtKeyType = initialGuestJwtJwksUrl ? 'jwks' : 'pem'
 	}
 
 	// Strip keys from extraArgs that are auto-managed by child components:
@@ -2152,13 +2226,94 @@ export async function main(
 								<span class="text-hint text-2xs">executions per minute per server</span>
 							</SettingCard>
 
+							<SettingCard
+								label="Guests"
+								description="Let anyone your identity provider authenticates, or a JWT your own backend signs (configured below), open the apps set to Guests without a Windmill account. They join no workspace, see nothing else, and take no seat. Off by default. Turning it off stops guests immediately, even for apps already set to Guests."
+								class="mt-6"
+							>
+								<Toggle
+									bind:checked={guestAccessEnabled}
+									options={{ right: 'Allow guests to open apps set to Guests' }}
+								/>
+								{#if guestUsage && !guestUsage.instance_enabled}
+									<span class="text-hint text-2xs">
+										A superadmin has turned guests off for this instance, so this switch has no
+										effect until they are allowed again.
+									</span>
+								{:else if guestUsage}
+									<span class="text-hint text-2xs">
+										{guestUsage.guest_count} of {guestUsage.free_allowance} free guests used across this
+										instance in the last {guestUsage.window_days} days.
+										{#if guestUsage.metered}
+											Beyond that, every four guests count as one seat{guestUsage.guest_seats > 0
+												? ` (${guestUsage.guest_seats} now)`
+												: ''}.
+										{:else}
+											Beyond that, new guests are refused until the count drops; an Enterprise
+											license meters them instead.
+										{/if}
+									</span>
+								{/if}
+								<div class="mt-4 flex flex-col gap-2 border-t pt-4">
+									<div class="text-xs font-semibold text-emphasis">
+										Guest JWT verification key
+									</div>
+									<div class="text-2xs text-hint">
+										A guest can also enter through a JWT your own backend mints and signs, with no
+										identity-provider round-trip, for iframe embedding. The token must carry
+										<code>email</code>, <code>workspace_id</code>, <code>app_path</code> and
+										<code>exp</code> (lifetime capped at 24h); it opens only the app named by
+										<code>app_path</code>. Accepted algorithms: RS256/384/512, PS256/384/512,
+										ES256/384. Symmetric algorithms (HS*) are refused. Configure one key, a PEM
+										public key or a JWKS URL (which must be https). Point it at an issuer you
+										control: any token that key signs carrying these claims is accepted, so a shared
+										multi-tenant issuer is not a good fit.
+									</div>
+									<ToggleButtonGroup bind:selected={guestJwtKeyType}>
+										{#snippet children({ item })}
+											<ToggleButton {item} value="pem" label="PEM public key" />
+											<ToggleButton {item} value="jwks" label="JWKS URL" />
+										{/snippet}
+									</ToggleButtonGroup>
+									{#if guestJwtKeyType === 'pem'}
+										<TextInput
+											underlyingInputEl="textarea"
+											class="font-mono text-xs"
+											autosizeParams={{ minHeight: 128 }}
+											inputProps={{
+												placeholder: '-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----'
+											}}
+											bind:value={guestJwtPublicKey}
+										/>
+									{:else}
+										<TextInput
+											inputProps={{
+												placeholder: 'https://issuer.example.com/.well-known/jwks.json'
+											}}
+											bind:value={guestJwtJwksUrl}
+										/>
+									{/if}
+									{#if !isCloudHosted()}
+										<div class="text-2xs text-hint">
+											Leave empty to fall back to the instance's configured JWT issuer (<code
+												>JWT_EXT_JWKS_URL</code
+											>), if one is set. Set a key here to trust a different issuer for this
+											workspace.
+										</div>
+									{/if}
+								</div>
+							</SettingCard>
+
 							<SettingsFooter
 								class="mt-8"
 								hasUnsavedChanges={hasDefaultAppChanges}
 								onSave={saveDefaultAppSettings}
 								onDiscard={discardDefaultAppSettingsChanges}
 								saveLabel="Save app settings"
-								disabled={!$enterpriseLicense}
+								disabled={!$enterpriseLicense &&
+									guestAccessEnabled === initialGuestAccessEnabled &&
+									effectiveGuestJwt.pem === initialGuestJwtPublicKey &&
+									effectiveGuestJwt.jwks === initialGuestJwtJwksUrl}
 							/>
 						{:else if tab == 'native_triggers'}
 							{#if $workspaceStore}

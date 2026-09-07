@@ -1594,7 +1594,11 @@ pub(crate) async fn require_job_read_access(
     // this token, and letting it reach any job merely visible to the viewer would
     // expose unrelated runs' results/logs. Stop at the launched-by-viewer grant.
     // NotFound (not PermissionDenied) so the untrusted app can't probe job existence.
-    if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
+    // A guest stops here too: it has no membership behind it, so a share token whose
+    // audience is the workspace's members must not read for it either.
+    if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref())
+        || windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref())
+    {
         return Err(Error::NotFound(format!("Job {job_id} not found")));
     }
 
@@ -11712,6 +11716,7 @@ mod approval_view_gate_tests {
             token_prefix: None,
             read_only: false,
             job_id: None,
+            credential_expiry: None,
         }
     }
 
