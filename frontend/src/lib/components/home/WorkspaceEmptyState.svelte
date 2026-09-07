@@ -10,9 +10,16 @@
 	interface Props {
 		/** A project was chosen here. The list owns the import dialog, and opens it on this. */
 		onPick: (project: HubProjectPick) => void
+		/**
+		 * The workspace holds items, all of them archived. It is not empty and must not be
+		 * told it is: the caption names what is there and offers the way to it instead.
+		 */
+		archivedOnly?: boolean
+		/** Switches the list to the archived view. */
+		onShowArchived: () => void
 	}
 
-	let { onPick }: Props = $props()
+	let { onPick, archivedOnly = false, onShowArchived }: Props = $props()
 
 	// Row opacities: the list fading out of existence. Static on purpose — motion is what
 	// makes a skeleton mean "loading", and this state means "empty".
@@ -38,7 +45,7 @@
 <div
 	class="rounded-md border-[1.5px] border-dashed border-border-normal/60 bg-surface"
 	role="status"
-	aria-label="Your workspace is empty"
+	aria-label={archivedOnly ? 'Everything here is archived' : 'Your workspace is empty'}
 >
 	{#each rowOpacities as opacity, i (i)}
 		<div
@@ -61,7 +68,19 @@
 	<div
 		class="border-t border-dashed border-border-light px-4 pb-[22px] pt-[18px] text-center text-[13.5px] leading-relaxed text-hint"
 	>
-		Your scripts, flows and apps will show up here.
+		{#if archivedOnly}
+			<!-- Its own line: the state and the invitation are two sentences, and splicing them
+			     into one leaves a link doing the work of a conjunction. -->
+			<span class="block">
+				Everything in this workspace is archived.
+				<button
+					class="border-b border-transparent text-accent hover:border-accent"
+					onclick={onShowArchived}>Show archived items</button
+				>.
+			</span>
+		{:else}
+			Your scripts, flows and apps will show up here.
+		{/if}
 		<!-- The hub half goes when the instance has the hub turned off, and the remaining link
 		     opens the sentence instead of continuing it. -->
 		{#if !$disableHubStore}

@@ -1008,6 +1008,30 @@
 	let hubPick = $state<HubProjectPick | undefined>(undefined)
 	let hubPickerOpen = $state(false)
 
+	/**
+	 * Whether a workspace the default listing found empty is empty at all, or just has nothing
+	 * unarchived — two different states that want two different things said about them. Asked
+	 * only in that case, and once per workspace: one request for one row, never on a workspace
+	 * with something in it. A failure answers "no archived items", which shows the ordinary
+	 * placeholder rather than promising items that may not be there.
+	 */
+	let archivedProbe = $state<{ workspace: string; hasArchived: boolean } | undefined>(undefined)
+	$effect(() => {
+		const ws = $workspaceStore
+		if (!ws || !workspaceEmpty || archivedProbe?.workspace === ws) return
+		untrack(() => void probeArchived(ws))
+	})
+	async function probeArchived(workspace: string) {
+		try {
+			const res = await ScriptService.listRunnables({ workspace, showArchived: true, perPage: 1 })
+			archivedProbe = { workspace, hasArchived: (res.items?.length ?? 0) > 0 }
+		} catch (error) {
+			console.error('Could not check for archived items:', error)
+			archivedProbe = { workspace, hasArchived: false }
+		}
+	}
+	let emptyStateAnswered = $derived(archivedProbe?.workspace === $workspaceStore)
+
 	// The workspace itself holds nothing — no filter is narrowing the list away. It stays
 	// false until the first load resolves: a skeleton already means "loading", and the
 	// empty state must not be mistaken for one. The controls it dims stay mounted, so
@@ -1689,11 +1713,10 @@
 	>
 		{#if !contentActive}
 			<!-- Kept mounted, not hidden, so the toolbar doesn't reflow the moment the first item
-			     lands. Dimmed but still usable: "empty" here means the default listing found
-			     nothing, and a workspace whose items are all archived looks exactly the same —
-			     these controls are how it says so, and taking them off the pointer would leave
-			     those items unreachable. -->
-			<div class="flex justify-start" class:opacity-40={workspaceEmpty}>
+			     lands; `inert` takes it out of the tab order and off the pointer meanwhile. A
+			     workspace with nothing but archived items reaches them from its own placeholder,
+			     so these controls are not the way there. -->
+			<div class="flex justify-start" class:opacity-40={workspaceEmpty} inert={workspaceEmpty}>
 				<ToggleButtonGroup
 					selected={itemKind}
 					onSelected={(v) => {
@@ -1792,11 +1815,10 @@
 		{/if}
 
 		<div class="flex grow items-center justify-end gap-2 min-w-0">
-			<!-- Dimmed, never inert: "Only archived" lives in here, and it is the one thing a
-			     workspace with nothing but archived items still needs. -->
 			<div
 				class="relative text-primary w-full min-w-[200px] max-w-[26rem]"
 				class:opacity-40={workspaceEmpty}
+				inert={workspaceEmpty}
 			>
 				<FilterSearchbar
 					schema={searchbarSchema}
@@ -1877,7 +1899,16 @@
 			     workspace whose direct-deploy protection cleared `showEditButtons`, gets the plain
 			     message instead of two actions it may not take. -->
 			{#if workspaceEmpty && !$userStore?.operator && showEditButtons}
-				<WorkspaceEmptyState onPick={(project) => (hubPick = project)} />
+				<!-- Held until the archived probe answers rather than drawn and swapped: the two
+				     placeholders say different things, and showing the wrong one first says the
+				     workspace is empty when it is not. -->
+				{#if emptyStateAnswered}
+					<WorkspaceEmptyState
+						archivedOnly={archivedProbe?.hasArchived === true}
+						onPick={(project) => (hubPick = project)}
+						onShowArchived={() => (filterValues.val = { ...filterValues.val, archived: true })}
+					/>
+				{/if}
 			{:else}
 				<NoItemFound {activeFilters} />
 			{/if}
