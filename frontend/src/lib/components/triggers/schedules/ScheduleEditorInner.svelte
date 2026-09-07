@@ -746,14 +746,17 @@
 				)
 				// Read after the settle, not before: that awaits a request of its own with the
 				// form still editable, and an edit made in the meantime is one the host must
-				// not remount over — which this is the only thing that can tell it.
+				// not remount over — which this is the only thing that can tell it. That
+				// request is also long enough for the drawer to have moved on, so the
+				// identity is re-read rather than carried over from before it.
+				const stillHereNow = initialPath === previousPath && wsId === previousWs
 				onUpdate?.(
 					scheduleCfg.path,
 					previousPath,
 					previousWs,
-					stillHere && !draftValuesEqual(getScheduleCfg(), scheduleCfg)
+					stillHereNow && !draftValuesEqual(getScheduleCfg(), scheduleCfg)
 				)
-				if (stillHere) drawer?.closeDrawer()
+				if (stillHereNow) drawer?.closeDrawer()
 			}
 		} finally {
 			deploymentLoading = false
@@ -851,14 +854,16 @@
 		}
 	}
 
-	async function handleToggleEnabled(nEnabled: boolean) {
+	async function handleToggleEnabled(nEnabled: boolean): Promise<boolean | void> {
 		const previousEnabled = enabled
 		const path = initialPath
 		const ws = wsId
 		// A write this cell is already settling — this editor's or another's over the
 		// same schedule. Before anything is mutated, so a refused toggle leaves the
 		// switch where it was.
-		if (isDraftSaving('trigger_schedule', path, { workspace: ws })) return
+		// `false`, not a bare return: the switch has already flipped itself, and that is
+		// what tells it to snap back (see TriggerModeToggle).
+		if (isDraftSaving('trigger_schedule', path, { workspace: ws })) return false
 		// The baseline of the schedule being toggled, read before the request: this
 		// editor is reused for whatever the drawer opens next, and `initialConfig` is
 		// then that one's.
@@ -887,7 +892,7 @@
 				const stillHere = initialPath === path && wsId === ws
 				if (!ok) {
 					if (stillHere) enabled = previousEnabled
-					return
+					return false
 				}
 				sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${path}`)
 				if (stillHere) {
@@ -913,8 +918,15 @@
 					)
 				// This request carried the enabled flag alone, so anything else the form has
 				// diverged into is the user's — read after the settle, which awaits a request
-				// of its own with the form still editable.
-				onUpdate?.(path, path, ws, stillHere && !draftValuesEqual(getScheduleCfg(), initialConfig))
+				// of its own with the form still editable, and re-read because the drawer can
+				// have moved on during that one too.
+				const stillHereNow = initialPath === path && wsId === ws
+				onUpdate?.(
+					path,
+					path,
+					ws,
+					stillHereNow && !draftValuesEqual(getScheduleCfg(), initialConfig)
+				)
 			}
 		} finally {
 			closeSettleWindow?.()
