@@ -76,7 +76,6 @@
 		localScriptsVersion,
 		selectionProducers = [],
 		selectionColumnGraph,
-		selectionColumnLoading = false,
 		selectionDbt,
 		schemaCanEvolve = true,
 		selectionForkMaterialization = undefined,
@@ -181,11 +180,8 @@
 		 * the selected node's source on live-reload. */
 		localScriptsVersion?: unknown
 		selectionProducers?: Array<{ kind: 'script' | 'flow'; path: string; unsaved?: boolean }>
-		/** Transitive column-lineage trace for the selected asset (route page). */
+		/** Transitive column-lineage trace for a selected ducklake asset (route page). */
 		selectionColumnGraph?: ColumnLineageGraph
-		/** That trace still being fetched — a dbt relation's is a request of its
-		 *  own, so it arrives after the selection does. */
-		selectionColumnLoading?: boolean
 		/** dbt provenance of the selected relation — carries its SQL. */
 		selectionDbt?: DbtAssetProvenance
 		schemaCanEvolve?: boolean
@@ -518,7 +514,6 @@
 						selection={activeDraft ? undefined : editor.selection}
 						selectionProducers={activeDraft ? [] : selectionProducers}
 						{selectionColumnGraph}
-						{selectionColumnLoading}
 						{selectionDbt}
 						{schemaCanEvolve}
 						{selectionForkMaterialization}

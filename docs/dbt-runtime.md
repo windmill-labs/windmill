@@ -1227,44 +1227,26 @@ table is `ref()` lineage. The typed column list lands in
 `dbt_node.column_schema`, beside `columns` rather than merged into it —
 `columns` stays what the author *declared*.
 
-**Served from `assets/column_lineage`, keyed to one relation, not as a field on
-the asset graph.** The graph is folder-wide and a run page polls it, while a
-column trace is drawn for one selected node; carried on the graph the edges would
-need a cap, and a cap has to be applied after every filter that can drop a row —
-scope, project visibility, the asset set actually rendered. That ordering is what
-the separate endpoint removes rather than gets right: here the filters *are* the
-answer. The caller's `scripts:read` scope and the project's visibility are decided
-once in SQL, for the script that owns the relation; the size is bounded at ingest
-(`MAX_COLUMN_EDGES` per version, of which only the direct kinds are served); and
-what comes back is the **connected component** the relation's columns sit in,
-which is exactly what the canvas lays out. Neither the relation's own edges (a
-trace walks transitively, so that stops one hop out) nor the whole project's
-(model families the selection cannot reach). The component is walked in Rust over
-the rows the gated query returns, not by a recursive CTE: a CTE has no index to
-walk, so the recursive term rescans the whole edge set once per level — measured
-at 1.24s against 59ms for the query alone on a 3000-model project. Pinning to a
-run's snapshot or to the editor's parse of its own buffer costs the job-read gate,
-so that form is `jobs/dbt_column_lineage/{id}`, exactly as `jobs/dbt_graph/{id}`
-is to `assets/graph`.
+**Stored now, served later.** This change lands the ingest and the storage; the
+endpoint that draws a column trace is a follow-up. What is user-visible today is
+`column_schema` — every column of a relation, typed and in the order the model
+emits them — which rides the asset graph the details pane already fetches, and
+replaces a panel that could only list the columns an author happened to document.
+The edges sit in `dbt_column_edge` waiting for their surface.
 
-The two halves of a column trace are fetched separately and merged in the
-browser: the producer half — what a DuckDB script's `// column` annotations and
-inferred SQL lineage say — rides on the asset graph, and dbt's rides on this
-endpoint. They meet at shared node ids, since `// column total <-
-dbt://wh/analytics/orders.amount` mints the same `(dbt, path, column)` node dbt's
-own lineage does, so a trace crosses the boundary in both directions rather than
-ending at it.
+`column_schema` is gated on being able to read the producing project, like the
+model's SQL: a column-level view is the shape of what the author wrote, one level
+finer than the `ref()` graph, which is ungated only because it draws relations the
+caller already sees. A share-link viewer entitled to a dbt run therefore gets its
+relations and `ref()` edges, and neither the SQL nor the columns.
 
-Both the lineage and `column_schema` are gated on being able to read the
-producing project, like the model's SQL: a column-level view is the shape of what
-the author wrote, one level finer than the `ref()` graph, which is ungated only
-because it draws relations the caller already sees. **That gate is separate from
-the pin**, and the pinned read is where the two are easiest to conflate: a run
-resolves WHICH version answers, and never whether the caller may read it. A
-share-link viewer entitled to a dbt run gets its relations and `ref()` edges and
-an empty lineage, the same split `dbt_graph` already makes by redacting
-`raw_code`. The one exemption is a version-less row — an editor buffer, which has
-no `script` row to ask and is reachable only through the parse job that wrote it.
+**The analysis pass takes the build's own `--full-refresh`.** `is_incremental()`
+branches on it, so an incremental model reading `{{ this }}` compiles its
+self-join — and any `ref()` inside that branch — only when the flag is absent. A
+pass that used the descriptor's default while the run overrode it would store
+lineage for SQL that run never executed. For the same reason an invocation that
+overrides the flag counts as `per_run_models`: its graph is its own, keyed to the
+job, rather than standing as the version's.
 
 ## Concept mapping
 
@@ -1278,7 +1260,7 @@ no `script` row to ask and is reachable only through the parse job that wrote it
 | `unique`/`not_null`/`accepted_values`/`relationships` | `data_tests` | exact 1:1 with the four `// data_test` kinds |
 | declared column metadata | `columns` on the asset node | descriptions only, from the manifest |
 | analyzed column schema | `column_schema` on the asset node | `dbt.node_columns.parquet`, opt-in |
-| column-to-column lineage | column-lineage trace | `dbt.column_lineage.parquet`, opt-in |
+| column-to-column lineage | `dbt_column_edge` rows (no view yet) | `dbt.column_lineage.parquet`, opt-in |
 | model `tags` | node badge | `tag` |
 | source freshness | `freshness` | `last_success_at` chip |
 | `run_results.json` | materialization records | `record_materialization` |

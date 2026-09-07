@@ -877,6 +877,9 @@ impl GraphRefresh {
         if selection_is_overridden(descriptor, args)? {
             self.per_run_models = true;
         }
+        if full_refresh_is_overridden(descriptor, args)? {
+            self.per_run_models = true;
+        }
         Ok(())
     }
 }
@@ -2243,8 +2246,7 @@ async fn run_dbt(
         if let Some(t) = descriptor.threads {
             cmd.args(["--threads", &t.to_string()]);
         }
-        let full_refresh = arg_bool(&inv.args, "full_refresh")?.unwrap_or(descriptor.full_refresh);
-        if full_refresh && command != "test" {
+        if full_refresh(descriptor, inv)? && command != "test" {
             cmd.arg("--full-refresh");
         }
     }
@@ -3184,10 +3186,14 @@ async fn attach_column_index(
 ) -> error::Result<()> {
     // The nodes this graph kept, so the pass reads only rows it could store: the
     // index describes the whole project, this graph one selection of it.
-    let kept: std::collections::HashSet<&str> =
-        ingested.nodes.iter().map(|n| n.unique_id.as_str()).collect();
+    let kept: std::collections::HashSet<&str> = ingested
+        .nodes
+        .iter()
+        .map(|n| n.unique_id.as_str())
+        .collect();
     let index =
-        crate::dbt_column_index::collect(p, descriptor, inv, ctx, job_id, w_id, conn, &kept).await?;
+        crate::dbt_column_index::collect(p, descriptor, inv, ctx, job_id, w_id, conn, &kept)
+            .await?;
     drop(kept);
     let Some(index) = index else {
         return Ok(());
@@ -4896,6 +4902,27 @@ fn add_selection(
 ///
 /// A run that wants the whole project despite a descriptor selector names a
 /// selection that differs — `["*"]`.
+/// Whether this invocation rebuilds incremental models from scratch: the run
+/// form's answer when it gave one, else the descriptor's.
+///
+/// Shared with the column-lineage pass rather than recomputed there, because
+/// `is_incremental()` branches on it: the same model compiles to different SQL —
+/// a `{{ this }}` self-join, and any `ref()` inside the incremental branch — so a
+/// pass that guessed would describe a build that never ran.
+pub(crate) fn full_refresh(descriptor: &DbtDescriptor, inv: &Invocation) -> error::Result<bool> {
+    Ok(arg_bool(&inv.args, "full_refresh")?.unwrap_or(descriptor.full_refresh))
+}
+
+/// Whether this run answered `full_refresh` differently from the deployed
+/// descriptor. Like a selection override it changes what the graph describes,
+/// since an incremental branch can carry its own `ref()`.
+fn full_refresh_is_overridden(
+    descriptor: &DbtDescriptor,
+    args: &HashMap<String, Box<RawValue>>,
+) -> error::Result<bool> {
+    Ok(arg_bool(args, "full_refresh")?.is_some_and(|v| v != descriptor.full_refresh))
+}
+
 fn selection_is_overridden(
     descriptor: &DbtDescriptor,
     args: &HashMap<String, Box<RawValue>>,
@@ -5896,6 +5923,27 @@ mod tests {
             .unwrap();
         assert!(untouched.publishes_ownership());
         assert_eq!(untouched.snapshot_job(job), None);
+
+        // `full_refresh` decides whether `is_incremental()` is true, so an
+        // incremental model's self-join — and any `ref()` inside that branch —
+        // exists in one answer and not the other. A run that flips it describes
+        // a different graph, and gets its own.
+        let mut refreshed = GraphRefresh::default();
+        refreshed
+            .add_caller_args(&descriptor, &arg("full_refresh", "true"))
+            .unwrap();
+        assert!(refreshed.needed());
+        assert_eq!(refreshed.snapshot_job(job), Some(job));
+
+        // The same echo rule: the form posts the descriptor's own value back on
+        // every run, and reading that as an override would make each one
+        // caller-scoped.
+        let always = DbtDescriptor { full_refresh: true, ..Default::default() };
+        let mut echoed_flag = GraphRefresh { profile_drift: true, ..Default::default() };
+        echoed_flag
+            .add_caller_args(&always, &arg("full_refresh", "true"))
+            .unwrap();
+        assert_eq!(echoed_flag.snapshot_job(job), None);
     }
 
     // `dbt retry` restores the previous run's target/ from this directory, so two

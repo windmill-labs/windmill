@@ -8,7 +8,7 @@
 	// single file, so the arguments, the run and the graph are all the project's
 	// whichever file happens to be open.
 	import { untrack } from 'svelte'
-	import { createEventDispatcher, onDestroy } from 'svelte'
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import type { Preview, ScriptModule } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -31,15 +31,6 @@
 		AssetGraphNodeData,
 		DbtAssetProvenance
 	} from '$lib/components/assets/AssetGraph/types'
-	import {
-		EMPTY_COLUMN_GRAPH,
-		useDbtColumnLineage,
-		type DbtGraphPin
-	} from '$lib/components/assets/AssetGraph/dbtColumnLineage.svelte'
-	import {
-		mergeColumnGraphs,
-		type ColumnLineageGraph
-	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
 	import {
 		DBT_DESCRIPTOR,
 		DBT_MODULE_EXTENSIONS,
@@ -104,6 +95,17 @@
 			editor?.setCode(editorCode)
 			untrack(() => inferSchema(code))
 		}
+	})
+
+	// The stored schema can predate the parser (a CLI push, an older version), and
+	// the autosave baseline is taken as the mounted editor holds it
+	// (`schemaAsEditorMounts`), so the descriptor is re-inferred on mount rather
+	// than only on its first edit — otherwise the two only agree once edited.
+	onMount(async () => {
+		await inferSchema(code)
+		// Same single retry as ScriptEditor: the first parse can lose a transient
+		// wasm init race, and the baseline (`schemaAsEditorMounts`) retries too.
+		if (!validDescriptor && code) await inferSchema(code)
 	})
 
 	function flushOpenFile() {
@@ -216,28 +218,6 @@
 	let graphSelection = $state<AssetGraphNodeData | undefined>(undefined)
 	let selectedAsset = $derived(graphSelection?.kind === 'asset' ? graphSelection : undefined)
 	let selectedDbt = $state<DbtAssetProvenance | undefined>(undefined)
-	// Which graph the selection came from, so the lineage fetched below is the
-	// selected node's own project rather than whatever is deployed.
-	let selectionPin = $state<DbtGraphPin | undefined>(undefined)
-	// The selected model's column lineage, fetched on selection. Its own request
-	// rather than a field on the graph: only a project that opted into the
-	// analysis pass has any, and it is drawn for one model at a time.
-	const columnLineage = useDbtColumnLineage({
-		workspace: () => opWs,
-		assetPaths: () => {
-			const path = selectedDbt ? selectedAsset?.path : undefined
-			return path ? [path] : []
-		},
-		pin: () => selectionPin
-	})
-	// What the scripts around this project declare about its columns, off the
-	// same graph response the canvas drew. Merged rather than chosen between: a
-	// model's column and the ducklake column a script derives from it are one
-	// chain, and the trace has to cross that boundary.
-	let selectionProducerColumns = $state<ColumnLineageGraph>(EMPTY_COLUMN_GRAPH)
-	let selectionColumnGraph = $derived(
-		mergeColumnGraphs(columnLineage.graph, selectionProducerColumns)
-	)
 	// Set when the selected node came from a buffer parse: the project that parse
 	// ran on, which is the one its rows must come from. Undefined for a node off
 	// the deployed graph, which previews by version instead. Either way the rows
@@ -545,12 +525,10 @@
 						testRunning={testIsLoading}
 						testResult={testJob?.result}
 						selection={graphSelection}
-						onSelect={(sel, dbt, buffer, pin, producerColumns) => {
+						onSelect={(sel, dbt, buffer) => {
 							graphSelection = sel
 							selectedDbt = dbt
 							selectedBuffer = buffer
-							selectionPin = pin
-							selectionProducerColumns = producerColumns
 						}}
 					/>
 				</Pane>
@@ -572,8 +550,6 @@
 							{args}
 							fileInBundle={!!selectedDbt.original_file_path &&
 								!!modules?.[selectedDbt.original_file_path]}
-							columnGraph={selectionColumnGraph}
-							columnLoading={columnLineage.loading}
 							onOpenFile={open}
 							onClose={() => (graphSelection = undefined)}
 						/>

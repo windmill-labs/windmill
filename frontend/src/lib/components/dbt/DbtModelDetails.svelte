@@ -12,11 +12,6 @@
 	import { ClipboardCopy, Code2, FileCode2, Loader2, TableProperties, X } from 'lucide-svelte'
 	import { copyToClipboard } from '$lib/utils'
 	import type { DbtAssetProvenance } from '$lib/components/assets/AssetGraph/types'
-	import ColumnLineageTrace from '$lib/components/assets/AssetGraph/ColumnLineageTrace.svelte'
-	import {
-		assetColumnNodes,
-		type ColumnLineageGraph
-	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
 	import { previewDbtRows, type DbtPreview, type DbtPreviewBuffer } from './previewRows'
 	import { nodeSelector } from './parseDbtRun'
 
@@ -39,14 +34,6 @@
 		args,
 		/** Whether this model's file is in the bundle being edited. */
 		fileInBundle = false,
-		/** The project's column-level lineage, when the descriptor asked for it.
-		 *  Fetched for this relation against the same graph the canvas draws, so
-		 *  the trace and the nodes above it describe one parse. */
-		columnGraph,
-		/** That fetch still in flight. Distinguished from an empty graph: a
-		 *  project without the analysis pass shows nothing at all, and a slow
-		 *  answer must not read as that. */
-		columnLoading = false,
 		onOpenFile,
 		onClose
 	}: {
@@ -58,8 +45,6 @@
 		buffer?: DbtPreviewBuffer
 		args?: Record<string, unknown>
 		fileInBundle?: boolean
-		columnGraph?: ColumnLineageGraph
-		columnLoading?: boolean
 		onOpenFile?: (path: string) => void
 		onClose?: () => void
 	} = $props()
@@ -144,9 +129,6 @@
 				}))
 	)
 	let columnsAreAnalyzed = $derived(!!dbt.column_schema?.length)
-	// The selected relation's own column nodes: empty for a project that never
-	// asked for the analysis pass, which is the ordinary case.
-	let columnNodes = $derived(columnGraph ? assetColumnNodes(columnGraph, 'dbt', assetPath) : [])
 	// `dbt show` SELECTs from the node's own relation and the worker intersects
 	// the selector with `resource_type:model`, so offering it on a seed, snapshot
 	// or source only ever produces a failed job.
@@ -310,22 +292,6 @@
 						</div>
 					</div>
 				{/if}
-			</div>
-		{/if}
-
-		{#if columnLoading && columnNodes.length === 0}
-			<div class="border-b flex items-center gap-2 p-2 text-2xs text-secondary">
-				<Loader2 size={12} class="animate-spin" />
-				Loading column lineage
-			</div>
-		{:else if columnGraph && columnNodes.length > 0}
-			<div class="border-b overflow-auto max-h-64">
-				<ColumnLineageTrace
-					graph={columnGraph}
-					assetKind="dbt"
-					{assetPath}
-					targetLabel={dbt.unique_id}
-				/>
 			</div>
 		{/if}
 

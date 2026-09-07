@@ -226,6 +226,13 @@ async fn compile_index(
     // `run_results.json` a `dbt retry` resumes from.
     cmd.env("DBT_TARGET_PATH", CLL_ARTIFACTS_DIR);
     crate::dbt_executor::add_vars(&mut cmd, descriptor, inv)?;
+    // The BUILD's answer, not the descriptor's default: `is_incremental()`
+    // branches on it, so a model reading `{{ this }}` compiles its self-join —
+    // and any `ref()` inside that branch — only when this is absent. Guessing
+    // here stores lineage for SQL the run never executed.
+    if crate::dbt_executor::full_refresh(descriptor, inv)? {
+        cmd.arg("--full-refresh");
+    }
     // Captured rather than streamed: a strict-analysis failure is a wall of
     // diagnostics about SQL the build itself accepts, and this pass decides
     // nothing about whether that build runs.
