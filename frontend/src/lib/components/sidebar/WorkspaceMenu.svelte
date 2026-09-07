@@ -3,6 +3,7 @@
 	import {
 		isPremiumStore,
 		maybePremium,
+		premiumFetchFailed,
 		superadmin,
 		userStore,
 		userWorkspaces,
@@ -33,11 +34,12 @@
 	import type { MenubarBuilders } from '@melt-ui/svelte'
 	import {
 		buildWorkspaceHierarchy,
+		findCanonicalDevWorkspace,
 		findWorkspaceAncestors,
 		findWorkspaceRoot,
 		isForkOwner
 	} from '$lib/utils/workspaceHierarchy'
-	import { canCreateFork } from '$lib/utils/editInFork'
+	import { forkBlockedReason } from '$lib/utils/editInFork'
 	import { getContrastTextColor } from '$lib/utils'
 	import { workspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
 	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
@@ -112,11 +114,17 @@
 		}
 		return withForks
 	})
-	// Gate for the "Workspace fork" entry pinned below the list (the global fork
-	// modal carries its own base-workspace picker). Hidden on non-premium cloud,
-	// in the admins workspace, or when forking is disabled.
-	const canForkHere = $derived(
-		(!isCloudHosted() || $maybePremium) && $workspaceStore !== 'admins' && canCreateFork($userStore)
+	// Gate for the "Workspace fork" entry pinned below the list. When forking is unavailable the
+	// entry stays, disabled and carrying the reason, rather than disappearing. The global fork modal
+	// carries its own base-workspace picker, so a canonical dev workspace is a fork base like it is
+	// in the scope header's picker — judging it without one would disable the entry here while that
+	// picker offers the same fork one panel away.
+	const forkBlocked = $derived(
+		forkBlockedReason($userStore, $workspaceStore, {
+			premium: $maybePremium,
+			premiumUnknown: $premiumFetchFailed,
+			hasDevWorkspace: !!findCanonicalDevWorkspace($workspaceStore, $userWorkspaces)
+		})
 	)
 	const familyWorkspaces = $derived.by(() => {
 		if (strictWorkspaceSelect) return hierarchy
@@ -375,7 +383,7 @@
 					</div>
 				{/each}
 			</div>
-			{#if (isCloudHosted() || $superadmin || canForkHere) && !strictWorkspaceSelect}
+			{#if !strictWorkspaceSelect}
 				<div class="py-1" role="none">
 					{#if isCloudHosted() || $superadmin}
 						<MenuItem href="{base}/user/create_workspace" class={itemClass} {item}>
@@ -383,7 +391,24 @@
 							Workspace
 						</MenuItem>
 					{/if}
-					{#if canForkHere}
+					{#if forkBlocked}
+						<!-- Kept visible so the reason forking is unavailable is readable here, rather than
+						     leaving the entry to silently vanish. Styled disabled rather than natively
+						     disabled, like the user-disabled workspace rows above, so the row still reads
+						     as menu content. -->
+						<MenuItem
+							class={twMerge(itemClass, 'flex-col gap-0.5 opacity-60 cursor-not-allowed')}
+							onClick={(e) => e.preventDefault()}
+							{item}
+						>
+							<div class="flex flex-row gap-2 items-center w-full">
+								<Plus size={16} />
+								Workspace fork
+								<span class="ml-auto shrink-0 text-2xs text-tertiary">{forkBlocked.note}</span>
+							</div>
+							<span class="text-2xs text-tertiary text-left w-full pl-6">{forkBlocked.detail}</span>
+						</MenuItem>
+					{:else}
 						<MenuItem
 							class={itemClass}
 							onClick={() => (globalForkModal.val = { opened: true })}
