@@ -203,14 +203,9 @@ export async function pushVariable(
     });
   }
 
-  // Independent of whether the variable body changed, sync extra_perms via
-  // /acls/*. Self-contained log line + non-fatal failures.
-  //
-  // No refetch is needed: extra_perms is item-specific and additive on top of
-  // folder perms — folder perms are never merged onto item.extra_perms. And
-  // since the request body sent to update_variable / create_variable doesn't
-  // carry extra_perms, the value read in the getVariable above is also the
-  // post-write value.
+  // Synced whether or not the body changed. No refetch: folder perms are never
+  // merged onto item.extra_perms, and the update/create body carries no
+  // extra_perms, so the value getVariable read above is still the remote one.
   await applyExtraPermsDiff(
     workspace,
     "variable",
