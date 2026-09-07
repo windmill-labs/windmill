@@ -166,7 +166,9 @@
 													<Star size={8} class="absolute -mt-3 ml-3 text-accent" />
 												{/if}
 											</div>
-											<div class="flex grow min-w-0 items-center text-left">
+											<!-- `TriggerLabel` emits its badges as bare siblings, so the gap between them
+											     is the container's to set, as the other call sites do. -->
+											<div class="flex grow min-w-0 items-center gap-2 text-left">
 												<TriggerLabel {trigger} discard={!isSelectedTrigger} />
 											</div>
 										</div>
@@ -233,15 +235,15 @@
 							{#each draftAgents as agent (agent.path)}
 								{@const permission = checkAgentPermissions(agent)}
 								{@const isSelectedAgent = selectedAgents.some((a) => a.path === agent.path)}
-								<!-- `min-h`, not the trigger table's fixed `h-12`: a never-deployed agent's row carries
-								     a second line of warning under the path. -->
 								<tr
 									class={twMerge(
 										'transition-colors border-t border-gray-200 dark:border-gray-700',
 										permission.state === 'deploy' ? 'hover:bg-surface-hover ' : ''
 									)}
 								>
-									<td class="min-h-12 text-center py-2 px-4">
+									<!-- No fixed height, unlike the trigger table's `h-12` row: a never-deployed agent
+									     carries a second line of warning under the path, so the row grows with it. -->
+									<td class="py-2 px-4">
 										<div class="flex flex-row items-center gap-2">
 											<Bot size={14} class={isSelectedAgent ? 'text-accent' : 'text-hint'} />
 											<div class="flex grow min-w-0 flex-col text-left">
@@ -273,9 +275,12 @@
 										</div>
 									</td>
 
-									<td class="text-left py-1">
+									<!-- Right-aligned, unlike the trigger column: this one is `w-48` to fit "Keep as
+									     draft", so left-aligned content would float in the slack instead of lining up
+									     with the trigger rows above it. -->
+									<td class="text-right py-1 pr-2">
 										{#if permission.state === 'deploy'}
-											<div class="flex justify-start">
+											<div class="flex justify-end">
 												<ToggleButtonGroup
 													class="w-fit h-fit"
 													selected={isSelectedAgent ? 'deploy' : 'discard'}
