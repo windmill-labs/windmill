@@ -41,19 +41,21 @@
 	let automateUsername = $state(true)
 	let suggestedUsername = $state<string | undefined>(undefined)
 	/**
-	 * Whether the policy is settled, which is what this form may not submit without:
-	 * `automateUsername` starts at the common case, and posting that guess to an instance
-	 * that derives no usernames sends none where one is required. `loadUsernamePolicy`
-	 * always answers — "ask for one" when it cannot read the setting — so this turns true
-	 * on a known answer rather than on the attempt finishing.
+	 * Whether the username policy is known, which is what this form may not submit without.
+	 * `create_workspace` refuses a username on an instance that automates them and requires
+	 * one on an instance that does not, so a client that has not read the setting cannot
+	 * pick a request shape — there is no safe default to fall back to, only two shapes the
+	 * server rejects. Unknown therefore blocks Create and says why, with a retry.
 	 */
 	let policyLoaded = $state(false)
+	let policyFailed = $state(false)
 	/** Someone typed while the prefill was in flight; their name wins over the suggestion. */
 	let nameEdited = false
 
 	async function load() {
 		// Settled apart: the policy decides whether this form may submit at all, the suggested
 		// name is cosmetic, and neither failure should decide the other.
+		policyFailed = false
 		const [me, policy] = await Promise.allSettled([
 			UserService.globalWhoami(),
 			loadUsernamePolicy()
@@ -64,12 +66,14 @@
 					? defaultWorkspaceName(me.value.name, me.value.email)
 					: 'My workspace'
 		}
-		// `loadUsernamePolicy` answers "ask for one" rather than rejecting when the setting
-		// cannot be read, so the fallback here is the same answer by another route.
-		const answer = policy.status === 'fulfilled' ? policy.value : { automate: false }
-		automateUsername = answer.automate
-		suggestedUsername = answer.suggested
-		if (!answer.automate && !answer.suggested) advanced = true
+		if (policy.status === 'rejected') {
+			console.error('Could not read the username policy:', policy.reason)
+			policyFailed = true
+			return
+		}
+		automateUsername = policy.value.automate
+		suggestedUsername = policy.value.suggested
+		if (!policy.value.automate && !policy.value.suggested) advanced = true
 		policyLoaded = true
 	}
 	void load()
@@ -174,6 +178,12 @@
 		/>
 		{#if problem && name.trim()}
 			<span class="text-2xs font-normal text-red-500">{problem}</span>
+		{/if}
+		{#if policyFailed}
+			<span class="mt-1 text-2xs font-normal text-red-500">
+				This instance's settings could not be read, so a workspace cannot be created yet.
+				<button class="text-accent hover:underline" onclick={() => void load()}>Try again</button>
+			</span>
 		{/if}
 
 		<div class="mt-6 flex items-center justify-between gap-4">

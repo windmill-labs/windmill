@@ -71,11 +71,12 @@ describe('usernameFromName', () => {
 })
 
 describe('loadUsernamePolicy', () => {
-	// Fail-closed matters because a caller told "automated" hides its username field and
-	// posts none: an instance that derives none refuses that, with nowhere to supply one.
-	it('asks for a username when the setting cannot be read', async () => {
+	// Neither default is safe — `create_workspace` refuses a username on an automating
+	// instance and requires one otherwise — so an unreadable setting has to reach the caller
+	// as a failure rather than as a guess it cannot tell apart from an answer.
+	it('rejects rather than guessing when the setting cannot be read', async () => {
 		getGlobal.mockRejectedValueOnce(new Error('502'))
-		expect(await loadUsernamePolicy()).toEqual({ automate: false })
+		await expect(loadUsernamePolicy()).rejects.toThrow('502')
 	})
 
 	it('automates when the setting says so, and when it is unset', async () => {

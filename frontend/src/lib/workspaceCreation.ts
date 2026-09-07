@@ -68,20 +68,15 @@ export function usernameFromName(name: string): string | undefined {
  * requires one when it does not, so the field only exists in the second case.
  */
 export async function loadUsernamePolicy(): Promise<UsernamePolicy> {
-	let automate: boolean
-	try {
-		automate =
-			((await SettingService.getGlobal({
-				key: 'automate_username_creation'
-			})) as boolean | null) ?? true
-	} catch (error) {
-		// Unreadable is not "automated". A caller told yes hides its username field and posts
-		// none, which an instance that derives none then refuses — with nowhere on screen to
-		// supply what it wanted. Answering no asks for one, which is right either way: an
-		// instance that does automate ignores a username it was sent.
-		console.error('Could not read the username policy; asking for one instead:', error)
-		return { automate: false }
-	}
+	// Rejects rather than defaulting when the setting cannot be read, because neither
+	// default is safe: `create_workspace` refuses a username on an instance that automates
+	// them and requires one on an instance that does not (`workspaces.rs:5820`). A caller
+	// that cannot read this cannot pick a request shape, and must say so instead of posting
+	// one of the two the server rejects.
+	const automate =
+		((await SettingService.getGlobal({
+			key: 'automate_username_creation'
+		})) as boolean | null) ?? true
 	if (automate) return { automate: true }
 	try {
 		const me = await UserService.globalWhoami()
