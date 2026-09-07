@@ -3,7 +3,7 @@
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { preloadHubProjects, type HubProjectPick } from '$lib/hubProject'
-	import { workspaceStore } from '$lib/stores'
+	import { disableHubStore, workspaceStore } from '$lib/stores'
 	import CreateActionsMenu from './CreateActionsMenu.svelte'
 	import HubTemplatePicker from './HubTemplatePicker.svelte'
 
@@ -32,9 +32,10 @@
 
 	// Warmed as soon as the empty state renders rather than on the first click: the
 	// catalogue is one request for the whole hub, and paying for it here is what makes
-	// the picker open on content.
+	// the picker open on content. Not on an instance with the hub turned off, where the
+	// request is one the operator has said not to make.
 	$effect(() => {
-		if ($workspaceStore) preloadHubProjects($workspaceStore)
+		if ($workspaceStore && !$disableHubStore) preloadHubProjects($workspaceStore)
 	})
 </script>
 
@@ -65,38 +66,43 @@
 		class="border-t border-dashed border-border-light px-4 pb-[22px] pt-[18px] text-center text-[13.5px] leading-relaxed text-hint"
 	>
 		Your scripts, flows and apps will show up here.
-		<!-- Opens downward into the page rather than upward into the hero: the caption sits high
-		     when the AI composer is hidden, so the room is below it. `fitViewport` caps the box on
-		     a short viewport, which is why the height below is definite and the list inside fills
-		     it — a squeezed box with a fixed-height list inside overflows its own frame. -->
-		<Popover
-			floatingConfig={{
-				placement: 'bottom',
-				strategy: 'absolute',
-				gutter: 8,
-				overflowPadding: 16,
-				flip: { fallbackPlacements: ['top', 'bottom-start', 'top-start'] },
-				fitViewport: true,
-				overlap: false
-			}}
-			contentClasses="p-0 flex"
-			contentStyle="height: min(72vh, 520px);"
-			class="border-b border-transparent text-accent hover:border-accent"
-			triggerAttrs={{ 'aria-label': 'Start from a template' }}
-			on:openChange={(e) =>
-				e.detail && logFeatureUsage('home', 'template_picker_open', { key: 'empty_state' })}
-		>
-			{#snippet trigger()}Start from a template{/snippet}
-			{#snippet content({ close })}
-				<HubTemplatePicker
-					onPick={(project) => {
-						close()
-						onPick(project)
-					}}
-				/>
-			{/snippet}
-		</Popover>
-		or
+		<!-- The hub half goes when the instance has the hub turned off, and the remaining link
+		     opens the sentence instead of continuing it. -->
+		{#if !$disableHubStore}
+			<!-- Opens downward into the page rather than upward into the hero: the caption sits
+			     high when the AI composer is hidden, so the room is below it. `fitViewport` caps
+			     the box on a short viewport, which is why the height below is definite and the
+			     list inside fills it — a squeezed box with a fixed-height list inside overflows
+			     its own frame. -->
+			<Popover
+				floatingConfig={{
+					placement: 'bottom',
+					strategy: 'absolute',
+					gutter: 8,
+					overflowPadding: 16,
+					flip: { fallbackPlacements: ['top', 'bottom-start', 'top-start'] },
+					fitViewport: true,
+					overlap: false
+				}}
+				contentClasses="p-0 flex"
+				contentStyle="height: min(72vh, 520px);"
+				class="border-b border-transparent text-accent hover:border-accent"
+				triggerAttrs={{ 'aria-label': 'Start from a template' }}
+				on:openChange={(e) =>
+					e.detail && logFeatureUsage('home', 'template_picker_open', { key: 'empty_state' })}
+			>
+				{#snippet trigger()}Start from a template{/snippet}
+				{#snippet content({ close })}
+					<HubTemplatePicker
+						onPick={(project) => {
+							close()
+							onPick(project)
+						}}
+					/>
+				{/snippet}
+			</Popover>
+			or
+		{/if}
 		<CreateActionsMenu source="empty_state" triggerElement={newLinkEl}>
 			{#snippet trigger()}
 				<!-- A bare <button> for a link inside a sentence, signed off by design: <Button>
@@ -107,7 +113,7 @@
 				<button
 					bind:this={newLinkEl}
 					class="border-b border-transparent text-accent hover:border-accent"
-					>create a new one</button
+					>{$disableHubStore ? 'Create a new one' : 'create a new one'}</button
 				>.
 			{/snippet}
 		</CreateActionsMenu>

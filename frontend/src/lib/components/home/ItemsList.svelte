@@ -16,7 +16,7 @@
 	} from '$lib/gen'
 	import { resource } from 'runed'
 	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { disableHubStore, userStore, workspaceStore } from '$lib/stores'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
 		ArrowDownUp,
@@ -1813,7 +1813,11 @@
 			     whose direct-deploy protection cleared showEditButtons (NoDirectDeployAlert), since
 			     the menu itself does no permission check. -->
 			{#if !$userStore?.operator && showEditButtons}
-				<CreateActionsMenu onImportHubProject={() => (hubPickerOpen = true)} />
+				<!-- No hub entry where the instance has the hub turned off: the same setting the
+				     script and flow hub pickers observe. -->
+				<CreateActionsMenu
+					onImportHubProject={$disableHubStore ? undefined : () => (hubPickerOpen = true)}
+				/>
 			{/if}
 		</div>
 	</div>
