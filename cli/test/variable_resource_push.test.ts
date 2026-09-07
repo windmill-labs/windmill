@@ -361,6 +361,106 @@ describe("variable", () => {
       expect(content).toContain("is_secret: false");
     });
   });
+
+  test("extra_perms round-trips and pushes via /acls/* without rewriting the variable", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const uniqueId = Date.now();
+      const varPath = `f/test/perms_var_${uniqueId}`;
+
+      const createResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/create`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: varPath,
+            value: "perms_test_value",
+            is_secret: false,
+            description: "Variable for extra_perms test",
+          }),
+        }
+      );
+      expect(createResp.status).toBeLessThan(300);
+      await createResp.text();
+
+      const aclResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/acls/add/variable/${varPath}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ owner: "g/all", write: true }),
+        }
+      );
+      expect(aclResp.status).toBeLessThan(300);
+      await aclResp.text();
+
+      await writeFile(
+        join(tempDir, "wmill.yaml"),
+        `defaultTs: bun\nincludes:\n  - "${varPath}**"\nexcludes: []\n`,
+        "utf-8"
+      );
+
+      const pullResult = await backend.runCLICommand(
+        ["sync", "pull", "--yes"],
+        tempDir
+      );
+      expect(pullResult.code).toEqual(0);
+
+      const localPath = join(tempDir, `${varPath}.variable.yaml`);
+      const pulled = await readFile(localPath, "utf-8");
+      expect(pulled).toContain("extra_perms:");
+      expect(pulled).toContain("g/all: true");
+
+      const beforeResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/get/${varPath}`
+      );
+      const before = await beforeResp.json();
+
+      // Perm-only edit: downgrade the grant to read.
+      await writeFile(
+        localPath,
+        pulled.replace("g/all: true", "g/all: false"),
+        "utf-8"
+      );
+
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--yes"],
+        tempDir
+      );
+      expect(pushResult.code).toEqual(0);
+
+      const afterResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/get/${varPath}`
+      );
+      const after = await afterResp.json();
+      expect(after.extra_perms).toEqual({ "g/all": false });
+      // Routed through /acls/* rather than update_variable, so the row itself
+      // is untouched.
+      expect(after.edited_at).toEqual(before.edited_at);
+      expect(after.value).toEqual("perms_test_value");
+
+      // A yaml with no extra_perms field at all is "no opinion": a checkout
+      // that predates ACL sync must never revoke UI-managed grants.
+      await writeFile(
+        localPath,
+        `description: "Variable for extra_perms test"\nvalue: perms_test_value\nis_secret: false\n`,
+        "utf-8"
+      );
+      const noOpinionResult = await backend.runCLICommand(
+        ["sync", "push", "--yes"],
+        tempDir
+      );
+      expect(noOpinionResult.code).toEqual(0);
+
+      const finalResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/get/${varPath}`
+      );
+      const final = await finalResp.json();
+      expect(final.extra_perms).toEqual({ "g/all": false });
+    });
+  });
 });
 
 // =============================================================================
