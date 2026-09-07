@@ -518,6 +518,34 @@ async fn a_save_names_only_what_exists(db: Pool<Postgres>) -> anyhow::Result<()>
     assert_eq!(status, 400, "{text}");
     assert!(text.contains("'add_orders' (role 'analyst')"), "{text}");
 
+    // The roles are the database's: a migration of another entry reaching it,
+    // here an alias in the same workspace, is stranded all the same.
+    sqlx::query(
+        r#"UPDATE workspace_settings
+           SET datatable = jsonb_set(datatable, '{datatables,alias}',
+               '{"database": {"resource_type": "instance", "resource_path": "dt_main"}}')
+           WHERE workspace_id = 'test-workspace'"#,
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "UPDATE datatable_migrations SET datatable = 'alias' WHERE workspace_id = 'test-workspace'",
+    )
+    .execute(&db)
+    .await?;
+    let (status, text) = preview(json!({ "enabled": true,
+        "roles": [{ "name": "admin", "tenants": [] }]
+    }))
+    .await;
+    assert_eq!(status, 400, "{text}");
+    assert!(
+        text.contains("test-workspace/alias: 'add_orders' (role 'analyst')"),
+        "{text}"
+    );
+    sqlx::query("DELETE FROM datatable_migrations WHERE workspace_id = 'test-workspace'")
+        .execute(&db)
+        .await?;
+
     // Turning permissions off ignores the submitted roles and is never refused,
     // stale tenant or not: it gets as far as the database this test lacks.
     let (_, text) = preview(json!({ "enabled": false, "roles": [
@@ -541,6 +569,184 @@ async fn a_save_names_only_what_exists(db: Pool<Postgres>) -> anyhow::Result<()>
         !text.contains("no longer exist") && !text.contains("Migration(s)"),
         "{text}"
     );
+
+    Ok(())
+}
+
+/// Deleting a workspace takes only the roles it owns with it. A fork that held a
+/// copy of the parent's data table owns nothing there, so its deletion leaves the
+/// parent's row alone; the owner's own deletion drops its logins but leaves the
+/// row, ownerless and closed: every role refused, only a superadmin through.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn a_deletion_takes_only_the_permissions_it_owns(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    plant_main(&db, "test-workspace").await;
+    plant_permissions(&db, MAIN_KEY, "test-workspace", &["u/test-user-3"]).await;
+    sqlx::query(
+        "INSERT INTO workspace (id, name, owner, parent_workspace_id)
+         VALUES ('wm-fork-t', 'wm-fork-t', 'test2@windmill.dev', 'test-workspace')",
+    )
+    .execute(&db)
+    .await?;
+    plant_main(&db, "wm-fork-t").await;
+    sqlx::query(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role) VALUES
+           ('wm-fork-t', 'test2@windmill.dev', 'test-user-2', true, 'Admin'),
+           ('wm-fork-t', 'test3@windmill.dev', 'test-user-3', false, 'User')",
+    )
+    .execute(&db)
+    .await?;
+
+    // The fork's owner deletes it: the parent's row is untouched.
+    let resp = authed(
+        client().delete(format!(
+            "http://localhost:{port}/api/workspaces/delete/wm-fork-t"
+        )),
+        "SECRET_TOKEN_2",
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let owner: Option<String> = sqlx::query_scalar(
+        "SELECT owner_workspace_id FROM datatable_database_permissions WHERE database_key = $1",
+    )
+    .bind(MAIN_KEY)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(owner.as_deref(), Some("test-workspace"));
+    let roles = usable_roles(port, "test-workspace", "main", "SECRET_TOKEN_3").await;
+    assert_eq!(roles["roles"], json!(["analyst"]), "{roles}");
+
+    // Another workspace reaching the same database, then the owner is deleted.
+    sqlx::query(
+        "INSERT INTO workspace (id, name, owner) VALUES ('elsewhere', 'elsewhere', 'test-user')",
+    )
+    .execute(&db)
+    .await?;
+    plant_main(&db, "elsewhere").await;
+    sqlx::query(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('elsewhere', 'test3@windmill.dev', 'test-user-3', true, 'Admin')",
+    )
+    .execute(&db)
+    .await?;
+    let resp = authed(
+        client().delete(format!(
+            "http://localhost:{port}/api/workspaces/delete/test-workspace"
+        )),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let owner: Option<String> = sqlx::query_scalar(
+        "SELECT owner_workspace_id FROM datatable_database_permissions WHERE database_key = $1",
+    )
+    .bind(MAIN_KEY)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(owner, None);
+    // Admin of `elsewhere`, and the tenant the row names: neither counts without an owner.
+    let closed = usable_roles(port, "elsewhere", "main", "SECRET_TOKEN_3").await;
+    assert_eq!(closed["enabled"], json!(true));
+    assert_eq!(closed["roles"], json!([]), "{closed}");
+    let superadmin = usable_roles(port, "elsewhere", "main", "SECRET_TOKEN").await;
+    assert_eq!(
+        superadmin["roles"],
+        json!(["admin", "analyst"]),
+        "{superadmin}"
+    );
+    // Nobody but a superadmin manages it now: an admin of `elsewhere` reads it, changes nothing.
+    let resp = authed(
+        client().get(format!(
+            "http://localhost:{port}/api/w/elsewhere/workspaces/datatable_permissions/main"
+        )),
+        "SECRET_TOKEN_3",
+    )
+    .send()
+    .await?;
+    let status = resp.status().as_u16();
+    let text = resp.text().await?;
+    assert_eq!(status, 200, "{text}");
+    let info: serde_json::Value = serde_json::from_str(&text)?;
+    assert_eq!(info["editable"], json!(false), "{info}");
+
+    Ok(())
+}
+
+/// An export carries a database's roles, tenants and login names, never its
+/// passwords; importing them governs a database nobody governs yet, owned by
+/// the importing workspace, with every role refused until a save recreates the
+/// logins. A database already governed is left alone and reported.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn imported_permissions_govern_without_logins(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    plant_main(&db, "test-workspace").await;
+    plant_permissions(&db, "instance:dt_other", "test-workspace", &["*"]).await;
+    let import = |rows: serde_json::Value| {
+        let ws = ws.clone();
+        async move {
+            let resp = authed(
+                client().post(format!("{ws}/workspaces/datatable_permissions_import")),
+                "SECRET_TOKEN",
+            )
+            .json(&rows)
+            .send()
+            .await
+            .unwrap();
+            let status = resp.status().as_u16();
+            let text = resp.text().await.unwrap();
+            (status, text)
+        }
+    };
+    let exported = json!([
+        { "database_key": MAIN_KEY, "permissions": { "enabled": true, "roles": {
+            "admin": { "tenants": [] },
+            "analyst": { "tenants": ["u/test-user-3"], "pg_rolename": "wm_analyst_x", "pg_password": "leaked?" }
+        }}},
+        { "database_key": "instance:dt_other", "permissions": { "enabled": true, "roles": { "admin": { "tenants": [] } } } }
+    ]);
+    let (status, text) = import(exported).await;
+    assert_eq!(status, 200, "{text}");
+    assert_eq!(text, "[\"instance:dt_other\"]");
+
+    let row: (Option<String>, serde_json::Value) = sqlx::query_as(
+        "SELECT owner_workspace_id, permissions FROM datatable_database_permissions WHERE database_key = $1",
+    )
+    .bind(MAIN_KEY)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(row.0.as_deref(), Some("test-workspace"));
+    assert_eq!(
+        row.1["roles"]["analyst"]["pg_rolename"],
+        json!("wm_analyst_x")
+    );
+    assert!(
+        row.1["roles"]["analyst"].get("pg_password").is_none(),
+        "{}",
+        row.1
+    );
+    // The tenant is listed as usable; resolving the role, which has no stored
+    // credential, is refused rather than falling back to the owning connection.
+    let roles = usable_roles(port, "test-workspace", "main", "SECRET_TOKEN_3").await;
+    assert_eq!(roles["roles"], json!(["analyst"]), "{roles}");
+    let resp = authed(
+        client().get(format!(
+            "{ws}/workspaces/get_datatable_table_schema?datatable_name=main&schema_name=public&table_name=t&role=analyst"
+        )),
+        "SECRET_TOKEN_3",
+    )
+    .send()
+    .await?;
+    let text = resp.text().await?;
+    assert!(text.contains("no stored credential"), "{text}");
 
     Ok(())
 }

@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT workspace_id AS \"workspace_id!\", datatable AS \"datatable!\", name AS \"name!\",\n                  code_up AS \"code_up!\", code_down\n           FROM datatable_migrations\n           WHERE code_up LIKE '%-- role %' OR code_down LIKE '%-- role %'\n           ORDER BY workspace_id, datatable, timestamp",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "datatable!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "name!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "code_up!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "code_down",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "11f66d88f9374cab8dd59132ffb63f3fef248f52d7518389ac52eb3f515d68ac"
+}

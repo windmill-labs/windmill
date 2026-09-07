@@ -1285,11 +1285,12 @@ pub(crate) async fn delete_workspace(
         );
     }
 
-    // The workspace is gone, so nothing names these logins any more and the drop
-    // finds them unclaimed. A workspace id is reusable, and so are the names
-    // generated under it, which is what makes leaving them behind more than litter.
+    // The workspace that owned these roles is gone. Their logins go with it; the
+    // permissions rows stay, ownerless — every entry still reaching those databases
+    // finds every role refused rather than the owning connection.
     for (name, planned) in planned_role_drops {
-        crate::datatable_permissions::run_planned_drop(&db, &w_id, &name, planned).await;
+        crate::datatable_permissions::run_planned_drop_keeping_record(&db, &w_id, &name, planned)
+            .await;
     }
 
     if let Some(parent) = dev_lock_parent {

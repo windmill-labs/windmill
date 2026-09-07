@@ -383,7 +383,15 @@ pub async fn resolve_postgres_resource(
 ) -> Result<Postgres> {
     if let Some(datatable_name) = postgres_resource_path.strip_prefix("datatable://") {
         // Trigger connections (publication/slot management + logical replication) run
-        // as the dedicated replication user on custom-instance databases.
+        // as the dedicated replication user on custom-instance databases — and stream
+        // every change of the database, so a permissioned one is for its admins.
+        windmill_common::workspaces::ensure_datatable_admin_access(
+            db,
+            w_id,
+            datatable_name,
+            &windmill_common::workspaces::DatatableAccess::Authed(authed.to_authed_ref()),
+        )
+        .await?;
         let resource_value =
             get_datatable_replication_resource_from_db_unchecked(db, w_id, datatable_name).await?;
         serde_json::from_value::<Postgres>(resource_value).map_err(|e| Error::SerdeJson {

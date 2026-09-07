@@ -1759,6 +1759,31 @@ pub(crate) async fn tarball_workspace(
         }
     }
 
+    // The permissions of the databases this workspace governs, as the import
+    // endpoint takes them back: roles, tenants and login names, never passwords —
+    // those are direct database logins, and a re-save recreates them.
+    let permissions =
+        windmill_common::workspaces::database_permissions_owned_by(&mut *tx, &w_id).await?;
+    if !permissions.is_empty() {
+        let exported: Vec<serde_json::Value> = permissions
+            .into_iter()
+            .map(|mut row| {
+                for role in row.permissions.roles.values_mut() {
+                    role.pg_password = None;
+                }
+                serde_json::json!({
+                    "database_key": row.database_key,
+                    "permissions": row.permissions,
+                })
+            })
+            .collect();
+        let json = serde_json::to_string_pretty(&exported)
+            .map_err(|e| Error::internal_err(format!("serializing permissions: {e}")))?;
+        archive
+            .write_to_archive(&json, "datatable_permissions.json")
+            .await?;
+    }
+
     archive.finish().await?;
 
     let file = tokio::fs::File::open(&file_path).await?;

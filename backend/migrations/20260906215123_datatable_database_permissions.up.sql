@@ -4,10 +4,12 @@
 -- database_key: 'instance:<dbname>' for an instance database, 'pg:<sha256 of
 -- host, port and dbname>' for a resource-backed one. The tenants named in
 -- `permissions` are principals of owner_workspace_id, and only its admins manage
--- the row.
+-- the row. A row whose owner was deleted keeps governing its database with no
+-- owner: every role is refused and only a superadmin reaches it, until one opts
+-- out or saves it from a workspace that then becomes the owner.
 CREATE TABLE datatable_database_permissions (
     database_key TEXT PRIMARY KEY,
-    owner_workspace_id VARCHAR(50) NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    owner_workspace_id VARCHAR(50) REFERENCES workspace(id) ON DELETE SET NULL,
     permissions JSONB NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

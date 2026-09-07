@@ -1265,11 +1265,15 @@ pub struct DataTableRole {
 /// resolves to this one row rather than carrying a copy of its own. The tenants
 /// in `permissions` are principals of `owner_workspace_id`, and a caller from
 /// another workspace is evaluated as a member of that one (see
-/// [`can_use_datatable_role_in_owner_workspace`]).
+/// [`can_use_datatable_role_in_owner_workspace`]). A row whose owner was
+/// deleted keeps governing its database with none: every role is refused and
+/// only a superadmin reaches it, until one opts out or saves it from a workspace
+/// that then becomes the owner — the database stays closed rather than falling
+/// open to every entry that still reaches it.
 #[derive(Debug, Clone)]
 pub struct DatabasePermissions {
     pub database_key: String,
-    pub owner_workspace_id: String,
+    pub owner_workspace_id: Option<String>,
     pub permissions: DataTablePermissions,
 }
 
@@ -1291,15 +1295,29 @@ pub fn datatable_database_key(
         }
         DataTableCatalogResourceType::Postgresql => {
             use sha2::{Digest, Sha256};
+            // As the connection reads them, not as the JSON spells them: a port
+            // left out is 5432, a number and its string are one port.
+            let text = |field: &str| {
+                resolved
+                    .get(field)
+                    .map(|v| match v.as_str() {
+                        Some(s) => s.to_string(),
+                        None => v.to_string(),
+                    })
+                    .unwrap_or_default()
+            };
+            let port = resolved
+                .get("port")
+                .and_then(|v| {
+                    v.as_u64()
+                        .or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
+                })
+                .unwrap_or(5432);
             let mut hasher = Sha256::new();
             // NUL-joined so a value cannot be replayed by moving characters across
             // the field boundaries.
-            for field in ["host", "port", "dbname"] {
-                let value = resolved
-                    .get(field)
-                    .map(|v| v.to_string())
-                    .unwrap_or_default();
-                hasher.update(value.as_bytes());
+            for part in [text("host"), port.to_string(), text("dbname")] {
+                hasher.update(part.as_bytes());
                 hasher.update([0u8]);
             }
             format!("pg:{}", hex::encode(hasher.finalize()))
@@ -1309,7 +1327,7 @@ pub fn datatable_database_key(
 
 fn database_permissions_row(
     database_key: String,
-    owner_workspace_id: String,
+    owner_workspace_id: Option<String>,
     permissions: serde_json::Value,
 ) -> Result<DatabasePermissions> {
     Ok(DatabasePermissions {
@@ -1341,15 +1359,34 @@ pub async fn database_permissions_by_key<'e, E: sqlx::PgExecutor<'e>>(
         .transpose()
 }
 
-/// Take the database's permissions row for the length of the caller's
-/// transaction, whether or not it exists yet: an advisory lock on the key
-/// serializes two opt-ins racing to create it, and the row lock serializes a
-/// save with the principal deletions that strip tenants from it.
+/// Take the key of a database's permissions for the length of the caller's
+/// transaction, whether or not its row exists yet: what serializes two opt-ins
+/// racing to create it, and every change to an existing row with every other.
 ///
-/// **Take it before the transaction locks anything else.** One lock, always
-/// acquired first, cannot deadlock. A caller that also needs a workspace's rows
-/// (a rename, a deletion) takes those through
-/// [`lock_datatable_permissions_unchecked`] and nothing else first.
+/// **The first lock a transaction that changes a database's permissions takes.**
+/// A save then takes the owning workspace's lock
+/// ([`lock_datatable_permissions_unchecked`]) before touching the row itself, so
+/// it serializes with the principal deletions that strip tenants — those take
+/// the workspace lock and then the rows, so a save must not hold the row while
+/// it waits for the workspace, which is why the row is not taken here.
+///
+/// Authorization: performs none.
+pub async fn lock_database_permissions_key(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    database_key: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "SELECT pg_advisory_xact_lock(hashtext('datatable_database_permissions:' || $1))",
+        database_key
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// [`lock_database_permissions_key`] and the row itself, for a change that
+/// needs no workspace lock: an ACL change, a drop of the roles of a database
+/// that is going away.
 ///
 /// Authorization: performs none; the row carries login passwords, so callers
 /// MUST have authorized the read and MUST NOT pass the value outward.
@@ -1357,12 +1394,7 @@ pub async fn lock_database_permissions(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     database_key: &str,
 ) -> Result<Option<DatabasePermissions>> {
-    sqlx::query!(
-        "SELECT pg_advisory_xact_lock(hashtext('datatable_database_permissions:' || $1))",
-        database_key
-    )
-    .execute(&mut **tx)
-    .await?;
+    lock_database_permissions_key(tx, database_key).await?;
     let row = sqlx::query!(
         r#"SELECT database_key, owner_workspace_id, permissions
            FROM datatable_database_permissions WHERE database_key = $1 FOR UPDATE"#,
@@ -1375,7 +1407,7 @@ pub async fn lock_database_permissions(
 }
 
 /// Write the database's permissions, creating the row for `owner_workspace_id`
-/// when none exists. An existing row keeps its owner.
+/// when none exists. An existing row keeps its owner, unless it lost it.
 pub async fn upsert_database_permissions(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     database_key: &str,
@@ -1387,7 +1419,10 @@ pub async fn upsert_database_permissions(
     sqlx::query!(
         r#"INSERT INTO datatable_database_permissions (database_key, owner_workspace_id, permissions)
            VALUES ($1, $2, $3)
-           ON CONFLICT (database_key) DO UPDATE SET permissions = EXCLUDED.permissions, updated_at = now()"#,
+           ON CONFLICT (database_key) DO UPDATE
+           SET permissions = EXCLUDED.permissions,
+               owner_workspace_id = COALESCE(datatable_database_permissions.owner_workspace_id, EXCLUDED.owner_workspace_id),
+               updated_at = now()"#,
         database_key,
         owner_workspace_id,
         permissions
@@ -1432,22 +1467,25 @@ pub async fn database_permissions_owned_by<'e, E: sqlx::PgExecutor<'e>>(
         .collect()
 }
 
-/// Take every permissions row `w_id` owns for the length of the caller's
-/// transaction, and read them under the lock.
+/// Take the workspace's lock over the permissions it owns, and every row it
+/// owns, for the length of the caller's transaction, and read them under it.
 ///
-/// The rows are the one lock over what a database's permissions depend on: the
+/// This is the one lock over what a workspace's permissions depend on: the
 /// roles themselves, and the users, groups and folders they name as tenants.
-/// Every path that touches either — a role save, an ACL change, a principal's
-/// rename or deletion — takes it, which is what stops one of them persisting a
-/// tenant list it computed before another committed: a save that planned with
-/// `g/devs` would otherwise put the tenant back after the group's deletion took
-/// it away.
+/// Every path that touches either — a role save, a principal's rename or
+/// deletion — takes it, which is what stops one of them persisting a tenant list
+/// it computed before another committed: a save that planned with `g/devs`
+/// would otherwise put the tenant back after the group's deletion took it away.
+/// The lock is an advisory one on the workspace id, not the rows alone: the
+/// first save of a workspace has no row to lock yet, and a deletion committing
+/// between its validation and its insert would leave a freed name on a role.
 ///
-/// **Take it before the transaction locks anything else**, with one exception:
-/// the dev-pairing advisory lock (`lock_dev_pairing`) comes first where a path
-/// needs both, and nothing takes these rows and then reaches for that one. One
-/// order, held everywhere, cannot deadlock. A transaction spanning workspaces
-/// takes them in `workspace_id` order, for the same reason.
+/// **Take it before the transaction locks anything else**, with two exceptions
+/// that come first where a path needs them: the dev-pairing advisory lock
+/// (`lock_dev_pairing`), and a database key ([`lock_database_permissions_key`]).
+/// Nothing takes these rows and then reaches for either. One order, held
+/// everywhere, cannot deadlock. A transaction spanning workspaces takes them in
+/// `workspace_id` order, for the same reason.
 ///
 /// Authorization: performs none, for any workspace it is handed. The rows carry
 /// login passwords, so callers MUST have authorized the read and MUST NOT pass
@@ -1457,6 +1495,12 @@ pub async fn lock_datatable_permissions_unchecked(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,
 ) -> Result<Vec<DatabasePermissions>> {
+    sqlx::query!(
+        "SELECT pg_advisory_xact_lock(hashtext('datatable_database_permissions_owner:' || $1))",
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
     let rows = sqlx::query!(
         r#"SELECT database_key, owner_workspace_id, permissions
            FROM datatable_database_permissions WHERE owner_workspace_id = $1
@@ -1797,6 +1841,49 @@ pub async fn get_datatable_replication_resource_from_db_unchecked(
     .await
 }
 
+/// Refuse `access`, made from `w_id`, the data table's owning connection when
+/// its database is permissioned, unless it may run as `admin` there: what a
+/// Postgres trigger needs, since replication streams every change of the
+/// database whatever roles say.
+///
+/// Authorization: this is the check; an unpermissioned database refuses nobody.
+pub async fn ensure_datatable_admin_access(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+    access: &DatatableAccess<'_>,
+) -> Result<()> {
+    let (_, _, key) = resolve_datatable_database_unchecked(db, w_id, name).await?;
+    let Some(record) = database_permissions_by_key(db, &key)
+        .await?
+        .filter(|r| r.permissions.enabled)
+    else {
+        return Ok(());
+    };
+    let admin = record
+        .permissions
+        .roles
+        .get(ADMIN_DATATABLE_ROLE)
+        .cloned()
+        .unwrap_or_default();
+    if can_use_datatable_role_in_owner_workspace(
+        db,
+        record.owner_workspace_id.as_deref(),
+        w_id,
+        &admin,
+        access,
+    )
+    .await?
+    {
+        Ok(())
+    } else {
+        Err(Error::NotAuthorized(format!(
+            "Data table '{name}' reaches a database with role permissions enabled; replicating \
+             it is for the admins of the workspace that manages them."
+        )))
+    }
+}
+
 /// Look up the role a resolution asks for, without authorizing it.
 ///
 /// `Ok(None)` means the database is unpermissioned and the data table resolves
@@ -1835,7 +1922,8 @@ fn datatable_role_entry<'a>(
 }
 
 /// Whether `access`, made from workspace `w_id`, may run as `role` of a database
-/// whose permissions `owner_w_id` owns.
+/// whose permissions `owner_w_id` owns — or nobody, once the owner was deleted:
+/// then only a superadmin does.
 ///
 /// Tenants are principals of the owning workspace, and so is the admin bypass:
 /// a caller from another workspace — a fork's copy of the data table, a
@@ -1850,7 +1938,7 @@ fn datatable_role_entry<'a>(
 /// through, for callers that have authorized already.
 pub async fn can_use_datatable_role_in_owner_workspace(
     db: &DB,
-    owner_w_id: &str,
+    owner_w_id: Option<&str>,
     w_id: &str,
     role: &DataTableRole,
     access: &DatatableAccess<'_>,
@@ -1859,7 +1947,7 @@ pub async fn can_use_datatable_role_in_owner_workspace(
         DatatableAccess::Unchecked => return Ok(true),
         DatatableAccess::NoIdentity => return Ok(false),
         DatatableAccess::Authed(authed) => {
-            if w_id == owner_w_id {
+            if Some(w_id) == owner_w_id {
                 return Ok(can_use_datatable_role(role, authed));
             }
             (format!("u/{}", authed.username), authed.email.to_string())
@@ -1879,7 +1967,7 @@ pub async fn can_use_datatable_role_in_owner_workspace(
             (job.permissioned_as, job.permissioned_as_email)
         }
     };
-    if w_id == owner_w_id {
+    if Some(w_id) == owner_w_id {
         let authed =
             crate::auth::fetch_authed_from_permissioned_as(&permissioned_as, &email, w_id, db)
                 .await?;
@@ -1888,6 +1976,9 @@ pub async fn can_use_datatable_role_in_owner_workspace(
     if crate::auth::is_super_admin_email(db, &email).await? {
         return Ok(true);
     }
+    let Some(owner_w_id) = owner_w_id else {
+        return Ok(false);
+    };
     if !permissioned_as.starts_with("u/") {
         return Ok(false);
     }
@@ -1930,9 +2021,10 @@ async fn resolve_datatable_role(
     let Some((role_name, role_entry)) = datatable_role_entry(record, name, role)? else {
         return Ok(None);
     };
-    let owner_w_id = &record
+    let owner_w_id = record
         .expect("a role entry comes from a record")
-        .owner_workspace_id;
+        .owner_workspace_id
+        .as_deref();
     if !can_use_datatable_role_in_owner_workspace(db, owner_w_id, w_id, role_entry, access).await? {
         return Err(Error::NotAuthorized(format!(
             "Not allowed to use role '{role_name}' of data table '{name}'"
@@ -3345,6 +3437,22 @@ mod tests {
             datatable_database_key(&pg("u/a/pg"), &resolved("db", "prod", "app")),
             datatable_database_key(&pg("u/a/pg"), &resolved("db", "staging", "app"))
         );
+        // A port left out is 5432, as the connection reads it, and a number and
+        // its string are one port.
+        assert_eq!(
+            datatable_database_key(&pg("u/a/pg"), &resolved("db", "prod", "app")),
+            datatable_database_key(
+                &pg("u/a/pg"),
+                &serde_json::json!({ "host": "db", "dbname": "prod", "user": "app" })
+            )
+        );
+        assert_eq!(
+            datatable_database_key(&pg("u/a/pg"), &resolved("db", "prod", "app")),
+            datatable_database_key(
+                &pg("u/a/pg"),
+                &serde_json::json!({ "host": "db", "port": "5432", "dbname": "prod" })
+            )
+        );
     }
 
     fn record(roles: &[(&str, &[&str])], default_role: Option<&str>) -> DatabasePermissions {
@@ -3362,7 +3470,7 @@ mod tests {
         }
         DatabasePermissions {
             database_key: "instance:dt_main".to_string(),
-            owner_workspace_id: "acme".to_string(),
+            owner_workspace_id: Some("acme".to_string()),
             permissions: DataTablePermissions {
                 enabled: true,
                 roles: map,

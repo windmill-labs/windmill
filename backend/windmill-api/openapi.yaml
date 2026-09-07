@@ -5318,6 +5318,38 @@ paths:
                     items:
                       type: string
 
+  /w/{workspace}/workspaces/datatable_permissions_import:
+    post:
+      summary: restore exported datatable permissions on databases nobody governs yet (admins only); passwords are not restored, so every role is refused until saved again
+      operationId: importDatatablePermissions
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: object
+                required: [database_key, permissions]
+                properties:
+                  database_key:
+                    type: string
+                  permissions:
+                    type: object
+      responses:
+        "200":
+          description: the database keys that were already governed and left as they were
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/workspaces/datatable_acl/{datatable_name}:
     get:
       summary: read the owner and grants of a datatable schema or table
