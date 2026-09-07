@@ -46,8 +46,7 @@ INSERT INTO workspace_settings (workspace_id, git_sync) VALUES
 
 -- The resource each repository entry names, all pointing at the same repository.
 -- The errored fork carries its token in the URL, the way a repository configured
--- by hand does: nothing stores a credential for it, so only its recorded check
--- knows which host it talks to.
+-- by hand does: a plain remote, whatever the chain above it holds.
 INSERT INTO resource (workspace_id, path, value, resource_type) VALUES
     ('parent-ws',       'u/admin/repo', '{"url":"https://gitlab.com/grp/proj.git"}', 'git_repository'),
     ('fork-ws',         'u/admin/repo', '{"url":"https://gitlab.com/grp/proj.git"}', 'git_repository'),

@@ -4775,9 +4775,8 @@ async fn maintain_git_credentials_inner(db: &Pool<Postgres>) -> error::Result<()
     // Least-recently-checked first, so a pass that runs out of budget resumes
     // where it stopped instead of re-checking the same head of the list forever.
     // A repository with no recorded credential sorts last: it has nothing to
-    // rotate, yet a remote whose URL carries a token on a host that is not
-    // GitLab still costs a probe every pass and never records a check, so put
-    // first it would hold the head of the list ahead of the tokens that expire.
+    // rotate, and it never records a check, so put first it would hold the head
+    // of the list ahead of the tokens that expire.
     let rows = sqlx::query!(
         r#"SELECT ws.workspace_id, ws.git_sync
            FROM workspace_settings ws

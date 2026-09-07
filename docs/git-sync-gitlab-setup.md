@@ -81,21 +81,18 @@ App installation token. Storing it this way keeps it out of the variables API an
 out of every fork's own storage; it is not a boundary against the admins of those
 workspaces.
 
-A URL with the token written into it keeps working, whether it sits in the
-resource or in a secret variable the resource points at (`"url": "$var:..."`).
-Windmill reports its expiry on the repository but does not renew it: that token
-is yours to manage, as it is for a GitHub repository authenticated the same way.
-Forking copies such a URL with its value, so two workspaces would hold the same
-token each believing it issued it, and presenting an already-rotated one to
-GitLab costs the whole token family. Use the **GitLab** button to hand the token
-to Windmill if you want it renewed.
+A URL with the token written into it, in the resource or in a secret variable
+the resource points at (`"url": "$var:..."`), is a plain git remote: it syncs on
+deploy and by polling, and nothing else. Windmill does not know the token is
+there, so it registers no webhook, opens no merge request, and neither reports
+nor renews its expiry. Use the **GitLab** button to hand the token to Windmill
+if you want any of that.
 
 ## Expiry and renewal
 
-Windmill reads `expires_at` from the token itself and shows it on the repository
-in the workspace's git sync settings, for every repository including the ones
-whose token sits in the URL. A token Windmill holds it also renews: within three
-weeks of expiry it rotates it through GitLab's own
+Windmill reads `expires_at` from the token it holds and shows it on the
+repository in the workspace's git sync settings. Within three weeks of expiry it
+rotates the token through GitLab's own
 `POST /personal_access_tokens/self/rotate`, stores the replacement, and verifies
 it. Only the token can rotate itself, so one without `api` (or `self_rotate`) is
 a permanent warning rather than something Windmill can fix.

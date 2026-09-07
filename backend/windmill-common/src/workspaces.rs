@@ -436,11 +436,6 @@ pub struct GitCredentialStatus {
     pub expires_at: Option<chrono::NaiveDate>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scopes: Vec<String>,
-    /// Which credential this status describes, as a one-way digest. Lets a later
-    /// check tell "the token I know about stopped working" from "someone put a
-    /// different credential here", which look identical at the API otherwise.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub token_fingerprint: Option<String>,
     /// Whether *this workspace* renews the credential. That needs a scope which
     /// permits it (`api` or `self_rotate`) and a credential this workspace holds:
     /// a token carried in the repository URL is the operator's to manage, and one

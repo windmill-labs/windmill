@@ -39,28 +39,19 @@ async fn credential_status_is_a_workspaces_own(db: Pool<Postgres>) -> anyhow::Re
 }
 
 /// The host a repository talks to is declared when its credential is stored, and
-/// travels with the credential down the fork chain. A repository whose token
-/// rides in its URL has no stored credential, so its host is known only from the
-/// check that introspected the token.
+/// travels with the credential down the fork chain.
 ///
-/// Read from the recorded status alone, a fork answered with the default
+/// Read from the recorded status instead, a fork answered with the default
 /// provider until its own check ran, which is long enough to register a webhook
-/// against the wrong receiver. Read from the credential alone, a URL-token
-/// repository answered with the default forever.
+/// against the wrong receiver.
 #[sqlx::test(fixtures("git_sync_fork_credential"))]
 async fn the_provider_comes_from_the_credential_and_reaches_forks(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     assert_eq!(
         repo_provider(&db, "parent-ws", REPO).await,
-        GitProvider::GitLab,
-        "with nothing stored, the host the check recorded is the answer"
-    );
-    assert_eq!(
-        repo_provider(&db, "fork-ws", REPO).await,
         GitProvider::GitHub,
-        "a fork with neither a credential to resolve nor a check of its own \
-         answers the default"
+        "with nothing stored there is no declaration to read, so the default stands"
     );
 
     set_git_credential(
@@ -94,9 +85,9 @@ async fn the_provider_comes_from_the_credential_and_reaches_forks(
     );
     assert_eq!(
         repo_provider(&db, "errored-fork-ws", REPO).await,
-        GitProvider::GitLab,
-        "a token carried in the URL is held by nobody, so the parent's credential \
-         is not consulted and the recorded check alone names the host"
+        GitProvider::GitHub,
+        "a token written into the URL makes the repository a plain remote: the \
+         parent's credential is not consulted and no host is declared"
     );
     Ok(())
 }
