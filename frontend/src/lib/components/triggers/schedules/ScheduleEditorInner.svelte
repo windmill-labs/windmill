@@ -472,15 +472,16 @@
 		}
 	}
 
-	async function loadScript(p: string | undefined): Promise<void> {
+	async function loadScript(p: string | undefined, generation?: number): Promise<void> {
 		if (p) {
 			runnable = undefined
 			try {
-				if (is_flow) {
-					runnable = await FlowService.getFlowByPath({ workspace: wsId!, path: p })
-				} else {
-					runnable = await ScriptService.getScriptByPath({ workspace: wsId!, path: p })
-				}
+				const loaded = is_flow
+					? await FlowService.getFlowByPath({ workspace: wsId!, path: p })
+					: await ScriptService.getScriptByPath({ workspace: wsId!, path: p })
+				// Superseded while the request was in flight: this is the runnable of a
+				// config the form has already moved off.
+				if (generation === undefined || generation === applyGeneration) runnable = loaded
 			} catch (err) {}
 		} else {
 			runnable = undefined
@@ -603,7 +604,14 @@
 		}
 	}
 
+	// Every application of a config supersedes the one before it — a chat write
+	// arriving through the draft sync, a load, a draft overlay. `loadScript` awaits
+	// halfway through the assignments, so without this an older apply finishes last
+	// and writes its half of the form over the newer one.
+	let applyGeneration = 0
+
 	async function loadScheduleCfg(cfg: Record<string, any>): Promise<void> {
+		const generation = ++applyGeneration
 		loading = true
 
 		cronVersion = cfg.cron_version ?? 'v2'
@@ -619,9 +627,13 @@
 		labels = cfg.labels ?? undefined
 		description = cfg.description ?? ''
 		script_path = cfg.script_path ?? ''
-		await loadScript(script_path)
-
+		// Before the fetch, which reads it: a flow-backed schedule looked up through
+		// ScriptService 404s into the swallowed catch below, leaving the form with no
+		// runnable — no arguments schema, no runnable actions.
 		itemKind = cfg.is_flow ? 'flow' : 'script'
+		await loadScript(script_path, generation)
+		if (generation !== applyGeneration) return
+
 		no_flow_overlap = cfg.no_flow_overlap ?? false
 		wsErrorHandlerMuted = cfg.ws_error_handler_muted ?? false
 		retry = cfg.retry
