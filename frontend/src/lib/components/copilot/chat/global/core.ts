@@ -3664,6 +3664,7 @@ export const globalTools: Tool<{}>[] = [
 		// No requiresConfirmation: like run_script, the argument form is the confirmation —
 		// but this one is auto-acceptable, so YOLO answers it and the model keeps iterating.
 		// Which is a decision made for the user, so the posture's own list has to name it.
+		// One thing does run before Run — see the note on the form's SchemaForm.
 		bypassedByAutoAccept: true,
 		confirmationMessage: 'Run a test of a script',
 		streamingLabel: 'Preparing the test form...',
