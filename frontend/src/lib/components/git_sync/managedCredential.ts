@@ -17,9 +17,16 @@ function urlCarriesCredential(url: string | undefined): boolean {
  * have the UI promise renewal for a token nothing renews. That happens whenever
  * someone puts a token back in the URL without clearing the marker, which is why
  * this is checked rather than trusting the marker alone.
+ *
+ * A `$var:` URL is treated the same way. Only the server can resolve it, so
+ * whether it carries a token is unknowable here, and claiming a managed
+ * credential would be a guess: the picker always writes a plain URL, so nothing
+ * this marker legitimately describes reaches us as a variable reference.
  */
 export function managedCredentialHost(value: GitRepositoryValue): string | undefined {
 	const host = value?.managed_credential
 	if (!host || host === 'none') return undefined
-	return urlCarriesCredential(value?.url) ? undefined : host
+	const url = value?.url
+	if (url?.startsWith('$var:')) return undefined
+	return urlCarriesCredential(url) ? undefined : host
 }
