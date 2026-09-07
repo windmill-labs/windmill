@@ -236,7 +236,7 @@ async function push(opts: PushOptions, filePath: string) {
     codebases,
     await buildPermissionedAsContext(
       workspace.workspaceId,
-      await readEffectiveSyncBehavior()
+      await readEffectiveSyncBehavior(opts, workspace)
     )
   );
   log.info(colors.bold.underline.green(`Script ${filePath} pushed`));

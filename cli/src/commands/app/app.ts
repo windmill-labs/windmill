@@ -426,7 +426,7 @@ async function push(
       undefined,
       await buildPermissionedAsContext(
         workspace.workspaceId,
-        await readEffectiveSyncBehavior(),
+        await readEffectiveSyncBehavior(opts, workspace),
       ),
     );
     log.info(colors.bold.underline.green("App pushed"));

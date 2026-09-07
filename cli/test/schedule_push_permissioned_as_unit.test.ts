@@ -58,11 +58,11 @@ mock.module("../src/core/auth.ts", () => ({
 const scheduleCommand = (await import("../src/commands/schedule/schedule.ts"))
   .default;
 
-async function pushIn(syncBehavior: string | undefined): Promise<void> {
+async function pushIn(wmillYamlTail: string): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "windmill_sched_push_"));
   await writeFile(
     join(dir, "wmill.yaml"),
-    `defaultTs: bun\nincludeSchedules: true\n${syncBehavior ? `syncBehavior: ${syncBehavior}\n` : ""}`,
+    `defaultTs: bun\nincludeSchedules: true\n${wmillYamlTail}`,
     "utf-8"
   );
   await writeFile(
@@ -91,7 +91,7 @@ describe("wmill schedule push ownership", () => {
   });
 
   test("keeps the remote's permissioned_as under syncBehavior v1", async () => {
-    await pushIn("v1");
+    await pushIn("syncBehavior: v1\n");
 
     expect(updateScheduleCalls).toHaveLength(1);
     const body = updateScheduleCalls[0].requestBody;
@@ -100,8 +100,22 @@ describe("wmill schedule push ownership", () => {
     expect(body.preserve_permissioned_as).toBe(true);
   });
 
+  // The entry to read is the one matching the workspace being pushed to, not
+  // the top level: a repo that varies settings per workspace puts syncBehavior
+  // under `overrides` and nowhere else.
+  test("reads syncBehavior from the target workspace's overrides", async () => {
+    await pushIn(
+      `workspaces:\n  other:\n    baseUrl: http://localhost/\n    workspaceId: w\n    overrides:\n      syncBehavior: v1\n`
+    );
+
+    expect(updateScheduleCalls).toHaveLength(1);
+    const body = updateScheduleCalls[0].requestBody;
+    expect(body.permissioned_as).toBe("u/svc");
+    expect(body.preserve_permissioned_as).toBe(true);
+  });
+
   test("leaves ownership to the backend below syncBehavior v1", async () => {
-    await pushIn(undefined);
+    await pushIn("");
 
     expect(updateScheduleCalls).toHaveLength(1);
     const body = updateScheduleCalls[0].requestBody;

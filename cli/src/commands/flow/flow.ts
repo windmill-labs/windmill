@@ -335,9 +335,9 @@ async function push(opts: Options & { message?: string }, filePath: string, remo
   // Reading the config moves the cwd to the wmill.yaml root when it sits in a
   // parent directory, so pin the file against the invocation cwd first.
   filePath = pathResolve(filePath);
-  const syncBehavior = await readEffectiveSyncBehavior();
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+  const syncBehavior = await readEffectiveSyncBehavior(opts, workspace);
 
   await pushFlow(
     workspace.workspaceId,

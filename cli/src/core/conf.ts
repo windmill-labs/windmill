@@ -631,19 +631,53 @@ export async function getEffectiveSettings(
 }
 
 /**
- * `syncBehavior` as the current branch's workspace sees it. The top level alone
- * misses a `workspaces.<name>.overrides.syncBehavior`, which is where a repo
- * that varies settings per workspace puts it. Resolves the workspace from the
- * git branch only: the single-item commands have no `--workspace-name` flag to
- * override it with, so a repo that maps workspaces some other way still reads
- * the top-level value.
+ * Match a workspace config entry to a resolved workspace profile by remote +
+ * workspace id. The fallback for when no flag names the entry outright.
  */
-export async function readEffectiveSyncBehavior(): Promise<string | undefined> {
+export function inferWsNameFromProfile(
+  opts: SyncOptions,
+  profile: { remote: string; workspaceId: string }
+): string | undefined {
+  if (!opts.workspaces) return undefined;
+  for (const name of getWorkspaceNames(opts.workspaces)) {
+    const entry = (opts.workspaces as any)[name] as WorkspaceEntryConfig;
+    if (!entry?.baseUrl) continue;
+    try {
+      const entryUrl = new URL(entry.baseUrl).toString();
+      const profileUrl = new URL(profile.remote).toString();
+      const entryWsId = entry.workspaceId ?? name;
+      if (entryUrl === profileUrl && entryWsId === profile.workspaceId) {
+        return name;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * `syncBehavior` as the workspace being pushed to sees it. The top level alone
+ * misses a `workspaces.<name>.overrides.syncBehavior`, which is where a repo
+ * that varies settings per workspace puts it, and the entry to read is the one
+ * `--workspace` names — falling back to the profile, then to the git branch —
+ * the same order `sync push` resolves it in.
+ */
+export async function readEffectiveSyncBehavior(
+  opts: { workspace?: string },
+  profile?: { remote: string; workspaceId: string }
+): Promise<string | undefined> {
+  const config = await readConfigFile();
+  const named =
+    opts.workspace && getWorkspaceNames(config.workspaces).includes(opts.workspace)
+      ? opts.workspace
+      : undefined;
   const effective = await getEffectiveSettings(
-    await readConfigFile(),
+    config,
     undefined,
     false,
-    true
+    true,
+    named ?? (profile ? inferWsNameFromProfile(config, profile) : undefined)
   );
   return effective.syncBehavior;
 }

@@ -77,6 +77,7 @@ import {
 import {
   getEffectiveSettings,
   getWorkspaceNames,
+  inferWsNameFromProfile,
   mergeConfigWithConfigFile,
   parseSyncBehavior,
   SyncOptions,
@@ -512,31 +513,6 @@ function resolveWsNameForFiles(_opts: SyncOptions, wsName: string): string {
 
 // After resolveWorkspace, infer the workspace config name from the resolved profile
 // by matching baseUrl + workspaceId against the workspaces config entries.
-function inferWsNameFromProfile(
-  opts: SyncOptions,
-  profile: { remote: string; workspaceId: string },
-): string | undefined {
-  if (!opts.workspaces) return undefined;
-  const wsNames = Object.keys(opts.workspaces).filter(
-    (k) => k !== "commonSpecificItems",
-  );
-  for (const name of wsNames) {
-    const entry = (opts.workspaces as any)[name] as WorkspaceEntryConfig;
-    if (!entry?.baseUrl) continue;
-    try {
-      const entryUrl = new URL(entry.baseUrl).toString();
-      const profileUrl = new URL(profile.remote).toString();
-      const entryWsId = entry.workspaceId ?? name;
-      if (entryUrl === profileUrl && entryWsId === profile.workspaceId) {
-        return name;
-      }
-    } catch {
-      continue;
-    }
-  }
-  return undefined;
-}
-
 // Merge CLI options with effective settings, preserving CLI flags as overrides
 function mergeCliWithEffectiveOptions<
   T extends GlobalOptions & SyncOptions & { repository?: string },
