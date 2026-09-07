@@ -4318,9 +4318,11 @@ pub async fn monitor_db(
     // Re-check what each git-sync repository's own credential says about its expiry,
     // and rotate the ones close to it. Every ~40 min: the values move over days, and
     // `should_run` counts iterations in a u8. Spawned rather than joined: the join
-    // below is cancelled at its deadline, and a rotation cut off between GitLab
-    // issuing a token and Windmill storing it loses the token family. The pass's
-    // advisory lock keeps a slow one from overlapping the next.
+    // below is cancelled at its deadline, which a long sweep would reach, and a
+    // rotation cut off between GitLab issuing a token and Windmill storing it
+    // loses the token family. Detached, only process shutdown can cut it off,
+    // which a rotation almost never coincides with. The pass's advisory lock
+    // keeps a slow one from overlapping the next.
     let git_credential_maintenance_f = async {
         #[cfg(all(feature = "enterprise", feature = "private"))]
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(240) {
