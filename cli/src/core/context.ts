@@ -219,6 +219,9 @@ async function tryResolveWorkspace(
     // First try: look up workspace by name in wmill.yaml workspaces config
     const config = await readConfigFile({ warnIfMissing: false });
     const wsEntry = config.workspaces?.[opts.workspace] as WorkspaceEntryConfig | undefined;
+    // What wmill.yaml said to target, kept for the fallback below: a profile
+    // found by name can silently point somewhere else entirely.
+    let configuredTarget: { workspaceId: string; baseUrl: string } | undefined;
     if (wsEntry?.baseUrl) {
       const workspaceId = getEffectiveWorkspaceId(opts.workspace, wsEntry);
       let normalizedBaseUrl: string;
@@ -230,6 +233,8 @@ async function tryResolveWorkspace(
           error: colors.red.underline(`Invalid baseUrl in workspace '${opts.workspace}' configuration: ${wsEntry.baseUrl}`),
         };
       }
+
+      configuredTarget = { workspaceId, baseUrl: normalizedBaseUrl };
 
       // Find matching profile by baseUrl + workspaceId
       const allProfs = await allWorkspaces(opts.configDir);
@@ -283,6 +288,22 @@ async function tryResolveWorkspace(
         ),
       };
     }
+    if (
+      configuredTarget &&
+      (e.workspaceId !== configuredTarget.workspaceId ||
+        e.remote !== configuredTarget.baseUrl)
+    ) {
+      log.warnStderr(
+        colors.yellow(
+          `⚠️  Falling back to the local profile named '${opts.workspace}' (${e.workspaceId} on ${e.remote}), which does NOT match wmill.yaml:\n` +
+            `   wmill.yaml maps workspace '${opts.workspace}' to ${configuredTarget.workspaceId} on ${configuredTarget.baseUrl}, but no profile targets it.\n` +
+            `   Run: wmill workspace add <profile-name> ${configuredTarget.workspaceId} ${configuredTarget.baseUrl}`
+        )
+      );
+    }
+    log.infoStderr(
+      `Using local profile '${e.name}' → ${e.workspaceId} on ${e.remote}`
+    );
     (opts as any).__secret_workspace = e;
     return { isError: false, value: e };
   }
@@ -486,6 +507,31 @@ export async function resolveWorkspace(
         return process.exit(-1);
       }
 
+      // --base-url pins the target: `--workspace` is the remote workspace id
+      // and wmill.yaml's `workspaces` block is never consulted. Say so when it
+      // maps that name to a different id, or the request 404s on an id the
+      // user never typed. Only peek at a wmill.yaml sitting in the cwd:
+      // readConfigFile chdirs to the directory of a config found further up,
+      // and this branch must not gain that side effect.
+      if (existsSync(join(process.cwd(), "wmill.yaml"))) {
+        const config = await readConfigFile({ warnIfMissing: false });
+        const yamlEntry = config.workspaces?.[opts.workspace] as
+          | WorkspaceEntryConfig
+          | undefined;
+        const yamlWorkspaceId = yamlEntry
+          ? getEffectiveWorkspaceId(opts.workspace, yamlEntry)
+          : undefined;
+        if (yamlWorkspaceId && yamlWorkspaceId !== opts.workspace) {
+          log.warnStderr(
+            colors.yellow(
+              `⚠️  --base-url is set, so '--workspace ${opts.workspace}' is used as the workspace id directly and wmill.yaml is ignored.\n` +
+                `   wmill.yaml maps workspace '${opts.workspace}' to workspace id '${yamlWorkspaceId}'${yamlEntry!.baseUrl ? ` on ${yamlEntry!.baseUrl}` : ""}.\n` +
+                `   Use '--workspace ${yamlWorkspaceId}', or drop --base-url/--token to resolve through wmill.yaml.`
+            )
+          );
+        }
+      }
+
       // Try to find existing workspace profile by name, then by workspaceId + remote
       if (opts.workspace) {
         let existingWorkspace = await getWorkspaceByName(
@@ -523,19 +569,29 @@ export async function resolveWorkspace(
             );
             return process.exit(-1);
           }
-          return {
+          log.infoStderr(
+            `Using workspace id '${existingWorkspace.workspaceId}' on ${normalizedBaseUrl} (from --base-url, profile '${existingWorkspace.name}')`
+          );
+          const resolved = {
             ...existingWorkspace,
             token: opts.token,
           };
+          (opts as any).__secret_workspace = resolved;
+          return resolved;
         }
       }
 
-      return {
+      log.infoStderr(
+        `Using workspace id '${opts.workspace}' on ${normalizedBaseUrl} (from --base-url/--workspace)`
+      );
+      const resolved = {
         remote: normalizedBaseUrl,
         workspaceId: opts.workspace,
         name: opts.workspace,
         token: opts.token,
       };
+      (opts as any).__secret_workspace = resolved;
+      return resolved;
     } else {
       log.infoStderr(
         colors.red(
