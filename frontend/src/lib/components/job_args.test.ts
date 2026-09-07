@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+	applySchemaDefaults,
 	coerceArgsToSchema,
 	enforceDisabledDefaults,
 	redactFileArgs,
@@ -149,6 +150,41 @@ describe('enforceDisabledDefaults', () => {
 			properties: { conf: { type: 'object', disabled: true, default: { a: 1 } } }
 		}
 		expect(enforceDisabledDefaults({ conf: { a: 1 } }, objSchema).resetKeys).toEqual([])
+	})
+})
+
+describe('applySchemaDefaults', () => {
+	const schema = {
+		properties: {
+			name: { type: 'string' },
+			retries: { type: 'number', default: 3 },
+			config: {
+				type: 'object',
+				properties: { region: { type: 'string', default: 'eu' }, tag: { type: 'string' } },
+				required: ['region']
+			},
+			either: {
+				oneOf: [
+					{ title: 'a', properties: { x: { type: 'string', default: 'no' } }, required: ['x'] }
+				]
+			}
+		}
+	}
+
+	it('fills a missing default at the depth the form would', () => {
+		expect(applySchemaDefaults({ name: 'Ada', config: { tag: 'v1' } }, schema)).toEqual({
+			name: 'Ada',
+			retries: 3,
+			config: { tag: 'v1', region: 'eu' }
+		})
+	})
+
+	it('leaves a supplied value and an ambiguous declaration alone', () => {
+		// A value the caller sent stands, at either level; `oneOf` is never descended, since
+		// which branch is open is guesswork the form resolves and this cannot.
+		expect(
+			applySchemaDefaults({ retries: 0, config: { region: 'us' }, either: {} }, schema)
+		).toEqual({ retries: 0, config: { region: 'us' }, either: {} })
 	})
 })
 

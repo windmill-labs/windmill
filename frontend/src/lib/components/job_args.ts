@@ -35,7 +35,7 @@ export function enforceDisabledDefaults(
 /**
  * What a mounted `ArgInput` would put in a field the caller left empty. Applied whether or
  * not a form is shown, so a run the autonomy posture accepts without one sends the same
- * arguments the user would have seen and submitted. Top-level only, like every filter here.
+ * arguments the user would have seen and submitted.
  */
 export function applySchemaDefaults(
 	args: Record<string, any>,
@@ -44,8 +44,22 @@ export function applySchemaDefaults(
 	const result: Record<string, any> = Object.assign(Object.create(null), args)
 	if (!schema?.properties) return { ...result }
 	for (const [key, prop] of Object.entries<any>(schema.properties)) {
-		if (prop?.default === undefined) continue
-		if (result[key] === undefined) result[key] = prop.default
+		const value = result[key]
+		if (value === undefined) {
+			if (prop?.default !== undefined) result[key] = prop.default
+			continue
+		}
+		// Descends exactly where `requiredUnanswered` (global toolset) credits a nested default
+		// as answered. Kept identical, or the posture skips a form over a default never applied.
+		if (
+			!Array.isArray(prop?.oneOf) &&
+			prop?.properties &&
+			Array.isArray(prop?.required) &&
+			typeof value === 'object' &&
+			!Array.isArray(value)
+		) {
+			result[key] = applySchemaDefaults(value, prop)
+		}
 	}
 	return { ...result }
 }
