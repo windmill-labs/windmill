@@ -4602,6 +4602,30 @@ describe('global AI tools', () => {
 		)
 		expect(nested.find((x) => x.runForm)?.runForm.submitted).toBeUndefined()
 
+		// The same under a parent the schema never required: sending the object is what puts its
+		// fields on the form, so what they require is outstanding whatever the parent was.
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/optional-parent',
+			schema: {
+				properties: {
+					config: {
+						type: 'object',
+						properties: { api_key: { type: 'string' } },
+						required: ['api_key']
+					}
+				}
+			}
+		} as any)
+		const optional: any[] = []
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/optional-parent', args: { config: {} } },
+				yolo(optional)
+			)
+		)
+		expect(optional.find((x) => x.runForm)?.runForm.submitted).toBeUndefined()
+
 		// Answered at both levels: nothing is outstanding, so the posture still answers and no
 		// field is mounted. Without this the guard above could pass by never bypassing at all.
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({

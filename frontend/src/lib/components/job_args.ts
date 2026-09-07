@@ -51,9 +51,8 @@ export function applySchemaDefaults(
 			if (prop?.default !== undefined) result[key] = prop.default
 			continue
 		}
-		// Every object declaration the form would render fields for, which is a superset of
-		// where `requiredUnanswered` (global toolset) credits a nested default as answered —
-		// narrower here and the posture skips a form over a default this never applied.
+		// Every object declaration the form would render fields for, and the same descent
+		// `requiredUnanswered` (global toolset) makes: what this fills, that one inspects.
 		if (
 			!Array.isArray(prop?.oneOf) &&
 			prop?.properties &&

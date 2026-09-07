@@ -5547,31 +5547,32 @@ function requiredValueMissing(value: unknown): boolean {
 }
 
 /** Whether a required key is unanswered anywhere the mounted form would have shown a field for
- * it. Descends only into a declaration that names its own `properties` and `required`: there the
- * shape is unambiguous and the form would render those fields. `oneOf` and free-form objects are
- * left alone — resolving which branch is open is guesswork, and guessing "needs the user" parks
- * the test-and-iterate loop the bypass posture exists to serve. */
+ * it: missing at this level, or inside an object the caller supplied — required parent or not,
+ * since supplying the object is what puts its fields on the form. `oneOf` is left alone, as
+ * guessing which branch is open would park the test-and-iterate loop the posture serves. */
 function requiredUnanswered(schema: Record<string, any>, proposed: Record<string, any>): boolean {
-	const required = schema?.required
-	if (!Array.isArray(required)) return false
 	const properties = schema?.properties ?? {}
-	return required.some((key) => {
-		if (typeof key !== 'string') return false
+	const required = Array.isArray(schema?.required) ? schema.required : []
+	for (const key of required) {
+		if (typeof key !== 'string') continue
 		const declared = Object.hasOwn(properties, key) ? properties[key] : undefined
+		if (requiredValueMissing(proposed?.[key]) && declared?.default === undefined) return true
+	}
+	// The descent applySchemaDefaults makes, so what one fills the other inspects.
+	for (const [key, declared] of Object.entries<any>(properties)) {
 		const value = proposed?.[key]
-		if (requiredValueMissing(value)) return declared?.default === undefined
 		if (
-			declared &&
-			!Array.isArray(declared.oneOf) &&
-			declared.properties &&
-			Array.isArray(declared.required) &&
+			!Array.isArray(declared?.oneOf) &&
+			declared?.properties &&
 			typeof value === 'object' &&
-			!Array.isArray(value)
+			value !== null &&
+			!Array.isArray(value) &&
+			requiredUnanswered(declared, value as Record<string, any>)
 		) {
-			return requiredUnanswered(declared, value as Record<string, any>)
+			return true
 		}
-		return false
-	})
+	}
+	return false
 }
 
 /** Whether the form holds something the model could not have supplied, so the bypass posture
