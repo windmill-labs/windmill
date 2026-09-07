@@ -614,8 +614,8 @@ async fn guests_mode_needs_a_scopable_path(db: Pool<Postgres>) -> anyhow::Result
     Ok(())
 }
 
-/// Renaming a workspace copies its settings; the guest switch must travel with them,
-/// or the rename silently shuts every guest app of the workspace.
+/// Renaming a workspace copies its settings; the guest switch and the guest JWT key must
+/// travel with them, or the rename silently shuts every guest app or drops the key.
 #[sqlx::test(fixtures("base"))]
 async fn a_workspace_rename_keeps_the_guest_switch(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -626,6 +626,11 @@ async fn a_workspace_rename_keeps_the_guest_switch(db: Pool<Postgres>) -> anyhow
     sqlx::query(
         "INSERT INTO guest_activity (email, workspace_id, day)
          VALUES ('guest@example.com', 'test-workspace', CURRENT_DATE)",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "UPDATE workspace_settings SET guest_jwt_public_key = 'test-pem-key' WHERE workspace_id = 'test-workspace'",
     )
     .execute(&db)
     .await?;
@@ -645,6 +650,16 @@ async fn a_workspace_rename_keeps_the_guest_switch(db: Pool<Postgres>) -> anyhow
     .fetch_one(&db)
     .await?;
     assert!(enabled, "the guest switch travels with the workspace");
+    let jwt_key: Option<String> = sqlx::query_scalar(
+        "SELECT guest_jwt_public_key FROM workspace_settings WHERE workspace_id = 'test-workspace-2'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        jwt_key.as_deref(),
+        Some("test-pem-key"),
+        "the guest JWT key travels with the workspace"
+    );
     let moved: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM guest_activity WHERE workspace_id = 'test-workspace-2')
             AND NOT EXISTS(SELECT 1 FROM guest_activity WHERE workspace_id = 'test-workspace')",
