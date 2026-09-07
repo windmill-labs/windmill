@@ -265,11 +265,9 @@
 	}
 
 	/** Deploy each selected agent's draft, the same way the Review & Deploy page deploys the same
-	 *  row: hand the path to `deployDraft` and let it promote whatever the draft holds. Deliberately
-	 *  no pre-read to check the draft still matches what the dialog listed — that guarantee is one
-	 *  no deploy surface in Windmill offers, and upholding it here meant carrying a `last_sync`
-	 *  baseline across three round trips and evicting an in-memory cell, which cost more correctness
-	 *  than it bought. Agents left out keep their draft untouched. */
+	 *  row: hand the path to `deployDraft` and let it promote whatever the draft holds. No re-read
+	 *  to check the draft still matches what the dialog listed, so this deploys on the same terms as
+	 *  every other surface in the product. Agents left out keep their draft untouched. */
 	async function deployAgentDrafts(agents: LinkedAgentDraft[]) {
 		const ws = opWorkspace
 		if (!ws) return

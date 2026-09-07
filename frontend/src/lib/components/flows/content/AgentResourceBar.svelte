@@ -28,6 +28,7 @@
 	import {
 		setLinkedAgentTools,
 		clearLinkedAgentTools,
+		linkedModulesForAgent,
 		linkedToolsScope
 	} from '../linkedAgentToolsStore.svelte'
 	import { logReusableAgentUsage } from '../agentTelemetry'
@@ -244,9 +245,18 @@
 		}
 		const loaded = linkedInfo
 		if (loaded) {
-			claimLinkedToolsFetch(toolScope, moduleId)
-			// linkedResource types tools loosely; they are the same resource tools the store holds.
-			setLinkedAgentTools(toolScope, moduleId, loaded.tools as AgentToolStrict[], agent)
+			// Every step of this flow linking this agent, not just this one. Tools belong to the agent,
+			// so the sibling steps show the same set, and only the selected step mounts this card:
+			// without them a draft saved from here leaves their nodes on what the flow load resolved,
+			// while a test of those steps runs the draft. Claimed like this card's own publish, so a
+			// sibling's in-flight fetch cannot land afterwards and put the old tools back.
+			const modules = new Set(linkedModulesForAgent(toolScope, agent))
+			modules.add(moduleId)
+			for (const id of modules) {
+				claimLinkedToolsFetch(toolScope, id)
+				// linkedResource types tools loosely; they are the same resource tools the store holds.
+				setLinkedAgentTools(toolScope, id, loaded.tools as AgentToolStrict[], agent)
+			}
 			publishedFor = agent
 		} else if (publishedFor !== undefined && publishedFor !== agent) {
 			// The link moved and the new agent hasn't resolved, so the stored tools are the old one's.

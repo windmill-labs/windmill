@@ -33,6 +33,7 @@ vi.mock('$lib/appDiffSides', () => ({ classicAppDraftParts: vi.fn() }))
 vi.mock('$lib/utils_deployable', () => ({ TRIGGER_RUNTIME_IGNORE: [] }))
 
 import { ScriptService, FlowService, ResourceService } from '$lib/gen'
+import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 // draftBaseIsStale compares a draft's base pointer against the deployed head
 // of the item it was fetched with (`get_draft=true`). Shared by CompareDrafts
@@ -150,11 +151,12 @@ describe('deployDraft: resource with no draft', () => {
 		expect(ResourceService.createResource).not.toHaveBeenCalled()
 	})
 
-	it('still deploys normally when the draft is there', async () => {
+	it('still deploys normally when the draft is there, and keys the cleanup to the row it read', async () => {
 		vi.mocked(ResourceService.getResource).mockResolvedValueOnce({
 			path: 'f/support/triage_agent',
 			resource_type: 'ai_agent',
 			value: { system_prompt: 'deployed' },
+			draft_saved_at: '2026-01-01T00:00:00Z',
 			draft: { path: 'f/support/triage_agent', args: { system_prompt: 'drafted' } }
 		} as any)
 
@@ -163,6 +165,13 @@ describe('deployDraft: resource with no draft', () => {
 			expect.objectContaining({
 				requestBody: expect.objectContaining({ value: { system_prompt: 'drafted' } })
 			})
+		)
+		// The draft delete that follows is conditional on this baseline. With no baseline the backend
+		// deletes unconditionally, destroying a draft saved between the read and the delete without
+		// ever having deployed it, so the timestamp has to be the one from the row just promoted.
+		expect(UserDraftDbSyncer.recordRemoteSync).toHaveBeenCalledWith(
+			{ workspace: 'ws', itemKind: 'resource', path: 'f/support/triage_agent' },
+			'2026-01-01T00:00:00Z'
 		)
 	})
 })
