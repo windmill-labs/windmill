@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            workspace_id,\n            slack_team_id,\n            teams_team_id,\n            teams_team_name,\n            teams_team_guid,\n            slack_name,\n            slack_command_script,\n            teams_command_script,\n            slack_email,\n            slack_oauth_client_id,\n            slack_oauth_client_secret,\n            customer_id,\n            plan,\n            webhook,\n            ai_config,\n            dbt_warehouses,\n            large_file_storage,\n            datatable,\n            ducklake,\n            git_sync,\n            deploy_ui,\n            default_app,\n            default_scripts,\n            mute_critical_alerts,\n            color,\n            operator_settings,\n            git_app_installations,\n            auto_invite,\n            error_handler,\n            success_handler,\n            public_app_execution_limit_per_minute,\n            error_handler_fallback_to_instance_alerts,\n            guest_access_enabled\n        FROM\n            workspace_settings\n        WHERE\n            workspace_id = $1\n        ",
+  "query": "\n        SELECT\n            workspace_id,\n            slack_team_id,\n            teams_team_id,\n            teams_team_name,\n            teams_team_guid,\n            slack_name,\n            slack_command_script,\n            teams_command_script,\n            slack_email,\n            slack_oauth_client_id,\n            slack_oauth_client_secret,\n            customer_id,\n            plan,\n            webhook,\n            ai_config,\n            dbt_warehouses,\n            large_file_storage,\n            datatable,\n            ducklake,\n            git_sync,\n            deploy_ui,\n            default_app,\n            default_scripts,\n            mute_critical_alerts,\n            color,\n            operator_settings,\n            git_app_installations,\n            auto_invite,\n            error_handler,\n            success_handler,\n            public_app_execution_limit_per_minute,\n            error_handler_fallback_to_instance_alerts,\n            guest_access_enabled,\n            guest_jwt_public_key,\n            guest_jwt_jwks_url\n        FROM\n            workspace_settings\n        WHERE\n            workspace_id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -167,6 +167,16 @@
         "ordinal": 32,
         "name": "guest_access_enabled",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 33,
+        "name": "guest_jwt_public_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 34,
+        "name": "guest_jwt_jwks_url",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -207,8 +217,10 @@
       true,
       true,
       false,
-      false
+      false,
+      true,
+      true
     ]
   },
-  "hash": "00a61afc5faa3826c283660417ff1f8a93060fe062a0b727f164329ab56387a2"
+  "hash": "dc4a57df3becc610f631ef22c116450390addbfae85fecc61c991d94167e6e99"
 }
