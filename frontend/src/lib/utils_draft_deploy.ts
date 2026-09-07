@@ -95,6 +95,19 @@ const OVERLAY_GETTERS: Partial<
 		EmailTriggerService.getEmailTrigger({ workspace, path, getDraft: true })
 }
 
+/** Whether `getDraftDiffValues` can produce a diff for this kind at all. The
+ * script/flow/app family is handled inline; every other kind needs an overlay
+ * getter and throws without one — several trigger kinds have none. */
+export function canDiffDraftKind(kind: DraftKind): boolean {
+	return (
+		kind === 'script' ||
+		kind === 'flow' ||
+		kind === 'app' ||
+		kind === 'raw_app' ||
+		OVERLAY_GETTERS[kind] !== undefined
+	)
+}
+
 /** Strip the per-user draft-overlay metadata, returning `{deployed, draft}`. */
 function splitOverlay(r: any): {
 	deployed: any

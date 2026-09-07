@@ -219,7 +219,10 @@ const DRAFT_COMPARE_IGNORED_FIELDS = [
 	'version_id',
 	'parent_version',
 	'is_draft',
-	'assets'
+	'assets',
+	// Fixed at creation and absent from the resource editor's draft shape, so
+	// it only ever shows up on the deployed side of a comparison.
+	'resource_type'
 ] as const
 
 /**
