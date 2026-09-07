@@ -588,6 +588,16 @@ export const UserDraft = {
 		noteMarker(draftOnlyDiscards, mapKey(resolveWorkspace(opts), itemKind, path))
 	},
 
+	/**
+	 * The item at this path is there, whatever an earlier discard recorded. Nothing
+	 * consumes a marker outside a session, so one can outlive the item it was about
+	 * — recreated from another tab, another client — and be spent by the next action
+	 * on the item that took its place.
+	 */
+	clearDraftOnlyDiscard(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
+		draftOnlyDiscards.delete(mapKey(resolveWorkspace(opts), itemKind, path))
+	},
+
 	/** Whether the last discard for this cell removed the item outright (see
 	 * {@link recordDraftOnlyDiscard}), clearing the record. */
 	takeDraftOnlyDiscard(
@@ -950,7 +960,6 @@ function acquireEntry(
 	canBeDisabled = false
 ): void {
 	const mk = mapKey(workspace, itemKind, path)
-	releasedValues.delete(mk)
 	const existing = entries.get(mk)
 	if (existing) {
 		existing.count++

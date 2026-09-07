@@ -2200,6 +2200,33 @@ describe('global AI tools', () => {
 		expect(UserDraft.takeDraftOnlyDiscard('resource', path, { workspace: WORKSPACE })).toBe(false)
 	})
 
+	// A marker nothing read outlives the item it was about: the path can be deployed
+	// again from another tab or client, and the next discard there — a revert, not a
+	// removal — would otherwise spend it and send that item's editor away.
+	it('voids a standing removal marker when the path is deployed again', async () => {
+		const path = 'f/resources/discard-then-deployed'
+		await callGlobalTool('write_resource', {
+			path,
+			resource_type: 'postgresql',
+			value: { host: 'localhost' }
+		})
+		await callGlobalTool('discard_local_draft', { type: 'resource', path })
+
+		// Deployed since from another client, with a draft of its own — neither reaches
+		// this tab's cell, so nothing has cleared the marker. Discarding that draft
+		// reverts the item rather than removing it.
+		vi.mocked(ResourceService.existsResource).mockResolvedValue(true)
+		seedBackendDraft('resource', path, {
+			path,
+			value: { host: 'elsewhere' },
+			resource_type: 'postgresql'
+		})
+		await callGlobalTool('discard_local_draft', { type: 'resource', path })
+
+		expect(UserDraft.takeDraftOnlyDiscard('resource', path, { workspace: WORKSPACE })).toBe(false)
+		vi.mocked(ResourceService.existsResource).mockResolvedValue(false)
+	})
+
 	// "Create a resource, then never mind": delete_workspace_item must reject a path
 	// that was never deployed, before the confirmation card — otherwise the user
 	// confirms a workspace mutation that 404s past the draft cleanup, leaving the

@@ -6193,6 +6193,11 @@ async function discardLocalDraft(
 		if (removed) {
 			UserDraft.recordDraftOnlyDiscard(discardedKind, storagePath, { workspace })
 		}
+	} else if (discardedKind) {
+		// The item is deployed, so this discard reverted it rather than removing it —
+		// which also settles any marker still standing from an earlier one at this
+		// path, recorded when nothing deployed was there and never read.
+		UserDraft.clearDraftOnlyDiscard(discardedKind, storagePath, { workspace })
 	}
 
 	// The chat's touch on the item is undone — drop it from the mask so a
