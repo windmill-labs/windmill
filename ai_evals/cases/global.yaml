@@ -1980,7 +1980,8 @@
   initial: ai_evals/fixtures/frontend/global/initial/format_greeting_script.json
   runtime:
     maxTurns: 8
-    # run_script is offered to session chats only.
+    # A session chat is where the run card has a preview pane beside it; run_script
+    # itself is offered in every chat.
     sessionChat: true
   validate:
     draftCountExactly: 0
@@ -2015,7 +2016,8 @@
   initial: ai_evals/fixtures/frontend/global/initial/billing_sync_with_secret_arg.json
   runtime:
     maxTurns: 10
-    # run_script is offered to session chats only.
+    # A session chat is where the run card has a preview pane beside it; run_script
+    # itself is offered in every chat.
     sessionChat: true
   validate:
     draftCountExactly: 0
