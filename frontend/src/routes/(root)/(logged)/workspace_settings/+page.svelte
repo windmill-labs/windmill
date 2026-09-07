@@ -2134,6 +2134,12 @@ export async function main(
 								link="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
 							/>
 
+							{#if !$enterpriseLicense && variableExpirationSelected !== 'custom'}
+								<Alert type="warning" title="Slack and Teams handlers are an EE feature">
+									Connecting a workspace to Slack or Teams is a Windmill EE feature.
+								</Alert>
+							{/if}
+
 							<Section label="Handler">
 								<div class="flex flex-col gap-6">
 									<!-- Bound rather than seeded through `initialPath`: the picker keeps its own

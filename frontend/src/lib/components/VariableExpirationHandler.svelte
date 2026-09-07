@@ -35,7 +35,7 @@
 </script>
 
 <script lang="ts">
-	import { Alert, Button } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import SlackConnectionStatus from '$lib/components/common/slack/SlackConnectionStatus.svelte'
@@ -418,12 +418,6 @@
 					</div>
 				{/if}
 			</div>
-		{/if}
-
-		{#if handlerSelected !== 'custom' && workspaceConnectedToSlack === false && handlerSelected === 'slack'}
-			<Alert type="info" title="Connect Slack first">
-				Connect this workspace to Slack to notify a channel without writing a script.
-			</Alert>
 		{/if}
 	</div>
 </div>
