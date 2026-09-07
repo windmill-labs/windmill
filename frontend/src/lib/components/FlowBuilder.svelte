@@ -299,6 +299,22 @@
 			}
 			// The type is as old as the dialog otherwise: were the path deleted and recreated as
 			// something else meanwhile, the write below would put an agent config inside it.
+			// Adopt what was just read as the baseline for this key. `deployDraft` finishes by deleting
+			// the draft row, and that delete is only conditional when a baseline exists: without one the
+			// server has nothing to compare against and deletes unconditionally, so an edit landing
+			// between its read and its delete would be destroyed having never been deployed. With this,
+			// the row is newer than the baseline and the delete is refused instead. Safe to seed here
+			// and not inside `fetchAgentWithDraft`, which the step card also calls: this clears the
+			// failure state the agent editor's save indicator reads, and the checks above have already
+			// established there is none.
+			// Cast as in `loadLinkedAgentDrafts`: the `get_draft` overlay fields ride on the response but
+			// are not on the generated `Resource` type.
+			UserDraftDbSyncer.recordRemoteSync(
+				{ workspace: ws, itemKind: 'resource', path: agent.path },
+				(response as { draft_saved_at?: string }).draft_saved_at
+			)
+			// The type is as old as the dialog otherwise: were the path deleted and recreated as
+			// something else meanwhile, the write below would put an agent config inside it.
 			const notAnAgent = agent.noDeployed
 				? undefined
 				: agentEditorRefusal(agent.path, response.resource_type)
