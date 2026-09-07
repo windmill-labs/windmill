@@ -171,6 +171,22 @@ impl UserDraftItemKind {
         }
     }
 
+    /// The `draft.value` key holding the deployed version this draft forked
+    /// from, which the staleness check compares against the deployed head.
+    /// `None` for kinds that keep no lineage. Sits next to `typed_path_field`
+    /// because the two travel together: a move rewrites both, and both are
+    /// sent to the client in a `moved` save response so it never has to
+    /// reproduce this mapping.
+    pub fn base_version_field(&self) -> Option<&'static str> {
+        use UserDraftItemKind::*;
+        match self {
+            Script => Some("parent_hash"),
+            Flow => Some("version_id"),
+            App | RawApp => Some("parent_version"),
+            _ => None,
+        }
+    }
+
     /// Whether OTHER users' drafts at a path are visible to a viewer (the
     /// "others are editing" list, owner circles, and the `get_draft_for_user`
     /// View JSON / Fork endpoint). Enabled only for the full-page editor items
@@ -573,7 +589,10 @@ pub async fn delete_own_draft_for_path(
 /// field.
 ///
 /// A row whose owner already has a draft at `new_path` stays put: the target
-/// draft is work in its own right and is never overwritten.
+/// draft is work in its own right and is never overwritten. Those rows are
+/// reported as `left_behind` rather than swallowed — they are exactly the
+/// orphans this function exists to prevent, so a caller that ignores the count
+/// is choosing to strand them silently.
 pub async fn move_drafts_for_path(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,
@@ -582,7 +601,7 @@ pub async fn move_drafts_for_path(
     new_path: &str,
     typed_path_field: &str,
     base_version: Option<(&str, String)>,
-) -> Result<()> {
+) -> Result<MoveDraftsOutcome> {
     let typs = kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>();
     // `create_missing = false` on the typed path: absent means "same as the
     // row's path", which `SET path` already points at `new_path`.
@@ -629,7 +648,30 @@ pub async fn move_drafts_for_path(
         }
     }
 
-    Ok(())
+    // Anything still sitting at the old path was blocked by the collision
+    // guard. Counted rather than inferred from `moved`, so a concurrent insert
+    // at the old path is reported too.
+    let left_behind = sqlx::query_scalar!(
+        r#"SELECT count(*) as "n!" FROM draft
+           WHERE workspace_id = $1 AND path = $2 AND typ::text = ANY($3::text[])"#,
+        w_id,
+        old_path,
+        &typs as &[&str],
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+
+    Ok(MoveDraftsOutcome { moved: moved.len(), left_behind: left_behind as usize })
+}
+
+/// What `move_drafts_for_path` did. `left_behind` is non-zero only when the
+/// target owner already held a draft at the new path; those rows are now
+/// orphaned at a path their item has left, so a caller that sees a non-zero
+/// count owes the user a warning.
+#[derive(Debug, Clone, Copy)]
+pub struct MoveDraftsOutcome {
+    pub moved: usize,
+    pub left_behind: usize,
 }
 
 /// Fetch the authed user's draft as a standalone payload, for "get by path"

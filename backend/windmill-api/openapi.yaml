@@ -9448,6 +9448,10 @@ paths:
                   moved_by:
                     type: string
                     description: "`moved` only: who last deployed it there. Best-effort."
+                  moved_patch:
+                    type: object
+                    additionalProperties: true
+                    description: "`moved` only: fields to merge into the refused draft before re-saving it at `moved_to` — the typed target path and the version the item now sits at. Sent as a patch so the client does not reproduce the per-kind key names."
                 required: [status, current_timestamp]
 
   /w/{workspace}/drafts/move/{kind}/{path}:

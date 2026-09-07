@@ -39,8 +39,8 @@ use sqlx::{FromRow, Postgres, Transaction};
 use std::{collections::HashMap, sync::Arc};
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
-use windmill_dep_map::{lock_hash::record_lock_hashes, process_relative_imports};
 use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
+use windmill_dep_map::{lock_hash::record_lock_hashes, process_relative_imports};
 
 use windmill_common::{
     assets::{
@@ -2139,7 +2139,7 @@ async fn create_script_internal<'c>(
             // consume — teammates' rows, and the deployer's own when the caller
             // asked us to keep it (a move re-deploys the DEPLOYED content, not
             // the draft). Carry them rather than strand them.
-            windmill_common::user_drafts::move_drafts_for_path(
+            let outcome = windmill_common::user_drafts::move_drafts_for_path(
                 &mut tx,
                 &w_id,
                 &[UserDraftItemKind::Script],
@@ -2147,9 +2147,18 @@ async fn create_script_internal<'c>(
                 &ns.path,
                 UserDraftItemKind::Script.typed_path_field(),
                 // Drafts store a hash the way the API serializes one: hex text.
-                Some(("parent_hash", format!("\"{}\"", hash))),
+                UserDraftItemKind::Script
+                    .base_version_field()
+                    .map(|f| (f, format!("\"{}\"", hash))),
             )
             .await?;
+            if outcome.left_behind > 0 {
+                tracing::warn!(
+                    "{} script draft(s) stranded at {p_path}: their owner already has a draft at {}",
+                    outcome.left_behind,
+                    &ns.path
+                );
+            }
         }
 
         sqlx::query!(

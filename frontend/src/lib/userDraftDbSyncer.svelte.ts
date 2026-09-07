@@ -133,6 +133,11 @@ export type DraftConflictInfo = {
 export type DraftMovedInfo = {
 	movedTo: string
 	movedBy: string | undefined
+	/** Fields the server says to merge into the draft before re-saving it at
+	 * `movedTo` — the typed target path and the version the item now sits at.
+	 * The server owns these key names (`UserDraftItemKind::typed_path_field` /
+	 * `base_version_field`), so nothing here reproduces them. */
+	patch: Record<string, unknown> | undefined
 }
 
 export type UserDraftLastSyncQuery = {
@@ -312,7 +317,11 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 			// Nothing was written. Like a conflict, `lastSync` stays put so the
 			// state survives every retry until the user acts on it.
 			if (resp.moved_to) {
-				moves.set(key, { movedTo: resp.moved_to, movedBy: resp.moved_by })
+				moves.set(key, {
+					movedTo: resp.moved_to,
+					movedBy: resp.moved_by,
+					patch: resp.moved_patch as Record<string, unknown> | undefined
+				})
 			}
 			return
 		}

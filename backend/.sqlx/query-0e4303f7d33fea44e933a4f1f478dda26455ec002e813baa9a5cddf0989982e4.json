@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) as \"n!\" FROM draft\n           WHERE workspace_id = $1 AND path = $2 AND typ::text = ANY($3::text[])",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0e4303f7d33fea44e933a4f1f478dda26455ec002e813baa9a5cddf0989982e4"
+}

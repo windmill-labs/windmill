@@ -14,9 +14,11 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
+    scripts::ScriptHash,
     user_drafts::{DraftUserRef, UserDraftItemKind, ENCRYPTED_DRAFT_PREFIX},
     users::resolve_username_to_email,
     utils::strip_json_nul,
@@ -332,6 +334,12 @@ pub struct SaveDraftResponse {
     /// `moved` only: who last deployed it at its new path. Best-effort.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub moved_by: Option<String>,
+    /// `moved` only: fields to merge into the refused draft before re-saving it
+    /// at `moved_to` — the typed target path, and the version the item now sits
+    /// at. Sent as a patch so the client never has to reproduce the per-kind
+    /// key names (`UserDraftItemKind::typed_path_field` / `base_version_field`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub moved_patch: Option<serde_json::Value>,
 }
 
 /// The version a draft forked from, as the editors write it into `draft.value`.
@@ -370,7 +378,7 @@ async fn resolve_moved_to(
     kind: UserDraftItemKind,
     path: &str,
     value: &str,
-) -> Result<Option<(String, Option<String>)>> {
+) -> Result<Option<(String, Option<String>, serde_json::Value)>> {
     use UserDraftItemKind::*;
     if !matches!(kind, Script | Flow | App | RawApp) {
         return Ok(None);
@@ -400,71 +408,111 @@ async fn resolve_moved_to(
         Script => {
             // An archived row keeps sitting at the old path, so a plain
             // existence check would miss every script move.
-            let r = sqlx::query!(
-                r#"SELECT
-                     EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2
-                            AND NOT archived AND NOT deleted) as "still_here!",
-                     (SELECT path FROM script WHERE workspace_id = $1 AND $3 = ANY(parent_hashes)
-                      AND NOT archived AND NOT deleted ORDER BY created_at DESC LIMIT 1) as new_path,
-                     (SELECT created_by FROM script WHERE workspace_id = $1 AND $3 = ANY(parent_hashes)
-                      AND NOT archived AND NOT deleted ORDER BY created_at DESC LIMIT 1) as new_by"#,
+            let still_here = sqlx::query_scalar!(
+                r#"SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2
+                                 AND NOT archived AND NOT deleted) as "e!""#,
                 w_id,
                 path,
-                script_hash,
             )
             .fetch_one(&mut *tx)
             .await?;
-            (!r.still_here)
-                .then_some(r.new_path)
-                .flatten()
-                .map(|p| (p, r.new_by))
+            if still_here {
+                None
+            } else {
+                // Only reached once the item is gone. `parent_hashes` carries no
+                // index, so this is a workspace-wide scan — keeping it behind the
+                // cheap check above is what leaves the autosave hot path at one
+                // indexed lookup.
+                sqlx::query!(
+                    r#"SELECT path, created_by, hash FROM script
+                       WHERE workspace_id = $1 AND $2 = ANY(parent_hashes)
+                         AND NOT archived AND NOT deleted
+                       ORDER BY created_at DESC LIMIT 1"#,
+                    w_id,
+                    script_hash,
+                )
+                .fetch_optional(&mut *tx)
+                .await?
+                // Hex text, the way the API serializes a hash and the way a
+                // script draft stores `parent_hash`.
+                .map(|r| {
+                    (
+                        r.path,
+                        Some(r.created_by),
+                        json!(ScriptHash(r.hash).to_string()),
+                    )
+                })
+            }
         }
         Flow => {
-            let r = sqlx::query!(
-                r#"SELECT
-                     EXISTS(SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2) as "still_here!",
-                     (SELECT fv.path FROM flow_version fv
-                      JOIN flow f ON f.workspace_id = fv.workspace_id AND f.path = fv.path
-                      WHERE fv.id = $3 AND fv.workspace_id = $1) as new_path,
-                     (SELECT f.edited_by FROM flow_version fv
-                      JOIN flow f ON f.workspace_id = fv.workspace_id AND f.path = fv.path
-                      WHERE fv.id = $3 AND fv.workspace_id = $1) as new_by"#,
+            let still_here = sqlx::query_scalar!(
+                r#"SELECT EXISTS(SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2) as "e!""#,
                 w_id,
                 path,
-                base.version_id,
             )
             .fetch_one(&mut *tx)
             .await?;
-            (!r.still_here)
-                .then_some(r.new_path)
-                .flatten()
-                .map(|p| (p, r.new_by))
+            if still_here {
+                None
+            } else {
+                sqlx::query!(
+                    r#"SELECT fv.path, f.edited_by, f.versions[array_upper(f.versions, 1)] as "head!"
+                       FROM flow_version fv
+                       JOIN flow f ON f.workspace_id = fv.workspace_id AND f.path = fv.path
+                       WHERE fv.id = $2 AND fv.workspace_id = $1"#,
+                    w_id,
+                    base.version_id,
+                )
+                .fetch_optional(&mut *tx)
+                .await?
+                .map(|r| (r.path, Some(r.edited_by), json!(r.head)))
+            }
         }
         App | RawApp => {
-            let r = sqlx::query!(
-                r#"SELECT
-                     EXISTS(SELECT 1 FROM app WHERE workspace_id = $1 AND path = $2) as "still_here!",
-                     (SELECT a.path FROM app_version av JOIN app a ON a.id = av.app_id
-                      WHERE av.id = $3 AND a.workspace_id = $1) as new_path,
-                     (SELECT av.created_by FROM app_version av JOIN app a ON a.id = av.app_id
-                      WHERE av.id = $3 AND a.workspace_id = $1) as new_by"#,
+            let still_here = sqlx::query_scalar!(
+                r#"SELECT EXISTS(SELECT 1 FROM app WHERE workspace_id = $1 AND path = $2) as "e!""#,
                 w_id,
                 path,
-                base.parent_version,
             )
             .fetch_one(&mut *tx)
             .await?;
-            (!r.still_here)
-                .then_some(r.new_path)
-                .flatten()
-                .map(|p| (p, r.new_by))
+            if still_here {
+                None
+            } else {
+                sqlx::query!(
+                    r#"SELECT a.path, av.created_by,
+                              (SELECT id FROM app_version WHERE app_id = a.id
+                               ORDER BY created_at DESC LIMIT 1) as "head!"
+                       FROM app_version av JOIN app a ON a.id = av.app_id
+                       WHERE av.id = $2 AND a.workspace_id = $1"#,
+                    w_id,
+                    base.parent_version,
+                )
+                .fetch_optional(&mut *tx)
+                .await?
+                .map(|r| (r.path, Some(r.created_by), json!(r.head)))
+            }
         }
         _ => None,
     };
     tx.commit().await?;
 
     // Same path back ⇒ nothing moved (a stale read, or a path reused).
-    Ok(moved.filter(|(new_path, _)| new_path != path))
+    let moved = moved.filter(|(new_path, _, _)| new_path != path);
+
+    // The client re-points its in-flight draft with this patch rather than
+    // reproducing `typed_path_field` / `base_version_field` on its own side.
+    // Both keys have to be rewritten together: the path alone would leave the
+    // draft claiming the pre-move version, and the editor would greet it with a
+    // stale-draft prompt the moment it landed.
+    Ok(moved.map(|(new_path, new_by, head)| {
+        let mut patch = serde_json::Map::new();
+        patch.insert(kind.typed_path_field().to_string(), json!(&new_path));
+        if let Some(field) = kind.base_version_field() {
+            patch.insert(field.to_string(), head);
+        }
+        (new_path, new_by, serde_json::Value::Object(patch))
+    }))
 }
 
 /// Apply the current user's draft at (workspace, kind, path): non-null `value`
@@ -496,7 +544,7 @@ async fn update_draft(
     // path and would re-plant its draft there. Refuse and answer with where the
     // item went; the carried draft is already waiting at the new path.
     if let Some(value) = &req.value {
-        if let Some((moved_to, moved_by)) =
+        if let Some((moved_to, moved_by, moved_patch)) =
             resolve_moved_to(&authed, &user_db, &w_id, kind, path, value.0.get()).await?
         {
             let now = sqlx::query_scalar!(r#"SELECT now() as "now!""#)
@@ -507,6 +555,7 @@ async fn update_draft(
                 current_timestamp: now,
                 moved_to: Some(moved_to),
                 moved_by,
+                moved_patch: Some(moved_patch),
             }));
         }
     }
@@ -579,6 +628,7 @@ async fn update_draft(
             current_timestamp: ts,
             moved_to: None,
             moved_by: None,
+            moved_patch: None,
         }));
     }
 
@@ -605,6 +655,7 @@ async fn update_draft(
             current_timestamp: ts,
             moved_to: None,
             moved_by: None,
+            moved_patch: None,
         })),
         // Delete + nothing-was-there ⇒ report success with server's NOW().
         None => {
@@ -616,6 +667,7 @@ async fn update_draft(
                 current_timestamp: now,
                 moved_to: None,
                 moved_by: None,
+            moved_patch: None,
             }))
         }
     }
@@ -649,15 +701,32 @@ async fn move_draft(
 ) -> Result<String> {
     let path = path.to_path();
     let new_path = req.new_path.as_str();
-    if new_path == path {
+    // A summary-only edit is a legitimate use of this endpoint: the drawer edits
+    // both fields, and for a draft-only script the path it posts back is the row
+    // path unchanged (`list_scripts` only reports `draft_path` when it differs).
+    // Returning early on the path alone would drop the new summary silently.
+    if new_path == path && req.summary.is_none() {
         return Ok("unchanged".to_string());
     }
     require_can_write_path(&authed, &db, &user_db, &w_id, kind, path).await?;
-    require_can_write_path(&authed, &db, &user_db, &w_id, kind, new_path).await?;
+    if new_path != path {
+        require_can_write_path(&authed, &db, &user_db, &w_id, kind, new_path).await?;
+    }
 
     if let Some(table) = kind.deployed_table() {
         // `table` is from the closed `deployed_table()` enum, never user input.
-        let query = format!("SELECT 1 FROM {table} WHERE path = $1 AND workspace_id = $2 LIMIT 1");
+        // Archived and soft-deleted rows keep sitting at their path — a script
+        // move archives its parent in place — so an existence check that counted
+        // them would refuse a move away from, or into, a path nothing occupies.
+        // `create_script_internal` resolves its own path clashes the same way.
+        let archived_filter = if table == "script" {
+            " AND NOT archived AND NOT deleted"
+        } else {
+            ""
+        };
+        let query = format!(
+            "SELECT 1 FROM {table} WHERE path = $1 AND workspace_id = $2{archived_filter} LIMIT 1"
+        );
         let mut tx = user_db.clone().begin(&authed).await?;
         let deployed_at_old = sqlx::query_scalar::<_, i32>(&query)
             .bind(path)
@@ -697,10 +766,12 @@ async fn move_draft(
              AND path = $2
              AND typ = $4
              AND email = $6
-             AND NOT EXISTS (
+             -- Skipped on a summary-only edit, where the "target" row is this
+             -- row and the guard would refuse the update against itself.
+             AND ($2 = $3 OR NOT EXISTS (
                  SELECT 1 FROM draft o
                  WHERE o.workspace_id = $1 AND o.path = $3 AND o.typ = $4 AND o.email = $6
-             )
+             ))
            RETURNING id"#,
         &w_id,
         path,
@@ -724,13 +795,16 @@ async fn move_draft(
         .fetch_optional(&db)
         .await?
         .is_some();
-        return Err(Error::BadRequest(if exists_at_target {
+        return Err(Error::BadRequest(if exists_at_target && new_path != path {
             format!("You already have a draft at '{new_path}'")
         } else {
             format!("You have no draft at '{path}'")
         }));
     }
 
+    if new_path == path {
+        return Ok(format!("updated draft {path}"));
+    }
     Ok(format!("moved draft {path} to {new_path}"))
 }
 

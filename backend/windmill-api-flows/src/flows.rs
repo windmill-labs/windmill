@@ -1387,16 +1387,25 @@ async fn update_flow(
         // — teammates' rows, and the deployer's own when the caller asked us to
         // keep it (a move re-deploys the DEPLOYED content, not the draft).
         // Carry them rather than strand them.
-        windmill_common::user_drafts::move_drafts_for_path(
+        let outcome = windmill_common::user_drafts::move_drafts_for_path(
             &mut tx,
             &w_id,
             &[UserDraftItemKind::Flow],
             flow_path,
             &nf.path,
             UserDraftItemKind::Flow.typed_path_field(),
-            Some(("version_id", version.to_string())),
+            UserDraftItemKind::Flow
+                .base_version_field()
+                .map(|f| (f, version.to_string())),
         )
         .await?;
+        if outcome.left_behind > 0 {
+            tracing::warn!(
+                "{} flow draft(s) stranded at {flow_path}: their owner already has a draft at {}",
+                outcome.left_behind,
+                &nf.path
+            );
+        }
     }
 
     audit_log(

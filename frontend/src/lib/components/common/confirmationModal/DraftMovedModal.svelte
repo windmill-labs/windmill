@@ -36,12 +36,15 @@
 		raw_app: 'apps_raw/edit'
 	}
 
-	/** Mirrors the backend's `UserDraftItemKind::typed_path_field`: a script
-	 * draft round-trips its own `path`, every other kind writes `draft_path`. */
-	function repointed(value: unknown, newPath: string): unknown {
-		if (value == undefined || typeof value !== 'object') return value
-		const field = query.itemKind === 'script' ? 'path' : 'draft_path'
-		return { ...(value as Record<string, unknown>), [field]: newPath }
+	/** Applies the server's `moved_patch` — the typed target path plus the version
+	 * the item now sits at. Both come from the server precisely so this file
+	 * doesn't reproduce `typed_path_field` / `base_version_field`; re-pointing the
+	 * path without the version restamp would land the draft at the new path still
+	 * claiming the pre-move version, and greet the user with a stale-draft prompt
+	 * offering to discard the edits they just chose to carry. */
+	function repointed(value: unknown, patch: Record<string, unknown> | undefined): unknown {
+		if (value == undefined || typeof value !== 'object' || patch == undefined) return value
+		return { ...(value as Record<string, unknown>), ...patch }
 	}
 
 	async function continueThere() {
@@ -55,7 +58,7 @@
 					workspace: query.workspace,
 					itemKind: query.itemKind,
 					path: move.movedTo,
-					value: repointed(local, move.movedTo)
+					value: repointed(local, move.patch)
 				})
 			}
 			UserDraftDbSyncer.clearMove(query)
@@ -78,11 +81,12 @@
 					{:else}
 						This was moved to
 					{/if}
-					<span class="font-mono text-xs">{moveHandle.move?.movedTo}</span>. Your draft moved with
-					it, so nothing was saved here.
+					<span class="font-mono text-xs">{moveHandle.move?.movedTo}</span>. Nothing was saved here
+					— this path no longer holds the item.
 				</p>
 				<p class="text-xs text-secondary">
-					Continuing takes your current edits to the new path. Staying here leaves them unsaved.
+					Continuing takes your current edits to the new path, replacing any draft already there.
+					Staying here leaves them unsaved.
 				</p>
 			</div>
 		</div>
@@ -90,13 +94,13 @@
 		<div class="flex justify-end gap-2">
 			<Button
 				variant="default"
-				size="sm"
+				unifiedSize="sm"
 				disabled={busy}
 				on:click={() => UserDraftDbSyncer.clearMove(query)}
 			>
 				Stay here
 			</Button>
-			<Button variant="accent" size="sm" loading={busy} on:click={continueThere}>
+			<Button variant="accent" unifiedSize="sm" loading={busy} on:click={continueThere}>
 				Continue at the new path
 			</Button>
 		</div>
