@@ -6337,13 +6337,13 @@ async fn update_workspace_settings(
             // Auto-pull and fork PRs are parent-owned and must not be inherited:
             // the fork would otherwise carry the parent's webhook id (turning off
             // auto-pull on the fork would delete the parent's webhook). A fork
-            // still inherits the push-direction config and the installation.
-            // Repo → fork sync is driven by the parent's webhook/poller
-            // (`sync_forks`), which routes the fork's `wm-fork/**` branch into it.
+            // still inherits the push-direction config, the installation, and the
+            // recorded credential status, which describes the repository rather
+            // than belonging to either workspace and would otherwise leave the
+            // fork unqualified for managed features until its first check.
             r.auto_pull = None;
             r.fork_open_prs = false;
             r.open_pr_error = None;
-            r.credential = None;
             r
         })
         .collect();
@@ -8344,7 +8344,6 @@ async fn attach_dev_workspace(
                 r.auto_pull = None;
                 r.fork_open_prs = false;
                 r.open_pr_error = None;
-                r.credential = None;
             }
             let serialized =
                 serde_json::to_value(&settings).map_err(|e| Error::internal_err(e.to_string()))?;

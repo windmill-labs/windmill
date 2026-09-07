@@ -82,28 +82,28 @@ out of every fork's own storage; it is not a boundary against the admins of thos
 workspaces.
 
 A URL with the token written into it keeps working, whether it sits in the
-resource or in a secret variable the resource points at (`"url": "$var:..."`),
-and renewal rewrites whichever of the two holds it. What cannot be renewed is a
-variable held in an external secret backend, which Windmill can read but does not
-own the write to; that is reported on the repository.
+resource or in a secret variable the resource points at (`"url": "$var:..."`).
+Windmill reports its expiry on the repository but does not renew it: that token
+is yours to manage, as it is for a GitHub repository authenticated the same way.
+Forking copies such a URL with its value, so two workspaces would hold the same
+token each believing it issued it, and presenting an already-rotated one to
+GitLab costs the whole token family. Use the **GitLab** button to hand the token
+to Windmill if you want it renewed.
 
 ## Expiry and renewal
 
 Windmill reads `expires_at` from the token itself and shows it on the repository
-in the workspace's git sync settings. Within three weeks of expiry it rotates the
-token through GitLab's own `POST /personal_access_tokens/self/rotate`, writes the
-replacement back where the credential is stored, and verifies it. Only the token
-can rotate itself, so a token without `api` (or `self_rotate`) is a permanent
-warning rather than something Windmill can fix.
+in the workspace's git sync settings, for every repository including the ones
+whose token sits in the URL. A token Windmill holds it also renews: within three
+weeks of expiry it rotates it through GitLab's own
+`POST /personal_access_tokens/self/rotate`, stores the replacement, and verifies
+it. Only the token can rotate itself, so one without `api` (or `self_rotate`) is
+a permanent warning rather than something Windmill can fix.
 
-Only the workspace that issued a credential rotates it, so one rotation serves
-the whole family instead of each fork racing to renew the same token. A fork
-either reads the parent's stored credential or, for a repository whose token
-lives in the URL, holds a copy of it that forking made; either way the token is
-the parent's to renew. A fork that carries a genuinely different token rotates
-it itself. The fork reports the same expiry from its own first check onwards; a
-fork created since the parent's last check shows none until the maintenance pass
-reaches it.
+Only the workspace that holds a credential renews it, so one renewal serves the
+whole fork chain instead of each fork racing to renew the same token. A fork
+reads the parent's without holding one, so it never renews; the parent does, and
+every fork sees the replacement at once.
 
 Rotation is deliberately never retried. GitLab revokes the old token the instant
 it issues the replacement, and presenting an already-rotated token to `/rotate`

@@ -1,46 +1,48 @@
-//! A fork reaches the git credential and status held above it in its fork chain.
+//! A fork reaches the git credential held above it in its fork chain.
 //!
-//! Fork creation copies the parent's git-sync repositories but neither the
-//! recorded credential status nor the credential itself, both of which are
-//! server-owned per-workspace state. Without the fallback a fresh fork stops
-//! qualifying, and every deploy until the next credential pass pushes its branch
-//! and opens no PR — silently, because nothing about a skipped PR surfaces
-//! anywhere. Chains nest (a fork of a dev workspace, a fork of that), so the
-//! depth-2 cases here are what keep the lookup from regressing to the parent.
+//! Fork creation copies the parent's git-sync repositories but not the credential,
+//! which is stored per workspace so that rotation has one owner. Chains nest (a
+//! fork of a dev workspace, a fork of that), so the depth-2 cases here are what
+//! keep the lookup from regressing to the parent.
+//!
+//! The recorded *status* is not shared the same way: it describes one repository,
+//! and a fork can repoint its copy of the resource, so each workspace answers from
+//! its own record and gets one by fork creation copying it down.
 #![cfg(all(feature = "enterprise", feature = "private"))]
 
 use sqlx::{Pool, Postgres};
 use windmill_common::git_sync_ee::{
-    git_credential_for_url, repo_supports_managed_git_features, set_git_credential,
+    git_credential_for_url, repo_provider, repo_supports_managed_git_features, set_git_credential,
+    GitProvider,
 };
 
 const REPO: &str = "$res:u/admin/repo";
 const URL: &str = "https://gitlab.com/grp/proj.git";
 
 #[sqlx::test(fixtures("git_sync_fork_credential"))]
-async fn a_fork_qualifies_through_the_nearest_ancestors_credential(
-    db: Pool<Postgres>,
-) -> anyhow::Result<()> {
+async fn credential_status_is_a_workspaces_own(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert!(
         repo_supports_managed_git_features(&db, "parent-ws", REPO).await,
-        "the workspace holding the credential qualifies"
+        "the workspace holding the recorded status qualifies"
+    );
+    assert_eq!(
+        repo_provider(&db, "parent-ws", REPO).await,
+        GitProvider::GitLab,
+        "and its provider comes from that record"
     );
     assert!(
-        repo_supports_managed_git_features(&db, "fork-ws", REPO).await,
-        "a fork with no credential of its own qualifies through its parent"
+        !repo_supports_managed_git_features(&db, "fork-ws", REPO).await,
+        "a fork with no record of its own does not borrow the parent's: the status \
+         describes one repository, and this fork's resource could name another"
     );
-    assert!(
-        repo_supports_managed_git_features(&db, "deep-fork-ws", REPO).await,
-        "a fork of a fork qualifies through the root, two levels up"
+    assert_eq!(
+        repo_provider(&db, "fork-ws", REPO).await,
+        GitProvider::GitHub,
+        "so it answers with the default provider until its own check runs"
     );
     assert!(
         !repo_supports_managed_git_features(&db, "errored-fork-ws", REPO).await,
-        "a fork whose own credential failed stays disqualified, rather than \
-         borrowing the parent's healthy one"
-    );
-    assert!(
-        !repo_supports_managed_git_features(&db, "orphan-ws", REPO).await,
-        "a workspace with no credential and no parent does not qualify"
+        "a workspace whose own credential failed stays disqualified"
     );
     Ok(())
 }

@@ -1,5 +1,10 @@
--- A parent whose git-sync repository has a recorded credential, and the three
--- workspace shapes the qualification predicate has to tell apart.
+-- A parent whose git-sync repository has a recorded credential, and the workspace
+-- shapes the credential lookup and the qualification predicate have to tell apart.
+--
+-- The credential itself is shared down the fork chain; the recorded *status* is
+-- not, because it describes one repository and a fork can repoint its copy of the
+-- resource. Forks get a status by fork creation copying it, which no fixture here
+-- simulates, so a fork without one is a workspace nothing has checked yet.
 
 INSERT INTO workspace (id, name, owner, parent_workspace_id) VALUES
     ('parent-ws', 'parent-ws', 'test-user', NULL),
@@ -38,3 +43,11 @@ INSERT INTO workspace_settings (workspace_id, git_sync) VALUES
 
 -- No credential and no parent to borrow one from.
     ('orphan-ws', '{"repositories":[{"git_repo_resource_path":"$res:u/admin/repo"}]}');
+
+-- The resource each repository entry names, all pointing at the same repository.
+INSERT INTO resource (workspace_id, path, value, resource_type) VALUES
+    ('parent-ws',       'u/admin/repo', '{"url":"https://gitlab.com/grp/proj.git"}', 'git_repository'),
+    ('fork-ws',         'u/admin/repo', '{"url":"https://gitlab.com/grp/proj.git"}', 'git_repository'),
+    ('deep-fork-ws',    'u/admin/repo', '{"url":"https://gitlab.com/grp/proj.git"}', 'git_repository'),
+    ('errored-fork-ws', 'u/admin/repo', '{"url":"https://gitlab.com/grp/proj.git"}', 'git_repository'),
+    ('orphan-ws',       'u/admin/repo', '{"url":"https://gitlab.com/grp/proj.git"}', 'git_repository');
