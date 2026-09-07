@@ -17,6 +17,7 @@
 		draftValuesEqual,
 		flushDraftDelete,
 		beginDraftSettleWindow,
+		isDraftSaving,
 		settleDraftAfterWrite,
 		type UserDraftHandle
 	} from '$lib/userDraft.svelte'
@@ -277,8 +278,16 @@
 		}
 	})
 
+	// A save in flight for this resource, in this editor or another holding the same
+	// cell: inline there is no drawer to close over the button, and duplicate tabs
+	// and warm sessions mount several editors over one item. Two writes at once and
+	// the older one landing last overwrites the newer deployment.
+	const saveInFlight = $derived(
+		dirtyWorkspaces.some((ws) => isDraftSaving('resource', initialPath, { workspace: ws }))
+	)
+
 	$effect(() => {
-		canSave = anyDirty && dirtyValid && dirtyCanWrite
+		canSave = anyDirty && dirtyValid && dirtyCanWrite && !saveInFlight
 	})
 
 	// Drive the parent drawer's "unsaved changes" banner. The drawer chrome
@@ -368,10 +377,15 @@
 		// stay pointed at a path the item has moved off.
 		const written: { ws: string; path: string }[] = []
 		// A host left mid-write releases the cell each settle below reads; only inside
-		// this window is what it was holding remembered.
-		const closeSettleWindows = payloads.map(({ ws }) =>
-			beginDraftSettleWindow('resource', from, { workspace: ws })
-		)
+		// this window is what it was holding remembered. It is also what says a write
+		// is in flight for this cell, so a second editor on it cannot start one —
+		// checked before the first is opened, or this would see its own.
+		if (payloads.some(({ ws }) => isDraftSaving('resource', from, { workspace: ws }))) {
+			return { written: [], ok: false }
+		}
+		const closeSettleWindows = from
+			? payloads.map(({ ws }) => beginDraftSettleWindow('resource', from, { workspace: ws }))
+			: []
 		try {
 			for (const { ws, s, ini, existed } of payloads) {
 				if (existed) {
@@ -418,9 +432,7 @@
 				invalidateWorkspacePaths(ws)
 			}
 			sendUserToast(
-				payloads.length > 1
-					? `Saved resource in ${payloads.length} workspaces`
-					: `Saved resource`
+				payloads.length > 1 ? `Saved resource in ${payloads.length} workspaces` : `Saved resource`
 			)
 			dispatch('refresh', written.find((w) => w.ws === effectiveWorkspace)?.path ?? from)
 			return { written, ok: true }

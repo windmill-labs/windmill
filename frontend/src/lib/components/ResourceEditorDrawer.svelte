@@ -61,10 +61,6 @@
 	// truth (see editorBody).
 	let editorGeneration = $state(0)
 	let canSave = $state(true)
-	// A save in flight. Inline there is no drawer to close over the button, so a
-	// second click would start an unserialized second write: the older snapshot
-	// lands last and overwrites the newer deployment.
-	let savePending = $state(false)
 	let resource_type: string | undefined = $state(undefined)
 	let defaultValues: Record<string, any> | undefined = $state(undefined)
 
@@ -227,47 +223,41 @@
 		unifiedSize="md"
 		startIcon={{ icon: Save }}
 		on:click={async () => {
-			if (savePending) return
-			savePending = true
-			try {
-				// Where this save started. Read before the await: an inline host can re-point
-				// the editor at another resource, or re-scope the session to another
-				// workspace, while the write is in flight.
-				const from = path
-				const fromWs = effectiveWorkspace
-				// The workspace whose version is on screen, which `WsSpecificVersions` can
-				// make a linked one: a rename made there is that workspace's alone, but the
-				// form is showing it, so the form follows it.
-				const shownWs = selected
-				// Closed before the write is awaited, the way it always was: `save()` toasts its
-				// own failures and never rejects, so waiting would only add visible lag to every
-				// caller of this drawer. `onSaved` still fires after the write lands.
-				const saving = resourceEditor?.saveWritten()
-				drawer?.closeDrawer()
-				// What landed, per workspace, from the editor rather than the form: the form may
-				// be showing a linked workspace's variant, whose rename is not this host's.
-				const written = (await saving) ?? []
-				if (written.length === 0) return
-				const submitted =
-					written.find((w) => w.ws === shownWs)?.path ?? written.find((w) => w.ws === fromWs)?.path
-				// Follow a rename: rendered inline there is no drawer to close, so the mounted
-				// editor stays, and the key below remounts it on the path the item moved to.
-				// The editor adopts its own new baseline, so a same-path save needs nothing
-				// here — remounting it would re-read over an edit made during the write.
-				// Only while this is still the resource it saved: re-pointed mid-write,
-				// `path` and the mounted editor are another one's. And only a move: pointing a
-				// create at the path it just made re-keys the blank form's cell onto it, and
-				// the mirror then posts that blank state as the new item's draft.
-				if (path && path === from && submitted) path = submitted
-				// One report per workspace written, each carrying its own — a linked
-				// workspace's rename moves the tabs acting on it and no others. Reported
-				// even when this drawer has moved on: the write is a fact about the item.
-				for (const w of written) onSaved?.(w.path, from, w.ws)
-			} finally {
-				savePending = false
-			}
+			// Where this save started. Read before the await: an inline host can re-point
+			// the editor at another resource, or re-scope the session to another
+			// workspace, while the write is in flight.
+			const from = path
+			const fromWs = effectiveWorkspace
+			// The workspace whose version is on screen, which `WsSpecificVersions` can
+			// make a linked one: a rename made there is that workspace's alone, but the
+			// form is showing it, so the form follows it.
+			const shownWs = selected
+			// Closed before the write is awaited, the way it always was: `save()` toasts its
+			// own failures and never rejects, so waiting would only add visible lag to every
+			// caller of this drawer. `onSaved` still fires after the write lands.
+			const saving = resourceEditor?.saveWritten()
+			drawer?.closeDrawer()
+			// What landed, per workspace, from the editor rather than the form: the form may
+			// be showing a linked workspace's variant, whose rename is not this host's.
+			const written = (await saving) ?? []
+			if (written.length === 0) return
+			const submitted =
+				written.find((w) => w.ws === shownWs)?.path ?? written.find((w) => w.ws === fromWs)?.path
+			// Follow a rename: rendered inline there is no drawer to close, so the mounted
+			// editor stays, and the key below remounts it on the path the item moved to.
+			// The editor adopts its own new baseline, so a same-path save needs nothing
+			// here — remounting it would re-read over an edit made during the write.
+			// Only while this is still the resource it saved: re-pointed mid-write,
+			// `path` and the mounted editor are another one's. And only a move: pointing a
+			// create at the path it just made re-keys the blank form's cell onto it, and
+			// the mirror then posts that blank state as the new item's draft.
+			if (path && path === from && submitted) path = submitted
+			// One report per workspace written, each carrying its own — a linked
+			// workspace's rename moves the tabs acting on it and no others. Reported
+			// even when this drawer has moved on: the write is a fact about the item.
+			for (const w of written) onSaved?.(w.path, from, w.ws)
 		}}
-		disabled={!canSave || savePending}
+		disabled={!canSave}
 	>
 		Save
 	</Button>

@@ -688,11 +688,11 @@ export function pendingUserActionDetail(
 // the tool layer knowing about the UI. Single slot; the consumer filters by name
 // and reads the tool args (e.g. the mutated item's `path`) to scope its refresh.
 let toolCompletionListener:
-	| ((toolName: string, args: any, workspace: string) => void)
+	| ((toolName: string, args: any, workspace: string, result: string) => void)
 	| undefined
 
 export function setToolCompletionListener(
-	fn: ((toolName: string, args: any, workspace: string) => void) | undefined
+	fn: ((toolName: string, args: any, workspace: string, result: string) => void) | undefined
 ): void {
 	toolCompletionListener = fn
 }
@@ -722,8 +722,10 @@ async function callTool<T>({
 	}
 	const result = await tool.fn({ args, workspace, helpers, toolCallbacks, toolId })
 	// The workspace the tool acted on, so a consumer can tell a mutation in this
-	// session's workspace from the same path in another one.
-	toolCompletionListener?.(functionName, args, workspace)
+	// session's workspace from the same path in another one — and the result, which
+	// is where a tool says what it did that its args do not, such as the path a
+	// deploy landed on after a rename staged in the draft.
+	toolCompletionListener?.(functionName, args, workspace, result)
 	return result
 }
 

@@ -29,10 +29,15 @@ export type ToolReloadEffect = {
 	 * another path is not affected by it — unlike a list page, which shows every
 	 * row and so reloads for any mutation on it. */
 	path?: string
+	/** Where it landed, when that is not `path`: a draft carries its own path
+	 * field, so a hosted editor renames a draft-only item by editing the config
+	 * and leaves the draft under the key it was stored at. A tab on `path` has to
+	 * follow, exactly as it does for a rename the editor itself saved. */
+	to?: string
 }
 const NO_RELOAD: ToolReloadEffect = { pages: [], entity: 'none' }
 
-export function toolReloadEffect(name: string, args: any): ToolReloadEffect {
+export function toolReloadEffect(name: string, args: any, result?: string): ToolReloadEffect {
 	switch (name) {
 		// `path` rides along on the writes too: it is what scopes the refresh a write
 		// needs when its seed missed a still-loading editor (see effectForWrite).
@@ -52,14 +57,33 @@ export function toolReloadEffect(name: string, args: any): ToolReloadEffect {
 		// These all drop the draft the hosted editor is bound to: deploying or
 		// discarding replaces it with the deployed value, and deleting removes the
 		// item, so the editor is re-read from the server or left behind entirely.
-		case 'discard_local_draft':
 		case 'deploy_workspace_item':
+			return {
+				pages: pagesForItemType(args?.type, args),
+				entity: 'refresh',
+				path: itemPath(args),
+				to: deployedPath(result)
+			}
+		case 'discard_local_draft':
 		case 'rebase_draft':
 			return { pages: pagesForItemType(args?.type, args), entity: 'refresh', path: itemPath(args) }
 		case 'delete_workspace_item':
 			return { pages: pagesForItemType(args?.type, args), entity: 'close', path: itemPath(args) }
 		default:
 			return NO_RELOAD
+	}
+}
+
+/** The path a deploy reported landing on. Read from the result rather than the
+ * args because only the tool knows it: the draft's own path field is what it
+ * deploys at. Anything unparseable leaves the mutation addressed by its args. */
+function deployedPath(result: string | undefined): string | undefined {
+	if (!result) return undefined
+	try {
+		const p = (JSON.parse(result) as { deployed_path?: unknown }).deployed_path
+		return typeof p === 'string' && p ? p : undefined
+	} catch {
+		return undefined
 	}
 }
 

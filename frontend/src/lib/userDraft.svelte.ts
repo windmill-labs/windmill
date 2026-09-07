@@ -1,4 +1,5 @@
 import { get } from 'svelte/store'
+import { SvelteMap } from 'svelte/reactivity'
 import { onDestroy, untrack } from 'svelte'
 import { deepEqual } from 'fast-equals'
 import { workspaceStore } from './stores'
@@ -149,8 +150,24 @@ function noteMarker(set: Set<string>, key: string): void {
  * whole resource — or a variable's decrypted secret — for the tab's lifetime.
  */
 const releasedValues = new Map<string, unknown>()
-/** Keys with a write in flight, by how many are. */
-const settleWindows = new Map<string, number>()
+/** Keys with a write in flight, by how many are. Reactive: it is also what the
+ * editors disable their Save on. */
+const settleWindows = new SvelteMap<string, number>()
+
+/**
+ * Whether a write is in flight for this cell — in any editor holding it, not just
+ * the one asking. Duplicate tabs and warm sessions mount several editors over one
+ * (workspace, kind, path), so a flag kept per editor serializes nothing: two can
+ * be writing the same item at once, and the older request landing last wins.
+ */
+export function isDraftSaving(
+	itemKind: UserDraftItemKind,
+	path: string | undefined,
+	opts?: UserDraftOptions
+): boolean {
+	if (!path) return false
+	return settleWindows.has(mapKey(resolveWorkspace(opts), itemKind, path))
+}
 
 /**
  * Open the window in which a release of this cell is worth remembering: the editor

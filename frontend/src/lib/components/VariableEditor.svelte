@@ -27,6 +27,7 @@
 		draftValuesEqual,
 		flushDraftDelete,
 		beginDraftSettleWindow,
+		isDraftSaving,
 		settleDraftAfterWrite,
 		type UserDraftHandle
 	} from '$lib/userDraft.svelte'
@@ -283,14 +284,15 @@
 		form?.setCode(getV.value ?? '')
 	}
 
-	// A save in flight. Inline there is no drawer to close over the button, so a
-	// second click would start an unserialized second write: the older snapshot
-	// lands last and overwrites the newer deployment.
-	let savePending = $state(false)
+	// A save in flight for this variable, in this editor or another holding the same
+	// cell: inline there is no drawer to close over the button, and duplicate tabs
+	// and warm sessions mount several editors over one item. Two writes at once and
+	// the older one landing last overwrites the newer deployment.
+	const saveInFlight = $derived(
+		dirtyWorkspaces.some((ws) => isDraftSaving('variable', editPath, { workspace: ws }))
+	)
 
 	async function save(): Promise<void> {
-		if (savePending) return
-		savePending = true
 		// Everything the writes need, read before the first await. An inline host can
 		// re-point this editor at another variable mid-flight, and every one of these
 		// would then be that variable's: the writes would send its state under this
@@ -320,10 +322,13 @@
 		// moves the tabs acting on it and no others.
 		const written: { ws: string; path: string }[] = []
 		// A host left mid-write releases the cell each settle below reads; only inside
-		// this window is what it was holding remembered.
-		const closeSettleWindows = payloads.map(({ ws }) =>
-			beginDraftSettleWindow('variable', from ?? '', { workspace: ws })
-		)
+		// this window is what it was holding remembered. It is also what says a write
+		// is in flight for this cell, so a second editor on it cannot start one —
+		// checked before the first is opened, or this would see its own.
+		if (payloads.some(({ ws }) => isDraftSaving('variable', from, { workspace: ws }))) return
+		const closeSettleWindows = from
+			? payloads.map(({ ws }) => beginDraftSettleWindow('variable', from, { workspace: ws }))
+			: []
 		try {
 			for (const { ws, s, ini, existed } of payloads) {
 				if (existed) {
@@ -411,7 +416,6 @@
 			}
 		} finally {
 			for (const close of closeSettleWindows) close()
-			savePending = false
 		}
 	}
 </script>
@@ -456,7 +460,7 @@
 	{/if}
 	<Button
 		on:click={save}
-		disabled={savePending || !anyDirty || !dirtyValid || !dirtyCanWrite || pathError != ''}
+		disabled={saveInFlight || !anyDirty || !dirtyValid || !dirtyCanWrite || pathError != ''}
 		startIcon={{ icon: Save }}
 		variant="accent"
 		unifiedSize="sm"

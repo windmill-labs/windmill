@@ -17,6 +17,25 @@ describe('toolReloadEffect', () => {
 		expect(toolReloadEffect('create_folder', { name: 'f' }).pages).toEqual(['/folders'])
 	})
 
+	// A draft carries its own path field, so a hosted editor renames a draft-only
+	// item by editing the config and leaves the draft under the key it was stored
+	// at. The deploy lands on the config's path, and only the tool's own result
+	// says so — refreshing the args path would remount a tab on an empty one.
+	it('follows a deploy that landed on a renamed path', () => {
+		const effect = toolReloadEffect(
+			'deploy_workspace_item',
+			{ type: 'schedule', path: 'u/me/old' },
+			JSON.stringify({ success: true, path: 'u/me/old', deployed_path: 'u/me/new' })
+		)
+		expect(effect).toMatchObject({ path: 'u/me/old', to: 'u/me/new', entity: 'refresh' })
+	})
+
+	it('names no destination for an unreadable or absent result', () => {
+		const args = { type: 'schedule', path: 'u/me/s' }
+		expect(toolReloadEffect('deploy_workspace_item', args, 'not json').to).toBeUndefined()
+		expect(toolReloadEffect('deploy_workspace_item', args).to).toBeUndefined()
+	})
+
 	it('maps a trigger write to its kind-specific page', () => {
 		expect(toolReloadEffect('write_trigger', { kind: 'kafka' }).pages).toEqual(['/kafka_triggers'])
 		expect(toolReloadEffect('write_trigger', { kind: 'http' }).pages).toEqual(['/routes'])

@@ -696,8 +696,8 @@
 
 	$effect(() => {
 		// Debounced so a burst of writes (the AI editing several files) reloads once.
-		setToolCompletionListener((name, args, workspace) => {
-			const { pages, entity, path } = toolReloadEffect(name, args)
+		setToolCompletionListener((name, args, workspace, result) => {
+			const { pages, entity, path, to } = toolReloadEffect(name, args, result)
 			if (pages.length === 0) return
 			for (const p of pages) pendingPages.add(pageReloadKey(workspace, p))
 			// A write reaches a hosted editor through the draft cell it holds, but an
@@ -719,7 +719,12 @@
 				name !== 'discard_local_draft' ||
 				!UserDraft.takeDraftOnlyDiscard(kind!, path!, { workspace })
 			const effect = effectForDiscard(effectForWrite(entity, seedReachedEditor), itemSurvives)
-			if (effect !== 'none') pendingMutations.push({ pages, effect, path, workspace })
+			// A mutation that moved the item is a rename like any other, so it goes
+			// through the same report an editor's own save makes: the tabs on the old
+			// path follow it, rather than being refreshed onto one that is now empty.
+			if (kind && path && to && to !== path) {
+				entityWritten({ kind, path, to, workspace, fromSessionId: undefined, fromTabId: '' })
+			} else if (effect !== 'none') pendingMutations.push({ pages, effect, path, workspace })
 			clearTimeout(reloadHandle)
 			reloadHandle = setTimeout(flushReload, 500)
 		})

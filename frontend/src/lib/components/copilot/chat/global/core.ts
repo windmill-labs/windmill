@@ -7578,6 +7578,15 @@ async function deployDraft(
 		}
 	}
 
+	// Where the drawer kinds land is the draft's own path field, not the key it is
+	// stored under: a hosted editor renames a draft-only item by editing the config,
+	// which leaves the draft where it was. The script/flow/app branches resolve their
+	// own target above.
+	if (type !== 'script' && type !== 'flow' && type !== 'app') {
+		const draftPath = (draft.value as { path?: string } | undefined)?.path
+		if (draftPath) deployedPath = draftPath
+	}
+
 	// Deployed state moved for EVERY branch above (some bypass
 	// deployDraftToWorkspace, which invalidates on its own path) — evict cached
 	// fork comparisons before the fallible draft cleanup below.
@@ -7629,6 +7638,8 @@ async function deployDraft(
 				.join(' '),
 			type,
 			path,
+			// Where it landed, which a rename staged in the draft moves off `path`.
+			deployed_path: deployedPath,
 			triggerKind
 		},
 		null,

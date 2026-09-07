@@ -18,7 +18,12 @@ vi.mock('./userDraftDbSyncer.svelte', () => ({
 	}
 }))
 
-import { settleDraftAfterWrite, UserDraft } from './userDraft.svelte'
+import {
+	beginDraftSettleWindow,
+	isDraftSaving,
+	settleDraftAfterWrite,
+	UserDraft
+} from './userDraft.svelte'
 
 const stopSync = vi.fn()
 const restartSync = vi.fn()
@@ -42,6 +47,29 @@ const sent = { path: 'u/me/a', value: 'sent' }
  * newer edit by the time the write returns. Resetting it unconditionally — what
  * every editor did — swallows that edit with no trace.
  */
+// Duplicate tabs and warm sessions mount several editors over one cell, so what
+// says "a write is in flight for this item" cannot live in any of them. The
+// window each save opens is per key, and every editor's Save reads it.
+describe('isDraftSaving', () => {
+	it('answers for the cell rather than the editor, until the last save closes', () => {
+		expect(isDraftSaving('variable', 'u/me/a', OPTS)).toBe(false)
+		const first = beginDraftSettleWindow('variable', 'u/me/a', OPTS)
+		const second = beginDraftSettleWindow('variable', 'u/me/a', OPTS)
+		expect(isDraftSaving('variable', 'u/me/a', OPTS)).toBe(true)
+		expect(isDraftSaving('variable', 'u/me/b', OPTS)).toBe(false)
+		first()
+		expect(isDraftSaving('variable', 'u/me/a', OPTS)).toBe(true)
+		second()
+		expect(isDraftSaving('variable', 'u/me/a', OPTS)).toBe(false)
+	})
+
+	// A create's form cell is routed nowhere, so nothing can collide with it.
+	it('is false for a path a cell cannot be keyed on', () => {
+		expect(isDraftSaving('variable', '', OPTS)).toBe(false)
+		expect(isDraftSaving('variable', undefined, OPTS)).toBe(false)
+	})
+})
+
 describe('settleDraftAfterWrite', () => {
 	it('resets the cell when it still holds what was written', () => {
 		settleDraftAfterWrite('variable', sent, { ...sent }, 'u/me/a', 'u/me/a', OPTS)
