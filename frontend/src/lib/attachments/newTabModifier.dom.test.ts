@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { newTabModifier, trackNewTabModifier } from './newTabModifier.svelte'
+import { newTabModifier } from './newTabModifier.svelte'
 
 const onPlatform = (userAgent: string) => vi.stubGlobal('navigator', { userAgent })
 const LINUX = 'Mozilla/5.0 (X11; Linux x86_64)'
@@ -11,21 +11,22 @@ const attached: (() => void)[] = []
 function pill() {
 	const node = document.createElement('span')
 	document.body.append(node)
-	const cleanup = trackNewTabModifier(node) as () => void
+	const modifier = newTabModifier()
+	const cleanup = modifier.attach(node) as () => void
 	attached.push(cleanup)
 	const hover = (init: MouseEventInit = {}) =>
 		node.dispatchEvent(new MouseEvent('mouseenter', init))
 	const move = (init: MouseEventInit = {}) => node.dispatchEvent(new MouseEvent('mousemove', init))
 	const unhover = () => node.dispatchEvent(new MouseEvent('mouseleave'))
-	return { hover, move, unhover, cleanup }
+	return { modifier, hover, move, unhover, cleanup }
 }
 
 const keydown = (init: KeyboardEventInit) =>
 	window.dispatchEvent(new KeyboardEvent('keydown', init))
 
-describe('trackNewTabModifier', () => {
-	// The module state and its window listeners outlive the DOM, so every case has to be torn
-	// down through the attachment rather than by emptying the body.
+describe('newTabModifier', () => {
+	// The window listeners outlive the DOM, so every case has to be torn down through the
+	// attachment rather than by emptying the body.
 	afterEach(() => {
 		attached.splice(0).forEach((cleanup) => cleanup())
 		document.body.replaceChildren()
@@ -38,23 +39,22 @@ describe('trackNewTabModifier', () => {
 		onPlatform(LINUX)
 		const linux = pill()
 		linux.hover({ ctrlKey: true })
-		expect(newTabModifier.held).toBe(true)
-		linux.unhover()
+		expect(linux.modifier.held).toBe(true)
 
 		onPlatform(MAC)
 		const mac = pill()
 		// macOS ctrl+click is a secondary click, so it must not read as a new-tab modifier.
 		mac.hover({ ctrlKey: true })
-		expect(newTabModifier.held).toBe(false)
+		expect(mac.modifier.held).toBe(false)
 		mac.hover({ metaKey: true })
-		expect(newTabModifier.held).toBe(true)
+		expect(mac.modifier.held).toBe(true)
 	})
 
 	// Editors and menus stop keydown propagation to keep their own shortcuts, so a bubble-phase
 	// listener would go blind whenever focus sits in one.
 	it('sees a keydown that a focused element stops from propagating', () => {
 		onPlatform(LINUX)
-		const { hover } = pill()
+		const { modifier, hover } = pill()
 		hover()
 		const input = document.createElement('input')
 		input.addEventListener('keydown', (e) => e.stopPropagation())
@@ -63,53 +63,41 @@ describe('trackNewTabModifier', () => {
 		input.dispatchEvent(
 			new KeyboardEvent('keydown', { key: 'Control', ctrlKey: true, bubbles: true })
 		)
-		expect(newTabModifier.held).toBe(true)
+		expect(modifier.held).toBe(true)
 	})
 
 	// A modifier held across a keyboard app switch is cleared by the blur and delivers no keydown
 	// on the way back, while the pointer parked on the pill fires no fresh mouseenter either.
 	it('re-seeds from pointer movement after the window lost focus', () => {
 		onPlatform(LINUX)
-		const { hover, move } = pill()
+		const { modifier, hover, move } = pill()
 		hover({ ctrlKey: true })
 		window.dispatchEvent(new Event('blur'))
-		expect(newTabModifier.held).toBe(false)
+		expect(modifier.held).toBe(false)
 
 		move({ ctrlKey: true })
-		expect(newTabModifier.held).toBe(true)
+		expect(modifier.held).toBe(true)
 	})
 
 	it('stops tracking once unhovered', () => {
 		onPlatform(LINUX)
-		const { hover, unhover } = pill()
+		const { modifier, hover, unhover } = pill()
 		hover({ ctrlKey: true })
 		unhover()
-		expect(newTabModifier.held).toBe(false)
+		expect(modifier.held).toBe(false)
 
 		keydown({ key: 'Control', ctrlKey: true })
-		expect(newTabModifier.held).toBe(false)
+		expect(modifier.held).toBe(false)
 	})
 
 	it('stops tracking when the element is destroyed while hovered', () => {
 		onPlatform(LINUX)
-		const { hover, cleanup } = pill()
+		const { modifier, hover, cleanup } = pill()
 		hover({ ctrlKey: true })
 		cleanup()
-		expect(newTabModifier.held).toBe(false)
+		expect(modifier.held).toBe(false)
 
 		keydown({ key: 'Control', ctrlKey: true })
-		expect(newTabModifier.held).toBe(false)
-	})
-
-	// A pill destroyed elsewhere in the transcript must not tear down the hovered pill's listeners.
-	it('keeps tracking when a different element is destroyed', () => {
-		onPlatform(LINUX)
-		const { hover } = pill()
-		const other = pill()
-		hover()
-		other.cleanup()
-
-		keydown({ key: 'Control', ctrlKey: true })
-		expect(newTabModifier.held).toBe(true)
+		expect(modifier.held).toBe(false)
 	})
 })
