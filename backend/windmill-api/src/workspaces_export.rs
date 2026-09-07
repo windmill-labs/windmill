@@ -1612,7 +1612,7 @@ pub(crate) async fn tarball_workspace(
                         }
                     }
                     // What this install observed about its own credential: a token
-                    // id and fingerprint, and a `checked_at` that moves on its own.
+                    // id and expiry, and a `checked_at` that moves on its own.
                     // None of it describes the workspace, and in a git-synced
                     // `wmill.yaml` it would churn the file for no reason.
                     if let Some(repo) = repo.as_object_mut() {
