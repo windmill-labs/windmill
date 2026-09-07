@@ -149,7 +149,7 @@ function noteMarker(set: Set<string>, key: string): void {
  * release is an editor simply closing, and remembering its value would retain a
  * whole resource — or a variable's decrypted secret — for the tab's lifetime.
  */
-const releasedValues = new Map<string, unknown>()
+const releasedValues = new Map<string, unknown[]>()
 /** Keys with a write in flight, by how many are. Reactive: it is also what the
  * editors disable their Save on. */
 const settleWindows = new SvelteMap<string, number>()
@@ -193,16 +193,18 @@ export function beginDraftSettleWindow(
 	}
 }
 /**
- * Only reads: the window that recorded it owns its lifetime. Two saves of the same
- * cell can be in flight at once, and the second settle has to see the same edit the
- * first did, or it reads the released cell as "nothing newer" and deletes it.
+ * Every value the cell was let go of during the window, in order. All of them: an
+ * item reopened and closed again while the write is in flight releases a freshly
+ * loaded baseline, and keeping only the last would let that erase the edit before
+ * it. Only reads — the window owns their lifetime, and a second save settling the
+ * same cell has to see what the first did.
  */
-function releasedValue<V>(
+function releasedDuringWindow<V>(
 	itemKind: UserDraftItemKind,
 	path: string,
 	opts?: UserDraftOptions
-): V | undefined {
-	return releasedValues.get(mapKey(resolveWorkspace(opts), itemKind, path)) as V | undefined
+): V[] {
+	return (releasedValues.get(mapKey(resolveWorkspace(opts), itemKind, path)) ?? []) as V[]
 }
 
 const liveEditorDrafts = new Map<string, LiveEditorDraft>()
@@ -357,7 +359,8 @@ export async function settleDraftAfterWrite<V>(
 	// freshly loaded entry standing over the edit it released, and reading only the
 	// live one would take that baseline for "nothing newer" and delete the edit.
 	const newer = (v: V | undefined) => v !== undefined && !draftValuesEqual(v, written)
-	const diverged = newer(live) || newer(releasedValue<V>(itemKind, fromPath, opts))
+	const diverged =
+		newer(live) || releasedDuringWindow<V>(itemKind, fromPath, opts).some((v) => newer(v))
 	if (savedPath === fromPath && diverged) return
 	// The form stays editable across the delete's own request, so a keystroke made
 	// then queues a write behind it: under an unchanged path that write is the
@@ -1113,7 +1116,12 @@ function releaseEntry(mk: string): void {
 	// only here, once, at refcount 0. This is what lets multiple holders (warm
 	// session previews + the nav editor) share the entry and drop in any order.
 	if (entry.count <= 0) {
-		if (settleWindows.has(mk)) releasedValues.set(mk, snapshotDraftValue(entry.state.val))
+		if (settleWindows.has(mk)) {
+			releasedValues.set(mk, [
+				...(releasedValues.get(mk) ?? []),
+				snapshotDraftValue(entry.state.val)
+			])
+		}
 		// The live entry was authoritative while mounted; once gone, drop any
 		// cached write for this key so a later read falls back to the server
 		// rather than a value the editor may have changed in the meantime.

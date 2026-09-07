@@ -76,6 +76,8 @@
 			to?: string
 			fromSessionId: string | undefined
 			fromTabId: string
+			/** Whether the editor that reported is still the one mounted on this tab. */
+			fromLive?: boolean
 		}) => void
 	} = $props()
 
@@ -227,14 +229,21 @@
 	)
 	const reportSaved = $derived(
 		slot.kind === 'entity'
-			? (kind: EntityEditorKind, newPath: string, fromPath: string, fromWs: string) =>
+			? (
+					kind: EntityEditorKind,
+					newPath: string,
+					fromPath: string,
+					fromWs: string,
+					fromLive: boolean
+				) =>
 					onEntityWritten({
 						kind,
 						path: fromPath,
 						workspace: fromWs,
 						to: newPath,
 						fromSessionId: session?.id,
-						fromTabId: tab.id
+						fromTabId: tab.id,
+						fromLive
 					})
 			: undefined
 	)
@@ -428,7 +437,8 @@
 						{workspaceId}
 						onBack={backToList}
 						onRemoved={(from, ws) => reportRemoved?.('trigger_schedule', from, ws)}
-						onSavedTo={(to, from, ws) => reportSaved?.('trigger_schedule', to, from, ws)}
+						onSavedTo={(to, from, ws, live) =>
+							reportSaved?.('trigger_schedule', to, from, ws, live)}
 						onViewRuns={viewRuns}
 					/>
 				{/await}
@@ -441,7 +451,7 @@
 						{workspaceId}
 						onBack={backToList}
 						onRemoved={(from, ws) => reportRemoved?.('resource', from, ws)}
-						onSavedTo={(to, from, ws) => reportSaved?.('resource', to, from, ws)}
+						onSavedTo={(to, from, ws, live) => reportSaved?.('resource', to, from, ws, live)}
 					/>
 				{/await}
 			{:else if slot.entityKind === 'variable'}
@@ -453,7 +463,7 @@
 						{workspaceId}
 						onBack={backToList}
 						onRemoved={(from, ws) => reportRemoved?.('variable', from, ws)}
-						onSavedTo={(to, from, ws) => reportSaved?.('variable', to, from, ws)}
+						onSavedTo={(to, from, ws, live) => reportSaved?.('variable', to, from, ws, live)}
 					/>
 				{/await}
 			{/if}

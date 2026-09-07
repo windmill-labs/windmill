@@ -3,7 +3,7 @@
 	import { setTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { Button } from '$lib/components/common'
 	import { ArrowLeft } from 'lucide-svelte'
-	import { untrack } from 'svelte'
+	import { untrack, onDestroy } from 'svelte'
 
 	let {
 		path,
@@ -29,10 +29,24 @@
 		 * a rename moves the ones addressing it by path — their label, the chat's
 		 * ACTIVE PREVIEW and the draft key all do — and a plain save moves none but
 		 * leaves the others holding a baseline the deploy has replaced. */
-		onSavedTo?: (newPath: string, fromPath: string, fromWorkspace: string) => void
+		onSavedTo?: (
+			newPath: string,
+			fromPath: string,
+			fromWorkspace: string,
+			/** Whether the editor that saved is still the one mounted here. A tab left
+			 * and returned to the same item during the write has another in its place,
+			 * loaded before the save landed, which cannot have settled its own baseline. */
+			fromLive: boolean
+		) => void
 		/** Show this schedule's runs, given the Runs page's filter query. */
 		onViewRuns?: (query: string) => void
 	} = $props()
+
+	// A tab left and reopened on the same item mounts a new view over this one; the
+	// editor that saved is then gone, and what it reports about its baseline is not
+	// about the form on screen.
+	let mounted = true
+	onDestroy(() => (mounted = false))
 
 	// Captured at init, so it must read the current prop rather than close over it.
 	setTriggerWorkspace(() => workspaceId)
@@ -78,7 +92,7 @@
 				if (from === path && !keptEdit) generation++
 				// A draft-only schedule opens with its path editable (saving CREATEs), so
 				// the save can land somewhere other than where the tab is pointed.
-				if (saved) onSavedTo?.(saved, from, fromWs)
+				if (saved) onSavedTo?.(saved, from, fromWs, mounted)
 			}}
 		>
 			{#snippet customLabel()}
