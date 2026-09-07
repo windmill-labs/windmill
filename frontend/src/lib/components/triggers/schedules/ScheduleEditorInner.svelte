@@ -44,7 +44,13 @@
 	import { runScheduleNow } from '../scheduled/utils'
 	import { handleConfigChange } from '../utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
-	import { draftValuesEqual, flushDraftDelete, settleDraftAfterWrite } from '$lib/userDraft.svelte'
+	import {
+		beginDraftSettleWindow,
+		draftValuesEqual,
+		flushDraftDelete,
+		isDraftSaving,
+		settleDraftAfterWrite
+	} from '$lib/userDraft.svelte'
 	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -147,9 +153,7 @@
 	let permsExtra: Record<string, boolean> | undefined = $state(undefined)
 	let actingUser: UserExt | undefined = $state(undefined)
 	const can_write = $derived(
-		permsExtra === undefined
-			? true
-			: canWrite(permsPath, permsExtra, actingUser ?? $userStore)
+		permsExtra === undefined ? true : canWrite(permsPath, permsExtra, actingUser ?? $userStore)
 	)
 	let initNewPath = $state(false)
 	let path: string = $state('')
@@ -172,8 +176,14 @@
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
 	let preservePermissionedAs = $state(false)
 
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+
 	const saveDisabled = $derived(
 		!allowSchedule ||
+			// A write in flight for this schedule, in this editor or another holding the
+			// same cell.
+			isDraftSaving('trigger_schedule', initialPath, { workspace: wsId }) ||
 			pathError != '' ||
 			emptyString(script_path) ||
 			(errorHandlerSelected == 'slack' &&
@@ -181,8 +191,6 @@
 				emptyString(errorHandlerExtraArgs['channel'])) ||
 			!can_write
 	)
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 	// Carry the acting workspace onto "create from template" routes when a
 	// session override is set, so the script is created in the session workspace.
 	const wsParam = $derived(triggerWs?.() ? `&workspace=${encodeURIComponent(wsId!)}` : '')
@@ -680,57 +688,68 @@
 		// would read back as part of what was sent.
 		const scheduleCfg = $state.snapshot(getScheduleCfg()) as Record<string, any>
 		const wasCreate = !edit
+		// Per cell, not per editor: duplicate tabs and warm sessions mount several over
+		// one schedule, and two writing at once means the older request landing last
+		// overwrites the newer deployment. Checked before this save's own window opens.
+		if (isDraftSaving('trigger_schedule', previousPath, { workspace: previousWs })) return
+		const closeSettleWindow = previousPath
+			? beginDraftSettleWindow('trigger_schedule', previousPath, { workspace: previousWs })
+			: undefined
 		deploymentLoading = true
-		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, wsId!)
-		if (isSaved) {
-			// A create deploys the schedule enabled whatever the form said (see
-			// saveScheduleFromCfg), so what counts as written records that — the baseline
-			// would otherwise claim a state the server does not have. The form follows
-			// only while it still holds what was sent; changed since, it is its own edit.
-			if (wasCreate) {
-				const sentEnabled = scheduleCfg.enabled
-				scheduleCfg.enabled = true
-				deployedEnabled = true
-				if (enabled === sentEnabled) enabled = true
-			} else {
-				// An update's payload carries no `enabled` (see saveScheduleFromCfg), so
-				// this write did not move it: what counts as written keeps the value the
-				// server has accepted, and the baseline below with it.
-				scheduleCfg.enabled = deployedEnabled
-			}
-			// What was sent is the deployed value now. Adopted here rather than by
-			// remounting: the form stays editable during the write, and a remount would
-			// re-read over an edit made then — which `settleDraftAfterWrite` keeps.
-			initialConfig = structuredClone(scheduleCfg)
-			baselineNonce++
+		try {
+			const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, wsId!)
+			if (isSaved) {
+				// A create deploys the schedule enabled whatever the form said (see
+				// saveScheduleFromCfg), so what counts as written records that — the baseline
+				// would otherwise claim a state the server does not have. The form follows
+				// only while it still holds what was sent; changed since, it is its own edit.
+				if (wasCreate) {
+					const sentEnabled = scheduleCfg.enabled
+					scheduleCfg.enabled = true
+					deployedEnabled = true
+					if (enabled === sentEnabled) enabled = true
+				} else {
+					// An update's payload carries no `enabled` (see saveScheduleFromCfg), so
+					// this write did not move it: what counts as written keeps the value the
+					// server has accepted, and the baseline below with it.
+					scheduleCfg.enabled = deployedEnabled
+				}
+				// What was sent is the deployed value now. Adopted here rather than by
+				// remounting: the form stays editable during the write, and a remount would
+				// re-read over an edit made then — which `settleDraftAfterWrite` keeps.
+				initialConfig = structuredClone(scheduleCfg)
+				baselineNonce++
 
-			// The schedule is deployed now, whether it was before or not. Set here rather
-			// than left to the remount, which a kept edit skips: they decide whether the
-			// next save updates or creates, and whether a discard removes the item.
-			edit = true
-			draftOnly = false
-			// Awaited before the host hears: it remounts on the report, and a remount
-			// that overtook this would load the draft this is removing.
-			await settleDraftAfterWrite(
-				'trigger_schedule',
-				scheduleCfg,
-				getScheduleCfg(),
-				previousPath,
-				scheduleCfg.path,
-				{ workspace: previousWs ?? undefined }
-			)
-			// Read after the settle, not before: that awaits a request of its own with the
-			// form still editable, and an edit made in the meantime is one the host must
-			// not remount over — which this is the only thing that can tell it.
-			onUpdate?.(
-				scheduleCfg.path,
-				previousPath,
-				previousWs,
-				!draftValuesEqual(getScheduleCfg(), scheduleCfg)
-			)
-			drawer?.closeDrawer()
+				// The schedule is deployed now, whether it was before or not. Set here rather
+				// than left to the remount, which a kept edit skips: they decide whether the
+				// next save updates or creates, and whether a discard removes the item.
+				edit = true
+				draftOnly = false
+				// Awaited before the host hears: it remounts on the report, and a remount
+				// that overtook this would load the draft this is removing.
+				await settleDraftAfterWrite(
+					'trigger_schedule',
+					scheduleCfg,
+					getScheduleCfg(),
+					previousPath,
+					scheduleCfg.path,
+					{ workspace: previousWs ?? undefined }
+				)
+				// Read after the settle, not before: that awaits a request of its own with the
+				// form still editable, and an edit made in the meantime is one the host must
+				// not remount over — which this is the only thing that can tell it.
+				onUpdate?.(
+					scheduleCfg.path,
+					previousPath,
+					previousWs,
+					!draftValuesEqual(getScheduleCfg(), scheduleCfg)
+				)
+				drawer?.closeDrawer()
+			}
+		} finally {
+			deploymentLoading = false
+			closeSettleWindow?.()
 		}
-		deploymentLoading = false
 	}
 
 	function getHandlerType(
