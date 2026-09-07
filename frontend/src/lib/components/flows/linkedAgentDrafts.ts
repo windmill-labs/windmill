@@ -52,6 +52,10 @@ export function agentDraftState(
 	return live ?? (response.draft as AgentResourceState | undefined)
 }
 
+/** A refusal that already names the agent and says what is wrong with it, so a caller wrapping it
+ *  would only repeat itself. */
+export class AgentDraftUnavailable extends Error {}
+
 /**
  * An agent's resource together with the draft a run of it would use.
  *
@@ -64,7 +68,23 @@ export async function fetchAgentWithDraft(
 	path: string,
 	workspace: string
 ): Promise<{ response: Resource; draft: AgentResourceState | undefined }> {
-	await UserDraftDbSyncer.flush({ workspace, itemKind: 'resource', path })
+	const query = { workspace, itemKind: 'resource' as const, path }
+	await UserDraftDbSyncer.flush(query)
+	// `flush` resolves whether or not the save actually landed: `postSave` catches network and
+	// server errors into its failure map, and answers a conflicting write by parking a snapshot,
+	// returning normally in both cases. The row about to be read is then older than the edit still
+	// held in the browser, and nothing downstream could tell. Running that row is a test of the
+	// wrong agent; deploying it is worse, because the deploy deletes the draft and takes the newer
+	// edit with it. Neither is recoverable from here, so refuse the read.
+	const failure = UserDraftDbSyncer.getState(query).failureMessage
+	if (failure) {
+		throw new AgentDraftUnavailable(`The unsaved changes to ${path} could not be saved: ${failure}`)
+	}
+	if (UserDraftDbSyncer.getConflict(query).conflict) {
+		throw new AgentDraftUnavailable(
+			`The unsaved changes to ${path} could not be saved because it was edited elsewhere. Open the agent to resolve it.`
+		)
+	}
 	const response = await ResourceService.getResource({ workspace, path, getDraft: true })
 	return { response, draft: agentDraftState(response, path, workspace) }
 }
@@ -119,6 +139,7 @@ export async function loadLinkedAgentDrafts(
 				;({ response, draft } = await fetchAgentWithDraft(path, workspace))
 			} catch (err) {
 				if (isExpectedLinkFailure(err)) return
+				if (err instanceof AgentDraftUnavailable) throw err
 				throw new Error(`Could not load the agent ${path}: ${err}`)
 			}
 			if (!draft) return
