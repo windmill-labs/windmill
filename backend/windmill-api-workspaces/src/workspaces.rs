@@ -3457,6 +3457,9 @@ async fn create_pg_database(
     Json(req): Json<CreatePgDatabaseRequest>,
 ) -> Result<String> {
     windmill_common::validate_dbname(&req.target_dbname)?;
+    if let Some(name) = req.source.strip_prefix("datatable://") {
+        crate::datatable_permissions::refuse_clone_of_governed_datatable(&db, &w_id, name).await?;
+    }
 
     // Non-superadmin: restrict dbname to wm_fork_ prefix
     if !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
@@ -3554,6 +3557,13 @@ async fn import_pg_database(
         resolve_pg_source_for_copy(&db, &user_db, &authed, &w_id, &req.target).await?;
 
     if let Some(ref override_dbname) = req.target_dbname_override {
+        // Only the fork clone flow overrides the target database name; a plain
+        // database-to-database import is an admin moving data between databases
+        // they already reach.
+        if let Some(name) = req.source.strip_prefix("datatable://") {
+            crate::datatable_permissions::refuse_clone_of_governed_datatable(&db, &w_id, name)
+                .await?;
+        }
         if !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
             if !override_dbname.starts_with("wm_fork_") {
                 return Err(Error::BadRequest(
@@ -7721,6 +7731,10 @@ async fn apply_forked_datatable(
     fdt: &ForkedDatatableInfo,
 ) -> Result<()> {
     windmill_common::validate_dbname(&fdt.new_dbname)?;
+    // The clone endpoints refuse this too; this is the one a caller cannot go
+    // around, since it is what wires the fork's config to the copied database.
+    crate::datatable_permissions::refuse_clone_of_governed_datatable(db, parent_w_id, &fdt.name)
+        .await?;
     if !fdt.new_dbname.starts_with("wm_fork_") {
         return Err(Error::BadRequest(format!(
             "Forked datatable database name '{}' must start with 'wm_fork_'",

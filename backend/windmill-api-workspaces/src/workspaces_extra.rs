@@ -1289,8 +1289,10 @@ pub(crate) async fn delete_workspace(
     // permissions rows stay, ownerless — every entry still reaching those databases
     // finds every role refused rather than the owning connection.
     for (name, planned) in planned_role_drops {
-        crate::datatable_permissions::run_planned_drop_keeping_record(&db, &w_id, &name, planned)
-            .await;
+        crate::datatable_permissions::run_planned_drop_keeping_record(
+            &db, &w_id, &name, None, planned,
+        )
+        .await;
     }
 
     if let Some(parent) = dev_lock_parent {
@@ -1377,7 +1379,11 @@ async fn drop_datatable_roles_before_its_database(
         crate::datatable_permissions::plan_drop_of_datatable_roles(db, w_id, dt_name).await
     {
         if !crate::datatable_permissions::run_planned_drop_keeping_record(
-            db, w_id, dt_name, planned,
+            db,
+            w_id,
+            dt_name,
+            Some(w_id),
+            planned,
         )
         .await
         {

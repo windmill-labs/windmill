@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE postgres_trigger SET server_id = NULL, last_server_ping = NULL\n                 WHERE workspace_id = $1 AND path = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "64d40ff3de929d96a3d03c7d5b363f1284faf50fa3a0c5f4d0beab560d14c7e6"
+}

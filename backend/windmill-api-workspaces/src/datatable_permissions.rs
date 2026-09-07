@@ -662,19 +662,32 @@ async fn drop_roles_the_record_no_longer_names(
 /// and did not — and for one whose owner is gone, which is what a workspace
 /// deletion leaves behind. Returns whether the roles were dropped.
 ///
-/// Run under the row's lock, so no save plans against these roles meanwhile,
-/// and without asking the row whether it still names them: it does, and the
-/// plan is what says they go.
+/// Run under the row's lock, so no save plans against these roles meanwhile.
+/// The plan was made before the deletion committed; the row is read again here
+/// and the plan runs only while the row is still `expected_owner`'s — none, after
+/// a workspace deletion — so a superadmin who adopted the row from another
+/// workspace in between keeps the roles their save now names.
 pub(crate) async fn run_planned_drop_keeping_record(
     db: &DB,
     w_id: &str,
     datatable_name: &str,
+    expected_owner: Option<&str>,
     (mut client, plan, database_key): PlannedRoleDrop,
 ) -> bool {
     let statements: Vec<&PlannedStatement> = plan.statements.iter().collect();
     let ran = async {
         let mut tx = db.begin().await?;
-        lock_database_permissions(&mut tx, &database_key).await?;
+        let record = lock_database_permissions(&mut tx, &database_key).await?;
+        if record
+            .as_ref()
+            .is_some_and(|r| r.owner_workspace_id.as_deref() != expected_owner)
+        {
+            tracing::warn!(
+                "The roles behind data table {datatable_name} in {w_id} were adopted by workspace {:?} before they could be dropped; left in place",
+                record.and_then(|r| r.owner_workspace_id)
+            );
+            return Ok(false);
+        }
         client
             .batch_execute("SET statement_timeout = '60s'")
             .await
@@ -686,11 +699,11 @@ pub(crate) async fn run_planned_drop_keeping_record(
             })?;
         run_statements(&mut client, &statements).await?;
         tx.commit().await?;
-        Ok::<(), Error>(())
+        Ok::<bool, Error>(true)
     }
     .await;
     match ran {
-        Ok(()) => true,
+        Ok(dropped) => dropped,
         Err(e) => {
             tracing::error!(
                 "Could not drop the Postgres roles behind data table {datatable_name} in {w_id}: {e:#}"
@@ -1115,8 +1128,9 @@ async fn preview_datatable_permissions(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
-    Json(req): Json<SetDatatablePermissions>,
+    Json(mut req): Json<SetDatatablePermissions>,
 ) -> JsonResult<DatatablePermissionsPreview> {
+    forget_client_login_names(&mut req);
     let (_, _, key) = resolve_datatable_database_unchecked(&db, &w_id, &datatable_name).await?;
     let record = database_permissions_by_key(&db, &key).await?;
     // Refused here too: offering a plan that the save will not run is its own
@@ -1145,9 +1159,10 @@ async fn set_datatable_permissions(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
-    Json(req): Json<SetDatatablePermissions>,
+    Json(mut req): Json<SetDatatablePermissions>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+    forget_client_login_names(&mut req);
     let (_, _, key) = resolve_datatable_database_unchecked(&db, &w_id, &datatable_name).await?;
 
     // Reading the permissions, planning against them, running the plan and
@@ -1243,6 +1258,14 @@ async fn set_datatable_permissions(
 
     tx.commit().await?;
 
+    // Turned on just now: a trigger streaming this database was opened while
+    // nothing governed it, and is made to ask again.
+    if req.enabled && record.is_none() {
+        if let Err(e) = restart_triggers_reaching(&db, &key).await {
+            tracing::error!("Could not restart the triggers replicating {key}: {e:#}");
+        }
+    }
+
     // What the row no longer names, now that it says so. A failure here is the
     // end of the line for these logins: the save that stopped naming them has
     // committed, so no later plan diffs against them and nothing will try again.
@@ -1328,6 +1351,15 @@ async fn import_datatable_permissions(
     Ok(Json(skipped))
 }
 
+/// A login name is a cluster-wide identifier the planner renames and drops; the
+/// request shape carries the field because it is also the response shape, and
+/// the planner reads a role's login from the stored row alone. Never from here.
+fn forget_client_login_names(req: &mut SetDatatablePermissions) {
+    for role in req.roles.iter_mut() {
+        role.pg_rolename = None;
+    }
+}
+
 /// The shape a save would have refused: role and tenant names as the planner
 /// and the tenant matcher read them.
 fn validate_imported_permissions(permissions: &DataTablePermissions) -> Result<()> {
@@ -1358,6 +1390,74 @@ fn validate_imported_permissions(permissions: &DataTablePermissions) -> Result<(
             return Err(Error::BadRequest(format!(
                 "Default role '{default_role}' is not one of the roles"
             )));
+        }
+    }
+    Ok(())
+}
+
+/// Refuse to clone a data table whose database has role permissions: the copy
+/// lands in a new database, keyed on its own, where nothing governs it — and a
+/// fork cannot turn permissions on — so every member of the fork would read, in
+/// full, the data the roles existed to divide.
+pub(crate) async fn refuse_clone_of_governed_datatable(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+) -> Result<()> {
+    let (_, _, key) = resolve_datatable_database_unchecked(db, w_id, datatable_name).await?;
+    if database_permissions_by_key(db, &key)
+        .await?
+        .is_some_and(|r| r.permissions.enabled)
+    {
+        return Err(Error::BadRequest(format!(
+            "Data table '{datatable_name}' has role permissions enabled and cannot be cloned: \
+             the copy would be a database of its own that nothing governs, readable in full by \
+             every member of the fork. Keep the original, which shares the roles."
+        )));
+    }
+    Ok(())
+}
+
+/// Make every Postgres trigger replicating a data table that reaches `database_key`
+/// reconnect, so the admin check runs against the permissions just turned on: a
+/// stream opened while the database was unpermissioned would otherwise keep
+/// receiving every change. Clearing the listener's claim is what stops it; the
+/// next claim resolves the resource again, and refuses where it must.
+pub(crate) async fn restart_triggers_reaching(db: &DB, database_key: &str) -> Result<()> {
+    let triggers = sqlx::query!(
+        r#"SELECT workspace_id, path, postgres_resource_path
+           FROM postgres_trigger WHERE postgres_resource_path LIKE 'datatable://%'"#
+    )
+    .fetch_all(db)
+    .await?;
+    let mut reaches: std::collections::HashMap<(String, String), bool> =
+        std::collections::HashMap::new();
+    for t in triggers {
+        let Some(datatable) = t.postgres_resource_path.strip_prefix("datatable://") else {
+            continue;
+        };
+        let (datatable, _) = windmill_common::workspaces::parse_datatable_ref(datatable);
+        let entry = (t.workspace_id.clone(), datatable.to_string());
+        let reached = match reaches.get(&entry) {
+            Some(reached) => *reached,
+            None => {
+                let reached = resolve_datatable_database_unchecked(db, &t.workspace_id, datatable)
+                    .await
+                    .map(|(_, _, key)| key == database_key)
+                    .unwrap_or(false);
+                reaches.insert(entry, reached);
+                reached
+            }
+        };
+        if reached {
+            sqlx::query!(
+                "UPDATE postgres_trigger SET server_id = NULL, last_server_ping = NULL
+                 WHERE workspace_id = $1 AND path = $2",
+                t.workspace_id,
+                t.path
+            )
+            .execute(db)
+            .await?;
         }
     }
     Ok(())

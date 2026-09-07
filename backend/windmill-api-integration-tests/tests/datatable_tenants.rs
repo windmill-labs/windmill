@@ -771,3 +771,41 @@ async fn imported_permissions_govern_without_logins(db: Pool<Postgres>) -> anyho
 
     Ok(())
 }
+
+/// A clone of a permissioned data table would be a database of its own that
+/// nothing governs, readable in full by every member of the fork: refused at the
+/// one place a caller cannot go around, the fork creation that wires it in.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn a_governed_datatable_cannot_be_cloned_into_a_fork(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    plant_main(&db, "test-workspace").await;
+    plant_permissions(&db, MAIN_KEY, "test-workspace", &["*"]).await;
+    let resp = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/test-workspace/workspaces/create_fork"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "id": "wm-fork-clone", "name": "clone",
+        "forked_datatables": [{ "name": "main", "new_dbname": "wm_fork_clone_main" }]
+    }))
+    .send()
+    .await?;
+    let status = resp.status().as_u16();
+    let text = resp.text().await?;
+    assert_eq!(status, 400, "{text}");
+    assert!(text.contains("cannot be cloned"), "{text}");
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM workspace WHERE id = 'wm-fork-clone')")
+            .fetch_one(&db)
+            .await?;
+    assert!(!exists);
+
+    Ok(())
+}

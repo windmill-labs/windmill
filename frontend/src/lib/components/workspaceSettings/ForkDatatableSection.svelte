@@ -41,11 +41,29 @@
 
 	let effectiveSource = $derived(sourceWorkspace ?? $workspaceStore ?? undefined)
 
+	// Listed with whether each is permissioned: a clone of a permissioned data
+	// table would be a database of its own that nothing governs, so the backend
+	// refuses it and the choice is not offered. Where the check could not
+	// answer, the safe reading is "permissioned".
 	let allDatatables = resource(
 		() => effectiveSource,
 		async (ws) => {
 			if (!ws) return undefined
-			return await WorkspaceService.listDataTables({ workspace: ws })
+			const datatables = await WorkspaceService.listDataTables({ workspace: ws })
+			return await Promise.all(
+				datatables.map(async (dt) => {
+					try {
+						const roles = await WorkspaceService.listUsableDatatableRoles({
+							workspace: ws,
+							datatableName: dt.name
+						})
+						return { ...dt, permissioned: roles.enabled as boolean | undefined }
+					} catch (e) {
+						console.error('Failed to read datatable permissions:', e)
+						return { ...dt, permissioned: undefined }
+					}
+				})
+			)
 		}
 	)
 
@@ -192,10 +210,17 @@
 							(v) => (datatableBehaviors[dt.name] = v)
 						}
 						items={[
-							{ value: 'keep_original', label: 'Keep original' },
-							{ value: 'schema_only', label: 'Clone schema only' },
-							...(!isCloudHosted() && $userStore?.is_admin
-								? [{ value: 'schema_and_data', label: 'Clone schema and data' }]
+							{
+								value: 'keep_original',
+								label: dt.permissioned ? 'Keep original (permissions enabled)' : 'Keep original'
+							},
+							...(dt.permissioned === false
+								? [
+										{ value: 'schema_only', label: 'Clone schema only' },
+										...(!isCloudHosted() && $userStore?.is_admin
+											? [{ value: 'schema_and_data', label: 'Clone schema and data' }]
+											: [])
+									]
 								: [])
 						]}
 					/>
