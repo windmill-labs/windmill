@@ -7,7 +7,7 @@ vi.mock('$lib/gen', () => ({
 	DraftService: { deleteDraft: vi.fn() },
 	AppService: {},
 	VariableService: {},
-	ResourceService: {},
+	ResourceService: { getResource: vi.fn(), updateResource: vi.fn(), createResource: vi.fn() },
 	ScheduleService: {},
 	HttpTriggerService: {},
 	WebsocketTriggerService: {},
@@ -30,7 +30,7 @@ vi.mock('$lib/components/raw_apps/utils', () => ({ canonicalRawAppDiffValue: vi.
 vi.mock('$lib/appDiffSides', () => ({ classicAppDraftParts: vi.fn() }))
 vi.mock('$lib/utils_deployable', () => ({ TRIGGER_RUNTIME_IGNORE: [] }))
 
-import { ScriptService, FlowService } from '$lib/gen'
+import { ScriptService, FlowService, ResourceService } from '$lib/gen'
 
 // draftBaseIsStale compares a draft's base pointer against the deployed head
 // of the item it was fetched with (`get_draft=true`). Shared by CompareDrafts
@@ -122,5 +122,38 @@ describe('deployDraft preserves on_behalf_of', () => {
 				})
 			})
 		)
+	})
+})
+
+// Every branch re-reads the item, and every read falls back to the deployed side when the draft
+// row has gone. Deploying that fallback overwrites the live item with a value nobody drafted —
+// for a resource with `{}`, since a deployed resource response carries no `args` key.
+describe('deployDraft refuses when the draft is gone', () => {
+	beforeEach(() => vi.clearAllMocks())
+
+	it('resource: does not write `{}` over the deployed value', async () => {
+		vi.mocked(ResourceService.getResource).mockResolvedValueOnce({
+			path: 'f/support/triage_agent',
+			resource_type: 'ai_agent',
+			value: { system_prompt: 'deployed' }
+		} as any)
+
+		const result = await deployDraft('resource', 'f/support/triage_agent', 'ws')
+
+		expect(result.success).toBe(false)
+		expect(ResourceService.updateResource).not.toHaveBeenCalled()
+		expect(ResourceService.createResource).not.toHaveBeenCalled()
+	})
+
+	it('flow: does not redeploy the deployed value as a new version', async () => {
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
+			path: 'f/admin/notify',
+			value: { modules: [] }
+		} as any)
+
+		const result = await deployDraft('flow', 'f/admin/notify', 'ws')
+
+		expect(result.success).toBe(false)
+		expect(FlowService.updateFlow).not.toHaveBeenCalled()
 	})
 })

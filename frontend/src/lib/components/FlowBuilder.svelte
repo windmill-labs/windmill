@@ -109,9 +109,8 @@
 	import { agentDraftDeployRefusal } from './flows/agentDraft.svelte'
 	import { markAgentWritten } from './flows/agentEditorStore.svelte'
 	import { logReusableAgentUsage } from './flows/agentTelemetry'
-	import { writeAgentResource } from './flows/agentDraft.svelte'
-	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
-	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
+	import { agentEditorRefusal } from './flows/agentResourceUtils'
+	import { deployDraft } from '$lib/utils_draft_deploy'
 	import { getUserExt } from '$lib/user'
 	import { Triggers } from './triggers/triggers.svelte'
 	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
@@ -281,27 +280,37 @@
 		}
 		for (const agent of agents) {
 			// The dialog can sit open indefinitely, so the draft may have moved under it — another tab,
-			// the generic resource editor, the agent editor's own Deploy. Writing the listed state
-			// blind would roll those edits back and then delete them with the draft; re-reading and
-			// writing whatever is there now would deploy a config nobody validated, and would write
-			// `{}` where the draft has gone entirely (`deployDraft`'s resource branch does exactly
-			// that). So: refuse, and let the user look at what changed.
-			const { draft: current } = await fetchAgentWithDraft(agent.path, ws)
+			// the generic resource editor, the agent editor's own Deploy. `deployDraft` reads the draft
+			// again, and deploying whatever is there now would write a config the dialog never showed
+			// and its refusal rule never checked. So compare first and refuse on a mismatch, letting
+			// the user look at what changed.
+			const { response, draft: current } = await fetchAgentWithDraft(agent.path, ws)
 			if (!draftValuesEqual(current, agent.state)) {
 				throw new Error(
 					`The draft for ${agent.path} changed since this dialog opened. Nothing was deployed for it — reopen the deploy dialog to see the current one.`
 				)
 			}
-			// The state the dialog listed and validated, never a re-read: see above.
-			const written = await writeAgentResource(ws, agent.state, agent.noDeployed)
-			if (!written.ok) {
-				throw new Error(`Could not deploy agent ${agent.path}: ${written.error}`)
+			// The type is as old as the dialog otherwise: were the path deleted and recreated as
+			// something else meanwhile, the update below would put an agent config inside it.
+			const notAnAgent = agent.noDeployed
+				? undefined
+				: agentEditorRefusal(agent.path, response.resource_type)
+			if (notAnAgent) {
+				throw new Error(`Could not deploy agent ${agent.path}: ${notAnAgent}`)
 			}
-			// `remove`, not the syncer's delete alone: it drops the in-memory cell as well, so a second
-			// deploy in the same session cannot list this agent again from a draft that no longer exists.
+			// Same call the Review & Deploy page makes for this draft row: one deploy mechanism per
+			// draft kind. It writes the resource, deletes the draft row, and clears the local hint and
+			// the workspace drafts cache.
+			const deployed = await deployDraft('resource', agent.path, ws, {
+				draftOnly: agent.noDeployed
+			})
+			if (!deployed.success) {
+				throw new Error(`Could not deploy agent ${agent.path}: ${deployed.error}`)
+			}
+			// `deployDraft` deletes the row through the syncer, which leaves any in-memory cell for
+			// this key untouched — and that cell is what `agentDraftState` prefers, so without this a
+			// second deploy in the same session would list the agent again from a draft that is gone.
 			UserDraft.remove('resource', agent.path, { workspace: ws })
-			setLocalDraftHint(ws, 'resource', agent.path, false)
-			invalidateWorkspaceDrafts(ws)
 			// Every linked card and the graph key on this to refetch the agent they display.
 			markAgentWritten(ws, agent.path)
 			logReusableAgentUsage('draft_deployed_with_flow')
