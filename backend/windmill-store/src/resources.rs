@@ -3272,8 +3272,7 @@ async fn get_git_commit_hash(
     // under the repository it was issued for: a resource repointed at another
     // host asks for that repository's credential and finds none.
     git_resource.url =
-        windmill_common::git_sync_oss::with_stored_credential(&db, &w_id, git_resource.url)
-            .await?;
+        windmill_common::git_sync_oss::with_stored_credential(&db, &w_id, git_resource.url).await?;
 
     let identities: Vec<String> = query
         .git_ssh_identity
@@ -4062,6 +4061,11 @@ pub async fn get_git_repo_fork_heads_for_autopull(
         ));
     }
     git_resource.url = resolve_azure_devops_url(&dba, w_id, &git_resource.url, true).await?;
+    // Same reason as the head probe above: a repository whose credential Windmill
+    // holds carries none in its URL, and listing the fork branches is the half of
+    // polling that would otherwise go out unauthenticated.
+    git_resource.url =
+        windmill_common::git_sync_oss::with_stored_credential(db, w_id, git_resource.url).await?;
     validate_git_url(&git_resource.url).await?;
     validate_git_ref(base_branch)?;
 

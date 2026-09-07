@@ -219,16 +219,17 @@
 			}
 		}
 		if (days > 30) return undefined
-		// Two different things stop a renewal, and they need opposite advice: a
-		// token that may not rotate itself, or a token Windmill cannot store the
-		// replacement for. Scopes say which.
+		// Two different things stop a renewal, and they need opposite advice: a token
+		// that may not rotate itself, or one Windmill does not hold. Scopes say
+		// which, because a token Windmill holds and that may rotate itself is
+		// renewed, and so never reaches here.
 		const canSelfRotate = (credential.scopes ?? []).some((s) => s === 'api' || s === 'self_rotate')
 		return {
 			type: days <= 7 ? ('error' as const) : days <= 14 ? ('warning' as const) : ('info' as const),
 			title: `Repository token ${when}`,
 			body:
 				(canSelfRotate
-					? 'Windmill cannot renew it because it cannot write the new token back to where this URL is stored. Move the URL into a Windmill variable, or replace the token before it expires.'
+					? 'Windmill only renews a token it holds, and this one is written into the repository URL. Connect the repository with the GitLab button to hand the token over, or replace it before it expires.'
 					: 'Give the token the api or self_rotate scope and Windmill will renew it on its own. Otherwise, replace it before it expires to keep sync running.') +
 				// The remedy lives with the credential, which the resource owns; saying
 				// where stops the warning being a dead end.
