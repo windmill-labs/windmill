@@ -1591,7 +1591,7 @@ Against a real dbt project (jaffle_shop shape) and the local Postgres:
    own `profiles.yml` with env-var injection.
 11. **Caching**: a second run reuses the cached `dbt_packages/` with no network
     fetch.
-11. **Deferral**: a full run publishes the environment's state; a second run
+12. **Deferral**: a full run publishes the environment's state; a second run
     that builds one downstream model into another schema resolves its unbuilt
     `ref()` to the relation the state names, where the same run without `defer`
     fails with relation-not-found.

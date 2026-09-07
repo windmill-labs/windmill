@@ -3713,7 +3713,11 @@ async fn archive_script_by_path(
         path,
         &w_id
     )
-    .fetch_one(&db)
+    // In the SAME transaction as the cleanup below, as the by-hash routes are:
+    // committed on its own, a cleanup that then fails leaves dbt state at a path
+    // no live version occupies, for whatever is created there next to defer
+    // through.
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
 
@@ -3721,8 +3725,9 @@ async fn archive_script_by_path(
     // The graph stays: the pinned read resolves versions through a CTE that
     // already skips archived rows, so it stops answering for current relations
     // either way, while deleting it would empty the Models panel of every
-    // completed run of the project. Retry state does go — nothing may resume a
-    // script that is no longer live.
+    // completed run of the project. The saved run and environment state do go —
+    // nothing may resume a script that is no longer live, and nothing may defer
+    // through what it last built.
     windmill_common::dbt_manifest::clear_dbt_script_state(&mut tx, &w_id, path).await?;
     // Pipeline event hygiene: an archived script must not be triggered by
     // anything. Wipe declared `// on ...` edges (asset-event subscribers
@@ -3990,9 +3995,9 @@ async fn delete_script_by_path(
 
     // After the DELETE, never before: every dbt writer locks the `script` row
     // first, so taking a sidecar ahead of it deadlocks one of the pair. The
-    // VERSIONED graph needs no clear at all, cascading off `script`; the retry
-    // state does, being keyed by path alone and so inherited by whatever is
-    // created here next, and so do the editor's own graphs, whose NULL
+    // VERSIONED graph needs no clear at all, cascading off `script`; the saved
+    // run and environment state do, being keyed by path alone and so inherited
+    // by whatever is created here next, and so do the editor's own graphs, whose NULL
     // `script_hash` satisfies that foreign key without riding its cascade.
     windmill_common::dbt_manifest::clear_dbt_script_state(&mut tx, &w_id, path).await?;
     windmill_common::dbt_manifest::clear_dbt_editor_graphs(&mut tx, &w_id, path).await?;
