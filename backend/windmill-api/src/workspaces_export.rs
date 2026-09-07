@@ -346,7 +346,7 @@ pub(crate) struct ArchiveQueryParams {
     default_ts: Option<String>,
     /// Settings format version: "v1" (default) returns legacy flat format, "v2" returns grouped format
     settings_version: Option<String>,
-    /// Opt-in: include `extra_perms` on flow / script / app rows. Default `false`
+    /// Opt-in: include `extra_perms` on script / flow / app / variable rows. Default `false`
     /// so cross-workspace tarball imports do not carry over ACLs referring to
     /// identities that may not exist in the target workspace. `wmill sync pull`
     /// passes `true` to surface ACLs in the git-tracked yaml.
@@ -365,8 +365,8 @@ pub(crate) struct ArchiveQueryParams {
 ///                      pre-existing serialization for folders and groups so
 ///                      no customer sees a one-time noisy diff on upgrade.
 /// * `KeepIfNonEmpty` — keep when there is at least one entry, drop when `{}`
-///                      or null. New surface for flow / script / app, which
-///                      never carried ACLs in source before this change.
+///                      or null. New surface for script / flow / app / variable,
+///                      which never carried ACLs in source before this change.
 #[derive(Clone, Copy)]
 pub enum ExtraPermsBehavior {
     Drop,
@@ -665,7 +665,7 @@ pub(crate) async fn tarball_workspace(
         check_scopes(&authed, || "variables:read".to_string())?;
     }
 
-    // Opt-in behavior for surfacing per-resource ACLs on flow/app rows.
+    // Opt-in behavior for surfacing per-resource ACLs on script/flow/app/variable rows.
     // Folder and group rows have always carried `extra_perms` in source and
     // continue to do so unconditionally (`KeepEvenEmpty`) so existing
     // customer git repos see no one-time noisy diff.
@@ -1002,8 +1002,7 @@ pub(crate) async fn tarball_workspace(
                     Error::internal_err(format!("Error decrypting variable {}: {}", var.path, e))
                 })?);
             }
-            let var_str =
-                &to_string_without_metadata(&var, ExtraPermsBehavior::Drop, None).unwrap();
+            let var_str = &to_string_without_metadata(&var, new_kinds_extra_perms, None).unwrap();
             archive
                 .write_to_archive(&var_str, &format!("{}.variable.json", var.path))
                 .await?;
