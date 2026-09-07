@@ -274,7 +274,11 @@
 		const ws = opWorkspace
 		if (!ws) return
 		for (const listed of draftAgents) {
-			if (!agents.some((a) => a.path === listed.path)) {
+			// Only the rows the dialog gave a choice on. A `Read-only` or `Invalid config` agent can
+			// never be selected, so counting it as "kept" would record a decision the user was never
+			// offered and bias the pair towards keeping.
+			const selectable = agentCanWrite[listed.path] !== false && !agentRefusal[listed.path]
+			if (selectable && !agents.some((a) => a.path === listed.path)) {
 				logReusableAgentUsage('draft_kept_on_deploy')
 			}
 		}
@@ -522,11 +526,22 @@
 			// Draft triggers and drafts on the agents this flow links: both are unsaved changes the
 			// deploy would otherwise leave behind, so they are confirmed together.
 			const draftTriggers = triggersState.triggers.filter((trigger) => trigger.draftConfig)
-			draftAgents = [
-				...(
-					await loadLinkedAgentDrafts(linkedAgentPaths(flowStore.val.value), opWorkspace)
-				).values()
-			]
+			try {
+				draftAgents = [
+					...(
+						await loadLinkedAgentDrafts(linkedAgentPaths(flowStore.val.value), opWorkspace)
+					).values()
+				]
+			} catch (err: any) {
+				// This runs before the try below, and `withAIChangesWarning` invokes its callback without
+				// awaiting, so a rejection here would be unhandled: the button would do nothing at all,
+				// with no toast and no `onDeployError`. Report it the way the rest of the save does.
+				// Deploying anyway is not the fallback — this throws only when an agent's unsaved changes
+				// cannot be read, which is exactly when the dialog must not claim there are none.
+				onDeployError?.({ error: err })
+				sendUserToast(`The flow could not be saved: ${err?.body ?? err}`, true)
+				return
+			}
 			agentCanWrite = {}
 			agentRefusal = {}
 			if (draftAgents.length > 0) {

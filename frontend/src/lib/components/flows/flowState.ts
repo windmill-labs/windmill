@@ -5,7 +5,7 @@ import { get } from 'svelte/store'
 import { workspaceStore } from '$lib/stores'
 import { isFlowModuleTool, agentToolToFlowModule, type AgentTool } from './agentToolUtils'
 import { linkedToolsScope, setLinkedAgentTools } from './linkedAgentToolsStore.svelte'
-import { fetchAgentWithDraft, normalizeAgentRef } from './linkedAgentDrafts'
+import { AgentDraftUnavailable, fetchAgentWithDraft, normalizeAgentRef } from './linkedAgentDrafts'
 import { loadFlowModuleState } from './flowStateUtils.svelte'
 import { emptyFlowModuleState } from './utils.svelte'
 import type { StateStore } from '$lib/utils'
@@ -171,13 +171,21 @@ export async function resolveLinkedAgentTools(
 	if (!ws) return []
 	const path = normalizeAgentRef(agentRef)
 	try {
-		if (!withDraft) {
-			const res = await ResourceService.getResource({ workspace: ws, path })
-			return ((res.value as { tools?: AgentTool[] } | undefined)?.tools ?? []) as AgentTool[]
+		if (withDraft) {
+			try {
+				const { response, draft } = await fetchAgentWithDraft(path, ws)
+				const value = (draft?.args ?? response.value) as { tools?: AgentTool[] } | undefined
+				return (value?.tools ?? []) as AgentTool[]
+			} catch (err) {
+				// Only the DRAFT was unreadable. This is a display, not a run, so fall back to the
+				// deployed tools rather than showing an agent with none: an empty node list reads as
+				// "the agent lost its tools" instead of "we could not reach the server". The paths that
+				// act on a draft — the previews and the deploy dialog — surface the failure instead.
+				if (!(err instanceof AgentDraftUnavailable)) throw err
+			}
 		}
-		const { response, draft } = await fetchAgentWithDraft(path, ws)
-		const value = (draft?.args ?? response.value) as { tools?: AgentTool[] } | undefined
-		return (value?.tools ?? []) as AgentTool[]
+		const res = await ResourceService.getResource({ workspace: ws, path })
+		return ((res.value as { tools?: AgentTool[] } | undefined)?.tools ?? []) as AgentTool[]
 	} catch {
 		return []
 	}

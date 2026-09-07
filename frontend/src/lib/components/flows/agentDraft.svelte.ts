@@ -127,17 +127,16 @@ export function agentDraftDeployRefusal(
 }
 
 /**
- * Write an agent draft to its resource. Takes the state the caller validated rather than re-reading
- * the draft row, so what lands is what was checked and shown — `deployDraft`'s generic path re-reads
- * instead, and falls back to the deployed row when the draft has gone, which for a resource means
- * writing `value: d.args ?? {}` over a live agent.
+ * Write an agent to its resource from the state the editor holds, which can be ahead of the
+ * persisted draft row: the form stays editable while a deploy is in flight. Surfaces that deploy
+ * the row itself go through `deployDraft` instead.
  *
- * `notAnAgent` separates the one failure that invalidates the caller's whole view of the path — it
- * holds something else now — from a write that merely failed.
+ * `notAnAgent` separates the one failure that invalidates the caller's whole view of the path, its
+ * holding something else now, from a write that merely failed.
  */
-export type AgentWriteResult = { ok: true } | { ok: false; error: string; notAnAgent?: true }
+type AgentWriteResult = { ok: true } | { ok: false; error: string; notAnAgent?: true }
 
-export async function writeAgentResource(
+async function writeAgentResource(
 	workspace: string,
 	state: AgentResourceState,
 	noDeployed: boolean
