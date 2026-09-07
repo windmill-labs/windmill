@@ -85,7 +85,10 @@ import {
   WorkspaceEntryConfig,
 } from "../../core/conf.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
-import { preCheckPermissionedAs } from "../../core/permissioned_as.ts";
+import {
+  buildPermissionedAsContext,
+  preCheckPermissionedAs,
+} from "../../core/permissioned_as.ts";
 import {
   fromWorkspaceSpecificPath,
   toWorkspaceSpecificPath,
@@ -5544,27 +5547,19 @@ export async function push(
       return;
     }
 
-    let permissionedAsContext: PermissionedAsContext | undefined = undefined;
-    if (parseSyncBehavior(opts.syncBehavior) >= 1) {
-      const user = await wmill.whoami({ workspace: workspace.workspaceId });
-      const userIsAdminOrDeployer =
-        user.is_admin || (user.groups ?? []).includes("wm_deployers");
-      log.debug(
-        `permissioned_as: user=${user.email}, is_admin=${user.is_admin}, groups=${JSON.stringify(user.groups)}, isAdminOrDeployer=${userIsAdminOrDeployer}`,
+    const permissionedAsContext: PermissionedAsContext | undefined =
+      await buildPermissionedAsContext(
+        workspace.workspaceId,
+        opts.syncBehavior,
       );
-      permissionedAsContext = {
-        userCache: new Map(),
-        userIsAdminOrDeployer,
-        userEmail: user.email,
-      };
-
+    if (permissionedAsContext) {
       // ws_specific_flag changes have no content payload, so they don't
       // affect permissioned_as resolution — filter them out before the
       // pre-check (which expects only added/edited/deleted).
       await preCheckPermissionedAs(
         changes.filter((c) => c.name !== "ws_specific_flag"),
-        user.email,
-        userIsAdminOrDeployer,
+        permissionedAsContext.userEmail,
+        permissionedAsContext.userIsAdminOrDeployer,
         opts.acceptOverridingPermissionedAsWithSelf ?? false,
         !!process.stdin.isTTY,
       );

@@ -6,13 +6,19 @@ import { Command } from "@cliffy/command";
 import { Table } from "@cliffy/table";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
-import { sep as SEP } from "node:path";
+import { sep as SEP, resolve as pathResolve } from "node:path";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
-import { mergeConfigWithConfigFile } from "../../core/conf.ts";
+import {
+  mergeConfigWithConfigFile,
+  readEffectiveSyncBehavior,
+} from "../../core/conf.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
-import { lookupUsernameByEmail } from "../../core/permissioned_as.ts";
+import {
+  buildPermissionedAsContext,
+  lookupUsernameByEmail,
+} from "../../core/permissioned_as.ts";
 
 import {
   GlobalOptions,
@@ -299,6 +305,10 @@ async function disable(opts: GlobalOptions, path: string) {
 }
 
 async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
+  // Reading the config moves the cwd to the wmill.yaml root when it sits in a
+  // parent directory, so pin the file against the invocation cwd first.
+  filePath = pathResolve(filePath);
+  const syncBehavior = await readEffectiveSyncBehavior();
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -317,7 +327,8 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
     workspace.workspaceId,
     remotePath,
     undefined,
-    parseFromFile(filePath)
+    parseFromFile(filePath),
+    await buildPermissionedAsContext(workspace.workspaceId, syncBehavior)
   );
   console.log(colors.bold.underline.green("Schedule pushed"));
 }

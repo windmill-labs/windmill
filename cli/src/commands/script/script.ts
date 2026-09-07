@@ -7,6 +7,7 @@ import {
   validatePath,
 } from "../../core/context.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { buildPermissionedAsContext } from "../../core/permissioned_as.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 import { writeFile, stat, mkdir } from "node:fs/promises";
 import { Buffer } from "node:buffer";
@@ -58,6 +59,7 @@ import {
   SyncOptions,
   mergeConfigWithConfigFile,
   readConfigFile,
+  readEffectiveSyncBehavior,
 } from "../../core/conf.ts";
 import { SyncCodebase, listSyncCodebases } from "../../utils/codebase.ts";
 import { pollJobWithQueueLogging } from "../../utils/job_polling.ts";
@@ -231,7 +233,11 @@ async function push(opts: PushOptions, filePath: string) {
     opts.message,
     opts,
     await getRawWorkspaceDependencies(true),
-    codebases
+    codebases,
+    await buildPermissionedAsContext(
+      workspace.workspaceId,
+      await readEffectiveSyncBehavior()
+    )
   );
   log.info(colors.bold.underline.green(`Script ${filePath} pushed`));
 }

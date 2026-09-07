@@ -23,7 +23,7 @@ import { Command } from "@cliffy/command";
 import { Table } from "@cliffy/table";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
-import { sep as SEP } from "node:path";
+import { sep as SEP, resolve as pathResolve } from "node:path";
 import {
   GlobalOptions,
   isSuperset,
@@ -41,6 +41,8 @@ import { getCurrentGitBranch } from "../../utils/git.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { validatePath, resolveWorkspace } from "../../core/context.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { buildPermissionedAsContext } from "../../core/permissioned_as.ts";
+import { readEffectiveSyncBehavior } from "../../core/conf.ts";
 
 type Trigger = {
   http: HttpTrigger;
@@ -620,6 +622,10 @@ async function extractTriggerKindFromPath(filePath: string): Promise<string | un
 }
 
 async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
+  // Reading the config moves the cwd to the wmill.yaml root when it sits in a
+  // parent directory, so pin the file against the invocation cwd first.
+  filePath = pathResolve(filePath);
+  const syncBehavior = await readEffectiveSyncBehavior();
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -643,7 +649,8 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
     workspace.workspaceId,
     remotePath,
     undefined,
-    parseFromFile(filePath)
+    parseFromFile(filePath),
+    await buildPermissionedAsContext(workspace.workspaceId, syncBehavior)
   );
   console.log(colors.bold.underline.green("Trigger pushed"));
 }

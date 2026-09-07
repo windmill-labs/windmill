@@ -630,6 +630,24 @@ export async function getEffectiveSettings(
   return effective;
 }
 
+/**
+ * `syncBehavior` as the current branch's workspace sees it. The top level alone
+ * misses a `workspaces.<name>.overrides.syncBehavior`, which is where a repo
+ * that varies settings per workspace puts it. Resolves the workspace from the
+ * git branch only: the single-item commands have no `--workspace-name` flag to
+ * override it with, so a repo that maps workspaces some other way still reads
+ * the top-level value.
+ */
+export async function readEffectiveSyncBehavior(): Promise<string | undefined> {
+  const effective = await getEffectiveSettings(
+    await readConfigFile(),
+    undefined,
+    false,
+    true
+  );
+  return effective.syncBehavior;
+}
+
 const RESERVED_WORKSPACE_KEYS = new Set(["commonSpecificItems"]);
 
 /**
