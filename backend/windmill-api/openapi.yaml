@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.804.0
+  version: 1.805.0
   title: Windmill API
 
   contact:
@@ -8528,6 +8528,84 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/resources/type/resource_counts:
+    get:
+      summary: count the workspace's resources per resource type
+      operationId: listResourceCountsByType
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: resource count per resource_type
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    resource_type:
+                      type: string
+                    count:
+                      type: integer
+                  required:
+                    - resource_type
+                    - count
+
+  /w/{workspace}/resources/type/hub/info:
+    get:
+      summary: list what the hub knows about its resource types
+      operationId: listHubResourceTypeInfo
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: each hub resource type with its integration and pick count, empty if the hub answers neither read
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    app:
+                      description: the integration the resource type belongs to, which is not always its own name
+                      type: string
+                    picks:
+                      type: integer
+                  required:
+                    - name
+                    - app
+                    - picks
+
+  /w/{workspace}/resources/type/hub/pick/{name}:
+    post:
+      summary: record a hub resource type pick
+      operationId: pickHubResourceType
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: whether the hub recorded the pick
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required:
+                  - success
+
   /w/{workspace}/npm_proxy/config:
     get:
       summary: get npm proxy configuration
@@ -8777,6 +8855,9 @@ paths:
                   properties:
                     name:
                       type: string
+                    picks:
+                      description: how often the integration has been picked, absent on a hub that does not count picks
+                      type: integer
                   required:
                     - name
 

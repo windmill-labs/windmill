@@ -4,7 +4,7 @@ import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { Table } from "@cliffy/table";
 import * as log from "../../core/log.ts";
-import { dirname, sep as SEP } from "node:path";
+import { dirname, sep as SEP, resolve as pathResolve } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseFile } from "../../utils/yaml.ts";
 import { readTextFile, validateRequiredArgs } from "../../utils/utils.ts";
@@ -21,11 +21,16 @@ import {
 } from "../../core/context.ts";
 import { resolve, track_job, pollForJobResult } from "../script/script.ts";
 import { defaultFlowDefinition } from "../../../bootstrap/flow_bootstrap.ts";
-import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
+import {
+  SyncOptions,
+  mergeConfigWithConfigFile,
+  readEffectiveSyncBehavior,
+} from "../../core/conf.ts";
 import { FSFSElement, elementsToMap, ignoreF } from "../sync/sync.ts";
 import { Flow } from "../../../gen/types.gen.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { buildPermissionedAsContext } from "../../core/permissioned_as.ts";
 import {
   collectPathScriptPaths,
   replaceInlineScripts,
@@ -327,10 +332,20 @@ async function push(opts: Options & { message?: string }, filePath: string, remo
   if (!validatePath(remotePath)) {
     return;
   }
+  // Reading the config moves the cwd to the wmill.yaml root when it sits in a
+  // parent directory, so pin the file against the invocation cwd first.
+  filePath = pathResolve(filePath);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+  const syncBehavior = await readEffectiveSyncBehavior(opts, workspace);
 
-  await pushFlow(workspace.workspaceId, remotePath, filePath, opts.message);
+  await pushFlow(
+    workspace.workspaceId,
+    remotePath,
+    filePath,
+    opts.message,
+    await buildPermissionedAsContext(workspace.workspaceId, syncBehavior)
+  );
   log.info(colors.bold.underline.green("Flow pushed"));
 }
 
