@@ -4529,6 +4529,36 @@ describe('global AI tools', () => {
 		expect(ready.find((x) => x.runForm)?.runForm.submitted).toBe(true)
 	})
 
+	// A default is an answer the schema already gave, so the posture may skip the form — but only
+	// a mounted ArgInput would have put it in the field, and there is none to do it.
+	it('sends a schema default the model omitted when yolo skips the form', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/defaulted',
+			schema: {
+				properties: { name: { type: 'string' }, retries: { type: 'number', default: 3 } },
+				required: ['name', 'retries']
+			}
+		} as any)
+		const statuses: any[] = []
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/defaulted', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					setToolStatus: (_toolId: string, status: any) => statuses.push(status),
+					shouldAutoAcceptToolConfirmations: () => true,
+					requestRunArgs: async (_toolId: string, form: any) => form.args
+				}
+			)
+		)
+
+		expect(statuses.find((x) => x.runForm)?.runForm.submitted).toBe(true)
+		expect(JobService.runScriptByPath).toHaveBeenCalledWith(
+			expect.objectContaining({ requestBody: { name: 'Ada', retries: 3 } })
+		)
+	})
+
 	// What the mounted form would have refused to submit, the bypass must not start: ArgInput
 	// marks a required empty scalar invalid and disables Run, and a nested required field is a
 	// question the form would have shown. Neither is a value the posture can answer for.

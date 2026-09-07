@@ -49,6 +49,7 @@ import {
 	type FrameworkKey
 } from '$lib/components/raw_apps/templates'
 import {
+	applySchemaDefaults,
 	coerceArgsToSchema,
 	redactFileArgs,
 	redactSecretArgs,
@@ -5602,8 +5603,10 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	// the user never chose, a reference names something the card cannot show them. Files
 	// go the same way — prefilled bytes are bytes the stored transcript then carries.
 	const strippedKeys: string[] = []
+	// Before stripping, so a secret or file carrying a default is emptied like any other:
+	// what the field opens with is the user's to give, default or not.
 	const proposed = stripFileArgs(
-		stripSecretArgs(coerced.args, schema as any, strippedKeys),
+		stripSecretArgs(applySchemaDefaults(coerced.args, schema), schema as any, strippedKeys),
 		schema as any,
 		strippedKeys
 	)

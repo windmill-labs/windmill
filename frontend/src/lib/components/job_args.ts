@@ -32,6 +32,24 @@ export function enforceDisabledDefaults(
 	return { args: { ...result }, resetKeys }
 }
 
+/**
+ * What a mounted `ArgInput` would put in a field the caller left empty. Applied whether or
+ * not a form is shown, so a run the autonomy posture accepts without one sends the same
+ * arguments the user would have seen and submitted. Top-level only, like every filter here.
+ */
+export function applySchemaDefaults(
+	args: Record<string, any>,
+	schema: { properties?: Record<string, any> } | undefined
+): Record<string, any> {
+	const result: Record<string, any> = Object.assign(Object.create(null), args)
+	if (!schema?.properties) return { ...result }
+	for (const [key, prop] of Object.entries<any>(schema.properties)) {
+		if (prop?.default === undefined) continue
+		if (result[key] === undefined) result[key] = prop.default
+	}
+	return { ...result }
+}
+
 /** How a form says what {@link enforceDisabledDefaults} overwrote, shared by the two that
  * run it so the wording cannot drift apart. */
 export const resetKeysToast = (resetKeys: string[]): string =>
