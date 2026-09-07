@@ -8,7 +8,9 @@ vi.mock('./agentToolUtils', () => ({
 	isFlowModuleTool: () => false,
 	agentToolToFlowModule: (t: unknown) => t
 }))
-vi.mock('$lib/stores', () => ({ workspaceStore: { subscribe: (f: (v: string) => void) => (f('ws'), () => {}) } }))
+vi.mock('$lib/stores', () => ({
+	workspaceStore: { subscribe: (f: (v: string) => void) => (f('ws'), () => {}) }
+}))
 
 import {
 	claimLinkedToolsFetch,
@@ -38,8 +40,8 @@ describe('linked tools fetch guard', () => {
 			)
 			.mockResolvedValueOnce({ value: { tools: [tool('new')] } } as never)
 
-		const stale = publishLinkedAgentTools('f/a/old', 'ws', scope, 'step')
-		await publishLinkedAgentTools('f/a/new', 'ws', scope, 'step')
+		const stale = publishLinkedAgentTools('f/a/old', 'ws', scope, 'step', false)
+		await publishLinkedAgentTools('f/a/new', 'ws', scope, 'step', false)
 		release?.({ value: { tools: [tool('old')] } })
 		await stale
 
@@ -56,7 +58,7 @@ describe('linked tools fetch guard', () => {
 			() => new Promise((r) => (release = r)) as ReturnType<typeof ResourceService.getResource>
 		)
 
-		const inFlight = publishLinkedAgentTools('f/a/old', 'ws', scope, 'step')
+		const inFlight = publishLinkedAgentTools('f/a/old', 'ws', scope, 'step', false)
 		setLinkedAgentTools(scope, 'step', [tool('kept')], 'u/admin/a')
 
 		invalidateLinkedToolsFetches(scope)
@@ -73,7 +75,7 @@ describe('linked tools fetch guard', () => {
 			() => new Promise((r) => (release = r)) as ReturnType<typeof ResourceService.getResource>
 		)
 
-		const inFlight = publishLinkedAgentTools('f/a/old', 'ws', scope, 'step')
+		const inFlight = publishLinkedAgentTools('f/a/old', 'ws', scope, 'step', false)
 		claimLinkedToolsFetch(scope, 'step')
 		setLinkedAgentTools(scope, 'step', [tool('direct')], 'u/admin/a')
 		release?.({ value: { tools: [tool('stale')] } })
