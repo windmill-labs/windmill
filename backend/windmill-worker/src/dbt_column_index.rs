@@ -351,9 +351,10 @@ fn read_index_blocking(
     kept: &HashSet<String>,
 ) -> error::Result<ColumnIndex> {
     let mut out = ColumnIndex::default();
-    // ONE pass, with the two kinds bucketed as they arrive. Direct edges are
-    // what a trace draws, so they get the whole budget; `scan` — the bulk of a
-    // wide project's index and the kind nothing renders — fills only what is
+    // ONE pass, with the two kinds bucketed as they arrive. `copy` and `mod` say
+    // the value itself travelled, so they get the whole budget; `scan` — the
+    // column was read to produce the ROW, which reaches every output column of
+    // its model and is the bulk of a wide project's index — fills only what is
     // left over at the end. Reading the file twice to get that ordering would
     // double the decode of exactly the large index this bound exists for.
     let mut scan: Vec<IngestedColumnEdge> = Vec::new();
@@ -383,8 +384,8 @@ fn read_index_blocking(
         // budget's worth however the kinds are distributed.
         let held = out.edges.len() + scan.len();
         if is_direct(&edge.lineage_kind) {
-            // A direct edge displaces a `scan` one: the budget exists to be
-            // spent on what a trace draws.
+            // A direct edge displaces a `scan` one: the budget is spent on
+            // value flow first.
             if held >= MAX_COLUMN_EDGES {
                 scan.pop();
             }
