@@ -104,7 +104,7 @@ export async function downloadZip(
   // from v1 the on-behalf-of address is stripped below, so the tarball sends the
   // `has_on_behalf_of` marker instead and never resolves an address.
   // `preserve_extra_perms=true` opts the tarball into surfacing granular ACLs
-  // on flow / script / app rows. Default-off on the server protects cross-
+  // on script / flow / app / variable rows. Default-off on the server protects cross-
   // workspace tarball imports from carrying ACLs that reference identities
   // missing in the target workspace; the CLI sync flow explicitly wants them.
   const baseParams = `&plain_secret=${plainSecrets ?? false
