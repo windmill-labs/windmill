@@ -100,12 +100,20 @@ export async function deployRawAppDraft(
 	// the raw_app draft kind server-side instead of 404ing.
 	const app = await AppService.getAppByPath({ workspace, path, getDraft: true, rawApp: true })
 	const draft = (app as any).draft
+	// Same rule as every other branch of `deployDraft`, which is this function's only caller: with no
+	// draft row left there is nothing to promote, and bundling the deployed app back over itself
+	// would mint a version nobody asked for.
+	if (draft == null) {
+		throw new Error(
+			`No draft left to deploy for raw_app ${path}. It was deployed or discarded elsewhere — refresh to see its current state.`
+		)
+	}
 	// Deploy at the draft's intended path. A raw-app draft carries the user-typed
 	// path in `draft_path` (a never-deployed app is parked at a synthetic
 	// `u/{user}/draft_{uuid}` storage key); the URL `path` below stays that storage
 	// key. Falls back to `path` for an unrenamed draft on a deployed app.
-	const targetPath = draft?.draft_path ?? draft?.path ?? path
-	const value = appSourceToDraftValue(draft ?? app, app)
+	const targetPath = draft.draft_path ?? draft.path ?? path
+	const value = appSourceToDraftValue(draft, app)
 
 	const policy = (await updateRawAppPolicy(
 		value.runnables as any,
