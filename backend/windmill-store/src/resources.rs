@@ -50,9 +50,9 @@ use windmill_common::{
     error::{self, Error, JsonResult, Result},
     get_database_url,
     user_drafts::{
-        delete_all_drafts_for_path, delete_own_draft_for_path, fetch_draft_only,
-        fetch_draft_only_list_rows, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay,
-        WithDraftQuery,
+        delete_all_drafts_for_path, delete_draft_only_for_path, delete_own_draft_for_path,
+        fetch_draft_only, fetch_draft_only_list_rows, maybe_overlay_draft, UserDraftItemKind,
+        WithDraftOverlay, WithDraftQuery,
     },
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
@@ -1320,6 +1320,16 @@ async fn delete_resource(
     {
         return Err(Error::PermissionDenied(msg));
     }
+
+    // The draft-only case is taken up front, unlike the other kinds, which take
+    // it on their not-found branch: here that branch is the `not_found_if_none`
+    // below, mid-transaction with the linked-variable cascade already staged.
+    if delete_draft_only_for_path(&db, &w_id, UserDraftItemKind::Resource, path, &authed.email)
+        .await?
+    {
+        return Ok(format!("draft-only resource {} deleted", path));
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     // Capture resource data for trashbin before deleting

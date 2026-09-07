@@ -234,3 +234,67 @@ async fn test_schedule_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// A schedule that exists only as a draft is listed (synthesized from the
+/// `draft` table) but has no `schedule` row, so its DELETE used to 404 and
+/// leave the row unremovable. It must drop the draft instead, and still 404
+/// once nothing is left at the path.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_delete_draft_only_schedule(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let path = "u/test-user/draft_only_schedule";
+
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/w/test-workspace/drafts/update/trigger_schedule/{path}"
+    )))
+    .json(&json!({ "value": {
+        "path": path,
+        "schedule": "0 0 */6 * * *",
+        "timezone": "UTC",
+        "script_path": "u/test-user/never_deployed",
+        "is_flow": false,
+    }}))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200, "save draft: {}", resp.text().await?);
+
+    let resp = authed(client().get(format!(
+        "http://localhost:{port}/api/w/test-workspace/schedules/list?include_draft_only=true"
+    )))
+    .send()
+    .await
+    .unwrap();
+    let listed: Vec<serde_json::Value> = resp.json().await?;
+    assert!(
+        listed
+            .iter()
+            .any(|s| s["path"] == path && s["draft_only"] == json!(true)),
+        "draft-only schedule should be listed: {listed:?}"
+    );
+
+    let resp = authed(client().delete(schedule_url(port, "delete", path)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "delete: {}", resp.text().await?);
+
+    let remaining: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM draft WHERE workspace_id = 'test-workspace' AND path = $1 \
+         AND typ = 'trigger_schedule'::DRAFT_KIND",
+    )
+    .bind(path)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(remaining, 0, "the draft should be gone");
+
+    let resp = authed(client().delete(schedule_url(port, "delete", path)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404, "nothing left at the path");
+
+    Ok(())
+}

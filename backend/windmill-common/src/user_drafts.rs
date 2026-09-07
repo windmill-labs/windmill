@@ -401,6 +401,43 @@ pub async fn fetch_draft_only_list_rows(
     Ok(rows)
 }
 
+/// Delete the draft behind a synthesized draft-only list row, for the DELETE
+/// route of a kind whose list calls `fetch_draft_only_list_rows`. With no
+/// deployed row at the path the entry exists only as that draft, so dropping it
+/// IS the delete — 404-ing instead strands a row the user can see but never
+/// remove. Same reach as the synthesis (own draft + legacy NULL-email row), and
+/// the `NOT EXISTS` keeps a deployed row's draft untouched, so a route can call
+/// this on its not-found branch without second-guessing why the row was missing.
+/// `Ok(false)` means nothing was deleted: the caller reports its own error.
+pub async fn delete_draft_only_for_path(
+    db: &DB,
+    w_id: &str,
+    kind: UserDraftItemKind,
+    path: &str,
+    email: &str,
+) -> Result<bool> {
+    let Some(table) = kind.deployed_table() else {
+        return Ok(false);
+    };
+    // `table` is from the closed `deployed_table()` enum, never user input.
+    let sql = format!(
+        "DELETE FROM draft \
+         WHERE workspace_id = $1 AND typ = $2::text::DRAFT_KIND AND path = $3 \
+           AND (email = $4 OR email IS NULL) \
+           AND NOT EXISTS (SELECT 1 FROM {table} t \
+             WHERE t.workspace_id = draft.workspace_id AND t.path = draft.path)"
+    );
+    let deleted = sqlx::query(&sql)
+        .bind(w_id)
+        .bind(kind.as_str())
+        .bind(path)
+        .bind(email)
+        .execute(db)
+        .await?
+        .rows_affected();
+    Ok(deleted > 0)
+}
+
 /// The get-by-path draft choreography, shared by every entity's "get by path"
 /// route. Given the deployed entity as an `Option` (caller maps its own "not
 /// found" to `None`):
