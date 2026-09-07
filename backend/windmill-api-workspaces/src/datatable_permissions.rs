@@ -938,10 +938,41 @@ async fn ensure_save_names_what_exists(
     if !req.enabled {
         return Ok(());
     }
+    ensure_tenants_exist(db, w_id, req.roles.iter().flat_map(|r| r.tenants.iter())).await?;
+
+    // Renamed away or removed: every old name the save no longer defines.
+    let kept: HashSet<&str> = req.roles.iter().map(|r| r.name.as_str()).collect();
+    // `admin` resolves to the data table's own connection whether or not it is
+    // named, so a migration naming it never strands.
+    let gone: HashSet<&str> = old
+        .map(|old| old.roles.keys().map(String::as_str))
+        .into_iter()
+        .flatten()
+        .filter(|name| !kept.contains(name) && *name != ADMIN_DATATABLE_ROLE)
+        .collect();
+    let blocking = migrations_naming(db, database_key, &gone).await?;
+    if !blocking.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "Migration(s) {} name a role this save removes or renames, in a `-- role` \
+             annotation the save does not rewrite. Update the migration(s) first, or keep \
+             the role.",
+            blocking.join(", ")
+        )));
+    }
+    Ok(())
+}
+
+/// Refuse tenants whose user, group or folder does not exist in `w_id`: a name
+/// stored for a principal that is gone is inherited by whoever takes it next.
+async fn ensure_tenants_exist<'a>(
+    db: &DB,
+    w_id: &str,
+    tenants: impl Iterator<Item = &'a String>,
+) -> Result<()> {
     let mut users = Vec::new();
     let mut groups = Vec::new();
     let mut folders = Vec::new();
-    for tenant in req.roles.iter().flat_map(|r| r.tenants.iter()) {
+    for tenant in tenants {
         match tenant.split_once('/') {
             Some(("u", user)) => users.push(user.to_string()),
             Some(("g", group)) => groups.push(group.to_string()),
@@ -1004,25 +1035,6 @@ async fn ensure_save_names_what_exists(
         )));
     }
 
-    // Renamed away or removed: every old name the save no longer defines.
-    let kept: HashSet<&str> = req.roles.iter().map(|r| r.name.as_str()).collect();
-    // `admin` resolves to the data table's own connection whether or not it is
-    // named, so a migration naming it never strands.
-    let gone: HashSet<&str> = old
-        .map(|old| old.roles.keys().map(String::as_str))
-        .into_iter()
-        .flatten()
-        .filter(|name| !kept.contains(name) && *name != ADMIN_DATATABLE_ROLE)
-        .collect();
-    let blocking = migrations_naming(db, database_key, &gone).await?;
-    if !blocking.is_empty() {
-        return Err(Error::BadRequest(format!(
-            "Migration(s) {} name a role this save removes or renames, in a `-- role` \
-             annotation the save does not rewrite. Update the migration(s) first, or keep \
-             the role.",
-            blocking.join(", ")
-        )));
-    }
     Ok(())
 }
 
@@ -1258,12 +1270,10 @@ async fn set_datatable_permissions(
 
     tx.commit().await?;
 
-    // Turned on just now: a trigger streaming this database was opened while
-    // nothing governed it, and is made to ask again.
-    if req.enabled && record.is_none() {
-        if let Err(e) = restart_triggers_reaching(&db, &key).await {
-            tracing::error!("Could not restart the triggers replicating {key}: {e:#}");
-        }
+    // A trigger streaming this database was authorized against the row as it was,
+    // and is made to ask again.
+    if let Err(e) = restart_triggers_reaching(&db, &key).await {
+        tracing::error!("Could not restart the triggers replicating {key}: {e:#}");
     }
 
     // What the row no longer names, now that it says so. A failure here is the
@@ -1329,6 +1339,14 @@ async fn import_datatable_permissions(
                 .insert(ADMIN_DATATABLE_ROLE.to_string(), Default::default());
         }
         lock_datatable_permissions_unchecked(&mut tx, &w_id).await?;
+        // Under the workspace's lock, like a save: a tenant of an archive whose
+        // principal is gone would be inherited by whoever takes the name next.
+        ensure_tenants_exist(
+            &db,
+            &w_id,
+            permissions.roles.values().flat_map(|r| r.tenants.iter()),
+        )
+        .await?;
         upsert_database_permissions(&mut tx, &database_key, &w_id, &permissions).await?;
         audit_log(
             &mut *tx,
@@ -1347,6 +1365,9 @@ async fn import_datatable_permissions(
         )
         .await?;
         tx.commit().await?;
+        if let Err(e) = restart_triggers_reaching(&db, &database_key).await {
+            tracing::error!("Could not restart the triggers replicating {database_key}: {e:#}");
+        }
     }
     Ok(Json(skipped))
 }
@@ -1418,43 +1439,89 @@ pub(crate) async fn refuse_clone_of_governed_datatable(
     Ok(())
 }
 
-/// Make every Postgres trigger replicating a data table that reaches `database_key`
-/// reconnect, so the admin check runs against the permissions just turned on: a
-/// stream opened while the database was unpermissioned would otherwise keep
+/// Make every Postgres trigger, and every capture, replicating a data table that
+/// reaches `database_key` reconnect, so the admin check runs against the
+/// permissions as they now are: a stream authorized against an earlier state —
+/// none, a tenant since revoked, an owner since gone — would otherwise keep
 /// receiving every change. Clearing the listener's claim is what stops it; the
-/// next claim resolves the resource again, and refuses where it must.
+/// next claim resolves the resource again, and refuses where it must. Called
+/// after every committed change to the row.
 pub(crate) async fn restart_triggers_reaching(db: &DB, database_key: &str) -> Result<()> {
+    let mut reaches: std::collections::HashMap<(String, String), bool> =
+        std::collections::HashMap::new();
+    let reached = |workspace_id: &str, resource_path: &str| {
+        let Some(datatable) = resource_path.strip_prefix("datatable://") else {
+            return None;
+        };
+        let (datatable, _) = windmill_common::workspaces::parse_datatable_ref(datatable);
+        Some((workspace_id.to_string(), datatable.to_string()))
+    };
     let triggers = sqlx::query!(
         r#"SELECT workspace_id, path, postgres_resource_path
            FROM postgres_trigger WHERE postgres_resource_path LIKE 'datatable://%'"#
     )
     .fetch_all(db)
     .await?;
-    let mut reaches: std::collections::HashMap<(String, String), bool> =
-        std::collections::HashMap::new();
-    for t in triggers {
-        let Some(datatable) = t.postgres_resource_path.strip_prefix("datatable://") else {
+    let captures = sqlx::query!(
+        r#"SELECT workspace_id, path, trigger_config->>'postgres_resource_path' AS "postgres_resource_path!"
+           FROM capture_config
+           WHERE trigger_kind = 'postgres'::trigger_kind
+             AND trigger_config->>'postgres_resource_path' LIKE 'datatable://%'"#
+    )
+    .fetch_all(db)
+    .await?;
+    let listeners: Vec<(&'static str, String, String, String)> = triggers
+        .into_iter()
+        .map(|t| {
+            (
+                "postgres_trigger",
+                t.workspace_id,
+                t.path,
+                t.postgres_resource_path,
+            )
+        })
+        .chain(captures.into_iter().map(|c| {
+            (
+                "capture_config",
+                c.workspace_id,
+                c.path,
+                c.postgres_resource_path,
+            )
+        }))
+        .collect();
+    for (table, workspace_id, path, resource_path) in listeners {
+        let Some(entry) = reached(&workspace_id, &resource_path) else {
             continue;
         };
-        let (datatable, _) = windmill_common::workspaces::parse_datatable_ref(datatable);
-        let entry = (t.workspace_id.clone(), datatable.to_string());
-        let reached = match reaches.get(&entry) {
-            Some(reached) => *reached,
+        let hit = match reaches.get(&entry) {
+            Some(hit) => *hit,
             None => {
-                let reached = resolve_datatable_database_unchecked(db, &t.workspace_id, datatable)
+                let hit = resolve_datatable_database_unchecked(db, &entry.0, &entry.1)
                     .await
                     .map(|(_, _, key)| key == database_key)
                     .unwrap_or(false);
-                reaches.insert(entry, reached);
-                reached
+                reaches.insert(entry, hit);
+                hit
             }
         };
-        if reached {
+        if !hit {
+            continue;
+        }
+        if table == "postgres_trigger" {
             sqlx::query!(
                 "UPDATE postgres_trigger SET server_id = NULL, last_server_ping = NULL
                  WHERE workspace_id = $1 AND path = $2",
-                t.workspace_id,
-                t.path
+                workspace_id,
+                path
+            )
+            .execute(db)
+            .await?;
+        } else {
+            sqlx::query!(
+                "UPDATE capture_config SET server_id = NULL, last_server_ping = NULL
+                 WHERE workspace_id = $1 AND path = $2 AND trigger_kind = 'postgres'::trigger_kind",
+                workspace_id,
+                path
             )
             .execute(db)
             .await?;

@@ -732,6 +732,27 @@ async fn imported_permissions_govern_without_logins(db: Pool<Postgres>) -> anyho
     ]))
     .await;
     assert_eq!(status, 404, "{text}");
+    // An archive's tenant whose principal is gone is refused like a save's would be.
+    sqlx::query("DELETE FROM datatable_database_permissions WHERE database_key = $1")
+        .bind(MAIN_KEY)
+        .execute(&db)
+        .await?;
+    let (status, text) = import(json!([
+        { "datatable": "main", "permissions": { "enabled": true, "roles": {
+            "admin": { "tenants": ["u/ghost"] }
+        }}}
+    ]))
+    .await;
+    assert_eq!(status, 400, "{text}");
+    assert!(text.contains("u/ghost"), "{text}");
+    let (status, text) = import(json!([
+        { "datatable": "main", "permissions": { "enabled": true, "roles": {
+            "admin": { "tenants": [] },
+            "analyst": { "tenants": ["u/test-user-3"], "pg_rolename": "wm_analyst_x", "pg_password": "leaked?" }
+        }}}
+    ]))
+    .await;
+    assert_eq!(status, 200, "{text}");
 
     let row: (Option<String>, serde_json::Value) = sqlx::query_as(
         "SELECT owner_workspace_id, permissions FROM datatable_database_permissions WHERE database_key = $1",

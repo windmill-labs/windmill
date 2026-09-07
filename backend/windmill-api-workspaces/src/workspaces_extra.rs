@@ -1289,10 +1289,14 @@ pub(crate) async fn delete_workspace(
     // permissions rows stay, ownerless — every entry still reaching those databases
     // finds every role refused rather than the owning connection.
     for (name, planned) in planned_role_drops {
+        let key = planned.2.clone();
         crate::datatable_permissions::run_planned_drop_keeping_record(
             &db, &w_id, &name, None, planned,
         )
         .await;
+        if let Err(e) = crate::datatable_permissions::restart_triggers_reaching(&db, &key).await {
+            tracing::error!("Could not restart the triggers replicating {key}: {e:#}");
+        }
     }
 
     if let Some(parent) = dev_lock_parent {

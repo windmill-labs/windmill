@@ -212,7 +212,12 @@
 						items={[
 							{
 								value: 'keep_original',
-								label: dt.permissioned ? 'Keep original (permissions enabled)' : 'Keep original'
+								label:
+									dt.permissioned === undefined
+										? 'Keep original (could not read its permissions, cloning unavailable)'
+										: dt.permissioned
+											? 'Keep original (permissions enabled)'
+											: 'Keep original'
 							},
 							...(dt.permissioned === false
 								? [

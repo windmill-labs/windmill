@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT workspace_id, path, trigger_config->>'postgres_resource_path' AS \"postgres_resource_path!\"\n           FROM capture_config\n           WHERE trigger_kind = 'postgres'::trigger_kind\n             AND trigger_config->>'postgres_resource_path' LIKE 'datatable://%'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "postgres_resource_path!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "a05e98be76846ebdb197f002d189060ce2030314e946ca5d6360002cfb1bcbba"
+}
