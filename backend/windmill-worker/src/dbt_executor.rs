@@ -3362,10 +3362,14 @@ async fn persist_ingest(
 ///
 /// Subscribing to a relation dbt already owns is refused at the subscriber's
 /// deploy, but one deployed while nothing produced that relation is accepted —
-/// as it is for every other asset kind — and this ingest is what can afterwards
+/// as it is for every other asset kind — and an ingest is what can afterwards
 /// make dbt its only producer. A dbt run does not dispatch, so such an edge is
-/// drawn on the canvas and never fires; the deploy log is where that ordering is
+/// drawn on the canvas and never fires; a job's own log is where that ordering is
 /// visible.
+///
+/// Called from both points that publish ownership, the deploy and a run whose
+/// static descriptor found its profile moved — either can be the one that claims
+/// the relation.
 async fn warn_dormant_subscribers(
     db: &sqlx::Pool<sqlx::Postgres>,
     w_id: &str,

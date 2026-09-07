@@ -747,10 +747,10 @@ What that leaves is a subscription accepted while it was live and later orphaned
 A dbt project that claims the relation afterwards names those edges in its own log
 rather than leaving them silently dormant — the same "an edge that can never fire
 is worse than saying so" the refusal is for, at the other point where it is
-knowable. Both points that publish ownership warn, the deploy and a run whose
-static descriptor found its profile moved; an agent worker is the exception, since
-it reaches these tables only through the API and its ingest publishes without
-reading back.
+knowable. Both points that publish ownership warn: the deploy, and a run whose
+static descriptor found its profile moved. An agent run publishes none — it is
+forced to per-run models, so it stores a job-pinned snapshot and leaves workspace
+ownership with the deployed graph — so it cannot orphan a subscription either.
 
 Two orphanings are reported nowhere, and both are accepted rather than overlooked.
 A native producer that drops its `// materialize` and leaves dbt alone on the
