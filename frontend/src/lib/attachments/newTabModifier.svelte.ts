@@ -31,6 +31,9 @@ export function newTabModifier() {
 			// Seeded from the hover itself: mouse events carry the same modifier flags as key events,
 			// so a modifier already held before the pointer arrived reads correctly.
 			sync(event)
+			// Re-entering without an intervening leave would strand the previous controller: nothing
+			// else references it, so its listeners could never be removed.
+			hover?.abort()
 			hover = new AbortController()
 			const { signal } = hover
 			// Same reason the hover seeds: a modifier held across a keyboard app switch delivers no

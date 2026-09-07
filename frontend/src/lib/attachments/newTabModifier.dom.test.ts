@@ -94,6 +94,9 @@ describe('newTabModifier', () => {
 		onPlatform(LINUX)
 		const { modifier, hover, cleanup } = pill()
 		hover({ ctrlKey: true })
+		// Hovering again without leaving must not strand the first hover's listeners, which nothing
+		// would then hold a reference to.
+		hover({ ctrlKey: true })
 		cleanup()
 		expect(modifier.held).toBe(false)
 
