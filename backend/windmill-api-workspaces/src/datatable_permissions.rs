@@ -91,8 +91,10 @@ pub struct DatatablePermissionsInfo {
 
 /// A database's permissions as a workspace export carries them: named by a data
 /// table of the workspace that reaches the database — the key is the server's
-/// to derive, never the client's to choose — with the roles and their tenants
-/// and the login names, never the passwords.
+/// to derive, never the client's to choose — with the roles and their tenants.
+/// Neither the login names nor the passwords are taken back: a login name is a
+/// cluster-wide identifier the next save would rename or reset, so it is the
+/// save's to generate.
 #[derive(Deserialize, Debug)]
 pub struct ImportedDatabasePermissions {
     pub datatable: String,
@@ -476,10 +478,13 @@ pub(crate) async fn connect_as_admin_unchecked(
 }
 
 /// Plan `req` against the database the data table reaches, whose permissions
-/// are `old` (read under the caller's lock, or absent when none are on yet).
+/// are `old` (read under the caller's lock, or absent when none are on yet) and
+/// belong to `owner_w_id` — the workspace whose principals the tenants name,
+/// which is the calling one unless a superadmin manages them from elsewhere.
 async fn build_plan(
     db: &DB,
     w_id: &str,
+    owner_w_id: &str,
     datatable_name: &str,
     old: Option<&DataTablePermissions>,
     req: &SetDatatablePermissions,
@@ -489,7 +494,7 @@ async fn build_plan(
     // it: a stale tenant or a stranded migration is refused without a round trip,
     // and the connection is then checked to have reached that same database.
     let (_, _, key) = resolve_datatable_database_unchecked(db, w_id, datatable_name).await?;
-    ensure_save_names_what_exists(db, w_id, &key, old, req).await?;
+    ensure_save_names_what_exists(db, owner_w_id, &key, old, req).await?;
     let (client, conn) = connect_as_admin_unchecked(db, w_id, datatable_name).await?;
     let mut plan = crate::datatable_permissions_oss::plan_role_changes(
         &conn.database_key,
@@ -559,8 +564,15 @@ pub(crate) async fn plan_drop_of_datatable_roles(
         }) else {
             return Ok::<_, Error>(None);
         };
-        let (client, _, plan) =
-            build_plan(db, w_id, datatable_name, Some(&record.permissions), &req).await?;
+        let (client, _, plan) = build_plan(
+            db,
+            w_id,
+            w_id,
+            datatable_name,
+            Some(&record.permissions),
+            &req,
+        )
+        .await?;
         Ok(Some((client, plan, key)))
     }
     .await;
@@ -893,7 +905,8 @@ pub(crate) async fn usable_roles(
 /// that another admin's deletion took off the role in between (deleting the
 /// principal removes its tenant, see `remove_datatable_tenant`): written back,
 /// whoever is given that username next would inherit the role. Refusing is what
-/// makes the stale save visible; the admin reloads and saves again.
+/// makes the stale save visible; the admin reloads and saves again. `w_id` is
+/// the workspace whose principals the tenants are — the owning one.
 ///
 /// A migration carries its role as a `-- role <name>` annotation in its own code,
 /// which neither a rename nor a removal rewrites, so its next run — or the down
@@ -1109,9 +1122,14 @@ async fn preview_datatable_permissions(
     // Refused here too: offering a plan that the save will not run is its own
     // kind of wrong.
     ensure_can_manage_permissions(&db, &authed, &w_id, record.as_ref(), req.enabled).await?;
+    let owner_w_id = record
+        .as_ref()
+        .and_then(|r| r.owner_workspace_id.clone())
+        .unwrap_or_else(|| w_id.clone());
     let (_client, _, plan) = build_plan(
         &db,
         &w_id,
+        &owner_w_id,
         &datatable_name,
         record.as_ref().map(|r| &r.permissions),
         &req,
@@ -1161,6 +1179,7 @@ async fn set_datatable_permissions(
     let (mut client, conn, plan) = build_plan(
         &db,
         &w_id,
+        &owner_workspace_id,
         &datatable_name,
         record.as_ref().map(|r| &r.permissions),
         &req,
@@ -1244,10 +1263,11 @@ async fn set_datatable_permissions(
 }
 
 /// Restore exported permissions on the databases this workspace's data tables
-/// reach and nobody governs yet, owned by this workspace. The export carries no
-/// passwords, so every role is refused until an admin saves the drawer again,
-/// which recreates the logins; a database that is already governed is left as
-/// it is and reported, by the data table that reaches it.
+/// reach and nobody governs yet, owned by this workspace. Roles and tenants
+/// only: every role is refused until an admin saves the drawer again, which
+/// creates the logins under names the save generates; a database that is
+/// already governed is left as it is and reported, by the data table that
+/// reaches it.
 async fn import_datatable_permissions(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1277,6 +1297,7 @@ async fn import_datatable_permissions(
         let mut permissions = row.permissions;
         validate_imported_permissions(&permissions)?;
         for role in permissions.roles.values_mut() {
+            role.pg_rolename = None;
             role.pg_password = None;
         }
         if !permissions.roles.contains_key(ADMIN_DATATABLE_ROLE) {

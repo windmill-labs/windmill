@@ -84,7 +84,10 @@
 		roles: []
 	})
 
-	const tenantItems = resource([() => workspace], async ([ws]) => {
+	// Tenants are principals of the workspace that owns the permissions, which
+	// is this one unless a superadmin manages them from another reaching the
+	// same database.
+	const tenantItems = resource([() => ownerWorkspace ?? workspace], async ([ws]) => {
 		if (!ws) return []
 		const [users, groups, folders] = await Promise.all([
 			UserService.listUsernames({ workspace: ws }),

@@ -678,9 +678,9 @@ async fn a_deletion_takes_only_the_permissions_it_owns(db: Pool<Postgres>) -> an
     Ok(())
 }
 
-/// An export carries a database's roles, tenants and login names, never its
+/// An export carries a database's roles and tenants, never its login names or
 /// passwords; importing them governs a database nobody governs yet, owned by
-/// the importing workspace, with every role refused until a save recreates the
+/// the importing workspace, with every role refused until a save creates the
 /// logins. A database already governed is left alone and reported.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn imported_permissions_govern_without_logins(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -740,17 +740,20 @@ async fn imported_permissions_govern_without_logins(db: Pool<Postgres>) -> anyho
     .fetch_one(&db)
     .await?;
     assert_eq!(row.0.as_deref(), Some("test-workspace"));
-    assert_eq!(
-        row.1["roles"]["analyst"]["pg_rolename"],
-        json!("wm_analyst_x")
+    // A login name is a cluster-wide identifier the next save would rename or
+    // reset, so it is not taken from an import either.
+    assert!(
+        row.1["roles"]["analyst"].get("pg_rolename").is_none(),
+        "{}",
+        row.1
     );
     assert!(
         row.1["roles"]["analyst"].get("pg_password").is_none(),
         "{}",
         row.1
     );
-    // The tenant is listed as usable; resolving the role, which has no stored
-    // credential, is refused rather than falling back to the owning connection.
+    // The tenant is listed as usable; resolving the role, which has no login
+    // yet, gives the caller nothing rather than the owning connection.
     let roles = usable_roles(port, "test-workspace", "main", "SECRET_TOKEN_3").await;
     assert_eq!(roles["roles"], json!(["analyst"]), "{roles}");
     let resp = authed(
@@ -761,8 +764,10 @@ async fn imported_permissions_govern_without_logins(db: Pool<Postgres>) -> anyho
     )
     .send()
     .await?;
+    let status = resp.status().as_u16();
     let text = resp.text().await?;
-    assert!(text.contains("no stored credential"), "{text}");
+    assert_eq!(status, 401, "{text}");
+    assert!(text.contains("has no login yet"), "{text}");
 
     Ok(())
 }

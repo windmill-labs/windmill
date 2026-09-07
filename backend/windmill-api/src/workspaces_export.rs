@@ -1761,9 +1761,9 @@ pub(crate) async fn tarball_workspace(
 
     // The permissions of the databases this workspace governs, as the import
     // endpoint takes them back: named by a data table of this workspace reaching
-    // the database, with roles, tenants and login names, never passwords — those
-    // are direct database logins, and a re-save recreates them. A database no
-    // entry of the workspace reaches any more cannot be named, and is left out.
+    // the database, with roles and tenants — no passwords, which are direct
+    // database logins, and no login names, which a re-save generates. A database
+    // no entry of the workspace reaches any more cannot be named, and is left out.
     let permissions =
         windmill_common::workspaces::database_permissions_owned_by(&mut *tx, &w_id).await?;
     if !permissions.is_empty() {
@@ -1791,6 +1791,7 @@ pub(crate) async fn tarball_workspace(
             .filter_map(|mut row| {
                 let datatable = reaching.get(&row.database_key)?;
                 for role in row.permissions.roles.values_mut() {
+                    role.pg_rolename = None;
                     role.pg_password = None;
                 }
                 Some(serde_json::json!({

@@ -1284,7 +1284,10 @@ pub struct DatabasePermissions {
 /// resolves to — the login left out: the same database reached as another user
 /// is the same database, and whoever can make a resource resolve there either
 /// holds its credentials, and has that access already, or does not, and gets a
-/// connection that fails.
+/// connection that fails. The host is read as DNS does, case-insensitively; an
+/// alias that names the same server another way (an address for a name, a
+/// proxy) is another database to this key, which is where the argument above
+/// applies: pointing a resource at one takes its credentials.
 pub fn datatable_database_key(
     database: &DataTableDatabase,
     resolved: &serde_json::Value,
@@ -1296,16 +1299,18 @@ pub fn datatable_database_key(
         DataTableCatalogResourceType::Postgresql => {
             use sha2::{Digest, Sha256};
             // As the connection reads them, not as the JSON spells them: a port
-            // left out is 5432, a number and its string are one port.
+            // left out is 5432, a number and its string are one port, a host is
+            // one host whatever its case.
             let text = |field: &str| {
                 resolved
                     .get(field)
                     .map(|v| match v.as_str() {
-                        Some(s) => s.to_string(),
+                        Some(s) => s.trim().to_string(),
                         None => v.to_string(),
                     })
                     .unwrap_or_default()
             };
+            let host = text("host").to_ascii_lowercase();
             let port = resolved
                 .get("port")
                 .and_then(|v| {
@@ -1316,7 +1321,7 @@ pub fn datatable_database_key(
             let mut hasher = Sha256::new();
             // NUL-joined so a value cannot be replayed by moving characters across
             // the field boundaries.
-            for part in [text("host"), port.to_string(), text("dbname")] {
+            for part in [host, port.to_string(), text("dbname")] {
                 hasher.update(part.as_bytes());
                 hasher.update([0u8]);
             }
@@ -2042,9 +2047,10 @@ async fn resolve_datatable_role(
         )));
     }
 
-    // A role named without a stored credential is not a reason to fall back to
-    // the data table's own connection: that one owns everything, so the caller
-    // would silently get more than the role they asked for.
+    // A role without a login, or without its password, is not a reason to fall
+    // back to the data table's own connection: that one owns everything, so the
+    // caller would silently get more than the role they asked for. Only `admin`
+    // means that connection.
     match (
         role_entry.pg_rolename.clone(),
         role_entry.pg_password.clone(),
@@ -2053,7 +2059,10 @@ async fn resolve_datatable_role(
         (Some(_), None) => Err(Error::internal_err(format!(
             "Role '{role_name}' of data table '{name}' has no stored credential; save its permissions again to reset it"
         ))),
-        (None, _) => Ok(None),
+        (None, _) if role_name == ADMIN_DATATABLE_ROLE => Ok(None),
+        (None, _) => Err(Error::NotAuthorized(format!(
+            "Role '{role_name}' of data table '{name}' has no login yet; save its permissions to create it"
+        ))),
     }
 }
 
@@ -3463,6 +3472,11 @@ mod tests {
                 &pg("u/a/pg"),
                 &serde_json::json!({ "host": "db", "port": "5432", "dbname": "prod" })
             )
+        );
+        // A host is one host whatever its case, as DNS reads it.
+        assert_eq!(
+            datatable_database_key(&pg("u/a/pg"), &resolved("db.example", "prod", "app")),
+            datatable_database_key(&pg("u/a/pg"), &resolved(" DB.Example ", "prod", "app"))
         );
     }
 
