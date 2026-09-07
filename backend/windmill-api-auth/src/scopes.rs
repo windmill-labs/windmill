@@ -793,6 +793,33 @@ pub fn with_guest_sentinel(mut scopes: Vec<String>) -> Vec<String> {
     scopes
 }
 
+/// Scopes a guest session carries. The broad-looking reads are narrowed to a route
+/// allowlist by the sentinel (`guest_route_denied`), plus the two path-scoped app
+/// grants. A guest has no `usr` row, so this list is the whole of what it can do. The
+/// single source both the mint (a signed-in guest) and the JWT auth arm build from.
+///
+/// The sentinel here only narrows. A signed-in guest is made one by the server-minted
+/// label; a JWT guest has no label, so for it the sentinel is what governs.
+pub fn guest_session_scopes(app_path: &str) -> windmill_common::error::Result<Vec<String>> {
+    // The path is spliced into a scope, whose grammar reserves `:`, `,`, `*` and a leading
+    // `/`; app paths may otherwise carry spaces and `@`, so guard only those reserved chars.
+    if !windmill_common::auth::is_scope_literal_path(app_path) {
+        return Err(windmill_common::error::Error::BadRequest(format!(
+            "app path {app_path} is empty or cannot be scoped: `:`, `,` and `*` are reserved \
+             in scopes, and a leading `/` never matches a route"
+        )));
+    }
+    Ok(vec![
+        GUEST_SENTINEL.to_string(),
+        "jobs:read".to_string(),
+        "resources:run".to_string(),
+        "users:read".to_string(),
+        "folders:read".to_string(),
+        format!("apps:read:{app_path}"),
+        format!("apps:run:{app_path}"),
+    ])
+}
+
 /// Sentinel in raw-app SDK tokens. Grants nothing; `check_route_access` uses it
 /// to narrow the declared scopes to what the viewer's prompt promised.
 pub const RAW_APP_SDK_SENTINEL: &str = "raw_app_sdk";
