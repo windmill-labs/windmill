@@ -427,7 +427,10 @@
 		<!-- Dynamic import for the same reason as the editors above: these pull in
 		     the runnable pickers and the resource-type schema forms. Keyed on the
 		     refresh nonce so a dropped draft cell remounts the editor (see reload). -->
-		{#key `${workspaceId}#${entityNonce}`}
+		<!-- The path is part of the key: a tab re-pointed at another row of the same
+		     list keeps this block otherwise, and the view that stays would answer for
+		     an editor its own `{#key path}` has already replaced. -->
+		{#key `${workspaceId}#${entityNonce}#${slot.path}`}
 			{#if slot.entityKind === 'trigger_schedule'}
 				{#await import('./ScheduleEditorView.svelte')}
 					{@render editorLoading()}

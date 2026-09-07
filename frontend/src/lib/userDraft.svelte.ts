@@ -193,11 +193,10 @@ export function beginDraftSettleWindow(
 	}
 }
 /**
- * Every value the cell was let go of during the window, in order. All of them: an
- * item reopened and closed again while the write is in flight releases a freshly
- * loaded baseline, and keeping only the last would let that erase the edit before
- * it. Only reads — the window owns their lifetime, and a second save settling the
- * same cell has to see what the first did.
+ * Every value the cell was let go of during the window. All of them: an item
+ * reopened and closed again releases a freshly loaded baseline, and keeping only
+ * the last would let it erase the edit before it. Only reads — the window owns
+ * their lifetime, and a second save settling the cell must see what the first saw.
  */
 function releasedDuringWindow<V>(
 	itemKind: UserDraftItemKind,

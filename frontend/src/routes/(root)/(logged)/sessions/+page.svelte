@@ -660,9 +660,9 @@
 				else if (ev.to !== ev.path) owner.retargetTabTo(tab.id, entityEditorHref(loc, ev.to))
 				// Same path: nothing to re-point, but every OTHER editor on it holds a
 				// baseline the deploy has replaced and would offer to discard back to it.
-				// The reporting one has settled its own, including an edit typed while the
-				// save was in flight, which a remount would re-read from under — unless it
-				// is gone, and what stands in its place loaded before the save landed.
+				// The reporting one settled its own, edit typed mid-write included, which a
+				// remount would re-read from under — unless it is gone and what replaced it
+				// loaded before the save landed.
 				else if (ev.fromLive === false || s.id !== ev.fromSessionId || tab.id !== ev.fromTabId)
 					tabHosts[key]?.reload({ entity: 'refresh' })
 			}
