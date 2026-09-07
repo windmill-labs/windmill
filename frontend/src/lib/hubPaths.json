@@ -1,5 +1,5 @@
 {
-	"gitSyncTest": "hub/28184/git-repo-test-read-write-windmill",
+	"gitSyncTest": "hub/28950/git-repo-test-read-write-windmill",
 	"gitInitRepo": "hub/28948/git-sync-init-repository-windmill",
 	"slackErrorHandler": "hub/28794/workspace-or-schedule-error-handler-slack",
 	"emailErrorHandler": "hub/19795/workspace-or-error-handler-email",
