@@ -565,10 +565,10 @@ export async function resolveWorkspace(
       // consulted and `--workspace` reaches the API as a workspace id. Name the
       // id being sent, and the mapping being skipped, before the request 404s
       // on an id the user never typed.
+      // Only an explicit `workspaceId:` is worth reporting: an entry without one
+      // maps the name to itself, leaving nothing to correct.
       const yamlEntry = await peekWorkspaceEntry(opts.workspace);
-      const yamlWorkspaceId = yamlEntry
-        ? getEffectiveWorkspaceId(opts.workspace, yamlEntry)
-        : undefined;
+      const yamlWorkspaceId = yamlEntry?.workspaceId;
       if (yamlWorkspaceId && yamlWorkspaceId !== resolved.workspaceId) {
         log.warnStderr(
           colors.yellow(

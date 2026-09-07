@@ -211,7 +211,7 @@ export function getWmillYamlPath(): string | null {
  * Look up one `workspaces` entry, for diagnostics only. readConfigFile() must
  * not be used for that: it chdirs to the config's directory, exits on an
  * unsupported syncBehavior and throws on a malformed file. A diagnostic may
- * never fail, move or slow down the command it is diagnosing.
+ * never fail or relocate the command it is diagnosing.
  */
 export async function peekWorkspaceEntry(
   workspaceName: string
