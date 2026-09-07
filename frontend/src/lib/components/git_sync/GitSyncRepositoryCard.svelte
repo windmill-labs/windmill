@@ -23,8 +23,7 @@
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import EEOnly from '$lib/components/EEOnly.svelte'
-	import { ResourceService, VariableService } from '$lib/gen'
-	import { managedCredentialHost } from './managedCredential'
+	import { GitSyncService, ResourceService, VariableService } from '$lib/gen'
 
 	let {
 		idx = null,
@@ -152,8 +151,8 @@
 	let loadingResourceInfo = $state(false)
 	// Only GitHub App-backed repos can register webhooks; PAT repos poll only.
 	let isGithubApp = $state(false)
-	/** The host named by the resource's `managed_credential`, when Windmill holds
-	 * the repository's token rather than it being written into the URL. */
+	/** Whether Windmill holds this repository's credential, answered by the server
+	 * rather than inferred from the resource. `undefined` until the lookup lands. */
 	let managedCredential = $state<string | undefined>(undefined)
 	// Whether Windmill itself holds a credential for the repository, which is
 	// what the managed features (webhooks, pull requests, commit checks) need.
@@ -267,6 +266,20 @@
 				isGithubApp = false
 				managedCredential = undefined
 				try {
+					// The server answers whether it holds this repository's credential;
+					// the resource cannot, because the marker that used to claim it was
+					// a copy that went stale on a URL edit, an import, and in a fork.
+					// Best-effort: a failure here must not hide the URL below.
+					GitSyncService.getCredentialOrigin({
+						workspace: $workspaceStore,
+						path: repo.git_repo_resource_path
+					})
+						.then((r) => {
+							if (!abortController.signal.aborted) {
+								managedCredential = r?.origin ? (r.provider ?? 'gitlab') : undefined
+							}
+						})
+						.catch(() => {})
 					const resource = await ResourceService.getResource({
 						workspace: $workspaceStore,
 						path: repo.git_repo_resource_path
@@ -276,7 +289,6 @@
 						// Extract git URL from resource value
 						const value = resource.value as Record<string, any>
 						isGithubApp = value?.is_github_app === true
-						managedCredential = managedCredentialHost(value)
 						// A newly added sync connection defaults to pulling from Git only
 						// when the repository is app-backed (instant webhook delivery).
 						// Polling is opt-in for token repositories, and fork/dev workspaces

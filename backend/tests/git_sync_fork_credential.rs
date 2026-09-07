@@ -15,6 +15,7 @@ use windmill_common::git_sync_ee::{
     git_credential_for_url, repo_provider, repo_supports_managed_git_features, set_git_credential,
     GitProvider,
 };
+use windmill_common::workspaces::GitCredentialProvider;
 
 const REPO: &str = "$res:u/admin/repo";
 const URL: &str = "https://gitlab.com/grp/proj.git";
@@ -25,24 +26,62 @@ async fn credential_status_is_a_workspaces_own(db: Pool<Postgres>) -> anyhow::Re
         repo_supports_managed_git_features(&db, "parent-ws", REPO).await,
         "the workspace holding the recorded status qualifies"
     );
-    assert_eq!(
-        repo_provider(&db, "parent-ws", REPO).await,
-        GitProvider::GitLab,
-        "and its provider comes from that record"
-    );
     assert!(
         !repo_supports_managed_git_features(&db, "fork-ws", REPO).await,
         "a fork with no record of its own does not borrow the parent's: the status \
          describes one repository, and this fork's resource could name another"
     );
-    assert_eq!(
-        repo_provider(&db, "fork-ws", REPO).await,
-        GitProvider::GitHub,
-        "so it answers with the default provider until its own check runs"
-    );
     assert!(
         !repo_supports_managed_git_features(&db, "errored-fork-ws", REPO).await,
         "a workspace whose own credential failed stays disqualified"
+    );
+    Ok(())
+}
+
+/// The host a repository talks to is declared when its credential is stored, and
+/// travels with the credential down the fork chain.
+///
+/// Read from the recorded status instead, a fork answered with the default
+/// provider until its own check ran, which is long enough to register a webhook
+/// against the wrong receiver.
+#[sqlx::test(fixtures("git_sync_fork_credential"))]
+async fn the_provider_comes_from_the_credential_and_reaches_forks(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    assert_eq!(
+        repo_provider(&db, "parent-ws", REPO).await,
+        GitProvider::GitHub,
+        "with nothing stored there is no declaration to read, so the default stands"
+    );
+
+    set_git_credential(
+        &db,
+        "parent-ws",
+        URL,
+        "glpat-secret",
+        GitCredentialProvider::Gitlab,
+    )
+    .await?;
+
+    assert_eq!(
+        repo_provider(&db, "parent-ws", REPO).await,
+        GitProvider::GitLab,
+        "the workspace that stored it reads its own declaration"
+    );
+    assert_eq!(
+        repo_provider(&db, "fork-ws", REPO).await,
+        GitProvider::GitLab,
+        "and a fork resolving that credential reads it too, without a check of its own"
+    );
+    assert_eq!(
+        repo_provider(&db, "deep-fork-ws", REPO).await,
+        GitProvider::GitLab,
+        "two levels down as well"
+    );
+    assert_eq!(
+        repo_provider(&db, "orphan-ws", REPO).await,
+        GitProvider::GitHub,
+        "a workspace outside the chain resolves no credential and no declaration"
     );
     Ok(())
 }
@@ -57,7 +96,14 @@ async fn credential_status_is_a_workspaces_own(db: Pool<Postgres>) -> anyhow::Re
 async fn a_fork_reads_an_ancestors_credential_for_the_bound_repository_only(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
-    set_git_credential(&db, "parent-ws", URL, "glpat-secret").await?;
+    set_git_credential(
+        &db,
+        "parent-ws",
+        URL,
+        "glpat-secret",
+        GitCredentialProvider::Gitlab,
+    )
+    .await?;
 
     assert_eq!(
         git_credential_for_url(&db, "parent-ws", URL)
@@ -104,8 +150,22 @@ async fn a_fork_reads_an_ancestors_credential_for_the_bound_repository_only(
 async fn each_repository_keeps_its_own_credential(db: Pool<Postgres>) -> anyhow::Result<()> {
     const OTHER_URL: &str = "https://gitlab.com/grp/other.git";
 
-    set_git_credential(&db, "parent-ws", URL, "glpat-first").await?;
-    set_git_credential(&db, "parent-ws", OTHER_URL, "glpat-second").await?;
+    set_git_credential(
+        &db,
+        "parent-ws",
+        URL,
+        "glpat-first",
+        GitCredentialProvider::Gitlab,
+    )
+    .await?;
+    set_git_credential(
+        &db,
+        "parent-ws",
+        OTHER_URL,
+        "glpat-second",
+        GitCredentialProvider::Gitlab,
+    )
+    .await?;
 
     assert_eq!(
         git_credential_for_url(&db, "parent-ws", URL)
@@ -121,7 +181,14 @@ async fn each_repository_keeps_its_own_credential(db: Pool<Postgres>) -> anyhow:
         Some("glpat-second")
     );
 
-    set_git_credential(&db, "parent-ws", URL, "glpat-replacement").await?;
+    set_git_credential(
+        &db,
+        "parent-ws",
+        URL,
+        "glpat-replacement",
+        GitCredentialProvider::Gitlab,
+    )
+    .await?;
     assert_eq!(
         git_credential_for_url(&db, "parent-ws", URL)
             .await?
@@ -147,7 +214,14 @@ async fn each_repository_keeps_its_own_credential(db: Pool<Postgres>) -> anyhow:
 async fn a_credential_is_not_served_over_a_downgraded_transport(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
-    set_git_credential(&db, "parent-ws", URL, "glpat-secret").await?;
+    set_git_credential(
+        &db,
+        "parent-ws",
+        URL,
+        "glpat-secret",
+        GitCredentialProvider::Gitlab,
+    )
+    .await?;
     assert_eq!(
         git_credential_for_url(&db, "parent-ws", "http://gitlab.com/grp/proj.git").await?,
         None

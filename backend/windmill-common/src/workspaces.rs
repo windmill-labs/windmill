@@ -446,16 +446,6 @@ pub struct GitCredentialStatus {
     /// a token carried in the repository URL is the operator's to manage, and one
     /// resolved from an ancestor is the ancestor's, so neither is renewed here.
     pub rotatable: bool,
-    /// Whether the credential gets renewed at all, by whichever workspace holds
-    /// it. Equals `rotatable` for the holder and is also true for a fork that
-    /// borrows an ancestor's, which nothing local renews but nothing needs to.
-    ///
-    /// The UI shows expiry warnings on exactly `!renewed`, so this is what keeps
-    /// a fork from nagging about a token its ancestor renews on schedule. Kept
-    /// server-side because only the server can tell a borrowed credential from an
-    /// unheld one, which the resource alone cannot express.
-    #[serde(default)]
-    pub renewed: bool,
     /// Unix timestamp (seconds) of the last check.
     pub checked_at: i64,
     /// Why the last check or rotation failed, cleared by the next success.

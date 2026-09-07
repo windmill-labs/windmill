@@ -1,13 +1,18 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { ResourceService, WorkspaceService, type Resource, type ResourceType } from '$lib/gen'
+	import {
+		GitSyncService,
+		ResourceService,
+		WorkspaceService,
+		type Resource,
+		type ResourceType
+	} from '$lib/gen'
 	import { canWrite } from '$lib/utils'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
 	import ResourceForm from './ResourceForm.svelte'
-	import { managedCredentialHost } from './git_sync/managedCredential'
 	import ReplaceGitCredential from './git_sync/ReplaceGitCredential.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import Alert from './common/alert/Alert.svelte'
@@ -145,12 +150,28 @@
 	let loadingSchema = $derived(resourceTypeResource.loading)
 
 	let current = $derived(selected ? states[selected]?.draft : undefined)
-	let managedHost = $derived(managedCredentialHost(current?.args))
 	// The saved URL, not the draft's: a credential is bound to the repository it
 	// is issued for, so binding one to an edit that has not landed yet would tie
 	// it to something the resource does not point at.
 	let deployedUrl = $derived(
 		selected ? ((fetchedResources[selected]?.value as any)?.url as string | undefined) : undefined
+	)
+	// The deployed path, for the same reason as the deployed URL: the server
+	// answers about what is stored, and an unsaved rename names nothing yet.
+	let deployedPath = $derived(selected ? (initialStates[selected]?.path ?? initialPath) : undefined)
+	// Asked of the server rather than read off the resource: the marker this
+	// replaced was a copy of a server fact kept in a client-editable, exported
+	// object, so it went stale on a URL edit, a workspace import, and in a fork.
+	// Re-asked when the saved URL moves, since that is a different repository.
+	const credentialOrigin = resource(
+		[() => selected, () => deployedPath, () => deployedUrl],
+		async ([ws, path]) =>
+			ws && path
+				? await GitSyncService.getCredentialOrigin({ workspace: ws, path }).catch(() => undefined)
+				: undefined
+	)
+	let managedHost = $derived(
+		credentialOrigin.current?.origin ? credentialOrigin.current.provider : undefined
 	)
 	// Only an unsaved *URL* blocks replacing the token, not any unsaved change:
 	// opening the drawer materialises schema defaults (`folder: ""`), so a whole-

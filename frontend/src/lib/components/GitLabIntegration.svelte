@@ -116,11 +116,6 @@
 			...args,
 			url,
 			is_github_app: false,
-			// The URL carries no credential, so without this the resource is
-			// indistinguishable from a public remote: it is what tells the rest of
-			// the UI the token is Windmill's to keep and renew, and which host it
-			// belongs to.
-			managed_credential: 'gitlab',
 			branch: args.branch || chosen.default_branch || undefined
 		})
 		token = ''

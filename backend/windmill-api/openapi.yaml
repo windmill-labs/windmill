@@ -2947,6 +2947,47 @@ paths:
                 items:
                   $ref: "#/components/schemas/GitlabProject"
 
+  /w/{workspace}/git_sync/credential/origin:
+    get:
+      tags:
+        - Git Sync
+      summary: Where a repository's credential comes from
+      description: >-
+        Whether Windmill holds this repository's access token, and which host it
+        talks to. `held` means this workspace stores it, `borrowed` means an
+        ancestor does and it is not this workspace's to replace. Both absent
+        means the repository authenticates with whatever its URL carries.
+        Returns no secret. Requires workspace admin.
+      operationId: getCredentialOrigin
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: path
+          in: query
+          required: true
+          description: >-
+            Path of the git repository resource, with or without the `$res:`
+            prefix. A path rather than a URL, because a resource URL may carry a
+            token and a URL in a query string lands in logs.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: where the credential comes from
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  origin:
+                    type: string
+                    enum:
+                      - held
+                      - borrowed
+                  provider:
+                    type: string
+                    enum:
+                      - gitlab
+
   /w/{workspace}/git_sync/credential:
     post:
       tags:
@@ -34354,12 +34395,6 @@ components:
         rotatable:
           type: boolean
           description: whether this workspace renews the credential itself
-        renewed:
-          type: boolean
-          description: >-
-            whether the credential is renewed at all, by whichever workspace
-            holds it; true for a fork reading an ancestor's, which nothing local
-            renews but nothing needs to
         checked_at:
           type: integer
           format: int64
