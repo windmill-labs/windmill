@@ -4774,11 +4774,10 @@ async fn maintain_git_credentials_inner(db: &Pool<Postgres>) -> error::Result<()
     // settings row survives, and rotating a token for one would be pure damage.
     // Least-recently-checked first, so a pass that runs out of budget resumes
     // where it stopped instead of re-checking the same head of the list forever.
-    // A repository with no recorded credential sorts first and stays there,
-    // which is deliberate: it has no token to introspect, so it costs a few
-    // database queries and nothing else. Tens of thousands of them would have to
-    // exist in one instance before they consumed the pass budget ahead of a
-    // repository that does have a token.
+    // A repository with no recorded credential sorts last: it has nothing to
+    // rotate, yet a remote whose URL carries a token on a host that is not
+    // GitLab still costs a probe every pass and never records a check, so put
+    // first it would hold the head of the list ahead of the tokens that expire.
     let rows = sqlx::query!(
         r#"SELECT ws.workspace_id, ws.git_sync
            FROM workspace_settings ws
@@ -4789,7 +4788,7 @@ async fn maintain_git_credentials_inner(db: &Pool<Postgres>) -> error::Result<()
            ORDER BY (
              SELECT min((elem->'credential'->>'checked_at')::bigint)
              FROM jsonb_array_elements(ws.git_sync->'repositories') AS elem
-           ) ASC NULLS FIRST"#
+           ) ASC NULLS LAST"#
     )
     .fetch_all(db)
     .await?;
@@ -4815,7 +4814,10 @@ async fn maintain_git_credentials_inner(db: &Pool<Postgres>) -> error::Result<()
         // within one, the repositories need the same least-recently-checked
         // order or the tail of a large workspace never gets its turn.
         let mut repositories: Vec<_> = settings.repositories.iter().collect();
-        repositories.sort_by_key(|r| r.credential.as_ref().map(|c| c.checked_at));
+        repositories.sort_by_key(|r| {
+            let checked_at = r.credential.as_ref().map(|c| c.checked_at);
+            (checked_at.is_none(), checked_at)
+        });
 
         for repo in repositories {
             if started.elapsed() >= GIT_CREDENTIAL_PASS_BUDGET {

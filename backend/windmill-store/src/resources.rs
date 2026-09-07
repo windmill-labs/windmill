@@ -3268,11 +3268,16 @@ async fn get_git_commit_hash(
     })?;
     git_resource.url =
         resolve_azure_devops_url(&db_with_opt_authed, &w_id, &git_resource.url, false).await?;
-    // Safe to attach for a caller-named resource because a credential is stored
-    // under the repository it was issued for: a resource repointed at another
-    // host asks for that repository's credential and finds none.
+    // A credential is stored under the repository it was issued for, so a
+    // resource repointed elsewhere finds none. Which credential can be attached
+    // is bounded by that; who may use it is bounded here, on the same terms as
+    // the installation credential above.
+    let plain_url = git_resource.url.clone();
     git_resource.url =
         windmill_common::git_sync_oss::with_stored_credential(&db, &w_id, git_resource.url).await?;
+    if git_resource.url != plain_url {
+        require_admin(authed.is_admin, &authed.username)?;
+    }
 
     let identities: Vec<String> = query
         .git_ssh_identity

@@ -278,25 +278,25 @@
 				credentialOrigin = undefined
 				try {
 					// The server answers whether it holds this repository's credential;
-					// the resource cannot, because the marker that used to claim it was
-					// a copy that went stale on a URL edit, an import, and in a fork.
-					// Best-effort: a failure here must not hide the URL below.
-					GitSyncService.getCredentialOrigin({
-						workspace: $workspaceStore,
-						path: repo.git_repo_resource_path
-					})
-						.then((r) => {
-							if (!abortController.signal.aborted) {
-								credentialOrigin = r?.origin
-								managedCredential = r?.origin ? (r.provider ?? 'gitlab') : undefined
-							}
+					// the resource cannot, being client-editable, exported and copied
+					// into forks. Best-effort: a failure here must not hide the URL
+					// below. Awaited alongside the resource because the defaults below
+					// read the answer.
+					const [origin, resource] = await Promise.all([
+						GitSyncService.getCredentialOrigin({
+							workspace: $workspaceStore,
+							path: repo.git_repo_resource_path
+						}).catch(() => undefined),
+						ResourceService.getResource({
+							workspace: $workspaceStore,
+							path: repo.git_repo_resource_path
 						})
-						.catch(() => {})
-					const resource = await ResourceService.getResource({
-						workspace: $workspaceStore,
-						path: repo.git_repo_resource_path
-					})
+					])
 
+					if (!abortController.signal.aborted) {
+						credentialOrigin = origin?.origin
+						managedCredential = origin?.origin ? (origin.provider ?? 'gitlab') : undefined
+					}
 					if (!abortController.signal.aborted && resource?.value) {
 						// Extract git URL from resource value
 						const value = resource.value as Record<string, any>
@@ -651,15 +651,15 @@
 			<div class="text-xs text-secondary">
 				{#if credentialDaysLeft === undefined}
 					Repository token does not expire.
+				{:else if credentialOrigin === 'borrowed'}
+					Repository token expires on {repo.credential.expires_at}, and the workspace that holds it
+					manages renewal.
 				{:else if repo.credential.rotatable && $enterpriseLicense}
 					Repository token expires on {repo.credential.expires_at}, and Windmill renews it
 					automatically.
 				{:else if repo.credential.rotatable}
 					Repository token expires on {repo.credential.expires_at}. Renewing it automatically
 					requires an enterprise license.
-				{:else if credentialOrigin === 'borrowed'}
-					Repository token expires on {repo.credential.expires_at}, and the workspace that holds it
-					manages renewal.
 				{:else}
 					Repository token expires on {repo.credential.expires_at}, and Windmill does not renew it.
 				{/if}

@@ -159,20 +159,20 @@
 	// The deployed path, for the same reason as the deployed URL: the server
 	// answers about what is stored, and an unsaved rename names nothing yet.
 	let deployedPath = $derived(selected ? (initialStates[selected]?.path ?? initialPath) : undefined)
-	// Asked of the server rather than read off the resource: the marker this
-	// replaced was a copy of a server fact kept in a client-editable, exported
-	// object, so it went stale on a URL edit, a workspace import, and in a fork.
-	// Re-asked when the saved URL moves, since that is a different repository.
+	// Asked of the server rather than read off the resource: the resource is
+	// client-editable, exported and copied into forks, so nothing written on it
+	// stays true. Re-asked when the saved URL moves, since that is a different
+	// repository.
 	const credentialOrigin = resource(
-		[() => selected, () => deployedPath, () => deployedUrl],
-		async ([ws, path]) =>
-			ws && path
+		[() => selected, () => deployedPath, () => deployedUrl, () => resource_type],
+		async ([ws, path, _url, type]) =>
+			ws && path && type === 'git_repository'
 				? await GitSyncService.getCredentialOrigin({ workspace: ws, path }).catch(() => undefined)
 				: undefined
 	)
-	let managedHost = $derived(
-		credentialOrigin.current?.origin ? credentialOrigin.current.provider : undefined
-	)
+	// Only a credential this workspace holds is its to replace: a fork borrows
+	// its ancestor's, and storing a replacement here would split it in two.
+	let holdsCredential = $derived(credentialOrigin.current?.origin === 'held')
 	// Only an unsaved *URL* blocks replacing the token, not any unsaved change:
 	// opening the drawer materialises schema defaults (`folder: ""`), so a whole-
 	// resource dirty check would disable it the moment the drawer opens.
@@ -423,7 +423,7 @@
 			</Alert>
 		{/if}
 
-		{#if managedHost && selected}
+		{#if holdsCredential && selected}
 			<Alert type="info" title="Windmill holds this repository's access token">
 				<div class="flex flex-col items-start gap-2">
 					<div>

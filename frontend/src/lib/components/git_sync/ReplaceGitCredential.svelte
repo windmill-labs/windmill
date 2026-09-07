@@ -52,23 +52,28 @@
 			// repository but only refuses it when something tries to use it, so a
 			// wrong token would otherwise be accepted here and surface as a failed
 			// sync later.
+			// A URL that does not parse names no project to check, and would be
+			// stored as the credential's key verbatim: a `$var:` reference here
+			// keys the token to a repository that does not exist.
 			const parts = repoParts(forRepo)
-			if (parts) {
-				const projects = await GitSyncService.listGitlabProjects({
-					workspace: inWorkspace,
-					// Searched by name rather than listed whole: the listing is one
-					// capped page, so a token that reaches more projects than fit
-					// would not show this one and a working token would be refused.
-					requestBody: {
-						base_url: parts.base,
-						token: candidate,
-						search: parts.project.split('/').pop()
-					}
-				})
-				if (!projects.some((p) => p.path_with_namespace === parts.project)) {
-					error = `That token cannot push to ${parts.project}. Check its role and that it belongs to this project.`
-					return
+			if (!parts) {
+				error = 'The resource URL must name the repository directly to replace its token here.'
+				return
+			}
+			const projects = await GitSyncService.listGitlabProjects({
+				workspace: inWorkspace,
+				// Searched by name rather than listed whole: the listing is one
+				// capped page, so a token that reaches more projects than fit
+				// would not show this one and a working token would be refused.
+				requestBody: {
+					base_url: parts.base,
+					token: candidate,
+					search: parts.project.split('/').pop()
 				}
+			})
+			if (!projects.some((p) => p.path_with_namespace === parts.project)) {
+				error = `That token cannot push to ${parts.project}. Check its role and that it belongs to this project.`
+				return
 			}
 			await GitSyncService.setGitCredential({
 				workspace: inWorkspace,
