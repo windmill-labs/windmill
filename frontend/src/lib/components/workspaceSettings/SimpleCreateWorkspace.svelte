@@ -21,7 +21,7 @@
 
 	interface Props {
 		/** Where to go once the workspace exists. It is already the active one by then. */
-		onCreated: (workspaceId: string) => void
+		onCreated: () => void
 		/**
 		 * Rendered at the head of the action row — a host's own way back, next to Advanced
 		 * settings rather than stranded under the button that finishes the form.
@@ -120,7 +120,7 @@
 			// Left up rather than cleared: the navigation it hands over to loads the workspace
 			// layout for the first time, and dropping back to the form under it would show the
 			// button again for as long as that takes.
-			onCreated(id)
+			onCreated()
 		} catch (error) {
 			console.error('Could not create the workspace:', error)
 			sendUserToast('Could not create the workspace: ' + (error?.body || error?.message), true)
@@ -135,7 +135,7 @@
 		Creating {name.trim()}…
 	</div>
 {:else if advanced}
-	<CreateWorkspaceInner inModal onFinish={() => onCreated('')} />
+	<CreateWorkspaceInner inModal onFinish={onCreated} />
 	<!-- The full form has no way back to this one, so the host's way out of the step stays
 	     reachable here too — below it, since that form ends on its own action row. -->
 	{#if leading}

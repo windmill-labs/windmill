@@ -225,9 +225,11 @@
 			     it: the project's own logo, name and prose. -->
 			<ImportProjectCard {project} {hubHost} description={pick?.description} showCounts={false} />
 		{/if}
+		<!-- The note stays: this dialog always imports into a workspace that already holds
+		     things, which is the case it is about. Only a brand-new workspace has nothing to
+		     say about resources it will not overwrite or triggers that arrive disabled. -->
 		<ImportProjectStep
 			chooseFolder={false}
-			showNotes={false}
 			fillHeight
 			{plan}
 			{project}
