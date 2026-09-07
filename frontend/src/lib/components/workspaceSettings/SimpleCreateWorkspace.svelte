@@ -41,9 +41,11 @@
 	let automateUsername = $state(true)
 	let suggestedUsername = $state<string | undefined>(undefined)
 	/**
-	 * Whether the username policy has landed. Nothing may be submitted before it does:
+	 * Whether the policy is settled, which is what this form may not submit without:
 	 * `automateUsername` starts at the common case, and posting that guess to an instance
-	 * that derives no usernames sends none where one is required.
+	 * that derives no usernames sends none where one is required. A load that fails settles
+	 * it by handing over to the full form, which asks for a username outright instead of
+	 * inferring one — so this is never true while the answer is still a guess.
 	 */
 	let policyLoaded = $state(false)
 	/** Someone typed while the prefill was in flight; their name wins over the suggestion. */
@@ -56,10 +58,13 @@
 			automateUsername = policy.automate
 			suggestedUsername = policy.suggested
 			if (!policy.automate && !policy.suggested) advanced = true
+			policyLoaded = true
 		} catch (error) {
 			console.error('Could not prefill the workspace name:', error)
 			if (!nameEdited) name = 'My workspace'
-		} finally {
+			// The policy is what failed, so there is nothing to submit against. The full form
+			// carries its own username field, which is the version that needs no policy.
+			advanced = true
 			policyLoaded = true
 		}
 	}
