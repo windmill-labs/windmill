@@ -699,6 +699,11 @@
 		try {
 			const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, wsId!)
 			if (isSaved) {
+				// This editor is reused for whatever is opened next, so a drawer switched
+				// during the write leaves every read below describing THAT schedule. Only
+				// what was sent may still be adopted then; the live form belongs to the
+				// item on screen, and its cell is not this write's to settle.
+				const stillHere = initialPath === previousPath && wsId === previousWs
 				// A create deploys the schedule enabled whatever the form said (see
 				// saveScheduleFromCfg), so what counts as written records that — the baseline
 				// would otherwise claim a state the server does not have. The form follows
@@ -706,31 +711,35 @@
 				if (wasCreate) {
 					const sentEnabled = scheduleCfg.enabled
 					scheduleCfg.enabled = true
-					deployedEnabled = true
-					if (enabled === sentEnabled) enabled = true
-				} else {
+					if (stillHere) {
+						deployedEnabled = true
+						if (enabled === sentEnabled) enabled = true
+					}
+				} else if (stillHere) {
 					// An update's payload carries no `enabled` (see saveScheduleFromCfg), so
 					// this write did not move it: what counts as written keeps the value the
 					// server has accepted, and the baseline below with it.
 					scheduleCfg.enabled = deployedEnabled
 				}
-				// What was sent is the deployed value now. Adopted here rather than by
-				// remounting: the form stays editable during the write, and a remount would
-				// re-read over an edit made then — which `settleDraftAfterWrite` keeps.
-				initialConfig = structuredClone(scheduleCfg)
-				baselineNonce++
+				if (stillHere) {
+					// What was sent is the deployed value now. Adopted here rather than by
+					// remounting: the form stays editable during the write, and a remount would
+					// re-read over an edit made then — which `settleDraftAfterWrite` keeps.
+					initialConfig = structuredClone(scheduleCfg)
+					baselineNonce++
 
-				// The schedule is deployed now, whether it was before or not. Set here rather
-				// than left to the remount, which a kept edit skips: they decide whether the
-				// next save updates or creates, and whether a discard removes the item.
-				edit = true
-				draftOnly = false
+					// The schedule is deployed now, whether it was before or not. Set here rather
+					// than left to the remount, which a kept edit skips: they decide whether the
+					// next save updates or creates, and whether a discard removes the item.
+					edit = true
+					draftOnly = false
+				}
 				// Awaited before the host hears: it remounts on the report, and a remount
 				// that overtook this would load the draft this is removing.
 				await settleDraftAfterWrite(
 					'trigger_schedule',
 					scheduleCfg,
-					getScheduleCfg(),
+					stillHere ? getScheduleCfg() : undefined,
 					previousPath,
 					scheduleCfg.path,
 					{ workspace: previousWs ?? undefined }
@@ -742,9 +751,9 @@
 					scheduleCfg.path,
 					previousPath,
 					previousWs,
-					!draftValuesEqual(getScheduleCfg(), scheduleCfg)
+					stillHere && !draftValuesEqual(getScheduleCfg(), scheduleCfg)
 				)
-				drawer?.closeDrawer()
+				if (stillHere) drawer?.closeDrawer()
 			}
 		} finally {
 			deploymentLoading = false

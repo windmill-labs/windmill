@@ -373,9 +373,19 @@
 				// to it via `discard` (not `remove` — blanking the cell to `undefined` reads
 				// as dirty) and keeps an edit made mid-request. Each workspace settles
 				// against the path its own write used, not the reported one.
-				await settleDraftAfterWrite('variable', s, states[ws]?.draft, from ?? '', s.path, {
-					workspace: ws
-				})
+				// The live cell only while this editor is still on the item it saved: the
+				// drawer is reused, so after a re-point `states` is the next item's, and
+				// reading it here would take that for an edit made over this write —
+				// leaving this item's draft behind. Re-pointed, the cell it released
+				// during the write is what answers.
+				await settleDraftAfterWrite(
+					'variable',
+					s,
+					editPath === from ? states[ws]?.draft : undefined,
+					from ?? '',
+					s.path,
+					{ workspace: ws }
+				)
 				// Collected, not reported yet: a report retargets the host, whose `{#key
 				// path}` would unmount this editor at the next workspace's await and leave
 				// that one's handle released — its draft then settles against nothing.
