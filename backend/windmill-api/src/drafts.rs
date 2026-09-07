@@ -502,12 +502,27 @@ async fn resolve_moved_to(
 
     // The client re-points its in-flight draft with this patch rather than
     // reproducing `typed_path_field` / `base_version_field` on its own side.
-    // Both keys have to be rewritten together: the path alone would leave the
-    // draft claiming the pre-move version, and the editor would greet it with a
-    // stale-draft prompt the moment it landed.
+    // The version is always restamped — it is lineage, not intent, and without
+    // it the draft lands at the new path still claiming the pre-move version and
+    // the editor greets it with a stale-draft prompt. The typed path follows the
+    // same rule as `move_drafts_for_path`: only when it still names the old path,
+    // so a rename the user staged in this very editor survives the relocation.
+    // Present and naming the old path ⇒ repoint. Absent ⇒ omit, so the patch
+    // never manufactures a target the draft did not have. Naming anywhere else
+    // ⇒ omit, so a staged rename is preserved.
+    let repoint_path = serde_json::from_str::<serde_json::Value>(value)
+        .ok()
+        .and_then(|v| {
+            v.get(kind.typed_path_field())
+                .and_then(|p| p.as_str())
+                .map(|p| p == path)
+        })
+        .unwrap_or(false);
     Ok(moved.map(|(new_path, new_by, head)| {
         let mut patch = serde_json::Map::new();
-        patch.insert(kind.typed_path_field().to_string(), json!(&new_path));
+        if repoint_path {
+            patch.insert(kind.typed_path_field().to_string(), json!(&new_path));
+        }
         if let Some(field) = kind.base_version_field() {
             patch.insert(field.to_string(), head);
         }
@@ -667,7 +682,7 @@ async fn update_draft(
                 current_timestamp: now,
                 moved_to: None,
                 moved_by: None,
-            moved_patch: None,
+                moved_patch: None,
             }))
         }
     }

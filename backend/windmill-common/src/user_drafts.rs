@@ -603,13 +603,21 @@ pub async fn move_drafts_for_path(
     base_version: Option<(&str, String)>,
 ) -> Result<MoveDraftsOutcome> {
     let typs = kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>();
-    // `create_missing = false` on the typed path: absent means "same as the
-    // row's path", which `SET path` already points at `new_path`.
+    // The typed path is only followed along when it still names the OLD path.
+    //  - absent (`create_missing = false`): means "wherever my row sits", which
+    //    `SET path` already points at `new_path`.
+    //  - equal to `old_path`: no rename staged, so it has to follow or deploying
+    //    this draft would send the item back where it came from.
+    //  - anything else: a rename the user staged in their editor. Deploying
+    //    should still land there, so the move leaves it alone.
     let moved = sqlx::query_scalar!(
         r#"UPDATE draft AS d
            SET path = $3,
                value = to_json(
-                   jsonb_set(to_jsonb(d.value), ARRAY[$4::text], to_jsonb($3::text), false)
+                   CASE WHEN to_jsonb(d.value) -> $4::text = to_jsonb($2::text)
+                        THEN jsonb_set(to_jsonb(d.value), ARRAY[$4::text], to_jsonb($3::text), false)
+                        ELSE to_jsonb(d.value)
+                   END
                )
            WHERE d.workspace_id = $1
              AND d.path = $2
