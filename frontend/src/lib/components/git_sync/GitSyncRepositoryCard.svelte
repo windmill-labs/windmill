@@ -155,34 +155,6 @@
 	/** The host named by the resource's `managed_credential`, when Windmill holds
 	 * the repository's token rather than it being written into the URL. */
 	let managedCredential = $state<string | undefined>(undefined)
-	let canSelfRotate = $derived(
-		(repo?.credential?.scopes ?? []).some((s) => s === 'api' || s === 'self_rotate')
-	)
-	/**
-	 * Why this repository's token is or is not being renewed.
-	 *
-	 * Renewal needs a scope that permits self-rotation and a credential the
-	 * workspace holds, and the alert and the quiet status line below both describe
-	 * that state at different day counts. Reading it independently in each has
-	 * twice produced contradictory advice, so it is classified once here and both
-	 * render the answer.
-	 *
-	 * `inherited` is reachable only on a fork: forking copies the resource's
-	 * marker but not the credential, so the fork borrows its ancestor's and reports
-	 * `rotatable: false` while the ancestor renews it on schedule. Any other
-	 * workspace whose stored credential stopped matching its URL loses its recorded
-	 * status entirely and never reaches here.
-	 */
-	let renewal = $derived.by(() => {
-		const credential = repo?.credential
-		if (!credential) return undefined
-		if (credential.rotatable) return $enterpriseLicense ? 'renewed' : 'needs-license'
-		// The marker comes from the resource, so until that load lands there is no
-		// answer yet and guessing one would state the opposite of the truth.
-		if (loadingResourceInfo) return 'unknown'
-		if (canSelfRotate) return managedCredential ? 'inherited' : 'not-held'
-		return managedCredential ? 'no-scope' : 'no-scope-and-not-held'
-	})
 	// Whether Windmill itself holds a credential for the repository, which is
 	// what the managed features (webhooks, pull requests, commit checks) need.
 	// A GitHub App installation qualifies, and so does a token the server keeps.
@@ -233,7 +205,7 @@
 		if (days === undefined) return undefined
 		const when =
 			days <= 0 ? 'has expired' : days === 1 ? 'expires tomorrow' : `expires in ${days} days`
-		if (credential.rotatable) {
+		if (credential.renewed) {
 			// A token Windmill renews needs no countdown: a renewal that fails records
 			// an error, which is handled above. Reaching the expiry date anyway is the
 			// one state that proves renewal never happened, and it is the only one
@@ -247,25 +219,14 @@
 			}
 		}
 		if (days > 30) return undefined
-		// Nothing for this workspace to act on: the holder renews it, and telling a
-		// fork admin to replace it would split the credential in two.
-		if (renewal === 'inherited' || renewal === 'unknown') return undefined
-		const remedy =
-			renewal === 'no-scope'
-				? // The remedy lives with the credential, which the resource owns; saying
-					// where stops the warning being a dead end.
-					` Replace it on the ${repo?.git_repo_resource_path?.replace(/^\$res:/, '') ?? 'repository'} resource.`
-				: ' Connect the repository with the GitLab button to hand the token to Windmill, or replace it before it expires.'
-		const cause =
-			renewal === 'not-held'
-				? 'Windmill is not the holder of this token, so it does not renew it.'
-				: renewal === 'no-scope'
-					? 'Give the token the api or self_rotate scope so Windmill can renew it.'
-					: 'Windmill is not the holder of this token, and could not renew it anyway without the api or self_rotate scope.'
+		// Why nothing renews it is the server's answer to give, not this card's to
+		// infer: it alone can tell a token the operator owns from one an ancestor
+		// holds and renews. The card asks only whether anything renews it, and says
+		// where to act when nothing does.
 		return {
 			type: days <= 7 ? ('error' as const) : days <= 14 ? ('warning' as const) : ('info' as const),
 			title: `Repository token ${when}`,
-			body: cause + remedy
+			body: `Windmill does not renew this token. Replace it on the ${repo?.git_repo_resource_path?.replace(/^\$res:/, '') ?? 'repository'} resource before it expires.`
 		}
 	})
 
@@ -665,26 +626,14 @@
 			<div class="text-xs text-secondary">
 				{#if credentialDaysLeft === undefined}
 					Repository token does not expire.
-				{:else if renewal === 'renewed'}
+				{:else if repo.credential.renewed && $enterpriseLicense}
 					Repository token expires on {repo.credential.expires_at}, and Windmill renews it
 					automatically.
-				{:else if renewal === 'needs-license'}
+				{:else if repo.credential.renewed}
 					Repository token expires on {repo.credential.expires_at}. Renewing it automatically
 					requires an enterprise license.
-				{:else if renewal === 'inherited'}
-					Repository token expires on {repo.credential.expires_at}, and the workspace that holds it
-					renews it.
-				{:else if renewal === 'not-held'}
-					Repository token expires on {repo.credential.expires_at}. Windmill renews only a token it
-					holds, and it does not hold this one.
-				{:else if renewal === 'no-scope'}
-					Repository token expires on {repo.credential.expires_at}. Give it the api or self_rotate
-					scope so Windmill can renew it.
-				{:else if renewal === 'no-scope-and-not-held'}
-					Repository token expires on {repo.credential.expires_at}. Windmill renews only a token it
-					holds, and this one would also need the api or self_rotate scope.
 				{:else}
-					Repository token expires on {repo.credential.expires_at}.
+					Repository token expires on {repo.credential.expires_at}, and Windmill does not renew it.
 				{/if}
 			</div>
 		{/if}

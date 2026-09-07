@@ -34353,6 +34353,13 @@ components:
           description: one-way digest identifying which credential this status describes
         rotatable:
           type: boolean
+          description: whether this workspace renews the credential itself
+        renewed:
+          type: boolean
+          description: >-
+            whether the credential is renewed at all, by whichever workspace
+            holds it; true for a fork reading an ancestor's, which nothing local
+            renews but nothing needs to
         checked_at:
           type: integer
           format: int64

@@ -441,12 +441,21 @@ pub struct GitCredentialStatus {
     /// different credential here", which look identical at the API otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_fingerprint: Option<String>,
-    /// Whether Windmill renews this credential itself. That needs a scope which
+    /// Whether *this workspace* renews the credential. That needs a scope which
     /// permits it (`api` or `self_rotate`) and a credential this workspace holds:
     /// a token carried in the repository URL is the operator's to manage, and one
     /// resolved from an ancestor is the ancestor's, so neither is renewed here.
-    /// `scopes` therefore only tells the scope half apart.
     pub rotatable: bool,
+    /// Whether the credential gets renewed at all, by whichever workspace holds
+    /// it. Equals `rotatable` for the holder and is also true for a fork that
+    /// borrows an ancestor's, which nothing local renews but nothing needs to.
+    ///
+    /// The UI shows expiry warnings on exactly `!renewed`, so this is what keeps
+    /// a fork from nagging about a token its ancestor renews on schedule. Kept
+    /// server-side because only the server can tell a borrowed credential from an
+    /// unheld one, which the resource alone cannot express.
+    #[serde(default)]
+    pub renewed: bool,
     /// Unix timestamp (seconds) of the last check.
     pub checked_at: i64,
     /// Why the last check or rotation failed, cleared by the next success.
