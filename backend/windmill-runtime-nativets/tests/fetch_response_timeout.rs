@@ -513,6 +513,8 @@ async fn the_wrapper_keeps_fetch_s_own_shape() {
     let ts = format!(
         r#"
 declare const Promise: any;
+declare const AbortSignal: any;
+declare const AbortController: any;
 export async function main(): Promise<string> {{
     const arity = (fetch as any).length;
 
@@ -528,16 +530,22 @@ export async function main(): Promise<string> {{
             : `other(${{(e as Error).message}})`;
     }}
 
-    // Patched only across the call: the wrapper reaches for `.then` while
-    // building its return value, and awaiting under a patched prototype would
-    // instead measure V8 treating the promise as a plain thenable.
+    // Patched only across the call: the wrapper reaches for these while
+    // building its return value, and awaiting under a patched Promise
+    // prototype would instead measure V8 treating it as a plain thenable.
     const originalThen = Promise.prototype.then;
+    const originalAny = AbortSignal.any;
+    const originalAbort = AbortController.prototype.abort;
     let pending: any;
     try {{
         Promise.prototype.then = undefined;
+        (AbortSignal as any).any = undefined;
+        (AbortController.prototype as any).abort = undefined;
         pending = fetch("http://127.0.0.1:{port}/shape");
     }} finally {{
         Promise.prototype.then = originalThen;
+        (AbortSignal as any).any = originalAny;
+        (AbortController.prototype as any).abort = originalAbort;
     }}
     const status = (await pending).status;
 
@@ -550,4 +558,36 @@ export async function main(): Promise<string> {{
         .await
         .expect("script should run");
     assert_eq!(out, "\"1:required-argument:200\"");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_timer_aborts_through_a_captured_intrinsic() {
+    // The timeout has to fire for this one: `AbortController.prototype.abort`
+    // is patched out for the whole wait, so an ordinary lookup would throw
+    // inside the timer callback and leave the request pending forever.
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let port = spawn_silent_peer(seen, Duration::from_secs(TIMEOUT_SECS * 5)).await;
+
+    let ts = format!(
+        r#"
+declare const AbortController: any;
+export async function main(): Promise<string> {{
+    const originalAbort = AbortController.prototype.abort;
+    AbortController.prototype.abort = undefined;
+    try {{
+        await fetch("http://127.0.0.1:{port}/patched-abort");
+        return "unexpectedly resolved";
+    }} catch (e) {{
+        return (e as Error).name;
+    }} finally {{
+        AbortController.prototype.abort = originalAbort;
+    }}
+}}
+"#
+    );
+
+    let out = run_with_timeout_secs(&ts, TIMEOUT_SECS)
+        .await
+        .expect("the timeout must still fire");
+    assert_eq!(out, "\"TimeoutError\"");
 }

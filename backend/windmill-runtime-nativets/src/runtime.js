@@ -44,6 +44,10 @@ const clearTimeoutUnbound = timers.clearTimeout;
 // way deno's own modules reach intrinsics through primordials.
 const PromiseReject = Promise.reject.bind(Promise);
 const promiseThen = Function.prototype.call.bind(Promise.prototype.then);
+const abortSignalAny = abortSignal.AbortSignal.any.bind(abortSignal.AbortSignal);
+const abortControllerAbort = Function.prototype.call.bind(
+  abortSignal.AbortController.prototype.abort,
+);
 const ReflectApply = Reflect.apply;
 
 // Installed per isolate by __wmInitPerIsolate; 0 disables. Only a backstop
@@ -89,21 +93,17 @@ globalThis.fetch = function fetch(input, init = undefined) {
   let controller;
   let signal;
   try {
-    // The caller's init is never read here -- it is handed to the same Request
-    // constructor fetch() itself would call, and our signal travels in an init
-    // of our own. RequestInit is a WebIDL dictionary, and every way of carrying
-    // one across changes how it is read: copying drops inherited and
-    // non-enumerable members, and inheriting runs accessors against the wrong
-    // receiver, which throws for a private-field getter. Handing it over
-    // untouched has neither failure mode, and a non-dictionary still raises
-    // deno_fetch's own TypeError.
+    // RequestInit is a WebIDL dictionary: copying it drops inherited and
+    // non-enumerable members, and inheriting from it runs accessors against the
+    // wrong receiver. Hand it to the same Request constructor fetch() would,
+    // and carry our own signal in an init of our own.
     req = new request.Request(input, init);
 
     // `req.signal` is deno's own resolution of init.signal over an input
     // Request's signal, so combining with it preserves the caller's abort and
     // reason while ours only adds a ceiling.
     controller = new abortSignal.AbortController();
-    signal = abortSignal.AbortSignal.any([req.signal, controller.signal]);
+    signal = abortSignalAny([req.signal, controller.signal]);
   } catch (e) {
     return PromiseReject(e);
   }
@@ -116,7 +116,7 @@ globalThis.fetch = function fetch(input, init = undefined) {
 
   let timer = setTimeoutUnbound(() => {
     timer = undefined;
-    controller.abort(fetchResponseTimeoutError(req.url, timeoutMs));
+    abortControllerAbort(controller, fetchResponseTimeoutError(req.url, timeoutMs));
   }, timeoutMs);
   // Disarmed on headers, never on body completion: a response that has begun
   // arriving must be free to stream for as long as it needs.
