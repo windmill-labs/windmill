@@ -364,6 +364,121 @@ export function main() {
     Ok(())
 }
 
+/// A script can throw a non-object, or an object with a reference cycle. The error the
+/// job reports must still identify what was thrown, never the wrapper's own failure to
+/// read or serialize it.
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_job_non_error_throws(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    fn bun_job(content: &str) -> JobPayload {
+        JobPayload::Code(RawCode {
+            hash: None,
+            content: content.to_owned(),
+            path: None,
+            language: ScriptLang::Bun,
+            lock: None,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            modules: None,
+            tag: None,
+        })
+    }
+
+    // `throw null`: the wrapper must not dereference the thrown value.
+    {
+        let job = bun_job("export function main() { throw null; }");
+        let completed = run_job_in_new_worker_until_complete(&db, false, job, port).await;
+        assert!(!completed.success);
+        let result = completed.json_result().unwrap();
+        assert_eq!(result["error"]["message"], serde_json::json!("null"));
+    }
+
+    // A thrown string is a string, not an index map of its characters.
+    {
+        let job = bun_job(r#"export function main() { throw "nur ein string"; }"#);
+        let completed = run_job_in_new_worker_until_complete(&db, false, job, port).await;
+        assert!(!completed.success);
+        let result = completed.json_result().unwrap();
+        assert_eq!(
+            result["error"]["message"],
+            serde_json::json!("nur ein string")
+        );
+    }
+
+    // An HTTP client links its errors both ways, which is what a plain JSON.stringify
+    // could not serialize. Only that same stringify reports `extra`, so the request the
+    // client hangs off the error, credentials included, stays out of the result exactly as
+    // it did when the wrapper crashed.
+    {
+        let job = bun_job(
+            r#"
+export function main() {
+    const config: any = {
+        url: "/x",
+        headers: { Authorization: "Bearer sentinel-tkn" },
+        auth: { username: "svc", password: "sentinel-tkn" },
+        httpsAgent: { options: { key: "-----BEGIN PRIVATE KEY-----sentinel-tkn" } },
+    };
+    const request: any = { path: "/x", _header: "GET /x HTTP/1.1\r\nAuthorization: Bearer sentinel-tkn\r\n\r\n" };
+    const response: any = { status: 401, config, request };
+    request.res = response;
+    const e: any = new Error("Request failed with status code 401");
+    e.name = "AxiosError";
+    e.config = config;
+    e.request = request;
+    e.response = response;
+    throw e;
+}
+"#,
+        );
+        let completed = run_job_in_new_worker_until_complete(&db, false, job, port).await;
+        assert!(!completed.success);
+        let result = completed.json_result().unwrap();
+        let error = &result["error"];
+        assert_eq!(
+            error["message"],
+            serde_json::json!("Request failed with status code 401")
+        );
+        assert_eq!(error["name"], serde_json::json!("AxiosError"));
+        assert_eq!(
+            error["extra"],
+            serde_json::json!("[extra omitted: not serializable]")
+        );
+        assert!(
+            !error.to_string().contains("sentinel-tkn"),
+            "credential reached the result: {error}"
+        );
+    }
+
+    // An acyclic thrown object still reports its own properties, unchanged. Carrying
+    // `extra` does not stand in for identifying the throw, so the type tag reports it too.
+    {
+        let job = bun_job(r#"export function main() { throw { code: 42, hint: "kein Error" }; }"#);
+        let completed = run_job_in_new_worker_until_complete(&db, false, job, port).await;
+        assert!(!completed.success);
+        let result = completed.json_result().unwrap();
+        assert_eq!(
+            result["error"]["extra"],
+            serde_json::json!({ "code": 42, "hint": "kein Error" })
+        );
+        assert_eq!(
+            result["error"]["message"],
+            serde_json::json!("[object Object]")
+        );
+        assert_eq!(result["error"]["name"], serde_json::json!("ThrownValue"));
+    }
+
+    Ok(())
+}
+
 #[sqlx::test(fixtures("base"))]
 async fn test_bun_job_missing_main_function(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;

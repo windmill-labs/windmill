@@ -3240,6 +3240,102 @@ export async function main(a: Date) {
     Ok(())
 }
 
+/// A script can throw a non-object. The error the job reports must still identify what
+/// was thrown, never the wrapper's own failure to read it.
+#[sqlx::test(fixtures("base"))]
+async fn test_deno_job_non_error_throws(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let deno_job = |content: &str| {
+        JobPayload::Code(RawCode {
+            hash: None,
+            content: content.to_owned(),
+            path: None,
+            lock: None,
+            language: ScriptLang::Deno,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            modules: None,
+            tag: None,
+        })
+    };
+
+    // `throw null`: the wrapper must not dereference the thrown value.
+    let job = RunJob::from(deno_job("export function main() { throw null; }"))
+        .run_until_complete(&db, false, port)
+        .await;
+    assert!(!job.success);
+    assert_eq!(
+        job.json_result().unwrap()["error"]["message"],
+        json!("null")
+    );
+
+    // A thrown string reaches the result as a string, not an empty error object.
+    let job = RunJob::from(deno_job(
+        r#"export function main() { throw "nur ein string"; }"#,
+    ))
+    .run_until_complete(&db, false, port)
+    .await;
+    assert!(!job.success);
+    assert_eq!(
+        job.json_result().unwrap()["error"]["message"],
+        json!("nur ein string")
+    );
+
+    // Wrapping a library error (`catch (e) { throw { cause: e } }`) leaves a thrown object
+    // with none of message/name/stack. Reporting it must stay a type tag: rendering its
+    // contents would carry the wrapped client's credentials into the only record Deno
+    // keeps, since these wrappers have no `console.error`.
+    let job = RunJob::from(deno_job(
+        r#"
+export function main() {
+    const config: any = { headers: { Authorization: "Bearer sentinel-tkn" } };
+    const request: any = { path: "/x" };
+    const response: any = { status: 401, config, request };
+    request.res = response;
+    const inner: any = new Error("Request failed with status code 401");
+    inner.config = config;
+    inner.response = response;
+    throw { cause: inner };
+}
+"#,
+    ))
+    .run_until_complete(&db, false, port)
+    .await;
+    assert!(!job.success);
+    let error = job.json_result().unwrap()["error"].clone();
+    assert_eq!(error["message"], json!("[object Object]"));
+    assert!(
+        !error.to_string().contains("sentinel-tkn"),
+        "credential reached the result: {error}"
+    );
+
+    // Deno reports only message/name/stack. Collecting the thrown value's own properties
+    // would persist whatever an HTTP client hangs off its errors, auth headers included.
+    let job = RunJob::from(deno_job(
+        r#"
+export function main() {
+    throw Object.assign(new Error("boom"), { authorization: "Bearer secret" });
+}
+"#,
+    ))
+    .run_until_complete(&db, false, port)
+    .await;
+    assert!(!job.success);
+    let error = job.json_result().unwrap()["error"].clone();
+    assert_eq!(error["message"], json!("boom"));
+    assert!(error.get("extra").is_none(), "unexpected extra: {error}");
+
+    Ok(())
+}
+
 /// Test that full .npmrc content works for deno jobs with private registries.
 /// Requires:
 /// - `TEST_NPMRC` environment variable set to the full .npmrc content
