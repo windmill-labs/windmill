@@ -35624,6 +35624,12 @@ components:
           type: string
           nullable: true
           description: Short summary to be displayed when listed
+        enabled:
+          type: boolean
+          description: >-
+            Whether the trigger starts a job when it fires. Honoured on create only, so a
+            trigger can be registered already paused; an update ignores it and setenabled is
+            the only way to change an existing trigger's state. Defaults to true.
       required:
         - script_path
         - is_flow

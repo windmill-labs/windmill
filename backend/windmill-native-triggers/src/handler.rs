@@ -239,6 +239,7 @@ async fn create_native_trigger<T: External>(
         &config,
         service_config,
         data.summary.as_deref(),
+        data.enabled,
     )
     .await?;
 
@@ -639,7 +640,7 @@ async fn set_native_trigger_enabled_handler<T: External>(
     )
     .await?;
 
-    set_native_trigger_enabled(
+    let updated = set_native_trigger_enabled(
         &mut *tx,
         &workspace_id,
         service_name,
@@ -647,6 +648,15 @@ async fn set_native_trigger_enabled_handler<T: External>(
         payload.enabled,
     )
     .await?;
+
+    // The read above takes no row lock, so a concurrent delete can land in between; reporting
+    // success then would tell the caller a trigger that is gone had been paused.
+    if !updated {
+        return Err(Error::NotFound(format!(
+            "Native trigger not found: {}",
+            external_id
+        )));
+    }
 
     audit_log(
         &mut *tx,

@@ -457,6 +457,7 @@ async fn test_delete_integration_full_cascade(db: Pool<Postgres>) -> anyhow::Res
         &trigger_config,
         json!({"triggerType": "drive"}),
         None,
+        true,
     )
     .await?;
 
@@ -547,6 +548,7 @@ async fn test_cleanup_preserves_triggers(db: Pool<Postgres>) -> anyhow::Result<(
         &trigger_config,
         json!({"triggerType": "drive"}),
         None,
+        true,
     )
     .await?;
 
@@ -604,6 +606,7 @@ async fn test_rename_moves_native_trigger(db: Pool<Postgres>) -> anyhow::Result<
         },
         json!({"event": "OCP\\Files\\Events\\Node\\NodeCreatedEvent"}),
         None,
+        true,
     )
     .await?;
     // An unrelated trigger already sitting on the target path must not be reported as moved.
@@ -620,6 +623,7 @@ async fn test_rename_moves_native_trigger(db: Pool<Postgres>) -> anyhow::Result<
         },
         json!({"event": "OCP\\Files\\Events\\Node\\NodeCreatedEvent"}),
         None,
+        true,
     )
     .await?;
 
@@ -876,6 +880,7 @@ async fn test_native_trigger_enabled_toggle(db: Pool<Postgres>) -> anyhow::Resul
         &config,
         json!({"event": "OCA\\Files\\Event\\LoadAdditionalScriptsEvent"}),
         None,
+        true,
     )
     .await?;
 
@@ -912,6 +917,41 @@ async fn test_native_trigger_enabled_toggle(db: Pool<Postgres>) -> anyhow::Resul
     assert!(
         !native_trigger_is_enabled(&db, "test-workspace", ServiceName::Nextcloud, "ext-1").await?,
         "an edit leaves the pause in place"
+    );
+
+    // A recreate registers a fresh trigger and must be able to come up already paused, in one
+    // write, rather than being enabled for as long as it takes a second call to arrive.
+    store_native_trigger(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        "ext-2",
+        &config,
+        json!({}),
+        None,
+        false,
+    )
+    .await?;
+    assert!(
+        !native_trigger_is_enabled(&db, "test-workspace", ServiceName::Nextcloud, "ext-2").await?
+    );
+
+    // The conflict branch is a re-registration of a trigger that already exists, so it carries no
+    // opinion about the pause.
+    store_native_trigger(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        "ext-2",
+        &config,
+        json!({}),
+        None,
+        true,
+    )
+    .await?;
+    assert!(
+        !native_trigger_is_enabled(&db, "test-workspace", ServiceName::Nextcloud, "ext-2").await?,
+        "re-registering leaves the pause in place"
     );
 
     assert!(

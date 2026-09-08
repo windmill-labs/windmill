@@ -330,7 +330,10 @@
 		const newExternalId = await saveNativeTriggerFromCfg(
 			service,
 			externalId ?? '',
-			saveCfg,
+			// A recreate registers a fresh webhook under a new external id, so it would otherwise
+			// come back enabled: the create has to carry the pause, or the replacement is live
+			// before anything can pause it again.
+			isRecreate ? { ...saveCfg, enabled } : saveCfg,
 			!isNew,
 			$workspaceStore!,
 			usedTriggerKinds
@@ -339,24 +342,6 @@
 			if (isNew) {
 				externalId = newExternalId
 				isNew = false
-				// A recreated trigger is a fresh row at a new external id, so it starts enabled.
-				// Carry over a pause the operator had set rather than silently resuming deliveries.
-				if (isRecreate && !enabled) {
-					try {
-						await NativeTriggerService.setNativeTriggerEnabled({
-							workspace: $workspaceStore!,
-							serviceName: service,
-							externalId: newExternalId,
-							requestBody: { enabled: false }
-						})
-					} catch (err: any) {
-						enabled = true
-						sendUserToast(
-							`${serviceInfo?.serviceDisplayName} trigger recreated, but it could not be left disabled: ${err.body ?? err.message}`,
-							true
-						)
-					}
-				}
 				if (isRecreate && oldExternalIdToDelete) {
 					try {
 						await NativeTriggerService.deleteNativeTrigger({

@@ -239,12 +239,20 @@ pub struct NativeTriggerConfig {
     pub webhook_token: String,
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NativeTriggerData<C> {
     pub script_path: String,
     pub is_flow: bool,
     pub service_config: C,
     pub summary: Option<String>,
+    /// Honoured on create only, so a trigger can be registered already paused in one request.
+    /// An update ignores it: `setenabled` is the only way to change an existing trigger's state.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -1183,11 +1191,15 @@ pub async fn store_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>
     config: &NativeTriggerConfig,
     service_config: C,
     summary: Option<&str>,
+    enabled: bool,
 ) -> Result<()> {
     use windmill_common::auth::hash_token;
 
     let webhook_token_hash = hash_token(&config.webhook_token);
 
+    // `enabled` is set by the INSERT alone: writing it here rather than in a follow-up statement
+    // is what keeps a trigger created paused from ever being visible, and therefore runnable, in
+    // any other state. The conflict branch leaves it untouched for the mirror-image reason.
     sqlx::query!(
         r#"
         INSERT INTO native_trigger (
@@ -1198,9 +1210,10 @@ pub async fn store_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>
             is_flow,
             webhook_token_hash,
             service_config,
-            summary
+            summary,
+            enabled
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8
+            $1, $2, $3, $4, $5, $6, $7, $8, $9
         )
         ON CONFLICT (external_id, workspace_id, service_name)
         DO UPDATE SET script_path = $4, is_flow = $5, webhook_token_hash = $6, service_config = $7, summary = $8, error = NULL, updated_at = NOW()
@@ -1213,6 +1226,7 @@ pub async fn store_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>
         webhook_token_hash,
         sqlx::types::Json(service_config) as _,
         summary,
+        enabled,
     )
     .execute(db)
     .await?;
@@ -1773,6 +1787,11 @@ pub async fn delete_workspace_integration(
 ///
 /// `external_id` is optional because during CREATE we don't have it yet
 /// (it's returned by the external service). During UPDATE, we have it.
+///
+/// Every registered URL MUST end up carrying it: it is the only thing a delivery identifies its
+/// trigger by, so a service that leaves it out ships a disable switch that silently does nothing.
+/// A handler that returns `None` from `service_config_from_create_response` gets this for free —
+/// `create_native_trigger` then runs the `update` cycle that re-registers with the assigned id.
 pub fn generate_webhook_service_url(
     base_url: &str,
     w_id: &str,
