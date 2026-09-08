@@ -106,6 +106,27 @@ describe('resolveAgentModelWiring', () => {
 		expect(wiring?.fields.reasoning_effort).toBeUndefined()
 	})
 
+	// A nested agent is the parent agent's tool, not a step the reader is talking to: the
+	// graph walks it as a child module, and counting it here would defeat the chat's own
+	// model control (this is the shape of the all-tools example flow).
+	it('ignores an agent carried as another agent\'s tool', () => {
+		const parent = agent('flow_input.model')
+		;(parent.value as any).tools = [
+			{
+				id: 'summarize',
+				value: {
+					tool_type: 'flowmodule',
+					type: 'aiagent',
+					tools: [],
+					input_transforms: {
+						provider: { type: 'static', value: { kind: 'anthropic', model: 'claude-sonnet-5' } }
+					}
+				}
+			}
+		]
+		expect(resolveAgentModelWiring([parent])).toEqual({ whole: 'model', fields: {}, fixed: {} })
+	})
+
 	it('refuses a flow mixing whole-object and field-by-field wiring', () => {
 		expect(
 			resolveAgentModelWiring([

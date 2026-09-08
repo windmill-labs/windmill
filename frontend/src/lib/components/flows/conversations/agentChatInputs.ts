@@ -1,5 +1,35 @@
 import type { FlowModule, InputTransform } from '$lib/gen'
-import { getAllModules } from '../flowExplorer'
+/**
+ * The flow's own AI agent steps, including those inside loops and branches but never one
+ * carried as another agent's tool.
+ *
+ * getAllModules walks an agent's tools as if they were child steps (flowTree.ts), which is
+ * right for the graph and wrong here: a tool agent's provider belongs to the agent that
+ * calls it, not to the chat. Counting it would let a nested agent's fixed model defeat the
+ * composer's model control on the step the reader is actually talking to.
+ */
+function agentSteps(modules: FlowModule[] | undefined): FlowModule[] {
+	const found: FlowModule[] = []
+	const walk = (mods: FlowModule[]) => {
+		for (const module of mods) {
+			const value = module.value as any
+			if (value?.type === 'aiagent') {
+				found.push(module)
+				continue
+			}
+			if (value?.type === 'forloopflow' || value?.type === 'whileloopflow') {
+				walk(value.modules ?? [])
+			} else if (value?.type === 'branchone') {
+				walk(value.default ?? [])
+				for (const branch of value.branches ?? []) walk(branch.modules ?? [])
+			} else if (value?.type === 'branchall') {
+				for (const branch of value.branches ?? []) walk(branch.modules ?? [])
+			}
+		}
+	}
+	walk(modules ?? [])
+	return found
+}
 import { parseExpressionAt } from 'acorn'
 
 /**
@@ -170,8 +200,7 @@ export function parseProviderTransform(
 export function resolveAgentModelWiring(
 	modules: FlowModule[] | undefined
 ): AgentModelWiring | undefined {
-	const wirings = getAllModules(modules ?? [])
-		.filter((m) => m.value.type === 'aiagent')
+	const wirings = agentSteps(modules)
 		.map((agent) => parseProviderTransform((agent.value as any).input_transforms?.['provider']))
 		.filter((wiring): wiring is AgentModelWiring => wiring !== undefined)
 	if (wirings.length === 0) return undefined
@@ -247,9 +276,8 @@ export function resolveAgentChatInputs(
 		: []
 
 	const keyOf = new Map<string, AgentChatInputKey>()
-	for (const module of getAllModules(modules)) {
-		if (module.value.type !== 'aiagent') continue
-		const transforms = module.value.input_transforms ?? {}
+	for (const module of agentSteps(modules)) {
+		const transforms = (module.value as any).input_transforms ?? {}
 		for (const key of AGENT_CHAT_INPUT_KEYS) {
 			const name = flowInputRef(transforms[key])
 			// A name the schema doesn't declare has no field to promote, and `user_message`

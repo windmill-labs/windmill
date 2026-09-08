@@ -716,7 +716,8 @@
 					options={{
 						right: 'Chat Mode',
 						rightTooltip:
-							'When enabled, the flow execution page shows a chat interface where each message runs the flow with the message as its "user_message" input. That input is added if the flow does not already have it; every other input is kept.'
+							'Turns this flow\'s page into a chat. Each message runs the flow with the message as its "user_message" input, and is kept as a chat — one conversation per chat, each with its own AI agent memory. Chats started in the editor are marked as tests and stay out of the deployed flow\'s list.',
+						rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/ai_agents#chat-mode'
 					}}
 				/>
 				{#if flowStore.val.value?.chat_input_enabled}
