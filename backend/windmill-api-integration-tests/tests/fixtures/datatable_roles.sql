@@ -3,7 +3,9 @@
 -- the pointer exists for.
 
 INSERT INTO global_settings (name, value) VALUES
-    ('custom_instance_pg_databases', '{"user_pwd": "pw", "databases": {"dt_main": {}}}'::jsonb),
+    -- Empty registry: role provisioning grants CONNECT on every database named here, and the
+    -- data table's `dt_main` is a name in workspace settings, not a database that exists.
+    ('custom_instance_pg_databases', '{"user_pwd": "pw", "databases": {}}'::jsonb),
     -- The role catalog has its own row: it holds generated credentials and must stay out of the
     -- operator-facing config the neighbouring row belongs to.
     ('datatable_roles', '{"role1": {"name": "analytics", "enabled": true, "pwd": "pw"}}'::jsonb)

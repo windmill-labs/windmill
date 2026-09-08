@@ -1382,10 +1382,10 @@ fn datatable_not_found_error(name: &str, datatables: Option<&serde_json::Value>)
 
 /// Read one workspace's data table entry, without following a pointer.
 ///
-/// Authorization: reads a workspace's stored configuration by id and checks nothing — not that the
-/// caller belongs to that workspace, nor that they may see the data table. Callers MUST have
-/// authorized access to `w_id` already, and MUST NOT return the entry to a caller from another
-/// workspace: it names the database and, on a governing entry, who may reach it as what.
+/// Disclosure: this is the primitive [`resolve_governing_datatable`] calls on every path, so it is
+/// deliberately open to anything that has to resolve a data table, including for a workspace the
+/// caller does not belong to. What it returns is not: callers MUST NOT put `permissions` into a
+/// response, an export or a log — it names the governing workspace's users, groups and folders.
 pub async fn read_datatable_entry(db: &DB, w_id: &str, name: &str) -> Result<DataTable> {
     let datatables = sqlx::query_scalar!(
         r#"

@@ -331,41 +331,51 @@ async fn a_caller_with_no_identity_reaches_a_permissioned_data_table_not_at_all(
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
-async fn concurrent_role_catalog_writes_do_not_lose_an_entry(db: Pool<Postgres>) -> anyhow::Result<()> {
-    use windmill_common::datatable_roles::{
-        lock_role_catalog, read_role_catalog_tx, InstanceDatatableRole,
-    };
-
+async fn concurrent_role_creations_both_survive(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
-    // The catalog is one JSON document, so every mutation is read-modify-write. Without the lock
-    // two concurrent creates read the same snapshot and the second write drops the first — leaving
-    // the role it dropped as a live cluster login nobody recorded. No DDL here: the losable step is
-    // the catalog write, and that is what this pins.
-    let insert = |id: &'static str| {
-        let db = db.clone();
-        async move {
-            let mut tx = db.begin().await?;
-            lock_role_catalog(&mut tx).await?;
-            let mut catalog = read_role_catalog_tx(&mut tx).await?;
-            // Widen the window the lock has to cover, so an unlocked version fails reliably rather
-            // than occasionally.
-            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-            catalog.insert(
-                id.to_string(),
-                InstanceDatatableRole { name: id.to_string(), enabled: true, pwd: None },
-            );
-            windmill_common::datatable_roles::write_role_catalog(&mut tx, &catalog).await?;
-            tx.commit().await?;
-            Ok::<_, anyhow::Error>(())
-        }
-    };
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
 
-    let (a, b) = tokio::join!(insert("first"), insert("second"));
-    a?;
-    b?;
+    // Postgres roles are cluster-wide and this cluster is shared with every other test database,
+    // so the names have to be unique to this run.
+    let suffix: String = uuid::Uuid::new_v4().simple().to_string()[..8].to_string();
+    let names = [format!("wmtest_a_{suffix}"), format!("wmtest_b_{suffix}")];
+
+    // The catalog is one JSON document, so create is read-modify-write. Unserialized, both of
+    // these read the same snapshot, both `CREATE ROLE` succeeds, and the second write drops the
+    // first entry — leaving a live cluster login nobody recorded.
+    let create = |name: String| async move {
+        let resp = authed(
+            client().post(format!(
+                "http://localhost:{port}/api/settings/datatable_roles"
+            )),
+            "SECRET_TOKEN",
+        )
+        .json(&json!({ "name": name }))
+        .send()
+        .await?;
+        let status = resp.status();
+        let body = resp.text().await?;
+        Ok::<_, anyhow::Error>((status, body))
+    };
+    let (a, b) = tokio::join!(create(names[0].clone()), create(names[1].clone()));
+    let (a, b) = (a?, b?);
+    assert_eq!(a.0, 200, "{}", a.1);
+    assert_eq!(b.0, 200, "{}", b.1);
 
     let catalog = windmill_common::datatable_roles::read_role_catalog(&db).await?;
-    assert!(catalog.contains_key("first"), "lost 'first': {catalog:?}");
-    assert!(catalog.contains_key("second"), "lost 'second': {catalog:?}");
+    let recorded: Vec<&str> = catalog.values().map(|r| r.name.as_str()).collect();
+    for name in &names {
+        assert!(
+            recorded.contains(&name.as_str()),
+            "{name} is a live cluster login the catalog forgot: {recorded:?}"
+        );
+    }
+
+    for name in &names {
+        sqlx::query(&format!("DROP ROLE IF EXISTS \"{name}\""))
+            .execute(&db)
+            .await?;
+    }
     Ok(())
 }
