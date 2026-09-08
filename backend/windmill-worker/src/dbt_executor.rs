@@ -436,17 +436,18 @@ pub(crate) async fn handle_dbt_job(
         // only the nodes the retry rebuilt. dbt-core then raises an INTERNAL
         // error and the Rust engines match nothing and exit 0.
         if !deferral.has_run_results
-            && selects_on_results(
+            && selection_names(
                 &effective_select(&descriptor, &inv)?,
                 &effective_exclude(&descriptor, &inv)?,
+                &["result"],
             )
         {
             return Err(Error::BadRequest(format!(
                 "a `result:` selector reads `run_results.json` out of the published state, and \
-                 the state for this environment ({}) carries only a manifest: run {} was \
-                 recovered by node retry, whose results describe the retried nodes rather than \
-                 the whole build. Run this script once without `defer` and without overrides to \
-                 publish a complete state, or drop the selector",
+                 the state for this environment ({}) carries only the manifest run {} \
+                 published: a build recovered by node retry stores none, its results describing \
+                 the retried nodes rather than the whole build. Run this script once without \
+                 `defer` and without overrides to publish a complete state, or drop the selector",
                 environment_label(&prepared),
                 deferral.published_by
             )));
@@ -3766,6 +3767,8 @@ async fn resolve_selection(
     }
     cmd.args(["--output", "json", "--quiet"]);
     add_selection(&mut cmd, descriptor, inv)?;
+    let select = effective_select(descriptor, inv)?;
+    let exclude = effective_exclude(descriptor, inv)?;
     // Captured directly, not through `handle_child`: its `pipe_stdout` path goes
     // through the job-log writer, which `NO_LOGS_AT_ALL` discards — the selection
     // would resolve to the empty set and the ingest would wipe the script's assets
@@ -3783,20 +3786,28 @@ async fn resolve_selection(
             }
         }
     }
-    // A caller's selection is stored as this run's own snapshot and never becomes
-    // what the script owns, so matching nothing records a run that claimed no
-    // nodes. That is an ordinary outcome rather than an error: `state:modified+`
-    // matches nothing exactly when nothing changed since the published state, and
-    // a run with no work to do is a successful one.
-    if set.is_empty() && !selection_is_overridden(descriptor, &inv.args)? {
-        // The descriptor's, though, is ingested as "this script owns no
-        // relations", wiping its graph and cascade edges — the same outcome a
-        // failed capture produces, and indistinguishable from it. Refuse rather
-        // than silently un-wire the script.
+    // Empty is a real answer from a `state:` or `result:` method and from nothing
+    // else: `state:modified+` matches nothing exactly when nothing changed since
+    // the published state, and a run with no work to do is a successful one. Any
+    // other selection matching nothing is a selector that names nothing — a
+    // misspelled model, say — which must not pass as a build that did its job.
+    // Exempting by ORIGIN rather than by method would let every such typo through.
+    if set.is_empty() && !selection_names(&select, &exclude, &["state", "result"]) {
         return Err(Error::ExecutionErr(
-            "the descriptor's `select`/`exclude` matched no dbt nodes; fix the selection rather \
-             than deploying a script that owns nothing"
-                .to_string(),
+            if selection_is_overridden(descriptor, &inv.args)? {
+                "this run's `select`/`exclude` matched no dbt nodes, so it would build nothing; \
+                 check the selector. Only a `state:` or `result:` selector may match nothing, \
+                 its empty answer being a real one"
+                    .to_string()
+            } else {
+                // The descriptor's is also ingested as "this script owns no
+                // relations", wiping its graph and cascade edges — the same
+                // outcome a failed capture produces, and indistinguishable from
+                // it. Refuse rather than silently un-wire the script.
+                "the descriptor's `select`/`exclude` matched no dbt nodes; fix the selection \
+                 rather than deploying a script that owns nothing"
+                    .to_string()
+            },
         ));
     }
     Ok(Some(set))
@@ -5124,12 +5135,11 @@ enum StateAccess<'a> {
     Never(&'a str),
 }
 
-/// Whether a selection reads `run_results.json`, which only some publications
-/// carry.
-fn selects_on_results(select: &[String], exclude: &[String]) -> bool {
+/// Whether a selection names any of these methods.
+fn selection_names(select: &[String], exclude: &[String], methods: &[&str]) -> bool {
     selection_methods(select)
         .chain(selection_methods(exclude))
-        .any(|method| method == "result")
+        .any(|method| methods.contains(&method))
 }
 
 /// Refuse a selection dbt cannot resolve, before it silently resolves to the
@@ -6339,6 +6349,28 @@ mod tests {
             false
         )
         .is_err());
+
+        // The same recognition decides which empty selections `resolve_selection`
+        // lets through. Only these two answer "nothing" meaningfully; a selector
+        // naming nothing must not pass as a build that did its work.
+        const STATE_BACKED: &[&str] = &["state", "result"];
+        for sel in ["state:modified+", "result:error+", "tag:x,state:new"] {
+            assert!(
+                selection_names(&[sel.to_string()], &[], STATE_BACKED),
+                "{sel}"
+            );
+        }
+        for sel in [
+            "mispelled_model",
+            "tag:nightly",
+            "stg_orders+",
+            "source_status:fresher+",
+        ] {
+            assert!(
+                !selection_names(&[sel.to_string()], &[], STATE_BACKED),
+                "{sel}"
+            );
+        }
     }
 
     // The one flag choice that is silently wrong rather than loudly wrong: a

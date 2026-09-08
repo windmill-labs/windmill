@@ -1311,8 +1311,10 @@ The AUTOMATIC in-job node retry is the same artifact under a different name: a
 build it recovers is a successful build, but the `run_results.json` on disk is
 the retry's. Such a run publishes the manifest **without** results, rather than
 with a set describing some other slice of the build — the manifest is a function
-of the project rather than of what ran, so deferral is unaffected and only
-`result:` selectors lose their input.
+of the project rather than of what ran, so deferral is unaffected. A `result:`
+selector is the one thing left with nothing to read, and it is refused by name
+against such a publication rather than passed to dbt (see "Selectors that read
+the state" below).
 
 Under `test_behavior: after_all` the stored `run_results.json` is the test
 phase's, because that is what the second invocation leaves in the target
@@ -1486,12 +1488,31 @@ run, so they belong in a run's own `select`.
 `dbt source freshness` writes and no run publishes here, so there is nothing to
 compare against even while deferring.
 
-Matching nothing is then an ordinary outcome, not a failure. `state:modified+`
-selects the empty set exactly when nothing changed since the published state,
-which is the answer a CI run wants, so a selection the CALLER chose is allowed to
-resolve to no nodes: it is stored as that run's own snapshot and never becomes
-what the script owns. The descriptor's selection still may not, since that one
-does decide ownership.
+Two more refusals follow from the same argument, that a selector with nothing to
+read must say so rather than resolve to a silent answer:
+
+- A `result:` method while deferring to a state that carries **no**
+  `run_results.json`. Publishing that is deliberate — a build recovered by
+  automatic node retry stores the manifest alone, its results describing the
+  retried nodes rather than the build ("Which runs publish it") — so `defer`
+  being on is not enough to know the file is there. Answerable only once the
+  state is loaded, so it is checked right after, naming the run that published.
+- Any of them on a `parse`. A parse resolves a selection to store the graph and
+  never defers, so `defer` would not hand it a state at any setting, and the
+  remedy the other refusal offers would lead nowhere. It says that instead.
+
+Matching nothing is then an ordinary outcome for these methods, and for no
+others. `state:modified+` selects the empty set exactly when nothing changed
+since the published state, which is the answer a CI run wants, so a selection
+naming a `state:` or `result:` method may resolve to no nodes. Such a run scoped
+its own selection, so what it stores is a snapshot of its own and never what the
+script owns, and nothing is un-wired by the empty set.
+
+The exemption is by METHOD, not by who chose the selection. Exempting every
+caller-chosen one would take a misspelled model name, which resolves to nothing
+just as surely, and report it as a build that did its work. An ordinary selection
+matching nothing stays refused, from a run as from the descriptor — from the
+descriptor because that one also decides ownership.
 
 Only what `select` and `exclude` spell directly. A method reached through a
 `selectors.yml` definition is named nowhere the worker reads, and dbt's own
