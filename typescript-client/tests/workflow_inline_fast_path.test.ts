@@ -25,8 +25,9 @@ mock.module("../core/OpenAPI", () => ({
   OpenAPI: { BASE: "http://localhost:8000/api", TOKEN: "tok" },
 }));
 
-const { WorkflowCtx, step, task, setWorkflowCtx } = await import("../client.ts");
+const { WorkflowCtx, step, task, setWorkflowCtx, StepSuspend } = await import("../client.ts");
 import type { Jsonified } from "../client.ts";
+import { isSuspendSignal } from "../wacError";
 
 process.env.WM_JOB_ID = "job-1";
 process.env.WM_WORKSPACE = "admins";
@@ -135,6 +136,42 @@ describe("inline step round parity", () => {
     } finally {
       setWorkflowCtx(null);
     }
+  });
+
+  // The fast path is the default, so this is the path a retried task actually
+  // takes. A `step()` named like an attempt key must not checkpoint under it:
+  // the retry would then read the step's value and never re-dispatch.
+  test("a step named like an attempt key checkpoints under its renamed key", async () => {
+    const t = task(async function t(x: number) {
+      return x;
+    }, { retry: { attempts: 1 } });
+    const body = async () => {
+      const pending = t(1);
+      const decoy = await step("t#2", () => "not an attempt");
+      return [decoy, await pending];
+    };
+    const round = async (completed: Record<string, any>) => {
+      setWorkflowCtx(new WorkflowCtx({ completed_steps: completed } as any));
+      try {
+        await body();
+        throw new Error("expected a suspend");
+      } catch (e: any) {
+        if (!isSuspendSignal(e, StepSuspend)) throw e;
+        return e.dispatchInfo;
+      } finally {
+        setWorkflowCtx(null);
+      }
+    };
+
+    expect(await round({})).toMatchObject({ steps: [{ key: "t" }] });
+    expect(Object.keys(posted)).toEqual(["t#2_2"]);
+
+    // `t#2` was left free, so the failed task retries instead of resolving to
+    // the step recorded above.
+    const failed = { __wmill_error: true, message: "boom", step_key: "t" };
+    expect(await round({ t: failed, "t#2_2": posted["t#2_2"] })).toMatchObject({
+      steps: [{ key: "t#2" }],
+    });
   });
 });
 
