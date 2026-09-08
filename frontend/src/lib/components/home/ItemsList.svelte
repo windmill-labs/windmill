@@ -1078,11 +1078,20 @@
 			!hasMoreServer
 	)
 	/**
+	 * Whether the placeholder below takes the toolbar's job over — it renders under the same
+	 * conditions. Standing the toolbar down depends on something else offering a way onwards:
+	 * where the placeholder holds back, as it does for an operator in a workspace that is
+	 * simply empty, these controls are all there is and stay live.
+	 */
+	let placeholderTakesOver = $derived(
+		workspaceEmpty && emptyStateAnswered && (archivedProbe?.hasArchived === true || canCreateHere)
+	)
+	/**
 	 * The toolbar is dimmed either way; `inert` also takes it off the pointer, which is only
 	 * right while the placeholder carries the way to archived items. A probe that could not
 	 * tell leaves it live as the fallback.
 	 */
-	let toolbarInert = $derived(workspaceEmpty && !archivedUnknown)
+	let toolbarInert = $derived(placeholderTakesOver && !archivedUnknown)
 
 	// Owners the counts found the user has something in, split by kind. They cover
 	// what the folder/username lists miss: an item shared individually out of a
@@ -1752,8 +1761,9 @@
 			<!-- Kept mounted, not hidden, so the toolbar doesn't reflow the moment the first item
 			     lands; `inert` takes it out of the tab order and off the pointer meanwhile. A
 			     workspace with nothing but archived items reaches them from its own placeholder,
-			     so these controls are not the way there. -->
-			<div class="flex justify-start" class:opacity-40={workspaceEmpty} inert={toolbarInert}>
+			     so these controls are not the way there — but only where that placeholder
+			     renders, which is what `placeholderTakesOver` tracks. -->
+			<div class="flex justify-start" class:opacity-40={placeholderTakesOver} inert={toolbarInert}>
 				<ToggleButtonGroup
 					selected={itemKind}
 					onSelected={(v) => {
@@ -1854,7 +1864,7 @@
 		<div class="flex grow items-center justify-end gap-2 min-w-0">
 			<div
 				class="relative text-primary w-full min-w-[200px] max-w-[26rem]"
-				class:opacity-40={workspaceEmpty}
+				class:opacity-40={placeholderTakesOver}
 				inert={toolbarInert}
 			>
 				<FilterSearchbar
