@@ -140,16 +140,10 @@
 		>
 			<div use:fadeContent>
 				{#if hasArgs}
-					<!-- The one thing here that runs before Run: a `dynselect-`/`dynmultiselect-`
-			argument makes DynamicInput execute that entrypoint on mount to fill its options — a
-			real job carrying the other args as proposed, which Cancel does not undo. For a test run
-			that code is the draft the model just wrote; the job is permissioned as the user and
-			reaches nothing they could not. Everything else here waits for the user.
-
-			A test run names its draft by code, not by path: `deployed` would resolve a version
-			that is stale, or absent for a draft never deployed. Withheld entirely under plan
-			mode, and whenever the draft's code did not come through, leaving DynamicInput its
-			plain value editor. -->
+					<!-- Passing `helperScript` is what lets DynamicInput run a job before Run: it
+			executes the `dynselect-` entrypoint on mount, carrying the other args as proposed,
+			and Cancel does not undo it. Withheld under plan mode, which promised no writes.
+			A test run names its draft by code: `deployed` resolves a stale version, or none. -->
 					<SchemaForm
 						bind:schema={draft.schema}
 						helperScript={planMode
