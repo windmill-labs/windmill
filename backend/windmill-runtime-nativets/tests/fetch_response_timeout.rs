@@ -471,3 +471,32 @@ export async function main(): Promise<number> {{
         "method, headers and body should all survive, got: {body}",
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_already_aborted_fetch_settles_in_the_same_tick() {
+    // deno_fetch keeps its outer fetch non-async and returns an already-settled
+    // rejection untouched, because WPT pins that an aborted fetch settles in the
+    // same tick. Adopting it through another promise pushes the rejection behind
+    // any microtask queued after the call.
+    let ts = r#"
+export async function main(): Promise<string> {
+    const order: string[] = [];
+    const ac = new AbortController();
+    ac.abort();
+    const f = fetch("http://127.0.0.1:1/x", { signal: ac.signal })
+        .catch(() => { order.push("fetch"); });
+    Promise.resolve().then(() => { order.push("queued-after"); });
+    await f;
+    await new Promise<void>((r) => setTimeout(r, 0));
+    return order.join(",");
+}
+"#;
+
+    let out = run_with_timeout_secs(ts, TIMEOUT_SECS)
+        .await
+        .expect("script should run");
+    assert_eq!(
+        out, "\"fetch,queued-after\"",
+        "the rejection must land before a microtask queued after the call",
+    );
+}

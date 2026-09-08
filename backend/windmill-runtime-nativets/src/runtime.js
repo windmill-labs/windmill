@@ -40,6 +40,8 @@ const ORIGINAL_FETCH = fetch.fetch;
 // invocation".
 const setTimeoutUnbound = timers.setTimeout;
 const clearTimeoutUnbound = timers.clearTimeout;
+// Captured before user code shares the isolate and could redefine it.
+const PromiseReject = Promise.reject.bind(Promise);
 
 // Installed per isolate by __wmInitPerIsolate; 0 disables. Only a backstop
 // for the impossible case of fetch running before that init.
@@ -67,44 +69,68 @@ function fetchResponseTimeoutError(requestUrl, timeoutMs) {
 
 globalThis.atob = base64.atob;
 globalThis.btoa = base64.btoa;
-// `async` so a malformed argument rejects rather than throwing synchronously,
-// matching deno_fetch's own `async function fetch`.
-globalThis.fetch = async function fetch(input, init) {
+// Not `async`, for the same reason deno_fetch's own outer fetch isn't: WPT
+// pins that an aborted fetch settles in the same tick, which adopting its
+// promise through another one would break. Construction still has to reject
+// rather than throw, so it is caught and handed back as a rejection.
+globalThis.fetch = function fetch(input, init) {
   const timeoutMs = fetchResponseTimeoutMs;
   if (!(timeoutMs > 0) || arguments.length < 1) {
     return ORIGINAL_FETCH(input, init);
   }
 
-  // The caller's init is never read here -- it is handed to the same Request
-  // constructor fetch() itself would call, and our signal travels in an init of
-  // our own. RequestInit is a WebIDL dictionary, and every way of carrying it
-  // across changes how one is read: copying drops inherited and non-enumerable
-  // members, and inheriting runs accessors against the wrong receiver, which
-  // throws for a private-field getter. Handing it over untouched has neither
-  // failure mode, and a non-dictionary still raises deno_fetch's own TypeError.
-  const req = new request.Request(input, init);
+  let req;
+  let controller;
+  let signal;
+  try {
+    // The caller's init is never read here -- it is handed to the same Request
+    // constructor fetch() itself would call, and our signal travels in an init
+    // of our own. RequestInit is a WebIDL dictionary, and every way of carrying
+    // one across changes how it is read: copying drops inherited and
+    // non-enumerable members, and inheriting runs accessors against the wrong
+    // receiver, which throws for a private-field getter. Handing it over
+    // untouched has neither failure mode, and a non-dictionary still raises
+    // deno_fetch's own TypeError.
+    req = new request.Request(input, init);
 
-  // `req.signal` is deno's own resolution of init.signal over an input
-  // Request's signal, so combining with it preserves the caller's abort and
-  // reason while ours only adds a ceiling.
-  const controller = new abortSignal.AbortController();
-  const signal = abortSignal.AbortSignal.any([req.signal, controller.signal]);
+    // `req.signal` is deno's own resolution of init.signal over an input
+    // Request's signal, so combining with it preserves the caller's abort and
+    // reason while ours only adds a ceiling.
+    controller = new abortSignal.AbortController();
+    signal = abortSignal.AbortSignal.any([req.signal, controller.signal]);
+  } catch (e) {
+    return PromiseReject(e);
+  }
+
+  // Already aborted: hand back deno's own settled rejection untouched, and arm
+  // nothing -- there is no response to wait for.
+  if (signal.aborted) {
+    return ORIGINAL_FETCH(req, { signal });
+  }
 
   let timer = setTimeoutUnbound(() => {
     timer = undefined;
     controller.abort(fetchResponseTimeoutError(req.url, timeoutMs));
   }, timeoutMs);
-
-  try {
-    return await ORIGINAL_FETCH(req, { signal });
-  } finally {
-    // Cleared on headers, never on body completion: a response that has begun
-    // arriving must be free to stream for as long as it needs.
+  // Disarmed on headers, never on body completion: a response that has begun
+  // arriving must be free to stream for as long as it needs.
+  const disarm = () => {
     if (timer !== undefined) {
       clearTimeoutUnbound(timer);
       timer = undefined;
     }
-  }
+  };
+
+  return ORIGINAL_FETCH(req, { signal }).then(
+    (res) => {
+      disarm();
+      return res;
+    },
+    (e) => {
+      disarm();
+      throw e;
+    },
+  );
 };
 globalThis.Request = request.Request;
 globalThis.Response = response.Response;
