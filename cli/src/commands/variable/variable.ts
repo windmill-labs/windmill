@@ -98,10 +98,7 @@ export interface VariableFile {
   description: string;
   account?: number;
   is_oauth?: boolean;
-  // Mirrors granular ACLs on the variable path. Omitted from variable.yaml when
-  // no perms are set. The CLI applies diffs through /acls/add and /acls/remove
-  // (see applyExtraPermsDiff) — never through update_variable — so a perm-only
-  // change never rewrites the variable value.
+  // Mirrors granular ACLs on the variable path; omitted when no perms are set.
   extra_perms?: Record<string, boolean>;
 }
 
@@ -158,10 +155,9 @@ export async function pushVariable(
     log.debug(`Variable ${remotePath} does not exist on remote`);
   }
 
-  // extra_perms is synced independently via /acls/* (see applyExtraPermsDiff)
-  // so a perm-only edit never rewrites the variable value. Strip the field from
-  // the body that goes to update_variable / create_variable and treat it as a
-  // separate step both for the up-to-date short-circuit and after the write.
+  // extra_perms must stay out of the update_variable / create_variable body and
+  // go through /acls/* instead, so a perm-only edit never rewrites the value —
+  // which for a secret would mean re-storing pulled ciphertext.
   const { extra_perms: localPerms, ...localVariableBody } = localVariable;
 
   if (variable) {
@@ -207,14 +203,9 @@ export async function pushVariable(
     });
   }
 
-  // Independent of whether the variable body changed, sync extra_perms via
-  // /acls/*. Self-contained log line + non-fatal failures.
-  //
-  // No refetch is needed: extra_perms is item-specific and additive on top of
-  // folder perms — folder perms are never merged onto item.extra_perms, and a
-  // freshly created variable starts with `{}`. Since the request body sent to
-  // update_variable / create_variable doesn't carry extra_perms, the value read
-  // in the initial getVariable above is also the post-write value.
+  // The getVariable read above is still authoritative for the remote perms: no
+  // write since then carried extra_perms, and a created variable starts at `{}`
+  // because folder perms are never merged into item.extra_perms.
   await applyExtraPermsDiff(
     workspace,
     "variable",
