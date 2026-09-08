@@ -408,7 +408,9 @@ async fn concurrent_role_creations_both_survive(db: Pool<Postgres>) -> anyhow::R
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
-async fn renaming_a_governing_data_table_carries_its_forks(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn renaming_a_governing_data_table_carries_its_forks(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -462,11 +464,11 @@ async fn a_rename_has_to_match_the_save_it_claims_to_describe(
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
-    let url = format!("http://localhost:{port}/api/w/test-workspace/workspaces/edit_datatable_config");
+    let url =
+        format!("http://localhost:{port}/api/w/test-workspace/workspaces/edit_datatable_config");
 
-    let instance = |path: &str| {
-        json!({"database": {"resource_type": "instance", "resource_path": path}})
-    };
+    let instance =
+        |path: &str| json!({"database": {"resource_type": "instance", "resource_path": path}});
 
     // Fork pointers are rewritten from the rename list, so a rename nobody performed moves every
     // fork of one data table onto another. `main` survives this save, so it was not renamed.
@@ -487,7 +489,11 @@ async fn a_rename_has_to_match_the_save_it_claims_to_describe(
     .bind("wm-fork-dt")
     .fetch_one(&db)
     .await?;
-    assert_eq!(entry.unwrap()["datatable"], "main", "the fork was repointed anyway");
+    assert_eq!(
+        entry.unwrap()["datatable"],
+        "main",
+        "the fork was repointed anyway"
+    );
 
     // A swap is two renames whose sources and targets cross. It cannot be done one at a time —
     // `datatables` is keyed by name — so refusing it would be a regression, and applying the two
@@ -520,7 +526,12 @@ async fn a_rename_has_to_match_the_save_it_claims_to_describe(
         }))
         .send()
         .await?;
-    assert_eq!(resp.status(), 200, "a swap was refused: {}", resp.text().await?);
+    assert_eq!(
+        resp.status(),
+        200,
+        "a swap was refused: {}",
+        resp.text().await?
+    );
 
     // The fork named `main`, which is now called `other`.
     let entry: Option<Value> = sqlx::query_scalar(
@@ -530,7 +541,11 @@ async fn a_rename_has_to_match_the_save_it_claims_to_describe(
     .bind("wm-fork-dt")
     .fetch_one(&db)
     .await?;
-    assert_eq!(entry.unwrap()["datatable"], "other", "the swap did not carry the pointer");
+    assert_eq!(
+        entry.unwrap()["datatable"],
+        "other",
+        "the swap did not carry the pointer"
+    );
     Ok(())
 }
 
@@ -546,14 +561,34 @@ async fn a_data_table_under_roles_is_not_copied_into_a_fork(
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
+    // Both halves of the clone: the database the copy would land in, then the copy itself. The
+    // first has to refuse too, or a permissioned fork leaves an empty registered database that
+    // no data table entry names and nothing collects.
+    let resp = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/test-workspace/workspaces/create_pg_database"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({"source": "datatable://main", "target_dbname": "wm_fork_dt_copy"}))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 400);
+    assert!(
+        resp.text().await?.contains("under roles"),
+        "the fork's database was created for a copy that cannot happen"
+    );
+
     let resp = authed(
         client().post(format!(
             "http://localhost:{port}/api/w/test-workspace/workspaces/import_pg_database"
         )),
         "SECRET_TOKEN",
     )
-    .json(&json!({"source": "datatable://main", "target": "datatable://main",
-                  "fork_behavior": "schema_only"}))
+    .json(
+        &json!({"source": "datatable://main", "target": "datatable://main",
+                  "fork_behavior": "schema_only"}),
+    )
     .send()
     .await?;
     assert_eq!(resp.status(), 400);
