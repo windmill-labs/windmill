@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     error::{Error, Result},
+    global_settings::DATATABLE_ROLES_SETTING,
     DB,
 };
 
@@ -33,9 +34,8 @@ pub const ADMIN_DATATABLE_ROLE: &str = "admin";
 /// membership is what later lets it `ALTER ... OWNER TO` a role and drop it.
 pub const CUSTOM_INSTANCE_USER: &str = "custom_instance_user";
 
-/// One catalog entry. The password is per role and instance-wide; it lives here rather than in any
-/// workspace's settings, next to the `custom_instance_user` password in the same
-/// `custom_instance_pg_databases` row.
+/// One catalog entry. The password is per role and instance-wide, and lives in the instance's own
+/// [`DATATABLE_ROLES_SETTING`] row rather than in any workspace's settings.
 #[derive(Deserialize, Serialize, Clone)]
 #[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
 pub struct InstanceDatatableRole {
@@ -134,11 +134,11 @@ pub async fn lock_role_catalog(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -
 /// response, a log line or an audit record.
 pub async fn read_role_catalog(db: &DB) -> Result<DatatableRoleCatalog> {
     let value = sqlx::query_scalar!(
-        "SELECT value->'roles' FROM global_settings WHERE name = 'custom_instance_pg_databases'"
+        "SELECT value FROM global_settings WHERE name = $1",
+        DATATABLE_ROLES_SETTING
     )
     .fetch_optional(db)
-    .await?
-    .flatten();
+    .await?;
     Ok(parse_role_catalog(value))
 }
 
@@ -148,12 +148,34 @@ pub async fn read_role_catalog_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<DatatableRoleCatalog> {
     let value = sqlx::query_scalar!(
-        "SELECT value->'roles' FROM global_settings WHERE name = 'custom_instance_pg_databases'"
+        "SELECT value FROM global_settings WHERE name = $1",
+        DATATABLE_ROLES_SETTING
     )
     .fetch_optional(&mut **tx)
-    .await?
-    .flatten();
+    .await?;
     Ok(parse_role_catalog(value))
+}
+
+/// Persist the catalog, in the caller's transaction so it commits with the cluster DDL it
+/// describes. Upserts: the row does not exist until the first role is created.
+///
+/// Authorization: writes generated Postgres credentials. Callers MUST restrict this to superadmin
+/// paths and MUST hold [`lock_role_catalog`] on `tx`.
+pub async fn write_role_catalog(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    catalog: &DatatableRoleCatalog,
+) -> Result<()> {
+    let value = serde_json::to_value(catalog)
+        .map_err(|e| Error::internal_err(format!("serializing the role catalog: {e}")))?;
+    sqlx::query!(
+        "INSERT INTO global_settings (name, value) VALUES ($1, $2)
+         ON CONFLICT (name) DO UPDATE SET value = $2",
+        DATATABLE_ROLES_SETTING,
+        value
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }
 
 /// A catalog that will not deserialize is an empty one, which fails closed: tenants are keyed by
@@ -212,6 +234,8 @@ pub async fn converge_connect_grants(db: &DB, dbname: &str) -> Result<()> {
     converge_connect_grants_with(db, dbname, &catalog).await
 }
 
+/// As [`converge_connect_grants`], with a catalog the caller already read. Same authorization
+/// contract: it rewrites a database's ACL with the server's own credentials and checks nothing.
 pub async fn converge_connect_grants_with(
     db: &DB,
     dbname: &str,

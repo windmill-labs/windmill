@@ -354,15 +354,7 @@ async fn concurrent_role_catalog_writes_do_not_lose_an_entry(db: Pool<Postgres>)
                 id.to_string(),
                 InstanceDatatableRole { name: id.to_string(), enabled: true, pwd: None },
             );
-            let value = serde_json::to_value(&catalog)?;
-            sqlx::query(
-                "UPDATE global_settings
-                 SET value = jsonb_set(COALESCE(value, '{}'::jsonb), '{roles}', $1)
-                 WHERE name = 'custom_instance_pg_databases'",
-            )
-            .bind(value)
-            .execute(&mut *tx)
-            .await?;
+            windmill_common::datatable_roles::write_role_catalog(&mut tx, &catalog).await?;
             tx.commit().await?;
             Ok::<_, anyhow::Error>(())
         }

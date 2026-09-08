@@ -274,8 +274,21 @@ async fn set_datatable_permissions(
         )));
     }
 
+    // One transaction for the whole save, holding both locks the decision depends on: the role
+    // catalog, so a role cannot be deleted between validating an id and writing it back, and the
+    // workspace settings row, so a concurrent settings save cannot carry a stale copy of this
+    // block forward over what is written here.
+    let mut tx = db.begin().await?;
+    windmill_common::datatable_roles::lock_role_catalog(&mut tx).await?;
+    sqlx::query!(
+        "SELECT 1 AS one FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
+        &governing.workspace_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
     let permissions = if req.permissioned {
-        let catalog = read_role_catalog(&db).await?;
+        let catalog = windmill_common::datatable_roles::read_role_catalog_tx(&mut tx).await?;
         let mut roles: BTreeMap<String, DataTableRoleTenants> = BTreeMap::new();
         for role in req.roles {
             if role.id != ADMIN_DATATABLE_ROLE && !catalog.contains_key(&role.id) {
@@ -306,30 +319,6 @@ async fn set_datatable_permissions(
         None
     };
 
-    // An instance database provisioned before data table roles existed has neither the grant
-    // options the admin connection needs to delegate privileges, nor a CONNECT grant for any role
-    // — so a role would be refused at login however its tenants read. Repair it here, at the one
-    // moment someone is deciding this data table's roles. Best-effort: neither is worth failing a
-    // tenant edit over, and both converge again on the next save.
-    if permissions.is_some() {
-        if let Some(database) = governing.datatable.database.as_ref() {
-            if database.resource_type == DataTableCatalogResourceType::Instance {
-                let dbname = &database.resource_path;
-                if let Err(e) =
-                    windmill_common::ensure_instance_db_grant_options_unchecked(&db, dbname).await
-                {
-                    tracing::warn!("Could not refresh grant options on '{dbname}': {e}");
-                }
-                if let Err(e) =
-                    windmill_common::datatable_roles::converge_connect_grants(&db, dbname).await
-                {
-                    tracing::warn!("Could not refresh CONNECT grants on '{dbname}': {e}");
-                }
-            }
-        }
-    }
-
-    let mut tx = db.begin().await?;
     let value = match &permissions {
         Some(p) => serde_json::to_value(p).map_err(|e| Error::internal_err(e.to_string()))?,
         None => serde_json::Value::Null,
@@ -361,6 +350,32 @@ async fn set_datatable_permissions(
     )
     .await?;
     tx.commit().await?;
+
+    // An instance database provisioned before data table roles existed has neither the grant
+    // options the admin connection needs to delegate privileges, nor a CONNECT grant for any role
+    // — so a role would be refused at login however its tenants read. Repair it here, at the one
+    // moment someone is deciding this data table's roles. Best-effort: neither is worth failing a
+    // tenant edit over, and both converge again on the next save.
+    //
+    // Runs after the commit: it opens its own connections to other databases, which has no place
+    // inside a transaction holding two locks.
+    if permissions.is_some() {
+        if let Some(database) = governing.datatable.database.as_ref() {
+            if database.resource_type == DataTableCatalogResourceType::Instance {
+                let dbname = &database.resource_path;
+                if let Err(e) =
+                    windmill_common::ensure_instance_db_grant_options_unchecked(&db, dbname).await
+                {
+                    tracing::warn!("Could not refresh grant options on '{dbname}': {e}");
+                }
+                if let Err(e) =
+                    windmill_common::datatable_roles::converge_connect_grants(&db, dbname).await
+                {
+                    tracing::warn!("Could not refresh CONNECT grants on '{dbname}': {e}");
+                }
+            }
+        }
+    }
 
     // A live replication stream holds a connection it opened under the old decision. Bouncing the
     // rows makes every listener reconnect and re-authorize.
