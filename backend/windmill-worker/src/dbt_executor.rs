@@ -382,6 +382,16 @@ pub(crate) async fn handle_dbt_job(
     // resumes did: a retry's own arguments are the command block alone, and the
     // relations its unbuilt `ref()`s resolve to must not depend on that.
     let defer = arg_bool(&inv.args, "defer")?.unwrap_or(descriptor.defer);
+    // Before the state is fetched, not only at the seam where the selection
+    // reaches dbt: a selector that cannot work whatever the state says would
+    // otherwise be masked by the "nothing published yet" refusal, which sends the
+    // caller to publish a state that will not help.
+    check_state_selectors(
+        &effective_select(&descriptor, &inv)?,
+        &effective_exclude(&descriptor, &inv)?,
+        defer,
+        !selection_is_overridden(&descriptor, &inv.args)?,
+    )?;
     // A `show` defers too, and every engine takes the flags on it: it COMPILES
     // the model it previews, so a model whose upstream this environment built and
     // this run did not is exactly the case a deferral exists for.
@@ -3735,11 +3745,16 @@ async fn resolve_selection(
             }
         }
     }
-    if set.is_empty() {
-        // A selection that matches nothing would be ingested as "this script
-        // owns no relations", wiping its graph and cascade edges — the same
-        // outcome a failed capture produces, and indistinguishable from it.
-        // Refuse rather than silently un-wire the script.
+    // A caller's selection is stored as this run's own snapshot and never becomes
+    // what the script owns, so matching nothing records a run that claimed no
+    // nodes. That is an ordinary outcome rather than an error: `state:modified+`
+    // matches nothing exactly when nothing changed since the published state, and
+    // a run with no work to do is a successful one.
+    if set.is_empty() && !selection_is_overridden(descriptor, &inv.args)? {
+        // The descriptor's, though, is ingested as "this script owns no
+        // relations", wiping its graph and cascade edges — the same outcome a
+        // failed capture produces, and indistinguishable from it. Refuse rather
+        // than silently un-wire the script.
         return Err(Error::ExecutionErr(
             "the descriptor's `select`/`exclude` matched no dbt nodes; fix the selection rather \
              than deploying a script that owns nothing"
@@ -5010,14 +5025,104 @@ fn add_selection(
     descriptor: &DbtDescriptor,
     inv: &Invocation,
 ) -> error::Result<()> {
-    for s in effective_select(descriptor, inv)? {
+    let select = effective_select(descriptor, inv)?;
+    let exclude = effective_exclude(descriptor, inv)?;
+    // The seam itself, which the DEPLOY reaches without going through a run: it
+    // resolves the descriptor's selection to decide what the script owns, and
+    // never computes a `defer`. A run has been checked earlier, where the message
+    // can still come before the state fetch.
+    check_state_selectors(
+        &select,
+        &exclude,
+        inv.deferral.is_some(),
+        !selection_is_overridden(descriptor, &inv.args)?,
+    )?;
+    for s in select {
         cmd.args(["--select", &s]);
     }
-    for s in effective_exclude(descriptor, inv)? {
+    for s in exclude {
         cmd.args(["--exclude", &s]);
     }
     if let Some(sel) = effective_selector(descriptor, inv)? {
         cmd.args(["--selector", sel]);
+    }
+    Ok(())
+}
+
+/// The method a selection token names, with the graph operators that can
+/// surround a node stripped (`@model`, `+model`, `2+model`, `model+`).
+fn selector_method(token: &str) -> Option<&str> {
+    token
+        .trim_start_matches('@')
+        .trim_start_matches(|c: char| c.is_ascii_digit())
+        .trim_start_matches('+')
+        .split_once(':')
+        .map(|(method, _)| method)
+}
+
+/// Every method a selection names. Each entry is a union of whitespace-separated
+/// tokens, and each of those an intersection of comma-separated ones.
+fn selection_methods<'a>(entries: &'a [String]) -> impl Iterator<Item = &'a str> {
+    entries
+        .iter()
+        .flat_map(|entry| entry.split([' ', '\t', ',']))
+        .filter_map(selector_method)
+}
+
+/// Refuse a selection dbt cannot resolve, before it silently resolves to the
+/// wrong thing.
+///
+/// `state:` and `result:` compare against the artifacts in `--state`, which only
+/// a deferring run is given. The engines do not agree on what happens without
+/// one: dbt-core 1.x raises, but dbt-sa-cli and fusion read a missing state as an
+/// EMPTY one and exit 0, so `state:modified` builds nothing and `state:new`
+/// builds the whole project, each as a run that reports success.
+///
+/// From the DESCRIPTOR they are refused whether or not the run defers, because
+/// that selection also decides which nodes the script owns, and "whatever changed
+/// last" is not an ownership answer — the deploy resolves it with no state at all.
+/// They describe one run, so they belong in a run's own `select`.
+///
+/// `source_status:` compares `sources.json`, which `dbt source freshness` writes
+/// and no run publishes here, so it has nothing to compare against under any
+/// setting.
+///
+/// Only what `select` and `exclude` spell directly: a method reached through a
+/// `selectors.yml` definition is named nowhere the worker can read, and dbt's
+/// own behaviour is what stands there.
+fn check_state_selectors(
+    select: &[String],
+    exclude: &[String],
+    deferring: bool,
+    from_descriptor: bool,
+) -> error::Result<()> {
+    for method in selection_methods(select).chain(selection_methods(exclude)) {
+        match method {
+            "source_status" => {
+                return Err(Error::BadRequest(
+                    "a `source_status:` selector compares the source freshness recorded in \
+                     `sources.json`, which `dbt source freshness` writes and no run stores \
+                     here, so there is nothing for it to compare against. Drop the selector"
+                        .to_string(),
+                ))
+            }
+            "state" | "result" if from_descriptor => {
+                return Err(Error::BadRequest(format!(
+                    "a `{method}:` selector describes what ONE run builds, but the descriptor's \
+                     selection also decides which nodes this script owns, which a deploy \
+                     resolves with no state to compare against. Move it to the `select` of a \
+                     run with `defer` on"
+                )))
+            }
+            "state" | "result" if !deferring => {
+                return Err(Error::BadRequest(format!(
+                    "a `{method}:` selector compares against the dbt state a previous run of \
+                     this environment published, and only a run with `defer` on is given that \
+                     state. Turn `defer` on, or drop the selector"
+                )))
+            }
+            _ => {}
+        }
     }
     Ok(())
 }
@@ -6075,6 +6180,45 @@ mod tests {
         ));
         assert!(!is_jinja("analytics"));
         assert!(!is_jinja(""));
+    }
+
+    // dbt-sa-cli and fusion exit 0 on a state selector with no state, so nothing
+    // downstream would report this: the graph operators have to be stripped for
+    // the method to be seen at all.
+    #[test]
+    fn a_state_selector_is_found_under_any_graph_operator() {
+        // A run's own selection, which is the only place these belong.
+        let refused = |sel: &str, deferring: bool| {
+            check_state_selectors(&[sel.to_string()], &[], deferring, false).is_err()
+        };
+        for sel in [
+            "state:modified",
+            "state:modified+",
+            "+state:new",
+            "@state:modified",
+            "2+state:modified+3",
+            "tag:nightly,state:modified",
+            "stg_orders+ result:error+",
+        ] {
+            assert!(refused(sel, false), "{sel} should need `defer`");
+            assert!(!refused(sel, true), "{sel} should pass while deferring");
+            // The descriptor's selection also decides what the script owns, and
+            // the deploy resolves it with no state, so deferring cannot save it.
+            assert!(
+                check_state_selectors(&[sel.to_string()], &[], true, true).is_err(),
+                "{sel} should never be a descriptor selection"
+            );
+        }
+        // A node whose name merely starts with a method's letters is not one.
+        for sel in ["stg_orders+", "tag:nightly", "stateful_model+"] {
+            assert!(!refused(sel, false), "{sel} is not a state selector");
+        }
+        // No run publishes `sources.json`, so deferring does not help.
+        for deferring in [false, true] {
+            assert!(refused("source_status:fresher+", deferring));
+        }
+        // `exclude` reaches dbt the same way `select` does.
+        assert!(check_state_selectors(&[], &["state:modified".to_string()], false, false).is_err());
     }
 
     // The one flag choice that is silently wrong rather than loudly wrong: a

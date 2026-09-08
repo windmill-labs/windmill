@@ -580,7 +580,9 @@ fn property_of(arg: &Arg) -> serde_json::Value {
             ),
             "select" => Some(
                 "dbt selection syntax, e.g. `tag:nightly`, `stg_orders+`, \
-                 `config.materialized:incremental`. Empty runs the descriptor's own selection.",
+                 `config.materialized:incremental`. `state:modified+` and `result:error+` \
+                 compare against the state a previous run published, so they need `defer` on. \
+                 Empty runs the descriptor's own selection.",
             ),
             "exclude" => Some("Nodes to leave out of the selection above, same syntax."),
             "vars" => Some(

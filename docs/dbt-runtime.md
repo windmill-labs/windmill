@@ -1460,6 +1460,43 @@ The result carries `deferred_to`, the run whose state was used. Without it what
 a deferring run built against is unrecoverable, since the next successful run of
 that environment replaces the state.
 
+### Selectors that read the state, and why they are refused rather than passed
+
+`--state` also feeds dbt's own selector methods, so publishing the state is what
+makes `state:modified+`, `state:new` and `result:error+` resolve at all. Only a
+deferring run is handed the directory, so a `state:` or `result:` method in
+`select` or `exclude` without `defer` is refused before dbt starts.
+
+Refused, rather than left to dbt, because the engines disagree about it and two
+of the three disagree silently. Given a state selector and no `--state`,
+dbt-core 1.x raises (`Got a state selector method, but no comparison manifest`,
+exit 2), but dbt-sa-cli 2.x and fusion read a MISSING state as an EMPTY one and
+exit 0: `state:modified` then selects nothing and the run reports success having
+built nothing, while `state:new` selects everything, because against an empty
+state every node is new. A scheduled run that quietly stops doing work, or
+quietly rebuilds the project, is the failure this state exists to prevent.
+
+From the DESCRIPTOR they are refused whether or not the run defers, and the
+message says so. That selection is also what decides which nodes the script owns,
+and the deploy resolves it before any run exists, with no state to compare
+against. "Whatever changed last" is not an ownership answer. They describe one
+run, so they belong in a run's own `select`.
+
+`source_status:` is refused under any setting: it compares `sources.json`, which
+`dbt source freshness` writes and no run publishes here, so there is nothing to
+compare against even while deferring.
+
+Matching nothing is then an ordinary outcome, not a failure. `state:modified+`
+selects the empty set exactly when nothing changed since the published state,
+which is the answer a CI run wants, so a selection the CALLER chose is allowed to
+resolve to no nodes: it is stored as that run's own snapshot and never becomes
+what the script owns. The descriptor's selection still may not, since that one
+does decide ownership.
+
+Only what `select` and `exclude` spell directly. A method reached through a
+`selectors.yml` definition is named nowhere the worker reads, and dbt's own
+behaviour — including the silent one — is what stands there.
+
 ### `--state` is also a retry's own argument, and that is a trap
 
 `dbt retry` reads the run it RESUMES from `--state`. Handed the deferral's
