@@ -78,9 +78,10 @@ const NODE_COLUMNS_PARQUET: &str = "dbt.node_columns.parquet";
 ///   still end the phase — a cancel, a completion or the phase timeout — which
 ///   is the job's semantics reaching in, not the artifact's reaching out.
 ///
-/// The phase budget wraps the compile alone. A budget around the whole pass
-/// would time out with a decode still running on a blocking thread, which is
-/// precisely what "the build below gets the rest" must not mean.
+/// The phase budget wraps the compile alone, because it exists to leave the
+/// BUILD its share of the clock and only the compile can spend that share
+/// unboundedly. The decode's own end is the job's: the poller it runs under
+/// stops it when the job stops.
 pub(crate) async fn collect(
     p: &PreparedProject,
     descriptor: &DbtDescriptor,
@@ -341,8 +342,8 @@ const CLL_MAX_OUTPUT_BYTES: usize = 1 << 20;
 /// to the runner: the runner reports its expiry as an `Err`, indistinguishable
 /// from a cancellation or the job's own deadline, and those two MUST fail the
 /// job. Expiring here is this budget and nothing else. The child dies with the
-/// dropped future through `run_captured`'s `kill_on_drop`, and the decode is
-/// outside the race so nothing survives it.
+/// dropped future through `run_captured`'s `kill_on_drop`; the decode is outside
+/// this race and answers to the poller instead.
 fn phase_budget(ctx: &JobCtx<'_>) -> Option<Duration> {
     ctx.timeout()
         .map(|left| Duration::from_secs((left.max(0) as u64 / 2).max(1)))
@@ -392,7 +393,7 @@ async fn read_index(index_dir: &Path, kept: &HashSet<&str>) -> Artifact {
     // rows for a job that is over. `Abandoned` is set when this future is
     // dropped, and the row loop reads it.
     let abandoned = Arc::new(AtomicBool::new(false));
-    let _stop = Abandon(abandoned.clone());
+    let _stop = crate::common::AbortOnDrop(abandoned.clone());
     // Decompressing and decoding a parquet is CPU work on a file the engine just
     // wrote, so it does not belong on the runtime's poll thread.
     let read = tokio::task::spawn_blocking(move || {
@@ -403,19 +404,6 @@ async fn read_index(index_dir: &Path, kept: &HashSet<&str>) -> Artifact {
         Ok(Ok(index)) => Artifact::Read(index),
         Ok(Err(e)) => Artifact::Unreadable(e.to_string()),
         Err(e) => Artifact::Unreadable(e.to_string()),
-    }
-}
-
-/// Tells the blocking decode to stop when the future waiting on it goes away.
-///
-/// A `JoinHandle` dropped mid-flight detaches the task rather than cancelling
-/// it, so without this the only thing bounding a cancelled decode is the row
-/// ceiling it was already going to hit.
-struct Abandon(Arc<AtomicBool>);
-
-impl Drop for Abandon {
-    fn drop(&mut self) {
-        self.0.store(true, Ordering::Relaxed);
     }
 }
 
