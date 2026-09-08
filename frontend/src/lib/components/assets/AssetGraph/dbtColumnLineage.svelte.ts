@@ -20,6 +20,9 @@ export type DbtColumnLineageState = {
 	/** The component reaches past what `graph` holds — the API cut it at the
 	 *  part nearest the selection. */
 	readonly truncated: boolean
+	/** The request failed, so `graph` is empty for a reason that is not "this
+	 *  project has no column lineage". */
+	readonly failed: boolean
 }
 
 function fetchLineage(
@@ -56,10 +59,18 @@ export function useDbtColumnLineage(args: {
 	assetPaths: () => string[]
 	/** The graph on screen, so the lineage describes the same project. */
 	pin?: () => DbtGraphPin | undefined
+	/** Which fetch of that graph is on screen. It changes when the view goes and
+	 *  gets the graph again — a Refresh, a deploy — and asking again is the whole
+	 *  point: the relation, the pin and the seeds are all unchanged by a
+	 *  redeploy, so without this the pane would pair a freshly fetched model's
+	 *  SQL and columns with the edges of the version before it. It is also what
+	 *  retries a request that failed. */
+	generation?: () => unknown
 }): DbtColumnLineageState {
 	let graph = $state<ColumnLineageGraph>(EMPTY_COLUMN_GRAPH)
 	let loading = $state(false)
 	let truncated = $state(false)
+	let failed = $state(false)
 
 	// The question the state in hand answers, and a counter deciding which answer
 	// is still wanted. Neither is a cache of edges: the API returns a whole
@@ -71,16 +82,25 @@ export function useDbtColumnLineage(args: {
 		const workspace = args.workspace()
 		const paths = [...new Set(args.assetPaths())].sort()
 		const pin = args.pin?.()
-		const question = JSON.stringify([workspace, pin?.jobId, pin?.scriptHash, paths])
+		const question = JSON.stringify([
+			workspace,
+			pin?.jobId,
+			pin?.scriptHash,
+			args.generation?.() ?? null,
+			paths
+		])
 		// A selection re-derived from a graph that polled is the same question. Not
 		// asking it again is what keeps a run page from refetching a component's
-		// worth of edges every poll to redraw what is already on screen.
+		// worth of edges every poll to redraw what is already on screen — while a
+		// graph the view deliberately went and fetched moves `generation`, so that
+		// IS a new question.
 		if (question === asked) return
 		asked = question
 		const id = ++latest
 		if (!workspace || paths.length === 0) {
 			graph = EMPTY_COLUMN_GRAPH
 			truncated = false
+			failed = false
 			loading = false
 			return
 		}
@@ -90,17 +110,21 @@ export function useDbtColumnLineage(args: {
 				if (id !== latest) return
 				graph = buildDbtColumnGraph(r?.edges ?? [])
 				truncated = r?.truncated ?? false
+				failed = false
 				loading = false
 			},
 			// Lineage annotates a graph that renders without it, so a failed fetch
 			// leaves that branch unexpanded rather than putting an error over the
-			// model. Not retried on its own: the effect reruns whenever the canvas
-			// does, and a failing endpoint would then be asked once per redraw.
-			// Selecting another node and back asks again.
+			// model — but it SAYS so, because an empty trace is what a project
+			// without the analysis pass looks like, and the two must not read
+			// alike. Not retried on its own: the effect reruns whenever the canvas
+			// redraws, and a failing endpoint would then be asked once per redraw.
+			// A Refresh moves `generation` and asks again.
 			() => {
 				if (id !== latest) return
 				graph = EMPTY_COLUMN_GRAPH
 				truncated = false
+				failed = true
 				loading = false
 			}
 		)
@@ -115,6 +139,9 @@ export function useDbtColumnLineage(args: {
 		},
 		get truncated() {
 			return truncated
+		},
+		get failed() {
+			return failed
 		}
 	}
 }

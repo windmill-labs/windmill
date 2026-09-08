@@ -16,7 +16,8 @@
 		assetPath,
 		targetLabel,
 		loading = false,
-		truncated = false
+		truncated = false,
+		failed = false
 	}: {
 		graph?: ColumnLineageGraph
 		assetKind: AssetKind
@@ -24,6 +25,10 @@
 		targetLabel?: string
 		loading?: boolean
 		truncated?: boolean
+		/** The lineage request failed. Said rather than left blank: a project
+		 *  that never asked for the analysis pass draws nothing either, and the
+		 *  two must not look alike. */
+		failed?: boolean
 	} = $props()
 
 	// The selected asset's own column nodes, which is what decides whether there
@@ -36,6 +41,10 @@
 	<div class="border-b shrink-0 flex items-center gap-2 px-3 py-1.5 text-2xs text-secondary">
 		<Loader2 size={12} class="animate-spin" />
 		Loading column lineage
+	</div>
+{:else if failed && nodes.length === 0}
+	<div class="border-b shrink-0 px-3 py-1.5 text-2xs text-tertiary">
+		Column lineage could not be loaded. Refresh to try again.
 	</div>
 {:else if graph && nodes.length > 0}
 	<div class="border-b shrink-0 overflow-auto max-h-64">
