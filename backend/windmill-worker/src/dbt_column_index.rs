@@ -390,7 +390,7 @@ async fn read_index(index_dir: &Path, kept: &HashSet<&str>) -> Artifact {
     let kept: HashSet<String> = kept.iter().map(|s| (*s).to_string()).collect();
     // Dropping the handle of a blocking task does NOT stop it: the poller
     // cancelling this phase would otherwise leave a thread decoding millions of
-    // rows for a job that is over. `Abandoned` is set when this future is
+    // rows for a job that is over. `abandoned` is set when this future is
     // dropped, and the row loop reads it.
     let abandoned = Arc::new(AtomicBool::new(false));
     let _stop = crate::common::AbortOnDrop(abandoned.clone());
