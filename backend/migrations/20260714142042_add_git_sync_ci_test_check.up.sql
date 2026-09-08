@@ -3,11 +3,11 @@
 -- the fork's CI tests settle, so the results can gate a GitHub PR.
 CREATE TABLE git_sync_ci_test_check (
     -- The fork workspace whose CI tests gate the PR: keys the row, and its `ci_test`
-    -- jobs are what the check reflects (a fork inherits no git_app_installations).
+    -- jobs are what the check reflects.
     workspace_id VARCHAR(50) NOT NULL REFERENCES workspace(id),
     head_sha VARCHAR(64) NOT NULL,
-    -- The workspace whose GitHub App installation posts the check run (the parent that
-    -- owns the repo webhook); forks can't mint the token themselves.
+    -- The workspace whose GitHub App installation posts the check run: the one that
+    -- received the pull_request webhook (the parent owning the repo hook).
     github_workspace_id VARCHAR(50) NOT NULL REFERENCES workspace(id),
     repo_url TEXT NOT NULL,
     -- NULL when the GitHub check-run creation failed; the poller retries the create.

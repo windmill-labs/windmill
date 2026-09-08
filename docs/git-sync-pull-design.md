@@ -635,8 +635,8 @@ corresponds to; the check reflects that fork's current results on the PR head.
 
 - **State** — `git_sync_ci_test_check(workspace_id, head_sha)` (new table). `workspace_id`
   is the **fork** whose `ci_test` jobs the check reflects; `github_workspace_id` is the
-  **parent** whose GitHub-App installation posts the run (a fork inherits no
-  installations, so it can't mint the token). Plus `repo_url`, `check_run_id` (NULL if the
+  **parent** whose GitHub-App installation posts the run (the workspace that received the
+  webhook and owns the repo hook). Plus `repo_url`, `check_run_id` (NULL if the
   create failed), `created_at`, `concluded`, `conclusion`, `concluded_at`, `github_posted`.
   Partial index `(workspace_id) WHERE NOT concluded OR NOT github_posted` (the live set the
   hook + poller scan).
@@ -659,11 +659,12 @@ corresponds to; the check reflects that fork's current results on the PR head.
   decouples GitHub delivery via `github_posted` so a failed PATCH is retried, not hung.
 
 Invariants: supersession concludes a stale head's check on synchronize so one PR shows one
-live check; the parent posts because forks can't mint the token; the timeout stops a hung
-test job from blocking a required check forever. Known limits (accepted for v1): a plain
-feature-branch or contributor-fork PR resolves to no fork workspace and gets no check; the
-fork's status is workspace-wide (all its tested items), which for the one-fork-per-PR model
-equals the PR's scope.
+live check; the webhook's workspace posts through its own installation; the timeout stops a
+hung test job from blocking a required check forever. A plain feature-branch or
+contributor-fork PR resolves to no fork workspace and gets an already-concluded `skipped`
+check (branch protection counts `skipped` as passing, so requiring the check does not block
+those PRs). Known limit (accepted for v1): the fork's status is workspace-wide (all its
+tested items), which for the one-fork-per-PR model equals the PR's scope.
 
 ## 16. Alternatives considered
 
