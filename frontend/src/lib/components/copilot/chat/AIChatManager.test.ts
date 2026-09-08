@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { writable } from 'svelte/store'
 import type { FlowAIChatHelpers } from './flow/core'
 import type { PipelineAIChatHelpers } from './pipeline/core'
 import type { CurrentEditor } from '$lib/components/flows/types'
@@ -123,6 +124,9 @@ vi.mock('$lib/toast', () => ({
 }))
 
 vi.mock('$lib/aiStore', () => ({
+	// `sendRequest` reads it before anything else, so a test that goes through a real turn
+	// rather than driving the manager directly needs it present and enabled.
+	copilotInfo: writable({ enabled: true, workspaceDisabled: false, aiModels: [] }),
 	getCurrentModel: mocks.getCurrentModel,
 	tryGetCurrentModel: mocks.tryGetCurrentModel,
 	getCombinedCustomPrompt: () => '',
