@@ -435,7 +435,9 @@ Two things make that safe rather than a widening:
   model set and its relations are already visible to them.
 - **`raw_code` is gated separately**, on an `EXISTS` against `script` in the
   authed transaction. The body of a model is the project's source code and stays
-  behind access to the project, whatever the shape query resolved.
+  behind access to the project, whatever the shape query resolved. `column_schema`
+  and the column trace behind `/jobs/dbt_column_lineage/{id}` take the same gate,
+  for the same reason: both are the shape of what the author wrote.
 
 The path and hash coming from the job row rather than the query also means a
 caller cannot pin one project's version while naming another's run.
@@ -1647,18 +1649,65 @@ table is `ref()` lineage. The typed column list lands in
 `dbt_node.column_schema`, beside `columns` rather than merged into it —
 `columns` stays what the author *declared*.
 
-**Stored now, served later.** This change lands the ingest and the storage; the
-endpoint that draws a column trace is a follow-up. What is user-visible today is
-`column_schema` — every column of a relation, typed and in the order the model
-emits them — which rides the asset graph the details pane already fetches, and
-replaces a panel that could only list the columns an author happened to document.
-The edges sit in `dbt_column_edge` waiting for their surface.
+Two things are user-visible. `column_schema` — every column of a relation, typed
+and in the order the model emits them — rides the asset graph the details pane
+already fetches, and replaces a panel that could only list the columns an author
+happened to document. The edges are served by an endpoint of their own,
+`assets/column_lineage`, which the pane asks for the selection it is drawing.
 
-`column_schema` is gated on being able to read the producing project, like the
-model's SQL: a column-level view is the shape of what the author wrote, one level
-finer than the `ref()` graph, which is ungated only because it draws relations the
-caller already sees. A share-link viewer entitled to a dbt run therefore gets its
+Both are gated on being able to read the producing project, like the model's SQL:
+a column-level view is the shape of what the author wrote, one level finer than
+the `ref()` graph, which is ungated only because it draws relations the caller
+already sees. A share-link viewer entitled to a dbt run therefore gets its
 relations and `ref()` edges, and neither the SQL nor the columns.
+
+**One request per selection, and the gate re-decided per project.** The endpoint
+takes every relation the view has reached and answers their union, because one
+selection reaches several — a script's output column can derive from columns of
+several models. Holding partial answers between selections instead was tried and
+is what a client cache is: it produced a wrong premise for a relation two projects
+describe, then staleness on redeploy, then a lost retry.
+
+The answer is the connected component around those relations, and that component
+does not stop at the project that owns them: a relation one project produces is
+another's source, so the walk resolves owners, reads their edges, walks, and
+repeats for the relations that walk newly reached. Resolving once — for the
+relations asked about — stops the trace at the first project boundary. The
+security half is that a project reached this way is a project the caller may not
+be entitled to, so the scope filter and the project's visibility are re-applied to
+every project the expansion discovers, not decided once for the first owner set.
+
+A PINNED answer is the exception and needs none of it, whether it names a job or
+a deployed version: the pin says which stored graph is on screen, and another
+project's live graph is not part of it, so it answers for that one project. The
+dbt editor pins by version on every selection and the run page pins by job; the
+pipeline page pins nothing, and is where the walk crosses projects.
+
+**The component is bounded, and says when it was cut.** The renderer draws a box
+per column, so a component past a few thousand edges is unreadable however it is
+served — a synthetic 3000-model project whose models share a column returns 58k
+direct edges and 7.3MB. The walk is breadth-first from the asked-for relations and
+stops at 5000 edges, so what survives is the part nearest the selection rather
+than an arbitrary slice, and `truncated` says so: a trace that stops short is
+otherwise indistinguishable from one that ends. The FETCH is not bounded the same
+way — a project's edges arrive whole, because the walk is what decides which of
+them are in the component, and a `LIMIT` would cut a set that need not contain
+the asked-for relation at all. What bounds it is the ingest's own cap per version
+plus a stop on discovering further projects once the held set is outsized.
+
+The walk is in Rust rather than a recursive CTE. `EXPLAIN ANALYZE` on that same
+project measured 1243ms against 59ms for the query alone: a CTE has no index to
+walk, so the recursive term rescans the doubled edge set once per level (11.7M
+rows), while the same walk over a map is microseconds.
+
+The two halves of a trace — dbt's and the pipeline's — meet at shared node ids. A
+DuckDB script's `// column x <- dbt://wh/s/model.col` mints the same
+`(dbt, path, column)` node dbt's own lineage does, so the producer graph the asset
+graph already carries and the dbt graph are MERGED rather than chosen between, and
+a trace crosses that boundary in either direction. What the browser cannot close
+in one request is a relation the server discovers whose columns are consumed by a
+script that writes into a third project: the producer half of that hop is the
+canvas's, not the server's, and the seeds were computed before the answer arrived.
 
 **The analysis pass takes the build's own `--full-refresh`.** `is_incremental()`
 branches on it, so an incremental model reading `{{ this }}` compiles its
@@ -1691,7 +1740,7 @@ the compile that produced it, and a run that re-ingests describes its own run.
 | `unique`/`not_null`/`accepted_values`/`relationships` | `data_tests` | exact 1:1 with the four `// data_test` kinds |
 | declared column metadata | `columns` on the asset node | descriptions only, from the manifest |
 | analyzed column schema | `column_schema` on the asset node | `dbt.node_columns.parquet`, opt-in |
-| column-to-column lineage | `dbt_column_edge` rows (no view yet) | `dbt.column_lineage.parquet`, opt-in |
+| column-to-column lineage | `dbt_column_edge` rows, drawn as a column trace | `dbt.column_lineage.parquet`, opt-in |
 | model `tags` | node badge | `tag` |
 | source freshness | `freshness` | `last_success_at` chip |
 | `run_results.json` | materialization records | `record_materialization` |
