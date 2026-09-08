@@ -58,8 +58,6 @@ def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
 # it grows with both the width of the fan-out and ``attempts``. Retries with
 # no ``delay`` all go out in a single round.
 #
-# An unknown key in ``retry`` raises rather than being ignored.
-#
 # Usage::
 #
 #     @task
