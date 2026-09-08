@@ -336,9 +336,12 @@
 		if (!ws || !initialPath) return
 		if (ws in states) return
 		untrack(() => {
+			// `actingUserIn` answers from `$userStore` for the navigation workspace, so only
+			// another one is worth asking.
+			const needsUser = ws !== $workspaceStore
 			Promise.all([
 				ResourceService.getResource({ workspace: ws, path: initialPath, getDraft: true }),
-				getUserExt(ws)
+				needsUser ? getUserExt(ws) : undefined
 			]).then(([r, user]) => {
 				// `.draft` already holds the editor's `ResourceState` shape.
 				const savedDraftState = (r as any).draft as ResourceState | undefined
@@ -366,7 +369,7 @@
 				// Draft-only paths (`no_deployed`) have no row — saving must
 				// CREATE, not update (update 404s).
 				existedInitially[ws] = !(r as any).no_deployed
-				perWsUser[ws] = user
+				if (needsUser) perWsUser[ws] = user
 				// Keep resource_type in sync for the base workspace (controls the schema)
 				if (ws === effectiveWorkspace) {
 					resource_type = r.resource_type

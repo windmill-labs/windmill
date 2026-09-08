@@ -147,9 +147,13 @@
 	)
 	// `undefined` while that lookup is in flight or after it failed; the checks below then
 	// refuse rather than fall back to rights that belong to another workspace.
-	const actingUser: UserExt | undefined = $derived(
-		wsId === $workspaceStore ? $userStore : otherWsUser.current
-	)
+	const actingUser: UserExt | undefined = $derived.by(() => {
+		if (wsId === $workspaceStore) return $userStore
+		const u = otherWsUser.current
+		// `resource` keeps the previous result across a refetch, and a superseded lookup can
+		// still land last, so a user only answers for the workspace they were fetched for.
+		return u?.workspace_id === wsId ? u : undefined
+	})
 	const can_write = $derived(
 		permsPath === undefined ? true : canWrite(permsPath, extraPerms, actingUser)
 	)
@@ -859,7 +863,7 @@
 								namePlaceholder="schedule"
 								kind="schedule"
 								disableEditing={!can_write}
-								{actingUser}
+								actingUser={actingUser ?? null}
 							/>
 						{:else}
 							<div class="flex justify-start w-full">

@@ -69,9 +69,13 @@
 		() => (path && historyWorkspace !== $workspaceStore ? historyWorkspace : undefined),
 		async (ws) => (ws ? await getUserExt(ws) : undefined)
 	)
-	const historyUser = $derived(
-		historyWorkspace === $workspaceStore ? $userStore : otherWsUser.current
-	)
+	const historyUser = $derived.by(() => {
+		if (historyWorkspace === $workspaceStore) return $userStore
+		const u = otherWsUser.current
+		// `resource` keeps the previous result across a refetch, and a superseded lookup can
+		// still land last, so a user only answers for the workspace they were fetched for.
+		return u?.workspace_id === historyWorkspace ? u : undefined
+	})
 	// Clearing is irreversible and the backend gates it on ownership, not write access, so the
 	// verdict has to come from the membership `historyWorkspace` knows about. An unresolved
 	// user gets no Clear button rather than one computed from another workspace's rights.

@@ -181,6 +181,9 @@
 		if (!ws || !p) return
 		if (ws in states) return
 		untrack(() => {
+			// `actingUserIn` answers from `$userStore` for the navigation workspace, so only
+			// another one is worth asking.
+			const needsUser = ws !== $workspaceStore
 			Promise.all([
 				VariableService.getVariable({
 					workspace: ws,
@@ -188,7 +191,7 @@
 					decryptSecret: false,
 					getDraft: true
 				}),
-				getUserExt(ws)
+				needsUser ? getUserExt(ws) : undefined
 			]).then(([v, user]) => {
 				// `.draft` already holds the editor's `VariableState` shape.
 				const savedDraftState = (v as any).draft as VariableState | undefined
@@ -212,7 +215,7 @@
 				// CREATE, not update (update 404s).
 				existedInitially[ws] = !(v as any).no_deployed
 				extraPerms[ws] = v.extra_perms ?? {}
-				perWsUser[ws] = user
+				if (needsUser) perWsUser[ws] = user
 			})
 		})
 	})
