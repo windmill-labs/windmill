@@ -199,6 +199,15 @@ const settledRunForm = (runForm: RunFormDisplay): RunFormDisplay =>
 	runForm.submitted || runForm.canceled
 		? { ...runForm, schema: undefined, code: undefined, lang: undefined }
 		: runForm
+
+/** A run form the chat is holding open, keyed by tool call id. */
+type PendingRunForm = {
+	/** Absent once the loop is no longer waiting: a card restored from history still mounts
+	 * its form and still holds edits, but nothing is left to receive them. */
+	resolve?: (args: Record<string, any> | undefined) => void
+	draft: RunFormDraft
+	submitting: boolean
+}
 // Built-in `/compact` session command — summarizes the conversation locally
 // instead of sending a turn to the model. Matched on the whole input so a
 // regular message that merely mentions "/compact" mid-sentence is unaffected.
@@ -714,11 +723,15 @@ export class AIChatManager {
 		{ resolve: (value: boolean) => void; toolName?: string }
 	>()
 	private userQuestionCallbacks = new Map<string, (choices: string[] | undefined) => void>()
-	private runFormCallbacks = new Map<string, (args: Record<string, any> | undefined) => void>()
-	// What a run form is being filled with, held here rather than in the component so the
-	// chat card and the preview pane are two views of one draft: whichever mounts the form
-	// resumes the other's edits, in both directions, with nothing handed over.
-	private runFormDrafts = new Map<string, RunFormDraft>()
+	/**
+	 * One run form's whole life while it waits, so ending it is one delete and cannot end half
+	 * of it. Held here rather than in the form, which unmounts and remounts as it moves between
+	 * the chat card and the preview pane: both are views of one entry.
+	 *
+	 * Entries are replaced rather than mutated, so a `$derived` reading `submitting` fires;
+	 * `draft` keeps its identity across a replacement, which is what the form is bound to.
+	 */
+	#runForms = new SvelteMap<string, PendingRunForm>()
 	private appDatatablesRefreshTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
 	disabledModes: Partial<Record<AIMode, boolean>> = $state({})
@@ -1030,10 +1043,15 @@ export class AIChatManager {
 					})
 				}
 
+				// Only when the reader has not already carried them, or when the run may be
+				// over — the tail written between the last poll and the end is on the job
+				// alone. Otherwise these are logs the tray strips and the card already has,
+				// fetched a second time every tick, for every detached job in the chat.
+				const wantLogs = !update || update.completed
 				const fetched = await JobService.getJob({
 					workspace: job.workspace,
 					id: job.jobId,
-					noLogs: false,
+					noLogs: !wantLogs,
 					noCode: true
 				})
 				// The user switched conversations while this getJob was in flight; its
@@ -1044,7 +1062,18 @@ export class AIChatManager {
 				if (fetched.type === 'CompletedJob') {
 					anyTerminal = true
 					this.#jobUpdateReaders.delete(job.jobId)
-					this.#onBackgroundJobComplete(job, fetched as CompletedJob)
+					// The updates can call a landed job unfinished, and the model reads these
+					// logs, so a completion seen without them is fetched again.
+					const completed = wantLogs
+						? (fetched as CompletedJob)
+						: ((await JobService.getJob({
+								workspace: job.workspace,
+								id: job.jobId,
+								noLogs: false,
+								noCode: true
+							})) as CompletedJob)
+					if (gen !== this.#jobPollGeneration) return
+					this.#onBackgroundJobComplete(job, completed)
 				} else {
 					// Store the derived status and the trimmed Job together so the tray
 					// badge (JobStatusIcon) and the scalar status can never drift.
@@ -1873,8 +1902,9 @@ export class AIChatManager {
 			// Settle the form the tool attached after the stop. Its card is about to stop
 			// loading without ever having rendered, and settledToolDisplay only reaches a
 			// loading one — so this is the last point the schema, with the script's own
-			// password and file defaults, can be dropped.
-			this.#patchRunForm(toolId, { canceled: true })
+			// password and file defaults, can be dropped. No card copy: the stop path writes
+			// what the row says.
+			this.#settleRunForm(toolId, undefined)
 			return Promise.resolve(undefined)
 		}
 		// Ahead of the wait, not of the stop above: the caller settled this form before
@@ -1884,116 +1914,124 @@ export class AIChatManager {
 		}
 		// Seeded from the caller's copy, before the card renders: the args on `displayMessages`
 		// are redacted, so a draft built from those would open the form on `<hidden>`.
-		this.runFormDraft(toolId, form)
+		const entry = this.#runFormEntry(toolId, form)
 		return new Promise((resolve) => {
-			this.runFormCallbacks.set(toolId, resolve)
+			this.#runForms.set(toolId, { ...entry, resolve })
 		})
 	}
 
 	/**
-	 * The draft a run form edits, created on first mount and shared by every later one.
+	 * The entry a run form edits through, created on first mount and shared by every later one.
 	 *
 	 * Deep snapshots, never the message's own values: those are `$state` proxies off
 	 * `displayMessages`, and SchemaForm edits args and schema in place (it reorders the
 	 * schema on mount), so anything shallower writes each keystroke — a nested password
 	 * included — into the persisted transcript.
 	 */
-	runFormDraft = (toolId: string, runForm: RunFormDisplay): RunFormDraft => {
-		const existing = this.runFormDrafts.get(toolId)
+	#runFormEntry = (toolId: string, runForm: RunFormDisplay): PendingRunForm => {
+		const existing = this.#runForms.get(toolId)
 		if (existing) return existing
 		const draft = $state({
 			args: ($state.snapshot(runForm.args) ?? {}) as Record<string, any>,
 			schema: ($state.snapshot(runForm.schema) ?? {}) as Record<string, any>
 		})
-		this.runFormDrafts.set(toolId, draft)
-		return draft
+		const entry: PendingRunForm = { draft, submitting: false }
+		this.#runForms.set(toolId, entry)
+		return entry
 	}
+
+	runFormDraft = (toolId: string, runForm: RunFormDisplay): RunFormDraft =>
+		this.#runFormEntry(toolId, runForm).draft
 
 	markRunFormStarted = (toolId: string) => this.#patchRunForm(toolId, { started: true })
 
-	// A form restored from history has no callback: the loop that opened it is gone.
-	isRunFormPending = (toolId: string): boolean => this.runFormCallbacks.has(toolId)
+	// A form restored from history has an entry once it mounts, but no resolve: the loop
+	// that opened it is gone.
+	isRunFormPending = (toolId: string): boolean => !!this.#runForms.get(toolId)?.resolve
 
-	/** Held here rather than on the form, which unmounts and remounts as it moves between the
-	 * card and the preview panel: an instance flag comes back false mid-submit while the
-	 * callback is still pending, re-arming both buttons on a run already on its way. */
-	#runFormSubmitting = new SvelteSet<string>()
-
-	isRunFormSubmitting = (toolId: string): boolean => this.#runFormSubmitting.has(toolId)
+	isRunFormSubmitting = (toolId: string): boolean => this.#runForms.get(toolId)?.submitting ?? false
 
 	/** False when a submit is already in flight for this call, so the caller can drop a
 	 * second one rather than mint a second set of ephemeral secret variables for it. */
 	beginRunFormSubmit = (toolId: string): boolean => {
-		if (this.#runFormSubmitting.has(toolId)) return false
-		this.#runFormSubmitting.add(toolId)
+		const entry = this.#runForms.get(toolId)
+		if (!entry || entry.submitting) return false
+		this.#runForms.set(toolId, { ...entry, submitting: true })
 		return true
 	}
 
-	endRunFormSubmit = (toolId: string) => this.#runFormSubmitting.delete(toolId)
+	endRunFormSubmit = (toolId: string) => {
+		const entry = this.#runForms.get(toolId)
+		if (entry?.submitting) this.#runForms.set(toolId, { ...entry, submitting: false })
+	}
 
 	/** Whether any form of this chat is still waiting on the user. Asked instead of looking
 	 * the form up in the panel's DOM: when the preview holds it, the card is collapsed and
 	 * the only mounted copy is outside the panel — where a DOM query would miss it and let
 	 * Escape discard what has been typed. */
 	get hasPendingRunForm(): boolean {
-		return this.runFormCallbacks.size > 0
+		for (const entry of this.#runForms.values()) if (entry.resolve) return true
+		return false
 	}
 
 	/** False when the form is no longer pending, so the caller can say so instead of
 	 * leaving its submit button spinning on a run that will never start. */
 	handleRunFormSubmit = (toolId: string, args: Record<string, any>): boolean => {
-		const callback = this.runFormCallbacks.get(toolId)
-		if (!callback) {
-			return false
-		}
-		// Only the flag: the card's `parameters` already records what ran, and a second
-		// copy of the arguments in the transcript is one more place a file argument's
-		// base64 lands in IndexedDB.
-		this.#patchRunForm(toolId, { submitted: true })
-		callback(args)
-		this.runFormCallbacks.delete(toolId)
-		this.#runFormSubmitting.delete(toolId)
+		if (!this.isRunFormPending(toolId)) return false
+		this.#settleRunForm(toolId, args)
 		return true
 	}
 
 	handleRunFormCancel = (toolId: string) => {
-		const callback = this.runFormCallbacks.get(toolId)
-		this.runFormDrafts.delete(toolId)
-		this.#runFormSubmitting.delete(toolId)
-		this.closeRunForm?.(toolId)
-		// Settled here rather than only in the tool's fn, which a form restored from
-		// history no longer has: Cancel is that card's one way out, and while it stays
-		// active the whole session reads as needs-confirmation (getSessionChatStatus
-		// asks pendingUserAction before loading). Clearing isLoading is part of
-		// settling — canceled alone unmounts the form but leaves the card shimmering.
+		// The card's own copy is settled here rather than only in the tool's fn, which a form
+		// restored from history no longer has: Cancel is that card's one way out, and while it
+		// stays active the whole session reads as needs-confirmation (getSessionChatStatus asks
+		// pendingUserAction before loading). Clearing isLoading is part of settling — canceled
+		// alone unmounts the form but leaves the card shimmering.
+		this.#settleRunForm(toolId, undefined, (runForm) => ({
+			isLoading: false,
+			error: 'Cancelled by user',
+			content: `Run of "${runForm.path}" cancelled by user`
+		}))
+	}
+
+	/**
+	 * The one way a run form stops waiting on the user: `submitted` is the arguments to run
+	 * with, `undefined` a cancellation.
+	 *
+	 * `card` is for a settler that also owns what the row reads — pressing Cancel does, a
+	 * stopped turn leaves it to settledToolDisplay.
+	 */
+	#settleRunForm = (
+		toolId: string,
+		submitted: Record<string, any> | undefined,
+		card?: (runForm: RunFormDisplay) => Partial<ToolDisplayMessage>
+	) => {
+		const entry = this.#runForms.get(toolId)
+		// Its draft holds whatever was typed into the form, a minted password included.
+		this.#runForms.delete(toolId)
+		// Cancelled, so no run follows it into that tab (a submitted one is handed over by
+		// registerJob instead) — take the tab with it rather than leaving a dead form open.
+		if (submitted === undefined) this.closeRunForm?.(toolId)
+		// Only the flag: the card's `parameters` already records what ran, and a second copy
+		// of the arguments in the transcript is one more place a file argument's base64
+		// lands in IndexedDB.
+		this.#patchRunForm(toolId, submitted ? { submitted: true } : { canceled: true }, card)
+		entry?.resolve?.(submitted)
+	}
+
+	#patchRunForm = (
+		toolId: string,
+		patch: Partial<RunFormDisplay>,
+		card?: (runForm: RunFormDisplay) => Partial<ToolDisplayMessage>
+	) => {
 		this.displayMessages = this.displayMessages.map((message) =>
 			message.role === 'tool' && message.tool_call_id === toolId && message.runForm
 				? {
 						...message,
-						isLoading: false,
-						error: 'Cancelled by user',
-						content: `Run of "${message.runForm.path}" cancelled by user`,
-						runForm: settledRunForm({ ...message.runForm, canceled: true })
+						...card?.(message.runForm),
+						runForm: settledRunForm({ ...message.runForm, ...patch })
 					}
-				: message
-		)
-		if (!callback) {
-			return
-		}
-		callback(undefined)
-		this.runFormCallbacks.delete(toolId)
-	}
-
-	#patchRunForm = (toolId: string, patch: Partial<RunFormDisplay>) => {
-		// A settled form has no more edits to resume, and its draft holds whatever was typed
-		// into it — a minted password included.
-		if (patch.submitted || patch.canceled) this.runFormDrafts.delete(toolId)
-		// Cancelled, so no run follows it into that tab (a submitted one is handed over by
-		// registerJob instead) — take the tab with it rather than leaving a dead form open.
-		if (patch.canceled) this.closeRunForm?.(toolId)
-		this.displayMessages = this.displayMessages.map((message) =>
-			message.role === 'tool' && message.tool_call_id === toolId && message.runForm
-				? { ...message, runForm: settledRunForm({ ...message.runForm, ...patch }) }
 				: message
 		)
 	}
@@ -4171,15 +4209,16 @@ export class AIChatManager {
 			resolveQuestion(undefined)
 		}
 		this.userQuestionCallbacks.clear()
-		for (const [toolId, resolveRunArgs] of this.runFormCallbacks) {
-			resolveRunArgs(undefined)
+		for (const [toolId, runForm] of this.#runForms) {
+			runForm.resolve?.(undefined)
 			// The form settles with the turn, so a preview tab holding it goes too rather
 			// than being left on a form that can no longer run.
 			this.closeRunForm?.(toolId)
 		}
-		this.runFormCallbacks.clear()
-		this.runFormDrafts.clear()
-		this.#runFormSubmitting.clear()
+		// Not through #settleRunForm: settledToolDisplay settles every card of the stopped
+		// turn at once, and it alone can tell a run that reached the server from one that
+		// never did.
+		this.#runForms.clear()
 		const cancelReason = reason ?? USER_CANCEL_REASON
 		console.log('cancelling request:', {
 			reason: cancelReason,
