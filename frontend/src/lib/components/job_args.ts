@@ -50,7 +50,6 @@ const SCALAR_TYPES = new Set(['string', 'number', 'integer', 'boolean'])
 const declaresDynMultiselect = (prop: any) =>
 	typeof prop?.format === 'string' && prop.format.startsWith('dynmultiselect-')
 
-/** Whether a primitive already is what its declared scalar type asks for. */
 const fitsScalarType = (value: any, type: string): boolean =>
 	type === 'integer' ? typeof value === 'number' : typeof value === type
 

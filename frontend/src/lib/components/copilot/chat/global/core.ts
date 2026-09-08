@@ -3663,10 +3663,10 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = testRunScriptSchema.parse(ctx.args)
 			return testRunScriptByPath(parsed, ctx)
 		},
-		// No requiresConfirmation: like run_script, the argument form is the confirmation —
-		// but this one is auto-acceptable, so YOLO answers it and the model keeps iterating.
-		// Which is a decision made for the user, so the posture's own list has to name it.
-		// One thing does run before Run — see the note on the form's SchemaForm.
+		// No requiresConfirmation: the argument form is the confirmation, and the bypass posture
+		// answers it with what the form opened with — a decision made for the user, so the
+		// posture's own list has to name it. One thing does run before Run: see the note on
+		// the form's SchemaForm.
 		bypassedByAutoAccept: true,
 		confirmationMessage: 'Run a test of a script',
 		streamingLabel: 'Preparing the test form...',
@@ -3680,10 +3680,7 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = runScriptSchema.parse(ctx.args)
 			return runDeployedScript(parsed, ctx)
 		},
-		// No requiresConfirmation: the argument form is the confirmation, and the bypass posture
-		// answers it — unless it holds a field only the user can fill, which is a question and
-		// not a confirmation. One thing does run before Run — see the note on the form's
-		// SchemaForm.
+		// No requiresConfirmation, for the reason test_run_script carries.
 		bypassedByAutoAccept: true,
 		confirmationMessage: 'Run a deployed script',
 		streamingLabel: 'Preparing the run form...',
@@ -5473,8 +5470,7 @@ async function testRunScriptByPath(
 			startMessage: `Running test for script "${args.path}"...`,
 			contextName: 'script',
 			// Its own loop: the model is told to test and iterate, so the posture answers the
-			// form with what it opened with rather than parking the loop on a card. Same
-			// exception as a deployed run — a field only the user can fill still stops it.
+			// form with what it opened with rather than parking the loop on a card.
 			autoAcceptable: true,
 			background: args.background,
 			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
@@ -5528,9 +5524,7 @@ type FormRunSpec = {
 	proposed: Record<string, any> | null | undefined
 	startMessage: string
 	contextName: 'script' | 'flow'
-	/** Whether the bypass posture may answer this form with what it opened with. Answering it
-	 * is still refused when the form holds something only the user can give — see
-	 * `formNeedsUser`. */
+	/** Whether the bypass posture may answer this form with what it opened with. */
 	autoAcceptable?: boolean
 	background?: boolean
 	detachAfterMs?: number
@@ -5539,7 +5533,7 @@ type FormRunSpec = {
 
 async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
-	// Asked of the posture, not of the tool: every run tool is auto-acceptable now, so a
+	// Asked of the posture, not of the tool: every run tool is auto-acceptable, so a
 	// host with no form would otherwise run one on the model's arguments alone, in any
 	// posture. What a bypass answers is a decision the user already made; without it there
 	// is no consent to be had here and nothing to fall back on.
@@ -5551,10 +5545,9 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	}
 
 	const schema = spec.schema
-	// Whether to ask is the only question decided here, and the posture already answers it.
-	// What a mounted field would have held — a default, a synthesised empty, whether Run would
-	// light up — is the form's own business: deriving it a second time in this file is what
-	// kept starting runs the form itself would have refused.
+	// Whether to ask is the only question decided here. What a mounted field would hold — a
+	// default, a synthesised empty, whether Run lights up — is the form's own business: any
+	// second derivation of it here can start a run the form itself would refuse.
 	const autoAccepted = postureAnswers
 	const strippedKeys: string[] = []
 	const coerced = autoAccepted
@@ -5566,9 +5559,9 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	if (coerced) {
 		resetKeys = coerced.resetKeys
 		undeclaredKeys = coerced.undeclaredKeys
-		// Bytes only. A secret the model proposed is already in its own tool call, in the same
-		// stored record as this card, so emptying the field hides it from nobody and costs the
-		// user a retype — and PasswordArgInput mints whatever it opens with before the job.
+		// Bytes only: a proposed secret is already in this card's own tool call, in the same
+		// stored record, and PasswordArgInput mints whatever the field opens with before the
+		// job — so the plaintext reaches neither a reader nor the run.
 		proposed = stripFileArgs(coerced.args, schema as any, strippedKeys)
 	} else {
 		// Both rules hold against every caller, not only the ones a form stands in front of:
@@ -5728,9 +5721,9 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		submittedJson.length > MAX_SUBMITTED_ARGS_LENGTH
 			? submittedJson.slice(0, MAX_SUBMITTED_ARGS_LENGTH) + '... (truncated)'
 			: submittedJson
-	// Naming them costs a copy of arguments already in the call above, and the clauses
-	// below cover every way the form's own were not the proposed ones — so only what the
-	// user changed is news, and an untouched form is worth saying in a line.
+	// Naming them costs a copy of arguments already in the call above, and cleared/reset/
+	// stripped name every way the form's own differ from the proposed ones — so only what
+	// the user changed is news.
 	const ran = deepEqual(redacted, proposed)
 		? 'Ran with the arguments the form opened with, unedited.'
 		: `Ran with arguments: ${shown}`
@@ -5757,9 +5750,7 @@ async function runDeployedScript(
 			startMessage: `Running "${args.path}"...`,
 			contextName: 'script',
 			// Bypassable like a test run: the posture is the user's standing answer, and a form
-			// it parks on is a card nobody is watching. It still opens when the form is the only
-			// source for a value the run needs — a secret, a file, a required field the model
-			// left empty — since the posture answers for consent and not for information.
+			// it parks on is a card nobody is watching.
 			autoAcceptable: true,
 			startJob: (submitted) =>
 				JobService.runScriptByPath({ workspace, path: args.path, requestBody: submitted })

@@ -4486,8 +4486,8 @@ describe('global AI tools', () => {
 
 	// The posture is the user's standing answer to whether to ask, so a run it answers starts on
 	// the model's arguments as sent — no default filled in, no required field second-guessed.
-	// Predicting what a mounted field would have held is what kept starting runs the form would
-	// have refused; the schema's own defaults are the worker's job, from the code's signature.
+	// Predicting what a mounted field would hold starts runs the form itself would refuse; the
+	// schema's own defaults are the worker's job, from the code's signature.
 	it('sends the model arguments as proposed when the posture answers', async () => {
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
 			path: 'f/scripts/defaulted',
@@ -4666,9 +4666,9 @@ describe('global AI tools', () => {
 		expect(JSON.stringify(statuses)).not.toContain(huge)
 	})
 
-	// A schema with no fields is the one shape that used to run without asking: the form it
-	// would have built was empty, so the tool skipped it and started the job. An empty form
-	// is still the Run button, and that button is the whole confirmation this tool has.
+	// A schema with no fields still opens a form: an empty one is still the Run button, and
+	// that button is the whole confirmation this tool has. Skipping it because there is
+	// nothing to fill in starts the script with no confirmation at all.
 	it('test_run_script opens a form and starts no job when the schema declares no field', async () => {
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
 			path: 'f/scripts/noargs-test',

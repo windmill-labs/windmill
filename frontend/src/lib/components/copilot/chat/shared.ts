@@ -579,8 +579,8 @@ export type RunFormDisplay = {
 	/** Proposed arguments a disabled field overrode with its default. Named for the same
 	 * reason: the field renders locked, so the value it holds is not the proposed one. */
 	resetKeys?: string[]
-	/** Secret and file arguments emptied out of the proposal. Named so an empty field
-	 * reads as the caller's value having been removed, not as the field having none. */
+	/** File arguments emptied out of the proposal. Named so an empty field reads as the
+	 * caller's value having been removed, not as the field having none. */
 	strippedKeys?: string[]
 	/** Either one unmounts the form, so set exactly one, and only once the loop has
 	 * stopped waiting on this card. */

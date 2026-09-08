@@ -142,9 +142,9 @@
 	)
 
 	// The three moments a run moves the card — a tab arrives, the selection follows it, the body
-	// changes under it — used to land in one frame each, which is why the card was hard to follow.
-	// A tab already on screen when the card mounts never arrived, so a settled call restored from
-	// history renders its strip at rest.
+	// changes under it — are staggered rather than landing in one frame, which is what makes the
+	// card followable. A tab already on screen when the card mounts never arrived, so a settled
+	// call restored from history renders its strip at rest.
 	let liveStrip = $state(false)
 	onMount(() => (liveStrip = true))
 

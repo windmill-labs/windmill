@@ -201,9 +201,9 @@ describe('secret args at every level the form nests', () => {
 		})
 	})
 
-	// Descending on which keys the declaration carries rather than on the shape of the
-	// value routed this into `properties`, which cannot hold an array — so the elements
-	// were never visited and the secret reached the persisted card verbatim.
+	// The walk descends on the value's shape: routing an array down `properties` because the
+	// declaration carries that key would visit none of its elements, leaving the secret in
+	// the persisted card verbatim.
 	it('reaches through a declaration carrying both items and properties', () => {
 		const both = {
 			properties: {
@@ -219,9 +219,9 @@ describe('secret args at every level the form nests', () => {
 		})
 	})
 
-	// A container shaped unlike its declaration is kept, so the walk has to reach in
-	// through the half the declaration does carry — descending on the value's shape alone
-	// left the secret sitting there for the persisted card and the model to read.
+	// A container shaped unlike its declaration is kept, so the walk has to reach in through
+	// the half the declaration does carry — on the value's shape alone it stops at the
+	// mismatch, leaving the secret there for the persisted card and the model to read.
 	it('reaches through a container shaped unlike its declaration', () => {
 		const declaresArray = {
 			properties: {
