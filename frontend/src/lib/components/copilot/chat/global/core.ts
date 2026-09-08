@@ -5601,17 +5601,23 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		strippedKeys: strippedKeys.length ? strippedKeys : undefined
 	}
 
+	// Redacted here rather than on each way out: `displayMessages` is saved as it stands, and
+	// nothing rewrites `runForm.args` after this, so a proposed secret left in the clear is
+	// one every exit has to remember to clear. The plaintext lives on in the form's draft.
+	const persisted = { ...form, args: redactSecretArgs(proposed, schema as any) }
+
 	toolCallbacks.setToolStatus(toolId, {
 		content: autoAccepted
 			? spec.startMessage
 			: `Waiting for you to confirm the arguments of "${spec.path}"`,
-		runForm: form,
+		runForm: persisted,
 		// Not the raw tool-call arguments: the card settles on what the form opened with.
 		// Only settles it — the raw proposal still renders while the call streams in.
-		parameters: proposed,
+		parameters: persisted.args,
 		isLoading: true
 	})
 
+	// `form`, not `persisted`: a password field mints from what it opens with.
 	const submitted = toolCallbacks.requestRunArgs
 		? await toolCallbacks.requestRunArgs(toolId, form, { autoAccepted })
 		: proposed

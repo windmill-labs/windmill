@@ -1882,6 +1882,9 @@ export class AIChatManager {
 		if (opts?.autoAccepted) {
 			return Promise.resolve(form.args)
 		}
+		// Seeded from the caller's copy, before the card renders: the args on `displayMessages`
+		// are redacted, so a draft built from those would open the form on `<hidden>`.
+		this.runFormDraft(toolId, form)
 		return new Promise((resolve) => {
 			this.runFormCallbacks.set(toolId, resolve)
 		})
