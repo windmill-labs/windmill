@@ -11746,11 +11746,15 @@ paths:
           in: query
           schema:
             type: string
-        - name: include_test
-          description: include conversations started from the flow editor's test panel
+        - name: kind
+          description: which conversations to list - the flow editor's test chats, the deployed flow's own, or both
           in: query
           schema:
-            type: boolean
+            type: string
+            enum:
+              - test
+              - deployed
+              - all
       responses:
         "200":
           description: flow conversations list

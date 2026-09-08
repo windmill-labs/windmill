@@ -123,6 +123,8 @@
 		workspace?: string | undefined
 		s3StorageConfigured?: boolean
 		chatInputEnabled?: boolean
+		/** Why the oneOf variant is fixed. Set = the selector is disabled and says so. */
+		oneOfLockedReason?: string
 		actions?: import('svelte').Snippet
 		innerBottomSnippet?: import('svelte').Snippet
 		fieldHeaderActions?: import('svelte').Snippet
@@ -184,6 +186,7 @@
 		workspace = undefined,
 		s3StorageConfigured = true,
 		chatInputEnabled = false,
+		oneOfLockedReason = undefined,
 		actions,
 		innerBottomSnippet,
 		fieldHeaderActions,
@@ -1103,11 +1106,15 @@
 		{:else if inputCat == 'object' || inputCat == 'resource-object' || isListJson}
 			{#if oneOf && oneOf.length >= 2}
 				<div class="flex flex-col gap-2 w-full border rounded-md p-4">
+					{#if oneOfLockedReason !== undefined}
+						<div class="text-2xs text-tertiary">{oneOfLockedReason}</div>
+					{/if}
 					{#if oneOf && oneOf.length >= 2}
 						<ToggleButtonGroup
 							selected={oneOfSelected}
 							wrap
 							class="mb-4"
+							disabled={disabled || oneOfLockedReason !== undefined}
 							on:selected={({ detail }) => {
 								oneOfSelected = detail
 								const selectedObjProperties =

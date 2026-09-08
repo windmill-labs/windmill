@@ -481,7 +481,7 @@
 							)
 							return jobId ?? ''
 						}}
-						showTestChats
+						conversationKind="test"
 						path={$pathStore}
 						inputSchema={flowStore.val.schema}
 						flowModules={flowStore.val.value?.modules}

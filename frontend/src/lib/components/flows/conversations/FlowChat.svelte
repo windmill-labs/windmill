@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
-	import { createFlowChatManager } from './FlowChatManager.svelte'
+	import { createFlowChatManager, type ConversationKind } from './FlowChatManager.svelte'
 	import FlowConversationsSidebar from './FlowConversationsSidebar.svelte'
 	import FlowChatInterface from './FlowChatInterface.svelte'
 	import { getContext, untrack } from 'svelte'
@@ -22,8 +22,8 @@
 		flowModules?: FlowModule[]
 		/** Wider centered column, for the full-page chat. */
 		wideLayout?: boolean
-		/** Whether the editor's own test chats are listed. On where testing happens. */
-		showTestChats?: boolean
+		/** Which chats the sidebar lists before the reader filters it themselves. */
+		conversationKind?: ConversationKind
 	}
 
 	let {
@@ -35,14 +35,14 @@
 		inputSchema = undefined,
 		flowModules = undefined,
 		wideLayout = false,
-		showTestChats = false
+		conversationKind = 'deployed'
 	}: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const manager = createFlowChatManager()
 	manager.operatingWorkspace = () => flowEditorContext?.opWorkspace?.()
-	manager.showTestChats = showTestChats
+	manager.conversationKind = conversationKind
 
 	// Initialize manager when component mounts
 	$effect(() => {

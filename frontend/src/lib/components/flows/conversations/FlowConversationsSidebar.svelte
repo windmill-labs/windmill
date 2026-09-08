@@ -8,14 +8,15 @@
 		PanelLeftOpen,
 		FlaskConical
 	} from 'lucide-svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { Filter } from 'lucide-svelte'
 	import { type FlowConversation } from '$lib/gen'
 	import CountBadge from '$lib/components/common/badge/CountBadge.svelte'
 	import InfiniteList from '$lib/components/InfiniteList.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { FlowChatManager } from './FlowChatManager.svelte'
+	import { FlowChatManager, type ConversationKind } from './FlowChatManager.svelte'
 	import { fade } from 'svelte/transition'
 
 	interface Props {
@@ -23,6 +24,12 @@
 	}
 
 	let { manager }: Props = $props()
+
+	const KIND_LABELS: Record<ConversationKind, string> = {
+		test: 'Test',
+		deployed: 'Deployed',
+		all: 'All'
+	}
 
 	function getConversationTitle(conversation: FlowConversation): string {
 		return conversation.title || `Conversation ${conversation.created_at.slice(0, 10)}`
@@ -72,31 +79,33 @@
 				</Button>
 				<Popover placement="bottom-start" closeButton={false}>
 					{#snippet trigger()}
+						<!-- Icon-only next to the wider New chat: which kind is listed is named in
+						     the title and by the group inside. -->
 						<Button
 							nonCaptureEvent
 							unifiedSize="md"
 							variant="subtle"
-							startIcon={{ icon: Filter, classes: 'ml-[2px]' }}
-							title="Filter conversations"
-							iconOnly={!manager.isSidebarExpanded}
-							btnClasses={'w-full justify-start transition-all duration-150 whitespace-nowrap'}
-						>
-							<div transition:fade={{ duration: 100 }}>
-								Filter{manager.showTestChats ? ' · 1' : ''}
-							</div>
-						</Button>
+							startIcon={{ icon: Filter }}
+							title="Filter conversations · {KIND_LABELS[manager.conversationKind]}"
+							iconOnly
+						/>
 					{/snippet}
 					{#snippet content()}
 						<div class="p-3">
-							<Toggle
-								size="xs"
-								checked={manager.showTestChats}
-								on:change={(e) => manager.setShowTestChats(e.detail)}
-								options={{ right: 'Show test chats' }}
-							/>
+							<ToggleButtonGroup
+								selected={manager.conversationKind}
+								onSelected={(kind) => manager.setConversationKind(kind as ConversationKind)}
+								noWFull
+							>
+								{#snippet children({ item })}
+									<ToggleButton size="sm" value="test" label={KIND_LABELS.test} {item} />
+									<ToggleButton size="sm" value="deployed" label={KIND_LABELS.deployed} {item} />
+									<ToggleButton size="sm" value="all" label={KIND_LABELS.all} {item} />
+								{/snippet}
+							</ToggleButtonGroup>
 							<p class="text-2xs text-tertiary mt-1.5 max-w-[190px]">
-								Chats run from the flow editor's test panel, kept apart from the flow's real
-								conversations.
+								Test chats are the ones run from the flow editor's test panel, kept apart from the
+								conversations the deployed flow's users started.
 							</p>
 						</div>
 					{/snippet}
@@ -153,8 +162,8 @@
 							btnClasses="transition-all duration-150 group"
 						>
 							{#if conversation.is_test}
-								<!-- Both kinds share this list whenever the filter is on, so a test chat
-								     has to be readable as one at a glance. -->
+								<!-- The list holds both kinds under the "All" filter, so a test chat has to
+								     be readable as one at a glance. -->
 								<FlaskConical size={12} class="shrink-0 mr-1 text-tertiary" />
 							{/if}
 							<span class="flex-1 text-left truncate">

@@ -38,12 +38,22 @@ pub struct FlowConversationMessage {
     pub success: bool,
 }
 
+/// Which conversations a listing holds. A test chat was started from the editor's test
+/// panel; a deployed one from the flow itself.
+#[derive(Deserialize, Default, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum ConversationKind {
+    Test,
+    /// The default: a deployed flow's chat should not surface someone's trial runs.
+    #[default]
+    Deployed,
+    All,
+}
+
 #[derive(Deserialize)]
 pub struct ListConversationsQuery {
     pub flow_path: Option<String>,
-    /// Include conversations started from the editor's test panel. Off by default: a
-    /// deployed flow's chat should not surface someone's trial runs.
-    pub include_test: Option<bool>,
+    pub kind: Option<ConversationKind>,
 }
 
 #[derive(Deserialize)]
@@ -78,8 +88,14 @@ async fn list_conversations(
         sqlb.and_where_eq("flow_path", "?".bind(flow_path));
     }
 
-    if !query.include_test.unwrap_or(false) {
-        sqlb.and_where_eq("is_test", "false");
+    match query.kind.unwrap_or_default() {
+        ConversationKind::Test => {
+            sqlb.and_where_eq("is_test", "true");
+        }
+        ConversationKind::Deployed => {
+            sqlb.and_where_eq("is_test", "false");
+        }
+        ConversationKind::All => {}
     }
 
     sqlb.order_by("updated_at", true)

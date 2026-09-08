@@ -618,8 +618,7 @@
 		} else if (aiAgentModules.length === 1) {
 			// Exactly one AI agent exists: fill in defaults only for inputs the
 			// user hasn't configured, so re-enabling chat mode on an already
-			// configured agent doesn't clobber a custom user_message expression
-			// or a deliberate memory choice (e.g. off).
+			// configured agent doesn't clobber a custom user_message expression.
 			const aiAgent = aiAgentModules[0]
 			const value = aiAgent.value as AiAgent
 
@@ -651,7 +650,14 @@
 				applied.push('attachments input')
 			}
 
-			if (isUnconfigured(value.input_transforms['memory'])) {
+			// `off` is the first oneOf variant of the memory field, so a step added by hand
+			// carries it without anyone choosing it — and an agent that forgets every turn
+			// makes the chat a series of unrelated questions. Overwritten rather than left
+			// alone; the toast below says it happened.
+			const memoryIsOff = (transform: InputTransform | undefined) =>
+				transform?.type === 'static' && (transform.value as any)?.kind === 'off'
+
+			if (isUnconfigured(value.input_transforms['memory']) || memoryIsOff(value.input_transforms['memory'])) {
 				value.input_transforms['memory'] = {
 					type: 'static',
 					value: { kind: 'auto', context_length: 10 }
@@ -750,7 +756,7 @@
 							<EditableSchemaForm
 								bind:this={chatEditableSchemaForm}
 								bind:schema={flowStore.val.schema}
-								hiddenArgs={['user_message']}
+								lockedArgs={['user_message']}
 								isFlowInput
 								showSensitiveToggle
 								workspace={opWs}
@@ -788,7 +794,7 @@
 					{:else}
 						<FlowChat
 							onRunFlow={runFlowWithMessage}
-							showTestChats
+							conversationKind="test"
 							path={$pathStore}
 							useStreaming={shouldUseStreaming}
 							inputSchema={flowStore.val.schema}

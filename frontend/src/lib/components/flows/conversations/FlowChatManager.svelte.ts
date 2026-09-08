@@ -1,4 +1,8 @@
-import type { FlowConversation, FlowConversationMessage } from '$lib/gen/types.gen'
+import type {
+	FlowConversation,
+	FlowConversationMessage,
+	ListFlowConversationsData
+} from '$lib/gen/types.gen'
 import { FlowConversationsService, JobService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { waitJob } from '$lib/components/waitJob'
@@ -26,6 +30,9 @@ export interface ConversationWithDraft extends FlowConversation {
 	isDraft?: boolean
 }
 
+/** A chat run from the editor's test panel, one started on the deployed flow, or both. */
+export type ConversationKind = NonNullable<ListFlowConversationsData['kind']>
+
 export class FlowChatManager {
 	// State
 	messages = $state<ChatMessage[]>([])
@@ -45,11 +52,11 @@ export class FlowChatManager {
 	deletingConversationId = $state<string | undefined>(undefined)
 	isSidebarExpanded = $state(false)
 	/**
-	 * Whether the list includes chats run from the editor's test panel. On in the editor,
-	 * where testing is the point; off on a deployed flow, so someone's trial runs are not
-	 * mixed into the real conversations.
+	 * Which conversations the list holds. The editor shows its own test chats, since
+	 * testing is what happens there; a deployed flow shows the chats its users started,
+	 * so nobody's trial runs are mixed into them.
 	 */
-	showTestChats = $state(false)
+	conversationKind = $state<ConversationKind>('deployed')
 	selectedConversationId = $state<string | undefined>(undefined)
 	conversationListComponent = $state<InfiniteList | undefined>(undefined)
 
@@ -190,10 +197,10 @@ export class FlowChatManager {
 		await this.selectConversation(latest.id)
 	}
 
-	/** Flip the test-chat filter and reload the list under it. */
-	async setShowTestChats(show: boolean) {
-		if (this.showTestChats === show) return
-		this.showTestChats = show
+	/** Narrow the list to one kind of chat and reload it. */
+	async setConversationKind(kind: ConversationKind) {
+		if (this.conversationKind === kind) return
+		this.conversationKind = kind
 		await this.refreshConversations()
 	}
 
@@ -258,7 +265,7 @@ export class FlowChatManager {
 			const response = await FlowConversationsService.listFlowConversations({
 				workspace: this.#workspace()!,
 				flowPath: this.#path,
-				includeTest: this.showTestChats,
+				kind: this.conversationKind,
 				page: page,
 				perPage: perPage
 			})
@@ -516,9 +523,7 @@ export class FlowChatManager {
 
 	/** The assistant text stops growing once something else takes over the transcript. */
 	#settleStreamingMessage() {
-		this.messages = this.messages.map((msg) =>
-			msg.streaming ? { ...msg, streaming: false } : msg
-		)
+		this.messages = this.messages.map((msg) => (msg.streaming ? { ...msg, streaming: false } : msg))
 	}
 
 	/**
