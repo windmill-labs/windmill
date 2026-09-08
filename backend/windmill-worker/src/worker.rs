@@ -3867,7 +3867,8 @@ pub async fn run_worker(
                     let job_result = windmill_common::log_context::with_log_context(
                         log_ctx,
                         async {
-                            let result = handle_queued_job(
+                            // Keep large job-phase futures boxed to limit debug polling frames.
+                            let result = Box::pin(handle_queued_job(
                                 arc_job.clone(),
                                 raw_code,
                                 raw_lock,
@@ -3888,7 +3889,7 @@ pub async fn run_worker(
                                 flow_runners,
                                 #[cfg(feature = "benchmark")]
                                 &mut bench,
-                            )
+                            ))
                             .await;
                             record_job_span_status(&result);
                             result
@@ -5527,7 +5528,7 @@ async fn handle_code_execution_job(
     .await?;
 
     let language = language.clone();
-    let result = run_language_executor(
+    let result = Box::pin(run_language_executor(
         job,
         conn,
         client,
@@ -5552,7 +5553,7 @@ async fn handle_code_execution_job(
         &modules,
         false,
         in_pipeline,
-    )
+    ))
     .await;
     record_declared_warehouse_write(job, conn, code, &result).await;
     result
@@ -6466,7 +6467,7 @@ mount {{
         .await;
 
         if let Connection::Sql(db) = conn {
-            volume_setup = crate::volume_oss::setup_volumes_sql_worker(
+            volume_setup = Box::pin(crate::volume_oss::setup_volumes_sql_worker(
                 &volume_mounts,
                 db,
                 &job.workspace_id,
@@ -6479,10 +6480,10 @@ mount {{
                 language,
                 &mut envs,
                 &mut shared_mount,
-            )
+            ))
             .await?;
         } else if let Connection::Http(http) = conn {
-            volume_setup = crate::volume_oss::setup_volumes_http_worker(
+            volume_setup = Box::pin(crate::volume_oss::setup_volumes_http_worker(
                 &volume_mounts,
                 http,
                 &job.workspace_id,
@@ -6495,7 +6496,7 @@ mount {{
                 language,
                 &mut envs,
                 &mut shared_mount,
-            )
+            ))
             .await?;
         }
     }
@@ -6991,7 +6992,7 @@ mount {{
 
         if let Some(ref vol_client) = volume_setup.client {
             if let Connection::Sql(db) = conn {
-                crate::volume_oss::sync_volumes_sql_worker(
+                Box::pin(crate::volume_oss::sync_volumes_sql_worker(
                     &volume_setup.states,
                     &volume_setup.writable,
                     vol_client,
@@ -7001,13 +7002,13 @@ mount {{
                     worker_name,
                     conn,
                     result.is_ok(),
-                )
+                ))
                 .await;
             }
         }
 
         if let Connection::Http(http) = conn {
-            crate::volume_oss::sync_volumes_http_worker(
+            Box::pin(crate::volume_oss::sync_volumes_http_worker(
                 &volume_setup.states,
                 &volume_setup.writable,
                 http,
@@ -7016,7 +7017,7 @@ mount {{
                 worker_name,
                 conn,
                 result.is_ok(),
-            )
+            ))
             .await;
         }
 

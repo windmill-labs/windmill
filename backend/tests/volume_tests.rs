@@ -549,7 +549,7 @@ export function main() {
         output_exists: existsSync("data/output.txt"),
     };
 }"#;
-    run_volume_sql_worker_e2e(db, ScriptLang::Bun, code).await
+    run_volume_with_default_stack(db, ScriptLang::Bun, code).await
 }
 
 #[cfg(all(feature = "parquet", feature = "private", feature = "php"))]
@@ -568,6 +568,15 @@ function main() {
     ];
 }"#;
 
+    run_volume_with_default_stack(db, ScriptLang::Php, code).await
+}
+
+#[cfg(feature = "parquet")]
+async fn run_volume_with_default_stack(
+    db: Pool<Postgres>,
+    language: ScriptLang,
+    code: &'static str,
+) -> anyhow::Result<()> {
     // CI raises RUST_MIN_STACK; keep the worker at Tokio's default to catch regressions.
     tokio::task::spawn_blocking(move || {
         tokio::runtime::Builder::new_multi_thread()
@@ -575,7 +584,7 @@ function main() {
             .thread_stack_size(2 * 1024 * 1024)
             .enable_all()
             .build()?
-            .block_on(run_volume_sql_worker_e2e(db, ScriptLang::Php, code))
+            .block_on(run_volume_sql_worker_e2e(db, language, code))
     })
     .await?
 }
