@@ -2512,34 +2512,40 @@ pub fn split_python_requirements<T: AsRef<str>>(requirements: T) -> Vec<String> 
         .collect()
 }
 
-/// Byte offset of the comment marker in a requirements-file line, per pip's rule: a `#`
-/// either at the start of the line or preceded by whitespace. A `#` anywhere else belongs
-/// to the requirement itself (`pkg @ https://host/pkg.whl#sha256=...`).
+/// Byte offset of the comment marker, per pip's rule: a `#` at line start or preceded by
+/// whitespace. A `#` elsewhere belongs to the requirement (`pkg @ https://h/p.whl#sha256=…`).
 fn requirement_comment_start(line: &str) -> Option<usize> {
     line.char_indices()
         .find(|(i, c)| *c == '#' && (*i == 0 || line[..*i].ends_with(char::is_whitespace)))
         .map(|(i, _)| i)
 }
 
-/// The installable requirement carried by one lockfile line, or `None` when the line has
-/// none (comment, `-r`/`-e`/`--flag` directive, or blank).
+/// The installable requirement carried by one lockfile line, or `None` for a comment, a
+/// `-r`/`-e`/`--flag` directive, or a blank.
 ///
-/// Windmill installs a lockfile one entry at a time, passing each to `uv pip install` as an
-/// argument. Requirements-file syntax that every file-level parser absorbs — comments, and
-/// `\` continuations — is therefore an unparseable package name here, so it has to be
-/// stripped rather than left for uv. Comments arrive indented from `uv pip compile`'s
-/// annotations (`    # via httpx`) and continuations from its `--generate-hashes` output.
+/// Windmill installs a lockfile one entry at a time as a `uv pip install` argument, so
+/// requirements-file syntax a file-level parser would absorb is an unparseable package name
+/// here and has to be stripped first.
 pub fn requirement_from_lockfile_line(line: &str) -> Option<&str> {
     let requirement = match requirement_comment_start(line) {
         Some(i) => &line[..i],
         None => line,
     }
     .trim()
-    // The continued lines are the `--hash=` ones, already dropped as flags.
+    // Continuations are stripped, not joined: right for `--generate-hashes` locks, whose
+    // continued lines are `--hash=` flags this function drops, but a lock continuing onto a
+    // marker or extra would lose it.
     .trim_end_matches('\\')
     .trim_end();
 
     (!requirement.is_empty() && !requirement.starts_with('-')).then_some(requirement)
+}
+
+/// Whether a lockfile line continues onto the next one. The continued lines reach the
+/// installer as entries of their own rather than being joined, so a caller that cares what
+/// they carried — `--hash=` pins, for a `--generate-hashes` lock — has to say so itself.
+pub fn lockfile_line_has_continuation(line: &str) -> bool {
+    line.trim_end().ends_with('\\')
 }
 
 #[derive(Eq, PartialEq, Clone, Copy, Default, Debug)]
@@ -2660,9 +2666,10 @@ mod tests {
         ids.iter().map(|s| s.to_string()).collect()
     }
 
+    /// Fixtures are verbatim `uv pip compile` output (uv 0.11.28): split and inline
+    /// annotation styles, and `--generate-hashes`.
     #[test]
     fn test_requirement_from_lockfile_line() {
-        // `uv pip compile` annotations: indented, and sometimes wrapping over several lines.
         assert_eq!(requirement_from_lockfile_line("    # via httpx"), None);
         assert_eq!(requirement_from_lockfile_line("    # via"), None);
         assert_eq!(requirement_from_lockfile_line("    #   anyio"), None);
@@ -2670,7 +2677,6 @@ mod tests {
             requirement_from_lockfile_line("    # via -r .tmp/requirements.in"),
             None
         );
-        // `--generate-hashes` output: the pin continues onto its `--hash=` lines.
         assert_eq!(
             requirement_from_lockfile_line("anyio==4.15.1 \\"),
             Some("anyio==4.15.1")
@@ -2681,7 +2687,6 @@ mod tests {
             ),
             None
         );
-        // Our own lockfile header, directives, blanks.
         assert_eq!(requirement_from_lockfile_line("# py: 3.11"), None);
         assert_eq!(requirement_from_lockfile_line("-r other.txt"), None);
         assert_eq!(
@@ -2689,7 +2694,6 @@ mod tests {
             None
         );
         assert_eq!(requirement_from_lockfile_line("   "), None);
-        // Requirements, with and without a trailing comment.
         assert_eq!(
             requirement_from_lockfile_line("httpx==0.27.0"),
             Some("httpx==0.27.0")
@@ -2703,6 +2707,9 @@ mod tests {
             requirement_from_lockfile_line("wmill @ https://h/wmill.whl#sha256=abc"),
             Some("wmill @ https://h/wmill.whl#sha256=abc")
         );
+
+        assert!(lockfile_line_has_continuation("anyio==4.15.1 \\"));
+        assert!(!lockfile_line_has_continuation("anyio==4.15.1"));
     }
 
     #[test]
