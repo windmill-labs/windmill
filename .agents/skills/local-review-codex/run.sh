@@ -23,11 +23,20 @@ if ! command -v codex >/dev/null 2>&1; then
 fi
 
 # Older CLIs reject the model with an error that never names the CLI version as the
-# cause, so check it up front rather than letting the exec fail opaquely.
-CODEX_VER="$(codex --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+# cause, so check it up front rather than letting the exec fail opaquely. The `|| true`
+# keeps an unrecognised --version format from aborting under `set -e`: an unparseable
+# version means "cannot tell", which must fall through to the exec, not kill the review.
+CODEX_VER="$(codex --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
 if [ -n "$CODEX_VER" ] && [ "$(printf '%s\n%s\n' "$CODEX_MIN" "$CODEX_VER" | sort -V | head -1)" != "$CODEX_MIN" ]; then
   echo "codex $CODEX_VER is too old for $MODEL (need >= $CODEX_MIN). Upgrade with: npm install --global @openai/codex@$CODEX_MIN" >&2
   exit 1
+fi
+
+# codex prefers OPENAI_API_KEY over the ChatGPT credentials `codex login` stores, and
+# that tier is not confirmed for $MODEL — the resulting failure names the model, not the
+# auth that selected it.
+if [ -n "${OPENAI_API_KEY:-}" ]; then
+  echo "warning: OPENAI_API_KEY is set and takes priority over 'codex login' credentials; $MODEL may be unavailable on that tier." >&2
 fi
 
 # Resolve the base to a concrete commit, preferring a local ref but falling back to
