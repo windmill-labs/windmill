@@ -106,8 +106,10 @@
 	 *  (our draft is behind the latest deploy). Cleared between loads to re-fire. */
 	let draftSavedAt = $state<string | undefined>(undefined)
 	let deployedAt = $state<string | undefined>(undefined)
-	/** Hash the draft forked from, and the deployed head — the script equivalent
-	 *  of the flow/app version pair. */
+	/** The hash the draft is pinned to, and the deployed head — the script
+	 *  equivalent of the flow/app version pair. Read off the loaded draft, which
+	 *  the load below re-pins to the head, so this is the head the draft was last
+	 *  loaded against rather than the point it originally forked from. */
 	let draftBaseHash = $state<string | undefined>(undefined)
 	let deployedHeadHash = $state<string | undefined>(undefined)
 

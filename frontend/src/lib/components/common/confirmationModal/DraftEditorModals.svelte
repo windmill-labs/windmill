@@ -40,12 +40,13 @@
 		draftSavedAt?: string | undefined
 		/** ISO timestamp of the latest deploy at this path. */
 		deployedAt?: string | undefined
-		/** Precise staleness inputs: the deployed version the draft was forked from,
-		 *  and the current deployed head. When both are set they drive `isStale` and
-		 *  the dedup key instead of the timestamps — exact, and stable across
-		 *  autosaves (the timestamp drifts past `deployedAt` as you keep editing).
-		 *  Flows/apps pass version ids; scripts pass hashes, which are strings.
-		 *  Absent (pre-feature drafts) ⇒ timestamp fallback. */
+		/** Precise staleness inputs: the deployed version the draft is pinned to, and
+		 *  the current deployed head. When both are set they drive `isStale` and the
+		 *  dedup key instead of the timestamps, which drift past `deployedAt` as you
+		 *  keep editing. Flows/apps pass version ids and pin the true fork point;
+		 *  scripts pass hashes and re-pin to the head on each load, so one edit after
+		 *  a dismissed stale prompt stops it recurring — the same self-healing the
+		 *  timestamps had. Absent (pre-feature drafts) ⇒ timestamp fallback. */
 		draftBaseVersion?: number | string | undefined
 		deployedHeadVersion?: number | string | undefined
 		/** Discard the draft and reload deployed (same as "Reset to deployed"). */
