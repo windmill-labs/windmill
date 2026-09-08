@@ -114,16 +114,40 @@ pub(crate) async fn collect(
     };
     let coverage = Coverage::of(&compiled);
 
+    let artifact = read_index(&index_dir, kept).await;
+    // The decode runs on a blocking thread with no poller watching it, so a job
+    // cancelled or out of time while it ran is invisible until something asks.
+    // Asked here, because the caller goes on to publish a graph — and a deploy
+    // that was cancelled mid-decode would otherwise return success having done
+    // so. The job's own semantics, which this module may always `Err` for.
+    if ctx.canceled_by.is_some() || ctx.deadline.is_expired() {
+        return Err(error::Error::ExecutionErr(
+            "the job ended while the column-lineage index was being read".to_string(),
+        ));
+    }
+
     // What only the pass knows. The COUNTS are logged where the index is folded
     // into the graph, since the graph decides how much of it is kept.
-    let note = match read_index(&index_dir, kept).await {
+    let note = match artifact {
         Artifact::Read(index) => {
             if let Some(note) = coverage.caveat() {
                 log(job_id, w_id, note, &compiled.stderr, conn).await;
             }
             return Ok(Some(index));
         }
-        // Said apart from the one above, because it sends the reader somewhere
+        // The truncated arms come first: a compile stopped part-way explains an
+        // absent or unreadable artifact, and blaming the engine's capability
+        // for it sends the reader to check the wrong thing entirely.
+        Artifact::Missing if matches!(coverage, Coverage::Truncated) => format!(
+            "No column lineage: the analysis pass printed more than this runtime reads and was \
+             stopped before it wrote `{COLUMN_LINEAGE_PARQUET}`."
+        ),
+        Artifact::Unreadable(why) if matches!(coverage, Coverage::Truncated) => format!(
+            "No column lineage: the analysis pass was stopped for printing more than this \
+             runtime reads, and the `{COLUMN_LINEAGE_PARQUET}` it had written could not be read \
+             ({why})."
+        ),
+        // Said apart from the one below, because it sends the reader somewhere
         // else entirely: the engine did its job and this runtime could not read
         // what it wrote.
         Artifact::Unreadable(why) => format!(
