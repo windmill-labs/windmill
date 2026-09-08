@@ -78,9 +78,11 @@
 	let staleAlertKey = $state<string | undefined>(undefined)
 	let staleModalOpen = $state(false)
 
-	// Prefer the exact version comparison (flows/apps) over the timestamp: the
-	// draft's pinned fork base never drifts, whereas `draftSavedAt` advances past
-	// `deployedAt` once you keep editing a stale draft, hiding the staleness.
+	// Prefer the version comparison over the timestamp for every kind that supplies
+	// one: `draftSavedAt` advances past `deployedAt` as you keep editing, hiding the
+	// staleness outright. What the version pins differs — flows/apps hold the fork
+	// point, scripts the head of their last load — so see `draftBaseVersion` above
+	// before reasoning about when this stops firing.
 	const useVersion = $derived(draftBaseVersion != null && deployedHeadVersion != null)
 	const isStale = $derived(
 		!!onLoadLatestDeploy &&
