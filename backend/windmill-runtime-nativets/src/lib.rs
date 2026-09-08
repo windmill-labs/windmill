@@ -197,10 +197,10 @@ pub struct NativeAnnotation {
 /// Covers everything up to the response headers and stops there, so a body may
 /// then stream for any length of time. `src/runtime.js` holds the semantics.
 ///
-/// Must stay above `TIMEOUT_WAIT_RESULT` (default 600): `run_wait_result`
-/// long-polls with no headers until that ceiling, so a script running another
-/// job synchronously would otherwise time out client-side while the server is
-/// still legitimately holding the request open. Raising one means raising both.
+/// Must exceed `TIMEOUT_WAIT_RESULT` (default 600), which holds synchronous job
+/// calls open without headers. Raising that hot-reloaded instance setting may
+/// also require raising `WINDMILL_FETCH_RESPONSE_TIMEOUT_SECS` in the deployment
+/// and restarting workers: this environment value is cached for the process.
 pub fn default_fetch_response_timeout_secs() -> u64 {
     static SECS: LazyLock<u64> = LazyLock::new(|| {
         std::env::var("WINDMILL_FETCH_RESPONSE_TIMEOUT_SECS")
