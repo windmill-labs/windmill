@@ -6412,7 +6412,8 @@ mount {{
             | ScriptLang::Bun
             | ScriptLang::Bunnative
             | ScriptLang::Nativets
-            | ScriptLang::Go => "//",
+            | ScriptLang::Go
+            | ScriptLang::Php => "//",
             _ => "",
         };
         let raw_mounts = windmill_worker_volumes::parse_volume_annotations(&code, comment_prefix);
