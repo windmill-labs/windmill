@@ -3132,6 +3132,10 @@ function main(string $name, string $prefix = "hello "): string {
         .await;
     // PHP coerces numbers to strings; rejection proves inferred validation ran.
     assert!(!invalid.success, "{:?}", invalid.result);
+    assert!(invalid.json_result().unwrap()["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("Argument `name` should be a string"));
     Ok(())
 }
 

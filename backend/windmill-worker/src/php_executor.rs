@@ -54,7 +54,17 @@ async fn parse_php_signature_with_slot(
     main_override: Option<String>,
     slot: &'static tokio::sync::Semaphore,
 ) -> Result<MainArgSignature> {
-    let permit = slot.acquire().await.map_err(to_anyhow)?;
+    let acquire = slot.acquire();
+    tokio::pin!(acquire);
+    // Retain the acquisition across the warning to preserve its FIFO queue position.
+    let permit = tokio::select! {
+        permit = &mut acquire => permit,
+        _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+            tracing::warn!("Waiting over a second for PHP signature parser capacity");
+            acquire.await
+        }
+    }
+    .map_err(to_anyhow)?;
     let code = code.to_owned();
     tokio::task::spawn_blocking(move || {
         // Parsing walks the entire AST. Keep its stack off async workers and retain
