@@ -221,7 +221,7 @@
 		     is a tool call being validated. Both rest while a submit is in flight — the ephemeral
 		     variables exist by then, and cancelling would settle the call as declined on a run
 		     already starting. Escape stops the turn from here and nowhere else in the form. -->
-		<div class="flex items-center justify-end gap-2" data-run-form-actions>
+		<div class="flex items-center justify-end gap-2" data-run-form-actions={toolCallId}>
 			<Button
 				variant="default"
 				unifiedSize="sm"
