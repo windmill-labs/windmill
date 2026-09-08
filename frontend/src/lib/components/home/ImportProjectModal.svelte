@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import { resource } from 'runed'
+	import { watch } from 'runed'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import PagedContent from '$lib/components/common/modal/PagedContent.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
@@ -141,18 +141,26 @@
 	// card renders from the pick until it lands — counts are the only thing missing, and
 	// zero counts render as no badges rather than as zeroes.
 	//
-	// Each answer carries the slug that asked for it, and is read only while that slug is
-	// still the chosen one: `resource()` aborts the previous controller but `fetchHubProject`
-	// takes no signal, and nothing orders the responses — so picking A, dismissing, then
-	// picking B can land A's name, author and counts over an import that writes B. Tagging
-	// rather than substituting, because whatever the fetcher returns is published: handing
-	// back the previous project on a superseded response is how it reaches the card.
-	const detail = resource(
+	// `fetchHubProject` takes no abort signal and nothing orders the responses, so a fetch
+	// records its answer only while its own slug is still the chosen one, tagged with that
+	// slug. A late answer for a project the user has moved on from can then neither reach the
+	// card nor take the current project's counts back off it. Not `resource()`, which
+	// publishes whatever its fetcher returns, superseded or not — that is the second half
+	// back again, since the card would read a value the slug guard can only reject.
+	let answered = $state<{ slug: string; project: ImportProjectSummary } | undefined>(undefined)
+	watch(
 		() => slug,
-		async (s) => (s ? { slug: s, project: await fetchHubProject(s) } : undefined)
+		(s) => {
+			if (!s) return
+			void fetchHubProject(s)
+				.then((project) => {
+					if (s === slug) answered = { slug: s, project }
+				})
+				.catch((error) => console.error('Could not load the hub project:', error))
+		}
 	)
 	let fetchedDetail = $derived<ImportProjectSummary | undefined>(
-		detail.current?.slug === slug ? detail.current?.project : undefined
+		answered && answered.slug === slug ? answered.project : undefined
 	)
 	let project = $derived<ImportProjectSummary | undefined>(
 		fetchedDetail ??
