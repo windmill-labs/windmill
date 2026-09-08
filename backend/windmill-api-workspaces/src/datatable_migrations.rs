@@ -42,7 +42,7 @@ use windmill_common::datatable_roles::ADMIN_DATATABLE_ROLE;
 use windmill_common::worker::SqlAnnotations;
 use windmill_common::workspaces::{
     ensure_can_use_datatable_role, ensure_datatable_admin_access,
-    get_datatable_resource_from_db_unchecked, DatatableAccess,
+    get_datatable_resource_from_db_unchecked, resolve_governing_datatable, DatatableAccess,
 };
 use windmill_common::{PgDatabase, DB};
 use windmill_git_sync::{
@@ -1500,6 +1500,15 @@ async fn generate_initial_datatable_migration(
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
 ) -> JsonResult<DatatableMigration> {
+    // Returns a `pg_dump` of the whole schema and writes into the data table's own bookkeeping, so
+    // it answers to the workspace that governs it rather than to whoever is asking.
+    ensure_datatable_admin_access(
+        &db,
+        &w_id,
+        &datatable_name,
+        &DatatableAccess::Authed(authed.to_authed_ref()),
+    )
+    .await?;
     validate_datatable_path_segment(&datatable_name)?;
     ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
 
@@ -1670,9 +1679,21 @@ pub(crate) struct DatatableRename {
     pub(crate) to: String,
 }
 
-async fn resolve_datatable_pg(db: &DB, w_id: &str, datatable: &str) -> Result<PgDatabase> {
+/// The database whose `_wm_migrations` a rename or delete of `datatable` in `w_id` should touch —
+/// `None` when that is somebody else's.
+///
+/// A fork's entry points at the workspace that governs the data table, so renaming or removing it
+/// changes what the fork calls the data table and nothing more. Following the pointer here would
+/// let a fork admin relabel or wipe the *governing* workspace's migration bookkeeping through
+/// their own settings form, and the parent would then re-run every migration from zero.
+async fn resolve_datatable_pg(db: &DB, w_id: &str, datatable: &str) -> Result<Option<PgDatabase>> {
+    let governing = resolve_governing_datatable(db, w_id, datatable).await?;
+    if governing.workspace_id != w_id {
+        return Ok(None);
+    }
     let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable).await?;
     serde_json::from_value(db_resource)
+        .map(Some)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))
 }
 
@@ -1690,7 +1711,9 @@ fn ignore_missing_wm_migrations(e: tokio_postgres::Error) -> Result<()> {
 
 /// Drop a data table's rows from its own database's `_wm_migrations`.
 async fn remote_forget_datatable_migrations(db: &DB, w_id: &str, datatable: &str) -> Result<()> {
-    let pg_db = resolve_datatable_pg(db, w_id, datatable).await?;
+    let Some(pg_db) = resolve_datatable_pg(db, w_id, datatable).await? else {
+        return Ok(());
+    };
     let (client, connection) = pg_db.connect(Some(db)).await?;
     tokio::spawn(async move {
         let _ = connection.await;
@@ -1715,7 +1738,9 @@ async fn remote_rename_datatable_migrations(
     from: &str,
     to: &str,
 ) -> Result<()> {
-    let pg_db = resolve_datatable_pg(db, w_id, resolve_by).await?;
+    let Some(pg_db) = resolve_datatable_pg(db, w_id, resolve_by).await? else {
+        return Ok(());
+    };
     let (client, connection) = pg_db.connect(Some(db)).await?;
     tokio::spawn(async move {
         let _ = connection.await;

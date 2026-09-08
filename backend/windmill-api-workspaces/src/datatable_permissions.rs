@@ -62,6 +62,9 @@ pub struct DatatableRoleTenantsInfo {
 
 #[derive(Serialize)]
 struct DatatablePermissionsInfo {
+    /// Whether this data table can be put under roles at all — only one on the instance database
+    /// can, since a role is a login on that cluster.
+    supported: bool,
     /// Whether the data table is under roles at all.
     permissioned: bool,
     default_role: String,
@@ -205,13 +208,22 @@ async fn get_datatable_permissions(
                     } else {
                         catalog.get(id).map(|r| r.name.clone())
                     },
-                    tenants: tenants.tenants.clone(),
+                    // Tenants name users, groups and folders of the governing workspace, so they
+                    // are for the people who set them. Someone reading from a fork gets the shape
+                    // of the decision, not the parent's membership; what they may use themselves
+                    // is what `datatable_usable_roles` answers.
+                    tenants: if editable {
+                        tenants.tenants.clone()
+                    } else {
+                        vec![]
+                    },
                 })
                 .collect()
         })
         .unwrap_or_default();
 
     Ok(Json(DatatablePermissionsInfo {
+        supported: governing.is_instance(),
         permissioned: permissions.is_some(),
         default_role: permissions
             .map(|p| p.default_role().to_string())
@@ -220,14 +232,20 @@ async fn get_datatable_permissions(
         governing_workspace_id: (governing.workspace_id != w_id)
             .then(|| governing.workspace_id.clone()),
         editable,
-        available_roles: catalog
-            .iter()
-            .map(|(id, role)| AvailableRole {
-                id: id.clone(),
-                name: role.name.clone(),
-                enabled: role.enabled,
-            })
-            .collect(),
+        // The instance's role names are only of use to someone who can pick from them, and
+        // enumerating them is the first step of anything that wants to name one it shouldn't.
+        available_roles: if editable {
+            catalog
+                .iter()
+                .map(|(id, role)| AvailableRole {
+                    id: id.clone(),
+                    name: role.name.clone(),
+                    enabled: role.enabled,
+                })
+                .collect()
+        } else {
+            vec![]
+        },
         ungoverned_reachers: if editable {
             ungoverned_reachers(&db, &governing).await?
         } else {
@@ -244,6 +262,17 @@ async fn set_datatable_permissions(
 ) -> Result<String> {
     let governing = resolve_governing_datatable(&db, &w_id, &datatable_name).await?;
     ensure_governs_datatable(&db, &authed, &w_id, &governing).await?;
+
+    // A data table role is a login on Windmill's own cluster; a resource-backed data table dials a
+    // host the workspace admin chose, so it has no business naming one.
+    if req.permissioned && !governing.is_instance() {
+        return Err(Error::BadRequest(format!(
+            "Data table '{}' is backed by a Postgres resource. Data table roles are logins on the \
+             Windmill instance's own Postgres, so only a data table on the instance database can \
+             use them.",
+            governing.name
+        )));
+    }
 
     let permissions = if req.permissioned {
         let catalog = read_role_catalog(&db).await?;
@@ -356,33 +385,54 @@ pub(crate) async fn restart_streams_reaching(
     db: &DB,
     governing: &GoverningDatatable,
 ) -> Result<()> {
-    let reference = format!("datatable://{}", governing.name);
-    let prefix = format!("{reference}?%");
-
-    sqlx::query!(
-        "UPDATE postgres_trigger SET server_id = NULL, last_server_ping = NULL
-         WHERE workspace_id = $1
-           AND (postgres_resource_path = $2 OR postgres_resource_path LIKE $3)",
+    // Every workspace holding an entry that resolves here, under the name it calls it: the
+    // governing one, plus each fork pointing at it. A fork's trigger names its own local entry, so
+    // filtering on the governing workspace alone would leave its stream running on the connection
+    // it already opened under the old decision — which is the one window this function exists to
+    // close.
+    let mut reached = vec![(governing.workspace_id.clone(), governing.name.clone())];
+    let pointers = sqlx::query!(
+        r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "datatable!"
+           FROM workspace_settings ws
+           CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
+           WHERE dt.value->'reference'->>'workspace_id' = $1
+             AND dt.value->'reference'->>'datatable' = $2"#,
         &governing.workspace_id,
-        &reference,
-        &prefix,
+        &governing.name,
     )
-    .execute(db)
+    .fetch_all(db)
     .await?;
+    reached.extend(pointers.into_iter().map(|r| (r.workspace_id, r.datatable)));
 
-    // A capture keeps the reference inside its `trigger_config` blob rather than in a column of
-    // its own, and only a postgres capture has one there at all.
-    sqlx::query!(
-        "UPDATE capture_config SET server_id = NULL, last_server_ping = NULL
-         WHERE workspace_id = $1 AND trigger_kind = 'postgres'
-           AND (trigger_config->>'postgres_resource_path' = $2
-                OR trigger_config->>'postgres_resource_path' LIKE $3)",
-        &governing.workspace_id,
-        &reference,
-        &prefix,
-    )
-    .execute(db)
-    .await?;
+    for (w_id, name) in reached {
+        let reference = format!("datatable://{name}");
+        let prefix = format!("{reference}?%");
+
+        sqlx::query!(
+            "UPDATE postgres_trigger SET server_id = NULL, last_server_ping = NULL
+             WHERE workspace_id = $1
+               AND (postgres_resource_path = $2 OR postgres_resource_path LIKE $3)",
+            &w_id,
+            &reference,
+            &prefix,
+        )
+        .execute(db)
+        .await?;
+
+        // A capture keeps the reference inside its `trigger_config` blob rather than in a column
+        // of its own, and only a postgres capture has one there at all.
+        sqlx::query!(
+            "UPDATE capture_config SET server_id = NULL, last_server_ping = NULL
+             WHERE workspace_id = $1 AND trigger_kind = 'postgres'
+               AND (trigger_config->>'postgres_resource_path' = $2
+                    OR trigger_config->>'postgres_resource_path' LIKE $3)",
+            &w_id,
+            &reference,
+            &prefix,
+        )
+        .execute(db)
+        .await?;
+    }
 
     Ok(())
 }

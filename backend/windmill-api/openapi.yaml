@@ -32142,8 +32142,13 @@ components:
 
     DatatablePermissions:
       type: object
-      required: [permissioned, default_role, roles, editable, available_roles]
+      required: [supported, permissioned, default_role, roles, editable, available_roles]
       properties:
+        supported:
+          type: boolean
+          description: >-
+            Whether this data table can be put under roles at all. Only one backed by the
+            instance database can: a role is a login on that cluster.
         permissioned:
           type: boolean
         default_role:

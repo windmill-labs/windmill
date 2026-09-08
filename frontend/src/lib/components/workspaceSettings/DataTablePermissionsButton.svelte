@@ -151,7 +151,13 @@
 			<Alert type="error" title="Could not load roles" size="xs">{loadError}</Alert>
 		{:else}
 			<div class="flex flex-col gap-4">
-				{#if governing}
+				{#if !info?.supported}
+					<Alert type="info" title="Not available on this data table" size="xs">
+						A data table role is a Postgres login on the Windmill instance's own database, so only a
+						data table backed by that database can use one. This one is backed by a PostgreSQL
+						resource — grant access on that server directly.
+					</Alert>
+				{:else if governing}
 					<Alert type="info" title="Governed by {governing}" size="xs">
 						This data table points at the one in workspace <span class="font-mono">{governing}</span
 						>, so its roles are decided there. You are evaluated as a member of that workspace.
@@ -176,7 +182,7 @@
 
 				<Toggle
 					bind:checked={permissioned}
-					disabled={!editable}
+					disabled={!editable || !info?.supported}
 					options={{
 						right: 'Put this data table under roles',
 						rightTooltip:

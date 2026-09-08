@@ -1371,6 +1371,17 @@ pub struct GoverningDatatable {
     pub datatable: DataTable,
 }
 
+impl GoverningDatatable {
+    /// Backed by the Windmill instance's own Postgres, which is the only substrate data table
+    /// roles apply to.
+    pub fn is_instance(&self) -> bool {
+        self.datatable
+            .database
+            .as_ref()
+            .is_some_and(|d| d.resource_type == DataTableCatalogResourceType::Instance)
+    }
+}
+
 pub async fn resolve_governing_datatable(
     db: &DB,
     w_id: &str,
@@ -1635,6 +1646,21 @@ pub async fn get_datatable_resource_from_db(
     let governing = resolve_governing_datatable(db, w_id, name).await?;
     let mut db_resource = resolve_datatable_connection_unchecked(db, &governing, false).await?;
 
+    // A data table role is a login on Windmill's own cluster, so it is only meaningful against an
+    // instance database. Substituting its password into a resource-backed connection would hand a
+    // real cluster credential to whatever host that resource names — which a workspace admin
+    // chooses. Refused rather than ignored: an entry that reached this state was never a shape the
+    // permissions endpoint accepts, so silently resolving it as admin would hide a broken record.
+    if !governing.is_instance() {
+        return match (governing.datatable.permissions.as_ref(), role) {
+            (None, None | Some(ADMIN_DATATABLE_ROLE)) => Ok(db_resource),
+            _ => Err(Error::BadRequest(format!(
+                "Data table '{name}' is backed by a Postgres resource, which cannot be put under \
+                 data table roles"
+            ))),
+        };
+    }
+
     let catalog = crate::datatable_roles::read_role_catalog(db).await?;
     let Some((role_id, tenants)) = datatable_role_entry(
         governing.datatable.permissions.as_ref(),
@@ -1712,6 +1738,9 @@ pub async fn ensure_can_use_datatable_role(
     context: &str,
 ) -> Result<()> {
     let governing = resolve_governing_datatable(db, w_id, name).await?;
+    if !governing.is_instance() {
+        return Ok(());
+    }
     let catalog = crate::datatable_roles::read_role_catalog(db).await?;
     let Some((role_id, tenants)) =
         datatable_role_entry(governing.datatable.permissions.as_ref(), &catalog, name, role)?
@@ -1748,6 +1777,9 @@ pub async fn ensure_datatable_admin_access(
     access: &DatatableAccess<'_>,
 ) -> Result<()> {
     let governing = resolve_governing_datatable(db, w_id, name).await?;
+    if !governing.is_instance() {
+        return Ok(());
+    }
     let Some(permissions) = governing.datatable.permissions.as_ref() else {
         return Ok(());
     };
@@ -1865,14 +1897,19 @@ pub async fn rename_datatable_tenant_in_workspace(
     update_datatable_permissions_in_workspace(tx, w_id, |permissions| {
         let mut touched = false;
         for role in permissions.roles.values_mut() {
+            let mut role_touched = false;
             for tenant in role.tenants.iter_mut() {
                 if tenant == old {
                     *tenant = new.to_string();
-                    touched = true;
+                    role_touched = true;
                 }
             }
-            if touched {
-                role.tenants.dedup();
+            if role_touched {
+                // The rename can collide with a name already in the list, and the two need not be
+                // adjacent — `Vec::dedup` only collapses neighbours, so it would leave the pair.
+                let mut seen = std::collections::HashSet::new();
+                role.tenants.retain(|t| seen.insert(t.clone()));
+                touched = true;
             }
         }
         touched
