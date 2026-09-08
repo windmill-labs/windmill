@@ -1314,41 +1314,58 @@ async fn create_script_internal<'c>(
         if let Some(ref cs) = clashing_script {
             ns.parent_hash = Some(cs.hash.clone());
         } else {
-            // No live head, but the path may still hold an archived lineage — a sync push
-            // that applies a deletion before the corresponding update leaves exactly that.
-            // Chaining onto it carries the history and its `extra_perms` forward, and since
-            // the parent is part of the hash it keeps an unchanged redeploy from hashing to
-            // the parentless version the path was first deployed with. A deleted version is
-            // still a candidate: its row keeps the hash it was deployed under even once its
-            // content is wiped, so skipping it is what makes the redeploy collide.
-            let candidate = sqlx::query_scalar!(
-                "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 \
-                 ORDER BY created_at DESC LIMIT 1",
-                &ns.path,
+            ns.parent_hash = None;
+        }
+    }
+
+    // No live version at the path, but it may still hold a retired lineage — a sync push
+    // that applies a deletion before the corresponding update leaves exactly that. Chaining
+    // onto it keeps an unchanged redeploy from hashing to the parentless version the path
+    // was first deployed with, since the parent is part of the hash. A deleted version is
+    // still a candidate: its row keeps the hash it was deployed under even once its content
+    // is wiped, so skipping it is what makes the redeploy collide.
+    //
+    // Reached by any deploy that named no parent, not only an `auto_parent` one: the CLI
+    // sends none at all for a path its listing no longer shows, which is where a retried
+    // push lands once the archive has committed. Only when nothing is live there, so a
+    // parentless deploy onto a live path still meets the path conflict the match below
+    // raises.
+    let mut parent_adopted_from_retired_path = false;
+    if ns.parent_hash.is_none() && clashing_script.is_none() {
+        // Locked before the descendant probe below, not merely read: a competing deploy
+        // chaining onto this same candidate takes `FOR UPDATE` on it before inserting, so
+        // holding the row here is what serializes the two. Probing first would ask about a
+        // child still uncommitted, adopt anyway, and leave the pair sharing a parent — a
+        // fork the caller-scoped check further down cannot be relied on to catch, since the
+        // competitor's destination may be RLS-hidden from us.
+        let candidate = sqlx::query_scalar::<_, i64>(
+            "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 \
+             ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
+        )
+        .bind(&ns.path)
+        .bind(&w_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        // Adoptable only if nothing already descends from it: a rename leaves its source
+        // path holding a version whose child lives at the destination, and giving that
+        // one a second child forks a lineage the guard below requires to be linear. The
+        // descendant is looked for on the unscoped pool, since the rename may have moved
+        // it somewhere this caller cannot see and an invisible child forks just as hard.
+        // No candidate means a fresh lineage — which, having no parent to vary its hash,
+        // can still collide with the path's own first version.
+        ns.parent_hash = match candidate {
+            Some(hash) => sqlx::query_scalar!(
+                "SELECT 1 FROM script WHERE parent_hashes[1] = $1 AND workspace_id = $2",
+                hash,
                 &w_id
             )
-            .fetch_optional(&mut *tx)
-            .await?;
-            // Adoptable only if nothing already descends from it: a rename leaves its source
-            // path holding a version whose child lives at the destination, and giving that
-            // one a second child forks a lineage the guard below requires to be linear. The
-            // descendant is looked for on the unscoped pool, since the rename may have moved
-            // it somewhere this caller cannot see and an invisible child forks just as hard.
-            // No candidate means a fresh lineage — which, having no parent to vary its hash,
-            // can still collide with the path's own first version.
-            ns.parent_hash = match candidate {
-                Some(hash) => sqlx::query_scalar!(
-                    "SELECT 1 FROM script WHERE parent_hashes[1] = $1 AND workspace_id = $2",
-                    hash,
-                    &w_id
-                )
-                .fetch_optional(&db)
-                .await?
-                .is_none()
-                .then_some(ScriptHash(hash)),
-                None => None,
-            };
-        }
+            .fetch_optional(&db)
+            .await?
+            .is_none()
+            .then_some(ScriptHash(hash)),
+            None => None,
+        };
+        parent_adopted_from_retired_path = ns.parent_hash.is_some();
     }
 
     // Must stay below the parent resolution above: an auto_parent deploy hashed before
@@ -1471,7 +1488,17 @@ async fn create_script_internal<'c>(
                 }
                 Some(_) | None => Ok(Some(ParentInfo {
                     p_hashes: ph,
-                    perms: ps.extra_perms,
+                    // A tip adopted above was taken for its lineage, not its grants: the
+                    // caller named no parent, so whatever lands at a retired path may be a
+                    // different script, and it would otherwise start life holding an ACL
+                    // nobody granted it — including one an admin `delete/h` purged. A parent
+                    // the caller did name still carries them, which is what unarchive
+                    // restores.
+                    perms: if parent_adopted_from_retired_path {
+                        json!({})
+                    } else {
+                        ps.extra_perms
+                    },
                     p_path: ps.path,
                 })),
             };

@@ -227,3 +227,141 @@ async fn test_auto_parent_adopts_archived_head_instead_of_colliding(
 
     Ok(())
 }
+
+/// The same redeploy from a caller that names no parent at all — the shape a retried
+/// `wmill sync push` takes, once the archive it applied has committed and the path has
+/// dropped out of the listing it diffs against.
+///
+/// The adopted version supplies the lineage and nothing else: a path is reusable by a
+/// different script, which must not start life holding grants nobody gave it.
+#[sqlx::test(fixtures("base"))]
+async fn test_parentless_redeploy_adopts_the_lineage_but_not_the_grants(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let path = "u/test-user/script_retired_parentless";
+    let body = new_script(path, "export async function main() { return 1; }");
+
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&body)
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 201);
+    let first_hash: i64 =
+        sqlx::query_scalar("SELECT hash FROM script WHERE path = $1 AND workspace_id = $2")
+            .bind(path)
+            .bind("test-workspace")
+            .fetch_one(&db)
+            .await?;
+
+    sqlx::query("UPDATE script SET extra_perms = $1 WHERE hash = $2 AND workspace_id = $3")
+        .bind(json!({ "u/someone_else": true }))
+        .bind(first_hash)
+        .bind("test-workspace")
+        .execute(&db)
+        .await?;
+
+    let resp = authed(
+        client().post(format!("{base}/scripts/archive/p/{path}")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "archiving the path should succeed");
+
+    // Byte-identical to the first deploy and naming no parent: hashed as a first deploy it
+    // lands on the archived row.
+    let resp = authed(
+        client().post(format!("{base}/scripts/create?skip_if_noop=true")),
+        "SECRET_TOKEN",
+    )
+    .json(&body)
+    .send()
+    .await?;
+    let status = resp.status();
+    let response_body = resp.text().await?;
+    assert_eq!(
+        status, 201,
+        "a parentless redeploy of a retired path must not collide with its own first \
+         version, got {status}: {response_body}"
+    );
+
+    let live: Vec<(Option<Vec<i64>>, serde_json::Value)> = sqlx::query_as(
+        "SELECT parent_hashes, extra_perms FROM script \
+         WHERE path = $1 AND archived = false AND workspace_id = $2",
+    )
+    .bind(path)
+    .bind("test-workspace")
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(live.len(), 1, "exactly one live version expected");
+    assert_eq!(
+        live[0].0.as_deref(),
+        Some(&[first_hash][..]),
+        "the redeploy should continue the retired lineage"
+    );
+    assert_eq!(
+        live[0].1,
+        json!({}),
+        "an adopted version's grants must not carry over to whatever reuses its path"
+    );
+
+    Ok(())
+}
+
+/// A soft delete keeps the row, and with it the hash the version was deployed under, so a
+/// tombstone has to stay adoptable: skip it and the redeploy hashes straight back onto it.
+#[sqlx::test(fixtures("base"))]
+async fn test_redeploy_chains_past_a_deleted_version(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let path = "u/test-user/script_deleted_version";
+    let body = new_script(path, "export async function main() { return 1; }");
+
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&body)
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 201);
+    let deleted_hash = resp.text().await?;
+
+    let resp = authed(
+        client().post(format!("{base}/scripts/delete/h/{deleted_hash}")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "deleting the version should succeed");
+
+    let resp = authed(
+        client().post(format!("{base}/scripts/create?skip_if_noop=true")),
+        "SECRET_TOKEN",
+    )
+    .json(&body)
+    .send()
+    .await?;
+    let status = resp.status();
+    let response_body = resp.text().await?;
+    assert_eq!(
+        status, 201,
+        "redeploying the content of a deleted version must not collide with its \
+         tombstone, got {status}: {response_body}"
+    );
+
+    Ok(())
+}
