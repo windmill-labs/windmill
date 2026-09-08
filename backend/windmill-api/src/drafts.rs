@@ -760,6 +760,23 @@ async fn move_draft(
 ) -> Result<String> {
     let path = path.to_path();
     let new_path = req.new_path.as_str();
+    // Only the full-page editor kinds. The in-value rewrite below keys off
+    // `typed_path_field()`, which answers `draft_path` for every non-script kind
+    // — true for flows and apps, wrong for resources, variables and triggers,
+    // whose drafts keep their deploy target in `value.path`. Moving one of those
+    // would inject a `draft_path` nothing reads and leave the real target naming
+    // the old location, so the next deploy would recreate it where it came from.
+    if !matches!(
+        kind,
+        UserDraftItemKind::Script
+            | UserDraftItemKind::Flow
+            | UserDraftItemKind::App
+            | UserDraftItemKind::RawApp
+    ) {
+        return Err(Error::BadRequest(format!(
+            "moving a {kind:?} draft is not supported — only scripts, flows and apps"
+        )));
+    }
     // A summary-only edit is a legitimate use of this endpoint: the drawer edits
     // both fields, and for a draft-only script the path it posts back is the row
     // path unchanged (`list_scripts` only reports `draft_path` when it differs).

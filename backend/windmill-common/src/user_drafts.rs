@@ -625,15 +625,21 @@ pub async fn move_drafts_for_path(
     //    this draft would send the item back where it came from.
     //  - anything else: a rename the user staged in their editor. Deploying
     //    should still land there, so the move leaves it alone.
+    //
+    // `draft.value` is a `json` column, so `to_jsonb` raises 22P05 on a row that
+    // still carries a NUL escape from before the write-time `strip_json_nul`
+    // guard (see `backend/tests/drafts_nul.rs`). Such a row is skipped by the
+    // rewrite and carried on its `path` column alone: one teammate's poisoned
+    // draft must not abort an unrelated user's rename mid-transaction.
     let moved = sqlx::query_scalar!(
         r#"UPDATE draft AS d
            SET path = $3,
-               value = to_json(
-                   CASE WHEN to_jsonb(d.value) -> $4::text = to_jsonb($2::text)
-                        THEN jsonb_set(to_jsonb(d.value), ARRAY[$4::text], to_jsonb($3::text), false)
-                        ELSE to_jsonb(d.value)
-                   END
-               )
+               value = CASE
+                   WHEN position(chr(92) || 'u0000' in d.value::text) > 0 THEN d.value
+                   WHEN to_jsonb(d.value) -> $4::text = to_jsonb($2::text)
+                       THEN to_json(jsonb_set(to_jsonb(d.value), ARRAY[$4::text], to_jsonb($3::text), false))
+                   ELSE d.value
+               END
            WHERE d.workspace_id = $1
              AND d.path = $2
              AND d.typ::text = ANY($5::text[])
