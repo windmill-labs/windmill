@@ -3258,6 +3258,14 @@ async fn create_pg_database(
 ) -> Result<String> {
     windmill_common::validate_dbname(&req.target_dbname)?;
 
+    // The copy this database is for is refused a call later, and nothing collects an instance
+    // database that no data table entry names. Refuse here too, so the clone stops before one
+    // exists rather than leaving an empty registered `wm_fork_…` behind.
+    if let Some(reference) = req.source.strip_prefix("datatable://") {
+        let (name, _) = parse_datatable_ref(reference);
+        ensure_datatable_is_clonable(&db, &w_id, name).await?;
+    }
+
     // Non-superadmin: restrict dbname to wm_fork_ prefix
     if !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
         if !req.target_dbname.starts_with("wm_fork_") {
