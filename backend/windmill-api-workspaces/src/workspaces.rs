@@ -3532,13 +3532,28 @@ async fn edit_ducklake_config(
     Ok(format!("Edit ducklake config for workspace {}", &w_id))
 }
 
+/// What a save left behind. `stranded_references` names the data tables in other workspaces that
+/// were governed by one this save deleted — a field rather than a sentence in a success string,
+/// so the UI decides whether to warn on the data rather than on the server's prose.
+#[derive(Serialize)]
+pub struct EditDataTableConfigResult {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    stranded_references: Vec<StrandedReference>,
+}
+
+#[derive(Serialize)]
+pub struct StrandedReference {
+    workspace_id: String,
+    datatable: String,
+}
+
 async fn edit_datatable_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(mut new_config): Json<EditDataTableConfig>,
-) -> Result<String> {
+) -> JsonResult<EditDataTableConfigResult> {
     require_admin(is_admin, &username)?;
     let is_superadmin = require_super_admin(&db, &authed).await.is_ok();
 
@@ -3575,40 +3590,55 @@ async fn edit_datatable_config(
     for r in &new_config.renames {
         crate::datatable_migrations::validate_datatable_path_segment(&r.from)?;
         crate::datatable_migrations::validate_new_datatable_name(&r.to)?;
-        // A rename is a claim about what this save is doing, and other workspaces' pointers are
-        // rewritten from it. Unchecked, a caller could submit an unchanged configuration with
-        // `main -> missing` and repoint every fork of `main` at a name nothing has.
-        if !old_datatables.contains_key(&r.from) {
-            return Err(Error::BadRequest(format!(
-                "Cannot rename data table '{}': this workspace has no such data table",
-                r.from
-            )));
-        }
-        if !new_config.settings.datatables.contains_key(&r.to) {
-            return Err(Error::BadRequest(format!(
-                "Cannot rename data table '{}' to '{}': the save does not contain '{}'",
-                r.from, r.to, r.to
-            )));
-        }
     }
-    // `A -> B` and `B -> C` applied one after another would move what pointed at `A` all the way
-    // to `C`. Each pointer moves once, from what it named before this save.
-    if new_config.renames.len() > 1 {
-        let mut seen = std::collections::HashSet::new();
+    // A rename is a claim about what this save is doing, and other workspaces' pointers are
+    // rewritten from it — so the claim has to match the configuration it describes, or a caller
+    // can move every fork of one data table onto another by asserting a rename that did not
+    // happen. The shape below is what "these old keys became those new keys" actually means.
+    {
+        let old_keys = &old_datatables;
+        let new_keys = &new_config.settings.datatables;
+        let froms: std::collections::HashSet<&str> =
+            new_config.renames.iter().map(|r| r.from.as_str()).collect();
+        let tos: std::collections::HashSet<&str> =
+            new_config.renames.iter().map(|r| r.to.as_str()).collect();
+        if froms.len() != new_config.renames.len() {
+            return Err(Error::BadRequest(
+                "A data table is renamed twice in one save".to_string(),
+            ));
+        }
+        if tos.len() != new_config.renames.len() {
+            return Err(Error::BadRequest(
+                "Two data tables are renamed to the same name in one save".to_string(),
+            ));
+        }
         for r in &new_config.renames {
-            if !seen.insert(r.from.as_str()) {
+            if !old_keys.contains_key(&r.from) {
                 return Err(Error::BadRequest(format!(
-                    "Data table '{}' is renamed twice in one save",
+                    "Cannot rename data table '{}': this workspace has no such data table",
                     r.from
                 )));
             }
-        }
-        for r in &new_config.renames {
-            if seen.contains(r.to.as_str()) && r.to != r.from {
+            if !new_keys.contains_key(&r.to) {
                 return Err(Error::BadRequest(format!(
-                    "Data table '{}' is both renamed and the target of another rename in one \
-                     save; do them one at a time",
-                    r.to
+                    "Cannot rename data table '{}' to '{}': the save does not contain '{}'",
+                    r.from, r.to, r.to
+                )));
+            }
+            // The source has to be gone, or gone-and-reoccupied by another rename — which is what
+            // a swap is. Without this, `main -> decoy` passes against a save that keeps both, and
+            // every fork of `main` silently follows onto a different data table.
+            if new_keys.contains_key(&r.from) && !tos.contains(r.from.as_str()) {
+                return Err(Error::BadRequest(format!(
+                    "Data table '{}' is renamed to '{}' but the save still contains '{}'",
+                    r.from, r.to, r.from
+                )));
+            }
+            // And the target has to be free, or freed by another rename.
+            if old_keys.contains_key(&r.to) && !froms.contains(r.to.as_str()) {
+                return Err(Error::BadRequest(format!(
+                    "Cannot rename data table '{}' to '{}': '{}' already exists",
+                    r.from, r.to, r.to
                 )));
             }
         }
@@ -3738,34 +3768,21 @@ async fn edit_datatable_config(
         .await?;
 
     // A fork points at a data table by name, so a rename here has to follow or every fork's entry
-    // resolves to nothing. Inside the transaction: the rename and the pointers that name it are one
-    // change, and half of it is a fork whose jobs stop.
-    for r in &new_config.renames {
-        sqlx::query!(
-            r#"UPDATE workspace_settings ws
-               SET datatable = (
-                   SELECT jsonb_set(ws.datatable, '{datatables}', jsonb_object_agg(
-                       dt.key,
-                       CASE WHEN dt.value->'reference'->>'workspace_id' = $1
-                                 AND dt.value->'reference'->>'datatable' = $2
-                           THEN jsonb_set(dt.value, '{reference,datatable}', to_jsonb($3::text))
-                           ELSE dt.value END
-                   ))
-                   FROM jsonb_each(ws.datatable->'datatables') dt
-               )
-               WHERE jsonb_typeof(ws.datatable->'datatables') = 'object'
-                 AND ws.datatable::text LIKE '%"reference"%'"#,
-            &w_id,
-            &r.from,
-            &r.to,
-        )
-        .execute(&mut *tx)
-        .await?;
+    // resolves to nothing. In two passes through a temporary name, like the migration cascade one
+    // layer down: applied in order, `sa -> sb` then `sb -> sa` would move what pointed at `sa` all
+    // the way back to `sa`, and `A -> B`, `B -> C` would carry `A`'s pointers to `C`. Each pointer
+    // moves once, from what it named before this save. Inside the transaction: the rename and the
+    // pointers that name it are one change, and half of it is a fork whose jobs stop.
+    for (i, r) in new_config.renames.iter().enumerate() {
+        repoint_datatable_references(&mut tx, &w_id, &r.from, &format!("__wm_rename_tmp/{i}")).await?;
+    }
+    for (i, r) in new_config.renames.iter().enumerate() {
+        repoint_datatable_references(&mut tx, &w_id, &format!("__wm_rename_tmp/{i}"), &r.to).await?;
     }
 
     // A deletion cannot be followed the same way — there is nothing to point at any more. Read who
     // is left stranded so the caller is told, the way deleting a workspace does.
-    let mut stranded: Vec<String> = Vec::new();
+    let mut stranded: Vec<StrandedReference> = Vec::new();
     for name in &new_config.deleted_datatables {
         let rows = sqlx::query!(
             r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "datatable!"
@@ -3778,10 +3795,10 @@ async fn edit_datatable_config(
         )
         .fetch_all(&mut *tx)
         .await?;
-        stranded.extend(
-            rows.into_iter()
-                .map(|r| format!("{}/{}", r.workspace_id, r.datatable)),
-        );
+        stranded.extend(rows.into_iter().map(|r| StrandedReference {
+            workspace_id: r.workspace_id,
+            datatable: r.datatable,
+        }));
     }
 
     tx.commit().await?;
@@ -3798,19 +3815,7 @@ async fn edit_datatable_config(
     )
     .await?;
 
-    if stranded.is_empty() {
-        Ok(format!("Edit datatable config for workspace {}", &w_id))
-    } else {
-        Ok(format!(
-            concat!(
-                "Edit datatable config for workspace {}. These data tables were governed by one ",
-                "you deleted and no longer resolve: {}. Their databases still exist; a superadmin ",
-                "can point them at another workspace's data table."
-            ),
-            &w_id,
-            stranded.join(", ")
-        ))
-    }
+    Ok(Json(EditDataTableConfigResult { stranded_references: stranded }))
 }
 
 #[derive(Deserialize)]
@@ -7768,6 +7773,43 @@ async fn point_kept_datatables_at_parent(
         .execute(&mut **tx)
         .await?;
     }
+    Ok(())
+}
+
+/// Move every pointer in any workspace that names `(w_id, from)` to `(w_id, to)`.
+///
+/// `EXISTS` rather than a `LIKE` over the whole document: the update rewrites the row, so matching
+/// every workspace that holds any pointer would rewrite rows to a byte-identical value and hold an
+/// exclusive lock on them until commit.
+async fn repoint_datatable_references(
+    tx: &mut Transaction<'_, Postgres>,
+    w_id: &str,
+    from: &str,
+    to: &str,
+) -> Result<()> {
+    sqlx::query!(
+        r#"UPDATE workspace_settings ws
+           SET datatable = (
+               SELECT jsonb_set(ws.datatable, '{datatables}', jsonb_object_agg(
+                   dt.key,
+                   CASE WHEN dt.value->'reference'->>'workspace_id' = $1
+                             AND dt.value->'reference'->>'datatable' = $2
+                       THEN jsonb_set(dt.value, '{reference,datatable}', to_jsonb($3::text))
+                       ELSE dt.value END
+               ))
+               FROM jsonb_each(ws.datatable->'datatables') dt
+           )
+           WHERE EXISTS (
+               SELECT 1 FROM jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) d
+               WHERE d.value->'reference'->>'workspace_id' = $1
+                 AND d.value->'reference'->>'datatable' = $2
+           )"#,
+        w_id,
+        from,
+        to,
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 

@@ -433,3 +433,82 @@ async fn renaming_a_governing_data_table_carries_its_forks(db: Pool<Postgres>) -
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
     Ok(())
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn a_rename_has_to_match_the_save_it_claims_to_describe(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let url = format!("http://localhost:{port}/api/w/test-workspace/workspaces/edit_datatable_config");
+
+    let instance = |path: &str| {
+        json!({"database": {"resource_type": "instance", "resource_path": path}})
+    };
+
+    // Fork pointers are rewritten from the rename list, so a rename nobody performed moves every
+    // fork of one data table onto another. `main` survives this save, so it was not renamed.
+    let resp = authed(client().post(&url), "SECRET_TOKEN")
+        .json(&json!({
+            "settings": {"datatables": {"main": instance("dt_main"), "decoy": instance("dt_two")}},
+            "renames": [{"from": "main", "to": "decoy"}],
+            "deleted_datatables": []
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 400, "a forged rename was accepted");
+
+    let entry: Option<Value> = sqlx::query_scalar(
+        "SELECT datatable->'datatables'->'main'->'reference' FROM workspace_settings
+         WHERE workspace_id = $1",
+    )
+    .bind("wm-fork-dt")
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(entry.unwrap()["datatable"], "main", "the fork was repointed anyway");
+
+    // A swap is two renames whose sources and targets cross. It cannot be done one at a time —
+    // `datatables` is keyed by name — so refusing it would be a regression, and applying the two
+    // in order without a temporary name would carry `main`'s pointers back to `main`.
+    let resp = authed(client().post(&url), "SECRET_TOKEN")
+        .json(&json!({
+            "settings": {"datatables": {"main": instance("dt_two"), "other": instance("dt_main")}},
+            "renames": [{"from": "main", "to": "other"}, {"from": "other", "to": "main"}],
+            "deleted_datatables": []
+        }))
+        .send()
+        .await?;
+    // `other` does not exist yet, so this particular pair is still refused — the swap shape is
+    // covered by the pair below, which starts from two real data tables.
+    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
+
+    sqlx::query(
+        r#"UPDATE workspace_settings SET datatable = jsonb_set(datatable, '{datatables,other}',
+             '{"database": {"resource_type": "instance", "resource_path": "dt_two"}}'::jsonb)
+           WHERE workspace_id = 'test-workspace'"#,
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(&url), "SECRET_TOKEN")
+        .json(&json!({
+            "settings": {"datatables": {"main": instance("dt_two"), "other": instance("dt_main")}},
+            "renames": [{"from": "main", "to": "other"}, {"from": "other", "to": "main"}],
+            "deleted_datatables": []
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "a swap was refused: {}", resp.text().await?);
+
+    // The fork named `main`, which is now called `other`.
+    let entry: Option<Value> = sqlx::query_scalar(
+        "SELECT datatable->'datatables'->'main'->'reference' FROM workspace_settings
+         WHERE workspace_id = $1",
+    )
+    .bind("wm-fork-dt")
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(entry.unwrap()["datatable"], "other", "the swap did not carry the pointer");
+    Ok(())
+}

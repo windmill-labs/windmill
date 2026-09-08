@@ -1882,6 +1882,12 @@ pub async fn ensure_datatable_admin_access(
 /// transaction. `change` reports whether it touched anything; the row is only written when
 /// something did.
 ///
+/// Authorization: writes an access decision for any workspace named, with an arbitrary mutation,
+/// and checks nothing. It exists for the cascades below — the transaction that frees or renames a
+/// principal — so callers MUST be the operation that made the principal change, and MUST run in
+/// its transaction. Anything editing a decision on purpose belongs in the permissions endpoint,
+/// which is gated on the workspace that governs the data table.
+///
 /// The tenant lists name principals of this workspace, so anything that frees or renames one has
 /// to come through here in the same transaction that frees it — otherwise a `u/alice` reused by a
 /// later account silently inherits her access.
@@ -1940,7 +1946,8 @@ where
 }
 
 /// Drop a freed principal (`u/alice`, `g/analysts`, `f/finance`) from every tenant list of one
-/// workspace.
+/// workspace. Same contract as [`update_datatable_permissions_in_workspace`]: for the transaction
+/// that frees the principal, not for editing a decision.
 pub async fn remove_datatable_tenant_in_workspace(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,
@@ -1958,7 +1965,8 @@ pub async fn remove_datatable_tenant_in_workspace(
     .await
 }
 
-/// Follow a renamed principal through every tenant list of one workspace.
+/// Follow a renamed principal through every tenant list of one workspace. Same contract as
+/// [`update_datatable_permissions_in_workspace`].
 pub async fn rename_datatable_tenant_in_workspace(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,
@@ -1989,7 +1997,10 @@ pub async fn rename_datatable_tenant_in_workspace(
 }
 
 /// Strip a deleted instance role from every workspace that had tenanted it, so nothing is left
-/// naming a role that no longer exists. A data table whose default role was the deleted one falls
+/// naming a role that no longer exists.
+///
+/// Authorization: reaches every workspace on the instance. Callers MUST be the superadmin path
+/// that just dropped the role from the cluster — it exists to follow that, not to edit tenants. A data table whose default role was the deleted one falls
 /// back to `admin` — the one role that is always present.
 pub async fn forget_datatable_role_everywhere(db: &DB, role_id: &str) -> Result<()> {
     let workspaces = sqlx::query_scalar!(

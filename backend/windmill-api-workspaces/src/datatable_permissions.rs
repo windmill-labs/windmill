@@ -287,6 +287,23 @@ async fn set_datatable_permissions(
     .fetch_optional(&mut *tx)
     .await?;
 
+    // Everything above was decided on a read taken before the locks. A settings save committing in
+    // between could have moved this data table onto a PostgreSQL resource — recreating the exact
+    // state the transition guard refuses — or renamed it, in which case the write below would
+    // target a key that no longer exists and report success having changed nothing. Re-resolve and
+    // re-check on the locked state; the earlier pass stays because it is what refuses without
+    // taking locks at all.
+    let governing = resolve_governing_datatable(&db, &w_id, &datatable_name).await?;
+    ensure_governs_datatable(&db, &authed, &w_id, &governing).await?;
+    if req.permissioned && !governing.is_instance() {
+        return Err(Error::BadRequest(format!(
+            "Data table '{}' is backed by a Postgres resource. Data table roles are logins on the \
+             Windmill instance's own Postgres, so only a data table on the instance database can \
+             use them.",
+            governing.name
+        )));
+    }
+
     let permissions = if req.permissioned {
         let catalog = windmill_common::datatable_roles::read_role_catalog_tx(&mut tx).await?;
         let mut roles: BTreeMap<String, DataTableRoleTenants> = BTreeMap::new();

@@ -5345,7 +5345,22 @@ paths:
           description: status
           content:
             application/json:
-              schema: {}
+              schema:
+                type: object
+                properties:
+                  stranded_references:
+                    description: >-
+                      Data tables in other workspaces that were governed by one this save deleted
+                      and no longer resolve.
+                    type: array
+                    items:
+                      type: object
+                      required: [workspace_id, datatable]
+                      properties:
+                        workspace_id:
+                          type: string
+                        datatable:
+                          type: string
 
   /w/{workspace}/workspaces/run_datatable_migrations/{datatable_name}:
     post:
