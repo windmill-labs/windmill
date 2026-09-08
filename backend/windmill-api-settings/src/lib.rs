@@ -2587,7 +2587,7 @@ fn datatable_role_infos(
 /// normally planted by the boot converge, but that swallows its own failures, so this is a check
 /// rather than an assumption.
 async fn write_role_catalog(
-    db: &DB,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     catalog: &windmill_common::datatable_roles::DatatableRoleCatalog,
 ) -> error::Result<()> {
     let value = serde_json::to_value(catalog).map_err(to_anyhow)?;
@@ -2596,7 +2596,7 @@ async fn write_role_catalog(
          WHERE name = 'custom_instance_pg_databases'",
         value
     )
-    .execute(db)
+    .execute(&mut **tx)
     .await?
     .rows_affected();
     if written == 0 {
@@ -2631,7 +2631,12 @@ async fn create_datatable_role(
     require_super_admin(&db, &authed).await?;
     windmill_common::datatable_roles::validate_role_name(&req.name)?;
 
-    let mut catalog = windmill_common::datatable_roles::read_role_catalog(&db).await?;
+    // The catalog is one JSON document, so read, DDL and write are one critical section: two
+    // concurrent creates would otherwise both land in the cluster and the second write would drop
+    // the first, leaving a live login nobody recorded.
+    let mut tx = db.begin().await?;
+    windmill_common::datatable_roles::lock_role_catalog(&mut tx).await?;
+    let mut catalog = windmill_common::datatable_roles::read_role_catalog_tx(&mut tx).await?;
     if catalog.values().any(|r| r.name == req.name) {
         return Err(error::Error::BadRequest(format!(
             "A data table role named '{}' already exists",
@@ -2641,7 +2646,7 @@ async fn create_datatable_role(
 
     let id = windmill_common::utils::rd_string(12);
     let pwd = uuid::Uuid::new_v4().to_string();
-    windmill_common::datatable_roles::create_instance_role(&db, &req.name, &pwd).await?;
+    windmill_common::datatable_roles::create_instance_role(&mut tx, &req.name, &pwd).await?;
 
     catalog.insert(
         id.clone(),
@@ -2651,7 +2656,8 @@ async fn create_datatable_role(
             pwd: Some(pwd),
         },
     );
-    write_role_catalog(&db, &catalog).await?;
+    write_role_catalog(&mut tx, &catalog).await?;
+    tx.commit().await?;
     converge_connect_grants_everywhere(&db, &catalog).await;
     windmill_common::feature_usage::log_feature_usage("datatable", "role_created", "");
 
@@ -2676,7 +2682,9 @@ async fn update_datatable_role(
     Json(req): Json<UpdateDatatableRole>,
 ) -> JsonResult<DatatableRoleInfo> {
     require_super_admin(&db, &authed).await?;
-    let mut catalog = windmill_common::datatable_roles::read_role_catalog(&db).await?;
+    let mut tx = db.begin().await?;
+    windmill_common::datatable_roles::lock_role_catalog(&mut tx).await?;
+    let mut catalog = windmill_common::datatable_roles::read_role_catalog_tx(&mut tx).await?;
     let role = catalog
         .get(&id)
         .cloned()
@@ -2693,19 +2701,20 @@ async fn update_datatable_role(
         // RENAME discards an md5-hashed password, so the role gets a fresh one in the same
         // statement and the catalog records it. Tenants name the id, so nothing else moves.
         let pwd = uuid::Uuid::new_v4().to_string();
-        windmill_common::datatable_roles::rename_instance_role(&db, &role.name, &name, &pwd)
+        windmill_common::datatable_roles::rename_instance_role(&mut tx, &role.name, &name, &pwd)
             .await?;
         updated.name = name;
         updated.pwd = Some(pwd);
     }
     if let Some(enabled) = req.enabled.filter(|e| *e != role.enabled) {
-        windmill_common::datatable_roles::set_instance_role_login(&db, &updated.name, enabled)
+        windmill_common::datatable_roles::set_instance_role_login(&mut tx, &updated.name, enabled)
             .await?;
         updated.enabled = enabled;
     }
 
     catalog.insert(id.clone(), updated.clone());
-    write_role_catalog(&db, &catalog).await?;
+    write_role_catalog(&mut tx, &catalog).await?;
+    tx.commit().await?;
     converge_connect_grants_everywhere(&db, &catalog).await;
 
     audit_log(
@@ -2737,15 +2746,20 @@ async fn delete_datatable_role(
     Path(id): Path<String>,
 ) -> JsonResult<()> {
     require_super_admin(&db, &authed).await?;
-    let mut catalog = windmill_common::datatable_roles::read_role_catalog(&db).await?;
+    let mut tx = db.begin().await?;
+    windmill_common::datatable_roles::lock_role_catalog(&mut tx).await?;
+    let mut catalog = windmill_common::datatable_roles::read_role_catalog_tx(&mut tx).await?;
     let role = catalog
         .get(&id)
         .cloned()
         .ok_or_else(|| error::Error::NotFound(format!("No data table role with id '{id}'")))?;
 
-    windmill_common::datatable_roles::drop_instance_role(&db, &role.name).await?;
+    windmill_common::datatable_roles::drop_instance_role(&db, &mut tx, &role.name).await?;
     catalog.remove(&id);
-    write_role_catalog(&db, &catalog).await?;
+    write_role_catalog(&mut tx, &catalog).await?;
+    tx.commit().await?;
+    // After the drop commits: a tenant naming a role that still exists is harmless, one naming a
+    // role that is gone is not, so this only ever runs once the cluster agrees it is gone.
     windmill_common::workspaces::forget_datatable_role_everywhere(&db, &id).await?;
 
     audit_log(
