@@ -180,3 +180,83 @@ async fn a_second_entry_on_the_same_database_is_reported_rather_than_governed(
     );
     Ok(())
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn a_resource_backed_data_table_cannot_be_put_under_roles(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    // A role is a login on Windmill's own cluster. A resource-backed data table dials a host the
+    // workspace admin chose, so accepting one here would hand that host a real cluster credential.
+    sqlx::query(
+        r#"UPDATE workspace_settings SET datatable = '{"datatables": {"byo": {
+            "database": {"resource_type": "postgresql", "resource_path": "u/test-user/pg"}}}}'::jsonb
+           WHERE workspace_id = 'test-workspace'"#,
+    )
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+
+    let resp = authed(
+        client().get(format!("{base}/datatable_permissions/byo")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    let body: Value = resp.json().await?;
+    assert_eq!(body["supported"], false, "{body}");
+
+    let resp = authed(
+        client().post(format!("{base}/datatable_permissions/byo")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({"permissioned": true, "default_role": "role1",
+                  "roles": [{"id": "role1", "tenants": ["*"]}]}))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn a_fork_renaming_its_own_entry_leaves_the_governing_bookkeeping_alone(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    // The parent's migration definitions. A rename or delete through the fork's settings form
+    // resolves through the pointer, so without a guard it would relabel or wipe these.
+    sqlx::query(
+        "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up)
+         VALUES ('test-workspace', 'main', 1, 'init', 'SELECT 1')",
+    )
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let resp = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/wm-fork-dt/workspaces/edit_datatable_config"
+        )),
+        "SECRET_TOKEN_2",
+    )
+    .json(&json!({
+        "settings": {"datatables": {}},
+        "renames": [],
+        "deleted_datatables": ["main"]
+    }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    let left: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM datatable_migrations WHERE workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(left, 1, "the fork's delete reached the parent's migrations");
+    Ok(())
+}
