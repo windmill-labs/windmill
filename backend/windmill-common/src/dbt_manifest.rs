@@ -520,7 +520,8 @@ impl IngestedManifest {
         // passes over one project must not read as two different graphs.
         //
         // Direct kinds first, so what the truncation below gives up is `scan` —
-        // the bulk of a wide project's lineage and the kind nothing renders. The
+        // the bulk of a wide project's lineage, and the kind that says the column
+        // was read to produce the row rather than the value. The
         // worker's reader already applies this order while decoding, because the
         // memory bound has to; repeating it here is what makes the ordering a
         // property of the manifest rather than of one caller's reader, and it is

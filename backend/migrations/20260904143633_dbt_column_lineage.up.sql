@@ -29,18 +29,24 @@ CREATE TABLE IF NOT EXISTS dbt_column_edge (
   ingested_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   -- Two partial unique indexes rather than a primary key, for the reason
   -- 20260801121717 gives: a versioned graph is keyed by its version, a buffer
-  -- parse by its job alone.
+  -- parse by its job alone. `lineage_kind` is part of the key because it is part
+  -- of the fact: a column that is both projected and used as a predicate for the
+  -- same output column has a `copy` edge AND a `scan` one, and the digest counts
+  -- both. Leaving it out let `ON CONFLICT DO NOTHING` drop the second while the
+  -- digest still claimed it was stored.
   CONSTRAINT dbt_column_edge_script_fkey FOREIGN KEY (workspace_id, script_hash)
     REFERENCES script (workspace_id, hash) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS dbt_column_edge_versioned_key
   ON dbt_column_edge (workspace_id, script_path, script_hash, job_id,
-                      parent_unique_id, parent_column, child_unique_id, child_column)
+                      parent_unique_id, parent_column, child_unique_id, child_column,
+                      lineage_kind)
   WHERE script_hash IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS dbt_column_edge_editor_key
   ON dbt_column_edge (workspace_id, job_id,
-                      parent_unique_id, parent_column, child_unique_id, child_column)
+                      parent_unique_id, parent_column, child_unique_id, child_column,
+                      lineage_kind)
   WHERE script_hash IS NULL;
 
 -- Same age sweep as the other per-run rows, and the same reason there is no
