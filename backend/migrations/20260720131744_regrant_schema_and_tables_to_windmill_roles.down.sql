@@ -1,0 +1,3 @@
+-- No down migration: revoking these grants leaves the instance unable to run
+-- any query on a user_db transaction. 20250205131523, which this re-runs, is
+-- likewise a no-op down.

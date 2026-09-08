@@ -1,16 +1,12 @@
 import type { GroupDisplayState } from '$lib/components/graph/groupEditor.svelte'
+import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 import type { GroupedModulesProxy } from '$lib/components/graph/groupedModulesProxy.svelte'
 import type { SelectionManager } from '$lib/components/graph/selectionUtils.svelte'
 import type { FlowStructureNode } from '$lib/components/graph/flowStructure'
 import type { OpenFlow } from '$lib/gen'
 import { push, type History } from '$lib/history.svelte'
-import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 import type { StateStore } from '$lib/utils'
-import {
-	createDeletePlan,
-	removeDeletePlanTools,
-	type DeletePlan
-} from './flowDeleteUtils'
+import { createDeletePlan, removeDeletePlanTools, type DeletePlan } from './flowDeleteUtils'
 import type { FlowState } from './flowState'
 import { deleteFlowStateById } from './flowStateUtils.svelte'
 
@@ -60,7 +56,9 @@ export function executeDeletePlan(
 	if (plan.selection.kind === 'clear') {
 		args.selectionManager.clearSelection()
 	} else {
-		args.selectionManager.selectId(plan.selection.id)
+		// Whatever remains selected after a delete was not asked for, so it must not
+		// pop the modal panel open.
+		args.selectionManager.selectId(plan.selection.id, { openPanel: false })
 	}
 
 	if (plan.targets.some((target) => target.kind === 'preprocessor')) {

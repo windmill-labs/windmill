@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Alert } from '$lib/components/common'
 	import { getContext, setContext } from 'svelte'
+	import { watch } from 'runed'
 	import type { PropPickerWrapperContext } from '../propPicker/PropPickerWrapper.svelte'
 	import { writable } from 'svelte/store'
 	import type { FlowEditorContext } from '../types'
@@ -32,7 +33,8 @@
 
 	let { noEditor }: Props = $props()
 
-	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, opWorkspace } = getContext<FlowEditorContext>('FlowEditorContext')
+	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
 
 	if (!flowStore.val.value.flow_env) {
 		flowStore.val.value.flow_env = {}
@@ -228,11 +230,20 @@
 	let variablePicker: ItemPicker | undefined = $state(undefined)
 	let pickForKey: string | undefined = $state(undefined)
 
+	watch(
+		() => opWs,
+		() => variablePicker?.reloadItems()
+	)
+
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		inputMatches: writable(undefined),
 		connectProp: () => {},
 		propPickerConfig: writable(undefined),
 		clearConnect: () => {},
+		openPicker: () => {},
+		pickerMode: () => 'pane' as const,
+		setPickTarget: () => {},
+		onPick: () => {},
 		exprBeingEdited: writable([])
 	})
 </script>
@@ -244,8 +255,10 @@
 				Flow envs can be referenced in any flow step input using the syntax{' '}
 				<code>flow_env.VARIABLE_NAME</code> or <code>flow_env["VARIABLE_NAME"]</code>. These
 				variables are available in the property picker and can be used in JavaScript expressions and
-				input bindings. String values can link to workspace variables using the <DollarSign size={12}
-					class="inline" /> button. Resource type references workspace resources resolved at runtime.
+				input bindings. String values can link to workspace variables using the <DollarSign
+					size={12}
+					class="inline"
+				/> button. Resource type references workspace resources resolved at runtime.
 			</Alert>
 
 			{#if flowEnvEntries.length === 0}
@@ -303,6 +316,7 @@
 									<ResourcePicker
 										bind:value={resourcePaths[entry.key]}
 										disabled={noEditor}
+										workspace={opWs}
 									/>
 								{:else if entry.type === 'json'}
 									<div class="w-full">
@@ -320,8 +334,7 @@
 										<input
 											type="text"
 											value={entry.displayValue}
-											oninput={(e) =>
-												updateEnvValue(entry.key, e.currentTarget.value, 'string')}
+											oninput={(e) => updateEnvValue(entry.key, e.currentTarget.value, 'string')}
 											disabled={noEditor}
 											class="input w-full"
 											placeholder="Variable value"
@@ -346,8 +359,7 @@
 											Linked to variable <a
 												href="/variables#{entry.value.slice(5)}"
 												target="_blank"
-												class="text-accent underline font-normal"
-												>{entry.value.slice(5)}</a
+												class="text-accent underline font-normal">{entry.value.slice(5)}</a
 											>
 										</div>
 									{/if}
@@ -379,7 +391,7 @@
 	itemName="Variable"
 	extraField="path"
 	loadItems={async () =>
-		(await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => ({
+		(await VariableService.listVariable({ workspace: opWs ?? '' })).map((x) => ({
 			name: x.path,
 			...x
 		}))}

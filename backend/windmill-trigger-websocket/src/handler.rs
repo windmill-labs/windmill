@@ -12,7 +12,7 @@ use windmill_common::{
     worker::to_raw_value,
 };
 use windmill_git_sync::DeployedObject;
-use windmill_trigger::{Trigger, TriggerCrud, TriggerData};
+use windmill_trigger::{filter::CompiledFilters, Trigger, TriggerCrud, TriggerData};
 
 use super::{
     get_url_from_runnable_value, listener::InitialMessage, proxy::connect_async_with_proxy,
@@ -105,6 +105,8 @@ impl TriggerCrud for WebsocketTrigger {
                 ));
             }
         }
+
+        CompiledFilters::validate(&config.filters)?;
 
         if let Some(ref hb) = config.heartbeat {
             if hb.interval_secs < 1 {
@@ -316,9 +318,9 @@ impl TriggerCrud for WebsocketTrigger {
             Cow::Borrowed(&url)
         };
 
-        validate_websocket_url_for_ssrf(&connect_url).await?;
+        let validated = validate_websocket_url_for_ssrf(&connect_url).await?;
 
-        connect_async_with_proxy(&*connect_url)
+        connect_async_with_proxy(&*connect_url, validated.pinned_addrs())
             .await
             .map_err(|err| {
                 Error::BadConfig(format!(

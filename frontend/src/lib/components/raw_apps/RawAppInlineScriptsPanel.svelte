@@ -2,6 +2,10 @@
 	import { workspaceStore } from '$lib/stores'
 	import RawAppInlineScripRunnable, { type Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { createScriptFromInlineScript } from '../apps/editor/inlineScriptsPanel/utils'
+	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
+
+	const getOpWs = getRawAppOperatingWorkspace()
+	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
 
 	interface Props {
 		runnables: Record<string, Runnable>
@@ -36,12 +40,7 @@
 		<RawAppInlineScripRunnable
 			{appPath}
 			on:createScriptFromInlineScript={(e) => {
-				createScriptFromInlineScript(
-					selectedRunnable ?? '',
-					e.detail,
-					$workspaceStore ?? '',
-					appPath
-				)
+				createScriptFromInlineScript(selectedRunnable ?? '', e.detail, opWs ?? '', appPath)
 			}}
 			on:delete={() => {
 				if (selectedRunnable) {

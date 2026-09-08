@@ -1,0 +1,61 @@
+# The python and typescript SDK unit suites, on release tags only: they guard
+# what gets published to npm / PyPI / JSR, and a tag is the moment that decides
+# it.
+#
+# This runs alongside the publish workflows rather than ahead of them, so it
+# reports a broken SDK rather than holding one back. Gating would mean putting
+# the job inside each publish workflow, since Actions cannot express `needs`
+# across workflows.
+name: SDK Tests
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  typescript-client:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # No build step: these suites are deliberately free of the generated API
+      # client, so they run against the sources as committed.
+      - name: Run tests
+        working-directory: ./typescript-client
+        run: bun test --timeout 120000 tests/
+
+  python-client:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      # The interpreter is named explicitly: on a clean checkout uv picks the
+      # runner's system python and stops with "not compatible with the locked
+      # Python requirement" rather than fetching one. Keep in step with
+      # `requires-python` in uv.lock.
+      #
+      # Note this is not the version a worker runs the SDK on — those are 3.12.
+      # `uv.lock` asks for >=3.14, so pinning lower means regenerating it, which
+      # is worth doing separately.
+      - name: Install the interpreter the lockfile requires
+        run: uv python install 3.14
+
+      # `--frozen` so a drifted lockfile fails here rather than quietly
+      # resolving to something nobody has run.
+      - name: Run tests
+        working-directory: ./python-client/wmill
+        env:
+          PYTHONPATH: .
+        run: uv run --frozen --python 3.14 pytest tests/ -q

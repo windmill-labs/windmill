@@ -6,7 +6,6 @@
 		listGlobalDrafts
 	} from '$lib/components/copilot/chat/global/userDraftAdapter'
 	import type { WorkspaceItem } from '$lib/components/copilot/chat/global/workspaceItems'
-	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { goto } from '$lib/navigation'
 	import { workspaceStore } from '$lib/stores'
 	import { Trash2 } from 'lucide-svelte'
@@ -21,8 +20,8 @@
 	}
 
 	onMount(() => {
-		// Dev-only route. Bounce to home when the global mode gate is closed.
-		enabled = isGlobalAiEnabled()
+		// Dev tooling, not part of the sessions beta — only reachable on dev builds.
+		enabled = import.meta.env.DEV
 		if (!enabled) {
 			goto('/')
 		}

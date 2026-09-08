@@ -2,17 +2,21 @@
 	import type { Snippet } from 'svelte'
 	import {
 		enterpriseLicense,
-		isPremiumStore,
+		maybePremium,
+		superadmin,
 		userStore,
 		userWorkspaces,
-		workspaceStore
+		workspaceStore,
+		type UserWorkspace
 	} from '$lib/stores'
 	import {
 		findWorkspaceDescendants,
 		findCanonicalDevWorkspace,
+		findDefaultForkBase,
 		findWorkspaceRoot,
 		buildWorkspaceHierarchy
 	} from '$lib/utils/workspaceHierarchy'
+	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { forkAccentStyle } from '$lib/utils/forkColor'
 	import { getUserExt } from '$lib/user'
@@ -65,6 +69,10 @@
 		// and target href.
 		settingsHref,
 		settingsLabel,
+		// Pre-resolved forkable list from a parent that already computed it (e.g.
+		// WorkspaceScopeHeader), so the superadmin lookup isn't duplicated. Omitted
+		// by standalone consumers, which then resolve it themselves.
+		forkableWorkspaces: forkableWorkspacesProp,
 		trigger
 	}: {
 		selectedId?: string
@@ -77,18 +85,32 @@
 		class?: string
 		settingsHref?: string
 		settingsLabel?: string
+		forkableWorkspaces?: UserWorkspace[]
 		trigger: Snippet<[{ open: boolean }]>
 	} = $props()
 
 	const WM_FORK_PREFIX = 'wm-fork-'
 
 	const effectiveId = $derived(selectedId ?? $workspaceStore ?? undefined)
-	const root = $derived(findWorkspaceRoot(effectiveId, $userWorkspaces))
-	const forks = $derived(root ? findWorkspaceDescendants(root.id, $userWorkspaces) : [])
+	// Resolve the family (see useForkableWorkspaces); skip the lookup when a parent already supplied it.
+	const ownForkable = useForkableWorkspaces({
+		workspaces: () => $userWorkspaces,
+		currentWorkspaceId: () => effectiveId,
+		isSuperadmin: () => !!$superadmin,
+		enabled: () => forkableWorkspacesProp === undefined
+	})
+	const forkableWorkspaces = $derived(forkableWorkspacesProp ?? ownForkable.current)
+	const root = $derived(findWorkspaceRoot(effectiveId, forkableWorkspaces))
+	const forks = $derived(root ? findWorkspaceDescendants(root.id, forkableWorkspaces) : [])
 
 	// The family's canonical dev workspace, if any — still used for gating (a forking-locked root can be
 	// forked via its dev) and as a selectable base with a "dev" badge.
-	const devOfRoot = $derived(root ? findCanonicalDevWorkspace(root.id, $userWorkspaces) : undefined)
+	const devOfRoot = $derived(
+		root ? findCanonicalDevWorkspace(root.id, forkableWorkspaces) : undefined
+	)
+	// Base a new fork gets by default: the dev workspace when the selection sits in its subtree, the
+	// family root otherwise.
+	const defaultForkBase = $derived(findDefaultForkBase(effectiveId, forkableWorkspaces))
 	const createForkLabel = 'Create new fork…'
 	// Candidate bases ("targets") for a new fork: the root plus every fork/dev in the family, so a fork
 	// can itself be the base — i.e. a fork of a fork. Root first, matching the list order below.
@@ -108,7 +130,7 @@
 	// forks of forks under their parent the same way. `forks` is a DFS of descendants (parent before
 	// child), so indenting each row by its depth nests it under its parent.
 	const familyDepths = $derived(
-		new Map(buildWorkspaceHierarchy($userWorkspaces).map((h) => [h.workspace.id, h.depth]))
+		new Map(buildWorkspaceHierarchy(forkableWorkspaces).map((h) => [h.workspace.id, h.depth]))
 	)
 	// Extra left padding (on top of the row's base px-3) to nest a workspace one step per depth level,
 	// matching the sidebar menu's `depth * 16px`.
@@ -152,7 +174,7 @@
 	// (a locked prod) doesn't apply when there's a dev to fork from instead — the dev isn't locked, and
 	// devOfRoot only resolves when the user is a member of it.
 	const forksGateOpen = $derived(
-		(!isCloudHosted() || $isPremiumStore) &&
+		(!isCloudHosted() || $maybePremium) &&
 			$workspaceStore !== 'admins' &&
 			(canCreateFork($userStore) || !!devOfRoot)
 	)
@@ -187,8 +209,8 @@
 	// Bare fork id, without the wm-fork- prefix. Forks have no separate display
 	// name — the id is the name (it also becomes the git branch).
 	let newForkId = $state('')
-	// The base ("target") a new fork will branch from. Defaults to the root; the user can pick any fork
-	// in the family (via the inline target selector) to create a fork of a fork.
+	// The base ("target") a new fork will branch from. Defaults to `defaultForkBase`; the user can pick
+	// any fork in the family (via the inline target selector) to create a fork of a fork.
 	let createForkBaseId = $state<string | undefined>(undefined)
 
 	// Manual keyboard navigation, modelled after SelectDropdown. melt's
@@ -248,8 +270,8 @@
 	}
 
 	function enterCreateMode(initialId?: string, baseId?: string) {
-		// Default the target to the root; the user can switch to any fork in the family (fork of a fork).
-		createForkBaseId = baseId ?? root?.id
+		// The user can switch to any fork in the family (fork of a fork).
+		createForkBaseId = baseId ?? defaultForkBase?.id
 		creatingFork = true
 		newForkId = initialId ?? defaultForkId()
 		// Focus + select is handled by the input's own autofocus (it mounts with
@@ -320,8 +342,8 @@
 		const wasOpen = lastDropdownOpen
 		lastDropdownOpen = dropdownOpen
 		if (dropdownOpen && !wasOpen && pendingFork && !creatingFork && showCreateFork) {
-			// Preserve the base the fork was staged from; without this the re-entry defaults to the root
-			// and silently re-parents a fork that was staged off another fork.
+			// Preserve the base the fork was staged from; without this the re-entry falls back to the
+			// default base and silently re-parents a fork that was staged off another workspace.
 			void enterCreateMode(
 				pendingFork.id.startsWith(WM_FORK_PREFIX)
 					? pendingFork.id.slice(WM_FORK_PREFIX.length)
@@ -457,8 +479,8 @@
 			{#if showCreateFork}
 				<div class="my-1 border-t border-border-light shrink-0"></div>
 				{#if creatingFork}
-					<!-- Small inline form with labels: fork id + base ("target") workspace. The base
-							     defaults to the root; picking a fork there creates a fork of a fork. -->
+					<!-- Small inline form with labels: fork id + base ("target") workspace. Picking a
+							     fork as the base creates a fork of a fork. -->
 					<div class="flex flex-col gap-2 px-2.5 py-2">
 						<div class="flex flex-col gap-0.5">
 							<span class="text-2xs font-normal text-hint">Fork ID</span>

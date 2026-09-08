@@ -32,8 +32,12 @@ app related commands
   - `--host <host:string>` - Host to bind the dev server to
   - `--entry <entry:string>` - Entry point file (default: index.ts for Svelte/Vue, index.tsx otherwise)
   - `--no-open` - Don't automatically open the browser
+  - `--recording` - Frame the app in a shell with a Record button, to capture a replayable session recording of the app under development
 - `app lint [app_folder:string]` - Lint a raw app folder to validate structure and buildability
   - `--fix` - Attempt to fix common issues (not implemented yet)
+- `app bundle [app_folder:string]` - Bundle a raw app folder to js/css without deploying it
+  - `--out <dir:string>` - Directory to write bundle.js and bundle.css into (default: <app_folder>/dist)
+  - `--no-minify` - Skip minification
 - `app new` - create a new raw app from a template
   - `--summary <summary:string>` - App summary (short description). Skips the prompt when provided. Triggers non-interactive mode.
   - `--path <path:string>` - App path (e.g., f/folder/my_app or u/username/my_app). Skips the prompt when provided. Triggers non-interactive mode.
@@ -156,13 +160,15 @@ flow related commands
 - `flow push <file_path:string> <remote_path:string>` - push a local flow spec. This overrides any remote versions.
   - `--message <message:string>` - Deployment message
 - `flow run <path:string>` - run a flow by path.
-  - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - `-s --silent` - Do not ouput anything other then the final output. Useful for scripting.
+  - `--tag <tag:string>` - Override the worker tag the run is dispatched to (e.g. to route it to dev workers instead of the flow's default tag).
 - `flow preview <flow_path:string>` - preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default. Pass --step <id> to run only one module in isolation (resolves nested steps inside branchone/branchall/forloopflow/whileloopflow plus the special preprocessor/failure modules; supported step types: rawscript, script, flow).
-  - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
   - `--remote` - Use deployed workspace scripts for PathScript steps instead of local files.
   - `--step <step_id:string>` - Run only the named step instead of the whole flow. Honors --data as the step's args and --remote / local-PathScript resolution the same way the full-flow preview does.
+  - `--tag <tag:string>` - Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the flow's default tag).
 - `flow new <flow_path:string>` - create a new empty flow
   - `--summary <summary:string>` - flow summary
   - `--description <description:string>` - flow description
@@ -249,6 +255,8 @@ Manage git-sync settings between local wmill.yaml and Windmill backend
   - `--with-backend-settings <json:string>` - Use provided JSON settings instead of querying backend (for testing)
   - `--yes` - Skip interactive prompts and use default behavior
   - `--promotion <branch:string>` - Use promotionOverrides from the specified branch instead of regular overrides
+- `gitsync-settings status` - Report how local changes deploy to the workspace (git push vs wmill sync push)
+  - `--json-output` - Output in JSON format
 
 ### group
 
@@ -552,11 +560,13 @@ script related commands
   - `--json` - Output as JSON (for piping to jq)
 - `script show <path:file>` - show a script's content (alias for get)
 - `script run <path:file>` - run a script by path
-  - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
+  - `--tag <tag:string>` - Override the worker tag the run is dispatched to (e.g. to route it to dev workers instead of the script's default tag).
 - `script preview <path:file>` - preview a local script without deploying it. Supports both regular and codebase scripts.
-  - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - `-s --silent` - Do not output anything other than the final output. Useful for scripting.
+  - `--tag <tag:string>` - Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the script's default tag).
 - `script new <path:file> <language:string>` - create a new script
   - `--summary <summary:string>` - script summary
   - `--description <description:string>` - script description
@@ -595,6 +605,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--include-groups` - Include syncing groups
   - `--include-settings` - Include syncing workspace settings
   - `--include-key` - Include workspace encryption key
+  - `--keep-deleted` - Do not delete local files for items that no longer exist on the remote workspace. Only adds and updates.
   - `--skip-branch-validation` - Skip git branch validation and prompts
   - `--json-output` - Output results in JSON format
   - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Overrides wmill.yaml includes
@@ -626,6 +637,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--include-settings` - Include syncing workspace settings
   - `--include-key` - Include workspace encryption key
   - `--skip-reencrypt-on-key-change` - When the pushed encryption key differs from the remote, do NOT re-encrypt existing remote secrets. Only safe if they are already encrypted with the new key (e.g. workspace/instance migration). Default is to re-encrypt.
+  - `--keep-deleted` - Do not delete remote items that no longer exist locally. Only adds and updates.
   - `--skip-branch-validation` - Skip git branch validation and prompts
   - `--json-output` - Output results in JSON format
   - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)
@@ -669,12 +681,12 @@ trigger related commands
   - `--json` - Output as JSON (for piping to jq)
 - `trigger get <path:string>` - get a trigger's details
   - `--json` - Output as JSON (for piping to jq)
-  - `--kind <kind:string>` - Trigger kind (http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email). Recommended for faster lookup
+  - `--kind <kind:string>` - Trigger kind (http, websocket, kafka, nats, postgres, mqtt, amqp, sqs, gcp, azure, email). Recommended for faster lookup
 - `trigger new <path:string>` - create a new trigger locally
-  - `--kind <kind:string>` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email)
+  - `--kind <kind:string>` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, amqp, sqs, gcp, azure, email)
 - `trigger push <file_path:string> <remote_path:string>` - push a local trigger spec. This overrides any remote versions.
 - `trigger set-permissioned-as <path:string> <email:string>` - Set the email (run-as user) for a trigger (requires admin or wm_deployers group)
-  - `--kind <kind:string>` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email)
+  - `--kind <kind:string>` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, amqp, sqs, gcp, azure, email)
 
 ### user
 

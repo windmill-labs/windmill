@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import { ButtonType } from '$lib/components/common/button/model'
 	import { getContext, tick, untrack } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
@@ -7,6 +8,7 @@
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
 	import { convert } from '@redocly/json-to-json-schema'
 	import { sendUserToast } from '$lib/toast'
+	import { workspaceStore } from '$lib/stores'
 	import EditableSchemaForm from '$lib/components/EditableSchemaForm.svelte'
 	import AddPropertyV2 from '$lib/components/schema/AddPropertyV2.svelte'
 	import FlowInputViewer from '$lib/components/FlowInputViewer.svelte'
@@ -42,11 +44,11 @@
 	import SideBarTab from '$lib/components/meltComponents/SideBarTab.svelte'
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 	import { isObjectTooBig, readFieldsRecursively } from '$lib/utils'
-	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
-	import type { AiAgent, ScriptLang } from '$lib/gen'
+	import type { AiAgent, InputTransform, ScriptLang } from '$lib/gen'
 	import { deepEqual } from 'fast-equals'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AI_AGENT_SCHEMA } from '../flowInfers'
+	import { agentStreamingEnabled } from '../agentFormFields'
 	import { nextId } from '../flowModuleNextId'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import FlowChat from '../conversations/FlowChat.svelte'
@@ -74,8 +76,11 @@
 		pathStore,
 		initialPathStore,
 		fakeInitialPath,
-		flowInputEditorState
+		flowInputEditorState,
+		opWorkspace
 	} = getContext<FlowEditorContext>('FlowEditorContext')
+	// Acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
 
 	// Get diffManager from the graph
 	const diffManager = $derived(flowModuleSchemaMap?.getDiffManager())
@@ -95,11 +100,8 @@
 	let shouldUseStreaming = $derived.by(() => {
 		const modules = flowStore.val.value?.modules
 		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
-		return (
-			lastModule?.value?.type === 'aiagent' &&
-			lastModule?.value?.input_transforms?.streaming?.type === 'static' &&
-			lastModule?.value?.input_transforms?.streaming?.value === true
-		)
+		if (lastModule?.value?.type !== 'aiagent') return false
+		return agentStreamingEnabled(lastModule.value)
 	})
 	let showChatModeWarning = $state(false)
 	let showAdditionalInputs = $state(false)
@@ -595,24 +597,45 @@
 				false
 			)
 		} else if (aiAgentModules.length === 1) {
-			// Exactly one AI agent exists, configure it
+			// Exactly one AI agent exists: fill in defaults only for inputs the
+			// user hasn't configured, so re-enabling chat mode on an already
+			// configured agent doesn't clobber a custom user_message expression
+			// or a deliberate memory choice (e.g. off).
 			const aiAgent = aiAgentModules[0]
 			const value = aiAgent.value as AiAgent
 
-			// Set user_message to flow_input.user_message
-			value.input_transforms['user_message'] = {
-				type: 'javascript',
-				expr: 'flow_input.user_message'
+			// Degenerate shapes the input form can produce without deliberate
+			// configuration count as unconfigured: empty static value (undefined
+			// persists as null through JSON round-trips), blank JS expression
+			// (the JS toggle seeds a bare backtick pair), or an AI transform
+			// (meaningless for the chat input).
+			const isUnconfigured = (transform: InputTransform | undefined) =>
+				transform === undefined ||
+				(transform.type === 'static' && (transform.value == null || transform.value === '')) ||
+				(transform.type === 'javascript' && transform.expr.replaceAll('`', '').trim() === '') ||
+				transform.type === 'ai'
+
+			const applied: string[] = []
+			if (isUnconfigured(value.input_transforms['user_message'])) {
+				value.input_transforms['user_message'] = {
+					type: 'javascript',
+					expr: 'flow_input.user_message'
+				}
+				applied.push('user message input')
 			}
 
-			// Set messages_context_length to 10
-			value.input_transforms['memory'] = {
-				type: 'static',
-				value: { kind: 'auto', context_length: 10 }
+			if (isUnconfigured(value.input_transforms['memory'])) {
+				value.input_transforms['memory'] = {
+					type: 'static',
+					value: { kind: 'auto', context_length: 10 }
+				}
+				applied.push('context memory set to 10')
 			}
 
 			sendUserToast(
-				'Chat mode enabled. AI agent configured with user message input and context memory set to 10.',
+				applied.length > 0
+					? `Chat mode enabled. AI agent configured with ${applied.join(' and ')}.`
+					: 'Chat mode enabled. Existing AI agent configuration kept unchanged.',
 				false
 			)
 		}
@@ -687,6 +710,7 @@
 								hiddenArgs={['user_message']}
 								isFlowInput
 								showSensitiveToggle
+								workspace={opWs}
 								editTab={chatInputsEditTab ? 'inputEditor' : undefined}
 								showDynOpt
 								bind:dynCode
@@ -743,6 +767,7 @@
 						bind:schema={flowStore.val.schema}
 						isFlowInput
 						showSensitiveToggle
+						workspace={opWs}
 						on:delete={(e) => {
 							addPropertyV2?.handleDeleteArgument([e.detail])
 						}}
@@ -887,6 +912,7 @@
 								>
 									<HistoricInputs
 										bind:this={historicInputs}
+										workspace={opWs}
 										runnableId={$initialPathStore ?? undefined}
 										runnableType={$pathStore ? 'FlowPath' : undefined}
 										on:select={(e) => {
@@ -910,6 +936,7 @@
 									<div class="h-full">
 										<CaptureTable
 											path={$initialPathStore || fakeInitialPath}
+											workspace={opWs}
 											on:select={(e) => {
 												updatePreviewSchemaAndArgs(e.detail ?? undefined)
 											}}
@@ -929,6 +956,7 @@
 									title="Saved inputs"
 								>
 									<SavedInputsPicker
+										workspace={opWs}
 										runnableId={$initialPathStore ?? undefined}
 										runnableType={$pathStore ? 'FlowPath' : undefined}
 										on:select={(e) => {

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM materialized_partition\n          WHERE workspace_id = $1 AND job_id = $2 AND status = 'running'\n            AND asset_path = ANY($3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "96ba9c55e1f3b6ec20ce4c21a72b12a4c8aa3dda05cceb694234107eb324cbf9"
+}

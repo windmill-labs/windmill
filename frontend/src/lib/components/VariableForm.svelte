@@ -32,6 +32,8 @@
 		can_write: boolean
 		edit: boolean
 		onLoadSecret?: () => void
+		/** Workspace the path is validated against; defaults to the nav workspace. */
+		workspace?: string | undefined
 	}
 
 	let {
@@ -44,8 +46,17 @@
 		deployTo,
 		can_write,
 		edit,
-		onLoadSecret
+		onLoadSecret,
+		workspace = undefined
 	}: Props = $props()
+
+	let ws = $derived(workspace ?? $workspaceStore)
+
+	// Loading the deployed secret overwrites the draft row this form shares with the AI
+	// chat, so every path that would trigger it has to be blocked while that row stages a
+	// value — otherwise the staged one is replaced and the next deploy carries the old one.
+	// '' is the sentinel for "stages nothing", matching the deploy bodies.
+	let hasStagedValue = $derived(variable.value !== '')
 
 	const MAX_VARIABLE_LENGTH = 10000
 
@@ -60,21 +71,25 @@
 <div class="flex flex-col gap-1">
 	<label for="path" class="text-xs font-semibold text-emphasis">Path</label>
 	<Path
-		disabled={initialPath != '' && !isOwner(initialPath, $userStore, $workspaceStore)}
+		disabled={initialPath != '' && !isOwner(initialPath, $userStore, ws)}
 		bind:error={pathError}
 		bind:path
 		{initialPath}
 		namePlaceholder="variable"
 		kind="variable"
+		workspaceOverride={workspace}
 	/>
 	<LabelsInput bind:labels />
 </div>
 <label class="flex flex-col gap-1">
 	<span class="text-xs font-semibold text-emphasis">Secret</span>
+	<!-- An `$encrypted:` value is only redeemable while the variable stays secret — the
+	deploy endpoints decrypt the marker inside their `is_secret` branch and store it
+	verbatim otherwise — so un-securing one has to be unreachable until it is Reset. -->
 	<Toggle
-		on:change={() => edit && onLoadSecret?.()}
+		on:change={() => edit && !hasStagedValue && onLoadSecret?.()}
 		bind:checked={variable.is_secret}
-		disabled={edit && $userStore?.operator}
+		disabled={edit && ($userStore?.operator || isEncryptedDraftValue(variable.value))}
 	/>
 	{#if variable.is_secret}
 		<Alert type="info" title="Audit log for each access">
@@ -104,10 +119,9 @@
 		{/if}
 		{#if edit && variable.is_secret}
 			<div class="ml-3"></div>
-			{#if isEncryptedDraftValue(variable.value)}
-				<!-- Encrypted draft value: it can't be loaded back, only cleared.
-				Loading the deployed secret here would silently replace the draft,
-				so the audit-logged load action is hidden until the field is reset. -->
+			{#if hasStagedValue}
+				<!-- Clearing the staged value is the only way back to loading the deployed one;
+				see `hasStagedValue`. An `$encrypted:` value additionally cannot be displayed. -->
 				<Button
 					size="xs"
 					variant="default"

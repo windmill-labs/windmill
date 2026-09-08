@@ -21,8 +21,13 @@
 	import { safeSelectItems } from './select/utils.svelte'
 	import Toggle from './Toggle.svelte'
 	import { Trash } from 'lucide-svelte'
+	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
 
 	const dispatch = createEventDispatcher()
+
+	let restricted = $derived(
+		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
+	)
 
 	type Kind =
 		| 'script'
@@ -42,6 +47,7 @@
 		| 'postgres_trigger'
 		| 'gcp_trigger'
 		| 'azure_trigger'
+		| 'amqp_trigger'
 		| 'email_trigger'
 		| 'volume'
 	let kind: Kind
@@ -246,7 +252,7 @@
 			{/if}
 			<div class="flex flex-col gap-2">
 				<span class="text-sm font-semibold text-emphasis"
-					>Extra permissions ({acls?.length ?? 0})</span
+					>Extra members ({acls?.length ?? 0})</span
 				>
 				{#if linkedVarPaths.length > 0}
 					<div class="flex flex-col gap-1.5 p-3 border rounded bg-surface-secondary text-xs">
@@ -268,7 +274,9 @@
 					>
 				{/if}
 				<div>
-					{#if own}
+					{#if own && restricted}
+						<Alert type="info" title="Sharing disabled">{DEMO_RESTRICTION_HINT}</Alert>
+					{:else if own}
 						<div class="flex flex-row flex-wrap gap-2 items-center">
 							<div>
 								<ToggleButtonGroup bind:selected={ownerKind} on:selected={() => (owner = '')}>
@@ -291,7 +299,7 @@
 								size="lg"
 								variant="accent"
 								disabled={!newOwner}
-								on:click={() => addAcl(newOwner, write)}>Add permission</Button
+								on:click={() => addAcl(newOwner, write)}>Add member</Button
 							>
 						</div>
 					{/if}
@@ -299,7 +307,7 @@
 						<TableCustom>
 							{#snippet headerRow()}
 								<tr>
-									<th>owner</th>
+									<th>member</th>
 									<th></th>
 									<th></th>
 								</tr>
@@ -310,7 +318,7 @@
 										<tr>
 											<td>{owner}</td>
 											<td
-												>{#if own}
+												>{#if own && !restricted}
 													<div>
 														<ToggleButtonGroup
 															selected={write ? 'writer' : 'viewer'}
@@ -330,7 +338,7 @@
 															{/snippet}
 														</ToggleButtonGroup>
 													</div>
-												{:else}{write}{/if}</td
+												{:else}{write ? 'Writer' : 'Viewer'}{/if}</td
 											>
 											<td>
 												{#if own}

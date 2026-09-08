@@ -173,7 +173,7 @@
 
 <ScheduleEditor bind:this={scheduleEditor} />
 
-<CenteredModal title="Approval for resuming of flow" disableLogo centerVertically={false}>
+<CenteredModal title="Approval for resuming of flow" centerVertically={false}>
 	{#if error}
 		<div class="space-y-6">
 			{#if error.startsWith('Not authorized:')}

@@ -133,17 +133,15 @@ project guidance shape:
 - `.agents/skills/*`
 - `.claude/skills/*`
 
-### Testing with a local `windmill-yaml-validator`
+### `windmill-yaml-validator`
 
-To test local changes to the validator before publishing, use `npm link`:
+`wmill lint` imports the sibling `windmill-yaml-validator` package from source rather than
+from npm, so its schemas always match the OpenAPI specs of the current checkout. `bun
+install` regenerates them through this package's `preinstall` script; run it again after
+editing `openflow.openapi.yaml` or `backend/windmill-api/openapi.yaml`:
 
 ```bash
-# In windmill-yaml-validator/
-npm run build
-npm link
-
-# In cli/
-npm link windmill-yaml-validator
+npm --prefix ../windmill-yaml-validator run gen
 ```
 
 ### Running Tests

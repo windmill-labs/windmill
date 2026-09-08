@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(\n                SELECT 1 FROM script WHERE on_behalf_of = $1\n                UNION ALL SELECT 1 FROM flow WHERE on_behalf_of = $1\n                UNION ALL SELECT 1 FROM app WHERE policy->>'on_behalf_of' = $1\n                UNION ALL SELECT 1 FROM schedule WHERE permissioned_as = $1\n                UNION ALL SELECT 1 FROM http_trigger WHERE permissioned_as = $1\n                UNION ALL SELECT 1 FROM websocket_trigger WHERE permissioned_as = $1\n                UNION ALL SELECT 1 FROM postgres_trigger WHERE permissioned_as = $1\n                UNION ALL SELECT 1 FROM mqtt_trigger WHERE permissioned_as = $1\n                UNION ALL SELECT 1 FROM kafka_trigger WHERE permissioned_as = $1\n                UNION ALL SELECT 1 FROM nats_trigger WHERE permissioned_as = $1\n                UNION ALL SELECT 1 FROM sqs_trigger WHERE permissioned_as = $1\n                UNION ALL SELECT 1 FROM gcp_trigger WHERE permissioned_as = $1\n                UNION ALL SELECT 1 FROM email_trigger WHERE permissioned_as = $1\n                UNION ALL SELECT 1 FROM amqp_trigger WHERE permissioned_as = $1\n                UNION ALL SELECT 1 FROM azure_trigger WHERE permissioned_as = $1\n                UNION ALL SELECT 1 FROM folder\n                    WHERE default_permissioned_as @> jsonb_build_array(\n                        jsonb_build_object('permissioned_as', $1::text)))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "8901dc69384685a7e05f39e1fae65471decea3d46ee35582c3b7c1ac333d8dd5"
+}

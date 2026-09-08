@@ -11,6 +11,9 @@
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { dfs } from './flows/dfs'
 	import { workspaceStore } from '$lib/stores'
+	import { untrack } from 'svelte'
+	import { publishLinkedAgentTools } from './flows/flowState'
+	import { linkedToolsScope } from './flows/linkedAgentToolsStore.svelte'
 
 	interface Props {
 		flow: {
@@ -63,6 +66,41 @@
 	}
 
 	const dispatch = createEventDispatcher()
+
+	// A bucket of this viewer's own, never the editor's. Both are keyed by (workspace, flow path), so
+	// a viewer mounted over the flow being edited — the version-history drawer, which renders the
+	// same path — would otherwise publish its deployed tools into the editor's bucket and replace the
+	// drafted tool nodes there. The editor's graph has to keep showing the tools a preview would
+	// actually run, and nothing republishes when the drawer closes. `FlowStatusViewerInner` scopes
+	// itself the same way, with `job:<id>`.
+	let linkedToolsPath = $derived(`view:${flow?.path ?? ''}`)
+
+	// This read-only viewer doesn't run initFlowState, so linked agents' tools would otherwise never
+	// resolve. Resolve them for display, keyed by module id. Best-effort: publishLinkedAgentTools
+	// swallows access errors and publishes [], so an inaccessible agent simply shows no tool nodes
+	// (its label still names the link) — this never affects a run.
+	$effect(() => {
+		// Flow modules only: resource-imported tool ids are not flow-global, so publishing a nested
+		// linked agent under its bare id would supersede a top-level step that happens to share it.
+		const modules = dfs(flow?.value?.modules ?? [], (m) => m, { skipToolNodes: true })
+		const ws = workspace
+		untrack(() => {
+			for (const m of modules) {
+				const value = m?.value as { type?: string; agent?: string } | undefined
+				if (value?.type === 'aiagent' && value.agent) {
+					// Without the draft: this viewer shows a deployed flow or a past run, both of which
+					// used the deployed agent.
+					publishLinkedAgentTools(
+						value.agent,
+						ws,
+						linkedToolsScope(ws, linkedToolsPath),
+						m.id,
+						false
+					)
+				}
+			}
+		})
+	})
 </script>
 
 <div bind:clientHeight={availableHeight} class="grid grid-cols-3 w-full h-full min-h-0">
@@ -79,6 +117,7 @@
 				earlyStop={flow?.value?.skip_expr !== undefined}
 				cache={flow?.value?.cache_ttl !== undefined}
 				path={flow?.path}
+				{linkedToolsPath}
 				{download}
 				minHeight={fillAvailableHeight ? Math.max(minHeight, availableHeight) : minHeight}
 				{workspace}
@@ -113,7 +152,7 @@
 				noGraph ? 'border-0 w-max' : ''
 			)}
 		>
-			<FlowGraphViewerStep schema={flow?.schema} {stepDetail} {hideDefaultInputs} />
+			<FlowGraphViewerStep schema={flow?.schema} {stepDetail} {hideDefaultInputs} {workspace} />
 		</div>
 	{/if}
 </div>

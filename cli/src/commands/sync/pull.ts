@@ -84,7 +84,9 @@ export async function downloadZip(
   includeSettings?: boolean,
   includeKey?: boolean,
   skipWorkspaceDependencies?: boolean,
-  defaultTs?: "bun" | "deno"
+  skipDatatableMigrations?: boolean,
+  defaultTs?: "bun" | "deno",
+  syncBehavior?: string
 ): Promise<JSZip | TarAsZip | undefined> {
   const requestHeaders = new Headers();
   requestHeaders.set("Authorization", "Bearer " + workspace.token);
@@ -98,8 +100,11 @@ export async function downloadZip(
   }
 
   const includeWorkspaceDependenciesValue = !(skipWorkspaceDependencies ?? false);
+  // `sync_behavior_version` lets the server skip work this client would only throw away:
+  // from v1 the on-behalf-of address is stripped below, so the tarball sends the
+  // `has_on_behalf_of` marker instead and never resolves an address.
   // `preserve_extra_perms=true` opts the tarball into surfacing granular ACLs
-  // on flow / script / app rows. Default-off on the server protects cross-
+  // on script / flow / app / variable rows. Default-off on the server protects cross-
   // workspace tarball imports from carrying ACLs that reference identities
   // missing in the target workspace; the CLI sync flow explicitly wants them.
   const baseParams = `&plain_secret=${plainSecrets ?? false
@@ -107,7 +112,7 @@ export async function downloadZip(
     }&skip_secrets=${skipSecrets ?? false}&include_schedules=${includeSchedules ?? false
     }&include_triggers=${includeTriggers ?? false}&include_users=${includeUsers ?? false
     }&include_groups=${includeGroups ?? false}&include_settings=${includeSettings ?? false
-    }&include_key=${includeKey ?? false}&include_workspace_dependencies=${includeWorkspaceDependenciesValue}&default_ts=${defaultTs ?? "bun"}&skip_resource_types=${skipResourceTypes ?? false}&settings_version=v2&preserve_extra_perms=true`;
+    }&include_key=${includeKey ?? false}&include_workspace_dependencies=${includeWorkspaceDependenciesValue}&skip_datatable_migrations=${skipDatatableMigrations ?? false}&default_ts=${defaultTs ?? "bun"}&skip_resource_types=${skipResourceTypes ?? false}&settings_version=v2&preserve_extra_perms=true&sync_behavior_version=${syncBehavior ?? "v0"}`;
 
   const baseUrl = workspace.remote + "api/w/" + workspace.workspaceId + "/workspaces/tarball?";
 
@@ -145,7 +150,18 @@ export async function downloadZip(
   }
 
   if (zipResponse.status === 404 || body.includes("no rows returned")) {
-    log.info(colors.red(`Workspace '${workspace.workspaceId}' not found on ${workspace.remote}. Please check your --workspace and try again.`));
+    log.info(
+      colors.red(
+        `Workspace id '${workspace.workspaceId}' not found on ${workspace.remote}` +
+          (workspace.name !== workspace.workspaceId
+            ? ` (resolved from profile '${workspace.name}')`
+            : "") +
+          `.\n` +
+          `Note this is the workspace *id* sent to the API, which is not necessarily what you passed to --workspace:\n` +
+          `  - check 'wmill workspace list' (the 'workspace id' column)\n` +
+          `  - check the 'workspaces' block of wmill.yaml ('workspaceId' overrides the workspace name)`
+      )
+    );
   } else {
     log.info(colors.red(`Failed to request tarball from API: ${zipResponse.status} ${zipResponse.statusText}`));
     if (body) log.info(colors.red(body));

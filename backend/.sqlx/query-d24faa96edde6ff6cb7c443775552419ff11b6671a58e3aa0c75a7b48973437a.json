@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE sqs_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d24faa96edde6ff6cb7c443775552419ff11b6671a58e3aa0c75a7b48973437a"
+}

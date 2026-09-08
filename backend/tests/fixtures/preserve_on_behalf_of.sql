@@ -36,6 +36,11 @@ INSERT INTO password(email, password_hash, login_type, super_admin, verified, na
     VALUES ('test2@windmill.dev', 'not-a-real-hash', 'password', false, true, 'Test User 2')
 ON CONFLICT DO NOTHING;
 
+-- Instance devops user (not a superadmin): the tier a token mint must not launder
+INSERT INTO password(email, password_hash, login_type, super_admin, devops, verified, name)
+    VALUES ('devops@windmill.dev', 'not-a-real-hash', 'password', false, true, true, 'Devops User')
+ON CONFLICT DO NOTHING;
+
 -- Deployer user (non-admin but in wm_deployers group)
 INSERT INTO password(email, password_hash, login_type, super_admin, verified, name)
     VALUES ('deployer@windmill.dev', 'not-a-real-hash', 'password', false, true, 'Deployer User')

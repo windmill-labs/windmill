@@ -16,7 +16,8 @@
 		workspaceId,
 		onNavigate,
 		isActiveSession = true,
-		active = true
+		active = true,
+		initialSelectedId
 	}: {
 		runtime: SessionRuntime
 		path: string
@@ -27,11 +28,16 @@
 		isActiveSession?: boolean
 		/** Whether this is the visible preview tab (forwarded as isActiveTab). */
 		active?: boolean
+		/** Step the tab was opened on ("open this step in a session"), from its
+		 * URL's `selected` param. */
+		initialSelectedId?: string
 	} = $props()
 
 	// This tab's own flow cell; each open flow editor binds its own store.
 	const cell = $derived(runtime.flowCell(path))
-	let selectedId = $state('settings-metadata')
+	// Derived, not state: retargeting the tab at another flow swaps the URL, and a
+	// step id from the previous one must not survive into the new flow.
+	const selectedId = $derived(initialSelectedId ?? 'settings-metadata')
 	let diffDrawer: DiffDrawer | undefined = $state()
 
 	// Restore actions for the diff drawer. A `loadFlow`-based handler is a no-op:
@@ -77,7 +83,12 @@
 	{onNavigate}
 	{isActiveSession}
 	isActiveTab={active}
-	effectivePath={() => cell.store.val?.path ?? path}
+	effectivePath={() =>
+		// A flow's typed rename lives in `draft_path` (`val.path` is the storage
+		// key), unlike scripts where `val.path` is the typed name — without it the
+		// live-draft registration hides a staged rename from lists and pickers.
+		((cell.store.val as { draft_path?: string } | undefined)?.draft_path || cell.store.val?.path) ??
+		path}
 >
 	{#snippet editor()}
 		<!-- customUi hides the in-editor "Flow AI Chat" button: the session already

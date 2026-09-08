@@ -232,6 +232,138 @@ test.skipIf(shouldSkipOnCI())(
 );
 
 /**
+ * Dev-workspace promotion. The backend passes `--dev-workspace-label` +
+ * `--parent-workspace-id` for a dev workspace's deploys; with promotion on it
+ * must behave like a root (per-item `wm_deploy/**`) for branchable objects, and
+ * — critically — non-branchable objects (user/group) must fall back to the dev's
+ * env-label branch, NEVER the cloned base (which for a dev is the parent's
+ * tracked branch, so a leak would push dev content straight to prod).
+ */
+test.skipIf(shouldSkipOnCI())(
+  "git-sync promotion (dev workspace): script -> wm_deploy branch; group -> env-label branch; main never touched",
+  async () => {
+    await withTestBackend(async (backend) => {
+      const ws = backend.workspace; // "test"
+      await addWorkspace(
+        {
+          remote: backend.baseUrl,
+          workspaceId: ws,
+          name: ws,
+          token: backend.token,
+        } as any,
+        { force: true, configDir: backend.testConfigDir },
+      );
+
+      const bareDir = await mkdtemp(join(tmpdir(), "wmill_devpromo_bare_"));
+      execFileSync("git", ["init", "--bare", "--initial-branch=main", bareDir]);
+      const seedDir = await mkdtemp(join(tmpdir(), "wmill_devpromo_seed_"));
+      git(seedDir, "init", "--initial-branch=main");
+      git(seedDir, "config", "user.email", "seed@windmill.dev");
+      git(seedDir, "config", "user.name", "seed");
+      await writeFile(join(seedDir, "README.md"), "# dev promo\n");
+      git(seedDir, "add", "-A");
+      git(seedDir, "commit", "-m", "seed");
+      git(seedDir, "remote", "add", "origin", `file://${bareDir}`);
+      git(seedDir, "push", "-u", "origin", "main");
+      const seedMain = remoteHead(bareDir, "main");
+
+      await backend.apiRequest!(`/api/w/${ws}/folders/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "promo", owners: [], extra_perms: {} }),
+      });
+      await backend.apiRequest!(`/api/w/${ws}/scripts/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "f/promo/foo",
+          summary: "",
+          description: "",
+          content: "export async function main() { return 1 }",
+          language: "bun",
+        }),
+      });
+      await backend.apiRequest!(`/api/w/${ws}/resources/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "u/test/devpromo_repo",
+          resource_type: "git_repository",
+          value: { url: `file://${bareDir}`, branch: "main", token: "" },
+        }),
+      });
+      await backend.updateGitSyncConfig!({
+        git_sync_settings: {
+          repositories: [
+            {
+              git_repo_resource_path: "u/test/devpromo_repo",
+              script_path: "f/**",
+              use_individual_branch: true,
+              group_by_folder: false,
+              settings: { include_path: ["f/**", "g/**"], include_type: ["script", "group"] },
+            },
+          ],
+        },
+      });
+
+      // The dev flags the backend passes with every dev-workspace deploy.
+      const devFlags = ["--dev-workspace-label", "dev", "--parent-workspace-id", "prod"];
+      const commitAndPush = (work: string) => {
+        git(work, "config", "user.email", "test@windmill.dev");
+        git(work, "config", "user.name", "test");
+        git(work, "add", "-A");
+        try {
+          git(work, "diff", "--cached", "--quiet");
+        } catch {
+          git(work, "commit", "-m", "deploy");
+        }
+        git(work, "push", "--porcelain", "-u", "origin", "HEAD");
+      };
+
+      // Script: gets its own wm_deploy branch (namespaced by the dev's id), main untouched.
+      const workS = await mkdtemp(join(tmpdir(), "wmill_devpromo_s_"));
+      git(workS, "clone", `file://${bareDir}`, ".");
+      await writeFile(join(workS, "wmill.yaml"), "defaultTs: bun\nincludes:\n  - f/**\nexcludes: []\n");
+      const resS = await backend.runCLICommand(
+        [
+          "sync", "git-deploy", "--repository", "u/test/devpromo_repo",
+          "--use-individual-branch", ...devFlags,
+          "--git-deploy-items", JSON.stringify([{ path_type: "script", path: "f/promo/foo", commit_msg: "deploy foo" }]),
+        ],
+        workS,
+      );
+      expect(resS.code).toBe(0);
+      commitAndPush(workS);
+      expect(remoteBranches(bareDir)).toContain(`refs/heads/wm_deploy/${ws}/script/f__promo__foo`);
+      expect(remoteHead(bareDir, "main")).toBe(seedMain);
+
+      // Group (non-branchable): must land on the dev env-label branch, NEVER main.
+      const workG = await mkdtemp(join(tmpdir(), "wmill_devpromo_g_"));
+      git(workG, "clone", `file://${bareDir}`, ".");
+      await writeFile(join(workG, "wmill.yaml"), "defaultTs: bun\nincludes:\n  - f/**\n  - g/**\nexcludes: []\n");
+      const resG = await backend.runCLICommand(
+        [
+          "sync", "git-deploy", "--repository", "u/test/devpromo_repo",
+          "--use-individual-branch", ...devFlags,
+          "--git-deploy-items", JSON.stringify([{ path_type: "group", path: "g/all", commit_msg: "deploy group" }]),
+        ],
+        workG,
+      );
+      expect(resG.code).toBe(0);
+      commitAndPush(workG);
+      // The anti-leak regression: a group deploy must not advance main.
+      expect(remoteHead(bareDir, "main")).toBe(seedMain);
+      expect(remoteBranches(bareDir)).toContain("refs/heads/dev");
+
+      await rm(bareDir, { recursive: true, force: true });
+      await rm(seedDir, { recursive: true, force: true });
+      await rm(workS, { recursive: true, force: true });
+      await rm(workG, { recursive: true, force: true });
+    });
+  },
+);
+
+/**
  * Regression test for the promotion trigger-include bug (fix/gitsync-promotion-
  * trigger-export): deploying a trigger (or any excluded-by-default kind:
  * schedule, group, user, settings, key) with `use_individual_branch` must still

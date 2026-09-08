@@ -492,6 +492,8 @@ async fn test_trigger_notify_runnable_version_change_script(db: Pool<Postgres>) 
     let script_path = format!("f/test/script_{}", uuid::Uuid::new_v4());
     let script_hash: i64 = rand::random::<i64>().abs();
 
+    let before_insert_id = get_latest_event_id(&db).await.unwrap();
+
     sqlx::query(
         "INSERT INTO script (workspace_id, hash, path, summary, description, content, created_by, language, kind)
          VALUES ('test-workspace', $1, $2, 'test', 'test', 'def main(): pass', 'test-user', 'python3', 'script')",
@@ -501,6 +503,20 @@ async fn test_trigger_notify_runnable_version_change_script(db: Pool<Postgres>) 
     .execute(&db)
     .await
     .expect("Failed to insert script");
+
+    // The deploy has to notify even though the version is not runnable yet: it is what makes the
+    // path -> hash caches suspect, and waiting for the lock UPDATE leaves them serving the
+    // previous version for a poll interval past the moment the new one becomes runnable.
+    let insert_events = poll_notify_events(&db, before_insert_id)
+        .await
+        .expect("Should poll events");
+    assert!(
+        insert_events
+            .iter()
+            .any(|e| e.channel == "notify_runnable_version_change"
+                && e.payload.starts_with("test-workspace:script:")),
+        "Should have notify_runnable_version_change event for a version deployed without a lock"
+    );
 
     let before_id = get_latest_event_id(&db).await.unwrap();
 

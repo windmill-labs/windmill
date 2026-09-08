@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH live AS (\n             SELECT * FROM (\n               SELECT DISTINCT ON (s.path) s.path, s.hash\n                 FROM script s\n                WHERE $5::text IS NULL AND s.workspace_id = $1 AND s.language = 'dbt'\n                  AND ($3::bigint IS NULL OR s.hash = $3)\n                  AND ($3::bigint IS NOT NULL OR (s.deleted = false AND s.archived = false))\n                ORDER BY s.path, s.created_at DESC\n             ) cur\n             UNION ALL\n             SELECT $5::text, $3::bigint WHERE $5::text IS NOT NULL\n           ),\n           -- The run's own snapshot when it left one, the version's graph\n           -- otherwise. A static descriptor never snapshots, so all of its runs\n           -- fall through to the same rows. Existence comes from the marker, not\n           -- from a node row: a dynamic run that disabled every model has a\n           -- snapshot whose graph is legitimately empty.\n           chosen AS (\n             -- No visibility check on the job here: reaching this with a job at\n             -- all means the caller passed `require_job_read_access` for it, and\n             -- re-deciding it under plain RLS can only DISAGREE with that answer\n             -- — silently, by falling back to the deployed graph rather than\n             -- erroring. A share-link viewer is entitled to the run and would be\n             -- shown a different run's model set. See `asset_graph_for`.\n             SELECT CASE WHEN $4::uuid IS NOT NULL AND EXISTS (\n                      SELECT 1 FROM dbt_graph_snapshot g\n                       WHERE g.workspace_id = $1 AND g.job_id = $4)\n                    THEN $4::uuid\n                    ELSE '00000000-0000-0000-0000-000000000000'::uuid END AS job_id\n           )\n           SELECT p.asset_path AS \"from_path!\", c.asset_path AS \"to_path!\"\n             FROM dbt_edge e\n             JOIN live l ON l.path = e.script_path\n                        AND (e.script_hash = l.hash\n                             OR ($5::text IS NOT NULL AND l.hash IS NULL\n                                 AND e.script_hash IS NULL))\n             JOIN chosen ch ON ch.job_id = e.job_id\n             -- Gated the same way as the `live` joins above, and for the same\n             -- reason twice over: unpinned this folds to a plain equality the\n             -- versioned key can bound, and pinned it is the only way an editor\n             -- graph's NULL-to-NULL hashes meet at all.\n             JOIN dbt_node p ON p.workspace_id = e.workspace_id\n                            AND p.script_path = e.script_path\n                            AND (p.script_hash = e.script_hash\n                                 OR ($5::text IS NOT NULL AND e.script_hash IS NULL\n                                     AND p.script_hash IS NULL))\n                            AND p.job_id = ch.job_id\n                            AND p.unique_id = e.parent_unique_id\n             JOIN dbt_node c ON c.workspace_id = e.workspace_id\n                            AND c.script_path = e.script_path\n                            AND (c.script_hash = e.script_hash\n                                 OR ($5::text IS NOT NULL AND e.script_hash IS NULL\n                                     AND c.script_hash IS NULL))\n                            AND c.job_id = ch.job_id\n                            AND c.unique_id = e.child_unique_id\n            WHERE e.workspace_id = $1\n              AND p.asset_path IS NOT NULL AND c.asset_path IS NOT NULL\n              -- Tests attach to their model as a badge, not as a lineage edge.\n              AND c.resource_type <> 'test'\n              -- Scoped by the RELATIONS, like the node provenance above, not by\n              -- the producing script's folder: two tables consumed in this\n              -- folder but produced by a dbt project outside it would otherwise\n              -- both render with their `ref()` edge missing.\n              -- Same as the node scope: pinned, `asset` describes the CURRENT\n              -- deploy, so gating on it drops the edges of models this version\n              -- had and a later one removed. The pinned graph's own edges are\n              -- the answer.\n              AND ($3::bigint IS NOT NULL OR $5::text IS NOT NULL OR EXISTS (\n                SELECT 1 FROM asset a\n                 WHERE a.workspace_id = $1 AND a.kind = 'dbt'\n                   AND a.path = c.asset_path\n                   AND ($2::text IS NULL OR a.usage_path LIKE $2)))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "from_path!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "to_path!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "fad10d08b6a7fb4c6974a6dce79028f9bae1b9a9806c9efb2844f7e7e8196f5b"
+}

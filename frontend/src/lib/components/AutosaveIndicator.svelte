@@ -258,7 +258,12 @@
 		closeOnOutsideClick
 	>
 		{#snippet trigger()}
-			<div class="relative rounded-md p-1.5 hover:bg-surface-hover cursor-pointer">
+			<div
+				class="relative rounded-md p-1.5 hover:bg-surface-hover cursor-pointer"
+				title={syncState === 'failed'
+					? `Save failed${failureMessage ? `: ${failureMessage}` : ''} — click for details`
+					: undefined}
+			>
 				{#if editingOtherUserDraft}
 					<!-- Viewing another user's draft: not saved, distinct from the saved check-mark. -->
 					<Eye size={16} class="text-blue-500" />

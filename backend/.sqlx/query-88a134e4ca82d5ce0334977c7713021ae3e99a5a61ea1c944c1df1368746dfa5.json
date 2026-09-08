@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color, workspace.parent_workspace_id,\n                workspace.is_dev_workspace, workspace.dev_workspace_label,\n                workspace.owner AS \"created_by?\",\n                CASE WHEN usr.operator THEN workspace_settings.operator_settings ELSE NULL END as operator_settings,\n                usr.disabled\n         FROM workspace\n         JOIN usr ON usr.workspace_id = workspace.id\n         JOIN workspace_settings ON workspace_settings.workspace_id = workspace.id\n         WHERE usr.email = $1 AND workspace.deleted = false",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "color",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "parent_workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_dev_workspace",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "dev_workspace_label",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_by?",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "operator_settings",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "disabled",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "88a134e4ca82d5ce0334977c7713021ae3e99a5a61ea1c944c1df1368746dfa5"
+}

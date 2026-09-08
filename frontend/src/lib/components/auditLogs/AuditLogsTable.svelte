@@ -7,6 +7,7 @@
 	import { ChevronLeft, ChevronRight, ListFilterPlus, Loader2 } from 'lucide-svelte'
 	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
 	import { twMerge } from 'tailwind-merge'
+	import BatchLoadProgress from '../BatchLoadProgress.svelte'
 
 	interface Props {
 		logs?: AuditLog[]
@@ -20,6 +21,10 @@
 		resourceFilter?: string | undefined
 		showWorkspace?: boolean
 		loading?: boolean
+		batchProgress?: { loaded: number; total: number } | null
+		batchSize?: number | null
+		onBatchSizeChange?: (batchSize: number) => void
+		onStopLoading?: () => void
 		onselect?: (id: number) => void
 	}
 
@@ -27,13 +32,17 @@
 		logs = [],
 		pageIndex = $bindable(1),
 		perPage = $bindable(100),
-		hasMore = $bindable(true),
+		hasMore = true,
 		actionKind = $bindable(),
 		operation = $bindable(),
 		selectedId = undefined,
 		usernameFilter = $bindable(),
 		resourceFilter = $bindable(),
 		showWorkspace = false,
+		batchProgress = null,
+		batchSize = null,
+		onBatchSizeChange,
+		onStopLoading,
 		onselect,
 		loading
 	}: Props = $props()
@@ -205,10 +214,19 @@
 									</div>
 									<div class={showWorkspace ? 'w-2/12 text-xs' : 'w-3/12 text-xs'}>
 										<div class="flex flex-row gap-2 items-center">
-											<div class="whitespace-nowrap overflow-x-auto no-scrollbar max-w-60">
-												{logOrDate.log.username}
+											<!-- end_user can be an arbitrarily long token label; truncate it rather
+											than let it push the username out of the cell. -->
+											<div class="flex flex-row min-w-0 max-w-60 overflow-hidden">
+												<span class="whitespace-nowrap shrink-0" title={logOrDate.log.username}>
+													{logOrDate.log.username}
+												</span>
 												{#if logOrDate.log.parameters && 'end_user' in logOrDate.log.parameters}
-													<span> ({logOrDate.log.parameters.end_user})</span>
+													<span
+														class="truncate pl-1"
+														title={String(logOrDate.log.parameters.end_user)}
+													>
+														({logOrDate.log.parameters.end_user})
+													</span>
 												{/if}
 											</div>
 											<Button
@@ -313,6 +331,18 @@
 				Next
 			</Button>
 		</div>
+		{#if batchProgress}
+			<div class="flex-1 min-w-0 px-4">
+				<BatchLoadProgress
+					loaded={batchProgress.loaded}
+					total={batchProgress.total}
+					itemsLabel="logs"
+					{batchSize}
+					onBatchSizeChange={(size) => onBatchSizeChange?.(size)}
+					onStop={() => onStopLoading?.()}
+				/>
+			</div>
+		{/if}
 		<div class="flex flex-row gap-2 items-center">
 			<span class="text-xs text-secondary">Per page:</span>
 			<select bind:value={perPage} class="text-xs border rounded-md px-2 py-1">

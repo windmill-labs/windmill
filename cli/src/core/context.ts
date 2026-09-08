@@ -20,10 +20,14 @@ import {
 import { getLastUsedProfile, setLastUsedProfile } from "./branch-profiles.ts";
 import {
   readConfigFile,
+  peekWorkspaceEntry,
   findWorkspaceByGitBranch,
   getEffectiveWorkspaceId,
+  getWmillYamlPath,
   WorkspaceEntryConfig,
 } from "./conf.ts";
+import { existsSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   getCurrentGitBranch,
   getOriginalBranchForWorkspaceForks,
@@ -216,6 +220,9 @@ async function tryResolveWorkspace(
     // First try: look up workspace by name in wmill.yaml workspaces config
     const config = await readConfigFile({ warnIfMissing: false });
     const wsEntry = config.workspaces?.[opts.workspace] as WorkspaceEntryConfig | undefined;
+    // What wmill.yaml said to target, kept for the fallback below: a profile
+    // found by name can silently point somewhere else entirely.
+    let configuredTarget: { workspaceId: string; baseUrl: string } | undefined;
     if (wsEntry?.baseUrl) {
       const workspaceId = getEffectiveWorkspaceId(opts.workspace, wsEntry);
       let normalizedBaseUrl: string;
@@ -227,6 +234,8 @@ async function tryResolveWorkspace(
           error: colors.red.underline(`Invalid baseUrl in workspace '${opts.workspace}' configuration: ${wsEntry.baseUrl}`),
         };
       }
+
+      configuredTarget = { workspaceId, baseUrl: normalizedBaseUrl };
 
       // Find matching profile by baseUrl + workspaceId
       const allProfs = await allWorkspaces(opts.configDir);
@@ -280,6 +289,22 @@ async function tryResolveWorkspace(
         ),
       };
     }
+    if (
+      configuredTarget &&
+      (e.workspaceId !== configuredTarget.workspaceId ||
+        e.remote !== configuredTarget.baseUrl)
+    ) {
+      log.warnStderr(
+        colors.yellow(
+          `⚠️  Falling back to the local profile named '${opts.workspace}' (${e.workspaceId} on ${e.remote}), which does NOT match wmill.yaml:\n` +
+            `   wmill.yaml maps workspace '${opts.workspace}' to ${configuredTarget.workspaceId} on ${configuredTarget.baseUrl}, but no profile targets it.\n` +
+            `   Run: wmill workspace add <profile-name> ${configuredTarget.workspaceId} ${configuredTarget.baseUrl}`
+        )
+      );
+    }
+    log.infoStderr(
+      `Using local profile '${e.name}' → ${e.workspaceId} on ${e.remote}`
+    );
     (opts as any).__secret_workspace = e;
     return { isError: false, value: e };
   }
@@ -483,6 +508,8 @@ export async function resolveWorkspace(
         return process.exit(-1);
       }
 
+      let resolved: Workspace | undefined;
+
       // Try to find existing workspace profile by name, then by workspaceId + remote
       if (opts.workspace) {
         let existingWorkspace = await getWorkspaceByName(
@@ -520,19 +547,45 @@ export async function resolveWorkspace(
             );
             return process.exit(-1);
           }
-          return {
+          resolved = {
             ...existingWorkspace,
             token: opts.token,
           };
         }
       }
 
-      return {
+      resolved ??= {
         remote: normalizedBaseUrl,
         workspaceId: opts.workspace,
         name: opts.workspace,
         token: opts.token,
       };
+
+      // --base-url pins the target, so wmill.yaml's `workspaces` block is never
+      // consulted and `--workspace` reaches the API as a workspace id. Name the
+      // id being sent, and the mapping being skipped, before the request 404s
+      // on an id the user never typed.
+      // Only an explicit `workspaceId:` is worth reporting: an entry without one
+      // maps the name to itself, leaving nothing to correct.
+      const yamlEntry = await peekWorkspaceEntry(opts.workspace);
+      const yamlWorkspaceId = yamlEntry?.workspaceId;
+      if (yamlWorkspaceId && yamlWorkspaceId !== resolved.workspaceId) {
+        log.warnStderr(
+          colors.yellow(
+            `⚠️  --base-url is set, so wmill.yaml is not consulted: workspace id '${resolved.workspaceId}' is sent to the API.\n` +
+              `   wmill.yaml maps workspace '${opts.workspace}' to workspace id '${yamlWorkspaceId}'${yamlEntry!.baseUrl ? ` on ${yamlEntry!.baseUrl}` : ""}.\n` +
+              `   Use '--workspace ${yamlWorkspaceId}', or drop --base-url/--token to resolve through wmill.yaml.`
+          )
+        );
+      }
+      log.infoStderr(
+        `Using workspace id '${resolved.workspaceId}' on ${normalizedBaseUrl} (--base-url given` +
+          (resolved.name !== resolved.workspaceId
+            ? `, profile '${resolved.name}')`
+            : ")")
+      );
+      (opts as any).__secret_workspace = resolved;
+      return resolved;
     } else {
       log.infoStderr(
         colors.red(
@@ -741,6 +794,92 @@ export async function tryResolveVersion(
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Directory the local tree mirrors the workspace from: the one holding
+ * wmill.yaml. Not `process.cwd()` — that only lands there once a config read
+ * has chdir'd into it, which `--remote` and fully-flagged invocations skip.
+ */
+function syncRoot(): string {
+  const wmillYaml = getWmillYamlPath();
+  return wmillYaml ? dirname(wmillYaml) : process.cwd();
+}
+
+/**
+ * Re-express a user-supplied file or folder argument as a path relative to the
+ * sync root, so the Windmill path derived from it is the same whatever shape
+ * the argument had (`./f/a/b.ts`, `/abs/repo/f/a/b.ts`, `b.ts` from inside
+ * `f/a`).
+ *
+ * `cwdBeforeConfig` must be the working directory as it was *before* the
+ * command read wmill.yaml: reading it chdirs into the directory holding it, and
+ * a relative argument was written against the directory the user was in.
+ * Arguments are resolved against that directory first and the sync root second,
+ * so both readings work.
+ *
+ * Resolving the sync root leaves the process in it, which is what makes the
+ * returned path readable by the caller — keep that in step if this ever stops
+ * going through `getWmillYamlPath`.
+ */
+export function toSyncRootRelativePath(
+  arg: string,
+  cwdBeforeConfig: string
+): string {
+  const root = syncRoot();
+  const candidates = isAbsolute(arg)
+    ? [arg]
+    : [resolve(cwdBeforeConfig, arg), resolve(root, arg)];
+  // A descriptor-less dbt project is named by a file that is deliberately not
+  // there, so an argument existing under neither reading is still a real one if
+  // the directory holding it is; only a path whose directory is missing too
+  // falls through to the sync-root reading for the caller to reject.
+  const abs =
+    candidates.find((c) => existsSync(c)) ??
+    candidates.find((c) => existsSync(dirname(c))) ??
+    candidates.at(-1)!;
+  const rel = relative(root, abs);
+  if (rel === "") return ".";
+  if (!rel.startsWith("..")) return rel;
+  // `relative` is purely lexical, so a root reached through a symlink (macOS'
+  // /var -> /private/var, a symlinked checkout) makes an absolute argument look
+  // like it escapes the tree. Resolve links only then, so a symlinked file
+  // *inside* the tree keeps the path it is filed under.
+  try {
+    const resolved = relative(realpathSync(root), realpathOfNamed(abs));
+    return resolved === "" ? "." : resolved;
+  } catch {
+    return rel;
+  }
+}
+
+/**
+ * `realpathSync` needs its target to exist, and a dbt descriptor deliberately
+ * does not. The directory naming it does, so resolve that and reattach.
+ */
+function realpathOfNamed(p: string): string {
+  return existsSync(p)
+    ? realpathSync(p)
+    : join(realpathSync(dirname(p)), basename(p));
+}
+
+/** Windmill workspace path: `u|f|g` followed by at least a folder and a name. */
+const REMOTE_PATH_RE = /^[ufg](\/[^/]+){2,}$/;
+
+/**
+ * Guard the Windmill path a preview run is pushed under. A preview job carries
+ * no runnable of its own, so this path is the only identity it has: it is what
+ * `WM_JOB_PATH` reports, what the runs page links to, and what relative imports
+ * inside the previewed code resolve against.
+ */
+export function assertRemotePath(remotePath: string, arg: string): void {
+  if (REMOTE_PATH_RE.test(remotePath)) return;
+  throw new Error(
+    `Cannot derive a Windmill path from '${arg}'` +
+      (remotePath ? ` (it maps to '${remotePath}')` : "") +
+      `: a preview runs under the path of the file it previews, which must sit inside the ` +
+      `wmill.yaml root and be of the form <u|g|f>/<username|group|folder>/<name>.`
+  );
 }
 
 export function validatePath(path: string): boolean {

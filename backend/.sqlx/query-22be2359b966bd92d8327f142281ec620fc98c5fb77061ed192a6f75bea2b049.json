@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH keep AS (\n           SELECT hash FROM script\n            WHERE workspace_id = $2 AND path = $3 AND language = 'dbt'\n            ORDER BY created_at DESC LIMIT $1\n         )\n         DELETE FROM dbt_graph_snapshot g\n          WHERE g.workspace_id = $2 AND g.script_path = $3\n            AND g.job_id = '00000000-0000-0000-0000-000000000000'\n            AND NOT EXISTS (SELECT 1 FROM keep k WHERE k.hash = g.script_hash)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "22be2359b966bd92d8327f142281ec620fc98c5fb77061ed192a6f75bea2b049"
+}

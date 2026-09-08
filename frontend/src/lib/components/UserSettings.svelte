@@ -3,10 +3,19 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Version from './Version.svelte'
 	import DarkModeToggle from './sidebar/DarkModeToggle.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import TokensTable from './settings/TokensTable.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import UserInfoSettings from './settings/UserInfoSettings.svelte'
 	import AIUserSettings from './settings/AIUserSettings.svelte'
+	import AiUsagePanel from './workspaceSettings/AiUsagePanel.svelte'
+	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
+	import {
+		getDarkModeVariant,
+		setDarkModeVariant,
+		type DarkModeVariant
+	} from '$lib/darkModeVariant'
 
 	interface Props {
 		scopes?: string[] | undefined
@@ -28,6 +37,7 @@
 
 	let drawer: Drawer | undefined = $state()
 	let openWithMcpMode = $state(false)
+	let darkVariant = $state<DarkModeVariant>(getDarkModeVariant())
 
 	const dispatch = createEventDispatcher()
 
@@ -51,15 +61,39 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="900px" on:close={removeHash} {disableChatOffset}>
+<Drawer
+	bind:this={drawer}
+	size="900px"
+	on:open={() => (darkVariant = getDarkModeVariant())}
+	on:close={removeHash}
+	{disableChatOffset}
+>
 	<DrawerContent title="User settings" on:close={closeDrawer}>
 		<div class="flex flex-col gap-6 pb-8">
 			{#if scopes == undefined}
 				<div
 					class="flex flex-row justify-between items-start gap-2 border border-border-light p-4 rounded-md"
 				>
-					<div class="font-semibold text-emphasis text-xs flex items-center">
-						Theme <DarkModeToggle forcedDarkMode={false} />
+					<div class="flex flex-col gap-2">
+						<div class="font-semibold text-emphasis text-xs flex items-center">
+							Theme <DarkModeToggle forcedDarkMode={false} />
+						</div>
+						<div class="flex items-center gap-2">
+							<span class="text-xs text-secondary">Dark variant</span>
+							<ToggleButtonGroup
+								selected={darkVariant}
+								class="w-fit"
+								onSelected={(v) => {
+									darkVariant = v
+									setDarkModeVariant(v)
+								}}
+							>
+								{#snippet children({ item })}
+									<ToggleButton value="default" label="Default" size="sm" {item} />
+									<ToggleButton value="github" label="GitHub" size="sm" {item} />
+								{/snippet}
+							</ToggleButtonGroup>
+						</div>
 					</div>
 					<div class="text-xs text-emphasis flex-col flex">
 						Windmill <Version />
@@ -73,6 +107,17 @@
 						<AIUserSettings />
 					</div>
 				</div>
+				<!-- Keyed on the workspace `copilotInfo` reflects, not on `$workspaceStore`:
+				     a session acting on another workspace loads that workspace's AI config
+				     while navigation stays put, and pricing usage from one workspace with
+				     another's rates would silently misstate it. -->
+				{#if $copilotWorkspace}
+					<AiUsagePanel
+						workspace={$copilotWorkspace}
+						modelPricing={$copilotInfo.modelPricing ?? {}}
+						scope="self"
+					/>
+				{/if}
 			{/if}
 
 			<div class="grow min-h-0">

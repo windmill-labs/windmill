@@ -14,6 +14,10 @@
 	import type { InputType } from '../apps/inputType'
 	import Select from '$lib/components/select/Select.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
+
+	const getOpWs = getRawAppOperatingWorkspace()
+	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
 
 	// Build ctx properties with current user's actual values
 	let ctxProperties = $derived([
@@ -31,7 +35,7 @@
 		{
 			value: 'workspace',
 			label: 'Workspace',
-			subtitle: `string — "${$workspaceStore ?? 'unknown'}"`
+			subtitle: `string — "${opWs ?? 'unknown'}"`
 		},
 		{ value: 'author', label: 'Author', subtitle: `string — "${$userStore?.email ?? 'unknown'}"` }
 	])

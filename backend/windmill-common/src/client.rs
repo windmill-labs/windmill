@@ -44,6 +44,32 @@ impl AuthedClient {
             })
     }
 
+    /// Like [`AuthedClient::get`], but for a response whose size decides how
+    /// long it takes. `HTTP_CLIENT`'s total timeout would cut off a large one
+    /// partway through, so this uses the streaming client, which bounds only
+    /// the connect.
+    pub async fn get_streaming(
+        &self,
+        url: &str,
+        query: Vec<(&str, String)>,
+    ) -> anyhow::Result<Response> {
+        self.force_client
+            .as_ref()
+            .unwrap_or(&HTTP_CLIENT_STREAMING)
+            .get(url)
+            .query(&query)
+            .header(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))?,
+            )
+            .send()
+            .await
+            .map_err(|e| {
+                tracing::error!("Error streaming get request from authed http client to {url} with query {query:?}: {e:#?}");
+                anyhow::anyhow!("Error streaming get request from authed http client to {url} with query {query:?}: {e:#?}")
+            })
+    }
+
     pub async fn get_id_token(&self, audience: &str) -> anyhow::Result<String> {
         let url = format!(
             "{}/api/w/{}/oidc/token/{}",
@@ -113,6 +139,59 @@ impl AuthedClient {
                 .context("decoding interpolated resource value as json")?),
             _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
         }
+    }
+
+    /// Whether the workspace configures this dbt warehouse. Resolves nothing.
+    pub async fn dbt_warehouse_exists(&self, name: &str) -> anyhow::Result<()> {
+        let url = format!(
+            "{}/api/w/{}/dbt/warehouse_exists/{}",
+            self.base_internal_url, self.workspace, name
+        );
+        let response = self.get(&url, vec![]).await?;
+        match response.status().as_u16() {
+            200u16 => Ok(()),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
+        }
+    }
+
+    /// Record a run's settled dbt nodes, for a worker with no database.
+    ///
+    /// Posted with the JOB's token, not the agent's: the route takes the job
+    /// from the token, and the agent's own credential only authenticates
+    /// against the agent surface.
+    pub async fn record_dbt_run_progress(
+        &self,
+        req: &[crate::dbt_manifest::DbtRunProgressRequest],
+    ) -> anyhow::Result<()> {
+        let url = format!(
+            "{}/api/w/{}/dbt/run_progress",
+            self.base_internal_url, self.workspace
+        );
+        let response = self
+            .force_client
+            .as_ref()
+            .unwrap_or(&HTTP_CLIENT)
+            .post(&url)
+            .header(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))?,
+            )
+            .json(req)
+            .send()
+            .await?;
+        match response.status().as_u16() {
+            200u16 => Ok(()),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
+        }
+    }
+
+    /// Where a dbt warehouse name points, for a worker with no database.
+    pub async fn get_dbt_warehouse<T: DeserializeOwned>(&self, name: &str) -> anyhow::Result<T> {
+        let url = format!(
+            "{}/api/w/{}/dbt/warehouse/{}",
+            self.base_internal_url, self.workspace, name
+        );
+        make_basic_get_request(self, &url, None, Some("decoding the dbt warehouse ref")).await
     }
 
     pub async fn get_completed_job_result<T: DeserializeOwned>(

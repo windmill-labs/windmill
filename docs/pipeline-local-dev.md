@@ -85,21 +85,16 @@ makes the client own the whole cascade so the backend dispatcher never double-fi
 python3, and SQL dialects all get wasm inference (SQL dialects route to `parse_assets_sql`; its
 comment-header annotation scan is dialect-independent). `go`/`bash` have no wasm asset parser, so
 they fall back to a minimal `// pipeline` + `// on` scan (annotation-only). Inferred asset paths
-must match to connect nodes, and all S3 URI forms canonicalize to one key: `parse_asset_syntax`
-(shared by the native and wasm parsers) strips leading slashes from S3 paths, so the SDK
-object forms — TS `writeS3File({s3:"x"})` and python `write_s3_file(S3Object(s3="x"))`, which
-resolve to `s3:///x` (empty default storage) — the triple-slash annotation `// on s3:///x`, DuckDB
-`read_csv('s3://x')` / `COPY ... TO 's3://x'`, and `// on s3://x` all yield path `x`. A TS/Python
-writer and a DuckDB reader of the same object therefore connect regardless of which URI form each
-side uses. (Only leading slashes are stripped — so a canonical key never starts with `/`, which
-keeps the identity stable through `// on` trigger-ref reconstruction — while Hive-partition keys
-like `s3://bucket/y=2024/f.parquet` and the explicit-storage form `s3://storage/key` keep their
-`bucket/…` / `storage/key` paths.) Tradeoff of collapsing to one canonical key: the explicit-storage
-form `s3://storage/key` and the default-storage nested-key form `s3:///storage/key` now alias to
-the same node `storage/key`, even though they name different objects (a bucket `storage` vs. an
-object under the `storage/` prefix in default storage). This only collides when a storage config is
-named to match a default-storage prefix — unlikely, and acceptable for a best-effort lineage graph
-that already doesn't split the first segment as a storage name.
+must match **exactly** to connect nodes. An S3 asset path is `<storage>/<key>` with an empty
+storage segment for the workspace default: `parse_asset_syntax` (shared by the native and wasm
+parsers) keeps the URI suffix verbatim, so the SDK object forms — TS `writeS3File({s3:"x"})` and
+python `write_s3_file(S3Object(s3="x"))`, which resolve to `s3:///x` — the triple-slash annotation
+`// on s3:///x`, and DuckDB `read_csv('s3:///x')` / `COPY ... TO 's3:///x'` all yield path `/x`
+(leading slash significant). The named-storage form `s3://secondary/key` yields `secondary/key` —
+a **different** object and a different node, so the storage distinction is never collapsed. In
+practice: use the triple-slash form everywhere for default-storage objects and the producer and
+consumer connect regardless of language; mixing in the no-slash form (`s3://x`) names a storage
+called `x` and will not connect to a default-storage write.
 
 ## How to test
 
@@ -159,12 +154,12 @@ http://localhost:3000/pipeline_dev?workspace=<WS>&wm_token=<TOK>&folder=demo_pip
    `startProxyServer` for embedders that need a localhost origin (e.g. Claude Code preview).
 5. **`pipeline dev` editing**: the dev page is view+run only (editing stays in the user's editor).
    If in-browser editing with file round-trip is wanted, mirror flow-dev's `handleFlowRoundTrip`.
-6. **Asset-path normalization**: done — the python parser resolves the
+6. **Asset-path normalization**: the python parser resolves the
    `S3Object(s3=…, storage=…?)` constructor / dict-literal forms to the same canonical path as the
-   TS `{s3, storage}` object form, and `parse_asset_syntax` now strips leading slashes from
-   S3 keys so the SDK-form `s3:///x` (`/x`) and the bare-URI no-slash form (`x`, DuckDB and
-   `// on s3://x`) canonicalize to one key (see Language coverage). SDK writes and DuckDB reads of
-   the same object connect regardless of URI convention.
+   TS `{s3, storage}` object form, so SDK writes and reads connect across ts/python. The
+   SDK-form path keeps its default-storage leading slash (`/x`), matching the triple-slash URI
+   forms (`s3:///x` in DuckDB and `// on s3:///x`); the no-slash `s3://x` form names a storage
+   called `x` and is intentionally a distinct node (see Language coverage).
 
 ## Plan reference
 

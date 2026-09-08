@@ -26,6 +26,7 @@
 		KafkaTriggerService,
 		NatsTriggerService,
 		MqttTriggerService,
+		AmqpTriggerService,
 		HttpTriggerService,
 		GcpTriggerService,
 		AzureTriggerService,
@@ -116,6 +117,7 @@
 			azure: () => AzureTriggerService.deleteAzureTrigger,
 			sqs: () => SqsTriggerService.deleteSqsTrigger,
 			mqtt: () => MqttTriggerService.deleteMqttTrigger,
+			amqp: () => AmqpTriggerService.deleteAmqpTrigger,
 			http: () => HttpTriggerService.deleteHttpTrigger,
 			email: () => EmailTriggerService.deleteEmailTrigger
 		}
@@ -255,6 +257,14 @@
 				isFlow,
 				$userStore
 			)
+		} else if (triggerType === 'amqp') {
+			await triggersState.fetchAmqpTriggers(
+				triggersCount,
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
 		} else if (triggerType === 'http') {
 			await triggersState.fetchHttpTriggers(
 				triggersCount,
@@ -354,7 +364,7 @@
 			</Alert>
 		</div>
 	{/if}
-	<FlowCard {noEditor} noHeader>
+	<FlowCard {noEditor} title="Triggers">
 		<Splitpanes horizontal>
 			<Pane>
 				<div class="flex flex-row h-full" bind:clientWidth={leftPaneWidth}>

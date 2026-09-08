@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE password SET email = 'group-ops@windmill.dev' WHERE email = 'test2@windmill.dev'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "6f1489b2c52e08566ffa9450709df2b9404a30197b05554a868bd06b1ed8ccaa"
+}

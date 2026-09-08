@@ -73,7 +73,7 @@
 						setTimeout(() => {
 							driver.moveNext()
 
-							updateProgress(5)
+							updateProgress(index)
 						})
 					}
 				}

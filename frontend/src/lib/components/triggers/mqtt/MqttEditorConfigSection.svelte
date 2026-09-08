@@ -16,6 +16,8 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import TestingBadge from '../testingBadge.svelte'
+	import { workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 
 	interface Props {
 		can_write?: boolean
@@ -36,6 +38,9 @@
 		client_id = $bindable(''),
 		showTestingBadge = false
 	}: Props = $props()
+
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	const isValidSubscribeTopics = (subscribe_topics: MqttSubscribeTopic[]): boolean => {
 		if (
@@ -61,7 +66,12 @@
 		{/snippet}
 		<div class="flex flex-col w-full gap-12">
 			<Subsection label="Connection setup">
-				<ResourcePicker resourceType="mqtt" disabled={!can_write} bind:value={mqtt_resource_path} />
+				<ResourcePicker
+					workspace={wsId}
+					resourceType="mqtt"
+					disabled={!can_write}
+					bind:value={mqtt_resource_path}
+				/>
 				{#if !emptyStringTrimmed(mqtt_resource_path)}
 					<TestTriggerConnection kind="mqtt" args={{ mqtt_resource_path, client_version }} />
 				{/if}

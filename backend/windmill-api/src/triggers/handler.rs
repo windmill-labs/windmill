@@ -61,6 +61,16 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
+    #[cfg(feature = "amqp_trigger")]
+    {
+        use crate::triggers::amqp::AmqpTrigger;
+
+        router = router.nest(
+            AmqpTrigger::ROUTE_PREFIX,
+            complete_trigger_routes(AmqpTrigger),
+        );
+    }
+
     #[cfg(all(feature = "enterprise", feature = "sqs_trigger", feature = "private"))]
     {
         use crate::triggers::sqs::SqsTrigger;
@@ -143,6 +153,7 @@ pub struct TriggersCount {
     nats_count: i64,
     postgres_count: i64,
     mqtt_count: i64,
+    amqp_count: i64,
     sqs_count: i64,
     gcp_count: i64,
     azure_count: i64,
@@ -176,14 +187,18 @@ pub async fn get_triggers_count_internal(
     .await?
     .unwrap_or(0);
 
+    // These counts are independent reads: they share a connection to avoid one acquire
+    // per trigger kind, but must not share a transaction. A single failing count would
+    // abort it and, since `trigger_count` falls back to 0 on error, silently zero every
+    // count after it.
     #[allow(unused)]
-    let mut tx = db.begin().await?;
+    let mut conn = db.acquire().await?;
 
     #[cfg(feature = "http_trigger")]
     let http_routes_count = {
         use crate::triggers::http::HttpTrigger;
         let count = HttpTrigger
-            .trigger_count(&mut tx, w_id, is_flow, path)
+            .trigger_count(&mut conn, w_id, is_flow, path)
             .await;
         count
     };
@@ -194,7 +209,7 @@ pub async fn get_triggers_count_internal(
     let websocket_count = {
         use crate::triggers::websocket::WebsocketTrigger;
         let count = WebsocketTrigger
-            .trigger_count(&mut tx, w_id, is_flow, path)
+            .trigger_count(&mut conn, w_id, is_flow, path)
             .await;
         count
     };
@@ -205,7 +220,7 @@ pub async fn get_triggers_count_internal(
     let kafka_count = {
         use crate::triggers::kafka::KafkaTrigger;
         let count = KafkaTrigger
-            .trigger_count(&mut tx, w_id, is_flow, path)
+            .trigger_count(&mut conn, w_id, is_flow, path)
             .await;
         count
     };
@@ -216,7 +231,7 @@ pub async fn get_triggers_count_internal(
     let nats_count = {
         use crate::triggers::nats::NatsTrigger;
         let count = NatsTrigger
-            .trigger_count(&mut tx, w_id, is_flow, path)
+            .trigger_count(&mut conn, w_id, is_flow, path)
             .await;
         count
     };
@@ -227,7 +242,7 @@ pub async fn get_triggers_count_internal(
     let postgres_count = {
         use crate::triggers::postgres::PostgresTrigger;
         let count = PostgresTrigger
-            .trigger_count(&mut tx, w_id, is_flow, path)
+            .trigger_count(&mut conn, w_id, is_flow, path)
             .await;
         count
     };
@@ -238,17 +253,30 @@ pub async fn get_triggers_count_internal(
     let mqtt_count = {
         use crate::triggers::mqtt::MqttTrigger;
         let count = MqttTrigger
-            .trigger_count(&mut tx, w_id, is_flow, path)
+            .trigger_count(&mut conn, w_id, is_flow, path)
             .await;
         count
     };
     #[cfg(not(feature = "mqtt_trigger"))]
     let mqtt_count = 0;
 
+    #[cfg(feature = "amqp_trigger")]
+    let amqp_count = {
+        use crate::triggers::amqp::AmqpTrigger;
+        let count = AmqpTrigger
+            .trigger_count(&mut conn, w_id, is_flow, path)
+            .await;
+        count
+    };
+    #[cfg(not(feature = "amqp_trigger"))]
+    let amqp_count = 0;
+
     #[cfg(all(feature = "sqs_trigger", feature = "enterprise", feature = "private"))]
     let sqs_count = {
         use crate::triggers::sqs::SqsTrigger;
-        let count = SqsTrigger.trigger_count(&mut tx, w_id, is_flow, path).await;
+        let count = SqsTrigger
+            .trigger_count(&mut conn, w_id, is_flow, path)
+            .await;
         count
     };
     #[cfg(not(all(feature = "sqs_trigger", feature = "enterprise", feature = "private")))]
@@ -257,7 +285,9 @@ pub async fn get_triggers_count_internal(
     #[cfg(all(feature = "gcp_trigger", feature = "enterprise", feature = "private"))]
     let gcp_count = {
         use crate::triggers::gcp::GcpTrigger;
-        let count = GcpTrigger.trigger_count(&mut tx, w_id, is_flow, path).await;
+        let count = GcpTrigger
+            .trigger_count(&mut conn, w_id, is_flow, path)
+            .await;
         count
     };
     #[cfg(not(all(feature = "gcp_trigger", feature = "enterprise", feature = "private")))]
@@ -267,7 +297,7 @@ pub async fn get_triggers_count_internal(
     let azure_count = {
         use crate::triggers::azure::AzureTrigger;
         let count = AzureTrigger
-            .trigger_count(&mut tx, w_id, is_flow, path)
+            .trigger_count(&mut conn, w_id, is_flow, path)
             .await;
         count
     };
@@ -278,14 +308,14 @@ pub async fn get_triggers_count_internal(
     let email_count = {
         use crate::triggers::email::EmailTrigger;
         let count = EmailTrigger
-            .trigger_count(&mut tx, w_id, is_flow, path)
+            .trigger_count(&mut conn, w_id, is_flow, path)
             .await;
         count
     };
     #[cfg(not(all(feature = "smtp", feature = "enterprise", feature = "private")))]
     let email_count = 0;
 
-    tx.commit().await?;
+    drop(conn);
 
     let webhook_count = (if is_flow {
         sqlx::query_scalar!(
@@ -362,6 +392,7 @@ pub async fn get_triggers_count_internal(
         nats_count,
         postgres_count,
         mqtt_count,
+        amqp_count,
         gcp_count,
         azure_count,
         sqs_count,

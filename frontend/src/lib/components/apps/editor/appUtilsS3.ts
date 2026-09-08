@@ -90,20 +90,6 @@ export function isPartialS3Object(
 	return input != undefined && typeof input === 'object' && typeof input['s3'] === 'string'
 }
 
-function computeForceViewerPolicies({
-	isEditor,
-	configuration
-}: {
-	isEditor: boolean
-	configuration: RichConfigurations
-}) {
-	if (!isEditor) {
-		return undefined
-	}
-	const policy = computeS3FileViewerPolicy(configuration)
-	return policy
-}
-
 export async function getS3File({
 	source,
 	storage,
@@ -112,8 +98,7 @@ export async function getS3File({
 	username,
 	workspace,
 	token,
-	isEditor,
-	configuration
+	isEditor
 }: {
 	source: string | undefined
 	storage?: string
@@ -123,22 +108,38 @@ export async function getS3File({
 	workspace: string
 	token: string | undefined
 	isEditor: boolean
-	configuration: RichConfigurations
+	// Optional; not read here. Editor reads go through the viewer-scoped endpoint
+	// and deployed reads through the app-scoped one, independent of the component
+	// configuration.
+	configuration?: RichConfigurations
 }) {
 	if (!source) return ''
+
+	// Editor/preview runs execute as the *caller* (Viewer mode), so read their
+	// results back as the caller through the viewer-scoped `job_helpers` endpoint —
+	// never author-mode — consistent with DisplayResult/ParqetCsvTableRenderer. Only
+	// a deployed app view reads on-behalf of the author via the provenance-gated
+	// `apps_u` endpoint.
+	if (isEditor) {
+		const params = new URLSearchParams()
+		params.append('file_key', source)
+		if (storage) {
+			params.append('storage', storage)
+		}
+		if (token && token != '') {
+			params.append('token', token)
+		}
+		return `/api/w/${workspace}/job_helpers/download_s3_file?${params.toString()}${presigned ? `&${presigned}` : ''}`
+	}
+
 	const appPathOrUser = defaultIfEmptyString(appPath, `u/${username ?? 'unknown'}/newapp`)
 	const params = new URLSearchParams()
 	params.append('s3', source)
 	if (storage) {
 		params.append('storage', storage)
 	}
-
 	if (token && token != '') {
 		params.append('token', token)
-	}
-	const forceViewerPolicies = computeForceViewerPolicies({ isEditor, configuration })
-	if (forceViewerPolicies) {
-		params.append('force_viewer_allowed_s3_keys', JSON.stringify([forceViewerPolicies]))
 	}
 
 	return `/api/w/${workspace}/apps_u/download_s3_file/${appPathOrUser}?${params.toString()}${presigned ? `&${presigned}` : ''}`

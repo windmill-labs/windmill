@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT fork_last_event_kind, fork_last_event_origin FROM workspace_diff\n             WHERE fork_workspace_id = 'wm-fork-renamed' AND kind = 'script'\n               AND path = 'u/admin/inline' AND fork_last_event_kind IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "fork_last_event_kind",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "fork_last_event_origin",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "f0d8ebbf62a1d92f39c2f86a70236cece6d6c9e28cce9aff7fe5496bba569807"
+}

@@ -34,6 +34,7 @@ export class GitSyncSettingsConverter {
       includeSettings: includeTypes.includes("settings"),
       includeKey: includeTypes.includes("key"),
       skipWorkspaceDependencies: !includeTypes.includes("workspacedependencies"),
+      skipDatatableMigrations: !includeTypes.includes("datatablemigration"),
     };
 
     // Only include extraIncludes if it has content
@@ -63,6 +64,7 @@ export class GitSyncSettingsConverter {
     if (opts.includeSettings) includeTypes.push("settings");
     if (opts.includeKey) includeTypes.push("key");
     if (!opts.skipWorkspaceDependencies) includeTypes.push("workspacedependencies");
+    if (!opts.skipDatatableMigrations) includeTypes.push("datatablemigration");
 
     const result: BackendGitSyncSettings = {
       include_path: opts.includes || [],
@@ -102,6 +104,7 @@ export class GitSyncSettingsConverter {
       includeSettings: opts.includeSettings ?? false,
       includeKey: opts.includeKey ?? false,
       skipWorkspaceDependencies: opts.skipWorkspaceDependencies ?? false,
+      skipDatatableMigrations: opts.skipDatatableMigrations ?? false,
     };
   }
 
@@ -126,6 +129,7 @@ export class GitSyncSettingsConverter {
       includeSettings: opts.includeSettings,
       includeKey: opts.includeKey,
       skipWorkspaceDependencies: opts.skipWorkspaceDependencies,
+      skipDatatableMigrations: opts.skipDatatableMigrations,
     };
   }
 

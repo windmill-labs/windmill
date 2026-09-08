@@ -5,16 +5,16 @@
 		type AIConfig,
 		type AIProvider,
 		type GetCopilotSettingsStateResponse,
-		type InstanceAISummary
+		type InstanceAISummary,
+		type ModelPriceOverride
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { copilotInfo } from '$lib/aiStore'
 	import { sendUserToast } from '$lib/toast'
 	import { AI_PROVIDERS, fetchAvailableModels, providerSupportsWebSearch } from '../copilot/lib'
 	import { supportsAutocomplete } from '../copilot/utils'
 	import TestAiKey from '../copilot/TestAIKey.svelte'
 	import Label from '../Label.svelte'
-	import AiSkillsSettings from './AiSkillsSettings.svelte'
-	import { isGlobalAiEnabled } from '../copilot/chat/global/gate'
 	import SettingsPageHeader from '../settings/SettingsPageHeader.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import Toggle from '../Toggle.svelte'
@@ -25,6 +25,8 @@
 	import Badge from '../common/badge/Badge.svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import ModelTokenLimits from './ModelTokenLimits.svelte'
+	import ModelPricing from './ModelPricing.svelte'
+	import AiUsagePanel from './AiUsagePanel.svelte'
 	import { setCopilotInfo } from '$lib/aiStore'
 	import AIPromptsModal from '../settings/AIPromptsModal.svelte'
 	import { Settings } from 'lucide-svelte'
@@ -57,7 +59,7 @@
 		usesInstanceAiConfig?: boolean
 		instanceAiSummary?: InstanceAISummary
 		customSave?: (config: AIConfig) => Promise<void>
-		onSave?: (info?: GetCopilotSettingsStateResponse) => void | Promise<void>
+		onSave?: (savedConfig: AIConfig, info?: GetCopilotSettingsStateResponse) => void | Promise<void>
 		title?: string
 		description?: string
 		link?: string
@@ -73,8 +75,10 @@
 	let metadataModel: string | undefined = $state(undefined)
 	let customPrompts: Record<string, string> = $state({})
 	let maxTokensPerModel: Record<string, number> = $state({})
+	let modelPricing: Record<string, ModelPriceOverride> = $state({})
 	let usingOpenaiClientCredentialsOauth = $state(false)
 	let workspaceOverrideEditorOpened = $state(false)
+	let copilotDisabled = $state(false)
 
 	// --- Initial state for dirty tracking ---
 	let initialAiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
@@ -83,7 +87,9 @@
 	let initialMetadataModel: string | undefined = $state(undefined)
 	let initialCustomPrompts: Record<string, string> = $state({})
 	let initialMaxTokensPerModel: Record<string, number> = $state({})
+	let initialModelPricing: Record<string, ModelPriceOverride> = $state({})
 	let initialPrompts: Record<string, string> = $state({})
+	let initialCopilotDisabled = $state(false)
 	let lastLoadedConfigKey = $state<string | undefined>(undefined)
 
 	function clone<T>(v: T): T {
@@ -110,6 +116,8 @@
 		codeCompletionModel = config?.code_completion_model?.model
 		customPrompts = clone(config?.custom_prompts ?? {})
 		maxTokensPerModel = clone(config?.max_tokens_per_model ?? {})
+		modelPricing = clone(config?.model_pricing ?? {})
+		copilotDisabled = config?.copilot_disabled === true
 		for (const mode of ['edit', 'fix', 'gen']) {
 			if (!(mode in customPrompts)) {
 				customPrompts[mode] = ''
@@ -124,7 +132,9 @@
 		initialCodeCompletionModel = codeCompletionModel
 		initialCustomPrompts = clone(customPrompts)
 		initialMaxTokensPerModel = clone(maxTokensPerModel)
+		initialModelPricing = clone(modelPricing)
 		initialPrompts = clone(customPrompts)
+		initialCopilotDisabled = copilotDisabled
 	}
 
 	export function loadFromConfig(config: AIConfig | undefined) {
@@ -139,6 +149,8 @@
 		codeCompletionModel = initialCodeCompletionModel
 		customPrompts = clone(initialCustomPrompts)
 		maxTokensPerModel = clone(initialMaxTokensPerModel)
+		modelPricing = clone(initialModelPricing)
+		copilotDisabled = initialCopilotDisabled
 	}
 
 	$effect(() => {
@@ -172,7 +184,9 @@
 			metadataModel !== initialMetadataModel ||
 			codeCompletionModel !== initialCodeCompletionModel ||
 			JSON.stringify(customPrompts) !== JSON.stringify(initialCustomPrompts) ||
-			JSON.stringify(maxTokensPerModel) !== JSON.stringify(initialMaxTokensPerModel)
+			JSON.stringify(maxTokensPerModel) !== JSON.stringify(initialMaxTokensPerModel) ||
+			JSON.stringify(modelPricing) !== JSON.stringify(initialModelPricing) ||
+			copilotDisabled !== initialCopilotDisabled
 	)
 
 	$effect(() => {
@@ -277,6 +291,8 @@
 			.filter(([_, prompt]) => prompt.trim().length > 0)
 			.reduce((acc, [mode, prompt]) => ({ ...acc, [mode]: prompt }), {})
 
+		// The flag is the one thing a workspace on instance defaults still stores of its own.
+		const copilot_disabled = copilotDisabled ? true : undefined
 		return Object.keys(aiProviders ?? {}).length > 0
 			? {
 					providers: aiProviders,
@@ -285,9 +301,11 @@
 					metadata_model,
 					custom_prompts: Object.keys(custom_prompts).length > 0 ? custom_prompts : undefined,
 					max_tokens_per_model:
-						Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined
+						Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined,
+					model_pricing: Object.keys(modelPricing).length > 0 ? modelPricing : undefined,
+					copilot_disabled
 				}
-			: {}
+			: { copilot_disabled }
 	}
 
 	function isSaveDisabled(): boolean {
@@ -332,7 +350,14 @@
 			sendUserToast('AI settings updated')
 		}
 		storeInitialState()
-		await onSave?.(settingsState)
+		// Hand the parent what was persisted: it owns `initialConfig`, and this component is
+		// destroyed on a settings tab switch, so a stale prop returns as editor state on remount
+		// and is written back by the next save. Clone it, since `providers` aliases our `$state`
+		// and the `lastLoadedConfigKey` guard would then track our own edits; pre-arm that guard
+		// so the prop update does not re-apply the config over what the editor now shows.
+		const savedConfig = clone(config)
+		lastLoadedConfigKey = JSON.stringify(savedConfig)
+		await onSave?.(savedConfig, settingsState)
 	}
 
 	async function onAiProviderChange(provider: AIProvider) {
@@ -387,7 +412,7 @@
 	{/if}
 	{#if showWorkspaceOverrideEditor}
 		<SettingCard label="AI Providers">
-			<div class="flex flex-col gap-4 p-4 rounded-md border bg-surface-tertiary">
+			<div class="flex flex-col gap-4">
 				{#each Object.entries(AI_PROVIDERS) as [provider, details] (provider)}
 					<div class="flex flex-col">
 						<div class="flex flex-row gap-2">
@@ -589,10 +614,6 @@
 			</div>
 		</SettingCard>
 	{/if}
-
-	{#if promptScope === 'workspace' && isGlobalAiEnabled()}
-		<AiSkillsSettings />
-	{/if}
 </div>
 
 <AIPromptsModal
@@ -603,12 +624,45 @@
 	scope={promptScope}
 />
 
-{#if showWorkspaceOverrideEditor}
-	<SettingsFooter
-		hasUnsavedChanges={dirty}
-		onSave={editCopilotConfig}
-		onDiscard={discard}
-		saveLabel="Save AI settings"
-		disabled={isSaveDisabled()}
+{#if promptScope === 'workspace'}
+	<!-- Recorded usage must be priced with the rates the chats actually ran under.
+	     A workspace on instance defaults has no rates of its own, so the effective
+	     ones come from copilotInfo rather than from this form's (empty) workspace
+	     config. -->
+	<AiUsagePanel
+		workspace={effectiveWorkspace}
+		modelPricing={usesInstanceAiConfig ? ($copilotInfo.modelPricing ?? {}) : modelPricing}
 	/>
 {/if}
+
+<!-- Below the usage it explains: the rates are read as a correction to what the
+     table above already shows. Kept on its own `showWorkspaceOverrideEditor` gate so
+     the instance scope, which has no usage panel, still edits rates. -->
+{#if showWorkspaceOverrideEditor}
+	<ModelPricing {aiProviders} bind:modelPricing />
+{/if}
+
+{#if promptScope === 'workspace'}
+	<SettingCard
+		label="Hide AI sessions"
+		description="Hides AI sessions and every other AI assistant button (chat, code generation and completion, AI fix) from all members of this workspace. AI agent steps and the AI sandbox in flows are not affected and keep using the providers configured above. This hides the assistant in the UI only; it does not restrict API access to the configured providers."
+	>
+		<Toggle
+			checked={copilotDisabled}
+			on:change={(e) => {
+				copilotDisabled = e.detail
+			}}
+			options={{ right: 'Hide AI sessions in this workspace' }}
+		/>
+	</SettingCard>
+{/if}
+
+<!-- Not gated on `showWorkspaceOverrideEditor`: a workspace on instance defaults still has
+     the hide toggle above to save. -->
+<SettingsFooter
+	hasUnsavedChanges={dirty}
+	onSave={editCopilotConfig}
+	onDiscard={discard}
+	saveLabel="Save AI settings"
+	disabled={isSaveDisabled()}
+/>

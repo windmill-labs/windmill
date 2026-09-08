@@ -5,9 +5,18 @@
 	import { getContext } from 'svelte'
 	import { type TriggerContext } from '$lib/components/triggers'
 	import { enterpriseLicense } from '$lib/stores'
-	import { MqttIcon, NatsIcon, KafkaIcon, AwsIcon, GoogleCloudIcon } from '$lib/components/icons'
+	import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
+	import AmqpIcon from '$lib/components/icons/AmqpIcon.svelte'
+	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
+	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
+	import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
+	import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
 	import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
-	import { type Trigger, type TriggerType } from '$lib/components/triggers/utils'
+	import {
+		triggerIconMapMono,
+		type Trigger,
+		type TriggerType
+	} from '$lib/components/triggers/utils'
 	import { Menu, Menubar, MeltButton, MenuItem, Tooltip } from '$lib/components/meltComponents'
 	import { twMerge } from 'tailwind-merge'
 	import SchedulePollIcon from '$lib/components/icons/SchedulePollIcon.svelte'
@@ -69,6 +78,7 @@
 			email: { icon: Mail, countKey: 'email_count' },
 			nats: { icon: NatsIcon, countKey: 'nats_count', disabled: !$enterpriseLicense },
 			mqtt: { icon: MqttIcon, countKey: 'mqtt_count', disabled: !$enterpriseLicense },
+			amqp: { icon: AmqpIcon, countKey: 'amqp_count' },
 			sqs: { icon: AwsIcon, countKey: 'sqs_count', disabled: !$enterpriseLicense },
 			gcp: { icon: GoogleCloudIcon, countKey: 'gcp_count', disabled: !$enterpriseLicense },
 			azure: { icon: AzureIcon, countKey: 'azure_count', disabled: !$enterpriseLicense },
@@ -103,6 +113,7 @@
 		'default_email',
 		'nats',
 		'mqtt',
+		'amqp',
 		'sqs',
 		'gcp',
 		'azure',
@@ -311,10 +322,13 @@
 {/snippet}
 
 {#snippet simpleTriggerItem({ item, type })}
-	{@const { icon: SvelteComponent, countKey } = triggerTypeConfig()[type] || {
+	{@const { icon: ColourIcon, countKey } = triggerTypeConfig()[type] || {
 		icon: Database,
 		countKey: undefined
 	}}
+	<!-- The badge shows the full-colour mark; the menu it opens is a dense list beside lucide
+		glyphs, so its rows use the desaturated variants. See icons/index.ts. -->
+	{@const SvelteComponent = triggerIconMapMono[type] ?? ColourIcon}
 	<MenuItem {item} class={itemClass}>
 		<div class="flex flex-row items-center gap-2">
 			<SvelteComponent size={14} />

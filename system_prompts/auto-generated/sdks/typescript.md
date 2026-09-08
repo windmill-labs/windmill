@@ -2,6 +2,22 @@
 
 Import: import * as wmill from 'windmill-client'
 
+The client configures itself from the job's environment — base URL, token and credentials mode
+are all set before your code runs, so there is nothing to initialize and no reason to read
+WM_TOKEN or BASE_INTERNAL_URL and build an API URL yourself. Reconstructing that by hand only
+reintroduces details the client already handles. Call the SDK for anything Windmill, and use raw
+HTTP for third-party APIs.
+
+The helpers below are the surface to prefer. For an endpoint none of them covers, import the
+generated service classes (JobService, ScriptService, ...) from 'windmill-client' — they are not
+listed here but they do exist. What does not exist is a helper name you guessed at: if it is
+neither listed below nor a service method, do not call it.
+
+To know who is running the script, read the contextual variables rather than calling the API:
+`process.env.WM_END_USER_EMAIL || process.env.WM_EMAIL`. WM_END_USER_EMAIL is the app viewer when
+the run was triggered from an app and empty otherwise (both variables are always defined), WM_EMAIL
+is the user the job is permissioned as. WM_USERNAME is the matching username.
+
 workerHasInternalServer(): boolean
 
 /**
@@ -31,11 +47,6 @@ async getResource(path?: string, undefinedIfEmpty?: boolean): Promise<any>
  * @returns root job id
  */
 async getRootJobId(jobId?: string): Promise<string>
-
-/**
- * @deprecated Use runScriptByPath or runScriptByHash instead
- */
-async runScript(path: string | null = null, hash_: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false, tag: string | null = null): Promise<any>
 
 /**
  * Run a script synchronously by its path and wait for the result
@@ -102,9 +113,12 @@ async getResult(jobId: string): Promise<any>
 async getResultMaybe(jobId: string): Promise<any>
 
 /**
- * @deprecated Use runScriptByPathAsync or runScriptByHashAsync instead
+ * Cancel a queued or running job by ID.
+ * @param jobId - UUID of the job to cancel
+ * @param reason - Optional reason for cancellation
+ * @returns Response message from the cancel endpoint
  */
-async runScriptAsync(path: string | null, hash_: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, tag: string | null = null): Promise<string>
+async cancelJob(jobId: string, reason: string | undefined = undefined): Promise<string>
 
 /**
  * Run a script asynchronously by its path
@@ -161,13 +175,6 @@ async setResource(value: any, path?: string, initializeToTypeIfNotExist?: string
 /**
  * Set the state
  * @param state state to set
- * @deprecated use setState instead
- */
-async setInternalState(state: any): Promise<void>
-
-/**
- * Set the state
- * @param state state to set
  * @param path Optional state resource path override. Defaults to `getStatePath()`.
  */
 async setState(state: any, path?: string): Promise<void>
@@ -199,12 +206,6 @@ async setFlowUserState(key: string, value: any, errorIfNotPossible?: boolean): P
  * @param path path of the variable
  */
 async getFlowUserState(key: string, errorIfNotPossible?: boolean): Promise<any>
-
-/**
- * Get the internal state
- * @deprecated use getState instead
- */
-async getInternalState(): Promise<any>
 
 /**
  * Get the state shared across executions
@@ -302,31 +303,35 @@ async deleteS3File(s3object: S3Object, workspace: string | undefined = undefined
 /**
  * Sign S3 objects to be used by anonymous users in public apps
  * @param s3objects s3 objects to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed s3 objects
  */
-async signS3Objects(s3objects: S3Object[]): Promise<S3Object[]>
+async signS3Objects(s3objects: S3Object[], { expirySecs }: { expirySecs?: number } = {}): Promise<S3Object[]>
 
 /**
  * Sign S3 object to be used by anonymous users in public apps
  * @param s3object s3 object to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed s3 object
  */
-async signS3Object(s3object: S3Object): Promise<S3Object>
+async signS3Object(s3object: S3Object, { expirySecs }: { expirySecs?: number } = {}): Promise<S3Object>
 
 /**
  * Generate a presigned public URL for an array of S3 objects.
  * If an S3 object is not signed yet, it will be signed first.
  * @param s3Objects s3 objects to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns list of signed public URLs
  */
-async getPresignedS3PublicUrls(s3Objects: S3Object[], { baseUrl }: { baseUrl?: string } = {}): Promise<string[]>
+async getPresignedS3PublicUrls(s3Objects: S3Object[], { baseUrl, expirySecs }: { baseUrl?: string; expirySecs?: number } = {}): Promise<string[]>
 
 /**
  * Generate a presigned public URL for an S3 object. If the S3 object is not signed yet, it will be signed first.
  * @param s3Object s3 object to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed public URL
  */
-async getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl }: { baseUrl?: string } = {}): Promise<string>
+async getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl, expirySecs }: { baseUrl?: string; expirySecs?: number } = {}): Promise<string>
 
 /**
  * Get URLs needed for resuming a flow after this step
@@ -336,15 +341,6 @@ async getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl }: { baseUrl?: stri
  * @returns approval page UI URL, resume and cancel API URLs for resuming the flow
  */
 async getResumeUrls(approver?: string, flowLevel?: boolean): Promise<{
-  approvalPage: string;
-  resume: string;
-  cancel: string;
-}>
-
-/**
- * @deprecated use getResumeUrls instead
- */
-getResumeEndpoints(approver?: string): Promise<{
   approvalPage: string;
   resume: string;
   cancel: string;
@@ -371,15 +367,6 @@ base64ToUint8Array(data: string): Uint8Array
  * @returns Base64-encoded string
  */
 uint8ArrayToBase64(arrayBuffer: Uint8Array): string
-
-/**
- * Get email from workspace username
- * This method is particularly useful for apps that require the email address of the viewer.
- * Indeed, in the viewer context, WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
- * @param username
- * @returns email address
- */
-async usernameToEmail(username: string): Promise<string>
 
 /**
  * Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
@@ -459,7 +446,15 @@ setWorkflowCtx(ctx: WorkflowCtx | null): void
 
 async sleep(seconds: number): Promise<void>
 
-async step<T>(name: string, fn: () => T | Promise<T>): Promise<T>
+/**
+ * Execute `fn` inline and checkpoint the result. On replay the cached value is
+ * returned without re-executing `fn`.
+ * 
+ * `fn`'s result is encoded as JSON and decoded back before it is returned, so
+ * the round that runs the body sees the same types every replay sees: a `Date`
+ * comes back as a string, a `Map` as `{}`. {@link Jsonified} is that shape.
+ */
+async step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
 /**
  * Create a task that dispatches to a separate Windmill script.
@@ -493,15 +488,43 @@ workflow<T>(fn: (...args: any[]) => Promise<T>): void
 /**
  * Suspend the workflow and wait for an external approval.
  * 
- * Use `getResumeUrls()` (wrapped in `step()`) to obtain resume/cancel/approvalPage
- * URLs before calling this function.
+ * Pass `key` to name the step, then `getApprovalUrls(key)` yields the URLs that
+ * resume exactly this approval — route them through your own channel. Without a
+ * key the steps are named `approval`, `approval_2`, ...
  * 
  * @example
- * const urls = await step("urls", () => getResumeUrls());
- * await step("notify", () => sendEmail(urls.approvalPage));
- * const { value, approver } = await waitForApproval({ timeout: 3600 });
+ * const urls = await step("urls", () => getApprovalUrls("manager"));
+ * await step("notify", () => sendEmail(urls.resume, urls.cancel));
+ * const { value, approver } = await waitForApproval({ key: "manager", timeout: 3600 });
  */
-waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; key?: string; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+
+/**
+ * Resume/cancel/approval-page URLs bound to one `waitForApproval` step.
+ * 
+ * Unlike `getResumeUrls()`, which signs a random nonce, these address the very
+ * `resume_job` record the step's built-in approval buttons use, so they are
+ * stable across replays and safe to embed in a custom notification.
+ * 
+ * `stepKey` must match the `key` given to `waitForApproval`. Keys must be unique
+ * within a workflow; reusing one throws rather than silently renaming it. The URL
+ * only resumes while that step is awaiting approval; used at any other moment it is
+ * rejected rather than banking a row a different approval would consume. Send it
+ * ahead of time — approvers just cannot act before the workflow reaches the step.
+ * 
+ * `resume` and `cancel` are step-bound; `approvalPage` is not — it opens the job's
+ * approval page, which acts on whichever approval is pending when it is used.
+ * 
+ * @example
+ * const urls = await step("urls", () => getApprovalUrls("manager"));
+ * await step("notify", () => sendEmail(urls.resume, urls.cancel));
+ * await waitForApproval({ key: "manager" });
+ */
+async getApprovalUrls(stepKey: string = "approval", approver?: string): Promise<{
+  approvalPage: string;
+  resume: string;
+  cancel: string;
+}>
 
 /**
  * Process items in parallel with optional concurrency control.

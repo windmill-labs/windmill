@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { untrack, type Snippet } from 'svelte'
+	import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
 	import { Loader2 } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { DraftService } from '$lib/gen'
@@ -16,7 +17,8 @@
 		AssetGraphResponse,
 		AssetGraphSelection,
 		NativeTriggerKind,
-		PipelineMode
+		PipelineMode,
+		DbtAssetProvenance
 	} from './types'
 	import type { AssetKind, Script, ScriptLang } from '$lib/gen'
 	import type { RunnableRunState, PipelineEvent } from './activeRunnables.svelte'
@@ -76,6 +78,9 @@
 		localScriptsVersion,
 		selectionProducers = [],
 		selectionColumnGraph,
+		selectionColumnLoading = false,
+		selectionColumnTruncated = false,
+		selectionDbt,
 		schemaCanEvolve = true,
 		selectionForkMaterialization = undefined,
 		schemaContractContext = undefined,
@@ -179,8 +184,15 @@
 		 * the selected node's source on live-reload. */
 		localScriptsVersion?: unknown
 		selectionProducers?: Array<{ kind: 'script' | 'flow'; path: string; unsaved?: boolean }>
-		/** Transitive column-lineage trace for a selected ducklake asset (route page). */
+		/** Transitive column-lineage trace for the selected asset (route page). */
 		selectionColumnGraph?: ColumnLineageGraph
+		/** That trace still being fetched — a dbt relation's is a request of its
+		 *  own, so it arrives after the selection does. */
+		selectionColumnLoading?: boolean
+		/** That trace cut at the part nearest the selection. */
+		selectionColumnTruncated?: boolean
+		/** dbt provenance of the selected relation — carries its SQL. */
+		selectionDbt?: DbtAssetProvenance
 		schemaCanEvolve?: boolean
 		/** Fork workspaces: data-environment state of the selected ducklake asset (route page). */
 		selectionForkMaterialization?: 'fork' | 'deferred'
@@ -262,8 +274,7 @@
 	// the global drafts list. localStorage is a synchronous crash mirror, READ only
 	// for the one-time migration below; the DB is the source of truth on load.
 	// FlowBuilder's autosave analogue — gated by `persistDrafts`.
-	const PIPELINE_DRAFT_KIND = 'data_pipeline' as const
-	let pipelineDraftPath = $derived(`f/${folder}/data_pipeline`)
+	let pipelineDraftPath = $derived(pipelineBundlePath(folder))
 	let storageKey = $derived(`pipeline-${folder}`)
 	type PipelineDraftBundle = { drafts: Array<[string, PipelineDraft]>; activeDraftPath?: string }
 	// Hydration is tracked on the editor instance (`editor.hydratedFromDb`), not a
@@ -512,6 +523,9 @@
 						selection={activeDraft ? undefined : editor.selection}
 						selectionProducers={activeDraft ? [] : selectionProducers}
 						{selectionColumnGraph}
+						{selectionColumnLoading}
+						{selectionColumnTruncated}
+						{selectionDbt}
 						{schemaCanEvolve}
 						{selectionForkMaterialization}
 						{schemaContractContext}

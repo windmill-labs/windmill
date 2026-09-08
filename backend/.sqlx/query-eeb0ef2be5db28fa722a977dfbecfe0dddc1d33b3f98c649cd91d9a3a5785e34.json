@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE capture_config SET email = $1 WHERE email = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "eeb0ef2be5db28fa722a977dfbecfe0dddc1d33b3f98c649cd91d9a3a5785e34"
+}

@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT EXISTS(\n            SELECT 1\n            FROM workspace_settings ws\n            JOIN workspace w ON w.id = ws.workspace_id\n            WHERE w.deleted = false AND w.id NOT LIKE 'wm-fork%'\n              AND jsonb_exists(ws.large_file_storage->'secondary_storage', 'main')\n        ) AS \"exists!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "48969b648d36da8ef422d8f936eb5324655def916a0ac6f6a65eb649b17f102d"
+}

@@ -80,6 +80,16 @@ async fn test_offboard_to_user(db: Pool<Postgres>) -> anyhow::Result<()> {
     .execute(&db)
     .await?;
 
+    // A shared-path script that runs as the departing user. Both halves of its identity have to
+    // move: a worker predating MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL reads the address and
+    // nothing else, so a stale one keeps running it under someone who has just been offboarded.
+    sqlx::query!(
+        "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, on_behalf_of, on_behalf_of_email)
+         VALUES ('test-workspace', 'f/shared/obo', 1099, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'u/test-user-2', 'test2@windmill.dev')"
+    )
+    .execute(&db)
+    .await?;
+
     let resp = authed(client().post(ws_url(port, "offboard/test-user-2")))
         .json(&json!({
             "reassign_to": "u/test-user",
@@ -100,6 +110,17 @@ async fn test_offboard_to_user(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert!(summary["resources_reassigned"].as_i64().unwrap() > 0);
     assert!(summary["variables_reassigned"].as_i64().unwrap() > 0);
     assert!(summary["schedules_reassigned"].as_i64().unwrap() > 0);
+
+    let obo = sqlx::query!(
+        "SELECT on_behalf_of, on_behalf_of_email FROM script WHERE path = 'f/shared/obo' AND workspace_id = 'test-workspace'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        (obo.on_behalf_of.as_deref(), obo.on_behalf_of_email.as_deref()),
+        (Some("u/test-user"), Some("test@windmill.dev")),
+        "the reassignment moves the whole identity, not just the half this release reads"
+    );
 
     // Verify scripts moved
     let moved = sqlx::query_scalar!(

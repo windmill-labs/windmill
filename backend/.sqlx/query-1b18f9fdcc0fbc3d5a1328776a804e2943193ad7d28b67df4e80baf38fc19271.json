@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path, on_behalf_of_email AS email FROM script WHERE workspace_id = 'test-workspace' AND path LIKE 'u/test-user/s%' ORDER BY path",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "email",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "1b18f9fdcc0fbc3d5a1328776a804e2943193ad7d28b67df4e80baf38fc19271"
+}

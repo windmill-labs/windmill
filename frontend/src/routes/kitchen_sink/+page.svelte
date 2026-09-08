@@ -9,11 +9,12 @@
 	import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
 	import DraggableTabs, { type TabItem } from '$lib/components/common/tabs/DraggableTabs.svelte'
 	import { Globe } from 'lucide-svelte'
+	import { workspaceStore } from '$lib/stores'
 
 	let tab = $state('button')
 
-	// Enough tabs to overflow a narrow strip so the shared ScrollableX hover
-	// scrollbar is exercised: drag to reorder, hover to reveal the 4px thumb.
+	// Enough tabs to overflow a narrow strip so the strip's own hover scrollbar is
+	// exercised: drag to reorder, hover to reveal the 4px thumb.
 	let draggableTabs = $state<TabItem[]>(
 		Array.from({ length: 14 }, (_, i) => ({ id: `t${i}`, label: `Preview tab ${i + 1}` }))
 	)
@@ -195,13 +196,13 @@ That's the full round-trip.`
 				<code>CodeDisplay</code> → <code>HighlightCode</code>), constrained to the chat panel width.
 			</div>
 			<div class="border border-border-light rounded-lg p-3 bg-surface" style="max-width: 420px;">
-				<AssistantMessage message={chatMessage} />
+				<AssistantMessage message={chatMessage} workspace={$workspaceStore} />
 			</div>
 		</TabContent>
 		<TabContent value="scrollbar" class="p-4">
 			<div class="text-xs text-tertiary mb-3">
-				DraggableTabs (uses the shared <code>ScrollableX</code>, 4px bar): hover to reveal the
-				thumb, drag to reorder.
+				DraggableTabs (draws its own 4px bar on the strip's bottom edge): hover to reveal the thumb,
+				drag to reorder.
 			</div>
 			<div class="border border-border-light rounded-md" style="max-width: 420px;">
 				<DraggableTabs

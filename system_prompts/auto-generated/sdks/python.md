@@ -2,6 +2,22 @@
 
 Import: import wmill
 
+The client configures itself from the job's environment — base URL, token and credentials mode
+are all set before your code runs, so there is nothing to initialize and no reason to read
+WM_TOKEN or BASE_INTERNAL_URL and build an API URL yourself. Reconstructing that by hand only
+reintroduces details the client already handles. Call the SDK for anything Windmill, and use raw
+HTTP for third-party APIs.
+
+The functions below are the surface to prefer. For an endpoint none of them covers,
+wmill.Windmill().get(endpoint) and .post(endpoint) issue an authenticated request against this
+instance. What does not exist is a function name you guessed at: if it is not listed below, do
+not call it.
+
+To know who is running the script, read the contextual variables rather than calling the API:
+`os.environ.get("WM_END_USER_EMAIL") or os.environ.get("WM_EMAIL")`. WM_END_USER_EMAIL is the app
+viewer when the run was triggered from an app and empty otherwise (both variables are always
+defined), WM_EMAIL is the user the job is permissioned as. WM_USERNAME is the matching username.
+
 def worker_has_internal_server() -> bool
 
 def get_mocked_api() -> Optional[dict]
@@ -43,11 +59,6 @@ def post(endpoint, raise_for_status = True, **kwargs) -> httpx.Response
 #     New authentication token string
 def create_token(duration = dt.timedelta(days=1)) -> str
 
-# Create a script job and return its job id.
-# 
-# .. deprecated:: Use run_script_by_path_async or run_script_by_hash_async instead.
-def run_script_async(path: str = None, hash_: str = None, args: dict = None, scheduled_in_secs: int = None, tag: str = None) -> str
-
 # Create a script job by path and return its job id.
 def run_script_by_path_async(path: str, args: dict = None, scheduled_in_secs: int = None, tag: str = None) -> str
 
@@ -56,11 +67,6 @@ def run_script_by_hash_async(hash_: str, args: dict = None, scheduled_in_secs: i
 
 # Create a flow job and return its job id.
 def run_flow_async(path: str, args: dict = None, scheduled_in_secs: int = None, do_not_track_in_parent: bool = True, tag: str = None) -> str
-
-# Run script synchronously and return its result.
-# 
-# .. deprecated:: Use run_script_by_path or run_script_by_hash instead.
-def run_script(path: str = None, hash_: str = None, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False, tag: str = None) -> Any
 
 # Run script by path synchronously and return its result.
 def run_script_by_path(path: str, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False, tag: str = None) -> Any
@@ -307,19 +313,23 @@ def delete_s3_object(s3object: S3Object | str, s3_resource_path: str | None = No
 # 
 # Args:
 #     s3_objects: List of S3 objects to sign
+#     expiry_secs: How long the signature stays valid, in seconds
+#         (defaults to 43200 = 12h, clamped to [60, 604800])
 # 
 # Returns:
 #     List of signed S3 objects
-def sign_s3_objects(s3_objects: list[S3Object | str]) -> list[S3Object]
+def sign_s3_objects(s3_objects: list[S3Object | str], expiry_secs: int | None = None) -> list[S3Object]
 
 # Sign a single S3 object for use by anonymous users in public apps.
 # 
 # Args:
 #     s3_object: S3 object to sign
+#     expiry_secs: How long the signature stays valid, in seconds
+#         (defaults to 43200 = 12h, clamped to [60, 604800])
 # 
 # Returns:
 #     Signed S3 object
-def sign_s3_object(s3_object: S3Object | str) -> S3Object
+def sign_s3_object(s3_object: S3Object | str, expiry_secs: int | None = None) -> S3Object
 
 # Generate presigned public URLs for an array of S3 objects.
 # If an S3 object is not signed yet, it will be signed first.
@@ -327,6 +337,8 @@ def sign_s3_object(s3_object: S3Object | str) -> S3Object
 # Args:
 #     s3_objects: List of S3 objects to sign
 #     base_url: Optional base URL for the presigned URLs (defaults to WM_BASE_URL)
+#     expiry_secs: How long the signatures stay valid, in seconds
+#         (defaults to 43200 = 12h, clamped to [60, 604800])
 # 
 # Returns:
 #     List of signed public URLs
@@ -334,7 +346,7 @@ def sign_s3_object(s3_object: S3Object | str) -> S3Object
 # Example:
 #     >>> s3_objs = [S3Object(s3="/path/to/file1.txt"), S3Object(s3="/path/to/file2.txt")]
 #     >>> urls = client.get_presigned_s3_public_urls(s3_objs)
-def get_presigned_s3_public_urls(s3_objects: list[S3Object | str], base_url: str | None = None) -> list[str]
+def get_presigned_s3_public_urls(s3_objects: list[S3Object | str], base_url: str | None = None, expiry_secs: int | None = None) -> list[str]
 
 # Generate a presigned public URL for an S3 object.
 # If the S3 object is not signed yet, it will be signed first.
@@ -342,6 +354,8 @@ def get_presigned_s3_public_urls(s3_objects: list[S3Object | str], base_url: str
 # Args:
 #     s3_object: S3 object to sign
 #     base_url: Optional base URL for the presigned URL (defaults to WM_BASE_URL)
+#     expiry_secs: How long the signature stays valid, in seconds
+#         (defaults to 43200 = 12h, clamped to [60, 604800])
 # 
 # Returns:
 #     Signed public URL
@@ -349,7 +363,7 @@ def get_presigned_s3_public_urls(s3_objects: list[S3Object | str], base_url: str
 # Example:
 #     >>> s3_obj = S3Object(s3="/path/to/file.txt")
 #     >>> url = client.get_presigned_s3_public_url(s3_obj)
-def get_presigned_s3_public_url(s3_object: S3Object | str, base_url: str | None = None) -> str
+def get_presigned_s3_public_url(s3_object: S3Object | str, base_url: str | None = None, expiry_secs: int | None = None) -> str
 
 # Get the current user information.
 # 
@@ -399,6 +413,17 @@ def get_shared_state(path: str = 'state.json') -> None
 #     Dictionary with approvalPage, resume, and cancel URLs
 def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
 
+# Get the resume URLs bound to one ``wait_for_approval`` step of this workflow.
+# 
+# Args:
+#     step_key: Checkpoint key of the approval step, as passed to
+#         ``wait_for_approval(key=...)``
+#     approver: Optional approver name
+# 
+# Returns:
+#     Dictionary with approvalPage, resume, and cancel URLs
+def get_approval_urls(step_key: str = 'approval', approver: str = None) -> dict
+
 # Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
 # 
 # **[Enterprise Edition Only]** To include form fields in the Slack approval request, use the "Advanced -> Suspend -> Form" functionality.
@@ -437,11 +462,6 @@ def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
 # - The function checks for required environment variables (`WM_FLOW_JOB_ID`, `WM_FLOW_STEP_ID`) to ensure it is run in the appropriate context.
 def request_interactive_slack_approval(slack_resource_path: str, channel_id: str, message: str = None, approver: str = None, default_args_json: dict = None, dynamic_enums_json: dict = None) -> None
 
-# Get email from workspace username
-# This method is particularly useful for apps that require the email address of the viewer.
-# Indeed, in the viewer context WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
-def username_to_email(username: str) -> str
-
 # Send a message to a Microsoft Teams conversation with conversation_id, where success is used to style the message
 def send_teams_message(conversation_id: str, text: str, success: bool = True, card_block: dict = None)
 
@@ -474,6 +494,18 @@ def deprecate(in_favor_of: str)
 def get_workspace() -> str
 
 def get_version() -> str
+
+# Create a script job and return its job ID.
+# 
+# Args:
+#     hash_or_path: Script hash or path (determined by presence of '/')
+#     args: Script arguments
+#     scheduled_in_secs: Delay before execution in seconds
+#     tag: Override the worker tag the job runs on
+# 
+# Returns:
+#     Job ID string
+def run_script_async(hash_or_path: str, args: Dict[str, Any] = None, scheduled_in_secs: int = None, tag: str = None) -> str
 
 # Run a script synchronously by hash and return its result.
 # 
@@ -620,6 +652,10 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 # - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
 # - **Standalone**: executes the function body directly.
 # 
+# A task runs as its own job, so its result is always encoded as JSON and
+# decoded back before the caller sees it: a ``datetime`` comes back as a
+# string, a tuple as a list.
+# 
 # Usage::
 # 
 #     @task
@@ -665,6 +701,10 @@ def workflow(func)
 # On replay the cached value is returned without re-executing ``fn``.
 # Use for lightweight deterministic operations (timestamps, random IDs,
 # config reads) that should not incur the overhead of a child job.
+# 
+# ``fn``'s result is encoded as JSON and decoded back before it is returned,
+# so the round that runs the body sees the same types every replay sees:
+# a ``datetime`` comes back as a string, a tuple as a list.
 async def step(name: str, fn)
 
 # Server-side sleep — suspend the workflow for the given duration without holding a worker.
@@ -675,8 +715,9 @@ async def sleep(seconds: int)
 
 # Suspend the workflow and wait for an external approval.
 # 
-# Use ``get_resume_urls()`` (wrapped in ``step()``) to obtain
-# resume/cancel/approval URLs before calling this function.
+# Pass ``key`` to name the step, then ``get_approval_urls(key)`` yields the URLs
+# that resume exactly this approval — route them through your own channel.
+# Without a key the steps are named ``approval``, ``approval_2``, ...
 # 
 # Returns a dict with ``value`` (form data), ``approver``, and ``approved``.
 # 
@@ -684,13 +725,14 @@ async def sleep(seconds: int)
 #     timeout: Approval timeout in seconds (default 1800).
 #     form: Optional form schema for the approval page.
 #     self_approval: Whether the user who triggered the flow can approve it (default True).
+#     key: Optional checkpoint key naming this approval step.
 # 
 # Example::
 # 
-#     urls = await step("urls", lambda: get_resume_urls())
-#     await step("notify", lambda: send_email(urls["approvalPage"]))
-#     result = await wait_for_approval(timeout=3600)
-async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True) -> dict
+#     urls = await step("urls", lambda: get_approval_urls("manager"))
+#     await step("notify", lambda: send_email(urls["resume"], urls["cancel"]))
+#     result = await wait_for_approval(key="manager", timeout=3600)
+async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True, key: str | None = None) -> dict
 
 # Process items in parallel with optional concurrency control.
 # 

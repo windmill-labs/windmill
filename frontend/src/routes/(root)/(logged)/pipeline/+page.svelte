@@ -3,6 +3,7 @@
 	import PipelineFolderList from '$lib/components/assets/AssetGraph/PipelineFolderList.svelte'
 	import PipelineSetupSignpost from '$lib/components/assets/AssetGraph/PipelineSetupSignpost.svelte'
 	import PipelineAlphaAckModal from '$lib/components/assets/AssetGraph/PipelineAlphaAckModal.svelte'
+	import PipelineDbtSignpost from '$lib/components/assets/AssetGraph/PipelineDbtSignpost.svelte'
 	import { BookOpen, NetworkIcon } from 'lucide-svelte'
 	import { onMount } from 'svelte'
 
@@ -79,6 +80,13 @@
 			{/if}
 
 			<PipelineFolderList />
+
+			<!-- Below the pipeline content on purpose: dbt is a separate runtime, not a
+			     way of building a pipeline, and reads as one when it sits in the flow
+			     that defines what a pipeline is. -->
+			{#if !$userStore?.operator}
+				<PipelineDbtSignpost />
+			{/if}
 		</div>
 	</div>
 </div>

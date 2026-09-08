@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM v2_job_completed\n                 WHERE id IN (\n                     SELECT jc.id FROM v2_job_completed jc\n                     LEFT JOIN v2_job j ON j.id = jc.id\n                     WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval\n                       AND jc.completed_at >= COALESCE($4::timestamptz, '-infinity'::timestamptz)\n                       AND ($5::text[] IS NULL OR jc.workspace_id NOT IN (\n                           SELECT u FROM unnest($5::text[]) AS u WHERE u IS NOT NULL\n                       ))\n                       AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) NOT IN (\n                           SELECT u FROM unnest($3::uuid[]) AS u WHERE u IS NOT NULL\n                       )\n                     ORDER BY jc.completed_at ASC\n                     LIMIT $2\n                     FOR UPDATE OF jc SKIP LOCKED\n                 )\n                 RETURNING id, completed_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "completed_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "UuidArray",
+        "Timestamptz",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "c89a6cb3b2d5aad2d5e406b5d85149d3ee4cd59ae9d7b154a6d0fcab438b09e6"
+}

@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT g.job_id, g.ingested_at FROM dbt_graph_snapshot g\n                  WHERE g.workspace_id = $1 AND g.script_path = $2\n                    AND g.script_hash IS NOT DISTINCT FROM $3\n                    AND g.job_id = CASE WHEN EXISTS (\n                          SELECT 1 FROM dbt_graph_snapshot s\n                           WHERE s.workspace_id = $1 AND s.job_id = $4)\n                        THEN $4::uuid\n                        ELSE '00000000-0000-0000-0000-000000000000'::uuid END\n                  LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "ingested_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "9ac8b60c53631de2c3dab765ddc23cc99f9154e4239d228c0ef8f3726b0d19fc"
+}

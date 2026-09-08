@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE token SET email = $1 WHERE email = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d7597022d6fc01601bff5f243fb38080fc6b65e95a3aad630c7abe3edcedbc98"
+}

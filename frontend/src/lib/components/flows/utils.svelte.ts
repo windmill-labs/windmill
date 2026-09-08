@@ -6,13 +6,18 @@ import {
 	type Job,
 	type RestartedFrom,
 	type OpenFlow,
-	type MemoryConfig
+	type MemoryConfig,
+	type FlowValue,
+	type Retry
 } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { cleanExpr, emptySchema } from '$lib/utils'
+import { unescapeTemplateBackticks } from '$lib/utils/templateLiteral'
 import { get } from 'svelte/store'
 import type { FlowModuleState } from './flowState'
 import { type PickableProperties, dfs } from './previousResults'
+import { forEachFlowModule } from './dfs'
+import { withAgentDrafts } from './linkedAgentDrafts'
 import { NEVER_TESTED_THIS_FAR } from './models'
 import { sendUserToast } from '$lib/toast'
 import type { ExtendedOpenFlow } from './types'
@@ -48,9 +53,9 @@ export function evalValue(
 	let v: any
 	let t = inputTransforms?.[k]
 
-	if (t.type == 'static') {
+	if (t?.type == 'static') {
 		v = t.value
-	} else if (t.type == 'javascript') {
+	} else if (t?.type == 'javascript') {
 		try {
 			let context = {
 				flow_input: pickableProperties?.flow_input,
@@ -94,6 +99,9 @@ export function filteredContentForExport(flow: ExtendedOpenFlow) {
 	if (flow.on_behalf_of_email) {
 		o['on_behalf_of_email'] = flow.on_behalf_of_email
 	}
+	if (flow.on_behalf_of) {
+		o['on_behalf_of'] = flow.on_behalf_of
+	}
 	if (flow.ws_error_handler_muted) {
 		o['ws_error_handler_muted'] = flow.ws_error_handler_muted
 	}
@@ -112,6 +120,7 @@ export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 	dedicated_worker?: boolean
 	visible_to_runner_only?: boolean
 	on_behalf_of_email?: string
+	on_behalf_of?: string
 } {
 	const newFlow: Flow = $state.snapshot(flow)
 
@@ -179,22 +188,32 @@ export function jobsToResults(jobs: Job[]) {
 	})
 }
 
+/**
+ * Run the flow the editor currently holds. A step linked to a saved agent runs that agent's
+ * unsaved draft when there is one (`withAgentDrafts`), so testing exercises what the agent editor
+ * is showing rather than the deployed resource — the same rule the agent editor's own test pane
+ * follows. The value passed in is left alone; only what goes to the server is substituted.
+ */
 export async function runFlowPreview(
 	args: Record<string, any>,
 	flow: OpenFlow & { tag?: string },
 	path: string,
 	restartedFrom: RestartedFrom | undefined,
 	conversationId?: string | undefined,
-	tempScriptRefs?: Record<string, string>
+	tempScriptRefs?: Record<string, string>,
+	// The session's acting workspace when previewing inside an AI-session flow
+	// editor; falls back to the navigation workspace for full-page previews.
+	workspace?: string
 ) {
-	const newFlow = flow
+	const ws = workspace ?? get(workspaceStore) ?? ''
+	const value = await withAgentDrafts(flow.value, ws)
 	return await JobService.runFlowPreview({
-		workspace: get(workspaceStore) ?? '',
+		workspace: ws,
 		requestBody: {
 			args,
-			value: newFlow.value,
+			value,
 			path: path,
-			tag: newFlow.tag,
+			tag: flow.tag,
 			restarted_from: restartedFrom,
 			temp_script_refs: tempScriptRefs
 		},
@@ -209,7 +228,7 @@ export function codeToStaticTemplate(code?: string): string | undefined {
 	if (lines.length == 1) {
 		const line = lines[0].trim()
 		if (line[0] == '`' && line.charAt(line.length - 1) == '`') {
-			return line.slice(1, line.length - 1).replaceAll('\\`', '`')
+			return unescapeTemplateBackticks(line.slice(1, line.length - 1))
 		} else {
 			return `\$\{${line}\}`
 		}
@@ -222,6 +241,37 @@ export function emptyFlowModuleState(): FlowModuleState {
 		schema: emptySchema(),
 		previewResult: NEVER_TESTED_THIS_FAR
 	}
+}
+
+// `same_worker` hands the next step directly to the worker holding `./shared`, bypassing
+// `scheduled_for`: a retry delay is silently ignored, and a sleep breaks the hand-off so the
+// next step can land on another worker without `./shared`. Keep the two mutually exclusive.
+export const SAME_WORKER_INCOMPATIBLE_MSG =
+	'Retries and sleeps are not compatible with the shared directory (`Same Worker`): retry delays would be ignored and a sleep would lose the `./shared` folder.'
+
+// Mirrors the backend's `Retry::has_attempts`: a retry with no attempt never runs, and the
+// retries tab renders it as "Disabled", so it must not block anything.
+function hasRetryAttempts(retry: Retry | undefined): boolean {
+	return (retry?.constant?.attempts ?? 0) > 0 || (retry?.exponential?.attempts ?? 0) > 0
+}
+
+export function modulesWithRetryOrSleep(flow: FlowValue): string[] {
+	// The failure and preprocessor modules live outside `modules` but run as regular steps on
+	// the same-worker hand-off. Agent tools don't: they never go through the flow scheduler.
+	const roots = [flow.modules, flow.failure_module, flow.preprocessor_module]
+		.flat()
+		.filter((m) => m != undefined)
+	const ids: string[] = []
+	forEachFlowModule(
+		roots,
+		(m) => {
+			if (hasRetryAttempts(m.retry) || m.sleep != undefined) {
+				ids.push(m.id)
+			}
+		},
+		{ skipToolNodes: true }
+	)
+	return ids
 }
 
 export function checkIfParentLoop(

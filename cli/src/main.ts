@@ -32,6 +32,7 @@ import { OpenAPI } from "../gen/index.ts";
 import { getHeaders } from "./utils/utils.ts";
 import { detectAuthGatewayChallenge } from "./utils/http_guards.ts";
 import { setShowDiffs } from "./core/conf.ts";
+import { markRequestsAsCliClient } from "./core/client.ts";
 import { NpmProvider } from "./utils/upgrade.ts";
 import { pull as hubPull } from "./commands/hub/hub.ts";
 import { pull, push } from "./commands/sync/sync.ts";
@@ -300,6 +301,7 @@ async function main() {
     if (extraHeaders) {
       OpenAPI.HEADERS = extraHeaders;
     }
+    markRequestsAsCliClient();
     OpenAPI.interceptors.response.use(async (response) => {
       await detectAuthGatewayChallenge(response);
       return response;

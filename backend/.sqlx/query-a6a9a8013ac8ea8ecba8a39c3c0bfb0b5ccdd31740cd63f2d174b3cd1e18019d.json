@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE queued_ancestors AS (\n            SELECT j.id, j.parent_job, 0 AS depth\n            FROM v2_job j JOIN v2_job_queue q USING (id)\n            WHERE j.id = $1 AND j.workspace_id = $2\n          UNION ALL\n            SELECT j.id, j.parent_job, a.depth + 1\n            FROM queued_ancestors a\n            JOIN v2_job j ON j.id = a.parent_job AND j.workspace_id = $2\n            JOIN v2_job_queue q ON q.id = j.id\n            WHERE a.depth < $3\n        )\n        SELECT id AS \"id!\", depth AS \"depth!\" FROM queued_ancestors ORDER BY depth DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "depth!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "a6a9a8013ac8ea8ecba8a39c3c0bfb0b5ccdd31740cd63f2d174b3cd1e18019d"
+}

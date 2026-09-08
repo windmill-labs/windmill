@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT auto_invite->'instance_groups' as \"groups: serde_json::Value\",\n                  auto_invite->'instance_groups_roles' as \"roles: serde_json::Value\"\n           FROM workspace_settings WHERE workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "groups: serde_json::Value",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "roles: serde_json::Value",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "49bf26ae4b7e3421507f9e7e42c59ad7e0f481a9550e0f70e1145d5e541bd6e5"
+}

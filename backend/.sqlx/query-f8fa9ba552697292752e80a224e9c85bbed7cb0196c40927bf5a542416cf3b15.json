@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO schedule(workspace_id, path, edited_by, schedule, timezone, enabled, script_path, is_flow, args, email, permissioned_as)\n         VALUES ('test-workspace', 'u/test-user-2/sched', 'test-user-2', '0 0 1 1 *', 'UTC', false, 'u/test-user-2/s', false, '{}'::json, 'test2@windmill.dev', 'test2@windmill.dev')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "f8fa9ba552697292752e80a224e9c85bbed7cb0196c40927bf5a542416cf3b15"
+}

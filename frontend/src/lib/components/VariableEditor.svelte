@@ -5,6 +5,13 @@
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
+	import OpenInSessionButton from './sessions/OpenInSessionButton.svelte'
+	import {
+		clearPageDrawerAnchor,
+		pageDrawerSessionSource,
+		setPageDrawerAnchor
+	} from './sessions/pageDrawerSession'
+	import { VARIABLES_PATH } from './sessions/previewPaths'
 	import Alert from './common/alert/Alert.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite } from '$lib/utils'
@@ -28,6 +35,12 @@
 		labels: string[] | undefined
 		wsSpecific: boolean
 	}
+
+	// The "current" workspace this editor defaults New/Edit actions to. Session
+	// editors pass their acting workspace so secrets are created/updated there
+	// rather than in the navigation workspace. Defaults to $workspaceStore.
+	let { workspace = undefined }: { workspace?: string } = $props()
+	let curWs = $derived(workspace ?? $workspaceStore)
 
 	let editPath: string | undefined = $state(undefined)
 
@@ -86,6 +99,12 @@
 	const MAX_VARIABLE_LENGTH = 10000
 	const edit = $derived(editPath !== undefined)
 	const initialPath = $derived(editPath ?? '')
+	// `selected`, not `curWs`: WsSpecificVersions re-points this drawer at another
+	// workspace's version of the variable, and the session must act on the one the
+	// user is looking at.
+	const sessionSource = $derived(
+		pageDrawerSessionSource(VARIABLES_PATH, editPath, selected ?? curWs)
+	)
 	const current = $derived(selected ? states[selected]?.draft : undefined)
 	const can_write = $derived.by(() => {
 		if (!selected || !edit) return true
@@ -119,9 +138,7 @@
 	// that case.
 	const selectedDirty = $derived(!!selected && dirtyWorkspaces.includes(selected))
 	const otherDirty = $derived(
-		dirtyWorkspaces.length == 1
-			? dirtyWorkspaces.filter((ws) => ws !== $workspaceStore)
-			: dirtyWorkspaces
+		dirtyWorkspaces.length == 1 ? dirtyWorkspaces.filter((ws) => ws !== curWs) : dirtyWorkspaces
 	)
 	const dirtyValid = $derived(
 		dirtyWorkspaces.every((ws) => {
@@ -198,7 +215,7 @@
 	export function initNew(): void {
 		reset()
 		editPath = undefined
-		const ws = $workspaceStore!
+		const ws = curWs!
 		const s: VariableState = {
 			path: '',
 			variable: { value: '', is_secret: true, description: '' },
@@ -215,8 +232,9 @@
 	export function editVariable(edit_path: string): void {
 		reset()
 		editPath = edit_path
-		selected = $workspaceStore!
+		selected = curWs!
 		drawer?.openDrawer()
+		setPageDrawerAnchor(VARIABLES_PATH, edit_path)
 	}
 
 	async function loadSecret(): Promise<void> {
@@ -289,7 +307,7 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="50rem">
+<Drawer bind:this={drawer} size="50rem" on:close={() => clearPageDrawerAnchor(VARIABLES_PATH)}>
 	<DrawerContent
 		title={edit ? `Update variable at ${initialPath}` : 'Add a variable'}
 		bannerReserved={edit}
@@ -337,18 +355,15 @@
 						{can_write}
 						{edit}
 						onLoadSecret={loadSecret}
+						{workspace}
 					/>
 				{/key}
 			{/if}
 		</div>
 		{#snippet actions()}
-			{#if edit && $workspaceStore}
-				<WsSpecificVersions
-					kind="variable"
-					workspaceId={$workspaceStore}
-					{initialPath}
-					bind:selected
-				/>
+			<OpenInSessionButton source={sessionSource} />
+			{#if edit && curWs}
+				<WsSpecificVersions kind="variable" workspaceId={curWs} {initialPath} bind:selected />
 			{/if}
 			<Button
 				on:click={save}

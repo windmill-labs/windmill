@@ -10,7 +10,10 @@ use serde::{Deserialize, Serialize};
 use windmill_api_auth::ApiAuthed;
 use windmill_common::{error::JsonResult, DB};
 
-use crate::{get_workspace_integration, require_native_integration_use, External, ServiceName};
+use crate::{
+    get_workspace_integration, map_external_error, require_native_integration_use, External,
+    ServiceName,
+};
 
 use super::Google;
 
@@ -100,7 +103,8 @@ async fn list_calendars(
 
     let response: GoogleCalendarListResponse = handler
         .http_client_request::<_, ()>(&url, Method::GET, &workspace_id, &db, None, None)
-        .await?;
+        .await
+        .map_err(map_external_error)?;
 
     let calendars = response
         .items
@@ -153,7 +157,8 @@ async fn list_drive_files(
 
     let response: DriveApiResponse = handler
         .http_client_request::<_, ()>(&url, Method::GET, &workspace_id, &db, None, None)
-        .await?;
+        .await
+        .map_err(map_external_error)?;
 
     let files = response
         .files
@@ -206,7 +211,8 @@ async fn list_shared_drives(
 
     let response: SharedDrivesApiResponse = handler
         .http_client_request::<_, ()>(&url, Method::GET, &workspace_id, &db, None, None)
-        .await?;
+        .await
+        .map_err(map_external_error)?;
 
     let drives = response
         .drives

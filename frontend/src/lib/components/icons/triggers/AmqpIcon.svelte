@@ -1,0 +1,26 @@
+<script lang="ts">
+	interface Props {
+		size?: number
+		color?: string | undefined
+		class?: string
+	}
+
+	let { size = 16, color = undefined, class: clazz = '' }: Props = $props()
+</script>
+
+<!-- Monochrome trigger variant. Triggers are listed beside lucide glyphs (Webhook, Route,
+	Database), so a coloured brand mark breaks the set. This is the pre-audit artwork, which
+	inherits currentColor; the full-colour mark lives in ../AmqpIcon.svelte and is what the
+	resource picker and docs use. Keep the two in sync if the artwork changes. -->
+<svg
+	xmlns="http://www.w3.org/2000/svg"
+	width={`${size}px`}
+	height={`${size}px`}
+	viewBox="1.057 1.057 21.886 21.886"
+	fill={color ?? 'currentColor'}
+	class={clazz}
+>
+	<path
+		d="M21 3H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h6v2H7v3a1 1 0 0 0 1 1h1v2H7v2h10v-2h-2v-2h1a1 1 0 0 0 1-1v-3h-2v-2h6a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1Zm-1 6H4V5h16v4Zm-9 9v-2h2v2h-2Zm-4-5h10v2H7v-2Z"
+	/>
+</svg>

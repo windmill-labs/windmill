@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { maskKey, forkDiffKindToUserDraftKind, diffInMask } from './modifiedItemsMask'
+import {
+	maskKey,
+	forkDiffKindToUserDraftKind,
+	diffInMask,
+	maskHasDraftRow
+} from './modifiedItemsMask'
 import type { WorkspaceItemDiff } from '$lib/gen'
 
 // The fork-diff → user-draft kind bridge must stay the inverse of
@@ -57,10 +62,38 @@ describe('diffInMask', () => {
 		expect(diffInMask(diff('script', 'u/me/s'), mask)).toBe(true)
 	})
 
+	it('matches a legacy app diff under both its identity and bridged mask keys', () => {
+		expect(diffInMask(diff('app', 'u/me/legacy'), new Set(['app:u/me/legacy']))).toBe(true)
+		expect(diffInMask(diff('app', 'u/me/legacy'), new Set(['raw_app:u/me/legacy']))).toBe(true)
+		expect(diffInMask(diff('app', 'u/me/legacy'), new Set(['app:u/me/other']))).toBe(false)
+	})
+
 	it('does not match when path or kind differ, or kind has no equivalent', () => {
 		const mask = new Set(['trigger_http:f/foo/route'])
 		expect(diffInMask(diff('http_trigger', 'f/other/route'), mask)).toBe(false)
 		expect(diffInMask(diff('script', 'f/foo/route'), mask)).toBe(false)
 		expect(diffInMask(diff('folder', 'f/foo/route'), mask)).toBe(false)
+	})
+})
+
+describe('maskHasDraftRow', () => {
+	it('matches by storage path or, for a parked live draft, by its visible draft_path', () => {
+		const mask = new Set(['script:u/me/my_script'])
+		expect(maskHasDraftRow(mask, { kind: 'script', path: 'u/me/my_script' })).toBe(true)
+		expect(
+			maskHasDraftRow(mask, {
+				kind: 'script',
+				path: 'u/me/draft_123',
+				draft_path: 'u/me/my_script'
+			})
+		).toBe(true)
+	})
+
+	it('does not match a different path or kind', () => {
+		const mask = new Set(['script:u/me/my_script'])
+		expect(maskHasDraftRow(mask, { kind: 'script', path: 'u/me/other' })).toBe(false)
+		expect(
+			maskHasDraftRow(mask, { kind: 'flow', path: 'u/me/draft_123', draft_path: 'u/me/my_script' })
+		).toBe(false)
 	})
 })

@@ -9,12 +9,38 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use crate::common::types::{
-    FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo,
+    FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo, WorkspaceInfo,
 };
 use crate::server::endpoints::EndpointTool;
 
 /// Result type for backend operations using rmcp's ErrorData directly
 pub type BackendResult<T> = Result<T, ErrorData>;
+
+/// What the backend needs about the HTTP request a tool call arrived on, in order
+/// to hand a runnable the headers of the call that triggered it.
+pub struct McpRequest<'a> {
+    pub headers: &'a http::HeaderMap,
+    /// The MCP tool name the caller invoked, reported to preprocessors.
+    pub tool_name: &'a str,
+}
+
+/// How a script/flow listing is narrowed by path at the SQL layer, *before* the
+/// `ITEMS_FETCH_MAX_LIMIT` cap applies.
+///
+/// This must be pushed into the query, not applied in Rust after the fetch: the
+/// listing is capped to the newest N rows, so a granular token whose in-scope
+/// items are not among those N would have them truncated away before any Rust
+/// filter ran (returning zero tools even though the items exist).
+#[derive(Debug, Clone, Copy)]
+pub enum PathFilter<'a> {
+    /// Raw `LIKE '{prefix}%'` prefix — used to resolve a hashed tool name back to
+    /// its full path.
+    Prefix(&'a str),
+    /// MCP scope patterns (`*`, an exact path, or an `x/*` subtree). Mirrors
+    /// `is_resource_allowed`: a `*` pattern matches everything, an empty list
+    /// matches nothing.
+    Patterns(&'a [String]),
+}
 
 /// Authentication context required by the MCP server
 pub trait McpAuth: Send + Sync + Clone + 'static {
@@ -62,22 +88,22 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
     // Listing Operations
     // ─────────────────────────────────────────────────────────────────
 
-    /// List scripts, optionally filtered to favorites only and/or by path prefix
+    /// List scripts, optionally filtered to favorites only and/or by path
     async fn list_scripts(
         &self,
         auth: &Self::Auth,
         workspace_id: &str,
         favorites_only: bool,
-        path_prefix: Option<&str>,
+        path_filter: Option<PathFilter<'_>>,
     ) -> BackendResult<Vec<ScriptInfo>>;
 
-    /// List flows, optionally filtered to favorites only and/or by path prefix
+    /// List flows, optionally filtered to favorites only and/or by path
     async fn list_flows(
         &self,
         auth: &Self::Auth,
         workspace_id: &str,
         favorites_only: bool,
-        path_prefix: Option<&str>,
+        path_filter: Option<PathFilter<'_>>,
     ) -> BackendResult<Vec<FlowInfo>>;
 
     /// List resource types in workspace
@@ -139,6 +165,7 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         workspace_id: &str,
         path: &str,
         args: Value,
+        request: &McpRequest<'_>,
     ) -> BackendResult<Value>;
 
     /// Run a flow and wait for result
@@ -148,6 +175,7 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         workspace_id: &str,
         path: &str,
         args: Value,
+        request: &McpRequest<'_>,
     ) -> BackendResult<Value>;
 
     /// Call an endpoint tool (generated API endpoint)
@@ -158,6 +186,27 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         endpoint_tool: &EndpointTool,
         args: Value,
     ) -> BackendResult<Value>;
+
+    // ─────────────────────────────────────────────────────────────────
+    // Multi-workspace support
+    // ─────────────────────────────────────────────────────────────────
+
+    /// List the workspaces the caller (identified by `auth`) can access. Used by
+    /// the `list_workspaces` tool exposed in multi-workspace mode.
+    async fn list_accessible_workspaces(
+        &self,
+        auth: &Self::Auth,
+    ) -> BackendResult<Vec<WorkspaceInfo>>;
+
+    /// Resolve a workspace-specific auth for `workspace_id` from the raw bearer
+    /// `token`. Returns an error if the token's owner is not a member of the
+    /// workspace. Used in multi-workspace mode to authorize per-workspace tool
+    /// calls (the base auth carries no workspace-specific permissions).
+    async fn resolve_workspace_auth(
+        &self,
+        token: &str,
+        workspace_id: &str,
+    ) -> BackendResult<Self::Auth>;
 
     // ─────────────────────────────────────────────────────────────────
     // Endpoint Tools

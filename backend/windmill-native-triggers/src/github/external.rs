@@ -232,7 +232,10 @@ impl External for GitHub {
                 Err(e) => {
                     errors.push(crate::sync::SyncError {
                         resource_path: trigger.script_path.clone(),
-                        error_message: format!("Failed to verify GitHub webhook: {}", e),
+                        error_message: format!(
+                            "Failed to verify GitHub webhook: {}",
+                            crate::external_error_message(&e)
+                        ),
                         error_type: "api_error".to_string(),
                     });
                 }
@@ -287,6 +290,31 @@ impl External for GitHub {
 
     fn additional_routes(&self) -> axum::Router {
         routes::github_routes(self.clone())
+    }
+
+    fn error_hint(&self, status: StatusCode) -> Option<&'static str> {
+        match status {
+            StatusCode::UNAUTHORIZED => {
+                Some("reconnect the GitHub integration from Workspace settings > Integrations.")
+            }
+            StatusCode::FORBIDDEN => Some(
+                "check that the OAuth app is authorized for the organization and that the \
+                 connected GitHub account has the access this needs — managing webhooks requires \
+                 admin rights on the repository.",
+            ),
+            _ => None,
+        }
+    }
+
+    /// GitHub answers 403 to both throttling and a permission failure, and words the throttle
+    /// two ways: the primary and secondary limits say "rate limit", the older secondary
+    /// response says "abuse detection mechanism".
+    fn is_transient_response(&self, status: StatusCode, body: &str) -> bool {
+        if status != StatusCode::FORBIDDEN {
+            return false;
+        }
+        let body = body.to_ascii_lowercase();
+        body.contains("rate limit") || body.contains("abuse detection")
     }
 }
 

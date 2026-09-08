@@ -11,6 +11,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import Button from '../common/button/Button.svelte'
 	import type { FlowCopilotContext } from './flow'
+	import { logStepInputFill } from './stepInputFillTelemetry'
 	import { Check, ExternalLink, Loader2, Wand2 } from 'lucide-svelte'
 	import { stepInputCompletionEnabled } from '$lib/stores'
 	import { copilotInfo } from '$lib/aiStore'
@@ -44,6 +45,7 @@
 		if (Object.keys($generatedExprs || {}).length > 0 || loading) {
 			return
 		}
+		logStepInputFill('all')
 		abortController = new AbortController()
 		loading = true
 		stepInputsLoading?.set(true)
@@ -168,10 +170,25 @@ input_name2: expression2
 		}
 	}
 
-	let out = $state(true) // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
 	let openInputsModal = $state(false)
 
 	let disabled = $derived(argNames.length === 0)
+
+	/** Suggestions are in hand and waiting to be applied, rather than waiting to be asked for. */
+	let ready = $derived(!loading && Object.keys($generatedExprs || {}).length > 0)
+
+	function cancel() {
+		abortController.abort()
+		generatedExprs?.set({})
+	}
+
+	// Filling every input costs a model call, so it takes a deliberate click — the pointer
+	// merely crossing the button must not spend one. The same control then applies the result.
+	function onClick() {
+		if (loading) cancel()
+		else if (ready) applyExprs()
+		else generateStepInputs()
+	}
 </script>
 
 <div class="flex flex-row justify-end">
@@ -187,43 +204,29 @@ input_name2: expression2
 			size="xs"
 			wrapperClasses="flex-1"
 			variant="default"
-			btnClasses={twMerge(
-				!disabled &&
-					AIBtnClasses(
-						!loading && Object.keys($generatedExprs || {}).length > 0 ? 'green' : 'default'
-					)
-			)}
-			on:mouseenter={(ev) => {
-				if (out) {
-					out = false
-					generateStepInputs()
-				}
-			}}
-			on:mouseleave={() => {
-				out = true
-				abortController.abort()
-				generatedExprs?.set({})
-			}}
-			on:click={() => {
-				if (!loading && Object.keys($generatedExprs || {}).length > 0) {
-					applyExprs()
-				}
+			btnClasses={twMerge(!disabled && AIBtnClasses(ready ? 'green' : 'default'))}
+			on:click={onClick}
+			on:blur={() => {
+				// Suggestions belong to the moment they were asked for; leaving the button drops
+				// them so it can't sit on "Accept" against inputs the user has moved on from.
+				// A request still in flight is left alone — it was asked for deliberately.
+				if (!loading) cancel()
 			}}
 			startIcon={{
-				icon: loading ? Loader2 : Object.keys($generatedExprs || {}).length > 0 ? Check : Wand2,
+				icon: loading ? Loader2 : ready ? Check : Wand2,
 				classes: loading ? 'animate-spin' : ''
 			}}
 			{disabled}
 		>
 			{#if loading}
-				Loading
-			{:else if Object.keys($generatedExprs || {}).length > 0}
+				Cancel
+			{:else if ready}
 				Accept
 			{:else}
 				Fill inputs
 			{/if}
 		</Button>
-	{:else}
+	{:else if !$copilotInfo.workspaceDisabled}
 		<Popover
 			floatingConfig={{
 				placement: 'top-end'

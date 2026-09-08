@@ -28,7 +28,8 @@ function itemsEqual(a: WorkspaceItem[] | undefined, b: WorkspaceItem[]): boolean
 			item.path === b[i].path &&
 			item.summary === b[i].summary &&
 			item.kind === b[i].kind &&
-			item.raw_app === b[i].raw_app
+			item.raw_app === b[i].raw_app &&
+			item.draftPath === b[i].draftPath
 	)
 }
 

@@ -10,14 +10,16 @@ use windmill_api_auth::{
     build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
     ApiAuthed,
 };
-use windmill_common::db::DB;
+use windmill_common::db::{Authable, DB};
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 
 use crate::secret_backend_ext::{
     delete_secret_from_backend, get_secret_value, is_external_stored_value, is_vault_stored_value,
     rename_vault_secret, store_secret_value,
 };
-use windmill_common::utils::{escape_ilike_pattern, BulkDeleteRequest};
+use windmill_common::utils::{
+    check_proper_path, escape_ilike_pattern, sanitize_db_error, BulkDeleteRequest,
+};
 use windmill_common::webhook::{WebhookMessage, WebhookShared};
 
 use axum::{
@@ -367,10 +369,10 @@ async fn get_variable(
         {
             return Ok(Json(overlay));
         }
-        explain_variable_perm_error(&path, &w_id, &db).await?;
+        explain_variable_perm_error(&path, &w_id, &db, Some(&authed)).await?;
         unreachable!()
     } else {
-        explain_variable_perm_error(&path, &w_id, &db).await?;
+        explain_variable_perm_error(&path, &w_id, &db, Some(&authed)).await?;
         unreachable!()
     };
 
@@ -461,10 +463,27 @@ async fn get_value(
         .map(Json);
 }
 
+/// The grants alone can't explain a denial: a job started on behalf of another
+/// user is authorized as that user, so the error has to name who was actually
+/// asking or it reads as a grant bug.
+fn describe_authed(authed: Option<&(impl Authable + Sync)>) -> String {
+    match authed {
+        Some(authed) => format!(
+            "username: {}, email: {}, groups: {:?}, folders: {:?}",
+            authed.username(),
+            authed.email(),
+            authed.groups(),
+            authed.folders()
+        ),
+        None => "unauthenticated".to_string(),
+    }
+}
+
 async fn explain_variable_perm_error(
     path: &str,
     w_id: &str,
     db: &sqlx::Pool<Postgres>,
+    authed: Option<&(impl Authable + Sync)>,
 ) -> windmill_common::error::Result<()> {
     let extra_perms = sqlx::query_scalar!(
         "SELECT extra_perms from variable WHERE path = $1 AND workspace_id = $2",
@@ -489,13 +508,14 @@ async fn explain_variable_perm_error(
         .fetch_optional(db)
         .await?;
         return Err(Error::NotAuthorized(format!(
-            "Variable exists but you don't have access to it:\nvariable perms: {}\nfolder perms: {}",
-            serde_json::to_string_pretty(&extra_perms).unwrap_or_default(), serde_json::to_string_pretty(&folder_extra_perms).unwrap_or_default()
+            "Variable exists but you don't have access to it:\nvariable perms: {}\nfolder perms: {}\nauthed as: {}",
+            serde_json::to_string_pretty(&extra_perms).unwrap_or_default(), serde_json::to_string_pretty(&folder_extra_perms).unwrap_or_default(), describe_authed(authed)
         )));
     } else {
         return Err(Error::NotAuthorized(format!(
-            "Variable exists but you don't have access to it:\nvariable perms: {}",
-            serde_json::to_string_pretty(&extra_perms).unwrap_or_default()
+            "Variable exists but you don't have access to it:\nvariable perms: {}\nauthed as: {}",
+            serde_json::to_string_pretty(&extra_perms).unwrap_or_default(),
+            describe_authed(authed)
         )));
     }
 }
@@ -575,6 +595,7 @@ async fn create_variable(
     Json(variable): Json<CreateVariable>,
 ) -> Result<(StatusCode, String)> {
     check_scopes(&authed, || format!("variables:write:{}", variable.path))?;
+    check_proper_path(&variable.path)?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -641,7 +662,8 @@ async fn create_variable(
         &authed.username
     )
     .execute(&mut *tx)
-    .await?;
+    .await
+    .map_err(sanitize_db_error)?;
 
     if variable.ws_specific.unwrap_or(false) {
         sqlx::query!(
@@ -1077,6 +1099,7 @@ async fn update_variable(
     // source path.
     if let Some(npath) = ns.path.as_deref() {
         check_scopes(&authed, || format!("variables:write:{}", npath))?;
+        check_proper_path(npath)?;
     }
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
 
@@ -1271,7 +1294,10 @@ async fn update_variable(
         sqlb.set_str("edited_by", &authed.username);
         sqlb.returning("path");
         let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
-        let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
+        let npath_o: Option<String> = sqlx::query_scalar(&sql)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(sanitize_db_error)?;
         not_found_if_none(npath_o, "Variable", path)?
     } else {
         // `has_sql_updates` is guaranteed true whenever `ns.path` is provided
@@ -1498,7 +1524,13 @@ pub async fn get_value_internal<'a>(
     let variable = if let Some(variable) = variable_o {
         variable
     } else {
-        explain_variable_perm_error(path, w_id, &db_with_opt_authed.db()).await?;
+        explain_variable_perm_error(
+            path,
+            w_id,
+            &db_with_opt_authed.db(),
+            db_with_opt_authed.authed(),
+        )
+        .await?;
         unreachable!()
     };
 

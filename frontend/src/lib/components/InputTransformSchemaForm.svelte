@@ -1,16 +1,16 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { VariableService, WorkspaceService, type InputTransform } from '$lib/gen'
+	import { type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue, type DynamicInput as DynamicInputTypes } from '$lib/utils'
 	import { untrack } from 'svelte'
-	import { Button } from './common'
 	import StepInputsGen from './copilot/StepInputsGen.svelte'
 	import type { PickableProperties } from './flows/previousResults'
 	import InputTransformForm from './InputTransformForm.svelte'
-	import ItemPicker from './ItemPicker.svelte'
-	import VariableEditor from './VariableEditor.svelte'
-	import { Plus } from 'lucide-svelte'
+	import InputTransformPickers from './InputTransformPickers.svelte'
+	import { useS3StorageConfigured } from './inputTransformEnv.svelte'
+	import type ItemPicker from './ItemPicker.svelte'
+	import type VariableEditor from './VariableEditor.svelte'
 	import ResizeTransitionWrapper from './common/ResizeTransitionWrapper.svelte'
 
 	interface Props {
@@ -21,6 +21,9 @@
 		previousModuleId?: string | undefined
 		filter?: string[] | undefined
 		noDynamicToggle?: boolean
+		/** Passed to every field. See `InputTransformForm` for what each one drops. */
+		noConnect?: boolean
+		noJavascript?: boolean
 		pickableProperties?: PickableProperties | undefined
 		enableAi?: boolean
 		class?: string
@@ -28,6 +31,7 @@
 		isAgentTool?: boolean
 		allowedAiTransforms?: string[] | undefined
 		chatInputEnabled?: boolean
+		workspace?: string | undefined
 	}
 
 	let {
@@ -38,14 +42,19 @@
 		previousModuleId = undefined,
 		filter = undefined,
 		noDynamicToggle = false,
+		noConnect = false,
+		noJavascript = false,
 		pickableProperties = undefined,
 		enableAi = false,
 		class: clazz = '',
 		helperScript = undefined,
 		isAgentTool = false,
 		allowedAiTransforms = isAgentTool ? undefined : [],
-		chatInputEnabled = false
+		chatInputEnabled = false,
+		workspace
 	}: Props = $props()
+
+	let ws = $derived(workspace ?? $workspaceStore)
 
 	let inputCheck: { [id: string]: boolean } = $state({})
 
@@ -77,21 +86,7 @@
 	let itemPicker: ItemPicker | undefined = $state(undefined)
 	let variableEditor: VariableEditor | undefined = $state(undefined)
 
-	let s3StorageConfigured = $state(true)
-
-	async function checkS3Storage() {
-		try {
-			if ($workspaceStore) {
-				const settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore })
-				s3StorageConfigured = settings.large_file_storage?.s3_resource_path !== undefined
-			}
-		} catch (error) {
-			console.error('Failed to fetch workspace settings:', error)
-			s3StorageConfigured = true
-		}
-	}
-
-	checkS3Storage()
+	const s3Storage = useS3StorageConfigured(() => ws)
 
 	let keys: string[] = $state([])
 	$effect(() => {
@@ -104,7 +99,10 @@
 </script>
 
 <div class="w-full mb-6 {clazz}">
-	{#if enableAi}
+	<!-- Not offered on a tool: the fields it fills are exactly the ones left empty for the agent
+	     to fill at run time, and filling one rewrites it into an expression, which takes it out of
+	     the schema the model is given. -->
+	{#if enableAi && !isAgentTool}
 		<div class="pt-2">
 			<StepInputsGen
 				{pickableProperties}
@@ -139,13 +137,16 @@
 						{itemPicker}
 						bind:pickForField
 						{noDynamicToggle}
+						{noConnect}
+						{noJavascript}
 						{pickableProperties}
 						{enableAi}
 						{helperScript}
 						{isAgentTool}
 						{allowedAiTransforms}
-						{s3StorageConfigured}
+						s3StorageConfigured={s3Storage.current}
 						{chatInputEnabled}
+						{workspace}
 						otherArgs={Object.fromEntries(
 							Object.entries(args ?? {}).filter(([key]) => key !== argName)
 						)}
@@ -158,35 +159,4 @@
 	{/if}
 </div>
 
-<ItemPicker
-	bind:this={itemPicker}
-	pickCallback={(path, _) => {
-		if (pickForField) {
-			args[pickForField].value = '$var:' + path
-		}
-	}}
-	itemName="Variable"
-	extraField="path"
-	loadItems={async () =>
-		(await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => ({
-			name: x.path,
-			...x
-		}))}
->
-	{#snippet submission()}
-		<div class="flex flex-row-reverse w-full border-t border-gray-200 rounded-bl-lg rounded-br-lg">
-			<Button
-				variant="accent"
-				size="sm"
-				startIcon={{ icon: Plus }}
-				on:click={() => {
-					variableEditor?.initNew?.()
-				}}
-			>
-				New variable
-			</Button>
-		</div>
-	{/snippet}
-</ItemPicker>
-
-<VariableEditor bind:this={variableEditor} />
+<InputTransformPickers {args} {pickForField} {workspace} bind:itemPicker bind:variableEditor />

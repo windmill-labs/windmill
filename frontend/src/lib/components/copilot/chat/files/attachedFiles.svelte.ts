@@ -24,6 +24,7 @@ import {
 	ensurePersistentStorage,
 	type PersistedAttachedItem
 } from './attachedFilesDB'
+import { sanitizeAttachmentName } from '../textFileUtils'
 import { enumerateDir, isIgnoredPath, queryReadPermission, requestReadPermission } from './fsAccess'
 
 export type AttachedFileStatus = 'indexing' | 'ready' | 'error' | 'locked' | 'unavailable'
@@ -45,6 +46,19 @@ export interface AttachedFile extends FileEntry {
 	 * (locked/unavailable). Consumers should read `store.folders` instead of testing this.
 	 */
 	isFolderRoot?: boolean
+	/** Attached to a chat message: readable via the file tools like any other row,
+	 * but hidden from the session footer bar (its chip lives on the message). */
+	messageScoped?: boolean
+	/** Stable content-hash id (message-scoped rows only) — the reference the
+	 * transcript and prompt carry. Names are display-only and may collide;
+	 * lookups join on this. See attachedTextFileId. */
+	id?: string
+	/** Raw pre-sanitization source name (session rows) — the re-link identity.
+	 * Display names lose information (sanitize + suffix), so a re-link must
+	 * match on the raw name it arrives under: two distinct raw names that
+	 * sanitize identically are different files even with equal stats. Falls back
+	 * to `name` for rows persisted before provenance existed. */
+	sourceName?: string
 }
 
 /** A linked folder as a first-class object — consumers read this instead of re-grouping rows. */
@@ -87,8 +101,31 @@ export class AttachedFilesStore {
 		return this.files
 	}
 	get(name: string): AttachedFile | undefined {
-		// Resolve to a real file — a folder-root placeholder may share the folder's name.
-		return this.files.find((f) => f.name === name && !f.isFolderRoot)
+		// Name lookup. A bare name is the roster's namespace: session links are
+		// advertised by filename and have no other handle, so they resolve first —
+		// a same-named message attachment must not shadow them (it is addressed by
+		// id). Message rows resolve by name only as the fallback, for transcripts
+		// persisted before ids existed.
+		// Folder-root placeholders may share a name with a real file — never resolve to one.
+		return (
+			this.files.find((f) => f.name === name && !f.isFolderRoot && !f.messageScoped) ??
+			this.files.find((f) => f.name === name && f.messageScoped)
+		)
+	}
+	/** Resolve a tool-supplied file reference: stable id first (how message
+	 * attachments are addressed), then name (session links + legacy prompts).
+	 * The composite label the roster and search hits print — `name (file id: x)`
+	 * — resolves too: models echo references verbatim, so the printed form must
+	 * be a valid one. Exact matches win over label interpretation: a row whose
+	 * literal filename happens to look like a label stays addressable by it. */
+	resolve(ref: string): AttachedFile | undefined {
+		const exact = this.files.find((f) => f.id === ref) ?? this.get(ref)
+		if (exact) return exact
+		const label = ref.match(/^(.*) \(file id: ([^)]+)\)$/)
+		if (label) {
+			return this.files.find((f) => f.id === label[2]) ?? this.get(label[1])
+		}
+		return undefined
 	}
 	readyFiles(): AttachedFile[] {
 		// Folder-root placeholders aren't real files — never expose them to the read/search tools.
@@ -114,8 +151,15 @@ export class AttachedFilesStore {
 		}))
 	})
 
-	/** Files linked on their own (not as part of a folder). */
-	standalone: AttachedFile[] = $derived.by(() => this.files.filter((f) => !f.folder))
+	/** Files linked on their own (not as part of a folder or a message). */
+	standalone: AttachedFile[] = $derived.by(() =>
+		this.files.filter((f) => !f.folder && !f.messageScoped)
+	)
+
+	/** Files attached to chat messages — tool-readable, not shown in the footer bar. */
+	messageAttached: AttachedFile[] = $derived.by(() =>
+		this.files.filter((f) => !f.folder && f.messageScoped)
+	)
 
 	/** Number of locked folders needing a re-grant. */
 	get lockedCount(): number {
@@ -128,13 +172,55 @@ export class AttachedFilesStore {
 	}
 
 	removeFile(name: string): void {
+		// Session rows only: message-scoped rows are managed by syncMessageScoped, and
+		// a footer chip removal must never take a same-named message attachment with it.
 		// Target the real file only — never a folder-root placeholder that happens to share
 		// the name (those are managed via removeFolder), else removing a same-named standalone
 		// file would also drop the folder's placeholder.
-		const f = this.files.find((x) => x.name === name && !x.isFolderRoot)
+		const f = this.files.find((x) => x.name === name && !x.isFolderRoot && !x.messageScoped)
 		if (!f) return
-		this.files = this.files.filter((x) => !(x.name === name && !x.isFolderRoot))
+		this.files = this.files.filter((x) => x !== f)
 		void this.#deleteRecord(f.sourceId)
+	}
+
+	/**
+	 * Reconcile message-scoped rows to exactly `wanted` — the union of files the
+	 * current transcript references, joined on the stable id. The transcript is
+	 * their durable home: rows are rebuilt from it on chat load and pruned when a
+	 * rollback or an edit/retry truncation drops the message that carried them.
+	 * Synchronous — decisions compare ids, never content — so rapid chat
+	 * switching cannot interleave two reconciliations.
+	 */
+	syncMessageScoped(wanted: { name: string; content: string; id: string }[]): void {
+		const wantedIds = new Set(wanted.map((f) => f.id))
+		for (const f of this.files.filter((x) => x.messageScoped)) {
+			if (!f.id || !wantedIds.has(f.id)) {
+				this.files = this.files.filter((x) => x !== f)
+				void this.#deleteRecord(f.sourceId)
+			}
+		}
+		this.registerMessageFiles(wanted)
+	}
+
+	/**
+	 * Register a message's attachments as tool-readable rows. Identity is the
+	 * content-hash id: a row already holding the id is reused (retry, sync
+	 * rebuild), and distinct files register independently even under one display
+	 * name. Rows are NOT persisted here — their durable home is the chat
+	 * transcript (DisplayMessage.files), from which syncMessageScoped rebuilds
+	 * them on load; a second copy in IndexedDB would only drift.
+	 */
+	registerMessageFiles(files: { name: string; content: string; id: string }[]): void {
+		for (const f of files) {
+			if (this.files.some((x) => x.messageScoped && x.id === f.id)) continue
+			this.#pushIndexing({
+				name: f.name,
+				file: new File([f.content], f.name, { type: 'text/plain' }),
+				sourceId: f.id,
+				messageScoped: true,
+				id: f.id
+			})
+		}
 	}
 
 	/** Remove every file linked as part of the given folder (and its persisted record). */
@@ -157,34 +243,40 @@ export class AttachedFilesStore {
 
 		for (const item of Array.from(input as ArrayLike<FileToAttach>)) {
 			const file = item instanceof File ? item : item.file
-			const desired =
+			// rawPath keys everything that must match the disk (folder split, junk
+			// filter, relPath); the sanitized form is what names may be compared and
+			// stored as — mixing the two is how dedupe once compared raw against
+			// sanitized and missed.
+			const rawPath =
 				(item instanceof File ? '' : (item.path ?? '')) ||
 				(file as File & { webkitRelativePath?: string }).webkitRelativePath ||
 				file.name ||
 				'file'
+			const folder = rawPath.includes('/') ? rawPath.split('/')[0] : undefined
+			if (folder && isIgnoredPath(rawPath)) continue // skip junk inside folders
 
-			const folder = desired.includes('/') ? desired.split('/')[0] : undefined
-			if (folder && isIgnoredPath(desired)) continue // skip junk inside folders
-
-			if (this.#isDuplicate(desired, file)) continue // silent no-op on re-link
+			if (this.#isDuplicate(rawPath, file)) {
+				continue // silent no-op on re-link
+			}
 
 			const reason = await this.#preflight(file)
 			if (reason) {
-				result.rejected.push({ name: desired, reason })
+				result.rejected.push({ name: sanitizeAttachmentName(rawPath), reason })
 				continue
 			}
 
-			const name = this.#uniqueName(desired)
-			const relPath = folder ? desired : undefined
+			const name = this.#claimName(rawPath)
+			const relPath = folder ? rawPath : undefined
 			const sourceId = createLongHash()
 
-			this.#pushIndexing({ name, file, folder, sourceId, relPath })
+			this.#pushIndexing({ name, sourceName: rawPath, file, folder, sourceId, relPath })
 			result.added.push(name)
 			void this.#persist({
 				id: sourceId,
 				sessionId: this.sessionId ?? '',
 				kind: 'snapshot',
 				name,
+				sourceName: rawPath,
 				folder,
 				relPath,
 				blob: file,
@@ -227,8 +319,16 @@ export class AttachedFilesStore {
 				result.rejected.push({ name: path, reason: 'Not a text file' })
 				continue
 			}
-			const name = this.#uniqueName(path)
-			this.#pushIndexing({ name, file, folder, sourceId, handle: dirHandle, relPath: path })
+			const name = this.#claimName(path)
+			this.#pushIndexing({
+				name,
+				sourceName: path,
+				file,
+				folder,
+				sourceId,
+				handle: dirHandle,
+				relPath: path
+			})
 			result.added.push(name)
 		}
 		// Keep the folder represented even when it links empty (or all-binary): a placeholder
@@ -264,8 +364,12 @@ export class AttachedFilesStore {
 						this.#pushPlaceholder(item, 'unavailable')
 						continue
 					}
+					// Claimed on read from the persisted RAW identity: legacy names can
+					// sanitize to one display name (both must stay resolvable), and the
+					// raw sourceName is what a later re-link dedupes against.
 					this.#pushIndexing({
-						name: item.name,
+						name: this.#claimName(item.sourceName ?? item.name),
+						sourceName: item.sourceName ?? item.name,
 						file: item.blob,
 						folder: item.folder,
 						relPath: item.relPath,
@@ -367,22 +471,28 @@ export class AttachedFilesStore {
 
 	// ------------------------------------------------------------- internals
 
-	/** Identical re-link (same name, or same File identity) → silent no-op. */
-	#isDuplicate(desired: string, file: File): boolean {
+	/** Identical session-file re-link (same name, or same File identity) → silent no-op.
+	 * Session rows only — message rows dedupe by their content-hash id in
+	 * registerMessageFiles, and a same-named row of the other scope is a
+	 * different file, not a duplicate. */
+	#isDuplicate(rawPath: string, file: File): boolean {
+		// "Duplicate" means the SAME source file re-linked: identical stats plus a
+		// matching RAW identity — the row's sourceName (raw name at link time,
+		// `name` fallback for pre-provenance rows) or, for folder children, the
+		// raw on-disk relPath. Never a display-name compare: sanitize and suffix
+		// both lose information, so two distinct raw names can share a display
+		// name even with equal stats and must both survive (#claimName suffixes
+		// the second).
 		return this.files.some(
 			(f) =>
 				// Folder-root placeholders aren't real files — they must not block attaching a
 				// standalone file that happens to share the folder's name.
 				!f.isFolderRoot &&
-				(f.name === desired ||
-					// Identical re-drop at the SAME relative path (its row name may have been
-					// auto-suffixed). Keyed on the path, NOT the basename — otherwise two distinct
-					// files sharing a basename under different folder subdirs (proj/a/index.ts vs
-					// proj/b/index.ts) would be wrongly deduped and silently dropped.
-					((f.relPath ?? f.name) === desired &&
-						f.size === file.size &&
-						f.file instanceof File &&
-						f.file.lastModified === file.lastModified))
+				!f.messageScoped &&
+				f.size === file.size &&
+				f.file instanceof File &&
+				f.file.lastModified === file.lastModified &&
+				((f.sourceName ?? f.name) === rawPath || f.relPath === rawPath)
 		)
 	}
 
@@ -402,16 +512,20 @@ export class AttachedFilesStore {
 
 	#pushIndexing(p: {
 		name: string
+		sourceName?: string
 		file: File | Blob
 		folder?: string
 		sourceId: string
 		handle?: FileSystemDirectoryHandle
 		relPath?: string
+		messageScoped?: boolean
+		id?: string
 	}): void {
 		this.files = [
 			...this.files,
 			{
 				name: p.name,
+				sourceName: p.sourceName,
 				file: p.file,
 				size: p.file.size,
 				lineIndex: [],
@@ -420,7 +534,9 @@ export class AttachedFilesStore {
 				folder: p.folder,
 				sourceId: p.sourceId,
 				handle: p.handle,
-				relPath: p.relPath
+				relPath: p.relPath,
+				messageScoped: p.messageScoped,
+				id: p.id
 			}
 		]
 		void this.#indexFile(p.name, p.file)
@@ -431,10 +547,18 @@ export class AttachedFilesStore {
 		status: AttachedFileStatus,
 		isFolderRoot = false
 	): void {
+		// File placeholders claim like any row (a legacy name may collide once
+		// sanitized); folder-root placeholders keep the folder key's name and stay
+		// outside name uniqueness — they may legitimately share a name with a file.
+		const name = isFolderRoot
+			? sanitizeAttachmentName(item.name)
+			: this.#claimName(item.sourceName ?? item.name)
+		const sourceName = isFolderRoot ? undefined : (item.sourceName ?? item.name)
 		this.files = [
 			...this.files,
 			{
-				name: item.name,
+				name,
+				sourceName,
 				file: EMPTY,
 				size: item.size ?? 0,
 				lineIndex: [],
@@ -453,8 +577,16 @@ export class AttachedFilesStore {
 		const children = await enumerateDir(dirHandle)
 		for (const { file, path } of children) {
 			if (!(await this.#sniffText(file))) continue
-			const name = this.#uniqueName(path)
-			this.#pushIndexing({ name, file, folder, sourceId, handle: dirHandle, relPath: path })
+			const name = this.#claimName(path)
+			this.#pushIndexing({
+				name,
+				sourceName: path,
+				file,
+				folder,
+				sourceId,
+				handle: dirHandle,
+				relPath: path
+			})
 		}
 		this.#ensureFolderRow(sourceId, folder, dirHandle)
 	}
@@ -501,22 +633,33 @@ export class AttachedFilesStore {
 			if (!cur) {
 				// newly added on disk
 				if (!(await this.#sniffText(file))) continue
-				const name = this.#uniqueName(path)
-				this.#pushIndexing({ name, file, folder, sourceId, handle, relPath: path })
+				const name = this.#claimName(path)
+				this.#pushIndexing({
+					name,
+					sourceName: path,
+					file,
+					folder,
+					sourceId,
+					handle,
+					relPath: path
+				})
 			} else {
 				const curMod = cur.file instanceof File ? cur.file.lastModified : undefined
 				if (file.size !== cur.size || file.lastModified !== curMod) {
-					// content changed → re-read + re-index
-					this.#patch(cur.name, { file, size: file.size, status: 'indexing' })
+					// content changed → re-read + re-index. Patch by row identity — a
+					// message attachment may share the display name.
+					this.files = this.files.map((f) =>
+						f === cur ? { ...f, file, size: file.size, status: 'indexing' } : f
+					)
 					void this.#indexFile(cur.name, file)
 				}
 			}
 		}
-		// removed/renamed-away on disk → drop from memory
-		const removed = [...existing.values()].filter((f) => f.relPath && !seen.has(f.relPath))
-		if (removed.length > 0) {
-			const names = new Set(removed.map((f) => f.name))
-			this.files = this.files.filter((f) => !names.has(f.name))
+		// removed/renamed-away on disk → drop from memory (by row identity — a
+		// message attachment may share the display name and must survive)
+		const removed = new Set([...existing.values()].filter((f) => f.relPath && !seen.has(f.relPath)))
+		if (removed.size > 0) {
+			this.files = this.files.filter((f) => !removed.has(f))
 		}
 		this.#ensureFolderRow(sourceId, folder, handle)
 	}
@@ -563,9 +706,6 @@ export class AttachedFilesStore {
 		}
 	}
 
-	#patch(name: string, changes: Partial<AttachedFile>): void {
-		this.files = this.files.map((f) => (f.name === name ? { ...f, ...changes } : f))
-	}
 	/**
 	 * Patch the row for `name` ONLY while it still holds the exact `file` we indexed.
 	 * `buildLineIndex` is async and unawaited; between its start and finish the row's
@@ -583,10 +723,22 @@ export class AttachedFilesStore {
 		this.files = this.files.map((f) => (f.sourceId === sourceId ? { ...f, ...changes } : f))
 	}
 
+	/** The only way a session row gets its display name: sanitize (control
+	 * characters must never reach model-facing text) then uniquify among session
+	 * rows. Every creation path — attach, folder expansion, refresh, persisted
+	 * restore — goes through here so none can skip a rule. Message rows stay out
+	 * by design (id-addressed, names may collide); `relPath`, `folder`, and the
+	 * row's `sourceName` (re-link identity) stay raw by design. */
+	#claimName(raw: string): string {
+		return this.#uniqueName(sanitizeAttachmentName(raw))
+	}
+
 	#uniqueName(original: string): string {
-		// Uniqueness is only among real files — folder-root placeholders may share a name
-		// with a standalone file and must not push it to a "(2)" suffix.
-		const taken = (n: string) => this.files.some((f) => f.name === n && !f.isFolderRoot)
+		// Uniqueness is only among session rows: folder-root placeholders aren't real
+		// files, and message rows are addressed by id — their display names neither
+		// block a session link nor need protecting from one.
+		const taken = (n: string) =>
+			this.files.some((f) => f.name === n && !f.isFolderRoot && !f.messageScoped)
 		if (!taken(original)) return original
 		const dot = original.lastIndexOf('.')
 		const base = dot > 0 ? original.slice(0, dot) : original

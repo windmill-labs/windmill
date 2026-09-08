@@ -14,3 +14,6 @@ windmill-parser.workspace = true
 anyhow.workspace = true
 serde_json.workspace = true
 serde.workspace = true
+serde_yml.workspace = true
+regex.workspace = true
+lazy_static.workspace = true

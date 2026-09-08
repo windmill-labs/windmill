@@ -291,6 +291,11 @@ pub async fn par_install_language_dependencies_all_at_once<
         let child = start_child_process(cmd, &installer_executable_name, false).await?;
         let mut buf = "".to_owned();
         let pipe_stdout = if stdout_on_err { Some(&mut buf) } else { None };
+        // handle_child only pings the job id it is handed, and that one is nil while output is
+        // buffered, so nothing would refresh this job's ping for the length of the batch install.
+        let _heartbeat = stdout_on_err.then(|| {
+            crate::worker_utils::JobPingHeartbeat::start(conn, *job_id, "dependency installation")
+        });
 
         if let Err(e) = crate::handle_child::handle_child(
             &(if pipe_stdout.is_some() {

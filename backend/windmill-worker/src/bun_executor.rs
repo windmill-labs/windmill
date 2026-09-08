@@ -35,6 +35,7 @@ use windmill_common::{
     cache,
     client::AuthedClient,
     jobs::JobKind,
+    min_version::MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2,
     scripts::{id_to_codebase_info, CodebaseInfo, ScriptHash, ScriptLang},
     utils::WarnAfterExt,
     workspace_dependencies::WorkspaceDependenciesPrefetched,
@@ -377,6 +378,44 @@ pub(crate) fn split_lockfile(lockfile: &str) -> (&str, Option<&str>, bool, bool)
     }
 }
 
+/// An empty `lockfileVersion: 1` lockfile, planted before `bun install` so bun writes v1.
+///
+/// bun keeps whichever version the lockfile it found already had, and only raises it when the
+/// dependencies genuinely need newer syntax. Seeding therefore gets a real v1 lockfile — written
+/// by bun, not rewritten by us — whenever v1 can express the resolution, and lets bun escalate
+/// when it cannot. [`bun_lockfile_version`] catches the escalation afterwards.
+const EMPTY_V1_BUN_LOCK: &str = r#"{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {},
+  },
+  "packages": {}
+}"#;
+
+async fn seed_v1_bun_lockfile(job_dir: &str) -> Result<()> {
+    let path = format!("{job_dir}/bun.lock");
+    if tokio::fs::metadata(&path).await.is_ok() {
+        return Ok(());
+    }
+    write_file(job_dir, "bun.lock", EMPTY_V1_BUN_LOCK)?;
+    Ok(())
+}
+
+/// The `lockfileVersion` a bun text lockfile declares, if it declares one.
+fn bun_lockfile_version(lockfile: &str) -> Option<u32> {
+    let i = lockfile.find("\"lockfileVersion\"")?;
+    let rest = &lockfile[i + "\"lockfileVersion\"".len()..];
+    let digits = rest
+        .trim_start()
+        .strip_prefix(':')?
+        .trim_start()
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>();
+    digits.parse().ok()
+}
+
 pub async fn gen_bun_lockfile(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -496,6 +535,9 @@ pub async fn gen_bun_lockfile(
     }
 
     if !empty_deps {
+        if !npm_mode && !MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2.met_conservatively() {
+            seed_v1_bun_lockfile(job_dir).await?;
+        }
         install_bun_lockfile(
             mem_peak,
             canceled_by,
@@ -539,6 +581,30 @@ pub async fn gen_bun_lockfile(
                     let mut file = File::open(&file).await?;
                     let mut buf = String::default();
                     file.read_to_string(&mut buf).await?;
+                    if !MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2.met_conservatively() {
+                        // Seeding asked bun for v1; a higher version back means these
+                        // dependencies cannot be expressed in one. Storing it anyway would not
+                        // fail on an older worker — it would install from package.json alone and
+                        // silently resolve different versions.
+                        match bun_lockfile_version(&buf) {
+                            Some(1) => {}
+                            Some(v) => {
+                                return Err(error::Error::ExecutionErr(format!(
+                                    "bun produced a v{v} lockfile, which workers older than {} \
+                                     cannot read. Finish upgrading every worker before deploying \
+                                     dependencies that need it (overrides, catalogs).",
+                                    MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2.version()
+                                )));
+                            }
+                            // The guard cannot classify this one, so it must not pass silently:
+                            // a bun that stops writing the header would reopen the drift hole
+                            // with nothing in the logs.
+                            None => tracing::warn!(
+                                "bun wrote a lockfile with no readable lockfileVersion; storing \
+                                 it unchecked for job {job_id}"
+                            ),
+                        }
+                    }
                     content.push_str(&buf);
                 } else {
                     content.push_str(&EMPTY_FILE);
@@ -571,12 +637,8 @@ async fn gen_bunfig(
         NPMRC.read().await.clone()
     };
 
-    if let Some(ref npmrc_content) = npmrc {
-        if !npmrc_content.trim().is_empty() {
-            tracing::debug!("Writing .npmrc for bun from npmrc setting");
-            write_file(job_dir, ".npmrc", npmrc_content)?;
-            return Ok(());
-        }
+    if npmrc.as_ref().is_some_and(|c| !c.trim().is_empty()) {
+        return write_bun_registry_config(job_dir, npmrc, None, None);
     }
 
     let (registry, bunfig_install_scopes) = if let Some(conn) = db {
@@ -606,6 +668,35 @@ async fn gen_bunfig(
             BUNFIG_INSTALL_SCOPES.read().await.clone(),
         )
     };
+    write_bun_registry_config(job_dir, None, registry, bunfig_install_scopes)
+}
+
+/// The files [`write_bun_registry_config`] may create in the directory bun installs from.
+/// Both can hold a registry auth token, so `prepare-deps` deletes them by these names once
+/// the install is over.
+pub(crate) const BUN_NPMRC_FILE: &str = ".npmrc";
+pub(crate) const BUN_CONFIG_FILE: &str = "bunfig.toml";
+
+/// Write the registry configuration `bun install` picks up from its working directory: the
+/// `npmrc` setting verbatim as `.npmrc` when set, otherwise a `bunfig.toml` holding the
+/// registry URL, its auth token and the install scopes.
+///
+/// Shared with the debugger's `prepare-deps`, which resolves the same settings without a
+/// database (see `prepare_deps.rs`), so the two install paths configure bun identically.
+pub(crate) fn write_bun_registry_config(
+    job_dir: &str,
+    npmrc: Option<String>,
+    registry: Option<String>,
+    bunfig_install_scopes: Option<String>,
+) -> Result<()> {
+    if let Some(ref npmrc_content) = npmrc {
+        if !npmrc_content.trim().is_empty() {
+            tracing::debug!("Writing .npmrc for bun from npmrc setting");
+            write_file(job_dir, BUN_NPMRC_FILE, npmrc_content)?;
+            return Ok(());
+        }
+    }
+
     if registry.is_some() || bunfig_install_scopes.is_some() {
         let (url, token_opt) = if let Some(ref s) = registry {
             let url = s.trim();
@@ -635,7 +726,7 @@ registry = {}
                 .unwrap_or("".to_string())
         );
         tracing::debug!("Writing following bunfig.toml: {bunfig_toml}");
-        let _ = write_file(&job_dir, "bunfig.toml", &bunfig_toml)?;
+        let _ = write_file(&job_dir, BUN_CONFIG_FILE, &bunfig_toml)?;
     }
     Ok(())
 }
@@ -1165,6 +1256,7 @@ pub async fn prebundle_bun_script(
     token: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     temp_script_refs: &Option<HashMap<String, String>>,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> Result<()> {
     let (local_path, remote_path) = compute_bundle_local_and_remote_path(
         inner_content,
@@ -1173,6 +1265,7 @@ pub async fn prebundle_bun_script(
         db,
         w_id,
         temp_script_refs,
+        modules,
     )
     .await;
     if exists_in_cache(&local_path, &remote_path).await {
@@ -1351,6 +1444,7 @@ pub async fn compute_bundle_local_and_remote_path(
     db: Option<&DB>,
     w_id: &str,
     temp_script_refs: &Option<HashMap<String, String>>,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> (String, String) {
     let mut input_src = format!("{inner_content}{lock}",);
 
@@ -1379,7 +1473,10 @@ pub async fn compute_bundle_local_and_remote_path(
 
     let ws_suffix = crate::workspace_registry_cache_suffix(w_id).await;
     input_src.push_str(&ws_suffix);
-    let hash = windmill_common::utils::calculate_hash(&input_src);
+
+    // The loader resolves relative imports against the module files in the job dir, so
+    // their content is inlined into the bundle this name covers.
+    let hash = crate::worker::artifact_cache_name(input_src, modules);
     let local_path = format!("{}/{hash}", *BUN_BUNDLE_CACHE_DIR);
 
     #[cfg(windows)]
@@ -1478,6 +1575,7 @@ pub async fn handle_bun_job(
                     Some(db),
                     &job.workspace_id,
                     &temp_script_refs,
+                    modules.as_ref(),
                 )
                 .await
             }
@@ -1799,6 +1897,10 @@ pub async fn handle_bun_job(
             format!("argsObjToArr(args)")
         };
 
+        // Kept comment-free — this string is written out per job.
+        // `_takePendingStepFailure` / `_takePendingSuspend` hand back what the body
+        // caught and swallowed; honour them instead of reporting a `complete` (see
+        // `_pendingStepFailure` in client.ts). Optional: npm clients may predate them.
         let wrapper_content = if is_wac_v2 {
             format!(
                 r#"
@@ -1843,6 +1945,14 @@ async function run() {{
     try {{
         const result = await workflowFn(...argsArr);
         setWorkflowCtx(null);
+        const failed = ctx._takePendingStepFailure?.();
+        if (failed) {{
+            throw failed.error;
+        }}
+        const swallowed = ctx._takePendingSuspend?.();
+        if (swallowed) {{
+            throw swallowed;
+        }}
         // Flush any unawaited tasks (e.g. forgotten await on last statement)
         const trailing = ctx._flushPending();
         if (trailing.length > 0) {{
@@ -1866,6 +1976,10 @@ async function run() {{
                 return {{ type: "sleep", key: dispatch.key, seconds: dispatch.seconds }};
             }}
             return {{ type: "dispatch", mode: dispatch.mode ?? "sequential", steps: dispatch.steps ?? [] }};
+        }}
+        const failed = ctx._takePendingStepFailure?.();
+        if (failed) {{
+            throw failed.error;
         }}
         throw e;
     }}
@@ -2458,7 +2572,8 @@ try {{
 
     // WAC v2 post-execution: parse output and handle dispatch/suspend
     if is_wac_v2 {
-        return handle_wac_v2_output(result, job, conn, modules, new_args.as_ref()).await;
+        return handle_wac_v2_output(result, job, conn, canceled_by, modules, new_args.as_ref())
+            .await;
     }
 
     Ok(result)
@@ -2488,11 +2603,13 @@ pub async fn handle_wac_v2_output(
     result: Box<RawValue>,
     job: &MiniPulledJob,
     conn: &Connection,
+    canceled_by: &mut Option<CanceledBy>,
     modules: &Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
     preprocessed_args: Option<&HashMap<String, Box<RawValue>>>,
 ) -> error::Result<Box<RawValue>> {
     use crate::wac_executor::{
-        load_checkpoint, parse_wac_output, update_checkpoint_for_dispatch, WacOutput,
+        load_checkpoint, parse_wac_output, update_checkpoint_for_dispatch,
+        wac_cancelled_mid_segment, WacOutput, WacPark,
     };
     use serde_json::Value;
     use windmill_common::get_latest_flow_version_info_for_path;
@@ -2705,6 +2822,7 @@ pub async fn handle_wac_v2_output(
 
             // Step 1: Save checkpoint, suspend parent, and seed child checkpoints
             // in a single transaction — all BEFORE children become visible.
+            let segment_ms;
             {
                 let mut tx = db.begin().await?;
 
@@ -2757,24 +2875,24 @@ pub async fn handle_wac_v2_output(
                     })?;
                 }
 
-                // Suspend parent before children become visible.
-                // Keep running = true so the normal pull query ignores it.
-                // The suspended pull query picks it up when suspend reaches 0
-                // (it checks: suspend_until IS NOT NULL AND suspend <= 0).
-                let suspend_count = num_steps as i32;
-                sqlx::query!(
-                    "UPDATE v2_job_queue SET suspend = $2, suspend_until = now() + interval '14 day' WHERE id = $1",
-                    job.id,
-                    suspend_count,
+                // Suspend parent before children become visible, so a child that
+                // completes immediately finds a parked parent to decrement.
+                match crate::wac_executor::suspend_wac_parent(
+                    &mut tx,
+                    &job.id,
+                    &job.workspace_id,
+                    num_steps as i32,
+                    14.0 * 24.0 * 3600.0,
                 )
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| {
-                    error::Error::internal_err(format!(
-                        "Failed to suspend WAC parent job {}: {e}",
-                        job.id
-                    ))
-                })?;
+                .await?
+                {
+                    WacPark::Parked(ms) => segment_ms = ms,
+                    // Returning here drops `tx`, unwriting the checkpoint and the timeline
+                    // entries, so no child is ever pushed against a parent that never parked.
+                    WacPark::Cancelled(cancel) => {
+                        return Err(wac_cancelled_mid_segment(cancel, canceled_by))
+                    }
+                }
 
                 tx.commit().await?;
             }
@@ -2787,86 +2905,96 @@ pub async fn handle_wac_v2_output(
             let push_result: error::Result<()> = async {
                 for (step, (_, child_uuid)) in steps.iter().zip(job_ids.iter()) {
                     // Resolve job payload based on dispatch_type
-                    let (job_payload, child_args, is_external) = match step.dispatch_type.as_str() {
-                        "script" if step.script.starts_with("./") => {
-                            // Module-relative path: resolve from parent script's modules
-                            let module_key = step.script.strip_prefix("./").unwrap();
-                            let module = resolve_parent_module(modules, module_key)?;
-                            let payload = JobPayload::Code(RawCode {
-                                content: module.content,
-                                path: job.runnable_path.clone(),
-                                hash: None,
-                                language: module.language,
-                                lock: module.lock,
-                                cache_ttl: job.cache_ttl,
-                                cache_ignore_s3_path: job.cache_ignore_s3_path,
-                                dedicated_worker: None,
-                                concurrency_settings: ConcurrencySettingsWithCustom::default(),
-                                debouncing_settings: DebouncingSettings::default(),
-                                modules: None,
-                                tag: None,
-                            });
-                            let step_args: HashMap<String, Box<RawValue>> = step
-                                .args
-                                .iter()
-                                .map(|(k, v)| {
-                                    let raw = serde_json::value::to_raw_value(v).unwrap();
-                                    (k.clone(), raw)
-                                })
-                                .collect();
-                            (payload, step_args, true)
-                        }
-                        "script" => {
-                            // Resolve script path to job payload (handles hash, lang, etc.)
-                            let (payload, _, _, _, _, _) = script_path_to_payload(
-                                &step.script,
-                                None, // no authed db for background workers
-                                db.clone(),
-                                &job.workspace_id,
-                                Some(true), // skip preprocessor
-                            )
-                            .await?;
-                            let step_args: HashMap<String, Box<RawValue>> = step
-                                .args
-                                .iter()
-                                .map(|(k, v)| {
-                                    let raw = serde_json::value::to_raw_value(v).unwrap();
-                                    (k.clone(), raw)
-                                })
-                                .collect();
-                            (payload, step_args, true)
-                        }
-                        "flow" => {
-                            let flow_info = get_latest_flow_version_info_for_path(
-                                None,
-                                db,
-                                &job.workspace_id,
-                                &step.script,
-                                true,
-                            )
-                            .await?;
-                            let payload = JobPayload::Flow {
-                                path: step.script.clone(),
-                                dedicated_worker: flow_info.dedicated_worker,
-                                apply_preprocessor: false,
-                                version: flow_info.version,
-                                labels: flow_info.labels.clone(),
-                            };
-                            let step_args: HashMap<String, Box<RawValue>> = step
-                                .args
-                                .iter()
-                                .map(|(k, v)| {
-                                    let raw = serde_json::value::to_raw_value(v).unwrap();
-                                    (k.clone(), raw)
-                                })
-                                .collect();
-                            (payload, step_args, true)
-                        }
-                        _ => {
-                            // "inline" — re-run parent with _executing_key
-                            (job_payload_template.clone(), parent_args.clone(), false)
-                        }
-                    };
+                    let (job_payload, child_args, is_external, on_behalf_of) =
+                        match step.dispatch_type.as_str() {
+                            "script" if step.script.starts_with("./") => {
+                                // Module-relative path: resolve from parent script's modules
+                                let module_key = step.script.strip_prefix("./").unwrap();
+                                let module = resolve_parent_module(modules, module_key)?;
+                                let payload = JobPayload::Code(RawCode {
+                                    content: module.content,
+                                    path: job.runnable_path.clone(),
+                                    hash: None,
+                                    language: module.language,
+                                    lock: module.lock,
+                                    cache_ttl: job.cache_ttl,
+                                    cache_ignore_s3_path: job.cache_ignore_s3_path,
+                                    dedicated_worker: None,
+                                    concurrency_settings: ConcurrencySettingsWithCustom::default(),
+                                    debouncing_settings: DebouncingSettings::default(),
+                                    modules: None,
+                                    tag: None,
+                                });
+                                let step_args: HashMap<String, Box<RawValue>> = step
+                                    .args
+                                    .iter()
+                                    .map(|(k, v)| {
+                                        let raw = serde_json::value::to_raw_value(v).unwrap();
+                                        (k.clone(), raw)
+                                    })
+                                    .collect();
+                                // Inline module code, not a separate runnable: it has no
+                                // identity of its own and runs as the parent.
+                                (payload, step_args, true, None)
+                            }
+                            "script" => {
+                                // Resolve script path to job payload (handles hash, lang, etc.)
+                                let (payload, _, _, _, _, on_behalf_of) = script_path_to_payload(
+                                    &step.script,
+                                    None, // no authed db for background workers
+                                    db.clone(),
+                                    &job.workspace_id,
+                                    Some(true), // skip preprocessor
+                                )
+                                .await?;
+                                let step_args: HashMap<String, Box<RawValue>> = step
+                                    .args
+                                    .iter()
+                                    .map(|(k, v)| {
+                                        let raw = serde_json::value::to_raw_value(v).unwrap();
+                                        (k.clone(), raw)
+                                    })
+                                    .collect();
+                                (payload, step_args, true, on_behalf_of)
+                            }
+                            "flow" => {
+                                let flow_info = get_latest_flow_version_info_for_path(
+                                    None,
+                                    db,
+                                    &job.workspace_id,
+                                    &step.script,
+                                    true,
+                                )
+                                .await?;
+                                let payload = JobPayload::Flow {
+                                    path: step.script.clone(),
+                                    dedicated_worker: flow_info.dedicated_worker,
+                                    apply_preprocessor: false,
+                                    version: flow_info.version,
+                                    labels: flow_info.labels.clone(),
+                                };
+                                let on_behalf_of =
+                                    flow_info.on_behalf_of(&job.workspace_id, db).await?;
+                                let step_args: HashMap<String, Box<RawValue>> = step
+                                    .args
+                                    .iter()
+                                    .map(|(k, v)| {
+                                        let raw = serde_json::value::to_raw_value(v).unwrap();
+                                        (k.clone(), raw)
+                                    })
+                                    .collect();
+                                (payload, step_args, true, on_behalf_of)
+                            }
+                            _ => {
+                                // "inline" — re-run parent with _executing_key
+                                (
+                                    job_payload_template.clone(),
+                                    parent_args.clone(),
+                                    false,
+                                    None,
+                                )
+                            }
+                        };
 
                     let push_args = PushArgs { args: &child_args, extra: None };
 
@@ -2914,6 +3042,21 @@ pub async fn handle_wac_v2_output(
                         }
                     }
 
+                    // A target runnable that opts into on-behalf-of runs under its own
+                    // identity, never the caller's, so a step that reaches it through a
+                    // workflow cannot widen or narrow its permissions. `created_by` still
+                    // credits the caller, matching how the run API pushes these jobs.
+                    let (child_email, child_permissioned_as) = match on_behalf_of.as_ref() {
+                        Some(on_behalf_of) => (
+                            on_behalf_of.email.as_str(),
+                            on_behalf_of.permissioned_as.clone(),
+                        ),
+                        None => (
+                            job.permissioned_as_email.as_str(),
+                            job.permissioned_as.clone(),
+                        ),
+                    };
+
                     let (_, mut tx) = push(
                         db,
                         PushIsolationLevel::IsolatedRoot(db.clone()),
@@ -2921,8 +3064,9 @@ pub async fn handle_wac_v2_output(
                         job_payload,
                         push_args,
                         &job.created_by,
-                        &job.permissioned_as_email,
-                        job.permissioned_as.clone(),
+                        child_email,
+                        child_permissioned_as,
+                        None,
                         None,
                         None,
                         None,
@@ -3027,10 +3171,17 @@ pub async fn handle_wac_v2_output(
                 .execute(db)
                 .await;
 
-                // Unsuspend parent so the error propagates instead of a 14-day hang
+                // Unsuspend parent so the error propagates instead of a 14-day hang.
+                // Unlike the other suspend exits this one completes the job for real, so
+                // it needs its segment start back — the in-memory copy is what the pull
+                // stamped, before the suspend cleared the column.
                 let _ = sqlx::query!(
-                    "UPDATE v2_job_queue SET suspend = 0, suspend_until = NULL WHERE id = $1",
+                    "UPDATE v2_job_queue
+                     SET suspend = 0, suspend_until = NULL,
+                         started_at = coalesce(started_at, $2, now())
+                     WHERE id = $1",
                     job.id,
+                    job.started_at,
                 )
                 .execute(db)
                 .await;
@@ -3043,6 +3194,7 @@ pub async fn handle_wac_v2_output(
                 "WAC v2 parent job suspended"
             );
 
+            crate::wac_executor::end_wac_segment(conn, job, segment_ms);
             Err(error::Error::WacSuspended(format!(
                 "WAC v2 job {} suspended waiting for {} child job(s)",
                 job.id, num_steps
@@ -3125,15 +3277,12 @@ pub async fn handle_wac_v2_output(
                 }
             }
 
-            // Generate resume URLs for the inline approval buttons.
-            // Use a hash of the step key as resume_id so each waitForApproval()
-            // in the same workflow gets a unique resume_job record.
-            let resume_id: u32 = {
-                use std::hash::{Hash, Hasher};
-                let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                key.hash(&mut hasher);
-                (hasher.finish() & 0xFFFF_FFFF) as u32
-            };
+            // Generate resume URLs for the inline approval buttons. The resume_id
+            // is derived from the step key so each waitForApproval() in the same
+            // workflow gets a unique resume_job record, and so URLs the workflow
+            // minted for this step ahead of time (getApprovalUrls) address the
+            // same one.
+            let resume_id: u32 = windmill_common::wac::approval_resume_id(&key);
             // Generate stateless approval token using shared utility
             let approval_token =
                 windmill_common::variables::generate_approval_token(&job.workspace_id, job.id, db)
@@ -3224,15 +3373,23 @@ pub async fn handle_wac_v2_output(
             }
 
             // Suspend parent with suspend=1 (waiting for 1 approval event)
-            sqlx::query!(
-                "UPDATE v2_job_queue SET suspend = 1, suspend_until = now() + make_interval(secs => $2) WHERE id = $1",
-                job.id,
+            let segment_ms = match crate::wac_executor::suspend_wac_parent(
+                &mut tx,
+                &job.id,
+                &job.workspace_id,
+                1,
                 timeout_secs,
             )
-            .execute(&mut *tx)
-            .await?;
+            .await?
+            {
+                WacPark::Parked(ms) => ms,
+                WacPark::Cancelled(cancel) => {
+                    return Err(wac_cancelled_mid_segment(cancel, canceled_by))
+                }
+            };
 
             tx.commit().await?;
+            crate::wac_executor::end_wac_segment(conn, job, segment_ms);
 
             tracing::info!(
                 job_id = %job.id,
@@ -3316,18 +3473,25 @@ pub async fn handle_wac_v2_output(
                 })?;
             }
 
-            // Suspend parent — it will auto-resume when suspend_until passes.
             // Use suspend=1 (not 0) so the suspended pull query only picks it up
             // when `suspend_until <= now()`, not via `suspend <= 0`.
-            sqlx::query!(
-                "UPDATE v2_job_queue SET suspend = 1, suspend_until = now() + make_interval(secs => $2) WHERE id = $1",
-                job.id,
+            let segment_ms = match crate::wac_executor::suspend_wac_parent(
+                &mut tx,
+                &job.id,
+                &job.workspace_id,
+                1,
                 sleep_secs,
             )
-            .execute(&mut *tx)
-            .await?;
+            .await?
+            {
+                WacPark::Parked(ms) => ms,
+                WacPark::Cancelled(cancel) => {
+                    return Err(wac_cancelled_mid_segment(cancel, canceled_by))
+                }
+            };
 
             tx.commit().await?;
+            crate::wac_executor::end_wac_segment(conn, job, segment_ms);
 
             tracing::info!(
                 job_id = %job.id,
@@ -3377,19 +3541,25 @@ pub async fn handle_wac_v2_output(
             // Reset running=false so the job is immediately eligible for pickup.
             // Unlike dispatch (which sets suspend>0), inline checkpoints don't suspend —
             // the job should be re-run right away to continue past the cached step.
-            sqlx::query!(
-                "UPDATE v2_job_queue SET running = false, started_at = null WHERE id = $1",
+            // `prev` holds the pre-update row: RETURNING would see the cleared column.
+            let segment_ms = sqlx::query_scalar!(
+                "WITH prev AS (SELECT started_at FROM v2_job_queue WHERE id = $1)
+                 UPDATE v2_job_queue q SET running = false, started_at = null
+                 FROM prev WHERE q.id = $1
+                 RETURNING (extract(epoch FROM now() - prev.started_at) * 1000)::bigint",
                 job.id,
             )
-            .execute(&mut *tx)
+            .fetch_optional(&mut *tx)
             .await
             .map_err(|e| {
                 error::Error::internal_err(format!(
                     "Failed to reset running state for inline checkpoint: {e}"
                 ))
-            })?;
+            })?
+            .flatten();
 
             tx.commit().await?;
+            crate::wac_executor::end_wac_segment(conn, job, segment_ms);
 
             Err(error::Error::WacSuspended(format!(
                 "WAC v2 job {} inline checkpoint for step {}",
@@ -3454,8 +3624,11 @@ pub fn build_nativets_env_code(
         reserved_variables
             .iter()
             .map(|(k, v)| {
-                let escaped = v.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n").replace('\r', "\\r");
-                format!("process.env['{}'] = '{}';", k, escaped)
+                // The key is attacker-controllable (custom workspace env vars), so
+                // escape it as a string literal too, not just the value.
+                let key_literal = windmill_common::variables::escape_js_single_quoted(k);
+                let escaped = windmill_common::variables::escape_js_single_quoted(v);
+                format!("process.env['{key_literal}'] = '{escaped}';")
             })
             .collect::<Vec<String>>()
             .join("\n")
@@ -4058,6 +4231,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_bun_lockfile_version() {
+        assert_eq!(bun_lockfile_version(EMPTY_V1_BUN_LOCK), Some(1));
+        assert_eq!(
+            bun_lockfile_version("{\n  \"lockfileVersion\": 2,\n  \"packages\": {}\n}"),
+            Some(2)
+        );
+        // bun raises the version on its own for overrides/catalogs, so any version has to parse
+        assert_eq!(bun_lockfile_version("{\"lockfileVersion\":3}"), Some(3));
+        assert_eq!(
+            bun_lockfile_version("{ \"lockfileVersion\" : 42 }"),
+            Some(42)
+        );
+        assert_eq!(bun_lockfile_version("{\"packages\":{}}"), None);
+    }
+
+    #[test]
     fn test_split_lockfile_text_unix() {
         let lockfile = r#"{"dependencies":{"lodash":"^4.17.21"}}
 //bun.lock
@@ -4231,5 +4420,50 @@ export function main(x: number) { return x; }"#;
         assert!(wrapper.contains(r#"line.startsWith("execd:")"#));
         assert!(wrapper.contains(r#"line.startsWith("exec_preprocess:")"#));
         assert!(wrapper.contains(r#"line.startsWith("exec:")"#));
+    }
+
+    /// The bundle cache is global and content-keyed, so a key that ignores the inline
+    /// modules hands one workspace's bundle — attacker helper code and all — to the next
+    /// job whose main content and lockfile happen to match.
+    #[tokio::test]
+    async fn bundle_cache_key_separates_inline_module_content() {
+        use windmill_common::scripts::ScriptModule;
+
+        async fn key_for(modules: Option<&HashMap<String, ScriptModule>>) -> String {
+            compute_bundle_local_and_remote_path(
+                "import { h } from './helper.ts';\nexport async function main() { return h(); }",
+                "{}\n//bun.lock\n<empty>",
+                "u/alice/script",
+                None,
+                "w1",
+                &None,
+                modules,
+            )
+            .await
+            .1
+        }
+        fn modules(content: &str) -> HashMap<String, ScriptModule> {
+            HashMap::from([(
+                "helper.ts".to_string(),
+                ScriptModule {
+                    content: content.to_string(),
+                    language: ScriptLang::Bun,
+                    lock: None,
+                },
+            )])
+        }
+
+        let attacker = key_for(Some(&modules("export const h = () => 'attacker'"))).await;
+        let victim = key_for(Some(&modules("export const h = () => 'victim'"))).await;
+        assert_ne!(attacker, victim);
+        assert_eq!(
+            attacker,
+            key_for(Some(&modules("export const h = () => 'attacker'"))).await,
+            "same modules must still share a cache slot"
+        );
+
+        // An absent map and an empty one are the same script, so they share a slot.
+        assert_eq!(key_for(None).await, key_for(Some(&HashMap::new())).await);
+        assert_ne!(key_for(None).await, attacker);
     }
 }

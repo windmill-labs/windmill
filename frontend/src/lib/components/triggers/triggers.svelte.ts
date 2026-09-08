@@ -1,6 +1,7 @@
 import {
 	KafkaTriggerService,
 	MqttTriggerService,
+	AmqpTriggerService,
 	NatsTriggerService,
 	PostgresTriggerService,
 	ScheduleService,
@@ -349,6 +350,32 @@ export class Triggers {
 		}
 	}
 
+	async fetchAmqpTriggers(
+		triggersCountStore: Writable<TriggersCount | undefined>,
+		workspaceId: string | undefined,
+		path: string,
+		isFlow: boolean,
+		user: UserExt | undefined = undefined
+	): Promise<void> {
+		if (!workspaceId) return
+		try {
+			const amqpTriggers = await AmqpTriggerService.listAmqpTriggers({
+				workspace: workspaceId,
+				path,
+				isFlow
+			})
+			const amqpCount = this.updateTriggers(amqpTriggers, 'amqp', user)
+			triggersCountStore.update((triggersCount) => {
+				return {
+					...(triggersCount ?? {}),
+					amqp_count: amqpCount
+				}
+			})
+		} catch (error) {
+			console.error('Failed to fetch AMQP triggers:', error)
+		}
+	}
+
 	async fetchSqsTriggers(
 		triggersCountStore: Writable<TriggersCount | undefined>,
 		workspaceId: string | undefined,
@@ -533,6 +560,7 @@ export class Triggers {
 			this.fetchWebsocketTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchPostgresTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchMqttTriggers(triggersCountStore, workspaceId, path, isFlow, user),
+			this.fetchAmqpTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchNativeTriggers(triggersCountStore, 'nextcloud', workspaceId, path, isFlow, user),
 			this.fetchNativeTriggers(triggersCountStore, 'google', workspaceId, path, isFlow, user),
 			this.fetchNativeTriggers(triggersCountStore, 'github', workspaceId, path, isFlow, user),

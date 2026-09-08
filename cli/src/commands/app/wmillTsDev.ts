@@ -1,5 +1,5 @@
 //comment this line and last to dev
-export function wmillTsDev(port: number) { return `
+export function wmillTsDev() { return `
 let reqs: Record<string, any> = {}
 let ws: WebSocket | null = null
 let wsReady: Promise<void>
@@ -10,7 +10,7 @@ function initWebSocket() {
         wsReadyResolve = resolve
     })
 
-    ws = new WebSocket('ws://localhost:${port}')
+    ws = new WebSocket((window.location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + window.location.host)
 
     ws.onopen = () => {
         console.log('[wmill] WebSocket connected')
@@ -68,11 +68,45 @@ function initWebSocket() {
 
 initWebSocket()
 
+/** A runnable call leaves this page over the WebSocket without touching the DOM,
+ * so the session recorder of \`wmill app dev --recording\` (which frames the app)
+ * has nothing else to tell it a step is still waiting on the backend. Announcing
+ * the request and its answer to the shell mirrors what the deployed runner posts
+ * across the same boundary. */
+const framed = typeof window !== 'undefined' && window.parent !== window
+
+function notifyRecorder(type: string, reqId: string) {
+    if (framed) window.parent.postMessage({ type, reqId }, window.location.origin)
+}
+
+// A reload takes the previous context and its WebSocket with it, so whatever it
+// had in flight can never answer. Announcing a fresh module is how the shell
+// learns those calls are dead: a message posted from the unloading document
+// would be dropped with the realm that sent it, and this runs before any app
+// code can issue a call of its own.
+if (framed) {
+    window.parent.postMessage({ type: 'wmillDevReady' }, window.location.origin)
+}
+
+function tracked(type: string, reqId: string, resolve: (v: any) => void, reject: (e: any) => void) {
+    notifyRecorder(type, reqId)
+    let settled = false
+    const done = () => {
+        if (settled) return
+        settled = true
+        notifyRecorder(type + 'Res', reqId)
+    }
+    return {
+        resolve: (v: any) => { done(); resolve(v) },
+        reject: (e: any) => { done(); reject(e) }
+    }
+}
+
 async function doRequest(type: string, o: object) {
     await wsReady
     return new Promise((resolve, reject) => {
         const reqId = Math.random().toString(36)
-        reqs[reqId] = { resolve, reject }
+        reqs[reqId] = tracked(type, reqId, resolve, reject)
         ws?.send(JSON.stringify({ ...o, type, reqId }))
     })
 }
@@ -119,7 +153,7 @@ export function streamJob(
     return new Promise(async (resolve, reject) => {
         await wsReady
         const reqId = Math.random().toString(36)
-        reqs[reqId] = { resolve, reject, onUpdate }
+        reqs[reqId] = { ...tracked('streamJob', reqId, resolve, reject), onUpdate }
         ws?.send(JSON.stringify({ jobId, type: 'streamJob', reqId }))
     })
 }

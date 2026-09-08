@@ -32,7 +32,8 @@
                 "nextcloud",
                 "google",
                 "github",
-                "azure"
+                "azure",
+                "amqp"
               ]
             }
           }

@@ -43,7 +43,6 @@ export interface SimplifiedSettings {
 
   // Other fields
   webhook?: string;
-  deploy_to?: string;
   ai_config?: AIConfig;
   large_file_storage?: any;
   git_sync?: any;
@@ -73,7 +72,6 @@ interface LegacySimplifiedSettings {
   success_handler_extra_args?: any;
   // Other fields same as SimplifiedSettings
   webhook?: string;
-  deploy_to?: string;
   ai_config?: AIConfig;
   large_file_storage?: any;
   git_sync?: any;
@@ -96,7 +94,6 @@ export function migrateToGroupedFormat(settings: any): SimplifiedSettings {
 
   // Copy non-legacy fields
   if (settings.webhook !== undefined) result.webhook = settings.webhook;
-  if (settings.deploy_to !== undefined) result.deploy_to = settings.deploy_to;
   if (settings.ai_config !== undefined) result.ai_config = settings.ai_config;
   if (settings.large_file_storage !== undefined) result.large_file_storage = settings.large_file_storage;
   if (settings.git_sync !== undefined) result.git_sync = settings.git_sync;
@@ -196,7 +193,6 @@ export async function pushWorkspaceSettings(
       error_handler: remoteSettings.error_handler as ErrorHandlerConfig | undefined,
       success_handler: remoteSettings.success_handler as SuccessHandlerConfig | undefined,
       webhook: remoteSettings.webhook,
-      deploy_to: remoteSettings.deploy_to,
       ai_config: remoteSettings.ai_config,
       large_file_storage: remoteSettings.large_file_storage,
       git_sync: remoteSettings.git_sync,
@@ -217,9 +213,10 @@ export async function pushWorkspaceSettings(
     throw new Error(`Failed to get workspace settings: ${err}`);
   }
 
-  // Exclude read-only fields from comparison (slack_team_id and slack_name are set via OAuth only)
-  const { slack_team_id: _lst, slack_name: _lsn, ...comparableLocal } = localSettings;
-  const { slack_team_id: _rst, slack_name: _rsn, ...comparableRemote } = settings;
+  // Exclude fields that are never applied here: slack_team_id/slack_name are OAuth-only,
+  // and name is not applied on pull (see below), so a name-only diff stays a no-op.
+  const { slack_team_id: _lst, slack_name: _lsn, name: _ln, ...comparableLocal } = localSettings;
+  const { slack_team_id: _rst, slack_name: _rsn, name: _rn, ...comparableRemote } = settings;
   if (isSuperset(comparableLocal, comparableRemote)) {
     log.debug(`Workspace settings are up to date`);
     return;
@@ -314,16 +311,6 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  if (localSettings.deploy_to != settings.deploy_to) {
-    log.debug(`Updating deploy to...`);
-    await wmill.editDeployTo({
-      workspace,
-      requestBody: {
-        deploy_to: localSettings.deploy_to,
-      },
-    });
-  }
-
   if (
     !deepEqual(localSettings.large_file_storage, settings.large_file_storage)
   ) {
@@ -364,15 +351,10 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  if (localSettings.name != settings.name) {
-    log.debug(`Updating workspace name...`);
-    await wmill.changeWorkspaceName({
-      workspace,
-      requestBody: {
-        new_name: localSettings.name,
-      },
-    });
-  }
+  // Workspace display name is intentionally not applied on pull: settings.yaml is shared
+  // across a repo's branches, so applying it would let one workspace's name overwrite
+  // another's when both sync the same repo. It stays in the file (written on push), but a
+  // live workspace is only renamed by its owner.
 
   if (localSettings.mute_critical_alerts != settings.mute_critical_alerts) {
     log.debug(`Updating mute critical alerts...`);

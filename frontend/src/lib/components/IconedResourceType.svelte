@@ -1,6 +1,6 @@
 <script>
-	import { FileText, FolderOpen } from 'lucide-svelte'
-	import { APP_TO_ICON_COMPONENT } from './icons'
+	import { Boxes, FileText, FolderOpen } from 'lucide-svelte'
+	import { appIconComponent } from './icons'
 	/**
 	 * @typedef {Object} Props
 	 * @property {any} name
@@ -27,13 +27,7 @@
 		isFileset = false
 	} = $props()
 
-	let iconComponent = $derived(
-		name
-			? name === 'teams'
-				? APP_TO_ICON_COMPONENT.ms_teams_webhook
-				: APP_TO_ICON_COMPONENT[name] || APP_TO_ICON_COMPONENT[name.split('_')[0]]
-			: undefined
-	)
+	let iconComponent = $derived(appIconComponent(name))
 
 	let widthInPixels = $derived(parseInt(width))
 </script>
@@ -56,7 +50,9 @@
 			<FileText {height} {width} />
 		</span>
 	{:else}
-		<span style="width: {width}; height: {height}" class="bg-gray-100 rounded-full"></span>
+		<span class="text-hint/60">
+			<Boxes {height} {width} strokeWidth={1.5} />
+		</span>
 	{/if}
 	{#if !silent && after}
 		{name}

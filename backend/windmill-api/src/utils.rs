@@ -10,7 +10,8 @@ use axum::{body::Body, response::Response};
 use serde::{Deserialize, Deserializer};
 
 pub use windmill_api_auth::{
-    build_scope_path_predicate, check_scopes, require_devops_role, require_super_admin,
+    build_scope_path_filter, build_scope_path_predicate, check_scopes, require_devops_role,
+    require_super_admin, ScopePathFilter,
 };
 
 #[cfg(feature = "private")]

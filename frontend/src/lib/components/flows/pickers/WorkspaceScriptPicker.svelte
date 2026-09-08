@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
+	import type { FlowEditorContext } from '../types'
 	import { ScriptService } from '$lib/gen'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import { Badge, Skeleton } from '$lib/components/common'
@@ -21,8 +22,11 @@
 	let items = $state(undefined) as Item[] | undefined
 
 	let filteredItems = $state(undefined) as (Item & { marked?: string })[] | undefined
+
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
 	interface Props {
-		kind?: 'script' | 'trigger' | 'approval' | 'failure'
+		kind?: 'script' | 'trigger' | 'approval' | 'failure' | 'preprocessor'
 		isTemplate?: boolean | undefined
 		displayLock?: boolean
 		filter?: string
@@ -39,7 +43,7 @@
 
 	async function loadItems(): Promise<void> {
 		items = await ScriptService.listScripts({
-			workspace: $workspaceStore!,
+			workspace: opWs!,
 			kinds: kind,
 			isTemplate,
 			withoutDescription: true
@@ -118,38 +122,48 @@
 				/>
 			</div>
 		{/if}
-		{#if filter.length > 0 && filteredItems.length == 0}
-			<NoItemFound />
-		{/if}
-		<ul class="divide-y border rounded-md">
-			{#each filteredItems as { path, hash, summary, description, marked }}
-				<li class="flex flex-row w-full">
-					<button
-						class="p-4 gap-1 flex flex-row grow hover:bg-surface-hover bg-surface transition-all text-primary"
-						onclick={() => {
-							dispatch('pick', { path, hash: lockHash ? hash : undefined })
-						}}
-					>
-						<div class="flex flex-col">
-							<div class="text-sm font-semibold flex flex-col">
-								<span class="mr-2 text-left">
-									{#if marked}
-										{@html marked}
-									{:else}
-										{!summary || summary.length == 0 ? path : summary}
-									{/if}</span
-								>
-								<span class="font-normal text-xs text-left italic overflow-hidden"
-									>{path ?? ''}</span
-								>
+		{#if filteredItems.length == 0}
+			{#if filter.length > 0}
+				<NoItemFound hasFilters />
+			{:else}
+				<div class="text-2xs text-primary font-light text-center py-2 px-3">No scripts found.</div>
+			{/if}
+			{#if kind == 'preprocessor'}
+				<div class="text-2xs text-hint text-center pb-2 px-3">
+					Only workspace scripts whose kind is set to Preprocessor are listed here.
+				</div>
+			{/if}
+		{:else}
+			<ul class="divide-y border rounded-md">
+				{#each filteredItems as { path, hash, summary, description, marked }}
+					<li class="flex flex-row w-full">
+						<button
+							class="p-4 gap-1 flex flex-row grow hover:bg-surface-hover bg-surface transition-all text-primary"
+							onclick={() => {
+								dispatch('pick', { path, hash: lockHash ? hash : undefined, summary })
+							}}
+						>
+							<div class="flex flex-col">
+								<div class="text-sm font-semibold flex flex-col">
+									<span class="mr-2 text-left">
+										{#if marked}
+											{@html marked}
+										{:else}
+											{!summary || summary.length == 0 ? path : summary}
+										{/if}</span
+									>
+									<span class="font-normal text-xs text-left italic overflow-hidden"
+										>{path ?? ''}</span
+									>
+								</div>
+								<div class="text-xs font-light italic text-left">{description ?? ''}</div>
 							</div>
-							<div class="text-xs font-light italic text-left">{description ?? ''}</div>
-						</div>
-						{#if lockHash}<Badge large baseClass="ml-4">{truncateHash(hash ?? '')}</Badge>{/if}
-					</button>
-				</li>
-			{/each}
-		</ul>
+							{#if lockHash}<Badge large baseClass="ml-4">{truncateHash(hash ?? '')}</Badge>{/if}
+						</button>
+					</li>
+				{/each}
+			</ul>
+		{/if}
 	{:else}
 		<div class="mt-6"></div>
 

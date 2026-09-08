@@ -19,12 +19,19 @@
 	} from '$lib/gen'
 	import { displayDate, displaySize, emptyString } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
+	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 
 	interface Props {
 		fileKey: string | undefined
 		// Optional override of the storage backend (matches the picker's
 		// `storage` prop). Empty/undefined uses the workspace default.
 		storage?: string | undefined
+		// Browse this object storage resource directly instead of the
+		// workspace storage (matches the picker's `s3ResourcePath` prop).
+		s3ResourcePath?: string | undefined
+		// Workspace the previewed object lives in — the acting workspace of the
+		// surface that opened the preview; defaults to the nav workspace.
+		workspace?: string | undefined
 		// Override hooks for non-default backends (e.g. workspace settings
 		// preview before the storage is committed). Default to the standard
 		// helpers service — same defaults as S3FilePickerInner.
@@ -47,6 +54,8 @@
 	let {
 		fileKey,
 		storage = undefined,
+		s3ResourcePath = undefined,
+		workspace = undefined,
 		loadFilePreviewRequest = HelpersService.loadFilePreview,
 		loadFileMetadataRequest = HelpersService.loadFileMetadata,
 		showMetadata = false,
@@ -88,13 +97,17 @@
 
 	function isNotFoundError(err: any): boolean {
 		// HelpersService surfaces backend errors as ApiError with a `status`
-		// field plus a serialized body. We accept either a 404 status or a
-		// "not found" substring (case-insensitive) to be robust against
-		// future error wrapping changes.
+		// field plus a serialized body. A missing object arrives as a 500 that
+		// merely *says* "not found" (`load_file_metadata` wraps the object-store
+		// error), so the substring test carries this and cannot be dropped. 400
+		// must short-circuit ahead of it: those messages echo back a
+		// caller-supplied storage name, and one like `archive not found` would
+		// otherwise read as a missing object and hide the diagnostic.
 		const status = err?.status ?? err?.response?.status
 		if (status === 404) return true
+		if (status === 400) return false
 		const body = String(err?.body ?? err?.message ?? err ?? '').toLowerCase()
-		return body.includes('not found') || body.includes('404')
+		return body.includes('not found')
 	}
 
 	// Reload whenever the file key, workspace, or external refreshKey
@@ -102,11 +115,13 @@
 	// existence after an upstream run completes — moving from the
 	// "not yet materialized" empty state to the actual preview without
 	// requiring the user to re-click the asset.
+	let ws = $derived(workspace ?? $workspaceStore)
+
 	$effect(() => {
 		const key = fileKey
-		const ws = $workspaceStore
+		const ws_ = ws
 		void refreshKey
-		if (!key || !ws) {
+		if (!key || !ws_) {
 			fileMetadata = undefined
 			filePreview = undefined
 			notFound = false
@@ -128,9 +143,10 @@
 		loadError = undefined
 		try {
 			const meta = await loadFileMetadataRequest({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				fileKey: key,
-				storage
+				storage,
+				s3ResourcePath
 			})
 			if (meta !== undefined) {
 				fileMetadata = {
@@ -157,7 +173,7 @@
 		filePreviewLoading = true
 		try {
 			const raw = await loadFilePreviewRequest({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				fileKey: key,
 				fileSizeInBytes: size,
 				fileMimeType: mimeType,
@@ -165,7 +181,8 @@
 				csvHasHeader: csvHasHeader,
 				readBytesFrom: 0,
 				readBytesLength: 128 * 1024,
-				storage
+				storage,
+				s3ResourcePath
 			})
 			let content = raw.content
 			if (content !== null && content !== undefined && content.length >= 128 * 1024) {
@@ -190,8 +207,12 @@
 	}
 
 	// `storage` is keyed by the workspace's S3 storage config name — used as
-	// a query-string suffix on the image/PDF preview URLs.
-	let storageQS = $derived(storage ? `&storage=${storage}` : '')
+	// a query-string suffix on the image/PDF preview URLs, together with the
+	// optional custom resource override.
+	let storageQS = $derived(
+		(storage ? `&storage=${storage}` : '') +
+			(s3ResourcePath ? `&s3_resource_path=${encodeURIComponent(s3ResourcePath)}` : '')
+	)
 
 	function onCsvControlsChanged() {
 		if (fileMetadata?.fileKey) {
@@ -243,11 +264,12 @@
 			</div>
 		{:else if fileMetadata?.fileKey.endsWith('.png') || fileMetadata?.fileKey.endsWith('.jpg') || fileMetadata?.fileKey.endsWith('.jpeg') || fileMetadata?.fileKey.endsWith('.webp')}
 			<div>
-				<img
-					src={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
+				<ExpandableImage
+					src={`/api/w/${ws}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
 						fileMetadata.fileKey
 					)}${storageQS}`}
 					alt="S3 preview"
+					title={fileMetadata.fileKey}
 				/>
 			</div>
 		{:else if fileMetadata?.fileKey.endsWith('.pdf')}
@@ -256,7 +278,7 @@
 					<Loader2 class="animate-spin" />
 				{:then Module}
 					<Module.default
-						source={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
+						source={`/api/w/${ws}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
 							fileMetadata.fileKey
 						)}${storageQS}`}
 					/>

@@ -1,0 +1,22 @@
+summary: Linked AI Agent Flow
+description: An AI agent step that inherits its brain config and tools from a reusable ai_agent resource
+schema:
+  type: object
+  properties:
+    question:
+      type: string
+value:
+  modules:
+    - id: agent_step
+      value:
+        type: aiagent
+        agent: f/agents/support
+        input_transforms:
+          user_message:
+            type: javascript
+            expr: flow_input.question
+        tool_inputs:
+          tool_1:
+            ticket_id:
+              type: javascript
+              expr: flow_input.ticket_id

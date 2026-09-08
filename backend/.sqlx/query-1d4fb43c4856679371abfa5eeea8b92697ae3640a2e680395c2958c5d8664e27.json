@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM dbt_run_progress\n          WHERE workspace_id = $1 AND job_id = $2 AND status = 'running'\n            AND asset_path = ANY($3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1d4fb43c4856679371abfa5eeea8b92697ae3640a2e680395c2958c5d8664e27"
+}

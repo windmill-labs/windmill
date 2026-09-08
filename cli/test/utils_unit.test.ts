@@ -4,7 +4,7 @@
  */
 
 import { expect, test, describe } from "bun:test";
-import { deepEqual, isFileResource, isFilesetResource, toCamel, capitalize, validateRequiredArgs, stripBom, readTextFile, readTextFileSync } from "../src/utils/utils.ts";
+import { deepEqual, isFileResource, isFilesetResource, removeResourceSuffix, toCamel, capitalize, validateRequiredArgs, stripBom, readTextFile, readTextFileSync } from "../src/utils/utils.ts";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -160,6 +160,30 @@ describe("isFileResource", () => {
 });
 
 // =============================================================================
+// removeResourceSuffix
+// =============================================================================
+
+describe("removeResourceSuffix", () => {
+  test("strips the metadata suffix", () => {
+    expect(removeResourceSuffix("f/test/my_resource.resource.yaml")).toBe(
+      "f/test/my_resource"
+    );
+    expect(removeResourceSuffix("f/test/my_resource.resource.json")).toBe(
+      "f/test/my_resource"
+    );
+  });
+
+  test("strips the file-resource suffix", () => {
+    expect(removeResourceSuffix("f/test/my_file.resource.file.txt")).toBe(
+      "f/test/my_file"
+    );
+    expect(removeResourceSuffix("u/admin/config.resource.file.json")).toBe(
+      "u/admin/config"
+    );
+  });
+});
+
+// =============================================================================
 // isFilesetResource
 // =============================================================================
 
@@ -246,6 +270,21 @@ describe("getTypeStrFromPath", () => {
     expect(getTypeStrFromPath("f/test/my_script.sql")).toBe("script");
     expect(getTypeStrFromPath("f/test/my_script.php")).toBe("script");
     expect(getTypeStrFromPath("f/test/my_script.rs")).toBe("script");
+  });
+
+  test("a shared lockfile is its own type, not a workspace dependency", () => {
+    // A repo-side artifact with no object on the server: classified as a
+    // workspace dependency, `sync push` would try to deploy it as one.
+    // Sync paths carry the platform separator, so these do too.
+    expect(getTypeStrFromPath(join("locks", "requirements.in.lock"))).toBe(
+      "shared_lock",
+    );
+    expect(getTypeStrFromPath(join("dependencies", "requirements.in"))).toBe(
+      "workspace_dependencies",
+    );
+    // `locks/` is an ordinary word: only the names Windmill writes are claimed,
+    // so a repo that already keeps its own lockfiles there keeps them.
+    expect(() => getTypeStrFromPath(join("locks", "vendor.lock"))).toThrow();
   });
 
   test("detects metadata types by name suffix", () => {

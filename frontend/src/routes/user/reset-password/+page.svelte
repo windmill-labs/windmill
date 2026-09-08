@@ -1,13 +1,12 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
+	import { tick } from 'svelte'
 	import { page } from '$app/state'
-	import { WindmillIcon } from '$lib/components/icons'
-	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { UserService } from '$lib/gen'
 	import LoginPageHeader from '$lib/components/LoginPageHeader.svelte'
-	import { enterpriseLicense, whitelabelNameStore } from '$lib/stores'
+	import Password from '$lib/components/Password.svelte'
 
 	const token = page.url.searchParams.get('token') ?? ''
 
@@ -15,6 +14,8 @@
 	let confirmPassword = $state('')
 	let loading = $state(false)
 	let success = $state(false)
+	let newPasswordField = $state<Password | undefined>(undefined)
+	let confirmPasswordField = $state<Password | undefined>(undefined)
 
 	async function resetPassword() {
 		if (!token) {
@@ -31,6 +32,12 @@
 			sendUserToast('Passwords do not match', true)
 			return
 		}
+
+		// Await the DOM update: the fields must be back to type="password" before the
+		// request goes out, or the browser may not offer to save the new credential
+		newPasswordField?.conceal()
+		confirmPasswordField?.conceal()
+		await tick()
 
 		loading = true
 		try {
@@ -50,24 +57,21 @@
 		}
 	}
 
-	function handleKeyUp(event: KeyboardEvent) {
-		if (event.key === 'Enter') {
+	function handleKeyDown(event: KeyboardEvent) {
+		// keydown auto-repeats while held, and Enter also confirms an IME candidate — either
+		// would fire several resets against a single-use token
+		if (event.key === 'Enter' && !event.isComposing && !event.repeat) {
 			event.preventDefault()
 			resetPassword()
 		}
 	}
 </script>
 
-<div
-	class="flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative bg-surface-secondary h-screen"
->
+<!-- Anchored to the top, not centered: the card grows when the password form opens or an
+	error appears, and centering would slide the mark and the fields under the pointer. -->
+<div class="flex flex-col pt-24 pb-12 sm:px-6 lg:px-8 relative bg-surface-secondary min-h-screen">
 	<LoginPageHeader />
-	<div class="sm:mx-auto sm:w-full sm:max-w-md">
-		<div class="mx-auto flex justify-center">
-			{#if !$enterpriseLicense || !$whitelabelNameStore}
-				<WindmillIcon height="80px" width="80px" spin="slow" />
-			{/if}
-		</div>
+	<div class="sm:mx-auto sm:w-full sm:max-w-sm">
 		<h2 class="mt-6 text-center text-2xl font-semibold tracking-tight text-emphasis">
 			{success ? 'Password Reset' : 'Set New Password'}
 		</h2>
@@ -76,10 +80,7 @@
 		{/if}
 	</div>
 
-	<div class="mt-8 sm:mx-auto sm:w-full sm:max-w-xl mb-48">
-		<div class="flex justify-end">
-			<DarkModeToggle forcedDarkMode={false} />
-		</div>
+	<div class="mt-6 sm:mx-auto sm:w-full sm:max-w-sm">
 		<div class="bg-surface px-4 py-8 border sm:rounded-lg sm:px-10">
 			{#if !token}
 				<div class="text-center space-y-4">
@@ -105,12 +106,18 @@
 							New Password
 						</label>
 						<div>
-							<input
-								type="password"
-								bind:value={newPassword}
+							<Password
+								bind:this={newPasswordField}
+								bind:password={newPassword}
 								id="new-password"
-								autocomplete="new-password"
-								onkeyup={handleKeyUp}
+								placeholder=""
+								allowMultiline={false}
+								onKeyDown={(e) => {
+									if (e.key === 'Enter' && !e.isComposing && !e.repeat) {
+										e.preventDefault()
+										confirmPasswordField?.focus()
+									}
+								}}
 							/>
 						</div>
 					</div>
@@ -120,12 +127,13 @@
 							Confirm Password
 						</label>
 						<div>
-							<input
-								type="password"
-								bind:value={confirmPassword}
+							<Password
+								bind:this={confirmPasswordField}
+								bind:password={confirmPassword}
 								id="confirm-password"
-								autocomplete="new-password"
-								onkeyup={handleKeyUp}
+								placeholder=""
+								allowMultiline={false}
+								onKeyDown={handleKeyDown}
 							/>
 						</div>
 					</div>

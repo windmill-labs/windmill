@@ -3,7 +3,7 @@
  * Tests both dotted (.flow, .app, .raw_app) and non-dotted (__flow, __app, __raw_app) modes.
  */
 
-import { expect, test, describe, beforeEach } from "bun:test";
+import { expect, test, describe, beforeEach, afterEach } from "bun:test";
 import {
   setNonDottedPaths,
   getNonDottedPaths,
@@ -37,6 +37,13 @@ import {
   transformJsonPathToDir,
   isModuleEntryPoint,
   getScriptBasePathFromModulePath,
+  isDbtGeneratedPath,
+  dbtGeneratedDirs,
+  isUnderGeneratedDir,
+  isDbtModulePath,
+  isBundledModuleFile,
+  moduleFileExclusion,
+  MAX_MODULE_BYTES,
 } from "../src/utils/resource_folders.ts";
 import { removeWorkerPrefix } from "../src/commands/worker-groups/worker-groups.ts";
 
@@ -656,4 +663,195 @@ describe("removeWorkerPrefix", () => {
   test("handles worker__ as the entire name", () => {
     expect(removeWorkerPrefix("worker__")).toBe("");
   });
+});
+
+// A dbt project's generated directories never belong to the bundle: hashing and
+// uploading a local `target/` would make every local `dbt run` look like a
+// project change, and a stale manifest in it is what the runtime reads as the
+// graph. They are configurable, so they are read from the project.
+describe("dbtGeneratedDirs", () => {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const nodePath = require("node:path");
+  let dir: string;
+  // Every temp directory this block makes, so none outlives the run: the helper
+  // below mints one per call by design.
+  let made: string[] = [];
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), "dbtgen-"));
+    made = [dir];
+  });
+
+  afterEach(() => {
+    for (const d of made) fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  // A fresh directory per call: `dbtGeneratedDirs` memoizes per project folder,
+  // since within one sync the project file does not change under it.
+  const write = (yml: string) => {
+    const d = fs.mkdtempSync(nodePath.join(os.tmpdir(), "dbtgen-"));
+    made.push(d);
+    fs.writeFileSync(nodePath.join(d, "dbt_project.yml"), yml);
+    return dbtGeneratedDirs(d);
+  };
+
+  test("defaults apply with no project file", () => {
+    const dirs = dbtGeneratedDirs(dir);
+    expect(dirs.has("target")).toBe(true);
+    expect(dirs.has("dbt_packages")).toBe(true);
+  });
+
+  test("reads nested target-path and packages-install-path", () => {
+    const dirs = write(
+      'name: p\ntarget-path: "build/target"\npackages-install-path: ./vendor/pkgs\n',
+    );
+    expect(dirs.has("build/target")).toBe(true);
+    expect(dirs.has("vendor/pkgs")).toBe(true);
+  });
+
+  test("reads clean-targets in both of dbt's spellings", () => {
+    expect(write('name: p\nclean-targets: ["a", b]\n').has("a")).toBe(true);
+    const block = write("name: p\nclean-targets:\n  - out/one\n  - two\nmodels: {}\n");
+    expect(block.has("out/one")).toBe(true);
+    expect(block.has("two")).toBe(true);
+    expect(block.has("models")).toBe(false);
+  });
+
+  test("ignores a configured path that escapes the project", () => {
+    const dirs = write('name: p\ntarget-path: "../../etc"\n');
+    expect([...dirs].some((d) => d.includes(".."))).toBe(false);
+  });
+});
+
+describe("isUnderGeneratedDir", () => {
+  const dirs = new Set(["target", "build/target"]);
+
+  test("matches the directory and everything under it", () => {
+    expect(isUnderGeneratedDir("target", dirs)).toBe(true);
+    expect(isUnderGeneratedDir("target/manifest.json", dirs)).toBe(true);
+    expect(isUnderGeneratedDir("build/target/run_results.json", dirs)).toBe(true);
+  });
+
+  test("does not match a sibling sharing the prefix", () => {
+    expect(isUnderGeneratedDir("targetx/a.sql", dirs)).toBe(false);
+    expect(isUnderGeneratedDir("models/target_helper.sql", dirs)).toBe(false);
+    expect(isUnderGeneratedDir("build/targeted/a.sql", dirs)).toBe(false);
+  });
+});
+
+// A Windows path spells the folder `__dbt\\`. A lookup that searched the raw
+// path for `__dbt/` would find nothing, so a module-only edit would return
+// without deploying its parent while the file was still recorded as synced.
+describe("dbt module paths on either separator", () => {
+  test("isDbtModulePath and getScriptBasePathFromModulePath accept backslashes", () => {
+    expect(isDbtModulePath("f\\x\\proj__dbt\\models\\a.sql")).toBe(true);
+    expect(getScriptBasePathFromModulePath("f\\x\\proj__dbt\\models\\a.sql")).toBe(
+      "f/x/proj",
+    );
+    expect(getScriptBasePathFromModulePath("f/x/proj__dbt/models/a.sql")).toBe(
+      "f/x/proj",
+    );
+  });
+
+  test("a path with no module folder has no base path", () => {
+    expect(getScriptBasePathFromModulePath("f/x/proj.dbt.yaml")).toBeUndefined();
+  });
+});
+
+// The push, the staleness hash and the sync diff all ask this question. They
+// must agree: a file one drops and another keeps is a change no push resolves.
+describe("isBundledModuleFile", () => {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const nodePath = require("node:path");
+  let dir: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), "bundled-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const write = (name: string, data: Buffer | string) => {
+    const p = nodePath.join(dir, name);
+    fs.writeFileSync(p, data);
+    return p;
+  };
+
+  test("keeps text, including empty and unicode", () => {
+    expect(isBundledModuleFile(write("a.sql", "select 1\n"))).toBe(true);
+    expect(isBundledModuleFile(write("empty.sql", ""))).toBe(true);
+    expect(isBundledModuleFile(write("u.sql", "select 'café'\n"))).toBe(true);
+  });
+
+  test("drops a binary file, which a NUL identifies", () => {
+    expect(isBundledModuleFile(write("x.png", Buffer.from([0x89, 0x50, 0x00, 0x1a])))).toBe(
+      false,
+    );
+  });
+
+  test("drops a file over the per-file limit", () => {
+    expect(isBundledModuleFile(write("huge.csv", "x".repeat(MAX_MODULE_BYTES + 1)))).toBe(
+      false,
+    );
+  });
+
+  // The two reasons a file is not carried are not interchangeable: sync hides
+  // dbt's binary leftovers, but an oversized seed the project authored has to
+  // stay in the diff, or the push that reports the size error never runs and the
+  // remote project is left incomplete without saying so.
+  test("says WHY a file is not carried", () => {
+    expect(moduleFileExclusion(write("a.sql", "select 1\n"))).toBe(undefined);
+    expect(moduleFileExclusion(write("x.png", Buffer.from([0x89, 0x50, 0x00, 0x1a])))).toBe(
+      "binary",
+    );
+    expect(moduleFileExclusion(write("seed.csv", "x".repeat(MAX_MODULE_BYTES + 1)))).toBe(
+      "oversized",
+    );
+  });
+
+  // A pull asks this about files that do not exist locally yet. Answering "not
+  // carried" there made sync ignore the whole incoming project and write
+  // nothing — the bundle silently vanished on every fresh checkout.
+  test("treats a missing file as carried, not as excluded", () => {
+    expect(isBundledModuleFile(nodePath.join(dir, "does-not-exist.sql"))).toBe(true);
+  });
+});
+
+test("a nested __mod inside a dbt project does not steal the script boundary", () => {
+  // dbt owns its directory names verbatim, so a folder ending `__mod` is legal
+  // inside a project. The script is the OUTER module boundary.
+  expect(
+    getScriptBasePathFromModulePath("f/x/proj__dbt/models/legacy__mod/a.sql"),
+  ).toBe("f/x/proj");
+  expect(getScriptBasePathFromModulePath("f/x/proj__dbt/models/a.sql")).toBe(
+    "f/x/proj",
+  );
+  expect(getScriptBasePathFromModulePath("f/x/s__mod/inner.ts")).toBe("f/x/s");
+});
+
+test("a nested __mod inside a dbt project is not a module entry point", () => {
+  expect(isModuleEntryPoint("f/x/s__mod/script.ts")).toBe(true);
+  // `legacy__mod` is a legal dbt directory; its script.ts belongs to the dbt
+  // project, not to a module folder of its own.
+  expect(isModuleEntryPoint("f/x/proj__dbt/models/legacy__mod/script.ts")).toBe(
+    false,
+  );
+  expect(isModuleEntryPoint("f/x/proj__dbt/models/a.sql")).toBe(false);
+});
+
+test("a __dbt directory nested inside an ordinary module is not a dbt project file", () => {
+  expect(isDbtModulePath("f/x/proj__dbt/models/a.sql")).toBe(true);
+  // `vendor/x__dbt/` belongs to the `foo__mod` script, not to a dbt project.
+  expect(isDbtModulePath("f/x/foo__mod/vendor/x__dbt/a.ts")).toBe(false);
+  expect(isDbtModulePath("f/x/foo__mod/helper.ts")).toBe(false);
+});
+
+test("a __dbt/target nested in an ordinary module is not generated dbt output", () => {
+  expect(isDbtGeneratedPath("f/x/proj__dbt/target/manifest.json")).toBe(true);
+  // Belongs to the `foo__mod` script; excluding it would drop a real edit.
+  expect(isDbtGeneratedPath("f/x/foo__mod/vendor/x__dbt/target/a.ts")).toBe(false);
 });

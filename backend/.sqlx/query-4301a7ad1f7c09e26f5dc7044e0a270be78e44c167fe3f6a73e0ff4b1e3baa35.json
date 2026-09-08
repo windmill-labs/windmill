@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, on_behalf_of)\n         VALUES ('test-workspace', 'u/test-user/obo_flow', '', '', $1, 'test-user', NOW(), 'u/test-user-2')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4301a7ad1f7c09e26f5dc7044e0a270be78e44c167fe3f6a73e0ff4b1e3baa35"
+}

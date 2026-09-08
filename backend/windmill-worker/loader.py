@@ -2,6 +2,7 @@ import sys
 import os
 from importlib.abc import MetaPathFinder, Loader
 from importlib.machinery import ModuleSpec, SourceFileLoader
+from importlib.util import spec_from_file_location
 import time
 
 # Injected by backend: maps script path -> temp storage hash so preview jobs
@@ -38,7 +39,7 @@ class WindmillFinder(MetaPathFinder):
             fullpath = folder + "/" + splitted[-1] + ".py"
 
             if os.path.exists(fullpath):
-                return ModuleSpec(name, SourceFileLoader(name, fullpath))
+                return spec_from_file_location(name, fullpath)
 
 
             import urllib.parse
@@ -68,9 +69,13 @@ class WindmillFinder(MetaPathFinder):
                         r = response.read().decode("utf-8")
                         if r == "WINDMILL_IS_FOLDER":
                             return ModuleSpec(name, WindmillLoader(name))
-                        with open(fullpath, "w+") as f:
+                        # Python parses .py as UTF-8 regardless of locale, so the
+                        # file has to be written as UTF-8. Without this the ANSI
+                        # code page on a Windows worker re-encodes every
+                        # non-ASCII literal and the import dies on a SyntaxError.
+                        with open(fullpath, "w+", encoding="utf-8") as f:
                             f.write(r)
-                        return ModuleSpec(name, SourceFileLoader(name, fullpath))
+                        return spec_from_file_location(name, fullpath)
                 except urllib.error.HTTPError as e:
                     duration = time.time() - req_start
                     if e.code != 404:

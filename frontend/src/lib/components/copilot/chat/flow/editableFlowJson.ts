@@ -1,10 +1,33 @@
 import { z } from 'zod'
 import type { FlowModule, FlowValue } from '$lib/gen'
 import { collectAllFlowModuleIdsFromModules } from '$lib/components/flows/flowTree'
+import {
+	collectInvalidAgentToolNames,
+	collectProviderlessAgentIds
+} from '$lib/components/flows/agentToolTree'
+import { validateAiAgentProviders, type AiAgentProviderCatalog } from './aiAgentProviders'
 import { SPECIAL_MODULE_IDS } from '../shared'
-import type { InlineScriptSession } from './inlineScriptsUtils'
-import { validateFlowGroups, validateFlowNotes, type FlowGroup, type FlowNote } from './helperUtils'
+import { findUnresolvedInlineScriptRefs, type InlineScriptSession } from './inlineScriptsUtils'
+import {
+	replaceNewInlineScriptRefsWithEmptyCode,
+	validateFlowGroups,
+	validateFlowNotes,
+	type FlowGroup,
+	type FlowNote
+} from './helperUtils'
 import { flowModuleSchema, flowModulesSchema } from './openFlowZod.gen'
+import {
+	FLOW_VALUE_SETTINGS_KEYS,
+	flowValueSettingsSchema,
+	pickFlowValueSettings,
+	type FlowValueSettings
+} from './flowValueSettings'
+
+export {
+	FLOW_VALUE_SETTINGS_KEYS,
+	pickFlowValueSettings,
+	type FlowValueSettings
+} from './flowValueSettings'
 
 /**
  * Compact, agent-friendly representation of a flow.
@@ -20,12 +43,18 @@ export type EditableFlowJson = {
 	failure_module: FlowModule | null
 	groups: FlowGroup[] | null
 	notes: FlowNote[] | null
-}
+} & FlowValueSettings
 
-/** Optional input to the rich-error path of `validateEditableFlowJson`. */
-type SchemaErrorContext = {
+/** Optional input to `validateEditableFlowJson` and `validateFlowModules`. */
+type FlowValidationContext = {
 	/** Custom modules schema to validate against (defaults to flowModulesSchema). */
 	modulesSchema?: z.ZodTypeAny
+	/** Workspace AI provider resources, to check the provider config of AI agent steps
+	 * against. Omitted, only the shape of a provider config is checked. */
+	aiProviders?: AiAgentProviderCatalog
+	/** Sink for provider findings that did not block the write. Callers surface these in the
+	 * tool result. */
+	aiProviderWarnings?: string[]
 }
 
 /**
@@ -182,7 +211,7 @@ function getExpectedFormat(schema: z.ZodType): string | null {
 
 export function validateFlowModules(
 	rawModules: unknown,
-	ctx: SchemaErrorContext = {}
+	ctx: FlowValidationContext = {}
 ): FlowModule[] {
 	if (!Array.isArray(rawModules)) {
 		throw new Error('Flow modules must be an array')
@@ -236,6 +265,37 @@ export function validateFlowModules(
 		)
 	}
 
+	// Not expressible in the schema: `provider` is required only when the step is standalone, and
+	// making AiAgent a conditional union breaks the FlowModuleValue discriminated union it belongs to.
+	const providerless = collectProviderlessAgentIds(parsedModules)
+	if (providerless.length > 0) {
+		throw new Error(
+			`AI agent modules ${providerless
+				.map((id) => `"${id}"`)
+				.join(
+					', '
+				)} need a provider input transform, or an "agent" path linking them to a saved agent`
+		)
+	}
+
+	// An agent tool's `summary` is the name the LLM sees; the worker rejects anything outside
+	// `^[a-zA-Z0-9_]+$`, so a flow written with a spaced name saves but fails on every run.
+	const invalidToolNames = collectInvalidAgentToolNames(parsedModules)
+	if (invalidToolNames.length > 0) {
+		throw new Error(
+			`Invalid AI agent tool name(s): ${invalidToolNames
+				.map(
+					(t) =>
+						`agent "${t.agentId}" tool "${t.toolId}" is named ${JSON.stringify(t.name)} - ${t.error}`
+				)
+				.join(
+					'; '
+				)}. The tool's "summary" is the name the agent calls it by: use underscores instead of spaces (e.g. "search_docs").`
+		)
+	}
+
+	validateAiAgentProviders(parsedModules, ctx.aiProviders, ctx.aiProviderWarnings)
+
 	return parsedModules
 }
 
@@ -258,20 +318,51 @@ function validateOptionalFlowModule(rawModule: unknown, fieldName: string): Flow
 	return result.data
 }
 
+export const EDITABLE_FLOW_STRUCTURAL_KEYS = [
+	'modules',
+	'schema',
+	'preprocessor_module',
+	'failure_module',
+	'groups',
+	'notes'
+] as const
+
 /**
  * Parse and validate a raw object as an `EditableFlowJson`. Validates module
  * shape, schema shape, optional special modules (with their reserved ids),
- * groups, and that no module ids collide.
+ * groups, top-level flow settings, and that no module ids collide.
  */
 export function validateEditableFlowJson(
 	rawFlow: unknown,
-	ctx: SchemaErrorContext = {}
+	ctx: FlowValidationContext = {}
 ): EditableFlowJson {
 	if (!rawFlow || typeof rawFlow !== 'object' || Array.isArray(rawFlow)) {
 		throw new Error('Flow JSON must be an object')
 	}
 
 	const flow = rawFlow as Record<string, unknown>
+
+	// Reject unknown top-level keys: silently dropping them would make patch
+	// tools report success for edits that never land on the flow.
+	const allowedKeys = new Set<string>([
+		...EDITABLE_FLOW_STRUCTURAL_KEYS,
+		...FLOW_VALUE_SETTINGS_KEYS
+	])
+	const unknownKeys = Object.keys(flow).filter((key) => !allowedKeys.has(key))
+	if (unknownKeys.length > 0) {
+		throw new Error(
+			`Unknown top-level flow key(s): ${unknownKeys.join(', ')}. Allowed keys: ${[...allowedKeys].join(', ')}`
+		)
+	}
+
+	const settingsResult = flowValueSettingsSchema.safeParse(flow)
+	if (!settingsResult.success) {
+		const issue = settingsResult.error.issues[0]
+		const path = issue?.path?.join('.') ?? 'settings'
+		throw new Error(`Invalid flow setting ${path}: ${issue?.message ?? 'unknown error'}`)
+	}
+	const settings = pickFlowValueSettings(settingsResult.data)
+
 	const modules = validateFlowModules(flow.modules, ctx)
 	const schema = validateFlowSchema(flow.schema)
 	const preprocessorModule = validateOptionalFlowModule(
@@ -324,7 +415,8 @@ export function validateEditableFlowJson(
 		preprocessor_module: preprocessorModule,
 		failure_module: failureModule,
 		groups,
-		notes
+		notes,
+		...settings
 	}
 }
 
@@ -380,11 +472,12 @@ export function buildEditableFlowJson(
 		preprocessor_module: preprocessorModule ?? null,
 		failure_module: failureModule ?? null,
 		groups: flow.value.groups ?? null,
-		notes: flow.value.notes ?? null
+		notes: flow.value.notes ?? null,
+		...pickFlowValueSettings(flow.value)
 	}
 }
 
-function restoreSpecialRawscriptModule(
+export function restoreSpecialRawscriptModule(
 	module: FlowModule | null,
 	session: InlineScriptSession
 ): FlowModule | null {
@@ -399,8 +492,12 @@ function restoreSpecialRawscriptModule(
 /**
  * Inverse of `buildEditableFlowJson`. Replaces `inline_script.<moduleId>`
  * placeholders in `editable.modules` and the special modules with the content
- * stored in `session`. Other fields on the original FlowValue (`same_worker`,
- * `concurrent_limit`, etc.) are preserved.
+ * stored in `session`.
+ *
+ * The compact view is the full state for the settings in
+ * `FLOW_VALUE_SETTINGS_KEYS`: a settings key absent from `editable` is removed
+ * from the result, so patches can unset them. Fields of the original FlowValue
+ * outside that list are preserved untouched.
  *
  * Pair with `buildEditableFlowJson` for round-trip patches: extract → patch
  * the compact view → restore.
@@ -410,7 +507,7 @@ export function applyEditableFlowJsonToFlow(
 	editable: EditableFlowJson,
 	session: InlineScriptSession
 ): FlowValue {
-	return {
+	const result: FlowValue = {
 		...originalValue,
 		modules: session.restoreInlineScriptReferences(editable.modules),
 		preprocessor_module:
@@ -418,5 +515,43 @@ export function applyEditableFlowJsonToFlow(
 		failure_module: restoreSpecialRawscriptModule(editable.failure_module, session) ?? undefined,
 		groups: editable.groups ?? undefined,
 		notes: editable.notes ?? undefined
+	}
+	for (const key of FLOW_VALUE_SETTINGS_KEYS) {
+		if (editable[key] !== undefined) {
+			;(result as Record<string, unknown>)[key] = editable[key]
+		} else {
+			delete (result as Record<string, unknown>)[key]
+		}
+	}
+	return result
+}
+
+/**
+ * Post-restore normalization for draft flow writes. A placeholder that survived
+ * restore either names its own module — a new inline body, blanked in place so
+ * the caller's empty-body warning sends the model to the set-module-code tool —
+ * or names nothing, in which case the write is rejected so a literal
+ * `inline_script.*` string is never persisted as runnable content.
+ */
+export function finalizeUnresolvedInlineScripts(value: {
+	modules: FlowModule[]
+	preprocessor_module?: FlowModule | null
+	failure_module?: FlowModule | null
+}): void {
+	const specials = [value.preprocessor_module, value.failure_module].filter(
+		(module): module is FlowModule => module != null
+	)
+	const blanked = new Set<string>()
+	replaceNewInlineScriptRefsWithEmptyCode(value.modules, blanked)
+	replaceNewInlineScriptRefsWithEmptyCode(specials, blanked)
+	const unresolved = [
+		...findUnresolvedInlineScriptRefs(value.modules),
+		...findUnresolvedInlineScriptRefs(specials)
+	]
+	if (unresolved.length > 0) {
+		const refs = unresolved.map((id) => `"inline_script.${id}"`).join(', ')
+		throw new Error(
+			`Unresolved inline script reference(s): ${refs}. A rawscript "content" placeholder must be "inline_script.<its own module id>" (a new body, filled afterwards with the set-module-code tool) or reference an existing rawscript module to keep its current body. Nothing was saved.`
+		)
 	}
 }

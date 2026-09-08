@@ -269,8 +269,7 @@ impl QueryBuilder for OtherQueryBuilder {
         }
 
         // Convert OpenAI Chat Completions usage to TokenUsage
-        let usage = openai_usage
-            .map(|u| TokenUsage::new(u.prompt_tokens, u.completion_tokens, u.total_tokens));
+        let usage = openai_usage.map(|u| u.to_token_usage());
 
         Ok(ParsedResponse::Text {
             content: if accumulated_content.is_empty() {
@@ -287,6 +286,7 @@ impl QueryBuilder for OtherQueryBuilder {
     }
 
     fn get_endpoint(&self, base_url: &str, _model: &str, _output_type: &OutputType) -> String {
+        let base_url = base_url.trim_end_matches('/');
         if self.provider_kind.is_azure(base_url) {
             AIProvider::build_azure_openai_url(base_url, "chat/completions")
         } else {

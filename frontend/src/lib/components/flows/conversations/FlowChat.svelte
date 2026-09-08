@@ -3,7 +3,8 @@
 	import { createFlowChatManager } from './FlowChatManager.svelte'
 	import FlowConversationsSidebar from './FlowConversationsSidebar.svelte'
 	import FlowChatInterface from './FlowChatInterface.svelte'
-	import { untrack } from 'svelte'
+	import { getContext, untrack } from 'svelte'
+	import type { FlowEditorContext } from '../types'
 
 	interface Props {
 		onRunFlow: (
@@ -24,10 +25,13 @@
 		useStreaming = false,
 		path,
 		hideSidebar = false,
-		inputSchema = undefined,
+		inputSchema = undefined
 	}: Props = $props()
 
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+
 	const manager = createFlowChatManager()
+	manager.operatingWorkspace = () => flowEditorContext?.opWorkspace?.()
 
 	// Initialize manager when component mounts
 	$effect(() => {
@@ -52,9 +56,7 @@
 	// Derive additional inputs schema (excluding user_message) for chat mode
 	const additionalInputsSchema = $derived.by(() => {
 		const props = inputSchema?.properties ?? {}
-		const filtered = Object.fromEntries(
-			Object.entries(props).filter(([k]) => k !== 'user_message')
-		)
+		const filtered = Object.fromEntries(Object.entries(props).filter(([k]) => k !== 'user_message'))
 		if (Object.keys(filtered).length === 0) return undefined
 		const required = inputSchema?.required
 		const requiredArray: string[] = Array.isArray(required) ? required : []

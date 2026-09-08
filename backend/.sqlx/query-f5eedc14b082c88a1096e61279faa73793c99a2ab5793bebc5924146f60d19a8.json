@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT asset_kind AS \"asset_kind: windmill_common::assets::AssetKind\", asset_path,\n                    status::text AS \"status!\", row_count, error\n               FROM materialized_partition\n              WHERE workspace_id = $1 AND job_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "asset_kind: windmill_common::assets::AssetKind",
+        "type_info": {
+          "Custom": {
+            "name": "asset_kind",
+            "kind": {
+              "Enum": [
+                "s3object",
+                "resource",
+                "variable",
+                "ducklake",
+                "datatable",
+                "volume",
+                "dbt"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "asset_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "status!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "row_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "error",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      true,
+      true
+    ]
+  },
+  "hash": "f5eedc14b082c88a1096e61279faa73793c99a2ab5793bebc5924146f60d19a8"
+}

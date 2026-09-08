@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_fork_deployment_request_comment SET author_email = $1 WHERE author_email = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "162ab0cc9094d7031229a65f47d730282d17bc8a71a0e234c9edf81b85199dd1"
+}

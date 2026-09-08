@@ -624,6 +624,7 @@
 			lang="yaml"
 			class="h-full"
 			fixedOverflowWidgets={false}
+			leadingChangeSync
 		/>
 		{#snippet actions()}
 			<Button
@@ -676,6 +677,7 @@
 				lang="yaml"
 				class="h-full"
 				fixedOverflowWidgets={false}
+				leadingChangeSync
 			/>
 		{/if}
 		{#snippet actions()}

@@ -24,6 +24,39 @@ fn authed(builder: reqwest::RequestBuilder, token: &str) -> reqwest::RequestBuil
     builder.header("Authorization", format!("Bearer {}", token))
 }
 
+/// Helper: does a variable exist at (workspace, path)?
+async fn variable_exists(db: &Pool<Postgres>, workspace: &str, path: &str) -> anyhow::Result<bool> {
+    let n: Option<i64> =
+        sqlx::query_scalar("SELECT COUNT(*) FROM variable WHERE workspace_id = $1 AND path = $2")
+            .bind(workspace)
+            .bind(path)
+            .fetch_one(db)
+            .await?;
+    Ok(n.unwrap_or(0) > 0)
+}
+
+/// Helper: mint an API token restricted to `scopes`, using the admin SECRET_TOKEN.
+async fn mint_scoped_token(port: u16, scopes: Vec<&str>) -> anyhow::Result<String> {
+    let resp = authed(
+        client().post(format!("http://localhost:{port}/api/users/tokens/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "label": "scoped",
+        "scopes": scopes,
+        "workspace_id": "test-workspace",
+    }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        201,
+        "mint scoped token: {}",
+        resp.text().await?
+    );
+    Ok(resp.text().await?)
+}
+
 /// Helper: count rows in ws_specific for (workspace, kind, path).
 async fn ws_specific_row_count(
     db: &Pool<Postgres>,
@@ -351,6 +384,67 @@ async fn test_create_resource_upsert_clears_ws_specific(db: Pool<Postgres>) -> a
         .await?,
         1,
         "absent ws_specific field must leave the existing flag alone"
+    );
+
+    Ok(())
+}
+
+/// Regression for GHSA-xmr2-98m6-cjf7: a token scoped only to `resources:write:<r>`
+/// must NOT use the resource-delete cascade to delete a linked secret variable it has
+/// no `variables:write` scope for.
+#[sqlx::test(fixtures("ws_specific"))]
+async fn test_scoped_token_cannot_cascade_delete_linked_variable(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let resp = authed(
+        client().post(format!("{base}/variables/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "path": "u/test-user/victim_secret",
+        "value": "hunter2",
+        "is_secret": true,
+        "description": ""
+    }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 201, "create victim: {}", resp.text().await?);
+
+    let resp = authed(
+        client().post(format!("{base}/resources/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "path": "u/test-user/db",
+        "value": { "password": "$var:u/test-user/victim_secret" },
+        "resource_type": "object"
+    }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 201, "create res: {}", resp.text().await?);
+
+    // resources:write only, no variables:write for the linked secret.
+    let scoped = mint_scoped_token(port, vec!["resources:write:u/test-user/db"]).await?;
+    let resp = authed(
+        client().delete(format!("{base}/resources/delete/u/test-user/db")),
+        &scoped,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "scoped resource token must not cascade-delete the linked variable: {}",
+        resp.text().await?
+    );
+    assert!(
+        variable_exists(&db, "test-workspace", "u/test-user/victim_secret").await?,
+        "victim variable must survive the denied cascade"
     );
 
     Ok(())

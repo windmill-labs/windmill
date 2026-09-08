@@ -9,13 +9,14 @@ use windmill_common::{
 };
 
 use crate::{
-    generate_webhook_service_url,
+    generate_webhook_service_url, http_error_status,
     nextcloud::{
         routes, NextCloud, NextCloudOAuthData, NextCloudTriggerData, NextcloudServiceConfig,
         OcsResponse,
     },
     External, NativeTriggerData, ServiceName,
 };
+use http::StatusCode;
 
 lazy_static::lazy_static! {
     pub static ref TOKEN_NEEDED: Box<serde_json::value::RawValue> = to_raw_value(&serde_json::json!({
@@ -172,19 +173,28 @@ impl External for NextCloud {
             )
             .await?;
 
-        // Fetch back the updated state and convert to JSON config
-        let trigger_data = self
-            .get(w_id, oauth_data, external_id, db, tx)
-            .await?
-            .ok_or_else(|| {
-                Error::InternalErr(format!(
-                    "Failed to fetch back trigger {} after update",
-                    external_id
-                ))
-            })?;
-        serde_json::to_value(&trigger_data).map_err(|e| {
-            Error::internal_err(format!("Failed to convert trigger data to JSON: {}", e))
-        })
+        // The webhook is already updated at this point, so the read-back is an enrichment (it
+        // picks up whatever Nextcloud resolved server-side), not a second chance to fail. Failing
+        // here would report a webhook that is in fact installed as un-installed, and callers would
+        // then unwind a token the service is already using.
+        let read_back = match self.get(w_id, oauth_data, external_id, db, tx).await {
+            Ok(Some(trigger_data)) => serde_json::to_value(&trigger_data).ok(),
+            Ok(None) => None,
+            Err(e) => {
+                tracing::warn!(
+                    "Nextcloud webhook {external_id} was updated but could not be read back, \
+                     storing the requested config: {e:#}"
+                );
+                None
+            }
+        };
+
+        match read_back {
+            Some(config) => Ok(config),
+            None => serde_json::to_value(&data.service_config).map_err(|e| {
+                Error::internal_err(format!("Failed to convert trigger data to JSON: {}", e))
+            }),
+        }
     }
 
     async fn get(
@@ -226,11 +236,13 @@ impl External for NextCloud {
         let mut headers = HashMap::new();
         headers.insert("OCS-APIRequest".to_string(), "true".to_string());
 
+        // A webhook already removed in Nextcloud is the outcome this call wants, so only 404 is
+        // swallowed; anything else would leave a live webhook behind while Windmill forgets it.
         let _: serde_json::Value = self
             .http_client_request::<_, ()>(&url, Method::DELETE, w_id, db, Some(headers), None)
             .await
-            .or_else(|e| match &e {
-                Error::InternalErr(msg) if msg.contains("404") => Ok(serde_json::Value::Null),
+            .or_else(|e| match http_error_status(&e) {
+                Some(StatusCode::NOT_FOUND) => Ok(serde_json::Value::Null),
                 _ => Err(e),
             })?;
 
@@ -256,7 +268,10 @@ impl External for NextCloud {
                 );
                 errors.push(crate::sync::SyncError {
                     resource_path: format!("workspace:{}", workspace_id),
-                    error_message: format!("Failed to fetch external triggers: {}", e),
+                    error_message: format!(
+                        "Failed to fetch external triggers: {}",
+                        crate::external_error_message(&e)
+                    ),
                     error_type: "external_service_error".to_string(),
                 });
                 return;
@@ -293,6 +308,28 @@ impl External for NextCloud {
 
     fn additional_routes(&self) -> axum::Router {
         routes::nextcloud_routes(self.clone())
+    }
+
+    fn describe_error_body(&self, body: &str) -> Option<String> {
+        let ocs: OcsResponse<serde_json::Value> = serde_json::from_str(body).ok()?;
+        Some(ocs.ocs.meta.message).filter(|m| !m.is_empty())
+    }
+
+    /// Appended to every failed call of this service, so a hint may not assert what the caller
+    /// was doing — only name the requirement that most often explains the status.
+    fn error_hint(&self, status: StatusCode) -> Option<&'static str> {
+        match status {
+            StatusCode::UNAUTHORIZED => {
+                Some("reconnect the Nextcloud integration from Workspace settings > Integrations.")
+            }
+            StatusCode::FORBIDDEN => Some(
+                "Nextcloud grants webhook management to administrators only, and a Windmill \
+                 admin is a different thing. If the connected Nextcloud account is not an admin \
+                 there and holds no delegated admin rights for the Webhooks setting, reconnect \
+                 the integration from Workspace settings > Integrations with one that does.",
+            ),
+            _ => None,
+        }
     }
 }
 

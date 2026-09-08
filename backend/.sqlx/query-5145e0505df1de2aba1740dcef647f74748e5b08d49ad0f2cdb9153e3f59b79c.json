@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path, fork_last_event_kind, fork_last_event_origin FROM workspace_diff\n             WHERE fork_workspace_id = 'wm-fork-deferred' AND kind = 'flow'\n               AND fork_last_event_origin IS NOT NULL ORDER BY path",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "fork_last_event_kind",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "fork_last_event_origin",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "5145e0505df1de2aba1740dcef647f74748e5b08d49ad0f2cdb9153e3f59b79c"
+}

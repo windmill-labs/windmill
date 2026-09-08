@@ -3,11 +3,11 @@
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import {
-		IS_APP_PUBLIC_CONTEXT_KEY,
 		type AppViewerContext,
 		type ComponentCustomCSS,
 		type RichConfigurations
 	} from '../../types'
+	import { getAppMarkupTrust } from '../../markupTrust'
 	import { initCss } from '../../utils'
 	import JobLoader from '$lib/components/JobLoader.svelte'
 	import type { Job } from '$lib/gen'
@@ -16,7 +16,6 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import { userStore } from '$lib/stores'
 
 	interface Props {
 		id: string
@@ -34,22 +33,35 @@
 		render
 	}: Props = $props()
 
-	const { app, worldStore, workspace, appPath } = getContext<AppViewerContext>('AppViewerContext')
-	const requireHtmlApproval = getContext<boolean | undefined>(IS_APP_PUBLIC_CONTEXT_KEY)
+	const markupTrust = getAppMarkupTrust()
+	const { app, worldStore, workspace, appPath, isEditor } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = $state(
-		initConfig(components['jobiddisplaycomponent'].initialData.configuration, untrack(() => configuration))
+		initConfig(
+			components['jobiddisplaycomponent'].initialData.configuration,
+			untrack(() => configuration)
+		)
 	)
 
-	const outputs = initOutput($worldStore, untrack(() => id), {
-		result: undefined,
-		loading: false,
-		jobId: undefined as string | undefined
-	})
+	const outputs = initOutput(
+		$worldStore,
+		untrack(() => id),
+		{
+			result: undefined,
+			loading: false,
+			jobId: undefined as string | undefined
+		}
+	)
 
 	initializing = false
 
-	let css = $state(initCss($app.css?.jobiddisplaycomponent, untrack(() => customCss)))
+	let css = $state(
+		initCss(
+			$app.css?.jobiddisplaycomponent,
+			untrack(() => customCss)
+		)
+	)
 
 	let jobLoader: JobLoader | undefined = $state(undefined)
 	let testIsLoading: boolean = $state(false)
@@ -135,9 +147,9 @@
 			<DisplayResult
 				workspaceId={workspace}
 				{result}
-				{requireHtmlApproval}
+				{markupTrust}
 				disableExpand={resolvedConfig?.hideDetails}
-				appPath={$userStore ? undefined : $appPath}
+				appPath={isEditor ? undefined : $appPath}
 				forceJson={resolvedConfig?.forceJson}
 			/>
 		</div>

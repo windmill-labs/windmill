@@ -1,18 +1,22 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #000000 / #FFFFFF per ansible/logos community-marks (Black and White variants, CC BY-SA 4.0).
+	The mark is a solid disc knocked out with a white "A", so the pair is applied by inverting
+	rather than currentColor: recolouring the disc alone would leave white on light grey. -->
 <svg
 	{height}
 	preserveAspectRatio="xMidYMid"
-	viewBox="0 0 256 256"
+	viewBox="-11.114 -11.614 278.727 278.727"
 	{width}
 	xmlns="http://www.w3.org/2000/svg"
+	class="dark:invert"
 >
 	<g fill="#1a1918" transform="translate(0 281.86)">
 		<path
@@ -37,7 +41,7 @@
 	</g>
 	<path
 		d="m255.879 127.868c0 70.4551-57.1101 127.565-127.566 127.565-70.4501 0-127.566-57.1096-127.566-127.565 0-70.4501 57.1161-127.566 127.566-127.566 70.4561 0 127.566 57.1161 127.566 127.566"
-		fill="#1a1918"
+		fill="#000000"
 	/>
 	<path
 		d="m130.46 78.2289 33.0116 81.4763-49.8635-39.2778 16.8519-42.1984zm58.6445 100.245-50.7786-122.202c-1.44952-3.52436-4.34807-5.38926-7.86591-5.38926-3.52436 0-6.63386 1.86489-8.08339 5.38926l-55.7329 134.04h19.0653l22.0623-55.2653 65.8389 53.1899c2.64792 2.14114 4.55852 3.1095 7.0422 3.1095 4.97389 0 9.32146-3.72878 9.32146-9.11101 0-.87594-.30939-2.2662-.86941-3.76143z"

@@ -12,7 +12,7 @@
 	import { Check, Code, Zap } from 'lucide-svelte'
 	import SuspendDrawer from './SuspendDrawer.svelte'
 	import { defaultScripts } from '$lib/stores'
-	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
+	import { defaultScriptLanguages, processInlineLangs } from '$lib/scripts'
 	import type { SupportedLanguage } from '$lib/common'
 	import DefaultScripts from '$lib/components/DefaultScripts.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
@@ -44,11 +44,16 @@
 					? 'approval'
 					: 'script'
 	)
+	// The preprocessor slot shows no kind toggle, so `kind` stays 'script' there. Everything that
+	// tags a script (inline template, pre-made list) must key off this, never off `kind`.
+	let scriptKind: 'script' | 'failure' | 'approval' | 'trigger' | 'preprocessor' = $derived(
+		preprocessorModule ? 'preprocessor' : kind
+	)
 	let pick_existing: 'workspace' | 'hub' = $state('hub')
 	let filter = $state('')
 
 	let langs = $derived(
-		processLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
+		processInlineLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
 			.map((l) => [defaultScriptLanguages[l], l])
 			.filter(
 				(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1])
@@ -56,7 +61,7 @@
 	)
 
 	function displayLang(lang: SupportedLanguage | 'docker', kind: string) {
-		if (preprocessorModule) {
+		if (kind === 'preprocessor') {
 			return canHavePreprocessor(lang as SupportedLanguage)
 		}
 
@@ -218,21 +223,23 @@
 		<h3 class="pb-2 pt-4 flex gap-x-8 flex-wrap">
 			<div>
 				Inline new <span class="text-blue-500 dark:text-blue-400"
-					>{kind == 'script' ? 'action' : kind}</span
+					>{scriptKind == 'script' ? 'action' : scriptKind}</span
 				>
 				script
 				<Tooltip
-					documentationLink={kind === 'script'
+					documentationLink={scriptKind === 'script'
 						? 'https://www.windmill.dev/docs/flows/editor_components#flow-actions'
-						: kind === 'trigger'
+						: scriptKind === 'trigger'
 							? 'https://www.windmill.dev/docs/flows/flow_trigger'
-							: kind === 'approval'
+							: scriptKind === 'approval'
 								? 'https://www.windmill.dev/docs/flows/flow_approval'
-								: 'https://www.windmill.dev/docs/getting_started/flows_quickstart#flow-editor'}
+								: scriptKind === 'preprocessor'
+									? 'https://www.windmill.dev/docs/core_concepts/preprocessors'
+									: 'https://www.windmill.dev/docs/getting_started/flows_quickstart#flow-editor'}
 				>
-					Embed <span>{kind == 'script' ? 'action' : kind}</span> script directly inside a flow instead
-					of saving the script into your workspace for reuse. You can always save an inline script to
-					your workspace later.
+					Embed <span>{scriptKind == 'script' ? 'action' : scriptKind}</span> script directly inside
+					a flow instead of saving the script into your workspace for reuse. You can always save an inline
+					script to your workspace later.
 				</Tooltip>
 			</div>
 			<DefaultScripts />
@@ -250,7 +257,7 @@
 		{/if}
 		<div class="flex flex-row flex-wrap gap-2" id="flow-editor-action-script">
 			{#each langs.filter((lang) => customUi?.languages == undefined || customUi?.languages?.includes(lang?.[1])) as [label, lang] (lang)}
-				{#if displayLang(lang, kind)}
+				{#if displayLang(lang, scriptKind)}
 					<FlowScriptPicker
 						id={`flow-editor-action-script-${lang}`}
 						disabled={noEditor && (summary == undefined || summary == '')}
@@ -259,7 +266,7 @@
 						on:click={() => {
 							dispatch('new', {
 								language: lang == 'docker' ? 'bash' : lang,
-								kind,
+								kind: scriptKind,
 								subkind: lang == 'docker' ? 'docker' : preprocessorModule ? 'preprocessor' : 'flow',
 								summary
 							})
@@ -289,10 +296,13 @@
 
 		<h3 class="mb-2 mt-6"
 			>Use pre-made <span class="text-blue-500 dark:text-blue-400"
-				>{kind == 'script' ? 'action' : kind}</span
+				>{scriptKind == 'script' ? 'action' : scriptKind}</span
 			> script</h3
 		>
-		{#if pick_existing == 'hub'}
+		{#if preprocessorModule}
+			<!-- The hub publishes no preprocessor script, so this slot only ever picks from the workspace. -->
+			<WorkspaceScriptPicker displayLock bind:filter kind="preprocessor" on:pick />
+		{:else if pick_existing == 'hub'}
 			<PickHubScript bind:filter {kind} on:pick>
 				<ToggleHubWorkspace bind:selected={pick_existing} />
 			</PickHubScript>

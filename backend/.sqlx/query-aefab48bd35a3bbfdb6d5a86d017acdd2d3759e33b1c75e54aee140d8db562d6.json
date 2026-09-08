@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_fork_deployment_request SET requested_by_email = $1 WHERE requested_by_email = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "aefab48bd35a3bbfdb6d5a86d017acdd2d3759e33b1c75e54aee140d8db562d6"
+}

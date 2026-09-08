@@ -23,7 +23,7 @@
 	 * bearer token (no cookie); the raw wrapper document always carries `CSP: sandbox`.
 	 */
 	import { BROWSER } from 'esm-env'
-	import { OpenAPI } from '$lib/gen'
+	import { OpenAPI, UserService } from '$lib/gen'
 	import { page } from '$app/state'
 	import { onDestroy, onMount, setContext, type Snippet } from 'svelte'
 	import { Alert, Skeleton } from '$lib/components/common'
@@ -32,6 +32,8 @@
 	import Login from '$lib/components/Login.svelte'
 	import { WINDMILL_RESERVED_QUERY_PARAMS } from '$lib/utils'
 	import { EMBED_NAV_CONTEXT_KEY, type EmbedNav } from '../types'
+	import RawAppSdkConsent from '$lib/components/raw_apps/RawAppSdkConsent.svelte'
+	import { hasStoredSdkConsent, storeSdkConsent } from '$lib/components/raw_apps/sdkScopes'
 
 	type EmbedToken = {
 		token?: string | null
@@ -39,17 +41,23 @@
 		sandbox?: boolean
 		app_path?: string | null
 		workspace_id?: string | null
+		sdk_scopes?: string[] | null
+		viewer_email?: string | null
 	}
 
 	let {
 		fetchEmbedToken,
 		onViewerReady,
 		viewer,
-		viewerUrl
+		viewerUrl,
+		guestAppPath = undefined,
+		guestEntry = 'none'
 	}: {
 		/** Embedder-side: validate access + mint the scoped token. Throws with a
-		 * `.status` of 401 (login required) or 404 (not found). */
-		fetchEmbedToken: () => Promise<EmbedToken>
+		 * `.status` of 401 (login required) or 404 (not found). Pass
+		 * `sdkConsent` once the viewer accepted the frontend-SDK permission
+		 * banner — only then does the backend mint the raw-app SDK token. */
+		fetchEmbedToken: (opts?: { sdkConsent?: boolean }) => Promise<EmbedToken>
 		/** Viewer-side: fired (once per received token) when the embed token is
 		 * available, before the app renders. Use it to kick off data loading.
 		 * `requestTokenRefresh` asks the embedder for a fresh token on a 401. */
@@ -62,6 +70,16 @@
 		 * (`/apps/get`, auth-gated, with chrome) differs from the cookieless,
 		 * chrome-less viewer route (`/app_embed`). */
 		viewerUrl?: string
+		/** `<workspace>/<app_path>` when this app is open to guests. The embedder's
+		 * login gate fires before the page's own load, so the page must resolve this
+		 * up front and pass it down — otherwise a signed-out visitor is offered an
+		 * ordinary sign-in that creates an account and still cannot open the app. */
+		guestAppPath?: string | undefined
+		/** Whether the app admits guests, as far as the page has found out. The sign-in
+		 * card waits while `pending` (a configured auto-login would otherwise start an
+		 * ordinary sign-in) and refuses to offer one on `error` — a transient fault must
+		 * not become an account and a seat. Nothing else waits on it. */
+		guestEntry?: 'pending' | 'none' | 'guest' | 'error'
 	} = $props()
 
 	const EMBED_PARAM = 'wm_embed'
@@ -188,9 +206,68 @@
 	}
 
 	// ---------------------------- embedder mode ----------------------------
-	let status: 'loading' | 'ready' | 'noPermission' | 'notExists' = $state('loading')
+	type FrameStatus = 'loading' | 'ready' | 'noPermission' | 'notExists' | 'sdkPrompt'
+	let status = $state<FrameStatus>('loading')
+	/** Whether the visitor holds an account session, probed whenever the app denies
+	 * them. An account this app still refuses is not something signing in again can
+	 * fix — an identity with an account is never given a guest session — so the card
+	 * gives way to an explanation. */
+	let accountSession = $state<'unknown' | 'none' | 'held'>('unknown')
+	/** What the sign-in refused with, shown above the card until the next attempt. */
+	let signInError: string | undefined = $state(undefined)
+	let deniedStatus: number | undefined = $state(undefined)
+	/** The sign-in card belongs on a 401, and on a 403 unless discovery has settled
+	 * that the app is not open to guests: a 403 on a guest app is a session for another
+	 * app of the workspace, which a fresh sign-in replaces. True while discovery is
+	 * pending, so the skeleton shows rather than a flash of "Not found". */
+	let offerSignIn = $derived(
+		status === 'noPermission' ||
+			(status === 'notExists' && deniedStatus === 403 && guestEntry !== 'none')
+	)
+	let signInDidNotHelp = $derived(offerSignIn && accountSession === 'held')
+	$effect(() => {
+		if (offerSignIn && accountSession === 'unknown') {
+			// Workspace-less, so it answers for an account and never for a guest
+			// (pinned to its workspace) or for nobody.
+			UserService.getCurrentEmail()
+				.then(() => (accountSession = 'held'))
+				.catch(() => (accountSession = 'none'))
+		}
+	})
+
+	// The stale guest session must be gone before the card mounts: it still
+	// authenticates here, so the popup's success poll would see it and complete the
+	// sign-in before the new session lands. The card waits on `staleGuestCleared`; a
+	// failed logout fails closed rather than offering a sign-in that cannot complete.
+	let staleGuestCleared = $state(false)
+	let staleGuestLogoutFailed = $state(false)
+	$effect(() => {
+		if (deniedStatus === 403 && guestEntry === 'guest' && !staleGuestCleared) {
+			UserService.logout()
+				.then(() => (staleGuestCleared = true))
+				.catch(() => (staleGuestLogoutFailed = true))
+		}
+	})
 	let embedToken: string | null = $state(null)
 	let iframeEl: HTMLIFrameElement | undefined = $state(undefined)
+
+	// Raw-app frontend SDK (viewer-permissioned windmill-client): the scopes the
+	// app policy declares, and the viewer-identity token minted after consent.
+	// RawAppPreview reads the token via context and exposes it to the bundle as
+	// `window.process.env` so a bundled `windmill-client` auto-configures.
+	let sdkScopes: string[] | undefined = $state(undefined)
+	let sdkToken: string | undefined = $state(undefined)
+	// The viewer's own email (from the embed-token response), used to key the
+	// stored "do not ask again" per person on this shared browser origin.
+	let viewerEmail = $state('')
+	// Set once the viewer declined, or a mint failed for a reason other than lost
+	// access: from then on the app renders credential-less without asking again.
+	let sdkTokenless = false
+	// See `mintWithConsent`: every render-mode change restarts initialization, but
+	// a bounded number of times so an app being redeployed continuously can't spin
+	// the viewer.
+	let modeChangeRestarts = 0
+	const MAX_MODE_CHANGE_RESTARTS = 3
 
 	// WIN-2006: publisher opted this app into sandbox isolation (alpha). When false
 	// (the default) the app runs same-origin with the viewer's full session — the
@@ -224,6 +301,14 @@
 		}
 	})
 
+	// Read by RawAppPreview: the consented viewer-scoped SDK token to expose to
+	// the bundle, sandboxed or not.
+	setContext('RAW_APP_SDK_TOKEN', {
+		get value() {
+			return sdkToken
+		}
+	})
+
 	function buildViewerUrl(): string {
 		// Default: embed the current route. The in-workspace viewer overrides this
 		// with a dedicated cookieless, chrome-less viewer route (`/app_embed`).
@@ -243,20 +328,123 @@
 			isRaw = resp.raw_app ?? false
 			appPath = resp.app_path ?? undefined
 			workspaceId = resp.workspace_id ?? undefined
-			status = 'ready'
-
-			if (unsandboxed || isRaw) {
-				// Render the app directly on this origin: same-origin when unsandboxed
-				// (the default), or a single opaque bundle iframe when it's a sandboxed
-				// raw app.
-				onViewerReady?.(undefined, requestTokenRefresh)
-			} else {
-				// Sandboxed low-code: hand the scoped token to the opaque viewer iframe.
-				postTokenToIframe()
+			// The backend only advertises scopes where a token could actually be
+			// minted (a raw app, viewer authenticated), and mints one only on the
+			// follow-up request carrying the viewer's consent.
+			sdkScopes = resp.sdk_scopes?.length ? resp.sdk_scopes : undefined
+			viewerEmail = resp.viewer_email ?? ''
+			sdkToken = undefined
+			if (sdkScopes && !sdkTokenless) {
+				if (!hasStoredSdkConsent(viewerEmail, workspaceId ?? '', appPath ?? '', sdkScopes)) {
+					// Ask before the app's code runs: the token is the bundle's only
+					// direct API access, so the answer decides that whole surface.
+					status = 'sdkPrompt'
+					return
+				}
+				await mintWithConsent()
+				return
 			}
+			finishReady()
 		} catch (e: any) {
+			// 401: no session. 403 on an app that admits guests: a guest session for a
+			// different app of this workspace, which a fresh sign-in replaces. Either
+			// way the sign-in card is the answer; anything else is not found.
+			deniedStatus = e?.status
 			status = e?.status === 401 ? 'noPermission' : 'notExists'
 		}
+	}
+
+	/** Re-request the token with consent. The token is optional (see "Open without
+	 * granting"), so any failure other than lost access still renders the app
+	 * credential-less — a scope-restricted viewer (external-JWT share link) would
+	 * otherwise never see it. Returns whether a token was obtained. */
+	async function mintWithConsent(): Promise<boolean> {
+		const approved = sdkScopes ?? []
+		const wasRaw = isRaw
+		const wasSandboxed = sandboxed
+		try {
+			const resp = await fetchEmbedToken({ sdkConsent: true })
+			// A redeploy during the prompt changes what `token` means (SDK token when
+			// raw, embed token when sandboxed low-code), so rendering from the first
+			// response's mode would bypass new isolation or leave the viewer
+			// unauthenticated. Start over; bounded so redeploys can't bounce forever.
+			const modeChanged =
+				(resp.raw_app ?? false) !== wasRaw || (resp.sandbox ?? false) !== wasSandboxed
+			if (modeChanged) {
+				if (modeChangeRestarts < MAX_MODE_CHANGE_RESTARTS) {
+					modeChangeRestarts++
+					await initEmbedder()
+					return false
+				}
+				// Out of restarts: render nothing rather than route a token meant for
+				// another mode (a low-code embed token into `sdkToken`, say).
+				status = 'notExists'
+				return false
+			}
+			sandboxed = resp.sandbox ?? false
+			isRaw = resp.raw_app ?? false
+			appPath = resp.app_path ?? appPath
+			workspaceId = resp.workspace_id ?? workspaceId
+			const granted = resp.sdk_scopes ?? []
+			if (!granted.every((s) => approved.includes(s))) {
+				// The app was redeployed with more scopes between the prompt and the
+				// mint. Never inject a token carrying scopes the viewer wasn't shown:
+				// drop it and ask again with the new set.
+				sdkScopes = granted
+				sdkToken = undefined
+				status = 'sdkPrompt'
+				return false
+			}
+			sdkToken = resp.token ?? undefined
+		} catch (e: any) {
+			if (e?.status === 401) {
+				status = 'noPermission'
+				return false
+			}
+			console.warn('Failed to mint the raw app frontend SDK token', e)
+			// The failed request left us no fresh view of how the app must render, and
+			// the first response's mode may already be stale (a redeploy can have
+			// enabled sandbox isolation while the prompt was open). Re-init for current
+			// metadata; `sdkTokenless` stops that pass from retrying the mint.
+			sdkToken = undefined
+			sdkTokenless = true
+			await initEmbedder()
+			return false
+		}
+		finishReady()
+		return sdkToken !== undefined
+	}
+
+	function finishReady() {
+		status = 'ready'
+		if (unsandboxed || isRaw) {
+			// Render the app directly on this origin: same-origin when unsandboxed
+			// (the default), or a single opaque bundle iframe when it's a sandboxed
+			// raw app.
+			onViewerReady?.(undefined, requestTokenRefresh)
+		} else {
+			// Sandboxed low-code: hand the scoped token to the opaque viewer iframe.
+			postTokenToIframe()
+		}
+	}
+
+	async function onSdkConsentContinue(dontAskAgain: boolean) {
+		status = 'loading'
+		const minted = await mintWithConsent()
+		// Only remember the choice once it actually produced a token, so a viewer
+		// whose mint fails keeps being asked instead of silently never getting one.
+		if (dontAskAgain && minted) {
+			storeSdkConsent(viewerEmail, workspaceId ?? '', appPath ?? '', sdkScopes ?? [])
+		}
+	}
+
+	/** Declined: render credential-less, never stored. Re-init first — a redeploy
+	 * during the prompt can have enabled sandboxing, and the pre-prompt mode would
+	 * put that bundle on the same-origin path. */
+	function onSdkConsentDecline() {
+		sdkToken = undefined
+		sdkTokenless = true
+		initEmbedder()
 	}
 
 	function postTokenToIframe() {
@@ -383,24 +571,73 @@
 	{/if}
 {:else if status === 'loading'}
 	<Skeleton layout={[[4], 0.5, [50]]} />
-{:else if status === 'notExists'}
+{:else if status === 'notExists' && !offerSignIn}
 	<div class="px-4 mt-20">
 		<Alert type="error" title="Not found">
 			There was an error loading the app, is the url correct?
 			<a href={base}>Go to Windmill</a>
 		</Alert>
 	</div>
-{:else if status === 'noPermission'}
+{:else if status === 'sdkPrompt'}
+	<!-- Raw-app frontend SDK: ask before the app's code runs, so the viewer sees
+	     what it will be able to do with their identity. -->
+	<RawAppSdkConsent
+		scopes={sdkScopes ?? []}
+		onContinue={onSdkConsentContinue}
+		onDecline={onSdkConsentDecline}
+	/>
+{:else if offerSignIn && (guestEntry === 'pending' || accountSession === 'unknown' || (deniedStatus === 403 && guestEntry === 'guest' && !staleGuestCleared && !staleGuestLogoutFailed))}
+	<Skeleton layout={[[4], 0.5, [50]]} />
+{:else if offerSignIn && (guestEntry === 'error' || staleGuestLogoutFailed)}
+	<div class="px-4 mt-20">
+		<Alert type="error" title="Could not check access">
+			The app could not be reached to find out who may open it. Reload to try again.
+		</Alert>
+	</div>
+{:else if offerSignIn}
 	<!-- Login happens here, on the embedder (main) window, so the session cookie
 	     is set on the main origin only and never reaches the opaque iframe. -->
-	<div class="px-4 mt-20 w-full text-center font-bold text-xl">This app requires read access</div>
-	<div class="px-2 mx-auto mt-20 max-w-xl w-full">
-		<Login
-			onLoginSuccess={() => initEmbedder()}
-			popup
-			rd={page.url.pathname + page.url.search + page.url.hash}
-		/>
-	</div>
+	{#if signInDidNotHelp}
+		<!-- Offering the same sign-in again would loop: they are signed in, and this
+		     app still will not open for them. Say why and stop. -->
+		<div class="px-4 mt-20 w-full text-center font-bold text-xl">
+			You are signed in, but this app is not open to you
+		</div>
+		<div class="text-center mt-8 text-sm text-primary">
+			It is open to the people it was shared with{guestAppPath
+				? ', and to guests who have no Windmill account'
+				: ''}. Ask the person who shared it to give your account access.
+		</div>
+	{:else}
+		{#if guestAppPath}
+			<div class="px-4 mt-20 w-full text-center font-bold text-xl">Sign in to open this app</div>
+			<div class="text-center mt-8 text-sm text-primary">
+				You do not need a Windmill account. Signing in lets you open this app and nothing else.
+			</div>
+		{:else}
+			<div class="px-4 mt-20 w-full text-center font-bold text-xl">
+				This app requires read access
+			</div>
+		{/if}
+		{#if signInError}
+			<div class="px-2 mx-auto mt-8 max-w-xl w-full">
+				<Alert type="error" title="Could not sign you in">{signInError}</Alert>
+			</div>
+		{/if}
+		<div class="px-2 mx-auto mt-20 max-w-xl w-full">
+			<Login
+				onLoginSuccess={() => {
+					signInError = undefined
+					accountSession = 'unknown'
+					initEmbedder()
+				}}
+				onLoginError={(message) => (signInError = message)}
+				popup
+				guestApp={guestAppPath}
+				rd={page.url.pathname + page.url.search + page.url.hash}
+			/>
+		</div>
+	{/if}
 {:else if unsandboxed}
 	<!-- Same-origin (full session): the app was not opted into sandbox isolation
 	     (the default). Rendered directly here; RawAppPreview reads

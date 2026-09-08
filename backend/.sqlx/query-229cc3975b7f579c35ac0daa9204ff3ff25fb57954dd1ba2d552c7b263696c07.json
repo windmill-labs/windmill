@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,\n                                 resource_type, name, asset_path, raw_code, tags, description,\n                                 columns, freshness)\n           VALUES ($1, $2, $3, $4, 'model.p.orders', 'model', 'orders',\n                   'u/a/wh/analytics/orders', 'select 1', '{finance}', 'daily order facts',\n                   '{\"order_id\": {\"description\": \"natural key\"}}'::jsonb,\n                   '{\"warn_after\": {\"count\": 12, \"period\": \"hour\"}}'::jsonb)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "229cc3975b7f579c35ac0daa9204ff3ff25fb57954dd1ba2d552c7b263696c07"
+}

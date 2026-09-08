@@ -305,6 +305,7 @@
 				resourceType="s3_bucket"
 				workspaceOverride="admins"
 				buttonTextOverride="Test from a worker"
+				viaWorker
 			/>
 		</div>
 

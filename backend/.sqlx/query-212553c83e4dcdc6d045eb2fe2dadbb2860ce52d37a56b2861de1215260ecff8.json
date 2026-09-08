@@ -40,7 +40,8 @@
                 "github",
                 "azure",
                 "asset",
-                "freshness"
+                "freshness",
+                "amqp"
               ]
             }
           }
@@ -79,7 +80,8 @@
                 "github",
                 "azure",
                 "asset",
-                "freshness"
+                "freshness",
+                "amqp"
               ]
             }
           }

@@ -16,21 +16,26 @@
 </script>
 
 <Button
-	size="xs"
-	variant="default"
+	unifiedSize="xs"
+	variant="subtle"
+	btnClasses="text-hint font-normal"
+	endIcon={{ icon: HelpCircle }}
 	on:click={() => {
 		drawer?.openDrawer()
 	}}
-	>{text} <HelpCircle size={12} />
+>
+	{text}
 </Button>
 
 <Drawer bind:this={drawer}>
 	<DrawerContent title="Suspend/Approval/Prompt help" on:close={drawer?.closeDrawer}>
 		<div class="flex flex-col gap-y-6 text-xs text-primary font-normal">
 			<Section label="Form/Payload">
-				To add a form, go to the <b>Form</b> tab, inside the Advanced {'->'} Suspend tab, and add a form.
-				You can then get back the payloads using `resume` (single approver), or `resumes` (multiple approvers)
-				in the next step. Forms are an EE feature only. The approver list itself is fetchable using `approvers`
+				To add a form, open the <b>Form</b> tab of this <b>Suspend until approval/resume</b> setting
+				and click
+				<b>Add a form</b>. You can then get back the payloads using `resume` (single approver), or
+				`resumes` (multiple approvers) in the next step. Forms are an EE feature only. The approver
+				list itself is fetchable using `approvers`
 			</Section>
 			<Section label="Prompt">
 				A prompt is simply an approval step that can be self-approved. To do this, include the

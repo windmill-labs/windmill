@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO amqp_trigger (\n                amqp_resource_path,\n                queue_name,\n                exchange,\n                options,\n                workspace_id,\n                path,\n                script_path,\n                is_flow,\n                permissioned_as,\n                mode,\n                edited_by,\n                error_handler_path,\n                error_handler_args,\n                retry\n            )\n            VALUES (\n                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14\n            )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Jsonb",
+        "Jsonb",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Varchar",
+        {
+          "Custom": {
+            "name": "trigger_mode",
+            "kind": {
+              "Enum": [
+                "enabled",
+                "disabled",
+                "suspended"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Varchar",
+        "Jsonb",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "02e39bb9957d3ccfe3d573994cd281a22467010d2c4a0611c8ae02742336f433"
+}

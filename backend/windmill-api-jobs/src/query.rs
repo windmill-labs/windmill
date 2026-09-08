@@ -490,6 +490,14 @@ pub fn filter_list_completed_query(
             sqlb.and_where_ne("status", "'skipped'");
         }
     }
+    if let Some(r) = &lq.resolved {
+        let exists = "EXISTS (SELECT 1 FROM job_resolution WHERE job_id = v2_job_completed.id)";
+        if *r {
+            sqlb.and_where(exists);
+        } else {
+            sqlb.and_where(format!("NOT {exists}"));
+        }
+    }
     if let Some(fs) = &lq.is_flow_step {
         if *fs {
             sqlb.and_where_is_not_null("flow_step_id");
@@ -673,6 +681,7 @@ mod tests {
             order_desc: None,
             job_kinds: None,
             is_skipped: None,
+            resolved: None,
             is_flow_step: None,
             suspended: None,
             schedule_path: None,
@@ -940,6 +949,33 @@ mod tests {
         );
         let sql = build_sql(sqlb);
         assert!(sql.contains("'failure'"));
+    }
+
+    #[test]
+    fn test_completed_filter_resolved() {
+        // Hiding resolved failures must be an anti-join, not a positive one: getting the
+        // polarity backwards would silently show only the failures meant to be hidden.
+        for (resolved, expected) in [
+            (true, "EXISTS (SELECT 1 FROM job_resolution"),
+            (false, "NOT EXISTS (SELECT 1 FROM job_resolution"),
+        ] {
+            let lq = ListCompletedQuery { resolved: Some(resolved), ..empty_completed_query() };
+            let sqlb = filter_list_completed_query(
+                SqlBuilder::select_from("v2_job_completed").clone(),
+                &lq,
+                "ws",
+                false,
+            );
+            let sql = build_sql(sqlb);
+            assert!(sql.contains(expected), "expected {expected:?}, got: {sql}");
+            if !resolved {
+                continue;
+            }
+            assert!(
+                !sql.contains("NOT EXISTS (SELECT 1 FROM job_resolution"),
+                "resolved=true must not negate the anti-join, got: {sql}"
+            );
+        }
     }
 
     #[test]

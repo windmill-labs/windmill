@@ -1,18 +1,19 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #FFA500 per Mozilla's feed icon guidelines (mozilla.org/en-US/foundation/feed-icon-guidelines/), which fix no exact hex. Never rotate or flip the mark. -->
 <svg
 	x="0px"
 	y="0px"
 	{width}
 	{height}
-	viewBox="0 0 168 168"
+	viewBox="-7.636 -7.636 183.273 183.273"
 	fill="none"
 	xmlns="http://www.w3.org/2000/svg"
 >

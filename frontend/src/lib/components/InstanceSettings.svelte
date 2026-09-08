@@ -1,5 +1,10 @@
 <script lang="ts">
-	import { scimSamlSetting, settings, settingsKeys } from './instanceSettings'
+	import {
+		scimSamlSetting,
+		settings,
+		settingsKeys,
+		instanceSettingsSaved
+	} from './instanceSettings'
 	import { Alert, Button, Tab, TabContent, Tabs } from '$lib/components/common'
 	import { SettingService, SettingsService } from '$lib/gen'
 	import type { TeamsChannel } from '$lib/gen/types.gen'
@@ -244,6 +249,7 @@
 
 			initialValues = JSON.parse(JSON.stringify($values))
 			initialOauths = JSON.parse(JSON.stringify(oauths))
+			instanceSettingsSaved.update((n) => n + 1)
 			initialRequirePreexistingUserForOauth = requirePreexistingUserForOauth
 			baseUrlIsFallback = false
 
@@ -625,6 +631,7 @@
 			const v = $values[s.key]
 			initialValues[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
 		}
+		instanceSettingsSaved.update((n) => n + 1)
 		if (categorySettings.some((s) => s.key === 'base_url')) {
 			baseUrlIsFallback = false
 		}
@@ -1052,7 +1059,11 @@
 						<li>instance base URL</li>
 						<li>login type usage (login type, count)</li>
 						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
-						<li>user usage (author count, operator count)</li>
+						<li
+							>user usage (author count, operator count, the distinct guests of the last 30 days,
+							the seats they add past the free allowance, and the workspaces that allow
+							guests)</li
+						>
 						<li>superadmin email addresses</li>
 						<li>development instance status</li>
 					</ul>
@@ -1061,7 +1072,19 @@
 						<li>job usage (language, total duration, count)</li>
 						<li>git sync repo count (sync vs promotion mode)</li>
 						<li
-							>AI chat usage (provider, model, mode, session count, message count — last 30 days)</li
+							>feature usage (counts of which product features are used, including AI provider and
+							model identifiers, the names of public hub scripts used, the languages debug sessions
+							are started for, whether AI chat skills are turned on or off and how often one is
+							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
+							membership, the plan tier and quota shown when the execution meter is opened, whether
+							app sandbox isolation is turned on, whether a step's workspace script is edited from
+							the flow editor, and how data tables and their migrations are set up and used, last 30
+							days)</li
+						>
+						<li
+							>feature adoption (counts of which flow, script, trigger, worker and data table
+							features your deployed items use, including how many apps run sandboxed, how many data
+							tables exist per database kind, how many use migrations, and what references them)</li
 						>
 						<li
 							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
@@ -1104,10 +1127,26 @@
 						<li>job usage (language, total duration, count)</li>
 						<li>login type usage (login type, count)</li>
 						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
-						<li>user usage (author count, operator count)</li>
+						<li
+							>user usage (author count, operator count, the distinct guests of the last 30 days,
+							the seats they add past the free allowance, and the workspaces that allow
+							guests)</li
+						>
 						<li>development instance status</li>
 						<li
-							>AI chat usage (provider, model, mode, session count, message count — last 30 days)</li
+							>feature usage (counts of which product features are used, including AI provider and
+							model identifiers, the names of public hub scripts used, the languages debug sessions
+							are started for, whether AI chat skills are turned on or off and how often one is
+							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
+							membership, the plan tier and quota shown when the execution meter is opened, whether
+							app sandbox isolation is turned on, whether a step's workspace script is edited from
+							the flow editor, and how data tables and their migrations are set up and used, last 30
+							days)</li
+						>
+						<li
+							>feature adoption (counts of which flow, script, trigger, worker and data table
+							features your deployed items use, including how many apps run sandboxed, how many data
+							tables exist per database kind, how many use migrations, and what references them)</li
 						>
 						<li
 							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
@@ -1122,6 +1161,31 @@
 				description="Configure default timeouts and retention policies for job execution."
 				link="https://www.windmill.dev/docs/advanced/instance_settings#jobs"
 			/>
+		{:else if category == 'Service logs'}
+			<SettingsPageHeader
+				title="Service logs"
+				description="The logs of the Windmill processes themselves — servers, workers and the indexer. Job logs are covered by the job retention period under Jobs."
+			/>
+			{#if !$values['object_store_cache_config']}
+				<div class="pb-4">
+					<Alert type="info" title="Log files stay on local disk" size="xs">
+						Instance object storage is not configured, so every server and worker keeps its log
+						files on its own disk. This page lists what each host wrote, but can only open the files
+						belonging to the replica serving the request — another host's are listed and not
+						readable — and a host's files go with it when it is replaced. Retention below still
+						governs the entries in the database and the files on disk.
+					</Alert>
+				</div>
+			{:else if !$enterpriseLicense}
+				<div class="pb-4">
+					<Alert type="info" title="Raw log files accumulate without the indexer" size="xs">
+						Log files are uploaded to instance object storage, and the indexer that would ingest
+						them into the columnar store and delete each one afterwards is an enterprise feature.
+						Retention below expires the database entries and the local files; the uploaded copies
+						are only removed when <b>Delete logs from s3 periodically</b> is on under Object Storage.
+					</Alert>
+				</div>
+			{/if}
 		{:else if category == 'Object Storage'}
 			<SettingsPageHeader
 				title="Object Storage"
@@ -1140,10 +1204,11 @@
 				description="Configure where secrets (secret variables) are stored."
 				link="https://www.windmill.dev/docs/core_concepts/workspace_secret_encryption"
 			/>
-		{:else if category == 'GitHub Enterprise App'}
+		{:else if category == 'GitHub App'}
 			<SettingsPageHeader
-				title="GitHub Enterprise App"
-				description="Configure a self-managed GitHub App for GitHub Enterprise Server git sync."
+				title="GitHub App"
+				description="Configure a self-managed GitHub App for git sync on GitHub.com, GHE Cloud or GitHub Enterprise Server."
+				link="https://www.windmill.dev/docs/integrations/git_repository#self-managed-github-app"
 			/>
 		{:else if category == 'DB Health'}
 			<SettingsPageHeader

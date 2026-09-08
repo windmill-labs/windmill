@@ -2,6 +2,7 @@
 	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
 	import Button from './common/button/Button.svelte'
 	import { runScriptAndPollResult } from './jobs/utils'
+	import { writingJobOptions } from './jobs/writingJob'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { untrack } from 'svelte'
@@ -16,13 +17,29 @@
 
 	type Props = {
 		input: DbInput
-		onData: (data: Record<string, any>[]) => void
+		/** `ranCode` is the editor content that produced `data`, captured when the
+		 * run started, so a caller can discard a late response whose query it has
+		 * moved past. */
+		onData: (data: Record<string, any>[], ranCode: string) => void
 		placeholderTableName?: string
 		/** Called after a migration is run via the DDL guard, so the schema view
 		 * can be refreshed to reflect the applied change. */
 		onSchemaChange?: () => void
+		/** Workspace the REPL queries and DDL migrations run against; defaults to
+		 * the nav workspace. */
+		workspace?: string | undefined
+		/** Worker tag the queries run on instead of the language's native one. */
+		tag?: string | undefined
 	}
-	let { input, onData, placeholderTableName, onSchemaChange }: Props = $props()
+	let {
+		input,
+		onData,
+		placeholderTableName,
+		onSchemaChange,
+		workspace = undefined,
+		tag = undefined
+	}: Props = $props()
+	let ws = $derived(workspace ?? $workspaceStore)
 	let dbType = $derived(getDbType(input))
 
 	// A datatable REPL targets `datatable://<name>`; surface DDL statements as
@@ -36,6 +53,12 @@
 
 	const DEFAULT_SQL = 'SELECT * FROM _'
 	let code = $state(DEFAULT_SQL)
+
+	/** Seed the editor from outside, e.g. a query composed in a drawer. */
+	export function setCode(newCode: string) {
+		code = newCode
+		editor?.setCode?.(newCode)
+	}
 	$effect(() => {
 		const _code = untrack(() => code)
 		if (placeholderTableName && _code === DEFAULT_SQL) {
@@ -47,7 +70,7 @@
 	let runHistory: (StepHistoryData & { code: string; result: Record<string, any>[] })[] = $state([])
 
 	async function run({ doPostgresRowToJsonFix }: { doPostgresRowToJsonFix?: boolean } = {}) {
-		if (isRunning || !$workspaceStore) return
+		if (isRunning || !ws) return
 		const READ_OPS = ['SELECT', 'WITH', 'SHOW', 'EXPLAIN', 'DESCRIBE']
 
 		// On a datatable, intercept DDL statements and offer to make them
@@ -60,6 +83,12 @@
 			if (res.code !== code) code = res.code
 			if (pruneComments(code).trim() === '') return
 		}
+
+		// Snapshot the code that will actually run: after the DDL guard has stripped
+		// any migrated statements, and before the execution await during which
+		// `code` can be re-seeded (setCode). The caller identifies which query a late
+		// response belongs to by this value, and history restores exactly it.
+		const ranCode = code
 
 		isRunning = true
 		try {
@@ -91,14 +120,16 @@
 
 			let { job, result } = (await runScriptAndPollResult(
 				{
-					workspace: $workspaceStore,
+					workspace: ws,
 					requestBody: {
 						language: getLanguageByResourceType(dbType),
 						content: transformedCode,
-						args: dbArg
+						args: dbArg,
+						tag
 					}
 				},
-				{ withJobData: true }
+				// The user types arbitrary SQL here, so treat every run as a write.
+				{ withJobData: true, ...writingJobOptions }
 			)) as any
 			if (statements.length > 1) {
 				result = result[result.length - 1]
@@ -120,10 +151,13 @@
 					created_by: '',
 					id: job.id,
 					success: true,
-					code,
+					// The snapshot, not the live `code`: a mid-run setCode() must not
+					// rebind this entry's result to a different query. Selecting it later
+					// reseeds the editor with this exact SQL and re-fires onData with it.
+					code: ranCode,
 					result
 				})
-				onData(result)
+				onData(result, ranCode)
 			}
 			if (doPostgresRowToJsonFix)
 				sendUserToast('Query failed but recovered with the row_to_json fix')
@@ -175,12 +209,12 @@
 			on:select={(e) => {
 				const data = e.detail as (typeof runHistory)[number]
 				editor?.setCode(data.code)
-				onData(data.result)
+				onData(data.result, data.code)
 			}}
 		/>
 	</Pane>
 </Splitpanes>
 
-{#if datatableName && $workspaceStore}
-	<DdlMigrationGuard bind:this={ddlGuard} workspace={$workspaceStore} datatable={datatableName} />
+{#if datatableName && ws}
+	<DdlMigrationGuard bind:this={ddlGuard} workspace={ws} datatable={datatableName} />
 {/if}

@@ -147,7 +147,14 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
                 else:
                     # Log warning when a required field is missing from schema properties
                     print(f"Warning: Required field '{field}' not found in body schema properties", file=sys.stderr)
-    
+
+        # Marks a body the MCP layer must refuse to leave empty (see non_empty_body_fields
+        # in windmill-mcp). A pass-through body (no declared properties, e.g.
+        # runScriptByPath) is excluded: `{}` is a valid body there, for a runnable that
+        # takes no arguments.
+        if body_schema and request_body.get('required') and body_schema.get('properties'):
+            body_schema['minProperties'] = 1
+
     # Sanitize empty schemas for JSON Schema draft 2020-12 compliance
     path_params_schema = sanitize_empty_schemas(path_params_schema)
     query_params_schema = sanitize_empty_schemas(query_params_schema)
@@ -165,13 +172,14 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
 
     conflicts = (path_keys & query_keys) | (path_keys & body_keys) | (query_keys & body_keys)
 
-    path_field_renames = {}
     query_field_renames = {}
     body_field_renames = {}
 
     for field in conflicts:
+        # The path parameter keeps the plain name: it identifies the item, is what a
+        # caller reaches for first, and matches the non-colliding endpoints (`getFlowByPath`
+        # takes `path`). Only the other locations carry a suffix.
         schemas_and_renames = [
-            (path_params_schema, path_keys, '__path', path_field_renames),
             (query_params_schema, query_keys, '__query', query_field_renames),
             (body_schema, body_keys, '__body', body_field_renames),
         ]
@@ -197,11 +205,26 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
                 # Store the reverse mapping: renamed -> original
                 renames_map[new_name] = field
 
+        # A body field colliding with a same-named path parameter (`path` on the update
+        # endpoints) holds the new value and differs only when moving the item, so it must
+        # stay optional; the server defaults it from the URL path when the caller omits it.
+        if field in path_keys and field in body_keys and body_schema:
+            body_name = field + '__body'
+            if 'required' in body_schema:
+                body_schema['required'] = [r for r in body_schema['required'] if r != body_name]
+            prop = body_schema['properties'].get(body_name)
+            if isinstance(prop, dict):
+                existing_desc = prop.get('description', '').rstrip('. ')
+                prop['description'] = (
+                    f"{existing_desc}. Defaults to `{field}` when omitted; "
+                    f"set it only to change the {field}."
+                ).lstrip('. ')
+
     # Return None for empty schemas
     path_params_schema = path_params_schema if path_params_schema and path_params_schema.get('properties') else None
     query_params_schema = query_params_schema if query_params_schema and query_params_schema.get('properties') else None
 
-    return (path_params_schema, query_params_schema, body_schema, path_field_renames, query_field_renames, body_field_renames)
+    return (path_params_schema, query_params_schema, body_schema, query_field_renames, body_field_renames)
 
 # Cache for loaded external files
 _external_file_cache: Dict[str, Dict[str, Any]] = {}
@@ -382,12 +405,24 @@ def schema_to_rust_value(schema: Optional[Dict[str, Any]]) -> str:
     """Convert a schema dict to a Rust serde_json::json! expression."""
     if schema is None:
         return "None"
-    return f"Some(serde_json::json!({json.dumps(schema, indent=8)}))"
+    # ensure_ascii=False: json.dumps would escape a non-ASCII character in a
+    # description as \uXXXX, which Rust rejects — its string literals spell it
+    # \u{XXXX}. Emitting the character itself is valid in both.
+    return f"Some(serde_json::json!({json.dumps(schema, indent=8, ensure_ascii=False)}))"
 
 def build_tool_description(operation: Dict[str, Any], method: str, path: str) -> str:
-    """Build the MCP tool description from OpenAPI summary and description."""
+    """Build the MCP tool description from OpenAPI summary and description.
+
+    `x-mcp-tool-description` stands in for the operation's own description, for a route
+    whose two audiences need different text: the description documents the endpoint,
+    including fields like `parent_hash` that `x-mcp-tool-include-fields` deliberately
+    keeps out of the tool, and naming one there tells an agent to send what its schema
+    does not offer.
+    """
     summary = operation.get('summary', '').strip()
-    description = operation.get('description', '').strip()
+    description = (
+        operation.get('x-mcp-tool-description') or operation.get('description', '')
+    ).strip()
 
     if summary and description:
         return f"{summary}: {description}".rstrip('.!? ')
@@ -407,7 +442,11 @@ def find_mcp_tools(spec: Dict[str, Any]) -> List[Dict[str, Any]]:
             if isinstance(operation, dict) and operation.get('x-mcp-tool') is True:
                 # Extract tool information
                 tool = {
-                    'name': operation.get('operationId', f"{method}_{path.replace('/', '_').replace('{', '').replace('}', '')}"),
+                    # The name an agent sees. Defaults to the operationId, which
+                    # every generated client is keyed on, so an endpoint whose
+                    # tool should read differently overrides it here rather than
+                    # by renaming the operation.
+                    'name': operation.get('x-mcp-tool-name') or operation.get('operationId', f"{method}_{path.replace('/', '_').replace('{', '').replace('}', '')}"),
                     'description': build_tool_description(operation, method, path),
                     'instructions': operation.get('x-mcp-instructions', ''),
                     'path': path,
@@ -420,11 +459,24 @@ def find_mcp_tools(spec: Dict[str, Any]) -> List[Dict[str, Any]]:
                     'include_query_params': operation.get('x-mcp-tool-include-query-params'),
                 }
                 tools.append(tool)
-    
+
+    # A tool name used to be an operationId, which OpenAPI already keeps unique.
+    # `x-mcp-tool-name` gives that up, and a duplicate would be silent: a token's
+    # `mcp:endpoints:<name>` resolves by first match, so which endpoint it reaches
+    # would depend on the order of this file.
+    names = [t['name'] for t in tools]
+    duplicates = sorted({n for n in names if names.count(n) > 1})
+    if duplicates:
+        raise ValueError(f"duplicate MCP tool name(s): {', '.join(duplicates)}")
+
     return tools
 
 def generate_typescript_code(tools: List[Dict[str, Any]], spec: Dict[str, Any], base_path: str = "") -> str:
-    """Generate TypeScript code with MCP endpoint tools."""
+    """Generate TypeScript code with MCP endpoint tools.
+
+    This catalogue only feeds the frontend's MCP scope picker, which reads names and
+    methods.
+    """
     if not tools:
         return """// Auto-generated MCP tools from OpenAPI specification
 // This file is generated by generate_mcp_tools.py - DO NOT EDIT MANUALLY
@@ -453,7 +505,7 @@ export const mcpEndpointTools: EndpointTool[] = [];
         method = tool['method'].upper()
 
         # Generate separate schemas
-        path_params_schema, query_params_schema, body_schema, path_field_renames, query_field_renames, body_field_renames = extract_separate_schemas(
+        path_params_schema, query_params_schema, body_schema, query_field_renames, body_field_renames = extract_separate_schemas(
             tool['parameters'], tool['requestBody'], spec, tool['required_fields'], base_path,
             tool.get('include_fields'), tool.get('opaque_fields'), tool.get('include_query_params')
         )
@@ -462,7 +514,6 @@ export const mcpEndpointTools: EndpointTool[] = [];
         path_params_ts = json.dumps(path_params_schema, indent=8) if path_params_schema else "undefined"
         query_params_ts = json.dumps(query_params_schema, indent=8) if query_params_schema else "undefined"
         body_schema_ts = json.dumps(body_schema, indent=8) if body_schema else "undefined"
-        path_field_renames_ts = json.dumps(path_field_renames, indent=8) if path_field_renames else "undefined"
         query_field_renames_ts = json.dumps(query_field_renames, indent=8) if query_field_renames else "undefined"
         body_field_renames_ts = json.dumps(body_field_renames, indent=8) if body_field_renames else "undefined"
 
@@ -476,7 +527,6 @@ export const mcpEndpointTools: EndpointTool[] = [];
         pathParamsSchema: {path_params_ts},
         queryParamsSchema: {query_params_ts},
         bodySchema: {body_schema_ts},
-        pathFieldRenames: {path_field_renames_ts},
         queryFieldRenames: {query_field_renames_ts},
         bodyFieldRenames: {body_field_renames_ts}
     }}"""
@@ -497,7 +547,6 @@ export interface EndpointTool {{
     pathParamsSchema?: object;
     queryParamsSchema?: object;
     bodySchema?: object;
-    pathFieldRenames?: Record<string, string>;
     queryFieldRenames?: Record<string, string>;
     bodyFieldRenames?: Record<string, string>;
 }}
@@ -529,7 +578,7 @@ pub fn all_tools() -> Vec<EndpointTool> {{
         method = tool['method'].upper()
 
         # Generate separate schemas
-        path_params_schema, query_params_schema, body_schema, path_field_renames, query_field_renames, body_field_renames = extract_separate_schemas(
+        path_params_schema, query_params_schema, body_schema, query_field_renames, body_field_renames = extract_separate_schemas(
             tool['parameters'], tool['requestBody'], spec, tool['required_fields'], base_path,
             tool.get('include_fields'), tool.get('opaque_fields'), tool.get('include_query_params')
         )
@@ -537,7 +586,6 @@ pub fn all_tools() -> Vec<EndpointTool> {{
         path_params_rust = schema_to_rust_value(path_params_schema)
         query_params_rust = schema_to_rust_value(query_params_schema)
         body_schema_rust = schema_to_rust_value(body_schema)
-        path_field_renames_rust = schema_to_rust_value(path_field_renames if path_field_renames else None)
         query_field_renames_rust = schema_to_rust_value(query_field_renames if query_field_renames else None)
         body_field_renames_rust = schema_to_rust_value(body_field_renames if body_field_renames else None)
 
@@ -551,7 +599,6 @@ pub fn all_tools() -> Vec<EndpointTool> {{
         path_params_schema: {path_params_rust},
         query_params_schema: {query_params_rust},
         body_schema: {body_schema_rust},
-        path_field_renames: {path_field_renames_rust},
         query_field_renames: {query_field_renames_rust},
         body_field_renames: {body_field_renames_rust},
     }}"""

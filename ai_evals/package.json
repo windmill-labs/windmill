@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "cli": "bun cli/index.ts",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "test:frontend-graph": "cd ../frontend && node_modules/.bin/vitest run --project server --config ../ai_evals/adapters/frontend/vitest.unit.config.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.25",

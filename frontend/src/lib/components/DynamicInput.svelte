@@ -33,9 +33,17 @@
 		format: string
 		otherArgs?: Record<string, any>
 		name: string
+		/** Workspace the helper script runs in; defaults to the nav workspace. */
+		workspace?: string
 	}
 
-	let { value = $bindable(), helperScript, format, otherArgs: otherArgs }: Props = $props()
+	let {
+		value = $bindable(),
+		helperScript,
+		format,
+		otherArgs: otherArgs,
+		workspace = undefined
+	}: Props = $props()
 
 	let [inputType, entrypoint] = $derived(format.includes('-') ? format.split('-', 2) : [format, ''])
 
@@ -173,7 +181,7 @@
 </script>
 
 {#if helperScript}
-	<JobLoader onlyResult bind:this={resultJobLoader} />
+	<JobLoader onlyResult workspaceOverride={workspace} bind:this={resultJobLoader} />
 
 	<div class="w-full flex-col flex">
 		{#if inputType === 'dynmultiselect'}

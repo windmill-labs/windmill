@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE(\n            (SELECT username FROM usr WHERE workspace_id = $1 AND email = $2),\n            (SELECT COALESCE(username, email) FROM password WHERE email = $2 AND super_admin = true)\n        )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "coalesce",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "fb3f9cfbe874a1f19ccf54660496532ad995ba641f0833babe5d5d597fedd55a"
+}

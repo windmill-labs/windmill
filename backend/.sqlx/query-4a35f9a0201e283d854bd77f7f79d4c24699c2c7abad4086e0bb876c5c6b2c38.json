@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_completed SET status = 'canceled', canceled_by = 'monitor',\n         flow_status = $2 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4a35f9a0201e283d854bd77f7f79d4c24699c2c7abad4086e0bb876c5c6b2c38"
+}

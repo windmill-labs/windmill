@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE workspace_settings\n        SET\n            ai_config = source_ws.ai_config,\n            large_file_storage = source_ws.large_file_storage,\n            ducklake = source_ws.ducklake,\n            dbt_warehouses = source_ws.dbt_warehouses,\n            datatable = source_ws.datatable,\n            git_app_installations = source_ws.git_app_installations\n        FROM workspace_settings source_ws\n        WHERE source_ws.workspace_id = $1\n        AND workspace_settings.workspace_id = $2\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a6decdebcd9750691f20f874b66a9c6f2ede08c33605c6a3c3dfc213a3eda76a"
+}

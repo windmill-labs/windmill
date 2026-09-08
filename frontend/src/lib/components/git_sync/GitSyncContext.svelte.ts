@@ -2,6 +2,7 @@ import { getContext, setContext } from 'svelte'
 import { enterpriseLicense } from '$lib/stores'
 import { get } from 'svelte/store'
 import { sendUserToast } from '$lib/toast'
+import { apiErrorMessage } from '$lib/utils'
 import { JobService, WorkspaceService, ResourceService } from '$lib/gen'
 import type {
 	GitRepositorySettings as BackendGitRepositorySettings,
@@ -196,7 +197,14 @@ export function createGitSyncContext(workspace: string) {
 				include_path: ['f/**'],
 				exclude_path: [],
 				extra_include_path: [],
-				include_type: ['script', 'flow', 'app', 'folder', 'workspacedependencies']
+				include_type: [
+					'script',
+					'flow',
+					'app',
+					'folder',
+					'workspacedependencies',
+					'datatablemigration'
+				]
 			},
 			exclude_types_override: [],
 			legacyImported: false,
@@ -373,7 +381,7 @@ export function createGitSyncContext(workspace: string) {
 			}
 
 			repo.detectionState = 'error'
-			repo.detectionError = error?.message || error?.toString() || 'Failed to detect repository'
+			repo.detectionError = apiErrorMessage(error) || 'Failed to detect repository'
 			repo.detectionJobStatus = 'failure'
 		}
 	}
@@ -416,7 +424,14 @@ export function createGitSyncContext(workspace: string) {
 							const defaultTypes: GitSyncObjectType[] =
 								workspaceLegacyIncludeType.length > 0
 									? [...workspaceLegacyIncludeType]
-									: ['script', 'flow', 'app', 'folder', 'workspacedependencies']
+									: [
+											'script',
+											'flow',
+											'app',
+											'folder',
+											'workspacedependencies',
+											'datatablemigration'
+										]
 
 							let repoSettings: SettingsObject
 							if (isRepoLegacy) {
@@ -446,7 +461,8 @@ export function createGitSyncContext(workspace: string) {
 										'flow',
 										'app',
 										'folder',
-										'workspacedependencies'
+										'workspacedependencies',
+										'datatablemigration'
 									]
 								}
 							}
@@ -599,11 +615,7 @@ export function createGitSyncContext(workspace: string) {
 			})
 		} catch (error: any) {
 			// Initialize the job entry if it doesn't exist (e.g., job creation failed)
-			const errorMessage =
-				(typeof error?.body === 'string' ? error.body : error?.body?.message) ||
-				error?.message ||
-				error?.toString() ||
-				'Failed to run test job'
+			const errorMessage = apiErrorMessage(error) || 'Failed to run test job'
 			if (!gitSyncTestJobs[idx]) {
 				gitSyncTestJobs[idx] = {
 					jobId: '',
@@ -678,7 +690,14 @@ export function createGitSyncContext(workspace: string) {
 				include_path: ['f/**'],
 				exclude_path: [],
 				extra_include_path: [],
-				include_type: ['script', 'flow', 'app', 'folder', 'workspacedependencies']
+				include_type: [
+					'script',
+					'flow',
+					'app',
+					'folder',
+					'workspacedependencies',
+					'datatablemigration'
+				]
 			},
 			exclude_types_override: [],
 			legacyImported: false,
@@ -708,7 +727,14 @@ export function createGitSyncContext(workspace: string) {
 				include_path: ['f/**'],
 				exclude_path: [],
 				extra_include_path: [],
-				include_type: ['script', 'flow', 'app', 'folder', 'workspacedependencies']
+				include_type: [
+					'script',
+					'flow',
+					'app',
+					'folder',
+					'workspacedependencies',
+					'datatablemigration'
+				]
 			},
 			exclude_types_override: [],
 			legacyImported: false,

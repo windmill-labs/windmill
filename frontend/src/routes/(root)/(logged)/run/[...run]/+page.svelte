@@ -9,6 +9,7 @@
 		type NewScript,
 		ConcurrencyGroupsService,
 		MetricsService,
+		WorkerService,
 		type ScriptArgs
 	} from '$lib/gen'
 	import {
@@ -16,6 +17,7 @@
 		computeSharableHash,
 		copyToClipboard,
 		encodeState,
+		findMatchingCustomTag,
 		getHubFlowIdFromPath,
 		isHubFlowPath,
 		isFlowPreview,
@@ -35,12 +37,20 @@
 		Code2,
 		ClipboardCopy,
 		GitBranch,
-		GitFork,
 		EllipsisVertical,
-		Share2
+		Share2,
+		Globe,
+		Users
 	} from 'lucide-svelte'
 
+	import { isJobResolvable } from '$lib/utils'
+	import {
+		claimRerunOrigin,
+		offerToResolveOriginal,
+		rememberRerunOrigin
+	} from '$lib/components/runs/rerunResolution.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
+	import DbtRunGraph from '$lib/components/dbt/DbtRunGraph.svelte'
 	import DispatchEventsPanel from '$lib/components/runs/DispatchEventsPanel.svelte'
 	import UpstreamSnapshotsPanel from '$lib/components/runs/UpstreamSnapshotsPanel.svelte'
 	import {
@@ -81,6 +91,7 @@
 	import ExecutionDuration from '$lib/components/ExecutionDuration.svelte'
 	import { isWindmillTooBigObject } from '$lib/components/job_args'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
+	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { onDestroy, setContext, untrack } from 'svelte'
 	import { getJobStatusKind, resetFavicon, setStatusFavicon } from '$lib/favicon'
 
@@ -94,11 +105,36 @@
 	import FlowRestartButton from '$lib/components/FlowRestartButton.svelte'
 	import { useNestedRestartState } from '$lib/components/useNestedRestartState.svelte'
 	import JobOtelTraces from '$lib/components/JobOtelTraces.svelte'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import {
+		canUserBypassRuleKind,
+		isRuleActive,
+		protectionRulesState
+	} from '$lib/workspaceProtectionRules.svelte'
+	import {
+		buildForkEditUrl,
+		editInForkAllowed,
+		editInForkLabel,
+		onEditInForkClick
+	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
+
+	// A re-run launched from a failed run offers to resolve that failure once it succeeds.
+	// The claim happens here rather than at init because SvelteKit reuses this component
+	// across /run/<id> navigations, so init only runs for the first run viewed.
+	// Only ever an offer: a re-run is a fresh execution, not proof the old failure was handled.
+	let offeredForJobId: string | undefined = $state(undefined)
+	$effect(() => {
+		if (!job || offeredForJobId === job.id) return
+		if ('success' in job && job.success) {
+			const origin = claimRerunOrigin(job.id)
+			if (origin) {
+				offeredForJobId = job.id
+				offerToResolveOriginal(origin)
+			}
+		}
+	})
 
 	let scriptProgress: number | undefined = $state(undefined)
 	let currentJobIsLongRunning: boolean = $state(false)
@@ -177,6 +213,22 @@
 			sendUserToast('Read-only share link copied to clipboard')
 		} catch (e) {
 			sendUserToast(`Failed to create share link: ${e}`, true)
+		}
+	}
+
+	async function sharePublicLink(id: string): Promise<void> {
+		try {
+			const workspace = $workspaceStore!
+			const token = (await JobService.getJobPublicViewToken({ workspace, id })).trim()
+			// The workspace is a path segment here: the public run page is outside the
+			// logged layout and has no workspace store to fall back on.
+			const url = `${window.location.origin}${base}/public_run/${encodeURIComponent(
+				workspace
+			)}/${id}?view_token=${encodeURIComponent(token)}`
+			copyToClipboard(url)
+			sendUserToast('Public link copied to clipboard — anyone with it can view this run')
+		} catch (e) {
+			sendUserToast(`Failed to create public link: ${e}`, true)
 		}
 	}
 
@@ -364,8 +416,51 @@
 
 	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
 
+	// A job's stored tag is usually backend-derived (language/flow default, possibly
+	// workspace-suffixed) and would be rejected by the CUSTOM_TAGS check if passed back
+	// explicitly. Only carry it into a re-run when it maps back to a custom-tag entry —
+	// the set the override dropdown offers — using the raw (possibly templated) entry.
+	// Pass the run's args if already fetched; template matching needs the full args
+	// (job.args may be truncated for large runs) and fetches them itself otherwise.
+	let customTags: { workspace: string; tags: string[] } | undefined = undefined
+	async function getRerunTagOverride(
+		args: Record<string, any> | undefined
+	): Promise<string | undefined> {
+		const tag = job?.tag
+		const workspace = $workspaceStore!
+		if (!tag) {
+			return undefined
+		}
+		try {
+			if (customTags?.workspace !== workspace) {
+				customTags = {
+					workspace,
+					tags: await WorkerService.getCustomTagsForWorkspace({ workspace })
+				}
+			}
+		} catch (e) {
+			console.error('Could not load custom tags, not carrying tag over for re-run', e)
+			return undefined
+		}
+		if (customTags.tags.includes(tag)) {
+			return tag
+		}
+		if (isWindmillTooBigObject(args)) {
+			try {
+				args = (await JobService.getJobArgs({ workspace, id: job?.id! })) as Record<string, any>
+			} catch (e) {
+				console.error('Could not load full args, not carrying tag over for re-run', e)
+				return undefined
+			}
+		}
+		return findMatchingCustomTag(tag, customTags.tags, workspace, args)
+	}
+
 	let runImmediatelyLoading = $state(false)
-	async function runImmediately() {
+	// An override may be a function, because the arguments it merges into are not
+	// known until they are here: a `WINDMILL_TOO_BIG` payload is a placeholder
+	// until fetched, and merging over that one drops what the fetch was for.
+	async function runImmediately(argsOverride?: ScriptArgs | ((args: ScriptArgs) => ScriptArgs)) {
 		runImmediatelyLoading = true
 		try {
 			let args = job?.args as ScriptArgs
@@ -375,11 +470,15 @@
 					id: job?.id!
 				})) as ScriptArgs
 			}
+			args =
+				typeof argsOverride === 'function'
+					? argsOverride(args ?? {})
+					: { ...args, ...(argsOverride ?? {}) }
 
 			const commonArgs = {
 				workspace: $workspaceStore!,
 				requestBody: args,
-				tag: job?.tag
+				tag: await getRerunTagOverride(args)
 			}
 			if (job?.job_kind == 'script' || job?.job_kind == 'script_hub' || job?.job_kind == 'flow') {
 				let id
@@ -404,16 +503,74 @@
 					})
 				}
 
+				// Offer to resolve this failure once the re-run succeeds. Captured here because the
+				// new job carries no back-pointer to the run it supersedes. An already-resolved
+				// failure needs no offer, and its note must not be restated as a supersession.
+				if (job && isJobResolvable(job) && !job.resolved && !$userStore?.operator) {
+					rememberRerunOrigin({ originalId: job.id, rerunId: id, workspace: $workspaceStore! })
+				}
 				await goto('/run/' + id + '?workspace=' + $workspaceStore)
 			} else {
 				sendUserToast('Cannot run this job immediately', true)
 			}
+		} catch (err) {
+			// A refusal is the interesting case here: the worker rejects a `dbt
+			// retry` whose run is no longer the saved one, and a caller who saw
+			// nothing happen would just click again.
+			sendUserToast(`Could not create job: ${err}`, true)
 		} finally {
 			runImmediatelyLoading = false
 		}
 	}
 
+	// Whether a `dbt retry` submitted from here would resume THIS run: only the
+	// latest failure of a script is kept per principal, so a later run of it — or
+	// one that failed with nothing to rebuild — leaves this page's retry refused.
+	// Both entry points to it, the dropdown item and the graph's banner, ask.
+	let dbtResumable = $state(false)
+	$effect(() => {
+		const ws = $workspaceStore
+		const id = job?.id
+		const failed = job?.language === 'dbt' && job?.type === 'CompletedJob' && !job?.success
+		dbtResumable = false
+		if (!ws || !id || !failed) return
+		JobService.getDbtResumable({ workspace: ws, id })
+			.then((held) => {
+				// The page may have moved on, or the workspace changed, in flight.
+				if (job?.id === id && $workspaceStore === ws) dbtResumable = held === id
+			})
+			.catch(() => {})
+	})
+
+	// The retry goes through `runImmediately` so it carries the run's own arguments
+	// and resolved tag: worker tags, debounce and concurrency keys interpolate from
+	// the submitted arguments at enqueue, while the ones being resumed are restored
+	// later, inside the worker.
+	async function resumeDbtRun() {
+		// Merged INTO the run's own block, not put in its place: those fields are
+		// what a `$args[command.vars.tenant]` tag or concurrency key interpolates
+		// from at enqueue. The worker ignores them for a retry — it rebuilds with
+		// the arguments the failed run had — but the queue has already read them.
+		await runImmediately((args) => ({
+			...args,
+			command: {
+				...((args?.['command'] as Record<string, any> | undefined) ?? {}),
+				label: 'retry',
+				dbt_retry_job: job?.id
+			}
+		}))
+	}
+
 	let showEditButton = $derived(!isRuleActive('DisableDirectDeployment'))
+
+	// Admins always pass the backend gate. Everyone else fails closed while the rulesets
+	// are still loading, so the item is never briefly offered to a restricted user.
+	let canSharePublicly = $derived(
+		!!$userStore?.is_admin ||
+			!!$userStore?.is_super_admin ||
+			(protectionRulesState.rulesets !== undefined &&
+				canUserBypassRuleKind('RestrictPublicRunSharing', $userStore ?? undefined))
+	)
 
 	$effect(() => {
 		job?.id && lastJobId !== job.id && untrack(() => getConcurrencyKey(job))
@@ -593,15 +750,33 @@
 				{/if}
 			{/if}
 			{#if job}
-				<Button
-					variant="default"
-					unifiedSize="md"
-					startIcon={{ icon: Share2 }}
-					title="Copy a read-only share link to this run for another workspace member"
-					onclick={() => job && shareReadLink(job.id)}
+				<Dropdown
+					customWidth={280}
+					items={[
+						{
+							displayName: 'Copy link for members',
+							icon: Users,
+							tooltip:
+								'Read-only link to this run for another member of this workspace. They must be logged in.',
+							action: () => job && shareReadLink(job.id)
+						},
+						{
+							displayName: 'Copy public link',
+							icon: Globe,
+							disabled: !canSharePublicly,
+							tooltip: canSharePublicly
+								? "Read-only link that anyone on the internet can open, without logging in. It shows a minimal version of this page: this run's inputs, result and logs, and for a flow its graph plus every step's inputs, result, logs and code. The link cannot be revoked."
+								: 'Sharing a run publicly is restricted in this workspace. Ask an admin to share it, or to grant you a bypass on the ruleset.',
+							action: () => job && sharePublicLink(job.id)
+						}
+					]}
 				>
-					Share
-				</Button>
+					{#snippet buttonReplacement()}
+						<Button nonCaptureEvent variant="default" unifiedSize="md" startIcon={{ icon: Share2 }}>
+							Share
+						</Button>
+					{/snippet}
+				</Dropdown>
 			{/if}
 			{@const stem = job?.job_kind === 'script_hub' ? '/scripts' : `/${job?.job_kind}s`}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
@@ -723,14 +898,27 @@
 			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
 				<Button
-					on:click|once={() => {
-						goto(viewHref + `#${computeSharableHash(job?.args, job?.tag)}`)
+					on:click|once={async () => {
+						// The form this lands on rebuilds the whole project. When resuming
+						// THIS run is the cheaper thing to do, name it so the form can
+						// offer that in one click rather than leaving the reader to know.
+						const from = dbtResumable ? `?dbt_retry_from=${job?.id}` : ''
+						goto(
+							viewHref +
+								from +
+								`#${computeSharableHash(job?.args, await getRerunTagOverride(job?.args))}`
+						)
 					}}
 					unifiedSize="md"
 					variant="default"
 					startIcon={{ icon: RefreshCw }}
 					loading={runImmediatelyLoading}
 					dropdownItems={[
+						// A failed dbt run's cheap next step is resuming its failed and skipped
+						// nodes rather than rebuilding the project, and `dbt_command` is the
+						// only argument that differs. Offered first, and only while the saved
+						// failure is still this run — which is what `dbtResumable` answers.
+						...(dbtResumable ? [{ label: 'dbt retry with same args', onClick: resumeDbtRun }] : []),
 						{
 							label: 'Run immediately with same args',
 							onClick: () => runImmediately()
@@ -754,15 +942,30 @@
 							size="sm"
 							startIcon={{ icon: Pen }}>Edit</Button
 						>
+						{#if showEditButton}
+							<!-- Opens the deployed runnable at this job's path, like Edit — unlike
+							     "View script", which pins the hash this run executed. Same gate as
+							     Edit: where direct deployment is off, the way in is "Edit in fork". -->
+							<OpenInSessionButton
+								source={{
+									target: { kind: isScript ? 'script' : 'flow', path: job?.script_path ?? '' },
+									workspaceId: $workspaceStore ?? undefined
+								}}
+								btnProps={{ unifiedSize: 'md' }}
+							/>
+						{/if}
 					{/if}
 					{#if !showEditButton && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)}
 						<Button
 							href={buildForkEditUrl(isScript ? 'script' : 'flow', job?.script_path ?? '')}
+							onClick={(e) =>
+								onEditInForkClick(e, isScript ? 'script' : 'flow', job?.script_path ?? '', {
+									hasHref: true
+								})}
 							unifiedSize="md"
 							variant="default"
 							size="sm"
-							startIcon={{ icon: GitFork }}
-							>{editInForkLabel($workspaceStore, $userWorkspaces)}</Button
+							startIcon={{ icon: Pen }}>{editInForkLabel($workspaceStore, $userWorkspaces)}</Button
 						>
 					{/if}
 				{/if}
@@ -827,7 +1030,6 @@
 						{job}
 						{isOwner}
 						{suspendStatus}
-						workspaceId={job?.workspace_id}
 						innerModules={job?.flow_status?.modules}
 					/>
 				{/if}
@@ -898,6 +1100,25 @@
 				{/if}
 				{#if scriptProgress}
 					<JobProgressBar {job} {scriptProgress} class="py-4" hideStepTitle={true} />
+				{/if}
+
+				<!-- The models a dbt run touches, above its result: the run page is
+				     where you land on a running job, and the per-node table below
+				     only exists once the job has produced one. -->
+				{#if job?.language === 'dbt' && job?.script_path}
+					<div class="mr-2 sm:mr-0 mt-12">
+						<h3 class="text-xs font-semibold text-emphasis mb-1">Models</h3>
+						<DbtRunGraph
+							scriptPath={job.script_path}
+							jobId={job.id}
+							running={job.type !== 'CompletedJob'}
+							result={job.type === 'CompletedJob' ? job.result : undefined}
+							scriptHash={job.script_hash}
+							runArgs={job.args}
+							canResume={dbtResumable}
+							onResume={resumeDbtRun}
+						/>
+					</div>
 				{/if}
 
 				<!-- Result Section (moved outside tabs) -->

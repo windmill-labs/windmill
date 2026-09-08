@@ -3,9 +3,6 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -52,7 +49,9 @@ properties:
     description: Array of NATS subjects to subscribe to
   error_handler_path:
     type: string
-    description: Path to a script or flow to run when the triggered job fails
+    description: Path to a script to run when the triggered job fails. A bare path,
+      without the script/ or flow/ prefix a schedule error handler takes; it cannot
+      be a flow.
   error_handler_args:
     type: object
     description: The arguments to pass to the script or flow
@@ -93,7 +92,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - nats_resource_path
 - use_jetstream

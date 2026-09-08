@@ -54,6 +54,10 @@
 	}
 
 	const SvelteComponent = $derived(icons[type])
+
+	// A blank title would still occupy a text line and push the body down, leaving an alert
+	// that is visibly top-heavy. Body-only alerts skip the row, and the gap under it, entirely.
+	const hasTitleRow = $derived(!!title || collapsible || tooltip != '' || !!documentationLink)
 </script>
 
 <div
@@ -75,44 +79,41 @@
 			/>
 		</div>
 		<div class={twMerge('ml-1 w-full')}>
-			<div class={twMerge('w-full flex flex-row items-center justify-between')}>
-				<span
-					class={twMerge('text-xs font-semibold', classes[type].titleClass, titleClass)}
-					style={titleStyle}
-				>
-					{title}
-					{#if tooltip != '' || documentationLink}
-						<Tooltip {documentationLink}>{tooltip}</Tooltip>
-					{/if}
-				</span>
-				{#if collapsible}
-					<button class="cursor-pointer" onclick={toggleCollapse}>
-						{#if isCollapsed}
-							<ChevronDown size={16} />
-						{:else}
-							<ChevronUp size={16} />
+			{#if hasTitleRow}
+				<div class={twMerge('w-full flex flex-row items-center justify-between')}>
+					<span
+						class={twMerge('text-xs font-semibold', classes[type].titleClass, titleClass)}
+						style={titleStyle}
+					>
+						{title}
+						{#if tooltip != '' || documentationLink}
+							<Tooltip {documentationLink}>{tooltip}</Tooltip>
 						{/if}
-					</button>
-				{/if}
-			</div>
-
-			{#if children && !isCollapsed}
-				<div transition:slide|local={{ duration: 200 }} class="mt-2">
-					<div
-						class={twMerge('text-xs', classes[type].descriptionClass, descriptionClass)}
-						style={descriptionStyle}
-					>
-						{@render children?.()}
-					</div>
+					</span>
+					{#if collapsible}
+						<button class="cursor-pointer" onclick={toggleCollapse}>
+							{#if isCollapsed}
+								<ChevronDown size={16} />
+							{:else}
+								<ChevronUp size={16} />
+							{/if}
+						</button>
+					{/if}
 				</div>
-			{:else if children && !collapsible}
-				<div class="mb-2">
-					<div
-						class={twMerge('text-xs', classes[type].descriptionClass, descriptionClass)}
-						style={descriptionStyle}
-					>
-						{@render children?.()}
-					</div>
+			{/if}
+
+			{#if children && (!collapsible || !isCollapsed)}
+				<div
+					transition:slide|local={{ duration: 200 }}
+					class={twMerge(
+						'text-xs',
+						hasTitleRow ? 'mt-1' : '',
+						classes[type].descriptionClass,
+						descriptionClass
+					)}
+					style={descriptionStyle}
+				>
+					{@render children?.()}
 				</div>
 			{/if}
 		</div>

@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { Sparkles } from 'lucide-svelte'
 	import DrillPicker from '$lib/components/DrillPicker.svelte'
 	import type { DrillLeaf, DrillNode } from '$lib/components/drillPicker'
-	import type { AiSkillListItem } from './global/core'
+	import type { ChatCommandItem } from './global/core'
+	import { ambiguousSkillNames } from './skills/skillResources'
 
 	interface Props {
-		skills: AiSkillListItem[]
-		onSelect: (skill: AiSkillListItem) => void
+		skills: ChatCommandItem[]
+		onSelect: (skill: ChatCommandItem) => void
 		setShowing?: (showing: boolean) => void
 		externalFilter?: string
 		autoFocus?: boolean
@@ -20,13 +20,28 @@
 
 	let inner = $state<DrillPickerHandle | undefined>(undefined)
 
-	const tree = $derived<DrillNode<AiSkillListItem>[]>(
+	const SECTION_LABELS: Record<NonNullable<ChatCommandItem['kind']>, string> = {
+		action: 'Actions',
+		skill: 'Skills'
+	}
+
+	// Two folders can each hold a skill of the same name, and `/name` cannot then
+	// say which one is meant. Those rows show their path so the two are at least
+	// distinguishable; unambiguous rows stay bare, with the description in the
+	// hover tooltip (rowTooltip below) and in `searchableText` so filtering by it
+	// keeps working.
+	const ambiguous = $derived(ambiguousSkillNames(skills.filter((s) => s.path !== undefined)))
+
+	const tree = $derived<DrillNode<ChatCommandItem>[]>(
 		skills.map((skill) => ({
 			type: 'leaf' as const,
-			key: `skill:${skill.name}`,
+			// Keyed by path where there is one: names are not unique across folders,
+			// and a duplicate key breaks the keyed list and its ambiguous-resolve nav.
+			key: `skill:${skill.path ?? skill.name}`,
 			label: `/${skill.name}`,
-			secondary: skill.description,
-			searchableText: `${skill.name} ${skill.description}`,
+			secondary: ambiguous.has(skill.name) ? skill.path : undefined,
+			searchableText: `${skill.name} ${skill.path ?? ''} ${skill.description}`,
+			section: skill.kind ? SECTION_LABELS[skill.kind] : undefined,
 			data: skill
 		}))
 	)
@@ -35,7 +50,7 @@
 		inner?.handleKeydown(e)
 	}
 
-	function handlePick(leaf: DrillLeaf<AiSkillListItem>) {
+	function handlePick(leaf: DrillLeaf<ChatCommandItem>) {
 		onSelect(leaf.data)
 	}
 
@@ -51,18 +66,17 @@
 	})
 </script>
 
-{#snippet skillIcon(_leaf: DrillLeaf<AiSkillListItem>)}
-	<Sparkles size={12} class="shrink-0 text-tertiary" />
-{/snippet}
-
-<div class="w-[min(340px,calc(100vw-20px))] max-h-64 overflow-hidden">
+<!-- This wrapper is the scroll container: the flush DrillPicker sizes to its
+     content (h-full can't resolve against a max-h-only parent), so overflow
+     must scroll here or the list is just clipped at 16rem. -->
+<div class="w-[min(340px,calc(100vw-20px))] max-h-64 overflow-y-auto">
 	<DrillPicker
 		bind:this={inner}
 		{tree}
 		onPick={handlePick}
 		{externalFilter}
 		{autoFocus}
-		leafIcon={skillIcon}
+		rowTooltip={(leaf) => leaf.data.description}
 		flush
 	/>
 </div>

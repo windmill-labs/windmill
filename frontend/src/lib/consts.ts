@@ -22,8 +22,6 @@ export const SIDEBAR_SHOW_SCHEDULES = true
 export const WORKSPACE_SHOW_SLACK_CMD = true
 export const WORKSPACE_SHOW_WEBHOOK_CLI_SYNC = true
 
-export const SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB = true
-
 export const SCRIPT_VIEW_SHOW_SCHEDULE = true
 export const SCRIPT_VIEW_SHOW_EXAMPLE_CURL = true
 

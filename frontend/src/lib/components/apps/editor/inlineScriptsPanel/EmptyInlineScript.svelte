@@ -7,7 +7,7 @@
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
 	import { emptySchema } from '$lib/utils'
-	import { defaultScriptLanguages, getScriptByPath, processLangs } from '$lib/scripts'
+	import { defaultScriptLanguages, getScriptByPath, processInlineLangs } from '$lib/scripts'
 
 	import { Building, GitFork, Globe2 } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -88,7 +88,7 @@
 	}
 
 	let langs = $derived(
-		processLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
+		processInlineLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
 			.map((l) => [defaultScriptLanguages[l], l])
 			.filter(
 				(x) =>

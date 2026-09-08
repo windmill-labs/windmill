@@ -19,9 +19,8 @@
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import Portal from '../Portal.svelte'
 	import Popover from '../meltComponents/Popover.svelte'
-	import ClearableInput from '../common/clearableInput/ClearableInput.svelte'
-	import MultiSelect from '../select/MultiSelect.svelte'
 	import CloseButton from '../common/CloseButton.svelte'
+	import S3PermissionRulesEditor from './S3PermissionRulesEditor.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
 	import DataTable from '../table/DataTable.svelte'
@@ -43,6 +42,14 @@
 		onSave?: () => void
 		onDiscard?: () => void
 	} = $props()
+
+	const creatableStorageTypes = [
+		{ value: 's3', label: 'S3' },
+		{ value: 'azure_blob', label: 'Azure Blob' },
+		{ value: 's3_aws_oidc', label: 'AWS OIDC' },
+		{ value: 'azure_workload_identity', label: 'Azure Workload Identity' },
+		{ value: 'gcloud_storage', label: 'Google Cloud Storage' }
+	]
 
 	let advancedPermissionModalState:
 		| { open: false }
@@ -294,31 +301,38 @@
 					<Cell>
 						<div class="flex gap-2">
 							<div class="relative">
-								{#if tableRow[1].resourceType === 'filesystem'}
-									<!-- Filesystem storage is deliberately absent from the creatable
-									     types below: it is dev-only (set via the API), so the UI only
-									     renders it read-only when already configured. -->
+								<div class="flex items-center gap-1">
+									<!-- `filesystem` is offered only to a row that already is one, so it can be
+									     converted away but never chosen: the backend accepts it in development
+									     builds alone. -->
 									<Select
-										items={[{ value: 'filesystem', label: 'Filesystem' }]}
-										value={'filesystem'}
-										disabled
+										items={tableRow[1].resourceType === 'filesystem'
+											? [{ value: 'filesystem', label: 'Filesystem' }, ...creatableStorageTypes]
+											: creatableStorageTypes}
+										bind:value={
+											() => tableRow[1].resourceType,
+											(resourceType) => {
+												if (
+													tableRow[1].resourceType === 'filesystem' &&
+													resourceType !== 'filesystem'
+												) {
+													// A filesystem row holds a server path, not a resource path.
+													tableRow[1].resourcePath = undefined
+												}
+												tableRow[1].resourceType = resourceType
+											}
+										}
 										id="storage-resource-type-select"
 										class="w-40"
 									/>
-								{:else}
-									<Select
-										items={[
-											{ value: 's3', label: 'S3' },
-											{ value: 'azure_blob', label: 'Azure Blob' },
-											{ value: 's3_aws_oidc', label: 'AWS OIDC' },
-											{ value: 'azure_workload_identity', label: 'Azure Workload Identity' },
-											{ value: 'gcloud_storage', label: 'Google Cloud Storage' }
-										]}
-										bind:value={tableRow[1].resourceType}
-										id="storage-resource-type-select"
-										class="w-40"
-									/>
-								{/if}
+									{#if tableRow[1].resourceType === 'filesystem'}
+										<Tooltip>
+											Filesystem storage points the workspace at a directory on the server's own
+											disk. Only development builds of Windmill accept it — switch this storage to
+											S3, Azure Blob or Google Cloud Storage to configure it here.
+										</Tooltip>
+									{/if}
+								</div>
 							</div>
 							<div class="flex flex-1">
 								{#if tableRow[1].resourceType === 'filesystem'}
@@ -514,7 +528,7 @@
 			disabled={!storage.advancedPermissions && !$enterpriseLicense}
 		/>
 		{#if storage.advancedPermissions}
-			{@render advancedPermissionsEditor(storage.advancedPermissions)}
+			<S3PermissionRulesEditor bind:rules={storage.advancedPermissions} />
 		{/if}
 		{#if !storage.advancedPermissions}
 			{#if storage.resourceType == 's3'}
@@ -570,37 +584,3 @@
 		{/if}
 	{/if}
 </Modal2>
-
-{#snippet advancedPermissionsEditor(rules: S3ResourceSettingsItem['advancedPermissions'])}
-	<Alert title="Standard Unix-style glob syntax is supported">
-		The following will be interpolated :
-		<ul class="list-disc pl-6">
-			<li><code>{'{username}'}</code> : Nickname of the user doing the request</li>
-			<li><code>{'{group}'}</code> : Any group that the user belongs to</li>
-			<li><code>{'{folder_read}'}</code> : Any folder that the user has read access to</li>
-			<li><code>{'{folder_write}'}</code> : Any folder that the user has write access to</li>
-		</ul>
-		<br />
-		Note that changes may take up to 1 minute to propagate due to cache invalidation
-	</Alert>
-
-	<div class="flex-1 overflow-y-auto gap-3 flex flex-col">
-		{#each rules ?? [] as item, idx}
-			<div class="flex gap-2">
-				<ClearableInput bind:value={item.pattern} placeholder="Pattern" />
-				<MultiSelect
-					items={[{ value: 'read' }, { value: 'write' }, { value: 'delete' }, { value: 'list' }]}
-					bind:value={item.allow}
-					class="w-[20rem]"
-					placeholder="Deny all access"
-					hideMainClearBtn
-				/>
-				<CloseButton onClick={() => rules?.splice(idx, 1)} />
-			</div>
-		{/each}
-	</div>
-	<Button size="xs" variant="default" on:click={() => rules?.push({ pattern: '', allow: [] })}>
-		<Plus size={14} />
-		Add permission rule
-	</Button>
-{/snippet}

@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            (CASE $3::text\n                WHEN 'day' THEN day::text\n                WHEN 'user' THEN email\n                ELSE ''\n            END) AS \"key!\",\n            provider AS \"provider!\",\n            model AS \"model!\",\n            SUM(input_tokens)::bigint AS \"input_tokens!\",\n            SUM(cache_read_tokens)::bigint AS \"cache_read_tokens!\",\n            SUM(cache_write_tokens)::bigint AS \"cache_write_tokens!\",\n            SUM(output_tokens)::bigint AS \"output_tokens!\",\n            SUM(reported_cost_nano_usd)::bigint AS \"reported_cost_nano_usd\",\n            SUM(requests)::bigint AS \"requests!\"\n         FROM ai_token_usage\n         WHERE workspace_id = $1 AND day > CURRENT_DATE - $2::int\n            AND ($5::text IS NULL OR email = $5)\n         GROUP BY 1, provider, model\n         ORDER BY SUM(input_tokens + cache_read_tokens + cache_write_tokens + output_tokens) DESC\n         LIMIT $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "key!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "provider!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "model!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "input_tokens!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "cache_read_tokens!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "cache_write_tokens!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "output_tokens!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "reported_cost_nano_usd",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "requests!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4",
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "6a17a1dfeb75808e5d0726f1f8bd573168161abe350b047402cda4ac4a4d13e4"
+}

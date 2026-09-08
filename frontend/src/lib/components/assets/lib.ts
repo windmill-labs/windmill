@@ -28,6 +28,8 @@ export function formatAsset(asset: Asset): string {
 			return `datatable://${asset.path}`
 		case 'volume':
 			return `volume://${asset.path}`
+		case 'dbt':
+			return `dbt://${asset.path}`
 	}
 	return 'unknown'
 }
@@ -93,6 +95,13 @@ export function formatAssetKind(asset: {
 			return 'Data table'
 		case 'volume':
 			return 'Volume'
+		case 'dbt':
+			// The SCHEME says dbt because dbt is what derives these relations; the
+			// PATH stays the relation, so a mart one project builds, the `source`
+			// the next reads, and a native `// materialize manual dbt://…` writer
+			// land on one node — their dbt `unique_id`s differ where the relation
+			// does not (docs/dbt-runtime.md, decision 11).
+			return 'dbt table'
 	}
 }
 

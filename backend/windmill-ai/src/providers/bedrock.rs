@@ -6,6 +6,7 @@
 //! - Stream event parsing
 //! - Helper utilities
 
+use super::{anthropic_model_rejects_sampling_params, REASONING_OFF_SENTINEL};
 use crate::{
     ai_bedrock::{
         bedrock_model_supports_prompt_caching, bedrock_stream_event_is_block_stop,
@@ -357,12 +358,11 @@ async fn handle_bedrock_sdk_streaming(
     let enable_prompt_caching = bedrock_model_supports_prompt_caching(model);
     let (bedrock_messages, system_prompts) =
         openai_messages_to_bedrock(&openai_req.messages, enable_prompt_caching)?;
-    // Adaptive thinking rejects sampling params; drop temperature when reasoning is on.
-    let temperature = openai_req
-        .reasoning_effort
-        .is_none()
-        .then_some(openai_req.temperature)
-        .flatten();
+    let temperature = bedrock_temperature(
+        model,
+        openai_req.reasoning_effort.as_deref(),
+        openai_req.temperature,
+    );
     let inference_config = create_inference_config(temperature, openai_req.max_tokens);
     let tool_config = build_tool_config_from_request(
         openai_req.tools.as_deref(),
@@ -410,11 +410,35 @@ async fn handle_bedrock_sdk_streaming(
     })
 }
 
-/// Build the Converse `additionalModelRequestFields` enabling Claude adaptive
-/// thinking at the given effort. `display: summarized` is billing-neutral on
-/// Anthropic models and matches the direct-Anthropic chat path, which renders
-/// summarized thinking in the UI.
+/// Whether an effort token turns adaptive thinking on. `"none"` is the disable
+/// sentinel rather than a level.
+fn effort_enables_thinking(effort: Option<&str>) -> bool {
+    matches!(effort, Some(effort) if effort != REASONING_OFF_SENTINEL)
+}
+
+/// Temperature survives only when thinking is not adaptive — which rejects
+/// sampling params — and the model still accepts them at all. Non-Anthropic
+/// Bedrock models (Nova, Llama) are unaffected by the second check.
+fn bedrock_temperature(model: &str, effort: Option<&str>, temperature: Option<f32>) -> Option<f32> {
+    if effort_enables_thinking(effort) || anthropic_model_rejects_sampling_params(model) {
+        return None;
+    }
+    temperature
+}
+
+/// Build the Converse `additionalModelRequestFields` carrying Claude's thinking
+/// config. `display: summarized` is billing-neutral on Anthropic models and
+/// matches the direct-Anthropic chat path, which renders summarized thinking in
+/// the UI.
 fn bedrock_thinking_fields(effort: &str) -> aws_smithy_types::Document {
+    if effort == REASONING_OFF_SENTINEL {
+        // The disable carries no effort: pairing it with xhigh or max is a 400
+        // on Opus 5, and omitting it leaves the model at the effort where the
+        // disable is accepted.
+        return json_to_document(serde_json::json!({
+            "thinking": { "type": "disabled" }
+        }));
+    }
     json_to_document(serde_json::json!({
         "thinking": { "type": "adaptive", "display": "summarized" },
         "output_config": { "effort": effort }
@@ -636,6 +660,41 @@ fn bedrock_sse_chunks_for_event(
         chunks.push(Bytes::from(format!("data: {}\n\n", chunk)));
     }
 
+    // Usage arrives only on the trailing Metadata event, and only this converter
+    // reaches the chat: without a chunk for it a Bedrock chat reports no tokens at
+    // all. Bedrock counts cache reads and writes apart from `inputTokens`, while the
+    // OpenAI shape the client parses treats `prompt_tokens` as the whole input, so
+    // they are folded in here and split back out through `prompt_tokens_details`.
+    if let aws_sdk_bedrockruntime::types::ConverseStreamOutput::Metadata(metadata) = event {
+        if let Some(token_usage) = metadata.usage() {
+            let cache_read = token_usage.cache_read_input_tokens().unwrap_or(0);
+            let cache_write = token_usage.cache_write_input_tokens().unwrap_or(0);
+            let prompt_tokens = token_usage
+                .input_tokens()
+                .saturating_add(cache_read)
+                .saturating_add(cache_write);
+
+            let chunk = serde_json::json!({
+                "id": state.id,
+                "object": "chat.completion.chunk",
+                "created": state.created,
+                "model": state.model,
+                "choices": [],
+                "usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": token_usage.output_tokens(),
+                    "total_tokens": token_usage.total_tokens(),
+                    "prompt_tokens_details": {
+                        "cached_tokens": cache_read,
+                        "cache_write_tokens": cache_write
+                    }
+                }
+            });
+
+            chunks.push(Bytes::from(format!("data: {}\n\n", chunk)));
+        }
+    }
+
     chunks
 }
 
@@ -663,12 +722,11 @@ async fn handle_bedrock_sdk_non_streaming(
     let enable_prompt_caching = bedrock_model_supports_prompt_caching(model);
     let (bedrock_messages, system_prompts) =
         openai_messages_to_bedrock(&openai_req.messages, enable_prompt_caching)?;
-    // Adaptive thinking rejects sampling params; drop temperature when reasoning is on.
-    let temperature = openai_req
-        .reasoning_effort
-        .is_none()
-        .then_some(openai_req.temperature)
-        .flatten();
+    let temperature = bedrock_temperature(
+        model,
+        openai_req.reasoning_effort.as_deref(),
+        openai_req.temperature,
+    );
     let inference_config = create_inference_config(temperature, openai_req.max_tokens);
     let tool_config = build_tool_config_from_request(
         openai_req.tools.as_deref(),
@@ -934,8 +992,7 @@ impl BedrockQueryBuilder {
         let (bedrock_messages, system_prompts) =
             openai_messages_to_bedrock(&prepared_messages, enable_prompt_caching)?;
 
-        // Adaptive thinking rejects sampling params; drop temperature when reasoning is on.
-        let temperature = reasoning_effort.is_none().then_some(temperature).flatten();
+        let temperature = bedrock_temperature(model, reasoning_effort, temperature);
 
         // Build inference configuration using shared helper
         let inference_config = create_inference_config(temperature, max_tokens.map(|t| t as i32));
@@ -1169,6 +1226,43 @@ mod tests {
     }
 
     #[test]
+    fn metadata_event_emits_usage_chunk_with_cache_split() {
+        let mut state = BedrockSseStreamState::new("id".to_string(), "model".to_string(), 0);
+        let event = ConverseStreamOutput::Metadata(
+            aws_sdk_bedrockruntime::types::ConverseStreamMetadataEvent::builder()
+                .usage(
+                    aws_sdk_bedrockruntime::types::TokenUsage::builder()
+                        .input_tokens(10)
+                        .output_tokens(7)
+                        .total_tokens(1017)
+                        .cache_read_input_tokens(900)
+                        .cache_write_input_tokens(100)
+                        .build()
+                        .expect("usage"),
+                )
+                .build(),
+        );
+
+        let chunks = bedrock_sse_chunks_for_event(&event, &mut state);
+        let usage = chunks
+            .iter()
+            .map(sse_json)
+            .find(|v| v.get("usage").map(|u| !u.is_null()).unwrap_or(false))
+            .expect("the metadata event should carry usage");
+
+        // Bedrock reports cache reads and writes apart from `inputTokens`; the OpenAI
+        // shape the client parses treats `prompt_tokens` as the whole input, and
+        // recovers the uncached share by subtracting the details back out.
+        assert_eq!(usage["usage"]["prompt_tokens"], 1010);
+        assert_eq!(usage["usage"]["completion_tokens"], 7);
+        assert_eq!(usage["usage"]["prompt_tokens_details"]["cached_tokens"], 900);
+        assert_eq!(
+            usage["usage"]["prompt_tokens_details"]["cache_write_tokens"],
+            100
+        );
+    }
+
+    #[test]
     fn determine_auth_config_prioritizes_bearer_token() {
         let config = determine_auth_config(
             Some("bearer-token"),
@@ -1283,6 +1377,37 @@ mod tests {
             delta_json["choices"][0]["delta"]["tool_calls"][0]["index"],
             0
         );
+    }
+
+    #[test]
+    fn bedrock_thinking_fields_translate_the_off_sentinel_to_a_disable() {
+        let fields = document_to_json(&bedrock_thinking_fields("none"));
+        assert_eq!(fields["thinking"]["type"], "disabled");
+        // An effort alongside the disable is a 400 on Opus 5.
+        assert!(fields.get("output_config").is_none());
+        assert!(effort_enables_thinking(Some("xhigh")));
+        assert!(!effort_enables_thinking(Some("none")));
+        assert!(!effort_enables_thinking(None));
+    }
+
+    #[test]
+    fn bedrock_temperature_drops_sampling_params_per_thinking_mode_and_model() {
+        // Adaptive thinking rejects sampling params on every model...
+        let adaptive = bedrock_temperature("anthropic.claude-sonnet-4-6", Some("xhigh"), Some(0.5));
+        assert!(adaptive.is_none());
+        // ...while a model that still accepts them keeps them when off.
+        let off = bedrock_temperature("anthropic.claude-sonnet-4-6", Some("none"), Some(0.5));
+        assert_eq!(off, Some(0.5));
+        // The models that removed them drop them on every mode.
+        for (model, effort) in [
+            ("global.anthropic.claude-opus-5", Some("none")),
+            ("anthropic.claude-opus-4-8", None),
+        ] {
+            assert!(bedrock_temperature(model, effort, Some(0.5)).is_none());
+        }
+        // A non-Anthropic Bedrock model keeps its sampling params.
+        let nova = bedrock_temperature("amazon.nova-pro-v1:0", None, Some(0.5));
+        assert_eq!(nova, Some(0.5));
     }
 
     #[test]

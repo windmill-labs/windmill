@@ -14,6 +14,10 @@
 	interface Props {
 		selected: CompareMode
 		isFork: boolean
+		/** Drop the `update` direction: a target outside the fork lineage has no
+		 * tally saying which side a change came from, so only the deploy direction
+		 * is meaningful. */
+		oneWay?: boolean
 		parentWorkspaceId?: string
 		deployCount?: number
 		updateCount?: number
@@ -25,6 +29,7 @@
 	let {
 		selected,
 		isFork,
+		oneWay = false,
 		parentWorkspaceId,
 		deployCount = 0,
 		updateCount = 0,
@@ -49,12 +54,14 @@
 				icon={ArrowUp}
 				{item}
 			/>
-			<ToggleButton
-				value="update"
-				label={withCount('Update current', updateCount)}
-				icon={ArrowDown}
-				{item}
-			/>
+			{#if !oneWay}
+				<ToggleButton
+					value="update"
+					label={withCount('Update current', updateCount)}
+					icon={ArrowDown}
+					{item}
+				/>
+			{/if}
 		{/if}
 		<ToggleButton value="draft" label={`Deploy draft (${draftCount})`} icon={Pencil} {item} />
 	{/snippet}

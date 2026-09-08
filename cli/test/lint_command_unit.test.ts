@@ -81,6 +81,36 @@ local_part: "inbox"
   });
 });
 
+// Guards against lint validating flows with a schema older than the checkout: a step
+// linked to an `ai_agent` resource carries neither `tools` nor provider/output_type.
+test("lint: accepts an aiagent step linked to an ai_agent resource", async () => {
+  await withTempDir(async (tempDir) => {
+    await mkdir(`${tempDir}/f/agents/support.flow`, { recursive: true });
+    await writeFile(
+      `${tempDir}/f/agents/support.flow/flow.yaml`,
+      `summary: Support triage
+value:
+  modules:
+    - id: a
+      value:
+        type: aiagent
+        agent: f/agents/support_agent
+        input_transforms:
+          user_message:
+            type: javascript
+            expr: flow_input.question
+`,
+      "utf-8"
+    );
+
+    const report = await runLint({} as any, tempDir);
+
+    expect(report.issues).toEqual([]);
+    expect(report.exitCode).toEqual(0);
+    expect(report.validFiles).toEqual(1);
+  });
+});
+
 test("lint: returns errors for invalid schedule documents", async () => {
   await withTempDir(async (tempDir) => {
     await mkdir(`${tempDir}/f/jobs`, { recursive: true });

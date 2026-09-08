@@ -1,0 +1,66 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT j.kind::text as kind,\n                    c.status::text as completed_status,\n                    c.duration_ms as \"duration_ms?\",\n                    COALESCE(c.started_at, q.started_at) as started_at,\n                    LEFT(c.result::text, $3) as result_prefix,\n                    length(c.result::text) as result_length,\n                    q.running as \"q_running?\",\n                    q.suspend as \"q_suspend?\"\n             FROM v2_job j\n             LEFT JOIN v2_job_completed c ON c.id = j.id\n             LEFT JOIN v2_job_queue q ON q.id = j.id\n             WHERE j.id = $1 AND j.workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "completed_status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "duration_ms?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "result_prefix",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "result_length",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "q_running?",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "q_suspend?",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      false,
+      null,
+      null,
+      null,
+      false,
+      false
+    ]
+  },
+  "hash": "6981553b904f9ae38d6eaeae05716ac71390028dfe8c54798b1701b01591fff7"
+}

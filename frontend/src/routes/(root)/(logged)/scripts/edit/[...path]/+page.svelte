@@ -16,12 +16,13 @@
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import { get } from 'svelte/store'
 	import { onDestroy, untrack } from 'svelte'
-	import { stripNewDraftFlagOnSave } from '$lib/newDraftFlag'
+	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 	import { page } from '$app/state'
 	import { UserDraft, draftValuesEqual } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { discardDraftAfterDeploy, runResetToDeployed } from '$lib/userDraftToast'
 	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
+	import { schemaAsEditorMounts } from '$lib/scriptEditorSchema'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
 	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
@@ -133,7 +134,11 @@
 		// `initPath` calls `reset()`, generating the friendly `<adj>_<kind>` name;
 		// any non-empty value is parsed verbatim. Empty `initialPath` also opens the
 		// metadata drawer. The flag is stripped only once the first save lands.
-		if (page.url.searchParams.get('new_draft') === 'true') {
+		// Once the draft is persisted this session (autosave or "Open in AI
+		// session"'s forcePersist), a stale `?new_draft` — e.g. carried back by
+		// exiting a session to the remembered nav route — falls through to the
+		// normal load instead of re-seeding empty over the saved draft.
+		if (shouldSeedNewDraft(page.url.searchParams, $workspaceStore, 'script', draftPath)) {
 			// Suspend autosave across the bootstrap: both the seed and
 			// ScriptBuilder's `initContent` are programmatic writes that must not
 			// post as the user's first edit. ScriptBuilder lifts it in
@@ -275,6 +280,10 @@
 			renderEditor = true
 			return
 		}
+		// Falling through with `?new_draft=true` still set means the draft is
+		// already persisted (see shouldSeedNewDraft) — drop the now-meaningless
+		// flag so it doesn't linger in the URL / remembered nav route.
+		stripNewDraftFlag()
 		if (hash) {
 			const scriptByHash = await ScriptService.getScriptByHash({
 				workspace: $workspaceStore!,
@@ -292,6 +301,18 @@
 				path: page.params.path ?? '',
 				getDraft
 			})
+			if (tok !== loadScriptToken) return
+			// The editor re-infers the schema as soon as it mounts, so a baseline
+			// taken from the raw stored schema would flag every unedited open of a
+			// script whose stored schema differs from what this parser emits.
+			const baselineSchema = backendScript.no_deployed
+				? undefined
+				: await schemaAsEditorMounts(
+						backendScript.language,
+						backendScript.content ?? '',
+						backendScript.schema,
+						backendScript.kind
+					)
 			if (tok !== loadScriptToken) return
 			// Backend only computes `other_drafts_users` when `getDraft`. Don't clobber
 			// the known list on a `getDraft:false` reload (e.g. reset-to-deployed, which
@@ -321,11 +342,14 @@
 			savedScript = structuredClone($state.snapshot(effectiveScript))
 			const parentHash = topHash ?? backendScript.hash
 			// Baseline for the autosave `discardIf`: the deployed script with the
-			// same `parent_hash` graft the seed below applies, so the unedited draft
-			// compares equal. `undefined` when there's no deployed row.
+			// same `parent_hash` graft the seed below applies and the schema as the
+			// mounted editor holds it, so the unedited draft compares equal.
+			// `undefined` when there's no deployed row.
 			deployedBaseline = backendScript.no_deployed
 				? undefined
-				: structuredClone($state.snapshot({ ...deployedScript, parent_hash: parentHash }))
+				: structuredClone(
+						$state.snapshot({ ...deployedScript, schema: baselineSchema, parent_hash: parentHash })
+					)
 			// "Load another user's draft" handoff: show their value over the
 			// deployed metadata. If WE already have a draft → overlay mode (never
 			// saved until the user confirms overwriting their own draft).

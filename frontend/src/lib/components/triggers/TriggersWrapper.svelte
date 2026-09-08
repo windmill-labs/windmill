@@ -8,6 +8,7 @@
 	import KafkaTriggerPanel from './kafka/KafkaTriggersPanel.svelte'
 	import NatsTriggersPanel from './nats/NatsTriggersPanel.svelte'
 	import MqttTriggerPanel from './mqtt/MqttTriggersPanel.svelte'
+	import AmqpTriggerPanel from './amqp/AmqpTriggersPanel.svelte'
 	import SqsTriggerPanel from './sqs/SqsTriggerPanel.svelte'
 	import GcpTriggerPanel from './gcp/GcpTriggerPanel.svelte'
 	import AzureTriggerPanel from './azure/AzureTriggerPanel.svelte'
@@ -136,6 +137,15 @@
 	/>
 {:else if selectedTrigger.type === 'mqtt'}
 	<MqttTriggerPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		{customLabel}
+		{...props}
+	/>
+{:else if selectedTrigger.type === 'amqp'}
+	<AmqpTriggerPanel
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}

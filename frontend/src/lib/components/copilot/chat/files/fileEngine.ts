@@ -294,7 +294,10 @@ export function searchFilesInWorker(
 ): Promise<SearchResult> {
 	let worker: Worker
 	try {
-		worker = new Worker(new URL('./searchWorker.ts', import.meta.url), { type: 'module' })
+		// Reference the worker by its .js name: svelte-package doesn't rewrite this
+		// string literal and ships only searchWorker.js, so a `.ts` URL is dangling
+		// when the package is consumed downstream (vite maps `.js`→`.ts` here in-repo).
+		worker = new Worker(new URL('./searchWorker.js', import.meta.url), { type: 'module' })
 	} catch {
 		return searchFiles(entries, pattern, opts)
 	}

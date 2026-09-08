@@ -1,7 +1,6 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-	import { onDestroy } from 'svelte'
-	import { stripNewDraftFlagOnSave } from '$lib/newDraftFlag'
+	import { onDestroy, untrack } from 'svelte'
+	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 
 	import { AppService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -11,6 +10,7 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { HiddenRunnable } from '$lib/components/apps/types'
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
+	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
 	import {
@@ -174,7 +174,10 @@
 		// `draft_{uuid}` path. Skip the backend fetch (would 404) and seed every
 		// piece of state RawAppEditor needs — rendering gates on `files`, so an
 		// unset `files` blanks the page. `path = ''` for the friendly auto-name.
-		if (page.url.searchParams.get('new_draft') === 'true') {
+		// Skip the seed branch once the draft is persisted this session so a stale
+		// `?new_draft` loads the saved draft instead of blanking it — see
+		// shouldSeedNewDraft.
+		if (shouldSeedNewDraft(page.url.searchParams, $workspaceStore, 'raw_app', path)) {
 			isNewApp = true
 			// Page reused across same-route nav: clear the previous path's
 			// draft-presence state so it doesn't bleed onto the fresh draft.
@@ -204,7 +207,6 @@
 					path
 				})
 			}
-			// Backend's `Policy` requires `execution_mode` (empty object fails to deserialize).
 			const defaultPolicy = {
 				on_behalf_of: $userStore?.username.includes('@')
 					? $userStore?.username
@@ -273,6 +275,10 @@
 			templatePicker = true
 			return
 		}
+		// Falling through with `?new_draft=true` still set means the draft is
+		// already persisted (see shouldSeedNewDraft) — drop the now-meaningless
+		// flag so it doesn't linger in the URL / remembered nav route.
+		stripNewDraftFlag()
 		const backendApp = (await AppService.getAppByPath({
 			path: page.params.path ?? '',
 			workspace: $workspaceStore!,
@@ -339,7 +345,6 @@
 				data: savedRawAppDraft?.data
 			}
 			backendApp.summary = savedRawAppDraft?.summary ?? ''
-			// `execution_mode` required; fall back to publisher when unset.
 			backendApp.policy = savedRawAppDraft?.policy ?? { execution_mode: 'publisher' }
 			backendApp.custom_path = savedRawAppDraft?.custom_path
 			backendApp.path = page.params.path ?? ''
@@ -412,16 +417,22 @@
 		}
 	}
 
-	run(() => {
+	$effect(() => {
 		// Re-run on workspace OR path change so navigating from one raw app editor
 		// to another (e.g. via the workspace picker) reloads the new app.
 		const currentPath = page.params.path
 		if ($workspaceStore && currentPath !== undefined) {
-			// Clear files so RawAppEditor unmounts; it will remount when loadApp
-			// completes with fresh data, re-initializing its internal stores.
-			files = undefined
-			path = currentPath
-			loadApp()
+			// untrack so loadApp's reactive reads (the draft-hint SvelteMap via
+			// shouldSeedNewDraft) don't subscribe this effect — else the first
+			// autosave's optimistic hint flip re-fires loadApp mid-bootstrap and
+			// 404s on the not-yet-POSTed draft. Depend only on path/workspace above.
+			untrack(() => {
+				// Clear files so RawAppEditor unmounts; it remounts when loadApp
+				// completes with fresh data, re-initializing its internal stores.
+				files = undefined
+				path = currentPath
+				loadApp()
+			})
 		}
 	})
 
@@ -472,6 +483,8 @@
 		redraw++
 	}
 
+	let rawAppEditor: RawAppEditor | undefined = $state()
+
 	function onTemplatePickerStart(result: RawAppTemplatePickerResult, withPrompt: boolean) {
 		files = { ...result.files }
 		runnables = { ...result.runnables, [STARTER_RUNNABLE_KEY]: STARTER_RUNNABLE }
@@ -487,10 +500,19 @@
 			schema: result.data.schema
 		}
 		if (withPrompt && result.prompt) {
-			setTimeout(() => {
+			const prompt = result.prompt
+			// The delay lets the remount above settle: the session hand-off persists
+			// the draft the preview loads, and the docked path needs the editor to
+			// have registered its app helpers.
+			setTimeout(async () => {
+				// Falls through when the hand-off has no path to open, so the click
+				// still reaches the legacy path (or its toast) instead of vanishing.
+				if (prefersSessionHandoff($userStore?.operator)) {
+					if (await rawAppEditor?.openInSession(prompt)) return
+				}
 				aiChatManager.changeMode(AIMode.APP)
 				if (!aiChatManager.open) aiChatManager.toggleOpen()
-				aiChatManager.instructions = result.prompt!
+				aiChatManager.instructions = prompt
 				aiChatManager.sendRequest()
 			}, 500)
 		}
@@ -545,6 +567,7 @@
 	{#key redraw}
 		<div class="h-screen">
 			<RawAppEditor
+				bind:this={rawAppEditor}
 				onSavedNewAppPath={(savedPath) => {
 					draftSync.remove()
 					goto(`/apps_raw/edit/${savedPath}`)

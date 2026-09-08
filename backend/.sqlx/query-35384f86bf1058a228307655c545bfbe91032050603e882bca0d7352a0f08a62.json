@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job SET permissioned_as_email = $1 WHERE permissioned_as_email = $2 AND id IN (SELECT id FROM v2_job_queue)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "35384f86bf1058a228307655c545bfbe91032050603e882bca0d7352a0f08a62"
+}

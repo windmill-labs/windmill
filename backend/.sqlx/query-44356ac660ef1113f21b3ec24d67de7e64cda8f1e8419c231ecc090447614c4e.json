@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE amqp_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "44356ac660ef1113f21b3ec24d67de7e64cda8f1e8419c231ecc090447614c4e"
+}

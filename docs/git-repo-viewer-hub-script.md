@@ -1,9 +1,19 @@
-# Git repo viewer — hub script patch
+# Git repo viewer — hub script
 
-This documents the changes that need to be applied to the hub script
-`clone_repo_and_upload_to_instance_storage` (currently published as
-`hub/28182/clone_repo_and_upload_to_instance_storage` and referenced from
-`frontend/src/lib/hubPaths.json` as `cloneRepoToS3forGitRepoViewer`).
+The hub script `clone_repo_and_upload_to_instance_storage` is published from
+`windmill-integrations` and pinned in `frontend/src/lib/hubPaths.json` as
+`cloneRepoToS3forGitRepoViewer`. Hub paths are exact version pins, so editing
+the script means publishing a new version and repointing that entry.
+
+A repository connected through the GitHub App carries no credential in its
+URL, so the script cannot clone it with git. For those it downloads a tarball
+of the commit from `GET /w/{workspace}/github_app/repo_archive/{resource_path}`
+and extracts it; the installation token stays on the server. That route is
+admin-only, because the repository is named by the resource's own `url` and
+whoever can write the resource controls it. Repositories that aren't
+app-backed are cloned with git as before, using the credential in the URL.
+
+The rest of this file records the upload behaviour the viewer depends on.
 
 The repo viewer in the Windmill app expects the hub script to:
 
@@ -25,11 +35,10 @@ The frontend passes `markerFile=.windmill_clone_complete` to the
 `checkS3FolderExists` API, which only reports the folder as existing when this
 exact file is present.
 
-## Replacement `uploadDirectoryToS3` implementation
+## `uploadDirectoryToS3`
 
-Replace the recursive sequential `uploadDirectoryToS3` function with a
-batched-concurrent implementation, and write the marker after the walk
-completes:
+Uploads run through a bounded-concurrency pool, and the marker is written
+after the walk completes:
 
 ```ts
 const UPLOAD_CONCURRENCY = 16

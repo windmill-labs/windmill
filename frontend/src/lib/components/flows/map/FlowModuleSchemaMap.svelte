@@ -1,19 +1,13 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import type { OpenInSessionSource } from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import {
-		createInlineScriptModule,
-		createBranchAll,
-		createBranches,
-		createLoop,
-		createWhileLoop,
-		deleteFlowStateById,
-		emptyModule,
-		pickScript,
-		pickFlow,
 		insertNewPreprocessorModule,
-		createAiAgent
+		createNewModule as createNewModuleIn,
+		insertNewModuleAtIndex as insertNewModuleAt,
+		insertAgentTool
 	} from '$lib/components/flows/flowStateUtils.svelte'
 	import type { FlowModule, Job, ScriptLang } from '$lib/gen'
 	import { emptyFlowModuleState } from '../utils.svelte'
@@ -23,10 +17,10 @@
 	import { push } from '$lib/history.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
+	import { overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
 
 	import { locateModules, groupByParent } from '../multiSelectUtils'
 	import { workspaceStore } from '$lib/stores'
-	import { copilotInfo } from '$lib/aiStore'
 	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
 	import { replaceId } from '../flowStore.svelte'
@@ -34,25 +28,15 @@
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import { JobService } from '$lib/gen'
 	import { findModuleInFlow } from '../flowTree'
+	import { addBranch as addBranchOp, removeBranch as removeBranchOp } from '../branchOps'
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 	import { MoveManager } from '$lib/components/graph/moveManager.svelte'
-	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import type { GraphModuleState } from '$lib/components/graph'
 	import FlowStickyNode from './FlowStickyNode.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import { ModulesTestStates } from '$lib/components/modulesTest.svelte'
 	import type { StateStore } from '$lib/utils'
-	import {
-		type AgentTool,
-		type SpecialToolKind,
-		flowModuleToAgentTool,
-		createMcpTool,
-		createWebsearchTool,
-		createAiAgentTool,
-		SPECIAL_TOOL_KINDS,
-		agentToolToFlowModule
-	} from '../agentToolUtils'
-	import { loadFlowModuleState } from '../flowStateUtils.svelte'
+	import { type AgentTool, type SpecialToolKind } from '../agentToolUtils'
 	import type { DeletePlan } from '../flowDeleteUtils'
 	import { executeDeletePlan, prepareDeleteRequest } from '../flowDeleteController'
 	import { getNoteEditorContext } from '$lib/components/graph/noteEditor.svelte'
@@ -60,10 +44,7 @@
 		GroupedModulesProxy,
 		type ExtendedOpenFlow
 	} from '$lib/components/graph/groupedModulesProxy.svelte'
-	import {
-		GroupDisplayState,
-		type FlowGroup
-	} from '$lib/components/graph/groupEditor.svelte'
+	import { GroupDisplayState, type FlowGroup } from '$lib/components/graph/groupEditor.svelte'
 	import {
 		type FlowStructureNode,
 		matchStructureNode,
@@ -79,7 +60,6 @@
 		disableSettings?: boolean
 		newFlow?: boolean
 		smallErrorHandler?: boolean
-		workspace?: string | undefined
 		onTestUpTo?: ((id: string) => void) | undefined
 		onEditInput?: (moduleId: string, key: string) => void
 		localModuleStates?: Record<string, GraphModuleState>
@@ -111,7 +91,6 @@
 		disableSettings = false,
 		newFlow = false,
 		smallErrorHandler = false,
-		workspace = $workspaceStore,
 		onTestUpTo,
 		onEditInput,
 		localModuleStates = {},
@@ -135,8 +114,10 @@
 		flowHasChanged
 	}: Props = $props()
 
-	const { customUi, selectionManager, history, flowStateStore, flowStore, pathStore } =
+	const { customUi, selectionManager, history, flowStateStore, flowStore, pathStore, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
+
+	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
 
 	const moveManager = new MoveManager()
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
@@ -162,63 +143,56 @@
 	})
 
 	/** Create a new FlowModule without inserting it into any array */
-	async function createNewModule(
+	function createNewModule(
 		kind: InsertKind,
 		wsScript?: { path: string; summary: string; hash: string | undefined },
 		wsFlow?: { path: string; summary: string },
-		inlineScript?: InlineScript
+		inlineScript?: InlineScript,
+		agentPath?: string
 	): Promise<FlowModule> {
-		let module = emptyModule(flowStateStore.val, flowStore.val, kind == 'flow')
-		let state = emptyFlowModuleState()
-		flowStateStore.val[module.id] = state
-		if (wsFlow) {
-			;[module, state] = await pickFlow(wsFlow.path, wsFlow.summary, module.id)
-		} else if (wsScript) {
-			;[module, state] = await pickScript(
-				wsScript.path,
-				wsScript.summary,
-				module.id,
-				wsScript.hash,
-				kind
-			)
-		} else if (kind == 'forloop') {
-			;[module, state] = await createLoop(module.id, !disableAi && $copilotInfo.enabled)
-		} else if (kind == 'whileloop') {
-			;[module, state] = await createWhileLoop(module.id)
-		} else if (kind == 'branchone') {
-			;[module, state] = await createBranches(module.id)
-		} else if (kind == 'branchall') {
-			;[module, state] = await createBranchAll(module.id)
-		} else if (kind == 'aiagent') {
-			;[module, state] = await createAiAgent(module.id)
-		} else if (inlineScript) {
-			const { language, kind, subkind, summary } = inlineScript
-			;[module, state] = await createInlineScriptModule(language, kind, subkind, module.id, summary)
-			flowStateStore.val[module.id] = state
-			if (kind == 'trigger') {
-				module.summary = 'Trigger'
-			} else if (kind == 'approval') {
-				module.summary = 'Approval'
-			}
-		}
-		flowStateStore.val[module.id] = state
-
-		if (kind == 'approval') {
-			module.suspend = { required_events: 1, timeout: 1800 }
-		} else if (kind == 'trigger') {
-			module.stop_after_if = {
-				expr: '!result || (Array.isArray(result) && result.length == 0)',
-				skip_if_stopped: true
-			}
-		} else if (kind == 'end') {
-			module.summary = 'Terminate flow'
-			module.stop_after_if = { skip_if_stopped: false, expr: 'true' }
-		}
-
-		return module
+		return createNewModuleIn(
+			flowStore,
+			flowStateStore,
+			kind,
+			wsScript,
+			wsFlow,
+			inlineScript,
+			agentPath,
+			opWs,
+			disableAi
+		)
 	}
 
-	export async function insertNewModuleAtIndex(
+	/**
+	 * Add a tool to an agent, from the graph's own `+ Tool` or from a surface that has no graph
+	 * node to click — the agent step's Tools section. Kept here because it needs the map's history,
+	 * id allocation and `flowStateStore` seeding.
+	 */
+	export async function addToolToAgent(
+		agentId: string,
+		detail: { kind: string; script?: any; flow?: any; inlineScript?: any }
+	) {
+		push(history, flowStore.val)
+		const agentMod = findModuleInFlow(flowStore.val.value, agentId)
+		const agentValue = agentMod?.value as { tools?: AgentTool[] } | undefined
+		if (agentValue) {
+			const id = await insertAgentTool(
+				flowStore,
+				flowStateStore,
+				agentValue,
+				detail,
+				opWs,
+				disableAi
+			)
+			// Reveal the new tool's config right away — in modal (unanchored) panel mode its editor
+			// is otherwise hidden behind the graph.
+			if (id) selectionManager.selectId(id, { openPanel: true })
+		}
+		refreshStateStore(flowStore)
+		dispatch('change')
+	}
+
+	export function insertNewModuleAtIndex(
 		modules: FlowModule[] | AgentTool[],
 		index: number,
 		kind: InsertKind,
@@ -228,36 +202,19 @@
 		toolKind?: SpecialToolKind | 'flowmoduleTool'
 	): Promise<FlowModule[] | AgentTool[]> {
 		push(history, flowStore.val)
-		const module = await createNewModule(kind, wsScript, wsFlow, inlineScript)
-
-		if (!modules) return [module]
-
-		if (toolKind === 'mcpTool') {
-			// Create MCP AgentTool
-			const mcpTool = createMcpTool(module.id)
-			;(modules as AgentTool[]).splice(index, 0, mcpTool)
-			return modules as AgentTool[]
-		} else if (toolKind === 'websearchTool') {
-			// Create Websearch AgentTool
-			const websearchTool = createWebsearchTool(module.id)
-			;(modules as AgentTool[]).splice(index, 0, websearchTool)
-			return modules as AgentTool[]
-		} else if (toolKind === 'aiAgentTool') {
-			// Create AI Agent tool (nested agent)
-			const aiAgentTool = createAiAgentTool(module.id)
-			flowStateStore.val[module.id] = await loadFlowModuleState(agentToolToFlowModule(aiAgentTool))
-			;(modules as AgentTool[]).splice(index, 0, aiAgentTool)
-			return modules as AgentTool[]
-		} else if (toolKind === 'flowmoduleTool') {
-			// Create AgentTool from FlowModule
-			const agentTool = flowModuleToAgentTool(module)
-			;(modules as AgentTool[]).splice(index, 0, agentTool)
-			return modules as AgentTool[]
-		} else {
-			// Standard FlowModule insertion
-			modules.splice(index, 0, module)
-			return modules
-		}
+		return insertNewModuleAt(
+			flowStore,
+			flowStateStore,
+			modules,
+			index,
+			kind,
+			wsScript,
+			wsFlow,
+			inlineScript,
+			toolKind,
+			opWs,
+			disableAi
+		)
 	}
 
 	let sidebarMode: 'list' | 'graph' = 'graph'
@@ -271,55 +228,40 @@
 	}
 
 	export async function addBranch(id: string) {
-		push(history, flowStore.val)
-		let module = findModuleById(id)
-
-		if (!module) {
-			throw new Error(`Node ${id} not found`)
-		}
-
-		if (module.value.type === 'branchone' || module.value.type === 'branchall') {
-			module.value.branches.splice(module.value.branches.length, 0, {
-				summary: '',
-				expr: 'false',
-				modules: []
-			})
-		}
+		addBranchOp(id, { flowStore, history })
 	}
 
 	export function removeBranch(id: string, index: number) {
-		push(history, flowStore.val)
-		let module = findModuleById(id)
-
-		if (!module) {
-			throw new Error(`Node ${id} not found`)
-		}
-
-		if (module.value.type === 'branchone' || module.value.type === 'branchall') {
-			const offset = module.value.type === 'branchone' ? 1 : 0
-
-			if (module.value.branches[index - offset]?.modules) {
-				const leaves = dfs(module.value.branches[index - offset].modules, (mod) => mod.id)
-				leaves.forEach((leafId: string) => deleteFlowStateById(leafId, flowStateStore))
-			}
-
-			module.value.branches.splice(index - offset, 1)
-		}
+		removeBranchOp(id, index, { flowStore, flowStateStore, history })
 	}
 
-	type PendingDeleteConfirmation = {
-		plan: DeletePlan
-	}
-
-	type PendingGroupAction = {
-		groups: FlowGroup[]
+	// A single delete can have several consequences at once (emptied groups *and*
+	// dependent steps); they are confirmed together so one user action never raises
+	// more than one dialog.
+	type PendingModuleAction = {
 		label: 'delete' | 'move'
+		stepCount: number
+		groups: FlowGroup[]
+		dependents: Record<string, string[]>
 		confirm: () => void
 		cancel?: () => void
 	}
 
-	let pendingDeleteConfirmation: PendingDeleteConfirmation | undefined = $state(undefined)
-	let pendingGroupAction: PendingGroupAction | undefined = $state(undefined)
+	// The modal keeps rendering `pendingModuleAction` while it fades out, so visibility is
+	// driven by `moduleActionOpen` rather than by clearing the value — clearing it would
+	// blank the dialog mid-transition. `moduleActionOpen` also makes confirm/cancel
+	// one-shot: the buttons stay clickable until the fade ends.
+	let pendingModuleAction: PendingModuleAction | undefined = $state(undefined)
+	let moduleActionOpen = $state(false)
+
+	function askModuleAction(action: PendingModuleAction) {
+		pendingModuleAction = action
+		moduleActionOpen = true
+	}
+
+	function stepNoun(action: PendingModuleAction | undefined) {
+		return (action?.stepCount ?? 1) > 1 ? 'steps' : 'step'
+	}
 
 	let graph: FlowGraphV2 | undefined = $state(undefined)
 	let noteMode = $state(false)
@@ -334,6 +276,10 @@
 
 	export function enableNotes(): void {
 		graph?.enableNotes?.()
+	}
+
+	export function reloadExpandedSubflows(): void {
+		graph?.reloadExpandedSubflows?.()
 	}
 
 	function toggleNoteMode() {
@@ -362,23 +308,20 @@
 			return
 		}
 
-		const proceed = () => {
-			if (request.needsDependencyConfirmation) {
-				pendingDeleteConfirmation = { plan: request.plan }
-			} else {
-				applyDeletePlan(request.plan)
-			}
+		const affectedGroups = request.plan.structureDelete?.affectedGroups ?? []
+
+		if (affectedGroups.length === 0 && !request.needsDependencyConfirmation) {
+			applyDeletePlan(request.plan)
+			return
 		}
 
-		if ((request.plan.structureDelete?.affectedGroups.length ?? 0) > 0) {
-			pendingGroupAction = {
-				groups: request.plan.structureDelete!.affectedGroups,
-				label: 'delete',
-				confirm: proceed
-			}
-		} else {
-			proceed()
-		}
+		askModuleAction({
+			label: 'delete',
+			stepCount: request.plan.targets.length,
+			groups: affectedGroups,
+			dependents: request.plan.dependents,
+			confirm: () => applyDeletePlan(request.plan)
+		})
 	}
 
 	export function deleteMultiple(ids: string[]) {
@@ -460,7 +403,7 @@
 			}
 		}
 		const previousJobId = await JobService.listCompletedJobs({
-			workspace: $workspaceStore!,
+			workspace: opWs!,
 			scriptPathExact: path,
 			jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),
 			page: 1,
@@ -468,7 +411,7 @@
 		})
 		if (previousJobId.length > 0) {
 			const getJobResult = await JobService.getCompletedJobResultMaybe({
-				workspace: $workspaceStore!,
+				workspace: opWs!,
 				id: previousJobId[0].id
 			})
 			if ('result' in getJobResult) {
@@ -488,65 +431,64 @@
 	$effect(() => {
 		sidebarMode == 'graph' ? (sidebarSize = 40) : (sidebarSize = 20)
 	})
+
+	const portalTarget = overlayPortalTarget('body')
 </script>
 
-<Portal name="flow-module">
+<Portal name="flow-module" target={portalTarget()}>
 	<ConfirmationModal
-		title="Confirm deleting step with dependents"
-		confirmationText="Delete step"
-		open={Boolean(pendingDeleteConfirmation)}
+		title={`${pendingModuleAction?.label === 'move' ? 'Move' : 'Delete'} ${stepNoun(
+			pendingModuleAction
+		)}?`}
+		confirmationText={`${pendingModuleAction?.label === 'move' ? 'Move' : 'Delete'} ${stepNoun(
+			pendingModuleAction
+		)}`}
+		open={moduleActionOpen}
 		on:confirmed={() => {
-			if (pendingDeleteConfirmation) {
-				applyDeletePlan(pendingDeleteConfirmation.plan)
-				pendingDeleteConfirmation = undefined
-			}
+			if (!moduleActionOpen) return
+			moduleActionOpen = false
+			pendingModuleAction?.confirm()
 		}}
 		on:canceled={() => {
-			pendingDeleteConfirmation = undefined
+			if (!moduleActionOpen) return
+			moduleActionOpen = false
+			pendingModuleAction?.cancel?.()
 		}}
 	>
-		<div class="text-primary pb-2"
-			>Found the following steps that will require changes after this step is deleted:</div
-		>
-		{#each Object.entries(pendingDeleteConfirmation?.plan.dependents ?? {}) as [k, v]}
-			<div class="pb-3">
-				<h3 class="text-secondary font-semibold">{k}</h3>
-				<ul class="text-sm">
-					{#each v as dep}
-						<li>{dep}</li>
+		{#if pendingModuleAction}
+			{@const action = pendingModuleAction}
+			{@const dependents = Object.entries(action.dependents)}
+			{#if action.groups.length === 1}
+				{@const group = action.groups[0]}
+				<p
+					>The group{group.summary ? ` "${group.summary}"` : ''} will be removed (empty or duplicate).</p
+				>
+			{:else if action.groups.length > 1}
+				<p>The following groups will be removed (empty or duplicate):</p>
+				<ul class="list-disc pl-4 mt-1">
+					{#each action.groups as group}
+						<li>{group.summary || `${group.start_id} → ${group.end_id}`}</li>
 					{/each}
 				</ul>
-			</div>
-		{/each}
-	</ConfirmationModal>
-
-	<ConfirmationModal
-		title={pendingGroupAction?.groups.length === 1 ? 'Remove group?' : 'Remove groups?'}
-		confirmationText={pendingGroupAction?.label === 'delete' ? 'Delete step' : 'Move step'}
-		open={Boolean(pendingGroupAction)}
-		on:confirmed={() => {
-			pendingGroupAction?.confirm()
-			pendingGroupAction = undefined
-		}}
-		on:canceled={() => {
-			pendingGroupAction?.cancel?.()
-			pendingGroupAction = undefined
-		}}
-	>
-		{#if pendingGroupAction?.groups.length === 1}
-			{@const group = pendingGroupAction.groups[0]}
-			<p
-				>The group{group.summary ? ` "${group.summary}"` : ''} will be removed (empty or duplicate).
-				Are you sure you want to {pendingGroupAction.label} the step?</p
-			>
-		{:else}
-			<p>The following groups will be removed (empty or duplicate):</p>
-			<ul class="list-disc pl-4 mt-1">
-				{#each pendingGroupAction?.groups ?? [] as group}
-					<li>{group.summary || `${group.start_id} → ${group.end_id}`}</li>
-				{/each}
-			</ul>
-			<p class="mt-2">Are you sure you want to {pendingGroupAction?.label} the step?</p>
+			{/if}
+			{#if dependents.length > 0}
+				<p class={action.groups.length > 0 ? 'mt-3' : ''}
+					>The following steps will require changes afterwards:</p
+				>
+				<div class="mt-1">
+					{#each dependents as [k, v]}
+						<div class="pb-2">
+							<h3 class="text-secondary font-semibold">{k}</h3>
+							<ul class="text-sm">
+								{#each v as dep}
+									<li>{dep}</li>
+								{/each}
+							</ul>
+						</div>
+					{/each}
+				</div>
+			{/if}
+			<p class="mt-2">Are you sure you want to {action.label} the {stepNoun(action)}?</p>
 		{/if}
 	</ConfirmationModal>
 </Portal>
@@ -596,7 +538,7 @@
 			failureModule={flowStore.val.value?.failure_module}
 			currentInputSchema={flowStore.val.schema}
 			{selectionManager}
-			{workspace}
+			workspace={opWs}
 			editMode
 			{onTestUpTo}
 			{onEditInput}
@@ -610,6 +552,7 @@
 			{flowHasChanged}
 			chatInputEnabled={Boolean(flowStore.val.value?.chat_input_enabled)}
 			onDelete={(id) => requestDelete([id])}
+			onDismissRunNode={(id) => onDelete?.(id)}
 			onInsert={async (detail) => {
 				if (!flowStore.val.value.modules || !Array.isArray(flowStore.val.value.modules)) return
 				await tick()
@@ -688,12 +631,14 @@
 					}
 
 					if (affectedGroups.length > 0) {
-						pendingGroupAction = {
-							groups: affectedGroups,
+						askModuleAction({
 							label: 'move',
+							stepCount: movedIds.length,
+							groups: affectedGroups,
+							dependents: {},
 							confirm: doMove,
 							cancel: () => moveManager.clearMoving()
-						}
+						})
 					} else {
 						doMove()
 					}
@@ -706,7 +651,8 @@
 						flowStore,
 						flowStateStore,
 						detail.inlineScript,
-						detail.script
+						detail.script,
+						opWs
 					)
 					selectionManager.selectId('preprocessor')
 					if (detail.inlineScript?.instructions) {
@@ -721,43 +667,21 @@
 					return
 				}
 
-				push(history, flowStore.val)
-
-				const isAgentInsert = !!detail.agentId
-				const toolKind: SpecialToolKind | 'flowmoduleTool' | undefined = isAgentInsert
-					? (SPECIAL_TOOL_KINDS as readonly string[]).includes(detail.kind)
-						? (detail.kind as SpecialToolKind)
-						: 'flowmoduleTool'
-					: undefined
-
 				// Agent tool inserts operate on the FlowModule's tools array directly
-				if (isAgentInsert) {
-					const agentMod = findModuleInFlow(flowStore.val.value, detail.agentId!)
-					if (agentMod && (agentMod.value as any).tools) {
-						const tools = (agentMod.value as any).tools as AgentTool[]
-						await insertNewModuleAtIndex(
-							tools,
-							tools.length,
-							detail.kind as InsertKind,
-							detail.script,
-							detail.flow ? { path: detail.flow.path, summary: detail.flow.summary } : undefined,
-							detail.inlineScript,
-							toolKind
-						)
-						const id = tools[tools.length - 1].id
-						selectionManager.selectId(id)
-					}
-					refreshStateStore(flowStore)
-					dispatch('change')
+				if (detail.agentId) {
+					await addToolToAgent(detail.agentId, detail)
 					return
 				}
+
+				push(history, flowStore.val)
 
 				// Regular module insert: create the module, then insert a leaf node via tree mutation
 				const module = await createNewModule(
 					detail.kind as InsertKind,
 					detail.script,
 					detail.flow ? { path: detail.flow.path, summary: detail.flow.summary } : undefined,
-					detail.inlineScript
+					detail.inlineScript,
+					detail.agentPath
 				)
 				const index = detail.index ?? 0
 				const extraModules: FlowModule[] = [module]
@@ -804,7 +728,9 @@
 					{ extraModules, displayState: groupDisplayState }
 				)
 
-				selectionManager.selectId(module.id)
+				// Inserting is a deliberate "now edit this": in modal mode the new step's
+				// editor is otherwise hidden behind the graph.
+				selectionManager.selectId(module.id, { openPanel: true })
 
 				if (detail.inlineScript?.instructions) {
 					dispatch('generateStep', {
@@ -931,7 +857,7 @@
 
 				targetModules.splice(targetIndex + 1, 0, clone)
 				refreshStateStore(flowStore)
-				selectionManager.selectId(clone.id)
+				selectionManager.selectId(clone.id, { openPanel: true })
 			}}
 			onUpdateMock={(detail) => {
 				let module = findModuleById(detail.id)

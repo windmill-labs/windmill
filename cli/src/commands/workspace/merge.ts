@@ -2,7 +2,7 @@ import { GlobalOptions } from "../../types.ts";
 import { colors } from "@cliffy/ansi/colors";
 import { Table } from "@cliffy/table";
 import * as log from "../../core/log.ts";
-import { setClient } from "../../core/client.ts";
+import { markRequestsAsSyncOrigin, setClient } from "../../core/client.ts";
 import { tryResolveBranchWorkspace } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { OpenAPI } from "../../../gen/core/OpenAPI.ts";
@@ -534,6 +534,12 @@ async function mergeWorkspaces(
     direction === "to-parent" ? parentWorkspaceId : forkWorkspaceId;
 
   // 10. Deploy
+  // Updating the fork copies the parent's state in, so nothing it writes there —
+  // least of all a deletion — may be read as the fork's own decision. Merging the
+  // other way stays authored: someone chose those changes for the target.
+  if (direction === "to-fork") {
+    markRequestsAsSyncOrigin();
+  }
   let successCount = 0;
   let failCount = 0;
   // Datatable migrations deployed (not deleted) into the target. Deploying a

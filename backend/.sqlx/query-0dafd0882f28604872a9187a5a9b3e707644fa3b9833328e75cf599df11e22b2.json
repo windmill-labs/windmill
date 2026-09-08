@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM job_resolution jr WHERE NOT EXISTS (SELECT 1 FROM v2_job WHERE id = jr.job_id)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "0dafd0882f28604872a9187a5a9b3e707644fa3b9833328e75cf599df11e22b2"
+}

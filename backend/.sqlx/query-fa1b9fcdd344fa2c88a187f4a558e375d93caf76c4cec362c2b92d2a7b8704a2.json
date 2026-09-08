@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            j.runnable_path as script_path, j.runnable_id AS \"script_hash: ScriptHash\",\n            j.kind AS \"job_kind!: JobKind\", c.canceled_by,\n            COALESCE(c.flow_status, c.workflow_as_code_status) AS \"flow_status: Json<Box<RawValue>>\",\n            j.raw_flow AS \"raw_flow: Json<Box<RawValue>>\"\n        FROM v2_job_completed c JOIN v2_job j USING (id) WHERE j.id = $1 and j.workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "script_hash: ScriptHash",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "job_kind!: JobKind",
+        "type_info": {
+          "Custom": {
+            "name": "job_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "preview",
+                "flow",
+                "dependencies",
+                "flowpreview",
+                "script_hub",
+                "identity",
+                "flowdependencies",
+                "http",
+                "graphql",
+                "postgresql",
+                "noop",
+                "appdependencies",
+                "deploymentcallback",
+                "singlestepflow",
+                "flowscript",
+                "flownode",
+                "appscript",
+                "aiagent",
+                "unassigned_script",
+                "unassigned_flow",
+                "unassigned_singlestepflow"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "canceled_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "flow_status: Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "raw_flow: Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      true,
+      null,
+      true
+    ]
+  },
+  "hash": "fa1b9fcdd344fa2c88a187f4a558e375d93caf76c4cec362c2b92d2a7b8704a2"
+}

@@ -18,9 +18,7 @@ export function createState<T>(initialValue: T): T {
 	return s
 }
 
-export function stateSnapshot<T>(state: T) {
-	return $state.snapshot(state)
-}
+export { stateSnapshot } from './stateSnapshot.svelte'
 export function refreshStateStore<T>(store: StateStore<T>): void {
 	store.val = $state.snapshot(store.val) as any
 }

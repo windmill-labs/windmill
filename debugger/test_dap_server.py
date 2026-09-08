@@ -45,6 +45,10 @@ def main(x: str, count: int = 1):
 # Breakpoints for the main() test: lines 3 and 4 (inside main function)
 MAIN_BREAKPOINT_LINES = [3, 4]
 
+# `launch` waits on dependency installation, so the import test below needs far more than
+# the default budget on a cold cache.
+REQUEST_TIMEOUTS = {"launch": 180.0}
+
 
 class DAPTestClient:
     def __init__(self, url: str = "ws://localhost:5679"):
@@ -103,7 +107,7 @@ class DAPTestClient:
 
         # Wait for response with timeout
         try:
-            response = await asyncio.wait_for(future, timeout=10.0)
+            response = await asyncio.wait_for(future, timeout=REQUEST_TIMEOUTS.get(command, 10.0))
             return response
         except asyncio.TimeoutError:
             print(f"Timeout waiting for response to {command}")

@@ -1,0 +1,2 @@
+ALTER TYPE SCRIPT_LANG ADD VALUE IF NOT EXISTS 'dbt';
+UPDATE config SET config = jsonb_set(config, '{worker_tags}', config->'worker_tags' || '["dbt"]'::jsonb) WHERE name = 'worker__default' AND config @> '{"worker_tags": ["deno", "python3", "go", "bash", "powershell", "dependency", "flow", "hub", "other", "bun", "php", "rust", "ansible", "csharp", "nu", "java", "duckdb", "ruby", "rlang"]}'::jsonb AND NOT config->'worker_tags' @> '"dbt"'::jsonb;

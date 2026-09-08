@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_diff (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes, fork_last_event_kind, fork_last_event_origin)\n            VALUES ($1, $2, $3, $4, 1, 0, NULL, $5, $6)\n            ON CONFLICT (source_workspace_id, fork_workspace_id, path, kind)\n            DO UPDATE SET\n                ahead = workspace_diff.ahead + 1,\n                has_changes = NULL,\n                fork_last_event_kind = CASE WHEN $6::varchar IS NULL THEN workspace_diff.fork_last_event_kind ELSE $5 END,\n                fork_last_event_origin = COALESCE($6, workspace_diff.fork_last_event_origin)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f22cb6c5443352cfc826c122ff971df2b3725f8551baf29223b22f00f65495d4"
+}

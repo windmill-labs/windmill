@@ -1,6 +1,6 @@
 <script lang="ts">
 	import autosize from '$lib/autosize'
-	import { tick } from 'svelte'
+	import { tick, type Snippet } from 'svelte'
 	import type { ContextElement } from './context'
 	import { AIMode } from './AIChatManager.svelte'
 	import ChatCommandPicker from './ChatCommandPicker.svelte'
@@ -35,8 +35,14 @@
 		 * from the textarea. The host should drop the matching entry from
 		 * selectedContext (only items with `deletable !== false` are reported). */
 		onRemoveContext?: (contextElement: ContextElement) => void
+		/** Called with image files found in a paste, so the host can attach them. */
+		onImageFiles?: (files: File[]) => void
+		/** Called with non-image files found in a paste, so the host can attach them. */
+		onTextFiles?: (files: File[]) => void
 		className?: string
 		onKeyDown?: (e: KeyboardEvent) => void
+		/** Rendered inside the input box, above the textarea (e.g. context chips). */
+		leading?: Snippet
 	}
 
 	let {
@@ -49,8 +55,11 @@
 		onSendRequest,
 		onAddContext,
 		onRemoveContext,
+		onImageFiles,
+		onTextFiles,
 		className = '',
-		onKeyDown = undefined
+		onKeyDown = undefined,
+		leading
 	}: Props = $props()
 
 	const aiChatManager = getAiChatManager()
@@ -300,6 +309,23 @@
 	// widened over overlapped tokens so pasting onto a chip replaces it whole.
 	function handlePaste(e: ClipboardEvent) {
 		const text = e.clipboardData?.getData('text/plain') ?? ''
+		// Image paste (screenshots, copied images) → hand off to the host to attach.
+		// Only when the clipboard carries no text: spreadsheet and browser copies put a
+		// bitmap alongside the text, and pasting a cell range must paste the cells, not
+		// a picture of them. An OS screenshot carries the image alone, so it still lands
+		// here. `onImageFiles` is unset outside GLOBAL, where attaching is unsupported —
+		// the paste must then fall through to text rather than be swallowed.
+		if (!text.trim() && (onImageFiles || onTextFiles)) {
+			const pastedFiles = Array.from(e.clipboardData?.files ?? [])
+			const imageFiles = pastedFiles.filter((f) => f.type.startsWith('image/'))
+			const otherFiles = pastedFiles.filter((f) => !f.type.startsWith('image/'))
+			if ((imageFiles.length > 0 && onImageFiles) || (otherFiles.length > 0 && onTextFiles)) {
+				e.preventDefault()
+				if (imageFiles.length > 0) onImageFiles?.(imageFiles)
+				if (otherFiles.length > 0) onTextFiles?.(otherFiles)
+				return
+			}
+		}
 		if (!text || !shouldCollapsePaste(text)) return
 		e.preventDefault()
 		const ta = e.currentTarget as HTMLTextAreaElement
@@ -549,7 +575,10 @@
 
 	function getCommandFilter(text: string): string | undefined {
 		if (aiChatManager.mode !== AIMode.GLOBAL || !aiChatManager.isSessionChat) return undefined
-		const match = /^\/([a-z0-9-]*)$/.exec(text)
+		// Same character set the submit path expands, so a name the picker can insert
+		// does not close the picker as soon as it is typed. Paths reach here too, via
+		// the row inserted for an ambiguous name.
+		const match = /^\/([\p{L}\p{N}_\-/]*)$/u.exec(text)
 		return match?.[1]
 	}
 
@@ -614,8 +643,12 @@
 		}
 	}
 
-	function handleCommandSelection(skill: { name: string }) {
-		value = `/${skill.name} `
+	function handleCommandSelection(skill: { name: string; path?: string }) {
+		// The picker lists a row per skill, so two folders holding the same name are
+		// two distinct rows — but `/name` could not say which one was clicked, and
+		// submission refuses to guess. Those insert the path the row stands for.
+		const ambiguous = commandSkills.filter((c) => c.name === skill.name).length > 1
+		value = `/${ambiguous && skill.path ? skill.path : skill.name} `
 		showCommandTooltip = false
 		setTimeout(() => textarea?.focus(), 0)
 	}
@@ -710,9 +743,9 @@
 		textarea?.focus()
 	}
 
-	// Wipe after dispatching a send: pre-zero `prevMentionedTitles` so the
-	// effect above sees no diff when `value` clears, leaving `selectedContext`
-	// untouched until `AIChatManager.beforeSend` snapshots it. A manual
+	// Wipe after dispatching a send: pre-zero `prevMentionedTitles` so the effect
+	// above sees no diff when `value` clears, leaving `selectedContext` for the
+	// send that is already carrying it to settle (see the caller). A manual
 	// textarea clear by the user keeps the old behaviour (badges drop).
 	export function clearForSend() {
 		prevMentionedTitles = new Set()
@@ -734,57 +767,81 @@
 	}
 </script>
 
-<div class="relative w-full scroll-pb-2 bg-surface">
-	<div
-		class={twMerge(
-			'textarea-input absolute inset-0 overflow-hidden pointer-events-none',
-			CHAT_INPUT_PADDING,
-			className
-		)}
-	>
-		<div style="transform: translateY({-scrollTop}px)" use:chipClickDelegate>
-			<span class="break-words">
-				{@html getHighlightedText(value)}
-			</span>
+<!-- The composer box: border + rounded live HERE (on the wrapper), not on the
+     textarea, so context chips can sit INSIDE the box, above the text. The
+     textarea's own @tailwindcss/forms border/ring is neutralized below. -->
+<!-- The disabled treatment lives on the wrapper for the same reason the box
+     does: `disabled` on the textarea alone leaves the field looking exactly
+     like a usable one, so the only cue that typing is refused is placeholder
+     text the eye reads as an invitation. -->
+<div
+	class={twMerge(
+		'w-full scroll-pb-2 rounded-md border border-border-light transition-colors',
+		disabled
+			? 'bg-surface-disabled cursor-not-allowed'
+			: 'bg-surface-input focus-within:border-border-selected'
+	)}
+>
+	<!-- Context chips live inside the input box, above the textarea. The snippet
+	     self-guards (renders nothing when empty) so no blank row appears. -->
+	{@render leading?.()}
+	<div class="relative w-full">
+		<div
+			class={twMerge(
+				'textarea-input absolute inset-0 overflow-hidden pointer-events-none',
+				CHAT_INPUT_PADDING,
+				className
+			)}
+		>
+			<div style="transform: translateY({-scrollTop}px)" use:chipClickDelegate>
+				<span class="break-words">
+					{@html getHighlightedText(value)}
+				</span>
+			</div>
 		</div>
+		<textarea
+			bind:this={textarea}
+			onkeydown={handleKeyDown}
+			bind:value
+			use:autosize={{ maxHeight: '40vh' }}
+			rows={1}
+			oninput={handleInput}
+			onpaste={handlePaste}
+			onbeforeinput={handlePasteBeforeInput}
+			oncopy={handlePasteCopyCut}
+			oncut={handlePasteCopyCut}
+			ondragstart={handlePasteDragStart}
+			onscroll={(e) => {
+				scrollTop = e.currentTarget.scrollTop
+				// Keep the picker pinned to its anchor while the input scrolls
+				// internally (autoUpdate can't observe a virtual ref's scroll).
+				if (showContextTooltip || showCommandTooltip) updateAnchorRect()
+			}}
+			onblur={() => {
+				setTimeout(() => {
+					// Don't close if focus moved to inside the tooltip (e.g., search input)
+					if (tooltipElement?.contains(document.activeElement)) {
+						return
+					}
+					showContextTooltip = false
+					showCommandTooltip = false
+				}, 200)
+			}}
+			{placeholder}
+			class={twMerge(
+				'textarea-input resize-none caret-black dark:caret-white overflow-clip',
+				// The box (border/ring) lives on the wrapper; kill the textarea's own
+				// @tailwindcss/forms border, focus ring, and background so only the
+				// wrapper reads as the field.
+				'!border-transparent !bg-transparent !shadow-none focus:!border-transparent focus:!ring-0',
+				'disabled:cursor-not-allowed disabled:placeholder:text-disabled',
+				CHAT_INPUT_PADDING,
+				className
+			)}
+			class:transparent-text={value.length > 0}
+			{disabled}
+		></textarea>
 	</div>
-	<textarea
-		bind:this={textarea}
-		onkeydown={handleKeyDown}
-		bind:value
-		use:autosize={{ maxHeight: '40vh' }}
-		rows={1}
-		oninput={handleInput}
-		onpaste={handlePaste}
-		onbeforeinput={handlePasteBeforeInput}
-		oncopy={handlePasteCopyCut}
-		oncut={handlePasteCopyCut}
-		ondragstart={handlePasteDragStart}
-		onscroll={(e) => {
-			scrollTop = e.currentTarget.scrollTop
-			// Keep the picker pinned to its anchor while the input scrolls
-			// internally (autoUpdate can't observe a virtual ref's scroll).
-			if (showContextTooltip || showCommandTooltip) updateAnchorRect()
-		}}
-		onblur={() => {
-			setTimeout(() => {
-				// Don't close if focus moved to inside the tooltip (e.g., search input)
-				if (tooltipElement?.contains(document.activeElement)) {
-					return
-				}
-				showContextTooltip = false
-				showCommandTooltip = false
-			}, 200)
-		}}
-		{placeholder}
-		class={twMerge(
-			'textarea-input resize-none bg-transparent caret-black dark:caret-white overflow-clip',
-			CHAT_INPUT_PADDING,
-			className
-		)}
-		class:transparent-text={value.length > 0}
-		{disabled}
-	></textarea>
 </div>
 
 {#if showContextTooltip || showCommandTooltip}
@@ -849,7 +906,7 @@
 		white-space: pre-wrap;
 		word-break: break-words;
 		width: 100%;
-		min-height: 2.25rem;
+		min-height: 1.9rem;
 	}
 
 	/* Hide the textarea's own glyphs (the highlight overlay renders the text)

@@ -9,13 +9,14 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 
 	import { ScriptService, type Script } from '$lib/gen'
-	import { hubBaseUrlStore, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
+	import type { RowSelection } from './rowSelection'
 	import { sendUserToast } from '$lib/toast'
 	import { capitalize, copyToClipboard, isOwner } from '$lib/utils'
 	import { isDeployable } from '$lib/utils_deployable'
@@ -36,7 +37,6 @@
 		Shield,
 		Trash,
 		History,
-		Globe2,
 		FileText
 	} from 'lucide-svelte'
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
@@ -47,8 +47,8 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
-	import { scriptToHubUrl } from '$lib/hub'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import { editInForkAllowed, editInForkLabel, onEditInForkClick } from '$lib/utils/editInFork'
+	import EditInForkButton from './EditInForkButton.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
@@ -70,6 +70,7 @@
 		menuOpen?: boolean
 		showEditButton?: boolean
 		keyboardSelected?: boolean
+		rowSelection?: RowSelection
 	}
 
 	let {
@@ -84,7 +85,8 @@
 		depth = 0,
 		menuOpen = $bindable(false),
 		showEditButton = $bindable(true),
-		keyboardSelected = false
+		keyboardSelected = false,
+		rowSelection = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -145,6 +147,7 @@
 		? `${base}/scripts/edit/${script.path}`
 		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
 	kind="script"
+	{keyboardSelected}
 	{marked}
 	path={script.draft_path ?? script.path}
 	summary={script.is_draft
@@ -154,7 +157,7 @@
 	workspaceId={$workspaceStore ?? ''}
 	canFavorite={!script.draft_only}
 	{depth}
-	{keyboardSelected}
+	{rowSelection}
 >
 	{#snippet badges()}
 		{#if script.lock_error_logs}
@@ -184,7 +187,9 @@
 				<Badge small color="yellow" baseClass="border">CI test</Badge>
 			</Popover>
 		{/if}
-		{#if script.kind !== 'script'}
+		<!-- Guard on a non-empty kind: a draft-only script can carry an empty `kind`, which
+		     still isn't 'script' and would render an empty blue badge. -->
+		{#if script.kind && script.kind !== 'script'}
 			<Badge color="blue" baseClass="border"
 				>{script.kind === 'failure' ? 'Error handler' : capitalize(script.kind)}</Badge
 			>
@@ -251,17 +256,7 @@
 					{/if}
 				{/if}
 				{#if !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !script.canWrite)}
-					<div>
-						<Button
-							variant={!showEditButton ? 'default' : 'subtle'}
-							wrapperClasses="w-32"
-							unifiedSize="md"
-							startIcon={{ icon: GitFork }}
-							href={buildForkEditUrl('script', script.path)}
-						>
-							{editInForkLabel($workspaceStore, $userWorkspaces)}
-						</Button>
-					</div>
+					<EditInForkButton itemType="script" path={script.path} />
 				{/if}
 			{/if}
 		</span>
@@ -334,8 +329,10 @@
 					},
 					{
 						displayName: editInForkLabel($workspaceStore, $userWorkspaces),
-						icon: GitFork,
-						href: buildForkEditUrl('script', script.path),
+						icon: Pen,
+						// No `href`: the handler resolves the destination asynchronously, and a melt
+						// menu item's anchor navigates before a delegated onclick can preventDefault it.
+						action: (e) => onEditInForkClick(e, 'script', script.path),
 						hide:
 							$userStore?.operator ||
 							isCloudHosted() ||
@@ -404,29 +401,6 @@
 						icon: Copy,
 						action: () => {
 							copyToClipboard(script.path)
-						}
-					},
-					{
-						displayName: 'Publish to Hub',
-						icon: Globe2,
-						action: async () => {
-							const scriptData = await ScriptService.getScriptByPath({
-								workspace: $workspaceStore!,
-								path: script.path
-							})
-							window.open(
-								scriptToHubUrl(
-									scriptData.content,
-									scriptData.summary,
-									scriptData.description ?? '',
-									scriptData.kind,
-									scriptData.language,
-									scriptData.schema,
-									scriptData.lock ?? '',
-									$hubBaseUrlStore
-								).toString(),
-								'_blank'
-							)
 						}
 					},
 					{

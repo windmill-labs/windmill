@@ -24,6 +24,7 @@ import {
 } from "./boundedCascade.ts";
 import {
   type AssetGraph,
+  hideDbtRunnables,
   type GraphTrigger,
   type LocalScript,
   buildLocalPipelineGraph,
@@ -96,7 +97,7 @@ async function list(opts: GlobalOptions & { json?: boolean }) {
   }
 }
 
-const ASSET_KINDS = "s3object,ducklake,datatable,volume";
+const ASSET_KINDS = "s3object,ducklake,datatable,volume,dbt";
 
 function assetUri(kind: string, path: string): string {
   const prefix = kind === "s3object" ? "s3" : kind;
@@ -132,8 +133,10 @@ async function show(
   } else {
     const workspace = await resolveWorkspace(opts);
     await requireLogin(opts);
-    graph = await apiGet<AssetGraph>(
-      `/w/${workspace.workspaceId}/assets/graph?folder=${encodeURIComponent(f)}&asset_kinds=${ASSET_KINDS}`,
+    graph = hideDbtRunnables(
+      await apiGet<AssetGraph>(
+        `/w/${workspace.workspaceId}/assets/graph?folder=${encodeURIComponent(f)}&asset_kinds=${ASSET_KINDS}`,
+      ),
     );
     enrich = (nativeByScript, roots) => enrichRootMarkers(workspace.workspaceId, graph, nativeByScript, roots);
   }
@@ -612,8 +615,10 @@ async function run(
       }
     }
   } else {
-    graph = await apiGet<BCGraph>(
-      `/w/${workspace.workspaceId}/assets/graph?folder=${encodeURIComponent(f)}&asset_kinds=${ASSET_KINDS}`,
+    graph = hideDbtRunnables(
+      await apiGet<BCGraph>(
+        `/w/${workspace.workspaceId}/assets/graph?folder=${encodeURIComponent(f)}&asset_kinds=${ASSET_KINDS}`,
+      ),
     );
     // Recover marker-only `data_upload`/`webhook`/`email` triggers the graph
     // endpoint can't emit, so input-only entrypoints are cut here as they are

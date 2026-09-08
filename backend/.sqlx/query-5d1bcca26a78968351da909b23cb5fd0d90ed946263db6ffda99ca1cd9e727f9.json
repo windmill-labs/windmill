@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE usr SET email = $1 WHERE email = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5d1bcca26a78968351da909b23cb5fd0d90ed946263db6ffda99ca1cd9e727f9"
+}

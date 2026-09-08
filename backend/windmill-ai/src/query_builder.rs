@@ -22,6 +22,11 @@ pub struct BuildRequestArgs<'a> {
     pub user_message: &'a str,
     pub attachments: Option<&'a [S3Object]>,
     pub has_websearch: bool,
+    /// Routing hint for the provider's prompt cache. Requests sharing a prompt prefix
+    /// must reuse one key to land on the same cache, so it is derived from what pins
+    /// the prefix (the step), never from the request. `None` retries a key the
+    /// endpoint rejected.
+    pub prompt_cache_key: Option<&'a str>,
 }
 
 /// Response from AI provider
@@ -74,6 +79,14 @@ pub trait QueryBuilder: Send + Sync {
     /// Whether this provider supports retry without usage tracking
     /// Only OtherQueryBuilder (OpenAI-compatible providers) needs this
     fn supports_retry_without_usage(&self) -> bool {
+        false
+    }
+
+    /// Whether a rejected request may be retried on the `/chat/completions` surface of
+    /// the same resource. Azure serves the Responses API for only a subset of models and
+    /// regions, and an Azure model name is a user-chosen deployment name, so such a
+    /// resource can only find out by being asked.
+    fn supports_chat_completions_fallback(&self, _base_url: &str) -> bool {
         false
     }
 

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE websocket_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "647c12e69360e6a34d01a563e6e84b26192c18cb4ede596233c00187b789d9ec"
+}

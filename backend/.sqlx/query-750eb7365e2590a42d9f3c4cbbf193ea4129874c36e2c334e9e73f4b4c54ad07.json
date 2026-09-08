@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO v2_job (id, workspace_id, tag) VALUES ($1, $2, 'other')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "750eb7365e2590a42d9f3c4cbbf193ea4129874c36e2c334e9e73f4b4c54ad07"
+}

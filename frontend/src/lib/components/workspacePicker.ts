@@ -7,6 +7,17 @@ export type WorkspaceItem = {
 	summary: string
 	kind: WorkspaceItemKind
 	raw_app?: boolean
+	/** User-typed friendly path for a draft-only item parked at a
+	 * `…/draft_<uuid>` storage path (the backend lists' `draft_path`).
+	 * Display-only: `path` stays the storage key and is what URLs and
+	 * dedupe must use — routing to the friendly path 404s. */
+	draftPath?: string
+}
+
+/** Path to display (and group by) in pickers: the friendly draft path when
+ * the item has one, else the real path. */
+export function workspaceItemDisplayPath(item: Pick<WorkspaceItem, 'path' | 'draftPath'>): string {
+	return item.draftPath ?? item.path
 }
 
 /** Display label for kinds — used in the picker rows and search section headers. */
@@ -109,10 +120,11 @@ export async function loadKind(
 				includeDraftOnly: true,
 				withoutDescription: true
 			})
-			items = flows.map((f: Flow) => ({
+			items = flows.map((f: Flow & { draft_path?: string }) => ({
 				path: f.path,
 				summary: f.summary ?? '',
-				kind: 'flow' as const
+				kind: 'flow' as const,
+				draftPath: f.draft_path
 			}))
 		} else if (kind === 'script') {
 			const scripts = await ScriptService.listScripts({
@@ -120,21 +132,23 @@ export async function loadKind(
 				includeDraftOnly: true,
 				withoutDescription: true
 			})
-			items = scripts.map((s: Script) => ({
+			items = scripts.map((s: Script & { draft_path?: string }) => ({
 				path: s.path,
 				summary: s.summary ?? '',
-				kind: 'script' as const
+				kind: 'script' as const,
+				draftPath: s.draft_path
 			}))
 		} else {
 			const apps = await AppService.listApps({
 				workspace,
 				includeDraftOnly: true
 			})
-			items = apps.map((a: ListableApp) => ({
+			items = apps.map((a: ListableApp & { draft_path?: string }) => ({
 				path: a.path,
 				summary: a.summary ?? '',
 				kind: 'app' as const,
-				raw_app: a.raw_app ?? false
+				raw_app: a.raw_app ?? false,
+				draftPath: a.draft_path
 			}))
 		}
 		// Only commit if the cache version hasn't changed since we started —

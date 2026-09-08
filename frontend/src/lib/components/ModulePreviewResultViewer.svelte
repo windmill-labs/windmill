@@ -8,6 +8,7 @@
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import type { FlowEditorContext, OutputViewerJob } from './flows/types'
+	import type { AgentTool } from './flows/agentToolUtils'
 	import { getContext } from 'svelte'
 	import { getStringError } from './copilot/chat/utils'
 	import AiAgentLogViewer from './AIAgentLogViewer.svelte'
@@ -26,6 +27,9 @@
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 		loadingJob?: boolean
 		tagLabel?: string
+		// A linked agent persists no tools of its own; its resolved resource tools are passed here so
+		// the log viewer can label each tool_call with the definition that ran.
+		linkedAgentTools?: AgentTool[]
 	}
 
 	let {
@@ -41,7 +45,8 @@
 		disableHistory = false,
 		onUpdateMock,
 		loadingJob = false,
-		tagLabel = undefined
+		tagLabel = undefined,
+		linkedAgentTools = undefined
 	}: Props = $props()
 
 	const { stepsInputArgs, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -80,8 +85,12 @@
 			bind:this={outputPickerInner}
 		>
 			{#snippet copilot_fix()}
-				{#if lang && editor && diffEditor && stepsInputArgs.getStepArgs(mod.id) && selectedJob?.type === 'CompletedJob' && !selectedJob.success && getStringError(selectedJob.result)}
-					<ScriptFix {lang} />
+				{@const stepError =
+					selectedJob?.type === 'CompletedJob' && !selectedJob.success
+						? getStringError(selectedJob.result)
+						: undefined}
+				{#if lang && editor && diffEditor && stepsInputArgs.getStepArgs(mod.id) && stepError}
+					<ScriptFix {lang} error={stepError} jobId={selectedJob?.id} moduleId={mod.id} />
 				{/if}
 			{/snippet}
 		</OutputPickerInner>
@@ -98,7 +107,7 @@
 			/>
 		{:else if mod.value.type === 'aiagent' && logJob?.type === 'CompletedJob'}
 			<AiAgentLogViewer
-				tools={mod.value.tools}
+				tools={linkedAgentTools ?? mod.value.tools ?? []}
 				agentJob={{
 					...logJob,
 					type: 'CompletedJob'

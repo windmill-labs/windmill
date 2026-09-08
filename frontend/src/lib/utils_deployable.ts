@@ -6,6 +6,7 @@ import {
 	HttpTriggerService,
 	KafkaTriggerService,
 	MqttTriggerService,
+	AmqpTriggerService,
 	NatsTriggerService,
 	PostgresTriggerService,
 	ScheduleService,
@@ -36,6 +37,7 @@ export type Kind =
 	| 'nats_trigger'
 	| 'postgres_trigger'
 	| 'mqtt_trigger'
+	| 'amqp_trigger'
 	| 'sqs_trigger'
 	| 'gcp_trigger'
 	| 'azure_trigger'
@@ -94,6 +96,8 @@ export async function existsTrigger(
 		return await KafkaTriggerService.existsKafkaTrigger(data)
 	} else if (triggerKind === 'mqtt') {
 		return await MqttTriggerService.existsMqttTrigger(data)
+	} else if (triggerKind === 'amqp') {
+		return await AmqpTriggerService.existsAmqpTrigger(data)
 	} else if (triggerKind === 'postgres') {
 		return await PostgresTriggerService.existsPostgresTrigger(data)
 	} else if (triggerKind === 'sqs') {
@@ -195,6 +199,21 @@ export async function getTriggersDeployData(
 			},
 			createFn: MqttTriggerService.createMqttTrigger,
 			updateFn: MqttTriggerService.updateMqttTrigger
+		}
+	} else if (kind === 'amqp') {
+		const amqpTrigger = await AmqpTriggerService.getAmqpTrigger({
+			workspace: workspace!,
+			path: path
+		})
+
+		return {
+			data: {
+				...amqpTrigger,
+				permissioned_as: onBehalfOf,
+				preserve_permissioned_as: preservePermissionedAs
+			},
+			createFn: AmqpTriggerService.createAmqpTrigger,
+			updateFn: AmqpTriggerService.updateAmqpTrigger
 		}
 	} else if (kind === 'nats') {
 		const natsTrigger = await NatsTriggerService.getNatsTrigger({
@@ -372,6 +391,8 @@ export async function getTriggerValue(kind: TriggerKind, path: string, workspace
 		trigger = await KafkaTriggerService.getKafkaTrigger({ workspace, path })
 	} else if (kind === 'mqtt') {
 		trigger = await MqttTriggerService.getMqttTrigger({ workspace, path })
+	} else if (kind === 'amqp') {
+		trigger = await AmqpTriggerService.getAmqpTrigger({ workspace, path })
 	} else if (kind === 'nats') {
 		trigger = await NatsTriggerService.getNatsTrigger({ workspace, path })
 	} else if (kind === 'postgres') {
@@ -411,6 +432,9 @@ export async function getTriggerPermissionedAs(
 			return trigger.permissioned_as
 		} else if (kind === 'mqtt') {
 			const trigger = await MqttTriggerService.getMqttTrigger({ workspace, path })
+			return trigger.permissioned_as
+		} else if (kind === 'amqp') {
+			const trigger = await AmqpTriggerService.getAmqpTrigger({ workspace, path })
 			return trigger.permissioned_as
 		} else if (kind === 'nats') {
 			const trigger = await NatsTriggerService.getNatsTrigger({ workspace, path })
@@ -493,6 +517,13 @@ export async function getTriggerDependency(kind: TriggerKind, path: string, work
 		})
 
 		result = retrieveKindsValues({ resource_path: mqtt_resource_path, script_path, is_flow })
+	} else if (kind === 'amqp') {
+		const { amqp_resource_path, script_path, is_flow } = await AmqpTriggerService.getAmqpTrigger({
+			workspace: workspace!,
+			path: path
+		})
+
+		result = retrieveKindsValues({ resource_path: amqp_resource_path, script_path, is_flow })
 	} else if (kind === 'nats') {
 		const { nats_resource_path, script_path, is_flow } = await NatsTriggerService.getNatsTrigger({
 			workspace: workspace!,

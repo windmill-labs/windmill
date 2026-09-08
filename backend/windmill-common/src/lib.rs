@@ -31,16 +31,19 @@ pub mod apps;
 pub mod assets;
 pub mod audit;
 pub mod auth;
+pub mod azure_workload_identity;
 #[cfg(feature = "benchmark")]
 pub mod bench;
 pub mod cache;
 pub mod client;
+pub mod data_metrics;
 pub mod db;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_entra_ee;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_iam_ee;
-pub mod db_params;
+pub mod dbt_manifest;
+pub mod deploy_origin;
 #[cfg(feature = "private")]
 pub mod deployment_requests_ee;
 pub mod deployment_requests_oss;
@@ -52,11 +55,19 @@ pub mod email_ee;
 pub mod email_oss;
 pub mod error;
 pub mod external_ip;
+#[cfg(feature = "private")]
+pub mod feature_usage_ee;
+pub mod feature_usage_oss;
+#[cfg(feature = "private")]
+pub use feature_usage_ee as feature_usage;
+#[cfg(not(feature = "private"))]
+pub use feature_usage_oss as feature_usage;
 pub mod flow_conversations;
 pub mod flow_status;
 pub mod flows;
 pub mod folders;
 pub mod global_settings;
+pub mod guest_jwt;
 pub mod indexer;
 pub mod instance_config;
 pub mod job_metrics;
@@ -86,6 +97,7 @@ pub mod otel_oss;
 #[cfg(feature = "private")]
 pub mod partition_ee;
 pub mod partition_oss;
+pub mod per_minute_counter;
 #[cfg(feature = "private")]
 pub use partition_ee as partition;
 #[cfg(not(feature = "private"))]
@@ -117,6 +129,7 @@ pub mod teams_ee;
 pub mod teams_oss;
 pub mod tracing_init;
 pub mod trashbin;
+pub mod trigger_history;
 pub mod triggers;
 pub mod user_drafts;
 pub mod usernames;
@@ -135,8 +148,85 @@ pub const DEFAULT_MAX_CONNECTIONS_INDEXER: u32 = 5;
 
 pub const DEFAULT_HUB_BASE_URL: &str = "https://hub.windmill.dev";
 pub const PRIVATE_HUB_MIN_VERSION: i32 = 10_000_000;
-pub const SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 weeks retention period for logs
+pub const DEFAULT_SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 weeks retention period for logs
+pub const DEFAULT_OTEL_TRACES_RETENTION_SECS: i64 = 60 * 60 * 24 * 7; // 1 week retention period for HTTP request spans
 pub const WM_DEPLOYERS_GROUP: &str = "wm_deployers";
+
+/// A century. Every consumer has to survive `now - retention`, and the ceilings are much lower
+/// than an `i64`: `DateTime` subtraction panics past year 262143, and the `(<n> s)::interval`
+/// the cleanup queries build overflows Postgres' microsecond field.
+const MAX_RETENTION_SECS: i64 = 60 * 60 * 24 * 365 * 100;
+
+/// Clamp a configured retention window, in seconds, to one a cutoff can be built from.
+///
+/// Shared by the retention windows that have no "keep forever" spelling, so that an unusable
+/// value can never reach a cutoff. The two unusable directions are not the same mistake and must
+/// not share a landing point: too large still says "keep these for a very long time", so it is
+/// capped and the intent survives, whereas falling back would delete data the operator meant to
+/// keep. A non-positive value has no such reading — every cutoff is `now - retention`, so it
+/// lands at or after `now` and the next sweep expires the entire history. `0` is both what an
+/// operator types by analogy with job retention, where it does mean keep forever, and what the
+/// settings UI writes into a field that was merely focused, so it falls back to the default.
+fn clamp_retention_secs(configured: i64, default: i64, what: &str) -> i64 {
+    if configured > MAX_RETENTION_SECS {
+        tracing::warn!(
+            "{what} retention of {configured}s exceeds the maximum of {MAX_RETENTION_SECS}s, \
+             capping it there"
+        );
+        MAX_RETENTION_SECS
+    } else if configured >= 1 {
+        configured
+    } else {
+        tracing::warn!(
+            "{what} retention of {configured}s would expire the entire history, \
+             falling back to the default of {default}s"
+        );
+        default
+    }
+}
+
+/// Apply a configured service log retention, in seconds.
+///
+/// The only way into [`SERVICE_LOG_RETENTION_SECS`]. Expiry reaches every copy of a log line:
+/// the row, the file on disk, and the object-storage object.
+pub fn set_service_log_retention_secs(configured: i64) {
+    let effective = clamp_retention_secs(
+        configured,
+        DEFAULT_SERVICE_LOG_RETENTION_SECS,
+        "service log",
+    );
+    SERVICE_LOG_RETENTION_SECS.store(effective, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Apply a configured OTEL trace retention, in seconds.
+///
+/// The only way into [`OTEL_TRACES_RETENTION_SECS`].
+pub fn set_otel_traces_retention_secs(configured: i64) {
+    let effective = clamp_retention_secs(
+        configured,
+        DEFAULT_OTEL_TRACES_RETENTION_SECS,
+        "otel traces",
+    );
+    OTEL_TRACES_RETENTION_SECS.store(effective, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// How long an HTTP request tracing span stays in `otel_traces`, in seconds.
+///
+/// Spans are keyed by the job they were captured for and read back by the job detail view, so
+/// this is the outer bound on how far back that view can show a job's HTTP requests. It is
+/// independent of job retention: a span can outlive its job, or be swept while the job remains.
+pub fn otel_traces_retention_secs() -> i64 {
+    OTEL_TRACES_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// How long a service log line stays retrievable, in seconds.
+///
+/// The outer bound on everything service-log: the `log_file` rows, the raw files in object
+/// storage, the columnar store queried by retrieval, and — through
+/// [`indexer::service_log_index_window_secs`] — the search index.
+pub fn service_log_retention_secs() -> i64 {
+    SERVICE_LOG_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed)
+}
 
 /// Canonical form of a base URL, used as one of the inputs to the offline-license
 /// instance hash (`compute_instance_hash`).
@@ -191,24 +281,115 @@ pub fn check_on_behalf_of_preservation(
     None
 }
 
-/// Determines the on_behalf_of_email value to use when creating/updating a flow or script.
-/// - If `on_behalf_of_email` is None, returns None
-/// - If `preserve` is true and the user is admin or in the deployers group, returns the original value
-/// - Otherwise, returns the authenticated user's email
-pub fn resolve_on_behalf_of_email<'a>(
-    on_behalf_of_email: Option<&'a str>,
+/// Resolves the identity to store when creating/updating a flow or script.
+///
+/// The permissioned_as is the only stored identity — it decides what the job may access,
+/// and the address is derived from it at read time — so the two can never name different
+/// accounts. Callers may supply either: a bare email (every client written before the
+/// principal existed) is resolved to the principal it names, and an email that names
+/// nobody is rejected rather than recorded, since it could only produce a runnable that
+/// cannot authenticate.
+///
+/// Returns `None` when the runnable has no on-behalf-of identity, and the caller's own
+/// identity when they are not allowed to preserve someone else's.
+///
+/// Resolves through the non-RLS pool and authorizes nothing itself — `authed` decides only
+/// whether preservation is allowed, and its role flags are not re-checked against `w_id`.
+/// Callers must already be authorized for the workspace they pass.
+pub async fn resolve_on_behalf_of(
+    on_behalf_of_email: Option<&str>,
+    on_behalf_of: Option<&str>,
     preserve: bool,
-    authed: &'a impl db::Authable,
-) -> Option<&'a str> {
-    if on_behalf_of_email.is_some() {
-        if preserve && can_preserve_on_behalf_of(authed) {
-            on_behalf_of_email
-        } else {
-            Some(authed.email())
-        }
-    } else {
-        None
+    authed: &impl db::Authable,
+    w_id: &str,
+    db: &sqlx::Pool<Postgres>,
+) -> error::Result<Option<String>> {
+    if on_behalf_of_email.is_none() && on_behalf_of.is_none() {
+        return Ok(None);
     }
+    // Through the same width check as every other branch: the caller's own identity is
+    // address-shaped when they act without a `usr` row, and one too wide for a job row is no
+    // more enqueueable for naming themselves.
+    if !(preserve && can_preserve_on_behalf_of(authed)) {
+        return reject_unenqueueable(users::username_to_permissioned_as(authed.username()));
+    }
+    // Reserved superadmin sentinels are rejected by name, before resolution: the lookups
+    // below only reject them while no account holds their address, and the runtime grants
+    // superadmin on these emails by string comparison alone.
+    auth::validate_on_behalf_of(on_behalf_of, on_behalf_of_email)?;
+    let permissioned_as = match on_behalf_of {
+        Some(permissioned_as) => {
+            // The principal wins, but a caller that also names a contradictory address has a
+            // bug worth surfacing: that is exactly how a workspace deploy once shipped one
+            // workspace's principal beside another's address.
+            if let Some(email) = on_behalf_of_email {
+                let named =
+                    users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db)
+                        .await?;
+                if named != email {
+                    return Err(Error::BadRequest(format!(
+                        "on_behalf_of '{permissioned_as}' resolves to '{named}', \
+                         not to on_behalf_of_email '{email}'. Both must name the same account."
+                    )));
+                }
+            }
+            // A bare address is canonical only for an account whose username is that address,
+            // or for a superadmin acting outside their workspaces. Sent for an ordinary member
+            // — which is what a folder rule naming an address produces — it is canonicalized to
+            // `u/{username}`: the bare branch of `fetch_authed_from_permissioned_as` grants
+            // neither their groups nor their folders, so storing it verbatim would run the job
+            // with less access than the account it names.
+            let canonical = if permissioned_as.starts_with(users::PERMISSIONED_AS_USER_PREFIX)
+                || permissioned_as.starts_with(users::PERMISSIONED_AS_GROUP_PREFIX)
+            {
+                None
+            } else {
+                users::permissioned_as_from_email(w_id, permissioned_as, db).await?
+            };
+            match canonical {
+                Some(canonical) => canonical,
+                None => {
+                    // Symmetric with the address branch below: an identity that names nobody
+                    // would only produce a runnable that cannot authenticate, and an unknown
+                    // prefix takes the least-privileged branch of
+                    // `fetch_authed_from_permissioned_as` rather than failing.
+                    if !users::permissioned_as_exists(w_id, permissioned_as, db).await? {
+                        return Err(Error::BadRequest(format!(
+                            "on_behalf_of '{permissioned_as}' names no user or \
+                             group in this workspace."
+                        )));
+                    }
+                    permissioned_as.to_string()
+                }
+            }
+        }
+        None => {
+            let email = on_behalf_of_email.unwrap_or_default();
+            users::permissioned_as_from_email(w_id, email, db)
+                .await?
+                .ok_or_else(|| {
+                    Error::BadRequest(format!(
+                        "on_behalf_of_email '{email}' names no user or group in this workspace, so \
+                         there is no identity to run as. Pass on_behalf_of, or use \
+                         the address of a workspace member."
+                    ))
+                })?
+        }
+    };
+    reject_unenqueueable(permissioned_as)
+}
+
+/// Every principal ends up on `v2_job.permissioned_as`, which is narrower than the columns it is
+/// stored in, so an identity that cannot be enqueued is refused at the deploy that records it
+/// rather than at the first run of a runnable that looks fine.
+fn reject_unenqueueable(permissioned_as: String) -> error::Result<Option<String>> {
+    if permissioned_as.chars().count() > users::PERMISSIONED_AS_MAX_LEN {
+        return Err(Error::BadRequest(format!(
+            "the identity '{permissioned_as}' is longer than the {} characters a job can carry",
+            users::PERMISSIONED_AS_MAX_LEN
+        )));
+    }
+    Ok(Some(permissioned_as))
 }
 
 #[macro_export]
@@ -250,6 +431,7 @@ lazy_static::lazy_static! {
 
     pub static ref CRITICAL_ALERT_MUTE_UI_ENABLED: AtomicBool = AtomicBool::new(false);
     pub static ref CRITICAL_ALERTS_ON_TOKEN_EXPIRY: AtomicBool = AtomicBool::new(false);
+    pub static ref CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART: AtomicBool = AtomicBool::new(false);
 
     pub static ref BASE_URL: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
     pub static ref IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -260,7 +442,25 @@ lazy_static::lazy_static! {
     pub static ref CRITICAL_ALERTS_ON_DB_OVERSIZE: arc_swap::ArcSwap<Option<f32>> = arc_swap::ArcSwap::from_pointee(None);
 
     pub static ref JOB_RETENTION_SECS: AtomicI64 = AtomicI64::new(0);
+    /// Per-workspace overrides of `JOB_RETENTION_SECS` (EE-only), keyed by workspace_id, in seconds.
+    /// Sourced from the `retention_period_secs_overrides` global setting and cached here so the
+    /// cleanup sweep reads it without a per-tick DB query. A workspace may be given a longer OR
+    /// shorter window than the instance-wide value; `0` means "keep forever" for that workspace.
+    pub static ref JOB_RETENTION_SECS_OVERRIDES: arc_swap::ArcSwap<std::collections::HashMap<String, i64>> = arc_swap::ArcSwap::from_pointee(std::collections::HashMap::new());
+    /// Whether `JOB_RETENTION_SECS_OVERRIDES` has ever been loaded successfully (a valid map, an
+    /// explicit unset, or CE's no-op). Until then the empty cache is "unknown, not confirmed empty",
+    /// so the retention sweep must NOT run globally — that would delete jobs a longer-retention
+    /// workspace configured before its override could be read.
+    pub static ref JOB_RETENTION_SECS_OVERRIDES_LOADED: AtomicBool = AtomicBool::new(false);
     pub static ref AUDIT_LOG_RETENTION_DAYS: AtomicI64 = AtomicI64::new(0);
+    /// Private on purpose: [`set_service_log_retention_secs`] is the only writer, so a value that
+    /// would expire every service log cannot reach a cutoff. Read it with
+    /// [`service_log_retention_secs`].
+    static ref SERVICE_LOG_RETENTION_SECS: AtomicI64 = AtomicI64::new(DEFAULT_SERVICE_LOG_RETENTION_SECS);
+    /// Private on purpose, same as [`SERVICE_LOG_RETENTION_SECS`]:
+    /// [`set_otel_traces_retention_secs`] is the only writer, [`otel_traces_retention_secs`] the
+    /// only reader.
+    static ref OTEL_TRACES_RETENTION_SECS: AtomicI64 = AtomicI64::new(DEFAULT_OTEL_TRACES_RETENTION_SECS);
 
     pub static ref MONITOR_LOGS_ON_OBJECT_STORE: AtomicBool = AtomicBool::new(false);
 
@@ -289,6 +489,19 @@ lazy_static::lazy_static! {
 }
 
 const LATEST_VERSION_ID_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// TTL for a path -> hash answer that a dependency job is about to invalidate by writing the
+/// lockfile of a newer version. That job lands at an unpredictable moment and the eviction it
+/// notifies only reaches this process on the next `notify_event` poll, so the entry must not
+/// outlive it by more than a beat.
+const LATEST_VERSION_ID_PENDING_LOCK_CACHE_TTL: std::time::Duration =
+    std::time::Duration::from_secs(2);
+
+/// How long a version without a lockfile is still believed to have a dependency job coming for
+/// it. A job that is cancelled while queued, or whose worker dies before it can write
+/// `lock_error_logs`, leaves that version pending for good; past this age the short TTL above
+/// would be a permanent cost for a version that is never going to become runnable.
+const PENDING_LOCK_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 
 /// Test hook: disables the process-global deployed-script hash/info caches so
 /// every resolution reads the current DB. Integration tests use `#[sqlx::test]`
@@ -693,6 +906,23 @@ ta9ELulniZau8zUAtwqwecxodzl+KO8NYj0a9PGgAM64dMqkRtRA8P4UP350Nag3\n\
         assert!(pg(Some("allow"), None).to_uri().contains("sslmode=prefer"));
         assert!(pg(None, None).to_uri().contains("sslmode=prefer"));
     }
+
+    /// The other paths default a missing login to `postgres`; Entra must not, or the
+    /// server rejects a role the resource never named.
+    #[test]
+    fn entra_login_rejects_a_missing_user() {
+        let mut db = pg(None, None);
+        assert_eq!(db.entra_login().unwrap(), "u");
+        assert_eq!(db.login_name(), "u");
+
+        db.user = None;
+        assert_eq!(db.login_name(), "postgres");
+
+        for blank in [None, Some(""), Some("  ")] {
+            db.user = blank.map(|u: &str| u.to_string());
+            assert!(db.entra_login().is_err(), "{blank:?} is not a login");
+        }
+    }
 }
 
 #[derive(Serialize, Debug)]
@@ -759,6 +989,11 @@ impl Future for TokioPgConnection {
 }
 
 impl PgDatabase {
+    /// The role the connection logs in as, whichever way it authenticates.
+    pub fn login_name(&self) -> &str {
+        self.user.as_deref().unwrap_or("postgres")
+    }
+
     pub fn to_uri(&self) -> String {
         let sslmode = match self.sslmode.as_deref() {
             Some("allow") => "prefer".to_string(),
@@ -777,7 +1012,7 @@ impl PgDatabase {
         };
         format!(
             "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
-            user = urlencoding::encode(&self.user.as_deref().unwrap_or("postgres")),
+            user = urlencoding::encode(self.login_name()),
             password = urlencoding::encode(&self.password.as_deref().unwrap_or("")),
             host = host,
             port = self.port.unwrap_or(5432),
@@ -954,9 +1189,6 @@ impl PgDatabase {
     pub async fn connect_with_iam(
         &self,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
-        use native_tls::TlsConnector;
-        use postgres_native_tls::MakeTlsConnector;
-
         // Resolve region: resource field takes priority, then env var
         let region = match self.region.as_deref() {
             Some(r) => r.to_string(),
@@ -968,7 +1200,7 @@ impl PgDatabase {
         };
 
         let port = self.port.unwrap_or(5432);
-        let user = self.user.as_deref().unwrap_or("postgres");
+        let user = self.login_name();
 
         let token = db_iam_ee::generate_auth_token(&region, &self.host, port as u64, user)
             .await
@@ -976,7 +1208,64 @@ impl PgDatabase {
                 error::Error::InternalErr(format!("IAM token generation failed: {e:#}"))
             })?;
 
-        // RDS IAM auth requires SSL.
+        self.connect_with_token("IAM RDS", user, &token).await
+    }
+
+    /// The role an Entra-authenticated connection logs in as. Azure maps each Entra
+    /// principal to a role of its own (`pgaadauth_create_principal`), so unlike the
+    /// other paths this one has no sensible default: `postgres` would send the server a
+    /// role name the resource never mentions, and the rejection then names a value the
+    /// user never configured.
+    pub fn entra_login(&self) -> error::Result<&str> {
+        self.user
+            .as_deref()
+            .map(str::trim)
+            .filter(|u| !u.is_empty())
+            .ok_or_else(|| {
+                error::Error::BadRequest(
+                    "Azure workload identity authentication requires `user` on the resource. \
+                     Set it to the Postgres role the worker's Entra principal is mapped to, \
+                     as created by pgaadauth_create_principal."
+                        .to_string(),
+                )
+            })
+    }
+
+    /// Connect to Azure Database for PostgreSQL as the worker's federated identity.
+    /// The Entra ID access token replaces the password.
+    #[cfg(feature = "enterprise")]
+    pub async fn connect_with_workload_identity(
+        &self,
+    ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        // Before the token exchange: a missing login is worth reporting without first
+        // spending a round trip to Entra ID on it.
+        let user = self.entra_login()?;
+
+        let workload_identity = azure_workload_identity::WorkloadIdentityConfig::resolve()?;
+        let token = workload_identity
+            .access_token(azure_workload_identity::AZURE_OSSRDBMS_SCOPE)
+            .await?;
+
+        self.connect_with_token("Azure workload identity", user, &token)
+            .await
+    }
+
+    /// Connect with an externally issued access token in place of the password.
+    /// Both issuers (AWS IAM, Entra ID) mandate TLS, so encryption is forced on
+    /// regardless of the resource's sslmode; the sslmode still selects how far the
+    /// server's certificate is verified.
+    #[cfg(feature = "enterprise")]
+    async fn connect_with_token(
+        &self,
+        auth_kind: &str,
+        user: &str,
+        token: &str,
+    ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        use native_tls::TlsConnector;
+        use postgres_native_tls::MakeTlsConnector;
+
+        let port = self.port.unwrap_or(5432);
+
         let mut connector = TlsConnector::builder();
         let verified = Self::configure_pg_tls_verification(
             &mut connector,
@@ -985,19 +1274,19 @@ impl PgDatabase {
             self.accept_invalid_certs,
         )?;
         if !verified {
-            tracing::warn!("IAM RDS auth without certificate verification: TLS certificate verification is disabled. Provide root_certificate_pem (and set sslmode=verify-full) to enforce verification.");
+            tracing::warn!("{auth_kind} auth without certificate verification: TLS certificate verification is disabled. Provide root_certificate_pem (and set sslmode=verify-full) to enforce verification.");
         }
 
-        tracing::info!("Creating new IAM RDS connection to {}", &self.host);
+        tracing::info!("Creating new {auth_kind} connection to {}", &self.host);
 
-        // Use Config builder directly to pass the IAM token as the password.
+        // Use Config builder directly to pass the token as the password.
         // This avoids needing to URL-encode the token into a connection string.
         let mut config = tokio_postgres::Config::new();
         config
             .host(&self.host)
             .port(port as u16)
             .user(user)
-            .password(&token)
+            .password(token)
             .dbname(&self.dbname)
             .ssl_mode(tokio_postgres::config::SslMode::Require);
 
@@ -1054,6 +1343,49 @@ impl PgDatabase {
             use_iam_auth: None,
             region: None,
         })
+    }
+}
+
+/// How long a `tokio_postgres` connection task gets to wind down once its `Client` is dropped.
+const PG_CONNECTION_SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Wind down the task driving a `tokio_postgres` connection after its `Client` has been dropped,
+/// surfacing whatever error the connection ended with. A teardown that has to be aborted is
+/// reported as success — the work the client did is already done and complete.
+///
+/// The task only finishes once the exchange the client left behind (its Terminate, and any
+/// still-unanswered request) has been settled by the peer. A connection proxy that stops
+/// replying leaves that pending forever, so waiting on the task without a deadline pins the
+/// caller and the socket for the lifetime of the process. Aborting past the grace period drops
+/// the stream, which is the only cleanup the task owes.
+pub async fn shutdown_pg_connection(
+    join_handle: tokio::task::JoinHandle<Result<(), tokio_postgres::Error>>,
+) -> error::Result<()> {
+    let abort_handle = join_handle.abort_handle();
+    match tokio::time::timeout(PG_CONNECTION_SHUTDOWN_GRACE, join_handle).await {
+        Ok(Ok(Ok(()))) => Ok(()),
+        Ok(Ok(Err(e))) => Err(error::Error::internal_err(format!(
+            "tokio_postgres error: {}",
+            e
+        ))),
+        Ok(Err(e)) => Err(error::Error::internal_err(format!("join error: {}", e))),
+        Err(_) => {
+            tracing::warn!(
+                "Postgres connection did not close within {}s of its client being dropped, aborting it",
+                PG_CONNECTION_SHUTDOWN_GRACE.as_secs()
+            );
+            abort_handle.abort();
+            Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+mod pg_connection_shutdown_tests {
+    #[tokio::test(start_paused = true)]
+    async fn gives_up_on_a_connection_task_that_never_finishes() {
+        let never_finishes = tokio::spawn(std::future::pending());
+        assert!(super::shutdown_pg_connection(never_finishes).await.is_ok());
     }
 }
 
@@ -1203,15 +1535,12 @@ pub async fn create_custom_instance_database(
         tracing::warn!(
             "Failed to grant permissions on '{}': {}. Continuing.",
             dbname,
-            e
+            crate::error::pg_error_message(&e)
         );
     }
 
     drop(client);
-    join_handle
-        .await
-        .map_err(|e| error::Error::internal_err(format!("join error: {}", e)))?
-        .map_err(|e| error::Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+    shutdown_pg_connection(join_handle).await?;
 
     // Register in global_settings
     let status_json = serde_json::json!({
@@ -1233,6 +1562,17 @@ pub async fn create_custom_instance_database(
 
     tracing::info!("Created custom instance database '{}'", dbname);
     Ok(())
+}
+
+/// Connection options parsed from a database URL.
+///
+/// The only place a database URL becomes `PgConnectOptions`. Providers that mint the password
+/// themselves override it on these and keep the rest: options assembled field by field instead
+/// would drop every query parameter, `sslmode` and `sslrootcert` above all, leaving the
+/// connection on sqlx's default TLS policy rather than the operator's.
+pub fn base_connect_options(database_url: &str) -> Result<sqlx::postgres::PgConnectOptions, Error> {
+    sqlx::postgres::PgConnectOptions::from_str(database_url)
+        .map_err(|e| Error::InternalErr(format!("Failed to parse database URL: {}", e)))
 }
 
 #[derive(Clone)]
@@ -1265,8 +1605,8 @@ impl DatabaseUrl {
     }
 
     /// Get PgConnectOptions for this database URL.
-    /// For token-based auth (IAM RDS, Entra ID), this returns options built directly from the
-    /// token to avoid double-encoding issues with temporary credentials.
+    /// For token-based auth (IAM RDS, Entra ID), this returns options carrying the current
+    /// token, set on the builder to avoid double-encoding temporary credentials.
     /// For static URLs, this parses the URL string.
     pub async fn connect_options(&self) -> Result<sqlx::postgres::PgConnectOptions, Error> {
         match self {
@@ -1280,8 +1620,7 @@ impl DatabaseUrl {
                 let guard = entra_url.read().await;
                 Ok(guard.connect_options())
             }
-            DatabaseUrl::Static(url) => sqlx::postgres::PgConnectOptions::from_str(url)
-                .map_err(|e| Error::InternalErr(format!("Failed to parse database URL: {}", e))),
+            DatabaseUrl::Static(url) => base_connect_options(url),
         }
     }
 
@@ -1469,11 +1808,75 @@ pub struct ScriptHashInfo<SR> {
     pub delete_after_secs: Option<i32>,
     pub timeout: Option<i32>,
     pub has_preprocessor: Option<bool>,
-    pub on_behalf_of_email: Option<String>,
+    pub on_behalf_of: Option<String>,
     pub created_by: String,
     pub labels: Option<Vec<String>>,
     #[sqlx(flatten)]
     pub runnable_settings: SR,
+}
+
+impl<SR> ScriptHashInfo<SR> {
+    /// The identity this script runs as, or `None` when it runs as its caller. The address
+    /// is derived from the principal rather than stored, so the two cannot disagree.
+    ///
+    /// Reads through the non-RLS pool and authorizes nothing: callers must already be
+    /// authorized for `w_id` and for this script.
+    pub async fn on_behalf_of(
+        &self,
+        w_id: &str,
+        db: &DB,
+    ) -> error::Result<Option<jobs::OnBehalfOf>> {
+        on_behalf_of_from_permissioned_as(self.on_behalf_of.as_deref(), w_id, db).await
+    }
+}
+
+/// The address to store beside the principal, or `None` once no worker needs it.
+///
+/// A worker predating [`MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL`] reads `on_behalf_of_email`
+/// and nothing else, so a deploy has to keep filling it while one may still be live — otherwise
+/// a runnable deployed mid-upgrade runs as its deployer there. Once every worker is new the
+/// column is dead weight and a later release drops it.
+///
+/// Reads through the non-RLS pool and authorizes nothing: callers must already be authorized
+/// for `w_id`.
+pub async fn legacy_on_behalf_of_email(
+    permissioned_as: Option<&str>,
+    w_id: &str,
+    db: &DB,
+) -> error::Result<Option<String>> {
+    let Some(permissioned_as) = permissioned_as else {
+        return Ok(None);
+    };
+    if min_version::MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL.met_conservatively() {
+        return Ok(None);
+    }
+    Ok(Some(
+        users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db).await?,
+    ))
+}
+
+/// Shared by [`ScriptHashInfo::on_behalf_of`] and [`FlowVersionInfo::on_behalf_of`].
+///
+/// Reads identity data through the non-RLS pool and enforces nothing itself: it answers who a
+/// row already says it runs as. Callers must have authorized `w_id` — and the row they read it
+/// from — before dispatching a job with what it returns.
+pub async fn on_behalf_of_from_permissioned_as(
+    permissioned_as: Option<&str>,
+    w_id: &str,
+    db: &DB,
+) -> error::Result<Option<jobs::OnBehalfOf>> {
+    let Some(permissioned_as) = permissioned_as else {
+        return Ok(None);
+    };
+    // Uncached: the address is copied onto the job row, where it stays for the life of the run
+    // and decides the superadmin flag and the instance groups. Nothing evicts the cache across
+    // processes, so a cached read would keep minting jobs under an address the account no longer
+    // holds for up to a minute after it moves.
+    let email = users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db).await?;
+    Ok(Some(jobs::OnBehalfOf {
+        email,
+        permissioned_as: permissioned_as.to_string(),
+    }))
 }
 
 impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
@@ -1500,7 +1903,7 @@ impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
             delete_after_secs: self.delete_after_secs,
             timeout: self.timeout,
             has_preprocessor: self.has_preprocessor,
-            on_behalf_of_email: self.on_behalf_of_email,
+            on_behalf_of: self.on_behalf_of,
             created_by: self.created_by,
             labels: self.labels,
             runnable_settings: ScriptRunnableSettingsInline {
@@ -1549,11 +1952,12 @@ pub fn get_latest_deployed_hash_for_path<'e>(
             }
             _ => {
                 tracing::debug!("Fetching script hash for {script_path}");
-                let hash = if let Some(db) = db {
+                let latest = if let Some(db) = db {
                     let authed = db.authed;
                     let mut conn = db.acquire().await?;
-                    let hash = get_latest_script_hash(&mut *conn, script_path, w_id).await?;
-                    if let Some(hash) = hash {
+                    let latest =
+                        get_latest_deployed_script_hash(&mut *conn, script_path, w_id).await?;
+                    if let Some(hash) = latest.hash {
                         HASH_PERMS_CACHE.insert(
                             computed_hash.unwrap_or_else(|| PermsCache::compute_hash(authed)),
                             ScriptHash(hash),
@@ -1567,19 +1971,24 @@ pub fn get_latest_deployed_hash_for_path<'e>(
                             return Err(Error::NotAuthorized(format!("You are not authorized to access this script: {script_path} (but it exists). Your permissions are: {:?}", authed)));
                         }
                     }
-                    hash
+                    latest
                 } else {
                     let mut conn = db2.acquire().await?;
-                    get_latest_script_hash(&mut *conn, script_path, w_id).await?
+                    get_latest_deployed_script_hash(&mut *conn, script_path, w_id).await?
                 };
 
-                let hash = utils::not_found_if_none(hash, "script", script_path)?;
+                let hash = utils::not_found_if_none(latest.hash, "script", script_path)?;
                 if use_cache {
+                    let ttl = if latest.pending_lock {
+                        LATEST_VERSION_ID_PENDING_LOCK_CACHE_TTL
+                    } else {
+                        LATEST_VERSION_ID_CACHE_TTL
+                    };
                     DEPLOYED_SCRIPT_HASH_CACHE.insert(
                         cache_key,
                         ExpiringLatestVersionId {
                             id: hash,
-                            expires_at: std::time::Instant::now() + LATEST_VERSION_ID_CACHE_TTL,
+                            expires_at: std::time::Instant::now() + ttl,
                         },
                     );
                 }
@@ -1605,6 +2014,60 @@ pub async fn get_latest_script_hash<'e, E: sqlx::PgExecutor<'e>>(
     .fetch_optional(db)
     .await?;
     return Ok(hash);
+}
+
+pub struct LatestDeployedScriptHash {
+    pub hash: Option<i64>,
+    /// The newest version of the path is still waiting on the dependency job that writes its
+    /// lockfile, so `hash` points at the version before it and will change the moment that job
+    /// lands, at a moment nothing notifies the caller of.
+    pub pending_lock: bool,
+}
+
+/// Applies no authorization of its own, exactly like [`get_latest_script_hash`]: pass an
+/// RLS-scoped executor, or check the caller's permissions on the hash it returns.
+pub async fn get_latest_deployed_script_hash<'e, E: sqlx::PgExecutor<'e>>(
+    db: E,
+    script_path: &'e str,
+    w_id: &'e str,
+) -> error::Result<LatestDeployedScriptHash> {
+    let row = sqlx::query!(
+        "SELECT
+            (SELECT hash FROM script
+                WHERE path = $1 AND workspace_id = $2 AND deleted = false
+                    AND lock IS NOT NULL AND lock_error_logs IS NULL
+                ORDER BY created_at DESC LIMIT 1) AS hash,
+            (SELECT lock IS NULL AND lock_error_logs IS NULL
+                    AND created_at > now() - make_interval(secs => $3) FROM script
+                WHERE path = $1 AND workspace_id = $2 AND deleted = false
+                ORDER BY created_at DESC LIMIT 1) AS pending_lock",
+        script_path,
+        w_id,
+        PENDING_LOCK_MAX_AGE.as_secs_f64()
+    )
+    .fetch_one(db)
+    .await?;
+    Ok(
+        LatestDeployedScriptHash {
+            hash: row.hash,
+            pending_lock: row.pending_lock.unwrap_or(false),
+        },
+    )
+}
+
+/// Drop this process's path -> runnable-hash entry for a script whose newest runnable version
+/// just moved, so the process that deployed it (or that generated its lockfile) resolves the
+/// path to it without waiting out the `notify_event` poll. Other replicas get there through
+/// `notify_runnable_version_change`.
+pub fn invalidate_deployed_script_hash_cache(w_id: &str, script_path: &str) {
+    DEPLOYED_SCRIPT_HASH_CACHE.remove(&(w_id.to_string(), script_path.to_string()));
+}
+
+/// Same, for a new version row, which also moves the import-side answer (that one has no lock
+/// predicate, so only a new row moves it).
+pub fn invalidate_latest_script_hash_caches(w_id: &str, script_path: &str) {
+    invalidate_deployed_script_hash_cache(w_id, script_path);
+    IMPORTED_SCRIPT_HASH_CACHE.remove(&(w_id.to_string(), script_path.to_string()));
 }
 
 /// Latest non-archived hash for an imported `path`, for bundle cache keying.
@@ -1719,7 +2182,7 @@ async fn get_script_info_for_hash_inner<'e, E: sqlx::PgExecutor<'e>>(
                 delete_after_secs,
                 timeout,
                 has_preprocessor,
-                on_behalf_of_email,
+                on_behalf_of,
                 created_by,
                 labels,
                 path
@@ -1739,10 +2202,24 @@ pub struct FlowVersionInfo {
     pub has_preprocessor: Option<bool>,
     pub has_failure_module: Option<bool>,
     pub chat_input_enabled: Option<bool>,
-    pub on_behalf_of_email: Option<String>,
+    pub on_behalf_of: Option<String>,
     pub edited_by: String,
     pub dedicated_worker: Option<bool>,
     pub labels: Option<Vec<String>>,
+}
+
+impl FlowVersionInfo {
+    /// The identity this flow runs as, or `None` when it runs as its caller.
+    ///
+    /// Same contract as [`ScriptHashInfo::on_behalf_of`]: callers must already be authorized
+    /// for `w_id` and for this flow.
+    pub async fn on_behalf_of(
+        &self,
+        w_id: &str,
+        db: &DB,
+    ) -> error::Result<Option<jobs::OnBehalfOf>> {
+        on_behalf_of_from_permissioned_as(self.on_behalf_of.as_deref(), w_id, db).await
+    }
 }
 
 struct CachedFlowPath(String);
@@ -1870,7 +2347,7 @@ pub fn get_flow_version_info_from_version<
                                     (flow_version.value->>'chat_input_enabled')::boolean as chat_input_enabled,
                                     flow.tag,
                                     flow.dedicated_worker,
-                                    flow.on_behalf_of_email,
+                                    flow.on_behalf_of,
                                     flow.edited_by,
                                     flow.labels
                                 FROM
@@ -1986,6 +2463,7 @@ async fn get_latest_flow_version_for_path<'e, E: sqlx::PgExecutor<'e>>(
 
 pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     db: E,
+    db2: &DB,
     w_id: &str,
     script_path: &str,
     require_locked: bool,
@@ -2003,13 +2481,12 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     Option<bool>,
     Option<i16>,
     Option<i32>,
-    Option<String>,
-    String,
+    Option<jobs::OnBehalfOf>,
     Option<i64>,
     Option<Vec<String>>,
 )> {
     let r_o = sqlx::query!(
-            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by, labels FROM script
+            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of, created_by, labels FROM script
              WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)
              ORDER BY created_at DESC LIMIT 1",
             script_path,
@@ -2020,6 +2497,9 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
         .await?;
 
     let script = utils::not_found_if_none(r_o, "script", script_path)?;
+
+    let on_behalf_of =
+        on_behalf_of_from_permissioned_as(script.on_behalf_of.as_deref(), w_id, db2).await?;
 
     Ok((
         scripts::ScriptHash(script.hash),
@@ -2035,8 +2515,7 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
         script.dedicated_worker,
         script.priority,
         script.timeout,
-        script.on_behalf_of_email,
-        script.created_by,
+        on_behalf_of,
         script.runnable_settings_handle,
         script.labels,
     ))

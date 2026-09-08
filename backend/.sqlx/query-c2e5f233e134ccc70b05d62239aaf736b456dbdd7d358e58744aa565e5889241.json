@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dbt_run_state (workspace_id, script_path, permissioned_as, identity, args, run_results, job_id, retryable, updated_at)\n                 SELECT $1::varchar, $2::varchar, $7::varchar, $3::text, $4::jsonb, $5::text, $6::uuid, $8::boolean, now()\n                  WHERE EXISTS (SELECT 1 FROM script\n                                 WHERE workspace_id = $1 AND path = $2\n                                   AND deleted = false AND archived = false\n                                   AND language = 'dbt')\n                 ON CONFLICT (workspace_id, script_path, permissioned_as) DO UPDATE SET\n                   identity = EXCLUDED.identity, args = EXCLUDED.args,\n                   run_results = EXCLUDED.run_results, job_id = EXCLUDED.job_id,\n                   retryable = EXCLUDED.retryable, updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Uuid",
+        "Varchar",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c2e5f233e134ccc70b05d62239aaf736b456dbdd7d358e58744aa565e5889241"
+}

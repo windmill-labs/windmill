@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE email_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "774db0fcbc3905a8c80f271612efcaf7268011f8868028cad6d5339419cb7aef"
+}

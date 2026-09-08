@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT resource.path,\n                  COALESCE(left(pretty.value, $3), '') as \"value!\",\n                  COALESCE(length(pretty.value) > $3, false) as \"truncated!\"\n           FROM resource, LATERAL (SELECT jsonb_pretty(resource.value) as value OFFSET 0) pretty\n           WHERE workspace_id = $1 LIMIT $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "value!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "truncated!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "2d5272e17f5c96185c7f655a6580f1e849dca05d1418798f5ea11dd91c9477bc"
+}

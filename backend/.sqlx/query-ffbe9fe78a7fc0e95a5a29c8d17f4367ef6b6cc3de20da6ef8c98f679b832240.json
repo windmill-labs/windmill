@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT value->>'replication_user_pwd' FROM global_settings WHERE name = 'custom_instance_pg_databases';",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ffbe9fe78a7fc0e95a5a29c8d17f4367ef6b6cc3de20da6ef8c98f679b832240"
+}

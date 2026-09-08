@@ -11,6 +11,13 @@
 	} from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history.svelte'
 	import {
+		clearLinkedAgentTools,
+		linkedAgentToolsForScope,
+		linkedToolsScope,
+		linkedAgentToolsVersion,
+		migrateLinkedAgentToolsScope
+	} from '$lib/components/flows/linkedAgentToolsStore.svelte'
+	import {
 		enterpriseLicense,
 		userStore,
 		userWorkspaces,
@@ -34,17 +41,24 @@
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
-	import { createRawSnippet, setContext, untrack } from 'svelte'
+	import { createRawSnippet, getContext, setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button } from './common'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
+	import WorkspaceScriptSettingsDrawer from './flows/content/WorkspaceScriptSettingsDrawer.svelte'
 	import FlowEditorDrawer from './flows/content/FlowEditorDrawer.svelte'
 	import { dfs as dfsApply } from './flows/dfs'
+	import {
+		claimLinkedToolsFetch,
+		invalidateLinkedToolsFetches,
+		publishLinkedAgentTools
+	} from './flows/flowState'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
+	import { setFlowPanelPlacementTelemetry } from './flows/flowEditorTelemetry'
 	import { SelectionManager } from './graph/selectionUtils.svelte'
 	import { NoteEditor } from './graph/noteEditor.svelte'
 	import { setNoteEditorContext } from './graph/noteEditor.svelte'
@@ -84,7 +98,18 @@
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import type { Trigger } from './triggers/utils'
 	import { deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
-	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
+	import DraftChangesConfirmationModal from './common/confirmationModal/DraftChangesConfirmationModal.svelte'
+	import {
+		agentDraftCanWrite,
+		linkedAgentPaths,
+		loadLinkedAgentDrafts,
+		type LinkedAgentDraft
+	} from './flows/linkedAgentDrafts'
+	import { agentDraftDeployRefusal } from './flows/agentDraft.svelte'
+	import { markAgentWritten } from './flows/agentEditorStore.svelte'
+	import { logReusableAgentUsage } from './flows/agentTelemetry'
+	import { deployDraft } from '$lib/utils_draft_deploy'
+	import { getUserExt } from '$lib/user'
 	import { Triggers } from './triggers/triggers.svelte'
 	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
@@ -98,9 +123,10 @@
 	import type { FlowBuilderProps } from './flow_builder'
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 
 	let {
 		initialPath = $bindable(''),
@@ -158,11 +184,13 @@
 	// For preserve_on_behalf_of feature
 	let preserveOnBehalfOf = writable(false)
 	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
+	let savedOnBehalfOfPermissionedAs = writable<string | undefined>(savedFlow?.on_behalf_of)
 
 	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously
 	$effect(() => {
 		if (savedFlow?.on_behalf_of_email !== undefined) {
 			savedOnBehalfOfEmail.set(savedFlow.on_behalf_of_email)
+			savedOnBehalfOfPermissionedAs.set(savedFlow.on_behalf_of)
 		}
 	})
 
@@ -175,15 +203,47 @@
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
 	let open: boolean = $state(false) // Is confirmation modal open
 
-	// Draft triggers confirmation modal
-	let draftTriggersModalOpen = $state(false)
+	// Draft changes (triggers + linked agents) confirmation modal
+	let draftChangesModalOpen = $state(false)
+	/** The unsaved agent drafts the pending deploy found. Loaded rather than derived: it takes a
+	 *  request per linked agent, so it is resolved when the deploy asks. */
+	let draftAgents = $state<LinkedAgentDraft[]>([])
+	let agentCanWrite = $state<Record<string, boolean>>({})
+	let agentRefusal = $state<Record<string, string | undefined>>({})
+
+	/** What the dialog's confirm hands back to `saveFlow`. */
+	type DraftChangesToDeploy = { triggers: Trigger[]; agents: LinkedAgentDraft[] }
 
 	// Top-bar responsive collapse. Measured via bind:clientWidth — we can't
 	// rely on viewport `md:` because the editor lives inside other panes
 	// (session pane, drawer, etc.) where the viewport stays wide.
 	let topbarWidth = $state(0)
 	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
-	let confirmDeploymentCallback: (triggersToDeploy: Trigger[]) => void = () => {}
+
+	const diffEnabled = $derived(customUi?.topBar?.diff != false)
+	// Nothing to compare against until a deployed version exists.
+	const diffDisabled = $derived(!savedFlow || newFlow || savedFlow?.no_deployed === true)
+	const diffTitle = $derived(
+		diffDisabled ? 'Deploy this flow once to compare against the deployed version' : 'Diff'
+	)
+	// The narrow bar (sessions) and the width-collapsed one have no room for a Diff
+	// button, so it moves into the menu ahead of Deployment History instead of
+	// dropping out of reach.
+	const diffInMenu = $derived(condensedHeader || compactTopbar)
+	const diffMenuItems: Item[] = $derived(
+		diffEnabled && diffInMenu
+			? [
+					{
+						displayName: 'Diff',
+						icon: DiffIcon,
+						action: () => openDiffDrawer(),
+						disabled: diffDisabled,
+						tooltip: diffDisabled ? diffTitle : undefined
+					}
+				]
+			: []
+	)
+	let confirmDeploymentCallback: (toDeploy: DraftChangesToDeploy) => void = () => {}
 
 	// AI changes warning modal
 	let aiChangesWarningOpen = $state(false)
@@ -195,12 +255,66 @@
 	const job: Job | undefined = $derived(flowPreviewContent?.getJob())
 	let showJobStatus = $state(false)
 
-	async function handleDraftTriggersConfirmed(event: CustomEvent<{ selectedTriggers: Trigger[] }>) {
-		const { selectedTriggers } = event.detail
+	async function handleDraftChangesConfirmed(
+		event: CustomEvent<{ selectedTriggers: Trigger[]; selectedAgents: LinkedAgentDraft[] }>
+	) {
+		const { selectedTriggers, selectedAgents } = event.detail
 		// Continue with saving the flow
-		draftTriggersModalOpen = false
-		confirmDeploymentCallback(selectedTriggers)
+		draftChangesModalOpen = false
+		confirmDeploymentCallback({ triggers: selectedTriggers, agents: selectedAgents })
 	}
+
+	/** Deploy each selected agent's draft, the same way the Review & Deploy page deploys the same
+	 *  row: hand the path to `deployDraft` and let it promote whatever the draft holds, with no
+	 *  re-read to check it still matches what the dialog listed. Agents left out keep their draft
+	 *  untouched. */
+	async function deployAgentDrafts(agents: LinkedAgentDraft[]) {
+		const ws = opWorkspace
+		if (!ws) return
+		for (const listed of draftAgents) {
+			// Only the rows the dialog gave a choice on. A `Read-only` or `Invalid config` agent can
+			// never be selected, so counting it as "kept" would record a decision the user was never
+			// offered and bias the pair towards keeping.
+			const selectable = agentCanWrite[listed.path] !== false && !agentRefusal[listed.path]
+			if (selectable && !agents.some((a) => a.path === listed.path)) {
+				logReusableAgentUsage('draft_kept_on_deploy')
+			}
+		}
+		for (const agent of agents) {
+			// Writes the resource, deletes the draft row, and clears the local hint and the workspace
+			// drafts cache. A failure aborts the flow save the way a failing trigger does, rather than
+			// deploying a flow against agents that were meant to change with it.
+			const deployed = await deployDraft('resource', agent.path, ws, {
+				draftOnly: agent.noDeployed
+			})
+			if (!deployed.success) {
+				throw new Error(`Could not deploy agent ${agent.path}: ${deployed.error}`)
+			}
+			// Nothing was promoted: the draft had gone by the time the helper read it. Saying the agent
+			// deployed would be a lie about the one thing the toggle decides.
+			if (deployed.noop) {
+				throw new Error(
+					`The draft for ${agent.path} was deployed or discarded elsewhere while this deploy ran, so nothing was written for it.`
+				)
+			}
+			// `deployDraft` deletes the server row but leaves any in-memory cell for this key, and that
+			// cell is what `agentDraftState` prefers — a still-mounted holder would otherwise keep
+			// feeding a phantom draft to the cards and to the next deploy dialog. Local only: `remove`
+			// would POST a second delete, debounced and past the baseline the first one cleared.
+			UserDraft.forgetLocal('resource', agent.path, { workspace: ws })
+			// Every linked card and the graph key on this to refetch the agent they display.
+			markAgentWritten(ws, agent.path)
+			logReusableAgentUsage('draft_deployed_with_flow')
+		}
+	}
+
+	// Inside an AI session pane (SessionEditorTarget injects an aiChatManager via
+	// context) the collaborator presence badge is spurious: the editor is embedded
+	// in the shared /sessions URL under the session's own workspace identity, so
+	// presence keyed on that URL leaks a phantom self-badge. Hide it here.
+	const inSessionPane = !!getContext('aiChatManager')
+
+	setFlowPanelPlacementTelemetry(!inSessionPane)
 
 	function hasAIChanges(): boolean {
 		return aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false
@@ -305,6 +419,26 @@
 		})
 	}
 
+	// Monaco swallows the keydown, so an editor with focus never reaches the
+	// window handler; Editor/SimpleEditor/TemplateEditor re-broadcast it
+	// (untyped event, hence the manual listener). A step's code editor also
+	// flushes through its `formatAction`, and a redundant flush is a no-op.
+	$effect(() => {
+		window.addEventListener('wm-monaco-save-shortcut', saveDraft)
+		return () => window.removeEventListener('wm-monaco-save-shortcut', saveDraft)
+	})
+
+	// Materialize a brand-new flow's draft before the session preview loads it by
+	// path — an untouched new flow never autosaved, so forcePersist is the only
+	// thing that creates the row. Gated to never-deployed: forcePersist skips the
+	// discardIf baseline, safe only when there is none.
+	async function persistDraftForSession(): Promise<void> {
+		await saveDraft()
+		if (opWorkspace && liveEditorDraftStoragePath && newFlow) {
+			await UserDraft.forcePersist('flow', liveEditorDraftStoragePath, { workspace: opWorkspace })
+		}
+	}
+
 	export function computeUnlockedSteps(flow: Flow) {
 		return Object.fromEntries(
 			getAllModules(flow.value.modules, flow.value.failure_module)
@@ -360,18 +494,53 @@
 		deployedBy = flow.edited_by
 	}
 
-	async function saveFlow(deploymentMsg?: string, triggersToDeploy?: Trigger[]): Promise<void> {
-		if (!triggersToDeploy) {
-			// Check if there are draft triggers that need confirmation
+	async function saveFlow(deploymentMsg?: string, toDeploy?: DraftChangesToDeploy): Promise<void> {
+		if (!toDeploy) {
+			// Draft triggers and drafts on the agents this flow links: both are unsaved changes the
+			// deploy would otherwise leave behind, so they are confirmed together.
 			const draftTriggers = triggersState.triggers.filter((trigger) => trigger.draftConfig)
-			if (draftTriggers.length > 0) {
-				draftTriggersModalOpen = true
-				confirmDeploymentCallback = async (triggersToDeploy: Trigger[]) => {
-					await saveFlow(deploymentMsg, triggersToDeploy)
+			try {
+				draftAgents = [
+					...(
+						await loadLinkedAgentDrafts(linkedAgentPaths(flowStore.val.value), opWorkspace)
+					).values()
+				]
+			} catch (err: any) {
+				// This runs before the try below, and `withAIChangesWarning` invokes its callback without
+				// awaiting, so a rejection here would be unhandled: the button would do nothing at all,
+				// with no toast and no `onDeployError`. Report it the way the rest of the save does.
+				// Deploying anyway is not the fallback — this throws only when an agent's unsaved changes
+				// cannot be read, which is exactly when the dialog must not claim there are none.
+				onDeployError?.({ error: err })
+				sendUserToast(`The flow could not be saved: ${err?.body ?? err}`, true)
+				return
+			}
+			agentCanWrite = {}
+			agentRefusal = {}
+			if (draftAgents.length > 0) {
+				// One lookup for the whole list: an agent lives in a folder, and the groups and admin
+				// flag that answer for it are per workspace, so the nav user would answer for the wrong
+				// membership when a session editor operates on another workspace.
+				const user = await getUserExt(opWorkspace ?? '').catch(() => undefined)
+				agentCanWrite = Object.fromEntries(
+					draftAgents.map((a) => [a.path, agentDraftCanWrite(a, user ?? $userStore ?? undefined)])
+				)
+				// The path is passed, so a draft that renames the agent is refused here too: a rename is
+				// the resource editor's to deploy, and this dialog lists the agent under the path the
+				// flow links.
+				agentRefusal = Object.fromEntries(
+					draftAgents.map((a) => [a.path, agentDraftDeployRefusal(a.state, a.path)])
+				)
+			}
+			if (draftTriggers.length > 0 || draftAgents.length > 0) {
+				draftChangesModalOpen = true
+				confirmDeploymentCallback = async (confirmed: DraftChangesToDeploy) => {
+					await saveFlow(deploymentMsg, confirmed)
 				}
 				return
 			}
 		}
+		const triggersToDeploy = toDeploy?.triggers
 
 		loadingSave = true
 		try {
@@ -402,7 +571,27 @@
 			// loadingSave = false // del
 			// return
 
-			if (newFlow) {
+			// Ahead of the flow itself, as the update branch deploys its triggers: an agent is a
+			// resource of its own, so the flow should land on top of the agent set it was tested
+			// against rather than the other way round.
+			await deployAgentDrafts(toDeploy?.agents ?? [])
+
+			// `newFlow` comes from the embedder, and updating a path that has no
+			// deployed flow 404s. Confirm with the server before taking the update
+			// branch so a first deploy still lands.
+			let isNewFlow = newFlow
+			if (!isNewFlow) {
+				try {
+					isNewFlow =
+						initialPath === '' ||
+						!(await FlowService.existsFlowByPath({ workspace: opWorkspace!, path: initialPath }))
+				} catch (err) {
+					// Unreachable check: keep the caller's intent rather than failing the deploy.
+					console.error('Could not check flow existence', err)
+				}
+			}
+
+			if (isNewFlow) {
 				await FlowService.createFlow({
 					workspace: opWorkspace!,
 					requestBody: {
@@ -416,6 +605,7 @@
 						dedicated_worker: flow.dedicated_worker,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
+						on_behalf_of: flow.on_behalf_of,
 						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels
@@ -464,6 +654,7 @@
 						ws_error_handler_muted: flow.ws_error_handler_muted,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
+						on_behalf_of: flow.on_behalf_of,
 						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels
@@ -508,9 +699,172 @@
 
 	const previewArgsStore = $state({ val: untrack(() => initialArgs) })
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
+	const workspaceScriptSettingsDrawer = writable<WorkspaceScriptSettingsDrawer | undefined>(
+		undefined
+	)
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
 	const history = initHistory(untrack(() => flowStore).val)
 	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
+
+	// Linked-agent tool resolutions are scoped by workspace + flow path, but publishers key by the
+	// flow doc's own path while readers use the live-edited $pathStore — which diverge for renames
+	// and renamed drafts. Sweep the doc-path bucket into the live scope on every rename and every
+	// publish (initFlowState re-runs on session-draft sync and republishes under the doc path).
+	let prevLinkedToolsScope = untrack(() => linkedToolsScope(opWorkspace, $pathStore))
+	$effect(() => {
+		linkedAgentToolsVersion()
+		const scope = linkedToolsScope(opWorkspace, $pathStore)
+		const docScope = linkedToolsScope(
+			opWorkspace,
+			(flowStore.val as { path?: string }).path ?? $pathStore
+		)
+		untrack(() => {
+			if (scope !== prevLinkedToolsScope) {
+				sweepLinkedToolsScope(prevLinkedToolsScope, scope, opWorkspace, true)
+				prevLinkedToolsScope = scope
+			}
+			if (docScope !== scope) {
+				sweepLinkedToolsScope(docScope, scope, opWorkspace, false)
+			}
+		})
+	})
+
+	// `renamed` distinguishes the two sources. After a rename every fetch still running against the
+	// old scope is stale by definition, empty bucket or not — its result would land in a scope
+	// readers have left and be swept forward later. The doc-scope sweep has no such cut-off: fetches
+	// there belong to the refresh in progress, so it only acts once that scope holds something.
+	function sweepLinkedToolsScope(
+		from: string,
+		to: string,
+		ws: string | undefined,
+		renamed: boolean
+	) {
+		const sourceHasTools = Object.keys(linkedAgentToolsForScope(from)).length > 0
+		if (!renamed && !sourceHasTools) {
+			return
+		}
+		invalidateLinkedToolsFetches(from)
+		if (sourceHasTools) {
+			migrateLinkedAgentToolsScope(from, to)
+		}
+		// Restart what that cancelled: a link still loading has nothing in `to`, whereas one whose
+		// tools migrated is already current. A link changed in the same tick keeps the old agent's
+		// tools here, so it is left for the watcher below, which compares links rather than presence.
+		const resolved = linkedAgentToolsForScope(to)
+		for (const [moduleId, agentPath] of linkedAgentEntries(linkedAgentRefs)) {
+			if (resolved[moduleId] === undefined) {
+				publishLinkedAgentTools(agentPath, ws, to, moduleId, true)
+			}
+		}
+	}
+
+	// Re-resolve linked agents whenever the set of links changes. Wholesale replacements — undo/redo,
+	// YAML or AI apply, session restore — swap `agent` without re-running initFlowState, and the step
+	// editor only watches the step it is mounted on, so an unselected step would keep showing (and
+	// binding against) the previous agent's tools.
+	let linkedAgentRefs = $derived(
+		dfsApply(flowStore.val.value?.modules ?? [], (m) => m, { skipToolNodes: true })
+			.flatMap((m) => {
+				const value = m?.value as
+					| { type?: string; agent?: string; tools?: { id: string; value?: unknown }[] }
+					| undefined
+				if (value?.type !== 'aiagent') {
+					return []
+				}
+				const refs = value.agent ? [`${m.id}\u0000${value.agent}`] : []
+				// A linked agent nested as a tool is invisible to the walk above (tool nodes are skipped
+				// so resource-owned ids can't alias flow modules), yet it has its own store entry under
+				// the ancestry-qualified key the step editor writes.
+				for (const tool of value.tools ?? []) {
+					const nested = tool?.value as { type?: string; agent?: string } | undefined
+					if (nested?.type === 'aiagent' && nested.agent) {
+						refs.push(`${m.id}/${tool.id}\u0000${nested.agent}`)
+					}
+				}
+				return refs
+			})
+			.filter((x): x is string => x !== undefined)
+			.join('\u0001')
+	)
+	// The link each module's stored tools belong to. Seeded with the top-level links only, because
+	// those are exactly what initFlowState resolves — seeding the whole set would mark a nested
+	// linked agent as current when nothing has fetched it, and seeding nothing would clear and
+	// refetch every step on the first run.
+	let publishedAgentByModule = untrack(() =>
+		linkedAgentEntries(
+			dfsApply(flowStore.val.value?.modules ?? [], (m) => m, { skipToolNodes: true })
+				.map((m) => {
+					const value = m?.value as { type?: string; agent?: string } | undefined
+					return value?.type === 'aiagent' && value.agent
+						? `${m.id}\u0000${value.agent}`
+						: undefined
+				})
+				.filter((x): x is string => x !== undefined)
+				.join('\u0001')
+		)
+	)
+	$effect(() => {
+		const refs = linkedAgentRefs
+		const ws = opWorkspace
+		const scope = linkedToolsScope(opWorkspace, $pathStore)
+		untrack(() => {
+			const next = linkedAgentEntries(refs)
+			// Only links that actually changed are re-resolved, so a plain rename costs nothing: the
+			// sweep above carries its buckets to the new scope and every entry compares equal. A
+			// restore that renames and relinks in one tick still gets both.
+			for (const [moduleId, agentPath] of next) {
+				if (publishedAgentByModule.get(moduleId) === agentPath) {
+					continue
+				}
+				// Drop the previous agent's tools up front: the fetch below lands later, and until it
+				// does the graph and the step's binding editor would otherwise still be showing — and
+				// writing overrides against — the tool ids of the agent that was just replaced.
+				claimLinkedToolsFetch(scope, moduleId)
+				clearLinkedAgentTools(scope, moduleId)
+				publishLinkedAgentTools(agentPath, ws, scope, moduleId, true)
+			}
+			publishedAgentByModule = next
+		})
+	})
+
+	function linkedAgentEntries(refs: string): Map<string, string> {
+		const entries = new Map<string, string>()
+		for (const entry of refs ? refs.split('\u0001') : []) {
+			const [moduleId, agentPath] = entry.split('\u0000')
+			entries.set(moduleId, agentPath)
+		}
+		return entries
+	}
+
+	// "Open in AI session" target: the URL draft path the editor loads/saves by
+	// (which for a new flow differs from the live-edited friendly `$pathStore`),
+	// falling back to `$pathStore` in drawer mounts that carry no storage path.
+	const sessionTargetPath = $derived(liveEditorDraftStoragePath || $pathStore)
+
+	const sessionOpen = $derived(
+		sessionTargetPath
+			? {
+					target: { kind: 'flow' as const, path: sessionTargetPath },
+					workspaceId: opWorkspace ?? undefined,
+					beforeOpen: persistDraftForSession
+				}
+			: undefined
+	)
+
+	// Reaches the AI entry point in a step's inline-editor toolbar, which the
+	// recursive module wrapper sits too deep under to be handed a prop. `selected`
+	// is the flow editor's own step param, so the session preview opens on the
+	// step whose code the user was editing. Withheld under `disableAi` (same gate
+	// as the graph toolbar's button): an embed that turned AI off must not get an
+	// entry point that navigates the host out to /sessions.
+	setOpenInSessionHandoff({
+		source: (opts) =>
+			disableAi || !sessionOpen
+				? undefined
+				: opts?.moduleId
+					? { ...sessionOpen, previewParams: { selected: opts.moduleId } }
+					: sessionOpen
+	})
 
 	$effect(() => {
 		if (liveEditorDraftStoragePath === undefined || !opWorkspace) return
@@ -538,8 +892,10 @@
 
 	const stepsInputArgs = new StepsInputArgs()
 
+	// Every caller is a deliberate "show me that panel" action (a toolbar button, the
+	// preview's trigger shortcut), so the panel must open even in modal mode.
 	function select(selectedId: string) {
-		selectionManager.selectId(selectedId)
+		selectionManager.selectId(selectedId, { openPanel: true })
 	}
 
 	let insertButtonOpen = writable<boolean>(false)
@@ -552,6 +908,7 @@
 		currentEditor: writable(undefined),
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
+		workspaceScriptSettingsDrawer,
 		flowEditorDrawer,
 		history,
 		flowStateStore: untrack(() => flowStateStore),
@@ -570,6 +927,7 @@
 		outputPickerOpenFns,
 		preserveOnBehalfOf,
 		savedOnBehalfOfEmail,
+		savedOnBehalfOfPermissionedAs,
 		opWorkspace: () => opWorkspace
 	})
 
@@ -640,13 +998,16 @@
 		for (const mod of restoredModules) {
 			if (mod) {
 				try {
-					loadFlowModuleState(mod).then((state) => (flowStateStore.val[mod.id] = state))
+					loadFlowModuleState(mod, opWorkspace).then(
+						(state) => (flowStateStore.val[mod.id] = state)
+					)
 				} catch (e) {
 					console.error('Error loading state for restored node', e)
 				}
 			}
 		}
-		selectionManager.selectId('Input')
+		// Undo restores a selection as a side effect; it is not a request to see Input.
+		selectionManager.selectId('Input', { openPanel: false })
 	}
 
 	function handleRedo() {
@@ -684,7 +1045,9 @@
 				}
 				break
 			case 's':
-				if (event.ctrlKey || event.metaKey) {
+				// Shift excluded: the switch lowercases so Ctrl+Shift+S lands here
+				// too, and swallowing it would steal the browser/OS shortcut.
+				if ((event.ctrlKey || event.metaKey) && !event.shiftKey) {
 					saveDraft()
 					event.preventDefault()
 				}
@@ -694,7 +1057,9 @@
 					let ids = generateIds()
 					let idx = ids.indexOf(selectedIdStore!)
 					if (idx > -1 && idx < ids.length - 1) {
-						selectionManager.selectId(ids[idx + 1])
+						// Traversal, not a request to see any one panel: the ids list starts with
+						// flow-level entries, and opening the modal mid-walk swallows the arrows.
+						selectionManager.selectId(ids[idx + 1], { openPanel: false })
 						event.preventDefault()
 					}
 				}
@@ -705,7 +1070,7 @@
 					let ids = generateIds()
 					let idx = ids.indexOf(selectedIdStore!)
 					if (idx > 0 && idx < ids.length) {
-						selectionManager.selectId(ids[idx - 1])
+						selectionManager.selectId(ids[idx - 1], { openPanel: false })
 						event.preventDefault()
 					}
 				}
@@ -728,7 +1093,9 @@
 		onClick: () => void
 	}> = []
 
-	if (untrack(() => customUi).topBar?.extraDeployOptions != false) {
+	// In a session pane every one of these leaves the session (details page, new
+	// tab), so the deploy button carries no dropdown there — as in ScriptBuilder.
+	if (untrack(() => customUi).topBar?.extraDeployOptions != false && !inSessionPane) {
 		if (!newFlow) {
 			dropdownItems.push({
 				label: 'Exit & see details',
@@ -753,7 +1120,7 @@
 		) {
 			dropdownItems.push({
 				label: editInForkLabel(opWorkspace, $userWorkspaces),
-				onClick: () => window.open(buildForkEditUrl('flow', initialPath))
+				onClick: () => openEditInFork('flow', initialPath, opWorkspace)
 			})
 		}
 	}
@@ -811,15 +1178,16 @@
 	const mod = isMac() ? '⌘' : 'Ctrl+'
 
 	function getMoreItems(): Item[] {
+		const leadingItems = [...diffMenuItems, ...baseMenuItems]
 		return [
-			...baseMenuItems,
+			...leadingItems,
 			{
 				displayName: 'Undo',
 				icon: Undo,
 				action: () => handleUndo(),
 				disabled: $history.index === 0,
 				shortcut: `${mod}Z`,
-				separatorTop: baseMenuItems.length > 0
+				separatorTop: leadingItems.length > 0
 			},
 			{
 				displayName: 'Redo',
@@ -1080,14 +1448,17 @@
 	currentValue={flowStore.val}
 />
 
-<DraftTriggersConfirmationModal
-	bind:open={draftTriggersModalOpen}
+<DraftChangesConfirmationModal
+	bind:open={draftChangesModalOpen}
 	draftTriggers={triggersState.triggers.filter((t) => t.draftConfig)}
+	{draftAgents}
+	{agentCanWrite}
+	{agentRefusal}
 	isFlow={true}
 	on:canceled={() => {
-		draftTriggersModalOpen = false
+		draftChangesModalOpen = false
 	}}
-	on:confirmed={handleDraftTriggersConfirmed}
+	on:confirmed={handleDraftChangesConfirmed}
 />
 
 <AIChangesWarningModal bind:open={aiChangesWarningOpen} onConfirm={aiChangesConfirmCallback} />
@@ -1100,6 +1471,7 @@
 		<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 		<FlowImportExportMenu bind:drawer={jsonViewerDrawer} />
 		<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />
+		<WorkspaceScriptSettingsDrawer bind:this={$workspaceScriptSettingsDrawer} />
 		<FlowEditorDrawer bind:this={$flowEditorDrawer} />
 
 		<div bind:this={flowBuilderRoot} class="flex flex-col h-full">
@@ -1111,17 +1483,21 @@
 					: 'max-h-12'}"
 			>
 				<div class="flex flex-row items-center gap-2 min-w-0">
-					<div class="min-w-0 overflow-hidden">
-						<EditorHeader
-							bind:summary={flowStore.val.summary}
-							bind:path={$pathStore}
-							savedPath={initialPath}
-							onBehalfOfEmail={$savedOnBehalfOfEmail}
-							hidePath={condensedHeader}
-							workspaceId={autosaveWorkspace}
-							onNavigate={(item) => onNavigate?.(item)}
-						/>
-					</div>
+					{#if customUi?.topBar?.path != false}
+						<div class="min-w-0 overflow-hidden">
+							<EditorHeader
+								bind:summary={flowStore.val.summary}
+								bind:path={$pathStore}
+								savedPath={initialPath}
+								onBehalfOfEmail={$savedOnBehalfOfEmail}
+								summaryEditable={customUi?.topBar?.editableSummary != false}
+								pathEditable={customUi?.topBar?.editablePath != false}
+								hidePath={condensedHeader}
+								workspaceId={autosaveWorkspace}
+								onNavigate={(item) => onNavigate?.(item)}
+							/>
+						</div>
+					{/if}
 					{#if opWorkspace && indicatorPath !== undefined}
 						<AutosaveIndicator
 							workspace={opWorkspace}
@@ -1136,7 +1512,7 @@
 					{/if}
 				</div>
 				<div class="flex flex-row gap-2 items-center shrink-0">
-					{#if $enterpriseLicense && !newFlow}
+					{#if $enterpriseLicense && !newFlow && !inSessionPane}
 						<Awareness />
 					{/if}
 					<div class="relative">
@@ -1147,13 +1523,7 @@
 							></span>
 						{/if}
 					</div>
-					{#if customUi?.topBar?.diff != false}
-						{@const isDraftOnly = savedFlow?.no_deployed === true}
-						{@const diffDisabled = !savedFlow || newFlow || isDraftOnly}
-						{@const diffTitle =
-							newFlow || isDraftOnly
-								? 'Deploy this flow once to compare against the deployed version'
-								: 'Diff'}
+					{#if diffEnabled && !diffInMenu}
 						<!-- A disabled <button> fires no pointer events, so a title/tooltip on
 						     it never shows on hover. pointer-events-none on the button lets the
 						     hover reach this titled wrapper instead. -->
@@ -1164,7 +1534,6 @@
 								on:click={() => openDiffDrawer()}
 								disabled={diffDisabled}
 								btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
-								iconOnly={compactTopbar}
 								title={diffTitle}
 								startIcon={{ icon: DiffIcon }}
 							>
@@ -1221,6 +1590,7 @@
 					{disabledFlowInputs}
 					disableAi={disableAi || customUi?.stepInputs?.ai == false}
 					disableSettings={customUi?.settingsPanel === false}
+					modalPanel={customUi?.modalPanel != false}
 					{loading}
 					on:reload={() => {
 						renderCount += 1
@@ -1242,7 +1612,7 @@
 					{savedFlow}
 					onDeployTrigger={handleDeployTrigger}
 					onEditInput={(moduleId, key) => {
-						selectionManager.selectId(moduleId)
+						selectionManager.selectId(moduleId, { openPanel: true })
 						// Use new prop-based system
 						forceTestTab[moduleId] = true
 						highlightArg[moduleId] = key
@@ -1257,16 +1627,7 @@
 					aiChatOpen={aiChatManager.open}
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
-					sessionOpen={$pathStore
-						? {
-								target: { kind: 'flow', path: $pathStore },
-								workspaceId: opWorkspace ?? undefined,
-								// Persist unsaved edits so the session preview
-								// (/flows/edit/<path>) opens the flow exactly as it is in the
-								// editor right now.
-								beforeOpen: saveDraft
-							}
-						: undefined}
+					{sessionOpen}
 					onOpenPreview={flowPreviewButtons?.openPreview}
 					localModuleStates={showJobStatus ? localModuleStates : {}}
 					{showJobStatus}

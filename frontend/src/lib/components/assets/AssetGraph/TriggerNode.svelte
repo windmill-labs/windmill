@@ -48,6 +48,7 @@
 		email: { icon: Mail, label: 'email', ...MUTED },
 		kafka: { icon: Zap, label: 'kafka', ...MUTED },
 		mqtt: { icon: Radio, label: 'mqtt', ...MUTED },
+		amqp: { icon: Radio, label: 'amqp', ...MUTED },
 		nats: { icon: MessageSquare, label: 'nats', ...MUTED },
 		postgres: { icon: Database, label: 'postgres', ...MUTED },
 		sqs: { icon: Send, label: 'sqs', ...MUTED },

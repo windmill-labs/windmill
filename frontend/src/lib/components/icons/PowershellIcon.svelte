@@ -1,12 +1,14 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #2D4664 per github.com/PowerShell/PowerShell/blob/master/assets/ps_black_64.svg. Trademarked Microsoft logo, exempt from that repo's MIT license.
+	The #00FF18 line below is opacity-0 in the upstream asset and paints nothing. -->
 <svg
 	version="1.1"
 	id="Powershell"
@@ -16,7 +18,7 @@
 	y="0px"
 	{width}
 	{height}
-	viewBox="0 0 128 128"
+	viewBox="-1.455 -1.455 130.909 130.909"
 	enable-background="new 0 0 128 128"
 	xml:space="preserve"
 >

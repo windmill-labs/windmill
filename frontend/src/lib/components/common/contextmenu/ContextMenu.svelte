@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { createContextMenu, melt } from '@melt-ui/svelte'
+	import { overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
 	import { fly } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
-	import type { Snippet } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 	import { pointerDownOutside } from '$lib/utils'
 	import {
 		getContextMenuContainerClass,
@@ -43,15 +44,24 @@
 		closeOnOutsideClick = true
 	}: Props = $props()
 
+	// Overlays belong to the enclosing pane when there is one — see overlayHost.
+	const hostPortal = overlayPortalTarget('body')
+
 	const {
 		elements: { menu: menuElement, item, trigger },
-		states: { open }
+		states: { open },
+		options: { portal: portalOption }
 	} = createContextMenu({
 		positioning: {
 			placement: 'right-start'
 		},
 		preventScroll: true,
-		closeOnOutsideClick: false
+		closeOnOutsideClick: false,
+		portal: untrack(() => hostPortal())
+	})
+
+	$effect(() => {
+		$portalOption = hostPortal()
 	})
 
 	function handleItemClick(menuItem: ContextMenuItem) {

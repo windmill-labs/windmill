@@ -13,6 +13,7 @@
 	import DropdownV2Inner from './DropdownV2Inner.svelte'
 	import { pointerDownOutside } from '$lib/utils'
 	import { createDropdownMenu, melt, createSync } from '@melt-ui/svelte'
+	import { overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -86,12 +87,17 @@
 
 	let buttonEl: HTMLButtonElement | undefined = $state(undefined)
 
+	// Overlays belong to the enclosing pane when there is one — see overlayHost.
+	const hostPortal = overlayPortalTarget('body')
+
 	const {
 		elements: { menu: menuEl, item, trigger },
 		builders,
 		states,
+		options: { portal: portalOption },
 		ids: { menu: dropdownId }
 	} = createDropdownMenu({
+		portal: untrack(() => hostPortal()),
 		positioning: {
 			placement: untrack(() => placement)
 		},
@@ -112,6 +118,10 @@
 			}
 			return next
 		}
+	})
+
+	$effect(() => {
+		$portalOption = hostPortal()
 	})
 
 	const sync = createSync(states)

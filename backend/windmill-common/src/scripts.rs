@@ -72,6 +72,38 @@ pub async fn prefetch_cached_script(
     script: Script<ScriptRunnableSettingsHandle>,
     db: &DB,
 ) -> crate::error::Result<Script<ScriptRunnableSettingsInline>> {
+    prefetch_cached_script_inner(script, db, true).await
+}
+
+/// [`prefetch_cached_script`] without deriving the address, for callers that resolve it
+/// themselves — the workspace export memoizes one lookup per distinct principal, and skips it
+/// altogether for clients that only want the marker.
+pub async fn prefetch_cached_script_without_email(
+    script: Script<ScriptRunnableSettingsHandle>,
+    db: &DB,
+) -> crate::error::Result<Script<ScriptRunnableSettingsInline>> {
+    prefetch_cached_script_inner(script, db, false).await
+}
+
+async fn prefetch_cached_script_inner(
+    script: Script<ScriptRunnableSettingsHandle>,
+    db: &DB,
+    derive_email: bool,
+) -> crate::error::Result<Script<ScriptRunnableSettingsInline>> {
+    let derived_email = match script.on_behalf_of.as_deref().filter(|_| derive_email) {
+        // Uncached: the client preserves this pair and sends it back, where the write path
+        // validates it against an uncached lookup. A cached address would pair a live principal
+        // with an address the account no longer holds, and the redeploy would be rejected.
+        Some(permissioned_as) => Some(
+            crate::users::get_email_from_permissioned_as_uncached(
+                permissioned_as,
+                &script.workspace_id,
+                db,
+            )
+            .await?,
+        ),
+        None => None,
+    };
     let rs = runnable_settings::from_handle(script.runnable_settings.runnable_settings_handle, db)
         .await?;
     let (debouncing_settings, concurrency_settings) =
@@ -111,7 +143,9 @@ pub async fn prefetch_cached_script(
         auto_kind: script.auto_kind,
         codebase: script.codebase,
         has_preprocessor: script.has_preprocessor,
-        on_behalf_of_email: script.on_behalf_of_email,
+        // Derived, not stored: see the field's doc comment.
+        on_behalf_of_email: derived_email,
+        on_behalf_of: script.on_behalf_of,
         assets: script.assets,
         modules: script.modules,
         labels: script.labels,
@@ -324,31 +358,38 @@ pub async fn fetch_script_for_update<'a>(
     .map_err(crate::error::Error::from)
 }
 
-pub struct ClonedScript {
-    pub old_script: NewScript,
-    pub new_hash: i64,
-}
-// TODO: What if dependency job fails, there is script with NULL in the lock
-pub async fn clone_script<'c>(
-    path: &str,
-    w_id: &str,
+/// Deploys the outcome of a relative-import relock as a new version of `head`, the path's live
+/// version that the caller holds `FOR UPDATE`, and archives `head`. A `lock` of `None` records
+/// a failed generation: the version carries `lock_error_logs` instead and runs keep resolving
+/// to the last version that has a lock. A `modules` of `None` keeps the head's module locks.
+///
+/// Writes whatever `head` names and checks nothing: callers are responsible for having
+/// established access to its workspace and path, as a dependency job's push already has.
+///
+/// `created_at` is stamped when the insert runs, not at transaction start. The row lock on
+/// `head` is what orders one relock after another, and with `now()` a transaction that began
+/// first but locked second commits a live child older than its archived parent, which every
+/// "latest version" read then mis-orders.
+pub async fn deploy_relocked_version(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    head: Script<ScriptRunnableSettingsHandle>,
     deployment_message: Option<String>,
-    db: &DB,
-) -> crate::error::Result<ClonedScript> {
-    let mut tx = db.begin().await?;
-    let s = if let Some(s) = fetch_script_for_update(path, w_id, &mut *tx).await? {
-        s
-    } else {
-        return Err(crate::error::Error::NotFound(format!(
-            "Non-archived script with path '{}' not found",
-            path
-        )));
-    };
+    lock: Option<&str>,
+    modules: Option<&std::collections::HashMap<String, ScriptModule>>,
+    lock_error_logs: Option<&str>,
+) -> crate::error::Result<i64> {
+    let s = head;
+    let w_id = s.workspace_id.as_str();
 
-    let rs = runnable_settings::from_handle(s.runnable_settings.runnable_settings_handle, &mut *tx)
-        .await?;
+    let rs =
+        runnable_settings::from_handle(s.runnable_settings.runnable_settings_handle, &mut **tx)
+            .await?;
     let (debouncing_settings, concurrency_settings) =
-        runnable_settings::prefetch_cached_tx(&rs, &mut tx).await?;
+        runnable_settings::prefetch_cached_tx(&rs, &mut *tx).await?;
+
+    // What the row stores is what the hash covers: the new module locks when there are any.
+    let modules = modules.cloned().or(s.modules);
+    let modules_json = modules.as_ref().map(serde_json::to_value).transpose()?;
 
     let ns = NewScript {
         path: s.path.clone(),
@@ -358,7 +399,7 @@ pub async fn clone_script<'c>(
         content: s.content,
         schema: s.schema,
         is_template: s.is_template,
-        lock: None,
+        lock: lock.map(str::to_string),
         language: s.language,
         kind: Some(s.kind),
         tag: s.tag,
@@ -387,9 +428,10 @@ pub async fn clone_script<'c>(
         codebase: s.codebase,
         has_preprocessor: s.has_preprocessor,
         on_behalf_of_email: s.on_behalf_of_email,
+        on_behalf_of: s.on_behalf_of,
         preserve_on_behalf_of: None,
         assets: s.assets,
-        modules: s.modules,
+        modules,
         auto_parent: None,
         labels: s.labels,
         skip_draft_deletion: None,
@@ -398,7 +440,7 @@ pub async fn clone_script<'c>(
     let new_hash = hash_script(&ns);
 
     tracing::debug!(
-        "cloning script at path {} from '{}' to '{}'",
+        "deploying relocked version of script at path {} from '{}' to '{}'",
         s.path,
         *s.hash,
         new_hash
@@ -411,17 +453,19 @@ pub async fn clone_script<'c>(
     envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
     dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
     delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, \
-    codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules, labels)
+    codebase, has_preprocessor, on_behalf_of, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules, labels, \
+    lock_error_logs, created_at)
 
     SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
-            content, created_by, schema, is_template, extra_perms, NULL, language, kind, tag, \
+            content, created_by, schema, is_template, extra_perms, $4::text, language, kind, tag, \
             envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
             dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
             delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, \
-            codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules, labels
+            codebase, has_preprocessor, on_behalf_of, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, COALESCE($5::jsonb, modules), labels, \
+            $6::text, clock_timestamp()
 
     FROM script WHERE hash = $2 AND workspace_id = $3;
-            ", new_hash, s.hash.0, w_id).execute(&mut *tx).await?;
+            ", new_hash, s.hash.0, w_id, lock, modules_json, lock_error_logs).execute(&mut **tx).await?;
 
     // Archive base.
     sqlx::query!(
@@ -429,9 +473,8 @@ pub async fn clone_script<'c>(
         *s.hash,
         w_id
     )
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
 
-    tx.commit().await?;
-    Ok(ClonedScript { old_script: ns, new_hash })
+    Ok(new_hash)
 }

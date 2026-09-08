@@ -206,7 +206,11 @@ class DAPTestClient {
 	private events: DAPMessage[] = []
 	private output: string[] = []
 	private result: unknown = undefined
-	private eventHandlers = new Map<string, ((event: DAPMessage) => void)[]>()
+	private eventWaiters = new Map<string, ((event: DAPMessage) => void)[]>()
+	// An event that arrives before its waiter is registered is queued rather than dropped: the
+	// server sends 'initialized' right behind the 'initialize' response, and 'terminated' can
+	// land before the launch call the test awaits has even returned.
+	private bufferedEvents = new Map<string, DAPMessage[]>()
 
 	async connect(endpoint: string): Promise<void> {
 		const url = `ws://${HOST}:${DEBUGGER_PORT}${endpoint}`
@@ -273,9 +277,13 @@ class DAPTestClient {
 					this.result = msg.body.result
 				}
 
-				const handlers = this.eventHandlers.get(msg.event!) || []
-				for (const handler of handlers) {
-					handler(msg)
+				const waiters = this.eventWaiters.get(msg.event!)
+				if (waiters && waiters.length > 0) {
+					waiters.shift()!(msg)
+				} else {
+					const buffered = this.bufferedEvents.get(msg.event!) || []
+					buffered.push(msg)
+					this.bufferedEvents.set(msg.event!, buffered)
 				}
 			}
 		} catch {
@@ -313,23 +321,27 @@ class DAPTestClient {
 	}
 
 	waitForEvent(eventName: string, timeout = 10000): Promise<DAPMessage> {
+		const buffered = this.bufferedEvents.get(eventName)
+		if (buffered && buffered.length > 0) {
+			return Promise.resolve(buffered.shift()!)
+		}
+
 		return new Promise((resolve, reject) => {
+			const waiters = this.eventWaiters.get(eventName) || []
+			this.eventWaiters.set(eventName, waiters)
+
 			const timer = setTimeout(() => {
+				const idx = waiters.indexOf(handler)
+				if (idx >= 0) waiters.splice(idx, 1)
 				reject(new Error(`Timeout waiting for event: ${eventName}`))
 			}, timeout)
 
 			const handler = (event: DAPMessage) => {
 				clearTimeout(timer)
-				const handlers = this.eventHandlers.get(eventName) || []
-				const idx = handlers.indexOf(handler)
-				if (idx >= 0) handlers.splice(idx, 1)
 				resolve(event)
 			}
 
-			if (!this.eventHandlers.has(eventName)) {
-				this.eventHandlers.set(eventName, [])
-			}
-			this.eventHandlers.get(eventName)!.push(handler)
+			waiters.push(handler)
 		})
 	}
 
@@ -379,6 +391,7 @@ class DAPTestClient {
 		this.output = []
 		this.result = undefined
 		this.events = []
+		this.bufferedEvents.clear()
 	}
 }
 

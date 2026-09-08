@@ -59,6 +59,41 @@ Reference other resources:
 }
 ```
 
+## Passing a Resource or Variable as a Run Argument
+
+A script or flow argument typed as a resource (schema `format: resource-<type>`) is passed as
+the **bare string** `$res:<path>` — the whole argument value. Same for a variable, with
+`$var:<path>`. This applies everywhere job arguments are supplied: `wmill script run/preview`,
+`wmill flow run/preview`, the `runScriptByPath` / `runFlowByPath` API, a schedule's `args`, a
+trigger's configured static args.
+
+```json
+{
+  "db": "$res:f/databases/postgres_prod",
+  "api_token": "$var:g/all/api_token"
+}
+```
+
+The reference is resolved when the job runs, under the job's run-as identity — the caller for an
+ordinary run, but the configured principal for a schedule, a trigger, or a runnable set to run on
+behalf of someone else. The run fails if that identity cannot read the referenced resource or
+variable.
+
+**Never wrap it in an object.** The resolver only rewrites a JSON value that *is* a string
+starting with `$res:` / `$var:`; keys are never inspected. These are all wrong and are passed
+through to the script unchanged:
+
+```json
+{ "db": { "$res": "f/databases/postgres_prod" } }
+{ "db": { "resource": "f/databases/postgres_prod" } }
+{ "db": "f/databases/postgres_prod" }
+```
+
+The string may sit anywhere a string can — a top-level argument, a nested object field
+(`{ "gh_auth": { "token": "$var:g/all/gh_token" } }`), or an array element (array elements are
+walked only while nested at most two levels deep, and only for arrays of at most 1000 items).
+The prefix must be on the string itself.
+
 ## Common Resource Types
 
 ### PostgreSQL
@@ -237,7 +272,8 @@ wmill resource-type list --schema
 # Get specific resource type schema
 wmill resource-type get postgresql
 
-# Push resources to Windmill — deploys to the workspace and can be destructive to
-# remote state, so only run it when the user explicitly asks to deploy/publish/push
+# Deploy resources to the workspace — destructive to remote state, so only run when
+# the user explicitly asks to deploy/publish/push. Depending on how the repo is wired,
+# deploy via `git push` or `wmill sync push` (see the Deploying section in AGENTS.wmill.md).
 wmill sync push
 ```

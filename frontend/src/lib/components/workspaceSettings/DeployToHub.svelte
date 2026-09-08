@@ -1,0 +1,1422 @@
+<script lang="ts">
+	import { Alert, Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
+	import WorkspaceDeployLayout from '$lib/components/WorkspaceDeployLayout.svelte'
+	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { sendUserToast } from '$lib/toast'
+	import { workspaceStore, hubBaseUrlStore, enterpriseLicense } from '$lib/stores'
+	import { displayDate } from '$lib/utils'
+	import {
+		useDeployToHubSession,
+		canRecord,
+		canRecordSession,
+		sanitizeSlug,
+		isValidSlug,
+		type DeployItem,
+		type DeployToHubSession
+	} from './deployToHubSession.svelte'
+	import { TRIGGER_KINDS, triggerDetails } from '$lib/components/triggers/workspaceTriggersList'
+	import Toggle from '../Toggle.svelte'
+	import MigrationSqlEditor from './MigrationSqlEditor.svelte'
+	import PipelineRecordingReplay from '$lib/components/recording/PipelineRecordingReplay.svelte'
+	import RawAppRecordSession from './RawAppRecordSession.svelte'
+	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
+	import {
+		Check,
+		ChevronDown,
+		Cloud,
+		Code2,
+		Database,
+		Eye,
+		ExternalLink,
+		Image as ImageIcon,
+		Info,
+		LayoutDashboard,
+		Loader2,
+		Play,
+		RotateCcw,
+		TriangleAlert,
+		X,
+		Zap
+	} from 'lucide-svelte'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
+	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
+	import Popover from '$lib/components/Popover.svelte'
+
+	// Folder name (no `f/`) this project is scoped to; provided by the /folders launcher.
+	let { folder: folderProp }: { folder: string } = $props()
+
+	// All deploy state lives in a session keyed by (workspace, folder): switching
+	// either replaces the instance (and the {#key} below remounts the UI, closing
+	// drawers), so nothing here needs resetting by hand.
+	const deployHub = useDeployToHubSession({
+		workspace: () => $workspaceStore,
+		folder: () => folderProp,
+		hasEeLicense: () => !!$enterpriseLicense
+	})
+
+	let recordDrawer = $state<Drawer | undefined>()
+	let appRecordDrawer = $state<Drawer | undefined>()
+	let appRecordTarget = $state<DeployItem | undefined>(undefined)
+	let pipelinePreviewDrawer = $state<Drawer | undefined>()
+	// Inline pipeline graph above the item list, collapsed by default so the
+	// selection list stays the first thing in view.
+	let pipelineGraphOpen = $state(false)
+	// Discarding throws away every item pushed for the update and any recording made
+	// for it, none of which can be recovered. The session that opened the dialog is
+	// held rather than a boolean: a workspace or folder switch (browser history, say)
+	// replaces the session underneath an open dialog, and confirming must never
+	// discard a different folder's update.
+	let discardTarget = $state<DeployToHubSession | undefined>(undefined)
+	let resourceDrawer = $state<Drawer | undefined>()
+	let triggerDrawer = $state<Drawer | undefined>()
+	let bundleDrawer = $state<Drawer | undefined>()
+
+	let hubUrl = $derived(
+		`${$hubBaseUrlStore.replace(/\/+$/, '')}/projects/${deployHub.session?.hubSlug ?? ''}`
+	)
+
+	// The session is UI-free; the component owns drawer open/close around its
+	// operations.
+	function openBundle() {
+		const s = deployHub.session
+		if (!s || s.triggersLoading) return
+		s.prepareBundle()
+		bundleDrawer?.openDrawer()
+	}
+	async function confirmBundle() {
+		await deployHub.session?.publishBundle(() => bundleDrawer?.closeDrawer())
+	}
+	function openAppRecord(it: DeployItem) {
+		appRecordTarget = it
+		appRecordDrawer?.openDrawer()
+	}
+
+	function openRecord(it: DeployItem) {
+		recordDrawer?.openDrawer()
+		void deployHub.session?.openRecord(it)
+	}
+	async function saveRecording() {
+		if (await deployHub.session?.saveRecording()) recordDrawer?.closeDrawer()
+	}
+	async function savePipelineRecording() {
+		await deployHub.session?.savePipelineRecording()
+	}
+	// Client-side mirror of the Hub's logo constraints (it re-validates server-side).
+	const MAX_LOGO_BYTES = 512 * 1024
+	let logoDragOver = $state(false)
+	let logoFileInput = $state<HTMLInputElement | undefined>()
+	async function handleLogoFile(file: File | undefined) {
+		const s = deployHub.session
+		if (!s || !file) return
+		// Browser-reported type wins over the extension: a PNG misnamed *.svg
+		// must be treated as PNG or the Hub's content sniff rejects it later.
+		const lower = file.name.toLowerCase()
+		const mime = file.type
+			? file.type === 'image/png'
+				? 'image/png'
+				: file.type === 'image/svg+xml'
+					? 'image/svg+xml'
+					: undefined
+			: lower.endsWith('.png')
+				? 'image/png'
+				: lower.endsWith('.svg')
+					? 'image/svg+xml'
+					: undefined
+		if (!mime) {
+			sendUserToast('Logo must be a PNG or SVG file', true)
+			return
+		}
+		if (file.size > MAX_LOGO_BYTES) {
+			sendUserToast('Logo too large (max 512KB)', true)
+			return
+		}
+		const buf = new Uint8Array(await file.arrayBuffer())
+		let bin = ''
+		for (let i = 0; i < buf.length; i += 0x8000) {
+			bin += String.fromCharCode(...buf.subarray(i, i + 0x8000))
+		}
+		s.hubLogo = { b64: btoa(bin), mime, name: file.name }
+	}
+	async function onLogoPicked(e: Event) {
+		const input = e.currentTarget as HTMLInputElement
+		const file = input.files?.[0]
+		// Reset so re-picking the same file re-fires `change`.
+		input.value = ''
+		await handleLogoFile(file)
+	}
+	async function onLogoDrop(e: DragEvent) {
+		e.preventDefault()
+		logoDragOver = false
+		await handleLogoFile(e.dataTransfer?.files?.[0])
+	}
+</script>
+
+{#if deployHub.session}
+	<ConfirmationModal
+		open={discardTarget !== undefined}
+		title="Discard update"
+		confirmationText="Discard"
+		onConfirmed={async () => {
+			const target = discardTarget
+			discardTarget = undefined
+			if (target && target === deployHub.session) await target.discardUpdate()
+		}}
+		onCanceled={() => (discardTarget = undefined)}
+	>
+		<span>
+			Discard this update? Everything pushed for it, including recordings made for it, is deleted
+			and cannot be recovered. Your published project is unaffected.
+		</span>
+	</ConfirmationModal>
+	{#key deployHub.session}
+		{@const s = deployHub.session}
+		<div>
+			<WorkspaceDeployLayout
+				items={s.items}
+				selectedItems={s.selectedItemKeys}
+				deploymentStatus={s.deploymentStatus}
+				hideSelection={s.phase !== 'predeploy'}
+				allSelected={s.allSelected}
+				onToggleItem={s.toggleItem}
+				onSelectAll={s.selectAll}
+				onDeselectAll={s.deselectAll}
+				emptyMessage={s.loading ? 'Loading project items…' : 'No items to publish'}
+			>
+				{#snippet header()}
+					{@const stepNum =
+						s.phase === 'predeploy'
+							? 1
+							: s.phase === 'draft'
+								? 2
+								: s.phase === 'under_review'
+									? 3
+									: 4}
+					<div class="flex flex-col gap-2 w-full pb-4">
+						<ol
+							class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3 text-xs text-secondary"
+						>
+							<span class="text-sm font-semibold text-primary">
+								How to publish your project to the Hub
+							</span>
+							<li class={stepNum === 1 ? 'text-primary' : stepNum > 1 ? 'opacity-60' : ''}>
+								<span class="font-mono text-emphasis">{stepNum > 1 ? '✓' : '1.'}</span>
+								<span class="font-semibold text-primary">Bundle your project</span> — sends every
+								selected script, flow, app and resource from this folder to the Hub{s.liveOnHub
+									? ' as an update'
+									: ' as a draft'}.
+							</li>
+							<li
+								class={stepNum === 2 ? 'text-primary' : stepNum > 2 ? 'opacity-60' : 'opacity-40'}
+							>
+								<span class="font-mono text-emphasis">{stepNum > 2 ? '✓' : '2.'}</span>
+								<span class="font-semibold text-primary">Record demos</span> — capture one execution
+								per script/flow, a session per raw app, and the whole data-pipeline cascade as one interactive
+								replay.
+							</li>
+							<li
+								class={stepNum === 3 ? 'text-primary' : stepNum > 3 ? 'opacity-60' : 'opacity-40'}
+							>
+								<span class="font-mono text-emphasis">{stepNum > 3 ? '✓' : '3.'}</span>
+								<span class="font-semibold text-primary">Submit for review</span> — send the bundle for
+								approval.
+							</li>
+						</ol>
+						<div class="flex flex-wrap items-center gap-2 pt-4">
+							{#if s.phase === 'predeploy'}
+								<span class="text-sm font-semibold text-primary">
+									Step 1: Bundle your project
+								</span>
+							{:else if s.phase === 'draft'}
+								<span class="text-sm font-semibold text-primary"> Step 2: Record demos </span>
+							{:else if s.phase === 'under_review'}
+								<span class="text-sm font-semibold text-primary">Step 3: Awaiting review</span>
+							{:else}
+								<span class="text-sm font-semibold text-primary">Live on the Hub</span>
+							{/if}
+							{#if s.phase !== 'predeploy'}
+								<Badge color="transparent" class="font-semibold">
+									<Cloud size={14} class="mr-1" />
+									<span class="text-secondary">on Hub:</span>
+									<span class="text-emphasis">{s.hubName || s.hubSlug}</span>
+								</Badge>
+								<a
+									href={hubUrl}
+									target="_blank"
+									rel="noopener noreferrer"
+									class="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+								>
+									<ExternalLink size={12} /> Open in Hub
+								</a>
+							{/if}
+							<div class="ml-auto flex items-center gap-2">
+								{#if s.phase === 'predeploy'}
+									<Button
+										variant="accent"
+										loading={s.deploying || s.triggersLoading}
+										disabled={s.selectedItems.length === 0 ||
+											s.triggersLoading ||
+											s.triggerDiscoveryFailed}
+										startIcon={{ icon: Cloud }}
+										onclick={openBundle}
+									>
+										{s.liveOnHub ? 'Bundle update' : 'Create Hub draft'} ({s.selectedItems.length})
+									</Button>
+								{:else if s.phase === 'draft'}
+									<Button
+										variant="accent"
+										loading={s.submitting}
+										startIcon={{ icon: Check }}
+										onclick={s.submitForReview}
+									>
+										Submit for review
+									</Button>
+								{:else if s.phase === 'under_review'}
+									{#if s.hubSupportsUpdates}
+										<Button
+											variant="default"
+											unifiedSize="sm"
+											loading={s.withdrawing}
+											startIcon={{ icon: X }}
+											onclick={s.cancelSubmission}
+										>
+											Cancel submission
+										</Button>
+									{/if}
+									<Button
+										size="xs"
+										variant="subtle"
+										loading={s.syncing}
+										startIcon={{ icon: RotateCcw }}
+										iconOnly
+										title="Refresh review status"
+										onclick={s.syncWithHub}
+									/>
+								{:else}
+									<Button
+										variant="accent"
+										startIcon={{ icon: RotateCcw }}
+										onclick={s.startNewDraft}
+									>
+										{s.liveOnHub ? 'Publish an update' : 'New draft'}
+									</Button>
+								{/if}
+								{#if s.liveOnHub && s.phase === 'draft'}
+									<Button
+										variant="default"
+										destructive
+										unifiedSize="sm"
+										loading={s.discardingUpdate}
+										startIcon={{ icon: X }}
+										onclick={() => (discardTarget = s)}
+									>
+										Discard update
+									</Button>
+								{/if}
+							</div>
+						</div>
+						{#if s.phase === 'predeploy'}
+							<div class="flex flex-col gap-1 pb-3">
+								<span class="text-xs text-secondary">
+									Bundling creates {s.liveOnHub
+										? 'an update to your Hub project'
+										: 'a draft project on the Hub'} from the selected scripts, flows and apps of
+									<span class="font-mono">{s.selectedFolder}/</span>.
+									{s.selectedItems.length} of {s.filteredWorkspaceItems.length} items selected.
+								</span>
+							</div>
+							<div class="flex flex-wrap items-center gap-2 text-xs">
+								<span class="font-semibold text-primary shrink-0">
+									Resource dependencies
+									{#if s.detectingResources}
+										<Loader2 size={11} class="inline animate-spin text-hint" />
+									{:else}
+										<span class="text-hint font-normal">({s.dependencyTypes.length})</span>
+									{/if}
+									<Tooltip>
+										Resource types the selected items depend on (whether passed as inputs or
+										referenced by a hardcoded path). A stub resource of each type is synced to the
+										Hub so a fork knows what credentials it needs to fill. Publishing a type's own
+										definition is opt-in — tick it in the details drawer.
+									</Tooltip>
+								</span>
+								{#if s.dependencyTypes.length === 0}
+									<span class="text-[11px] text-hint">
+										No resource references detected in the current selection.
+									</span>
+								{:else}
+									{#each s.dependencyTypes as r (r.resource_type)}
+										<span
+											class="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[11px] text-secondary {r.hasHardcoded
+												? 'border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40'
+												: 'bg-surface'}"
+										>
+											{r.resource_type}
+											{#if s.exportedResourceTypes.has(r.resource_type)}
+												<Badge color="blue" size="xs">exported</Badge>
+											{/if}
+										</span>
+									{/each}
+									<Button
+										variant="subtle"
+										unifiedSize="sm"
+										wrapperClasses="ml-auto"
+										onclick={() => resourceDrawer?.openDrawer()}
+									>
+										{s.exportedDependencyTypes.length > 0
+											? `View details (${s.exportedDependencyTypes.length} type definition${s.exportedDependencyTypes.length > 1 ? 's' : ''} exported)`
+											: 'View details'}
+									</Button>
+								{/if}
+							</div>
+							<div class="flex flex-wrap items-center gap-2 text-xs">
+								<span class="font-semibold text-primary shrink-0">
+									Data table dependencies
+									{#if s.detectingDatatables}
+										<Loader2 size={11} class="inline animate-spin text-hint" />
+									{:else}
+										<span class="text-hint font-normal">({s.datatableUsage.size})</span>
+									{/if}
+									<Tooltip>
+										Data tables the selected items read or write. A best-effort CREATE TABLE
+										migration for these is generated in the bundle step and shipped with the
+										project, so a fork can recreate the tables it needs.
+									</Tooltip>
+								</span>
+								{#if s.datatableUsage.size === 0}
+									<span class="text-[11px] text-hint">
+										No data table usage detected in the current selection.
+									</span>
+								{:else}
+									{#each [...s.datatableUsage] as [dt, tables] (dt)}
+										<span
+											class="inline-flex items-center gap-1 rounded border bg-surface px-1.5 py-0.5 font-mono text-[11px] text-secondary"
+										>
+											{dt}
+											{#if tables.size > 0}
+												<span class="text-hint">×{tables.size}</span>
+											{/if}
+										</span>
+									{/each}
+								{/if}
+							</div>
+						{/if}
+						{#if s.liveOnHub && s.phase !== 'live' && s.phase !== 'under_review'}
+							<Alert
+								type="info"
+								size="xs"
+								title={s.phase === 'predeploy'
+									? 'Your published project stays live'
+									: 'This is an update — your published project is still live'}
+							>
+								Visitors keep seeing the published version, with its stars, forks and comments,
+								until this update is approved. Approving replaces it in place; discarding leaves it
+								exactly as it is.
+							</Alert>
+						{/if}
+						{#if s.pipelineReplayMayBeStale && s.phase === 'draft'}
+							<Alert type="warning" size="xs" title="The data pipeline replay is the published one">
+								This update carries the cascade recorded for the version that is live, and at least
+								one item has changed since. Record it again below, or visitors will replay the old
+								run as though it were this version.
+							</Alert>
+						{/if}
+						{#if s.rejectionReason && s.phase === 'draft'}
+							<Alert type="error" size="xs" title="Changes requested">
+								{s.rejectionReason}
+							</Alert>
+						{/if}
+						{#if s.phase === 'draft'}
+							<div class="flex flex-col gap-1 pb-3">
+								<span class="text-xs text-secondary">
+									A recording captures one real run of a script or flow (inputs, logs, step outputs
+									and result), or one session of someone using a raw app, replayable on the Hub so
+									visitors see it work before forking. Optional, but recommended.
+								</span>
+							</div>
+						{/if}
+						{#if s.phase === 'draft' && s.isPipelineProject}
+							<div
+								class="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-950/40"
+							>
+								<div class="flex flex-wrap items-center gap-2">
+									<BarsStaggered class="text-blue-600 dark:text-blue-400" />
+									<span class="text-sm font-semibold text-primary">Data pipeline recording</span>
+									{#if s.pipelineRecorded}
+										<Badge color="green" size="xs">
+											<Check size={10} class="mr-0.5" />Recorded
+										</Badge>
+									{/if}
+									<div class="ml-auto flex items-center gap-2">
+										<Button
+											size="xs"
+											variant="subtle"
+											loading={s.pipelineRunState === 'running'}
+											startIcon={{ icon: s.pipelineRecordingResult ? RotateCcw : Play }}
+											onclick={() => s.runPipelineRecording()}
+										>
+											{s.pipelineRecordingResult ? 'Re-run' : 'Record pipeline run'}
+										</Button>
+										{#if s.pipelineRecordingResult}
+											<Button
+												size="xs"
+												variant="subtle"
+												startIcon={{ icon: Eye }}
+												onclick={() => pipelinePreviewDrawer?.openDrawer()}
+											>
+												Preview
+											</Button>
+											<Button
+												size="xs"
+												variant="accent"
+												disabled={s.pipelineRunState !== 'success'}
+												startIcon={{ icon: Check }}
+												onclick={savePipelineRecording}
+											>
+												Save as recording
+											</Button>
+										{/if}
+									</div>
+								</div>
+								<span class="text-xs text-secondary">
+									Runs this project's <span class="font-mono">{s.selectedFolder}/</span> pipeline
+									cascade ({s.recordablePipelineScriptPaths.length} step{s
+										.recordablePipelineScriptPaths.length === 1
+										? ''
+										: 's'}) and captures the asset graph, per-step logs/results and table samples
+									into one interactive replay for the project page.
+								</span>
+								{#if s.pipelineRunState === 'running'}
+									<div class="flex items-center gap-2 text-xs text-secondary">
+										<Loader2 size={12} class="animate-spin" /> Running the pipeline cascade…
+									</div>
+								{:else if s.pipelineRunState === 'success'}
+									<div class="flex items-center gap-2 text-xs text-green-700 dark:text-green-400">
+										<Check size={12} /> Cascade succeeded — preview it, then save as the recording.
+									</div>
+								{:else if s.pipelineRunState === 'failed'}
+									<div class="flex items-center gap-2 text-xs text-red-600 dark:text-red-400">
+										<TriangleAlert size={12} />
+										{s.pipelineRunError ?? 'Cascade failed'}
+									</div>
+								{/if}
+							</div>
+						{/if}
+						{#if s.phase === 'predeploy'}
+							<div class="flex flex-wrap items-center gap-2 text-xs">
+								<span class="font-semibold text-primary shrink-0">
+									Triggers
+									{#if s.triggersLoading}
+										<Loader2 size={11} class="inline animate-spin text-hint" />
+									{:else}
+										<span class="text-hint font-normal">({s.relevantTriggers.length})</span>
+									{/if}
+								</span>
+								{#if s.triggerDiscoveryFailed}
+									<span class="text-[11px] text-red-600 dark:text-red-400">
+										Some trigger kinds could not be listed — publishing is disabled so triggers
+										aren't silently left out of the bundle.
+									</span>
+									<Button
+										size="xs"
+										variant="subtle"
+										loading={s.triggersLoading}
+										disabled={s.triggersLoading}
+										startIcon={{ icon: RotateCcw }}
+										onclick={() => s.reloadTriggers()}
+									>
+										Retry
+									</Button>
+								{:else if s.relevantTriggers.length === 0}
+									<span class="text-[11px] text-hint"
+										>No triggers reference the selected items.</span
+									>
+								{:else}
+									{#each s.triggersByKind as [kind, triggers] (kind)}
+										<span
+											class="inline-flex items-center gap-1 rounded border bg-surface px-1.5 py-0.5 font-mono text-[11px] text-secondary"
+										>
+											{TRIGGER_KINDS[kind].badge}
+											<span class="text-hint">×{triggers.length}</span>
+										</span>
+									{/each}
+									<Button
+										variant="subtle"
+										unifiedSize="sm"
+										wrapperClasses="ml-auto"
+										onclick={() => triggerDrawer?.openDrawer()}
+									>
+										View details
+									</Button>
+								{/if}
+							</div>
+						{/if}
+						{#if s.phase === 'under_review'}
+							<Alert
+								type="info"
+								size="xs"
+								title={s.liveOnHub
+									? 'Update under review — your published project is still live'
+									: 'Under review'}
+							>
+								The Windmill team is reviewing your project. Submission is locked until they answer
+								— no new version can be sent to the Hub, and no recording added to this one.
+								Estimated turnaround: 1-2 business days{#if s.hubSupportsUpdates}; cancel the
+									submission to get back to it sooner{/if}.{#if s.liveOnHub}
+									Visitors keep seeing the published version meanwhile, with its stars, forks and
+									comments; approving replaces it in place.{/if} Your folder itself is untouched — keep
+								editing your scripts and flows as usual.
+							</Alert>
+						{/if}
+						{#if s.phase === 'draft'}
+							{@const recordedCount = s.recordableItems.filter((i) => i.rec === 'recorded').length}
+							{@const pct = s.recordableItems.length
+								? Math.round((recordedCount / s.recordableItems.length) * 100)
+								: 0}
+							<div class="flex items-center gap-2 self-end text-[11px] text-tertiary">
+								<span class="font-mono">{recordedCount}/{s.recordableItems.length}</span>
+								<div class="h-1 w-24 overflow-hidden rounded bg-surface-tertiary">
+									<div
+										class="h-full {s.allRecorded ? 'bg-green-500' : 'bg-hint'} transition-all"
+										style="width: {pct}%"
+									></div>
+								</div>
+								<span class={s.allRecorded ? 'text-green-700 dark:text-green-400' : 'text-hint'}>
+									{s.allRecorded ? 'Full recordings' : 'Recordings recommended'}
+								</span>
+							</div>
+						{/if}
+						{#if s.phase === 'predeploy' && s.isPipelineProject}
+							<div
+								class="flex flex-col rounded-md border border-blue-300 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/40"
+							>
+								<button
+									type="button"
+									class="flex items-center gap-2 px-3 py-2 text-left"
+									aria-expanded={pipelineGraphOpen}
+									onclick={() => (pipelineGraphOpen = !pipelineGraphOpen)}
+								>
+									<BarsStaggered class="text-blue-600 dark:text-blue-400" />
+									<span class="text-sm font-semibold text-primary">Data pipeline</span>
+									<span class="text-xs text-hint">
+										({s.pipelineScriptPaths.length} step{s.pipelineScriptPaths.length === 1
+											? ''
+											: 's'})
+									</span>
+									<Tooltip>
+										Scripts in this folder form a data-pipeline cascade (each reads or writes data
+										tables consumed by the next). Bundle the whole folder, then record the cascade
+										as one interactive replay in step 2.
+									</Tooltip>
+									<ChevronDown
+										size={16}
+										class="ml-auto shrink-0 text-tertiary transition-transform {pipelineGraphOpen
+											? 'rotate-180'
+											: ''}"
+									/>
+								</button>
+								{#if pipelineGraphOpen}
+									<div
+										class="flex flex-col gap-2 border-t border-blue-200 p-3 dark:border-blue-900"
+									>
+										<span class="text-xs text-secondary">
+											The <span class="font-mono">{s.selectedFolder}/</span> scripts and the data tables
+											they read and write, as a single pipeline. This whole cascade can be captured as
+											an interactive replay once the project is bundled.
+										</span>
+										{#if s.pipelineGraph}
+											<div class="h-[420px] overflow-hidden rounded-md border bg-surface">
+												<AssetGraphCanvas
+													graph={s.pipelineGraph}
+													viewportFitKey={s.folder}
+													scrollZoom={false}
+												/>
+											</div>
+										{:else}
+											<span class="text-xs text-hint">Loading pipeline graph…</span>
+										{/if}
+									</div>
+								{/if}
+							</div>
+						{/if}
+					</div>
+				{/snippet}
+
+				{#snippet itemSummary(item)}
+					{@const it = item as DeployItem}
+					<span class="flex min-w-0 items-center gap-1.5">
+						<span class="truncate">
+							{it.summary?.trim() || it.path}
+						</span>
+						{#if it.kind === 'script' && s.pipelineScriptPathSet.has(it.path)}
+							<Badge color="blue" size="xs" wrapperClass="shrink-0">
+								<BarsStaggered size={10} class="mr-0.5" />Pipeline
+							</Badge>
+						{/if}
+					</span>
+				{/snippet}
+
+				{#snippet itemActions(item)}
+					{@const it = item as DeployItem}
+					{#if s.phase !== 'predeploy' && canRecord(it.kind)}
+						{#if it.rec === 'recorded'}
+							<Badge color="green" size="xs">
+								<Check size={10} class="mr-0.5" />Recorded
+							</Badge>
+							{#if s.recordings[it.key]}
+								<a
+									href={`/run/${s.recordings[it.key]}?workspace=${s.workspace}`}
+									target="_blank"
+									rel="noopener noreferrer"
+									class="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+								>
+									<ExternalLink size={12} /> See recording
+								</a>
+							{/if}
+							{#if s.phase === 'draft'}
+								<Button
+									size="xs"
+									variant="subtle"
+									startIcon={{ icon: RotateCcw }}
+									onclick={() => openRecord(it)}
+								>
+									Re-record
+								</Button>
+							{/if}
+						{:else if s.phase === 'draft'}
+							<Badge color="yellow" size="xs">No recording</Badge>
+							<Button
+								size="xs"
+								variant="subtle"
+								startIcon={{ icon: Play }}
+								onclick={() => openRecord(it)}
+							>
+								Add recording
+							</Button>
+						{:else}
+							<Badge color="yellow" size="xs">No recording</Badge>
+						{/if}
+					{/if}
+					{#if s.phase === 'draft' && canRecordSession(it)}
+						{#if it.rec === 'recorded'}
+							<Badge color="green" size="xs">
+								<Check size={10} class="mr-0.5" />Recorded
+							</Badge>
+							<Button
+								size="xs"
+								variant="subtle"
+								startIcon={{ icon: RotateCcw }}
+								onclick={() => openAppRecord(it)}
+							>
+								Re-record
+							</Button>
+						{:else}
+							<Badge color="yellow" size="xs">No recording</Badge>
+							<Button
+								size="xs"
+								variant="subtle"
+								startIcon={{ icon: Play }}
+								onclick={() => openAppRecord(it)}
+							>
+								Record demo
+							</Button>
+						{/if}
+					{/if}
+				{/snippet}
+
+				{#snippet footer()}
+					<div class="flex items-center justify-end gap-3">
+						{#if s.phase === 'predeploy'}
+							<span class="text-[11px] text-hint">
+								Select the items to include — all selected by default.
+							</span>
+						{:else if s.phase === 'draft'}
+							<span class="text-[11px] text-hint">
+								{#if s.allRecorded}
+									All scripts and flows have a recording — best chance of approval and featuring.
+								{:else}
+									{s.recordableItems.filter((i) => i.rec === 'recorded').length} of {s
+										.recordableItems.length}
+									recorded. Bundles with full recordings get approved faster and featured on the public
+									Hub.
+								{/if}
+							</span>
+						{:else if s.phase === 'under_review'}
+							<span class="text-[11px] text-hint">
+								Waiting for the Windmill team to review the submission.
+							</span>
+						{:else}
+							<span class="text-[11px] text-hint">
+								{s.liveOnHub
+									? 'Publish an update to change it — this stays live until the update is approved.'
+									: 'Iterate further by starting a new draft.'}
+							</span>
+						{/if}
+					</div>
+				{/snippet}
+			</WorkspaceDeployLayout>
+		</div>
+
+		<Drawer bind:this={recordDrawer} size="600px" on:close={s.cancelRecordRun}>
+			<DrawerContent
+				title={s.recordTarget ? `Record — ${s.recordTarget.path}` : 'Record'}
+				on:close={() => recordDrawer?.closeDrawer()}
+			>
+				<div class="flex flex-col gap-3">
+					<p class="text-xs text-secondary">
+						Run this {s.recordTarget?.kind} once with the inputs below. The full execution — args, logs,
+						intermediate step outputs and final result — is saved as a <b>replayable recording</b>
+						shown on the Hub page. Visitors can step through it to see how the {s.recordTarget
+							?.kind} works without running anything themselves.
+					</p>
+
+					{#if s.runState !== 'idle'}
+						<div
+							class="sticky top-0 z-10 flex flex-col gap-2 rounded-md border bg-surface-secondary p-3 shadow-sm"
+						>
+							<div class="flex items-center gap-2 text-sm">
+								{#if s.runState === 'running'}
+									<Loader2 size={14} class="animate-spin text-blue-600 dark:text-blue-400" />
+									<span class="font-semibold">Running…</span>
+								{:else if s.runState === 'success'}
+									<Check size={14} class="text-green-600 dark:text-green-400" />
+									<span class="font-semibold text-green-700 dark:text-green-300">
+										Execution succeeded
+									</span>
+								{:else}
+									<X size={14} class="text-red-600 dark:text-red-400" />
+									<span class="font-semibold text-red-700 dark:text-red-300">Execution failed</span>
+								{/if}
+								{#if s.runJobId}
+									<a
+										href={`/run/${s.runJobId}?workspace=${s.workspace}`}
+										target="_blank"
+										rel="noopener noreferrer"
+										class="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+									>
+										<ExternalLink size={12} /> Open job
+									</a>
+								{/if}
+							</div>
+							{#if s.runState === 'success' && s.runResult !== undefined}
+								<div class="flex flex-col gap-1 text-xs">
+									<span class="text-secondary">Result preview:</span>
+									<pre class="max-h-40 overflow-auto rounded bg-surface p-2 font-mono text-[11px]"
+										>{JSON.stringify(s.runResult, null, 2)}</pre
+									>
+								</div>
+							{:else if s.runState === 'failed' && s.runError}
+								<pre
+									class="max-h-40 overflow-auto rounded bg-surface p-2 font-mono text-[11px] text-red-700 dark:text-red-300"
+									>{s.runError}</pre
+								>
+							{/if}
+							{#if s.runState === 'success'}
+								<div
+									class="mt-1 flex items-center justify-between gap-3 rounded-md border border-green-300 bg-green-50 p-2 dark:border-green-800 dark:bg-green-950/40"
+								>
+									<span class="text-xs text-green-900 dark:text-green-100">
+										Looks good? Save this run as the Hub recording.
+									</span>
+									<Button
+										size="xs"
+										variant="accent"
+										startIcon={{ icon: Check }}
+										onclick={saveRecording}
+									>
+										Save as recording
+									</Button>
+								</div>
+							{:else if s.runState === 'failed'}
+								<span class="text-[11px] text-hint">
+									Fix inputs and try again. Only successful runs can be saved as a recording.
+								</span>
+							{/if}
+						</div>
+					{/if}
+
+					{#if s.recordSchemaLoading}
+						<span class="text-xs text-hint">Loading schema…</span>
+					{:else}
+						<SchemaForm
+							bind:args={s.recordArgs}
+							bind:isValid={s.recordValid}
+							schema={s.recordSchema}
+						/>
+					{/if}
+
+					{#if s.pastRuns.length > 0 && s.runState !== 'running'}
+						<div class="flex flex-col gap-1 rounded-md border p-3">
+							<span class="text-xs font-semibold text-primary">Or pick an existing run</span>
+							<span class="text-[11px] text-hint">
+								A recording is built from the completed run, so any recent successful run works.
+							</span>
+							<div class="mt-1 flex flex-col divide-y">
+								{#each s.pastRuns as run}
+									<div class="flex items-center justify-between gap-2 py-1.5">
+										<a
+											href={`/run/${run.id}?workspace=${s.workspace}`}
+											target="_blank"
+											rel="noopener noreferrer"
+											class="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+										>
+											<ExternalLink size={12} />
+											{run.started_at ? new Date(run.started_at).toLocaleString() : run.id}
+										</a>
+										<div class="flex items-center gap-2">
+											{#if run.duration_ms !== undefined}
+												<span class="text-[11px] text-hint"
+													>{(run.duration_ms / 1000).toFixed(1)}s</span
+												>
+											{/if}
+											<Button size="xs" variant="default" onclick={() => s.useExistingRun(run.id)}>
+												Use this run
+											</Button>
+										</div>
+									</div>
+								{/each}
+							</div>
+						</div>
+					{/if}
+				</div>
+				{#snippet actions()}
+					{#if s.runState === 'success'}
+						<Button variant="default" startIcon={{ icon: RotateCcw }} onclick={s.runJob}
+							>Re-run</Button
+						>
+						<Button variant="accent" startIcon={{ icon: Check }} onclick={saveRecording}>
+							Save as recording
+						</Button>
+					{:else}
+						<Button
+							variant="accent"
+							loading={s.runState === 'running'}
+							disabled={!s.recordValid || s.recordSchemaLoading}
+							startIcon={{ icon: Play }}
+							onclick={s.runJob}
+						>
+							{s.runState === 'failed' ? 'Re-run' : 'Run'}
+						</Button>
+					{/if}
+				{/snippet}
+			</DrawerContent>
+		</Drawer>
+
+		<!-- Full screen on purpose: the demo is recorded at the size it will replay,
+		     and a recording driven in a narrow drawer replays as a narrow app. -->
+		<Drawer bind:this={appRecordDrawer} size="100vw">
+			<DrawerContent
+				title={appRecordTarget ? `Record demo — ${appRecordTarget.path}` : 'Record demo'}
+				on:close={() => appRecordDrawer?.closeDrawer()}
+			>
+				<span class="text-xs text-secondary">
+					Use the app the way a visitor would. Each interaction becomes a step, replayable on the
+					Hub page so people see what it does before forking it.
+				</span>
+				{#if appRecordTarget}
+					{#key appRecordTarget.key}
+						<div class="h-full min-h-[600px] pt-2">
+							<RawAppRecordSession
+								workspace={s.workspace}
+								path={appRecordTarget.path}
+								onsave={s.hubItemIds[appRecordTarget.key]
+									? async (recording) => {
+											const ok = await s.saveAppRecording(appRecordTarget!, recording)
+											if (ok) appRecordDrawer?.closeDrawer()
+											return ok
+										}
+									: undefined}
+							/>
+						</div>
+					{/key}
+				{/if}
+			</DrawerContent>
+		</Drawer>
+
+		<Drawer bind:this={pipelinePreviewDrawer} size="1100px">
+			<DrawerContent
+				title="Pipeline recording preview"
+				on:close={() => pipelinePreviewDrawer?.closeDrawer()}
+			>
+				{#if s.pipelineRecordingResult}
+					<div class="h-full min-h-[600px]">
+						<PipelineRecordingReplay recording={s.pipelineRecordingResult} />
+					</div>
+				{/if}
+			</DrawerContent>
+		</Drawer>
+
+		<Drawer bind:this={resourceDrawer} size="640px">
+			<DrawerContent title="Resource dependencies" on:close={() => resourceDrawer?.closeDrawer()}>
+				<div class="flex flex-col gap-4">
+					<p class="text-xs text-secondary">
+						Resource types the selected items depend on. A stub resource of each type is synced to
+						the Hub so a fork knows what credentials it needs to fill.
+						<span class="font-semibold">Input</span> means the item takes the resource as a
+						parameter;
+						<span class="font-semibold">hardcoded path</span> means the item pins a specific resource
+						path in its code.
+					</p>
+					<p class="text-xs text-secondary">
+						Publishing a type's own <span class="font-semibold">definition</span> (its schema and
+						description) is a separate, explicit choice: tick
+						<span class="font-semibold">Export type definition</span> only for custom types the Hub doesn't
+						already know. Standard types are already defined on the Hub and need no export.
+					</p>
+					{#if s.dependencyTypes.length === 0}
+						<span class="text-xs text-hint">No resource references in the current selection.</span>
+					{:else}
+						{#each s.dependencyTypes as r (r.resource_type)}
+							<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
+								<div class="flex items-center gap-2 border-b pb-2">
+									<span
+										class="rounded border px-1.5 py-0.5 font-mono text-xs text-primary {r.hasHardcoded
+											? 'border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40'
+											: 'bg-surface'}"
+									>
+										{r.resource_type}
+									</span>
+									<span class="text-[11px] text-hint">
+										{r.usages.length} usage{r.usages.length > 1 ? 's' : ''}
+									</span>
+									<div class="ml-auto shrink-0">
+										<Toggle
+											size="xs"
+											checked={s.exportedResourceTypes.has(r.resource_type)}
+											disabled={s.deploying}
+											on:change={() => s.toggleResourceTypeExport(r.resource_type)}
+											options={{
+												right: 'Export type definition',
+												rightTooltip:
+													'Publishes this resource type (name, schema, description) to the Hub project. Leave off if the Hub already defines it.'
+											}}
+										/>
+									</div>
+								</div>
+								<div class="flex flex-col gap-3">
+									{#each r.usages as u, ui (ui)}
+										{#if u.role === 'trigger'}
+											<div class="flex items-center gap-2 text-xs">
+												<Zap size={14} class="shrink-0 text-hint" />
+												<span class="break-all font-mono text-primary">{u.label}</span>
+												<span
+													class="ml-auto inline-flex shrink-0 items-center gap-1 rounded bg-surface px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-secondary"
+												>
+													{TRIGGER_KINDS[u.triggerKind].badge} trigger
+												</span>
+											</div>
+										{:else}
+											{@const itemUrl = s.itemUrl(u.kind, u.itemPath)}
+											<div class="flex flex-col gap-1 text-xs">
+												<div class="flex items-center gap-2">
+													{#if u.kind === 'script'}
+														<Code2 size={14} class="shrink-0 text-hint" />
+													{:else if u.kind === 'flow'}
+														<BarsStaggered size={14} class="shrink-0 text-hint" />
+													{:else}
+														<LayoutDashboard size={14} class="shrink-0 text-hint" />
+													{/if}
+													<span class="break-all font-mono text-primary">{u.label}</span>
+													<span
+														class="ml-auto inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide {u.role ===
+														'hardcoded'
+															? 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200'
+															: 'bg-surface text-secondary'}"
+													>
+														{u.role === 'hardcoded' ? 'hardcoded path' : 'input'}
+														{#if u.role === 'hardcoded'}
+															<Popover notClickable placement="top">
+																<Info size={11} class="text-amber-600 dark:text-amber-400" />
+																{#snippet text()}
+																	<div
+																		class="flex w-80 max-w-[90vw] flex-col gap-2 text-left text-[11px] normal-case"
+																	>
+																		<span>
+																			This {u.kind} references the resource by a hardcoded path
+																			<span class="break-all font-mono">$res:{u.path}</span>.
+																		</span>
+																		<span class="text-hint">
+																			For portability, prefer taking the resource as an input — a
+																			fork won't have this exact path. It's relocated into the
+																			project on publish, but converting it to an input keeps the
+																			item reusable.
+																		</span>
+																	</div>
+																{/snippet}
+															</Popover>
+														{/if}
+													</span>
+													{#if itemUrl}
+														<a
+															href={itemUrl}
+															target="_blank"
+															rel="noopener"
+															title="Open {u.kind} in new tab"
+															class="shrink-0 text-hint hover:text-primary"
+														>
+															<ExternalLink size={12} />
+														</a>
+													{/if}
+												</div>
+											</div>
+										{/if}
+									{/each}
+								</div>
+							</div>
+						{/each}
+					{/if}
+				</div>
+			</DrawerContent>
+		</Drawer>
+
+		<Drawer bind:this={triggerDrawer} size="640px">
+			<DrawerContent title="Triggers" on:close={() => triggerDrawer?.closeDrawer()}>
+				<div class="flex flex-col gap-4">
+					<p class="text-xs text-secondary">
+						Triggers attached to the selected scripts and flows. Synced to the Hub as
+						<span class="font-semibold">disabled stubs</span>. Recipients review and enable each one
+						manually after importing. External hooks (Slack/Discord webhooks, message-queue
+						subscriptions, etc.) must be re-registered against the importing instance.
+					</p>
+					{#if s.relevantTriggers.length === 0}
+						<span class="text-xs text-hint">No triggers reference the selected items.</span>
+					{:else}
+						{#each s.triggersByKind as [kind, triggers] (kind)}
+							<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
+								<div class="flex items-center gap-2 border-b pb-2">
+									<span
+										class="rounded border bg-surface px-1.5 py-0.5 font-mono text-xs text-primary"
+									>
+										{TRIGGER_KINDS[kind].badge}
+									</span>
+									<span class="text-[11px] text-hint">
+										{triggers.length} trigger{triggers.length > 1 ? 's' : ''}
+									</span>
+									{#if TRIGGER_KINDS[kind].note}
+										<span class="ml-auto">
+											<Popover notClickable placement="top">
+												<Info size={12} class="text-blue-600 dark:text-blue-400" />
+												{#snippet text()}
+													<div
+														class="flex w-72 max-w-[90vw] flex-col gap-1 text-left text-[11px] normal-case"
+													>
+														<span>{TRIGGER_KINDS[kind].note}</span>
+													</div>
+												{/snippet}
+											</Popover>
+										</span>
+									{/if}
+								</div>
+								<div class="flex flex-col gap-3">
+									{#each triggers as t (t.path)}
+										{@const runnableSummary = s.runnableSummaryByPath.get(
+											`${t.is_flow ? 'flow' : 'script'}:${t.script_path}`
+										)}
+										{@const details = triggerDetails(t)}
+										{@const cfg = t.config as any}
+										{@const previewKey =
+											t.kind === 'schedule' ? `${cfg.schedule}|${cfg.timezone}` : ''}
+										{@const preview =
+											t.kind === 'schedule' ? s.schedulePreviews[previewKey] : undefined}
+										{@const triggerUrl = s.triggerListUrl(t.kind)}
+										<div class="flex flex-col gap-1 text-xs">
+											<div class="flex items-center gap-2">
+												{#if t.is_flow}
+													<BarsStaggered size={14} class="shrink-0 text-hint" />
+												{:else}
+													<Code2 size={14} class="shrink-0 text-hint" />
+												{/if}
+												<span class="break-all font-mono text-primary">
+													{runnableSummary || t.script_path}
+												</span>
+												<span
+													class="ml-auto inline-flex shrink-0 items-center gap-1 rounded bg-surface px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-secondary"
+												>
+													{t.is_flow ? 'flow' : 'script'}
+												</span>
+												{#if triggerUrl}
+													<a
+														href={triggerUrl}
+														target="_blank"
+														rel="noopener"
+														title="Open {TRIGGER_KINDS[t.kind].badge} trigger list in new tab"
+														class="shrink-0 text-hint hover:text-primary"
+													>
+														<ExternalLink size={12} />
+													</a>
+												{/if}
+											</div>
+											{#if details.length > 0}
+												<dl class="ml-5 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[11px]">
+													{#each details as d (d.label)}
+														<dt class="text-hint">{d.label}</dt>
+														<dd class="break-all font-mono text-tertiary">{d.value}</dd>
+													{/each}
+													{#if t.kind === 'schedule'}
+														<dt class="text-hint">Next runs</dt>
+														<dd class="text-tertiary">
+															{#if preview && preview.length > 0}
+																<div class="flex flex-col gap-0.5">
+																	{#each preview as date (date)}
+																		<span>{displayDate(date)}</span>
+																	{/each}
+																</div>
+															{:else if preview && preview.length === 0}
+																<span class="text-hint">No upcoming run</span>
+															{:else}
+																<span class="text-hint">Loading…</span>
+															{/if}
+														</dd>
+													{/if}
+												</dl>
+											{/if}
+										</div>
+									{/each}
+								</div>
+							</div>
+						{/each}
+					{/if}
+				</div>
+			</DrawerContent>
+		</Drawer>
+
+		<Drawer bind:this={bundleDrawer} size="600px">
+			<DrawerContent title="Bundle to Hub" on:close={() => bundleDrawer?.closeDrawer()}>
+				<div class="flex flex-col gap-4">
+					<p class="text-xs text-secondary">
+						Name and document your bundle. The readme can be updated later, but a clear one speeds
+						up the Windmill team's review.
+					</p>
+					{#if s.bundlePreview && s.bundlePreview.unresolved.length > 0}
+						<div
+							class="flex flex-col gap-1 rounded-md border border-red-300 bg-red-50 p-3 text-xs text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200"
+						>
+							<span class="font-semibold"
+								>{s.bundlePreview.unresolved.length} unresolved reference(s) — cannot publish</span
+							>
+							<span class="text-[11px]">
+								These items or resources couldn't be resolved, so the bundle would ship broken
+								references. Deselect or fix them, then retry:
+							</span>
+							<ul class="list-disc pl-4 font-mono text-[11px]">
+								{#each s.bundlePreview.unresolved as u (u)}
+									<li class="break-all">{u}</li>
+								{/each}
+							</ul>
+						</div>
+					{/if}
+					<label class="flex flex-col gap-1 text-xs">
+						<span class="font-semibold text-primary">Name</span>
+						<TextInput
+							bind:value={s.hubName}
+							inputProps={{ placeholder: 'e.g. Acme CRM toolkit' }}
+						/>
+					</label>
+					<div class="flex flex-col gap-1 text-xs">
+						<span class="font-semibold text-primary">Project slug</span>
+						<span class="rounded border bg-surface-secondary px-2 py-1.5 font-mono text-secondary">
+							{s.effectiveSlug || sanitizeSlug(s.hubName) || '—'}
+						</span>
+						<span class="text-[11px] text-hint">
+							{#if s.effectiveSlug}
+								Locked — items live under <span class="font-mono">f/{s.effectiveSlug}/</span>.
+							{:else if s.hubName.trim() && !isValidSlug(sanitizeSlug(s.hubName))}
+								<span class="text-red-600 dark:text-red-400">
+									The name yields an invalid slug. Use at least 3 letters/digits.
+								</span>
+							{:else}
+								Auto-generated from the name. Once project forked, items will live under
+								<span class="font-mono">f/{sanitizeSlug(s.hubName) || '<slug>'}/</span>.
+							{/if}
+						</span>
+					</div>
+					<label class="flex flex-col gap-1 text-xs">
+						<span class="font-semibold text-primary">Summary</span>
+						<TextInput
+							bind:value={s.hubSummary}
+							inputProps={{ placeholder: 'Short one-liner shown on the Hub card' }}
+						/>
+					</label>
+					<div class="flex flex-col gap-1 text-xs">
+						<span class="font-semibold text-primary">{s.hubLogo ? 'Preview' : 'Logo'}</span>
+						{#if s.hubLogo}
+							<!-- Live replica of the Hub project card so the user can judge the
+							     logo in its real context before publishing. -->
+							<span class="text-[11px] text-hint">
+								This is how your project card will look on the Hub.
+							</span>
+							<div class="mt-1 flex flex-col items-center gap-2">
+								<div class="w-64 overflow-hidden rounded-2xl border shadow-sm">
+									<div class="flex h-32 items-center justify-center bg-surface-secondary/50 px-4">
+										<img
+											src={`data:${s.hubLogo.mime};base64,${s.hubLogo.b64}`}
+											alt="Project logo preview"
+											class="max-h-16 max-w-36 object-contain"
+										/>
+									</div>
+									<div class="border-t bg-surface p-3">
+										<div class="truncate text-xs font-medium text-primary">
+											{s.hubName.trim() || 'Project name'}
+										</div>
+										<p class="mt-0.5 line-clamp-2 text-[11px] text-secondary">
+											{s.hubSummary.trim() ||
+												s.hubName.trim() ||
+												'Short one-liner shown on the Hub card'}
+										</p>
+									</div>
+								</div>
+								<div class="flex items-center gap-2">
+									<Button
+										size="xs"
+										variant="default"
+										startIcon={{ icon: ImageIcon }}
+										onclick={() => logoFileInput?.click()}
+									>
+										Replace
+									</Button>
+									<Button
+										size="xs"
+										variant="default"
+										startIcon={{ icon: X }}
+										onclick={() => (s.hubLogo = undefined)}
+									>
+										Remove
+									</Button>
+								</div>
+							</div>
+						{:else}
+							{#if s.hubLogo === null}
+								<div
+									class="flex items-center justify-between gap-2 rounded border border-orange-300 bg-orange-50 px-3 py-2 dark:border-orange-800 dark:bg-orange-950/30"
+								>
+									<span class="text-orange-700 dark:text-orange-300">
+										The project's current logo will be removed when you publish.
+									</span>
+									<Button size="xs" variant="default" onclick={() => (s.hubLogo = undefined)}>
+										Undo
+									</Button>
+								</div>
+							{:else if s.hubHasRemoteLogo}
+								<div
+									class="flex items-center justify-between gap-2 rounded border bg-surface-secondary/50 px-3 py-2"
+								>
+									<span class="text-secondary">
+										This project already has a custom logo on the Hub.
+									</span>
+									<Button
+										size="xs"
+										variant="default"
+										startIcon={{ icon: X }}
+										onclick={() => (s.hubLogo = null)}
+									>
+										Remove on publish
+									</Button>
+								</div>
+							{/if}
+							<button
+								type="button"
+								class={`group flex w-full cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed px-4 py-6 text-center transition-colors ${
+									logoDragOver
+										? 'border-blue-400 bg-blue-50 dark:bg-blue-950/30'
+										: 'text-secondary hover:border-blue-300 hover:bg-surface-secondary/50'
+								}`}
+								onclick={() => logoFileInput?.click()}
+								ondragover={(e) => {
+									e.preventDefault()
+									logoDragOver = true
+								}}
+								ondragleave={() => (logoDragOver = false)}
+								ondrop={onLogoDrop}
+							>
+								<ImageIcon
+									size={20}
+									class="text-tertiary transition-colors group-hover:text-secondary"
+								/>
+								<span class="font-medium text-primary">
+									Drop an image or <span class="text-blue-500">browse</span>
+								</span>
+								<span class="text-[11px] text-hint">PNG or SVG, max 512KB</span>
+							</button>
+						{/if}
+						<input
+							bind:this={logoFileInput}
+							type="file"
+							accept=".png,.svg,image/png,image/svg+xml"
+							style="display: none"
+							onchange={onLogoPicked}
+						/>
+						{#if s.hubLogo === undefined}
+							<span class="text-[11px] text-hint">
+								Optional. Shown on the Hub project card and page. Leaving it empty keeps the
+								project's current logo.
+							</span>
+						{/if}
+					</div>
+					<label class="flex flex-col gap-1 text-xs">
+						<span class="font-semibold text-primary">Readme</span>
+						<textarea
+							bind:value={s.hubReadme}
+							placeholder={"# What this workspace does\n\n# Who it's for\n\n# How to use it\n"}
+							rows="10"
+							class="rounded border px-2 py-1.5 text-xs font-mono bg-surface"
+						></textarea>
+						<span class="text-[11px] text-hint">
+							Markdown supported. Editable any time before and after publication.
+						</span>
+					</label>
+					<div class="flex flex-col gap-2 border-t pt-4 text-xs">
+						<div class="flex items-center gap-2">
+							<Database size={14} />
+							<span class="font-semibold text-primary">Data table migrations</span>
+						</div>
+						{#if s.migrationsGenerating}
+							<div class="flex items-center gap-2 text-secondary">
+								<Loader2 size={14} class="animate-spin" />
+								Detecting data tables used by this project…
+							</div>
+						{:else if s.migrationDrafts.length === 0}
+							<span class="text-[11px] text-hint">
+								No data table usage detected in this project's scripts, flows, or raw apps.
+							</span>
+						{:else}
+							<span class="text-[11px] text-hint">
+								We detected these data tables. When included, the migration recreates their tables
+								on import. Best-effort — review and edit before publishing.
+							</span>
+							{#each s.migrationDrafts as m (m.datatable_name)}
+								<div class="flex flex-col gap-1.5 rounded border bg-surface-secondary p-2">
+									<div class="flex items-center justify-between gap-2">
+										<span class="font-mono text-primary">{m.datatable_name}</span>
+										<Toggle bind:checked={m.enabled} size="xs" options={{ right: 'Include' }} />
+									</div>
+									<MigrationSqlEditor
+										bind:up={m.sql}
+										bind:down={m.sql_down}
+										generation={s.migrationsGeneration}
+									/>
+								</div>
+							{/each}
+						{/if}
+					</div>
+				</div>
+				{#snippet actions()}
+					<Button
+						variant="accent"
+						loading={s.deploying}
+						disabled={!s.hubName.trim() ||
+							(!s.effectiveSlug && !isValidSlug(sanitizeSlug(s.hubName))) ||
+							s.migrationsGenerating ||
+							s.triggersLoading ||
+							s.triggerDiscoveryFailed ||
+							(s.bundlePreview?.unresolved.length ?? 0) > 0}
+						startIcon={{ icon: Cloud }}
+						onclick={confirmBundle}
+					>
+						Create bundle
+					</Button>
+				{/snippet}
+			</DrawerContent>
+		</Drawer>
+	{/key}
+{/if}

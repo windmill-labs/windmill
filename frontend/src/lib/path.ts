@@ -2,10 +2,10 @@ import { get } from 'svelte/store'
 import { ScriptService } from './gen'
 import { workspaceStore } from './stores'
 
-export async function findNextAvailablePath(path: string): Promise<string> {
+export async function findNextAvailablePath(path: string, workspace?: string): Promise<string> {
 	try {
 		await ScriptService.getScriptByPath({
-			workspace: get(workspaceStore)!,
+			workspace: workspace ?? get(workspaceStore)!,
 			path
 		})
 
@@ -17,7 +17,7 @@ export async function findNextAvailablePath(path: string): Promise<string> {
 
 		path = `${path}_${Number(version) + 1}`
 
-		return findNextAvailablePath(path)
+		return findNextAvailablePath(path, workspace)
 	} catch (e) {
 		// Catching an error means the path is available
 		return path

@@ -1,17 +1,17 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
 <svg
 	xmlns="http://www.w3.org/2000/svg"
 	{width}
 	{height}
-	viewBox="0 0 24 24"
+	viewBox="-0.017 -0.017 24.035 24.035"
 	fill="none"
 	stroke="currentColor"
 	stroke-width="2"

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE usage SET id = $1 WHERE id = $2 AND NOT is_workspace",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "65ee4ace29b39818594efdfa16453e4806c4dca776f80789a57d4d85e16aa197"
+}

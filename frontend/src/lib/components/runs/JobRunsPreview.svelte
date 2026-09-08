@@ -20,9 +20,10 @@
 	interface Props {
 		id: string
 		workspace: string | undefined
+		onResolutionChanged?: () => void
 	}
 
-	let { id, workspace }: Props = $props()
+	let { id, workspace, onResolutionChanged }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -152,6 +153,7 @@
 				{concurrencyKey}
 				onFilterByConcurrencyKey={handleFilterByConcurrencyKey}
 				onFilterByWorker={handleFilterByWorker}
+				{onResolutionChanged}
 			/>
 
 			<!-- Workflow timeline -->
@@ -171,7 +173,6 @@
 				{#if isFlow}
 					<FlowExecutionStatus
 						{job}
-						workspaceId={job?.workspace_id}
 						{isOwner}
 						innerModules={job?.flow_status?.modules}
 						{suspendStatus}

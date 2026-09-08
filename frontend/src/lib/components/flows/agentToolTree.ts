@@ -1,5 +1,11 @@
 import type { FlowModule } from '$lib/gen'
-import { isFlowModuleTool, type AgentTool, type FlowModuleTool } from './agentToolUtils'
+import {
+	getToolNameError,
+	isFlowModuleTool,
+	type AgentTool,
+	type FlowModuleTool
+} from './agentToolUtils'
+import { forEachAiAgentModule } from './aiAgentModules'
 
 type FlowNodeLike = Pick<FlowModule, 'id' | 'value'>
 
@@ -96,18 +102,20 @@ function findAgentToolOwnerInNode(
 		return undefined
 	}
 
-	const toolIndex = node.value.tools.findIndex((tool) => tool.id === toolId)
+	// Absent for a linked agent, whose tools live in the resource rather than on the module.
+	const tools = node.value.tools ?? []
+	const toolIndex = tools.findIndex((tool) => tool.id === toolId)
 	if (toolIndex !== -1) {
 		return {
 			agentId: node.id,
-			tools: node.value.tools,
+			tools,
 			toolIndex,
-			tool: node.value.tools[toolIndex],
+			tool: tools[toolIndex],
 			depth: depth + 1
 		}
 	}
 
-	for (const tool of node.value.tools) {
+	for (const tool of tools) {
 		if (!isFlowModuleTool(tool)) {
 			continue
 		}
@@ -153,10 +161,52 @@ function collectFlowNodeIdsFromNode(node: FlowNodeLike): string[] {
 	}
 
 	if (node.value.type === 'aiagent') {
-		for (const tool of node.value.tools) {
+		for (const tool of node.value.tools ?? []) {
 			ids.push(...collectAgentToolIds(tool))
 		}
 	}
 
 	return ids
+}
+
+/** Ids of AI agent modules that neither link to a saved agent nor set a provider — they pass schema
+ * validation (a linked step legitimately has no provider of its own) but fail on every run. */
+export function collectProviderlessAgentIds(modules: unknown): string[] {
+	const ids: string[] = []
+	forEachAiAgentModule(modules, (mod, v) => {
+		if (!v.agent && !v.input_transforms?.provider) {
+			ids.push(mod.id)
+		}
+	})
+	return ids
+}
+
+export type InvalidAgentToolName = {
+	agentId: string
+	toolId: string
+	name: string
+	error: string
+}
+
+/** Agent tools whose name (their `summary`) the worker rejects — the flow saves fine but every run
+ * of the agent step fails, so writers must catch this before the flow is stored. */
+export function collectInvalidAgentToolNames(modules: unknown): InvalidAgentToolName[] {
+	const invalid: InvalidAgentToolName[] = []
+	forEachAiAgentModule(modules, (mod, v) => {
+		const tools: AgentTool[] = Array.isArray(v.tools) ? v.tools : []
+		// Only a flowmodule tool's summary is a callable name: the worker never reads an mcp or
+		// websearch summary, so a blank one there must stay writable (both default to '').
+		const named = tools.filter(
+			(tool) => tool.value?.tool_type !== 'mcp' && tool.value?.tool_type !== 'websearch'
+		)
+		const siblingNames = named.map((tool) => tool.summary ?? '')
+		for (const tool of named) {
+			const name = tool.summary ?? ''
+			const error = getToolNameError(name, tool.value?.tool_type, siblingNames)
+			if (error) {
+				invalid.push({ agentId: mod.id, toolId: tool.id, name, error })
+			}
+		}
+	})
+	return invalid
 }

@@ -21,6 +21,7 @@ use windmill_common::{
     jobs::{HIDE_WORKERS_FOR_NON_ADMINS, TAGS_ARE_SENSITIVE},
     utils::{paginate, Pagination},
     worker::{ALL_TAGS, CUSTOM_TAGS_PER_WORKSPACE, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE},
+    workspaces::workspace_with_fork_ancestors,
     DB,
 };
 
@@ -102,7 +103,7 @@ async fn list_worker_pings(
     Extension(user_db): Extension<UserDB>,
     Query(query): Query<ListWorkerQuery>,
 ) -> JsonResult<Vec<WorkerPing>> {
-    let has_devops_role = require_devops_role(&db, &authed.email).await.is_ok();
+    let has_devops_role = require_devops_role(&db, &authed).await.is_ok();
     if *HIDE_WORKERS_FOR_NON_ADMINS && !has_devops_role {
         return Ok(Json(vec![]));
     }
@@ -158,12 +159,28 @@ async fn exists_workers_with_tags(
 
     // When TAGS_ARE_SENSITIVE is enabled, filter tags based on workspace visibility
     if *TAGS_ARE_SENSITIVE {
-        let has_devops_role = require_devops_role(&db, &authed.email).await.is_ok();
+        let has_devops_role = require_devops_role(&db, &authed).await.is_ok();
         if !has_devops_role {
             if let Some(ref workspace) = tags_query.workspace {
+                // This route is global, so the workspace is an unauthorized query param: check
+                // membership before reading its lineage, which would otherwise disclose whether
+                // an arbitrary workspace descends from one named by a `tag(parent*)` rule.
+                let is_member = sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2 AND NOT disabled)",
+                    workspace,
+                    &authed.email
+                )
+                .fetch_one(&db)
+                .await?
+                .unwrap_or(false);
+                if !is_member {
+                    return Ok(Json(std::collections::HashMap::new()));
+                }
+
                 // Filter to only tags visible in this workspace
+                let chain = workspace_with_fork_ancestors(&db, workspace).await?;
                 let custom_tags = CUSTOM_TAGS_PER_WORKSPACE.load();
-                let allowed_tags = custom_tags.to_string_vec(Some(workspace.clone()));
+                let allowed_tags = custom_tags.to_string_vec(Some(&chain));
                 tags.retain(|t| allowed_tags.contains(t));
             } else {
                 // No workspace provided and not superadmin - return empty
@@ -212,7 +229,7 @@ async fn get_custom_tags(
         return Ok(Json(all_tags));
     }
     if *TAGS_ARE_SENSITIVE {
-        let has_devops_role = require_devops_role(&db, &authed.email).await.is_ok();
+        let has_devops_role = require_devops_role(&db, &authed).await.is_ok();
         if !has_devops_role {
             return Ok(Json(vec![]));
         }
@@ -222,10 +239,12 @@ async fn get_custom_tags(
 
 async fn get_custom_tags_for_workspace(
     _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<String>> {
+    let chain = workspace_with_fork_ancestors(&db, &w_id).await?;
     let tags_o = CUSTOM_TAGS_PER_WORKSPACE.load();
-    let all_tags = tags_o.to_string_vec(Some(w_id));
+    let all_tags = tags_o.to_string_vec(Some(&chain));
     Ok(Json(all_tags))
 }
 
@@ -249,7 +268,7 @@ async fn get_queue_metrics(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<Vec<QueueMetric>> {
-    require_devops_role(&db, &authed.email).await?;
+    require_devops_role(&db, &authed).await?;
 
     let queue_metrics = sqlx::query_as!(
         QueueMetric,
@@ -274,7 +293,7 @@ async fn get_queue_counts(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<std::collections::HashMap<String, u32>> {
-    require_devops_role(&db, &authed.email).await?;
+    require_devops_role(&db, &authed).await?;
     let queue_counts = windmill_common::queue::get_queue_counts(&db).await;
     Ok(Json(queue_counts))
 }
@@ -283,7 +302,7 @@ async fn get_queue_running_counts(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<std::collections::HashMap<String, u32>> {
-    require_devops_role(&db, &authed.email).await?;
+    require_devops_role(&db, &authed).await?;
     let queue_running_counts = windmill_common::queue::get_queue_running_counts(&db).await;
     Ok(Json(queue_running_counts))
 }
@@ -308,7 +327,7 @@ async fn get_workspace_fairness_events(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<Vec<WorkspaceFairnessEvent>> {
-    require_devops_role(&db, &authed.email).await?;
+    require_devops_role(&db, &authed).await?;
 
     // No cloud-host gate — workspace fairness is an Enterprise feature
     // available on any multi-tenant EE deployment. Non-EE / non-enabled

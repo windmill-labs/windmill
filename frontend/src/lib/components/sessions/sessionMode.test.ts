@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { sessionTargetHref, withMenuHidden, withWorkspaceParam } from './sessionMode.svelte'
+import {
+	sessionTargetHref,
+	withMenuHidden,
+	withPreviewParams,
+	withWorkspaceParam
+} from './sessionMode.svelte'
 
 describe('sessionTargetHref', () => {
 	it('maps each editor kind to its full-page route', () => {
@@ -11,6 +16,20 @@ describe('sessionTargetHref', () => {
 	it('returns undefined for no target or a kind without a full-page route', () => {
 		expect(sessionTargetHref(undefined)).toBeUndefined()
 		expect(sessionTargetHref({ kind: 'pipeline', path: 'u/me/pipe' })).toBeUndefined()
+	})
+})
+
+describe('withPreviewParams', () => {
+	it('points the tab at a step inside the flow it opens', () => {
+		expect(
+			withPreviewParams(sessionTargetHref({ kind: 'flow', path: 'u/me/bar' }), { selected: 'b' })
+		).toBe('/flows/edit/u/me/bar?selected=b')
+	})
+
+	it('is a no-op without params or without a URL', () => {
+		expect(withPreviewParams('/flows/edit/u/me/bar', undefined)).toBe('/flows/edit/u/me/bar')
+		expect(withPreviewParams('/flows/edit/u/me/bar', {})).toBe('/flows/edit/u/me/bar')
+		expect(withPreviewParams(undefined, { selected: 'b' })).toBeUndefined()
 	})
 })
 

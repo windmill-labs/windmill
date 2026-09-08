@@ -15,6 +15,7 @@
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceUserSettings from '$lib/components/settings/WorkspaceUserSettings.svelte'
+	import ForkMemberSettings from '$lib/components/settings/ForkMemberSettings.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
 	import { WORKSPACE_SHOW_SLACK_CMD, WORKSPACE_SHOW_WEBHOOK_CLI_SYNC } from '$lib/consts'
 	import {
@@ -27,6 +28,7 @@
 		type InstanceAISummary,
 		type GetSettingsResponse
 	} from '$lib/gen'
+	import type { GuestUsage } from '$lib/gen'
 	import {
 		enterpriseLicense,
 		superadmin,
@@ -40,7 +42,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { clone, emptyString, encodeState, hasUnsavedChanges } from '$lib/utils'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
-	import { Slack } from 'lucide-svelte'
+	import { ExternalLink, Slack, Target } from 'lucide-svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
@@ -64,6 +66,10 @@
 	import Trashbin from '$lib/components/settings/Trashbin.svelte'
 	import { untrack } from 'svelte'
 	import { getHandlerType } from '$lib/components/triggers/utils'
+	import DbtSettings, {
+		convertDbtSettingsFromBackend,
+		type DbtSettingsType
+	} from '$lib/components/workspaceSettings/DbtSettings.svelte'
 	import DucklakeSettings, {
 		convertDucklakeSettingsFromBackend,
 		type DucklakeSettingsType
@@ -172,7 +178,6 @@
 	let plan: string | undefined = $state(undefined)
 	let customer_id: string | undefined = $state(undefined)
 	let webhook: string | undefined = $state(undefined)
-	let workspaceToDeployTo: string | undefined = $state(undefined)
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let errorHandlerScriptPath: string | undefined = $state(undefined)
 	let errorHandlerItemKind: 'flow' | 'script' = $state('script')
@@ -183,6 +188,22 @@
 	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let publicAppRateLimitPerMinute: number | undefined = $state(undefined)
+	let guestAccessEnabled: boolean = $state(false)
+	let guestUsage: GuestUsage | undefined = $state(undefined)
+	let initialGuestAccessEnabled: boolean = $state(false)
+	// A guest JWT is verified against one key: a PEM public key, or a JWKS URL. The
+	// type picks which field is live; the other is cleared on save.
+	let guestJwtKeyType = $state<'pem' | 'jwks'>('pem')
+	let guestJwtPublicKey: string = $state('')
+	let guestJwtJwksUrl: string = $state('')
+	let initialGuestJwtPublicKey: string = $state('')
+	let initialGuestJwtJwksUrl: string = $state('')
+	// The pair actually saved: only the selected type's field, trimmed. The unselected
+	// one is empty, so switching type and saving clears what was there.
+	let effectiveGuestJwt = $derived({
+		pem: guestJwtKeyType === 'pem' ? guestJwtPublicKey.trim() : '',
+		jwks: guestJwtKeyType === 'jwks' ? guestJwtJwksUrl.trim() : ''
+	})
 	let initialPublicAppRateLimitPerMinute: number | undefined = $state(undefined)
 
 	let hasInstanceAiConfig = $state(false)
@@ -192,7 +213,6 @@
 	let aiSettingsComponent: AISettings | undefined = $state(undefined)
 	let hasAiSettingsChanges = $state(false)
 	// Track initial deploy settings for unsaved changes detection
-	let initialWorkspaceToDeployTo: string | undefined = $state(undefined)
 	let initialDeployUiSettings: {
 		include_path: string[]
 		include_type: {
@@ -252,6 +272,8 @@
 	let dataTableSettings: DataTableSettingsType = $state({ dataTables: [] })
 	let dataTableSettingsComponent: DataTableSettings | undefined = $state(undefined)
 
+	let dbtSettings: DbtSettingsType = $state({ warehouses: [] })
+	let dbtSavedSettings: DbtSettingsType = $state(untrack(() => dbtSettings))
 	let ducklakeSettings: DucklakeSettingsType = $state({ ducklakes: [] })
 	let ducklakeSavedSettings: DucklakeSettingsType = $state(untrack(() => ducklakeSettings))
 
@@ -295,7 +317,7 @@
 
 	// Derived state for checking unsaved changes in deployment settings
 	let hasDeploySettingsChanges = $derived.by(() => {
-		if (tab !== 'deploy_to') return false
+		if (tab !== 'dev_workspace') return false
 		const changes = getDeploySettingsInitialAndModifiedValues()
 		if (!changes.savedValue || !changes.modifiedValue) return false
 		return hasUnsavedChanges(changes.savedValue, changes.modifiedValue)
@@ -339,8 +361,30 @@
 			encryptionKeyValidationError = validation.error
 		}
 	})
+	const currentWorkspace = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
+
+	// The deploy filters configure what may be promoted into the parent, so they only mean
+	// something for a fork. A root workspace deploys nowhere by lineage.
+	const showDeployToTab = $derived(Boolean(currentWorkspace?.parent_workspace_id))
+	const canAdmin = $derived(($userStore?.is_admin ?? false) || Boolean($superadmin))
+	// The creator of a fork gets the fork members screen even when they are not an admin of it:
+	// their `usr` row is copied from the parent, so forking as an ordinary developer leaves them
+	// unable to bring anyone in to collaborate. Nothing else on this page opens up — the backend
+	// only grants them developer memberships on the fork they created.
+	// The instance channels are not a valid destination on cloud or on a fork. Never select a tab
+	// the group does not render: saving would submit a value the API rejects, locking the whole
+	// error handler behind a 400.
+	const canUseInstanceAlerts = $derived(!isCloudHosted() && !currentWorkspace?.parent_workspace_id)
+	const isForkOwner = $derived(
+		Boolean(currentWorkspace?.parent_workspace_id) &&
+			currentWorkspace?.created_by === $userStore?.email
+	)
+
 	// All state derived from URL - no local state needed
 	let tab = $derived.by(() => {
+		if (!canAdmin) {
+			return 'users' as const
+		}
 		const selectedTab = $page.url.searchParams.get('tab') as
 			| 'users'
 			| 'slack'
@@ -358,6 +402,7 @@
 			| 'windmill_lfs'
 			| 'volume_storage'
 			| 'ducklake'
+			| 'dbt'
 			| 'git_sync'
 			| 'default_app'
 			| 'native_triggers'
@@ -372,6 +417,10 @@
 		// Both 'success_handler' and 'error_handler' URLs map to 'error_handler' tab
 		if (selectedTab === 'success_handler') {
 			return 'error_handler'
+		}
+		// The Deployment UI tab was folded into Dev workspace; keep its links working.
+		if (selectedTab === 'deploy_to') {
+			return 'dev_workspace'
 		}
 		return selectedTab || 'users'
 	})
@@ -490,12 +539,49 @@
 	}
 
 	async function saveDefaultAppSettings(): Promise<void> {
+		// Guest access and the guest JWT key are the writes of this card available on every plan;
+		// save them first so a refused Enterprise-only write after cannot swallow them.
+		if (guestAccessEnabled !== initialGuestAccessEnabled) {
+			await editGuestAccess()
+		}
+		if (
+			effectiveGuestJwt.pem !== initialGuestJwtPublicKey ||
+			effectiveGuestJwt.jwks !== initialGuestJwtJwksUrl
+		) {
+			await editGuestJwtKey()
+		}
 		if (workspaceDefaultAppPath !== initialWorkspaceDefaultAppPath) {
 			await editWorkspaceDefaultApp()
 		}
 		if (publicAppRateLimitPerMinute !== initialPublicAppRateLimitPerMinute) {
 			await editPublicAppRateLimit()
 		}
+	}
+
+	async function editGuestJwtKey(): Promise<void> {
+		await WorkspaceService.editGuestJwtKey({
+			workspace: $workspaceStore!,
+			requestBody: {
+				public_key: effectiveGuestJwt.pem || undefined,
+				jwks_url: effectiveGuestJwt.jwks || undefined
+			}
+		})
+		initialGuestJwtPublicKey = effectiveGuestJwt.pem
+		initialGuestJwtJwksUrl = effectiveGuestJwt.jwks
+		sendUserToast('Guest JWT key updated')
+	}
+
+	async function editGuestAccess(): Promise<void> {
+		await WorkspaceService.editGuestAccess({
+			workspace: $workspaceStore!,
+			requestBody: { guest_access_enabled: guestAccessEnabled }
+		})
+		initialGuestAccessEnabled = guestAccessEnabled
+		sendUserToast(
+			guestAccessEnabled
+				? 'Guests can now open apps set to Guests in this workspace'
+				: 'Guests can no longer sign in to this workspace'
+		)
 	}
 
 	async function loadWorkspaceEncryptionKey(): Promise<void> {
@@ -571,7 +657,6 @@
 		teamsInitialPath = teamsScriptPath
 		plan = settings.plan
 		customer_id = settings.customer_id
-		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
 
 		aiInitialConfig = settings.ai_config ?? {}
@@ -592,8 +677,24 @@
 		initialCriticalAlertUIMuted = settings.mute_critical_alerts
 		publicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
 		initialPublicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
+		guestAccessEnabled = settings.guest_access_enabled ?? false
+		initialGuestAccessEnabled = settings.guest_access_enabled ?? false
+		guestJwtPublicKey = settings.guest_jwt_public_key ?? ''
+		guestJwtJwksUrl = settings.guest_jwt_jwks_url ?? ''
+		initialGuestJwtPublicKey = guestJwtPublicKey
+		initialGuestJwtJwksUrl = guestJwtJwksUrl
+		guestJwtKeyType = guestJwtJwksUrl ? 'jwks' : 'pem'
+		WorkspaceService.getGuestUsage({ workspace: $workspaceStore! })
+			.then((u) => (guestUsage = u))
+			.catch(() => (guestUsage = undefined))
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
+		} else if (
+			canUseInstanceAlerts &&
+			!errorHandlerPath &&
+			settings.error_handler_fallback_to_instance_alerts
+		) {
+			errorHandlerSelected = 'instance_alerts'
 		} else {
 			errorHandlerSelected = getHandlerType(errorHandlerScriptPath)
 		}
@@ -611,6 +712,8 @@
 		)
 		s3ResourceSavedSettings = clone(s3ResourceSettings)
 		dataTableSettings = convertDataTableSettingsFromBackend(settings.datatable)
+		dbtSettings = convertDbtSettingsFromBackend(settings.dbt_warehouses)
+		dbtSavedSettings = clone(dbtSettings)
 		ducklakeSettings = convertDucklakeSettingsFromBackend(settings.ducklake)
 		ducklakeSavedSettings = clone(ducklakeSettings)
 
@@ -633,7 +736,6 @@
 		}
 
 		// Store initial deploy settings state for unsaved changes detection
-		initialWorkspaceToDeployTo = workspaceToDeployTo
 		initialDeployUiSettings = clone(deployUiSettings)
 
 		// Store initial webhook state for unsaved changes detection
@@ -762,8 +864,19 @@
 	})
 
 	$effect(() => {
+		// `canAdmin` is read as a dependency, not inside untrack: $userStore is repopulated
+		// asynchronously after a workspace switch, so the run triggered by the switch can still see
+		// the previous workspace's role. Re-running once it lands is what loads the settings for an
+		// admin who switched in from a workspace where they were not one.
+		const admin = canAdmin
 		if ($workspaceStore) {
 			untrack(() => {
+				// `getSettings` and the OAuth config are admin-only and carry integration secrets. A fork
+				// creator reaches this page for the members screen alone, which needs none of them.
+				if (!admin) {
+					loadedSettings = true
+					return
+				}
 				loadSettings()
 				loadSlackOAuthConfig()
 				loadGlobalOAuthSettings()
@@ -779,7 +892,8 @@
 					path: `${errorHandlerItemKind}/${errorHandlerScriptPath}`,
 					extra_args: errorHandlerExtraArgs,
 					muted_on_cancel: errorHandlerMutedOnCancel,
-					muted_on_user_path: errorHandlerMutedOnUserPath
+					muted_on_user_path: errorHandlerMutedOnUserPath,
+					fallback_to_instance_alerts: false
 				}
 			})
 			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
@@ -790,10 +904,17 @@
 					path: undefined,
 					extra_args: undefined,
 					muted_on_cancel: undefined,
-					muted_on_user_path: undefined
+					muted_on_user_path: undefined,
+					fallback_to_instance_alerts: errorHandlerSelected === 'instance_alerts'
 				}
 			})
-			sendUserToast(`workspace error handler removed`)
+			sendUserToast(
+				errorHandlerSelected === 'instance_alerts'
+					? `failed jobs will be reported to the instance critical alert channels`
+					: initialErrorHandlerScriptPath
+						? `workspace error handler removed`
+						: `error handler settings saved`
+			)
 		}
 
 		// Update initial values for dirty detection
@@ -889,6 +1010,13 @@
 		s3ResourceSettings.volumeStorage = s3ResourceSavedSettings.volumeStorage
 	}
 
+	function getDbtSettingsInitialAndModifiedValues() {
+		return {
+			savedValue: { dbtSettings: dbtSavedSettings },
+			modifiedValue: { dbtSettings: dbtSettings }
+		}
+	}
+
 	// Function to check if there are unsaved changes in ducklake settings
 	function getDucklakeSettingsInitialAndModifiedValues() {
 		return {
@@ -904,26 +1032,14 @@
 
 	// Function to check if there are unsaved changes in deploy settings
 	function getDeploySettingsInitialAndModifiedValues() {
-		// Normalize empty strings to undefined for consistent comparison
-		const normalizeWorkspaceValue = (value: string | undefined) =>
-			value === '' ? undefined : value
-
-		const savedValue = {
-			workspaceToDeployTo: normalizeWorkspaceValue(initialWorkspaceToDeployTo),
-			deployUiSettings: initialDeployUiSettings
+		return {
+			savedValue: { deployUiSettings: initialDeployUiSettings },
+			modifiedValue: { deployUiSettings: deployUiSettings }
 		}
-
-		const modifiedValue = {
-			workspaceToDeployTo: normalizeWorkspaceValue(workspaceToDeployTo),
-			deployUiSettings: deployUiSettings
-		}
-
-		return { savedValue, modifiedValue }
 	}
 
 	// Function to discard unsaved deploy settings changes
 	function discardDeploySettingsChanges() {
-		workspaceToDeployTo = initialWorkspaceToDeployTo
 		deployUiSettings = clone(initialDeployUiSettings)
 	}
 
@@ -972,11 +1088,17 @@
 		return {
 			savedValue: {
 				defaultAppPath: initialWorkspaceDefaultAppPath,
-				publicAppRateLimitPerMinute: initialPublicAppRateLimitPerMinute
+				publicAppRateLimitPerMinute: initialPublicAppRateLimitPerMinute,
+				guestAccessEnabled: initialGuestAccessEnabled,
+				guestJwtPem: initialGuestJwtPublicKey,
+				guestJwtJwks: initialGuestJwtJwksUrl
 			},
 			modifiedValue: {
 				defaultAppPath: workspaceDefaultAppPath,
-				publicAppRateLimitPerMinute: publicAppRateLimitPerMinute
+				publicAppRateLimitPerMinute: publicAppRateLimitPerMinute,
+				guestAccessEnabled: guestAccessEnabled,
+				guestJwtPem: effectiveGuestJwt.pem,
+				guestJwtJwks: effectiveGuestJwt.jwks
 			}
 		}
 	}
@@ -985,6 +1107,10 @@
 	function discardDefaultAppSettingsChanges() {
 		workspaceDefaultAppPath = initialWorkspaceDefaultAppPath
 		publicAppRateLimitPerMinute = initialPublicAppRateLimitPerMinute
+		guestAccessEnabled = initialGuestAccessEnabled
+		guestJwtPublicKey = initialGuestJwtPublicKey
+		guestJwtJwksUrl = initialGuestJwtJwksUrl
+		guestJwtKeyType = initialGuestJwtJwksUrl ? 'jwks' : 'pem'
 	}
 
 	// Strip keys from extraArgs that are auto-managed by child components:
@@ -1043,7 +1169,9 @@
 				return getVolumeStorageInitialAndModifiedValues()
 			case 'ducklake':
 				return getDucklakeSettingsInitialAndModifiedValues()
-			case 'deploy_to':
+			case 'dbt':
+				return getDbtSettingsInitialAndModifiedValues()
+			case 'dev_workspace':
 				return getDeploySettingsInitialAndModifiedValues()
 			case 'webhook':
 				return getWebhookSettingsInitialAndModifiedValues()
@@ -1089,7 +1217,7 @@
 			case 'ducklake':
 				discardDucklakeSettingsChanges()
 				break
-			case 'deploy_to':
+			case 'dev_workspace':
 				discardDeploySettingsChanges()
 				break
 			case 'webhook':
@@ -1108,22 +1236,17 @@
 			case 'windmill_data_tables':
 				dataTableSettingsComponent?.discard()
 				break
+			case 'dbt':
+				dbtSettings = clone(dbtSavedSettings)
+				break
 			case 'default_app':
 				discardDefaultAppSettingsChanges()
 				break
 		}
 	}
 
-	// The Dev workspace tab is only meaningful on a root workspace (to pair/manage a dev) or on a
-	// dev workspace itself (to see its prod / detach). Hide it for ordinary forks — pairing isn't
-	// available there and the backend would reject it.
-	const currentWsForDevTab = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
-	const showDevWorkspaceTab = $derived(
-		!currentWsForDevTab?.parent_workspace_id || (currentWsForDevTab?.is_dev_workspace ?? false)
-	)
-
 	// Navigation groups for sidebar
-	const navigationGroups = $derived([
+	const adminNavigationGroups = $derived([
 		{
 			items: [
 				{
@@ -1164,23 +1287,12 @@
 					isEE: true
 				},
 				{
-					id: 'deploy_to',
-					label: 'Deployment UI',
-					aiId: 'workspace-settings-deploy-to',
-					aiDescription: 'Deployment UI workspace settings',
-					isEE: true
+					id: 'dev_workspace',
+					label: 'Dev workspace',
+					aiId: 'workspace-settings-dev-workspace',
+					aiDescription:
+						'Pair this workspace with a dev workspace (same code, different environment), and choose which items its deploy UI may promote'
 				},
-				...(showDevWorkspaceTab
-					? [
-							{
-								id: 'dev_workspace',
-								label: 'Dev workspace',
-								aiId: 'workspace-settings-dev-workspace',
-								aiDescription:
-									'Pair this workspace with a dev workspace (same code, different environment)'
-							}
-						]
-					: []),
 				{
 					id: 'rulesets',
 					label: 'Rulesets',
@@ -1260,6 +1372,12 @@
 					label: 'Ducklake',
 					aiId: 'workspace-settings-ducklake',
 					aiDescription: 'Ducklake workspace settings'
+				},
+				{
+					id: 'dbt',
+					label: 'dbt',
+					aiId: 'workspace-settings-dbt',
+					aiDescription: 'dbt warehouses workspace settings'
 				}
 			]
 		},
@@ -1300,10 +1418,29 @@
 			]
 		}
 	])
+
+	// A fork's creator manages its members through the same screen, but nothing else about the
+	// workspace is theirs to change, so they get the Members entry alone.
+	const navigationGroups = $derived(
+		canAdmin
+			? adminNavigationGroups
+			: [
+					{
+						items: [
+							{
+								id: 'users',
+								label: 'Members',
+								aiId: 'workspace-settings-users',
+								aiDescription: 'Members of the fork you created'
+							}
+						]
+					}
+				]
+	)
 </script>
 
 <CenteredPage wrapperClasses="pb-0 h-screen" handleOverflow={false} class="flex flex-col h-full">
-	{#if $userStore?.is_admin || $superadmin}
+	{#if canAdmin || isForkOwner}
 		<PageHeader title="Workspace settings: {$workspaceStore}">
 			{#snippet titleActions()}
 				{#if $workspaceStore}
@@ -1338,43 +1475,66 @@
 						{#if !loadedSettings}
 							<Skeleton layout={[1, [40]]} />
 						{:else if tab == 'users'}
-							<WorkspaceUserSettings />
-						{:else if tab == 'deploy_to'}
-							<SettingsPageHeader
-								title="Link this workspace to another staging / prod workspace"
-								description="Connecting this workspace with another staging/production workspace enables web-based deployment to that workspace."
-								link="https://www.windmill.dev/docs/core_concepts/staging_prod"
-							/>
-							{#if $enterpriseLicense}
-								<DeployToSetting
-									bind:workspaceToDeployTo
-									bind:deployUiSettings
-									hasUnsavedChanges={hasDeploySettingsChanges}
-									onSave={() => {
-										// Update initial state after successful save
-										initialWorkspaceToDeployTo = workspaceToDeployTo
-										initialDeployUiSettings = clone(deployUiSettings)
-									}}
-									onDiscard={discardDeploySettingsChanges}
-									onWorkspaceToDeployToSave={(newWorkspaceToDeployTo) => {
-										// Update initial state after workspace to deploy to is saved
-										initialWorkspaceToDeployTo = newWorkspaceToDeployTo
-									}}
-								/>
+							{#if canAdmin}
+								<WorkspaceUserSettings />
 							{:else}
-								<div class="my-2"
-									><Alert type="warning" title="Enterprise license required"
-										>Deploy to staging/prod from the web UI is only available with an enterprise
-										license</Alert
-									></div
-								>
+								<ForkMemberSettings />
 							{/if}
 						{:else if tab == 'dev_workspace'}
 							<SettingsPageHeader
 								title="Dev workspace"
 								description="Pair this workspace with a dev workspace: the same code with a different environment. Edits are made in the dev workspace and promoted to prod."
+								link="https://www.windmill.dev/docs/core_concepts/staging_prod"
 							/>
-							<DevWorkspaceSetting />
+							<!-- Positioned by DevWorkspaceSetting, not here — see its `deployTarget` prop. -->
+							{#snippet deployTarget()}
+								{#if showDeployToTab}
+									<!-- The deploy filters only bite on a workspace that deploys into a
+									     parent; a root workspace promotes nowhere by lineage. -->
+									{#if $enterpriseLicense}
+										<DeployToSetting
+											bind:deployUiSettings
+											hasUnsavedChanges={hasDeploySettingsChanges}
+											parentWorkspaceId={currentWorkspace?.parent_workspace_id ?? undefined}
+											isDevWorkspace={currentWorkspace?.is_dev_workspace ?? false}
+											onSave={() => {
+												initialDeployUiSettings = clone(deployUiSettings)
+											}}
+											onDiscard={discardDeploySettingsChanges}
+										/>
+									{:else}
+										<div class="my-2"
+											><Alert type="warning" title="Enterprise license required"
+												>Deploy to staging/prod from the web UI is only available with an enterprise
+												license</Alert
+											></div
+										>
+									{/if}
+								{/if}
+							{/snippet}
+							<DevWorkspaceSetting {deployTarget} />
+							<!-- Last, and below the lineage target above: the escape hatch for a
+						     destination the lineage cannot express. -->
+							<div class="flex flex-col gap-2 max-w-2xl mt-8 pt-6 border-t">
+								<span class="text-xs font-semibold text-emphasis"
+									>Deploy into another workspace</span
+								>
+								<p class="text-sm text-secondary">
+									Promotion normally follows the lineage, from this workspace into its parent. For a
+									one-off migration you can instead point the merge UI at any workspace you
+									administer; it computes a full diff over both workspaces and deploys the items you
+									pick, one way.
+								</p>
+								<div>
+									<Button
+										variant="default"
+										startIcon={{ icon: Target }}
+										onclick={() => goto(`${base}/forks/compare?mode=fork`)}
+									>
+										Merge into another workspace
+									</Button>
+								</div>
+							</div>
 						{:else if tab == 'rulesets'}
 							<SettingsPageHeader
 								title="Workspace Protection Rulesets"
@@ -1382,13 +1542,34 @@
 							/>
 							<WorkspaceRulesets />
 						{:else if tab == 'premium'}
-							{#if currentWsForDevTab?.parent_workspace_id}
+							{#if currentWorkspace?.parent_workspace_id}
 								<Alert type="info" title="Billing is managed on the parent workspace">
-									This workspace is a fork of <b>{currentWsForDevTab.parent_workspace_id}</b>. It
-									runs on the parent's plan and its executions count toward the parent's usage and
-									bill, so there is no separate subscription here. Manage billing, seats, and quotas
-									from the parent workspace's settings.
+									This workspace is a fork of <b>{currentWorkspace.parent_workspace_id}</b>. It runs
+									on the parent's plan and its executions count toward the parent's usage and bill,
+									so it is never invoiced separately. Manage billing, seats, and quotas from the
+									parent workspace's settings.
 								</Alert>
+								{#if plan}
+									<div class="mt-4">
+										<Alert type="warning" title="This workspace has its own subscription">
+											It is on a paid plan that is billed on its own, so this workspace is paid for
+											twice. Cancel that subscription in the customer portal to keep only
+											<b>{currentWorkspace.parent_workspace_id}</b>'s plan. This workspace keeps
+											running either way, on the parent's plan.
+											{#if customer_id}
+												<div class="mt-3 flex">
+													<Button
+														endIcon={{ icon: ExternalLink }}
+														variant="accent"
+														href="{base}/api/w/{$workspaceStore}/workspaces/billing_portal"
+													>
+														Customer portal
+													</Button>
+												</div>
+											{/if}
+										</Alert>
+									</div>
+								{/if}
 							{:else}
 								<PremiumInfo {customer_id} {plan} />
 							{/if}
@@ -1761,6 +1942,7 @@
 										customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
 										bind:customHandlerKind={errorHandlerItemKind}
 										bind:handlerExtraArgs={errorHandlerExtraArgs}
+										showInstanceAlerts={canUseInstanceAlerts}
 									>
 										{#snippet customTabTooltip()}
 											<Tooltip>
@@ -1790,24 +1972,26 @@
 										{/snippet}
 									</ErrorOrRecoveryHandler>
 
-									<SettingCard class="gap-2">
-										<Toggle
-											disabled={!$enterpriseLicense ||
-												((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-													!emptyString(errorHandlerScriptPath) &&
-													emptyString(errorHandlerExtraArgs['channel']))}
-											bind:checked={errorHandlerMutedOnCancel}
-											options={{ right: 'Do not run error handler for canceled jobs' }}
-										/>
-										<Toggle
-											disabled={!$enterpriseLicense ||
-												((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-													!emptyString(errorHandlerScriptPath) &&
-													emptyString(errorHandlerExtraArgs['channel']))}
-											bind:checked={errorHandlerMutedOnUserPath}
-											options={{ right: 'Do not run error handler for u/ scripts and flows' }}
-										/>
-									</SettingCard>
+									{#if errorHandlerSelected !== 'instance_alerts'}
+										<SettingCard class="gap-2">
+											<Toggle
+												disabled={!$enterpriseLicense ||
+													((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+														!emptyString(errorHandlerScriptPath) &&
+														emptyString(errorHandlerExtraArgs['channel']))}
+												bind:checked={errorHandlerMutedOnCancel}
+												options={{ right: 'Do not run error handler for canceled jobs' }}
+											/>
+											<Toggle
+												disabled={!$enterpriseLicense ||
+													((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+														!emptyString(errorHandlerScriptPath) &&
+														emptyString(errorHandlerExtraArgs['channel']))}
+												bind:checked={errorHandlerMutedOnUserPath}
+												options={{ right: 'Do not run error handler for u/ scripts and flows' }}
+											/>
+										</SettingCard>
+									{/if}
 								</div>
 
 								<SettingsFooter
@@ -1946,7 +2130,8 @@ export async function main(
 								{hasInstanceAiConfig}
 								{usesInstanceAiConfig}
 								{instanceAiSummary}
-								onSave={(copilotSettingsState) => {
+								onSave={(savedConfig, copilotSettingsState) => {
+									aiInitialConfig = savedConfig
 									if (!copilotSettingsState) {
 										return
 									}
@@ -1977,6 +2162,14 @@ export async function main(
 								}}
 								onDiscard={() => {
 									s3ResourceSettings = clone(s3ResourceSavedSettings)
+								}}
+							/>
+						{:else if tab == 'dbt'}
+							<DbtSettings
+								bind:dbtSettings
+								bind:dbtSavedSettings
+								onDiscard={() => {
+									dbtSettings = clone(dbtSavedSettings)
 								}}
 							/>
 						{:else if tab == 'ducklake'}
@@ -2033,13 +2226,94 @@ export async function main(
 								<span class="text-hint text-2xs">executions per minute per server</span>
 							</SettingCard>
 
+							<SettingCard
+								label="Guests"
+								description="Let anyone your identity provider authenticates, or a JWT your own backend signs (configured below), open the apps set to Guests without a Windmill account. They join no workspace, see nothing else, and take no seat. Off by default. Turning it off stops guests immediately, even for apps already set to Guests."
+								class="mt-6"
+							>
+								<Toggle
+									bind:checked={guestAccessEnabled}
+									options={{ right: 'Allow guests to open apps set to Guests' }}
+								/>
+								{#if guestUsage && !guestUsage.instance_enabled}
+									<span class="text-hint text-2xs">
+										A superadmin has turned guests off for this instance, so this switch has no
+										effect until they are allowed again.
+									</span>
+								{:else if guestUsage}
+									<span class="text-hint text-2xs">
+										{guestUsage.guest_count} of {guestUsage.free_allowance} free guests used across this
+										instance in the last {guestUsage.window_days} days.
+										{#if guestUsage.metered}
+											Beyond that, every four guests count as one seat{guestUsage.guest_seats > 0
+												? ` (${guestUsage.guest_seats} now)`
+												: ''}.
+										{:else}
+											Beyond that, new guests are refused until the count drops; an Enterprise
+											license meters them instead.
+										{/if}
+									</span>
+								{/if}
+								<div class="mt-4 flex flex-col gap-2 border-t pt-4">
+									<div class="text-xs font-semibold text-emphasis">
+										Guest JWT verification key
+									</div>
+									<div class="text-2xs text-hint">
+										A guest can also enter through a JWT your own backend mints and signs, with no
+										identity-provider round-trip, for iframe embedding. The token must carry
+										<code>email</code>, <code>workspace_id</code>, <code>app_path</code> and
+										<code>exp</code> (lifetime capped at 24h); it opens only the app named by
+										<code>app_path</code>. Accepted algorithms: RS256/384/512, PS256/384/512,
+										ES256/384. Symmetric algorithms (HS*) are refused. Configure one key, a PEM
+										public key or a JWKS URL (which must be https). Point it at an issuer you
+										control: any token that key signs carrying these claims is accepted, so a shared
+										multi-tenant issuer is not a good fit.
+									</div>
+									<ToggleButtonGroup bind:selected={guestJwtKeyType}>
+										{#snippet children({ item })}
+											<ToggleButton {item} value="pem" label="PEM public key" />
+											<ToggleButton {item} value="jwks" label="JWKS URL" />
+										{/snippet}
+									</ToggleButtonGroup>
+									{#if guestJwtKeyType === 'pem'}
+										<TextInput
+											underlyingInputEl="textarea"
+											class="font-mono text-xs"
+											autosizeParams={{ minHeight: 128 }}
+											inputProps={{
+												placeholder: '-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----'
+											}}
+											bind:value={guestJwtPublicKey}
+										/>
+									{:else}
+										<TextInput
+											inputProps={{
+												placeholder: 'https://issuer.example.com/.well-known/jwks.json'
+											}}
+											bind:value={guestJwtJwksUrl}
+										/>
+									{/if}
+									{#if !isCloudHosted()}
+										<div class="text-2xs text-hint">
+											Leave empty to fall back to the instance's configured JWT issuer (<code
+												>JWT_EXT_JWKS_URL</code
+											>), if one is set. Set a key here to trust a different issuer for this
+											workspace.
+										</div>
+									{/if}
+								</div>
+							</SettingCard>
+
 							<SettingsFooter
 								class="mt-8"
 								hasUnsavedChanges={hasDefaultAppChanges}
 								onSave={saveDefaultAppSettings}
 								onDiscard={discardDefaultAppSettingsChanges}
 								saveLabel="Save app settings"
-								disabled={!$enterpriseLicense}
+								disabled={!$enterpriseLicense &&
+									guestAccessEnabled === initialGuestAccessEnabled &&
+									effectiveGuestJwt.pem === initialGuestJwtPublicKey &&
+									effectiveGuestJwt.jwks === initialGuestJwtJwksUrl}
 							/>
 						{:else if tab == 'native_triggers'}
 							{#if $workspaceStore}

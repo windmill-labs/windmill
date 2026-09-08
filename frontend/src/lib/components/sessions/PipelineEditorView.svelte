@@ -392,13 +392,13 @@
 
 <!-- Native trigger editor drawers (schedule/kafka/webhook/…), shared with the
      route page; opened imperatively from the canvas via the handlers above.
-     NOTE: these operate on the global `$workspaceStore`, not the `workspaceId`
-     prop. That's correct only because activating a session syncs the store to
-     the session's workspace (SessionPicker), and triggers are only opened from
-     the visible/active session — so for a forked-workspace session the store is
-     already pointed at the right workspace by the time a drawer opens. -->
+     `workspace={workspaceId}` scopes every trigger backend call to THIS
+     session's (possibly forked) workspace — a session never switches the global
+     `$workspaceStore` (SessionPicker), so without this the editors would write
+     to the nav workspace. -->
 <PipelineTriggerEditors
 	bind:this={triggerEditors}
 	mountTriggerEditors
+	workspace={workspaceId}
 	onUpdate={() => graphRes.refetch()}
 />

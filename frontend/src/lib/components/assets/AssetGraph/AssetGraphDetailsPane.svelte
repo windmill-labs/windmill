@@ -27,14 +27,17 @@
 	import { inferArgs } from '$lib/infer'
 	import { emptySchema, sendUserToast } from '$lib/utils'
 	import type { Schema } from '$lib/common'
-	import type { AssetGraphSelection, PipelineMode } from './types'
+	import type { AssetGraphSelection, DbtAssetProvenance, PipelineMode } from './types'
+	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
 	import PipelineScriptView from './PipelineScriptView.svelte'
 	import {
 		parsePipelineAnnotations,
 		type ColumnLineage,
 		type PipelineAnnotations
 	} from './parsePipelineAnnotations'
-	import ColumnLineageTrace from './ColumnLineageTrace.svelte'
+	import ColumnTraceSection from './ColumnTraceSection.svelte'
+	import DbtColumnList from './DbtColumnList.svelte'
 	import { extractDraftMacros } from './resolveGraph'
 	import { assetColumnNodes, type ColumnLineageGraph } from './columnLineageGraph'
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
@@ -154,6 +157,15 @@
 		// resolved graph). Drives the transitive column-lineage trace shown for a
 		// selected materialized asset.
 		selectionColumnGraph?: ColumnLineageGraph
+		/** That graph still being fetched — a dbt relation's lineage is a request
+		 *  of its own, so it arrives after the selection does. */
+		selectionColumnLoading?: boolean
+		/** The lineage reaches past what the graph holds: the API cut it at the
+		 *  part nearest the selection. */
+		selectionColumnTruncated?: boolean
+		/** dbt provenance of the selected relation, when a dbt project
+		 *  materializes it — carries the model's own SQL. */
+		selectionDbt?: DbtAssetProvenance
 		// Whether the selected ducklake asset's schema can evolve (whole-table
 		// `replace` producer). Forwarded to the Schema tab: version history when
 		// true, a single fixed-schema view when false. Defaults to true (unknown).
@@ -284,6 +296,9 @@
 		onScriptRemoved,
 		selectionProducers = [],
 		selectionColumnGraph,
+		selectionColumnLoading = false,
+		selectionColumnTruncated = false,
+		selectionDbt,
 		schemaCanEvolve = true,
 		selectionForkMaterialization = undefined,
 		schemaContractContext = undefined,
@@ -426,6 +441,33 @@
 			)
 	)
 
+	// Where the selected model's file sits on disk: the producing script's
+	// module folder holds the dbt project verbatim, so this is the path a
+	// `wmill sync pull` writes and the one to edit.
+	let dbtBundlePath = $derived.by(() => {
+		const file = selectionDbt?.original_file_path
+		if (!file) return undefined
+		// A relation may have several script producers, and nothing here says which
+		// of them is the dbt project this model came from. Prefixing the wrong one
+		// names a `__dbt` folder that does not exist, so an ambiguous relation shows
+		// the path inside the project alone.
+		const scripts = selectionProducers.filter((p) => p.kind === 'script')
+		return scripts.length === 1 ? `${scripts[0].path}__dbt/${file}` : file
+	})
+
+	// The two things a dbt relation can show besides its SQL, and what decides
+	// whether the panel opens at all for one that has none: the columns the model
+	// produces, and the trace they sit in. A share-link viewer gets neither —
+	// both are gated on reading the project, like the SQL.
+	let selectionDbtHasColumns = $derived(
+		!!selectionDbt?.column_schema?.length || Object.keys(selectionDbt?.columns ?? {}).length > 0
+	)
+	let selectionColumnNodes = $derived(
+		selection?.kind === 'asset' && selectionColumnGraph
+			? assetColumnNodes(selectionColumnGraph, selection.asset_kind, selection.path)
+			: []
+	)
+
 	// Bound from ScriptEditor — populated by inferAssets on every code
 	// change. Forwarded to the page so the canvas can re-derive write
 	// edges as the user edits the body (e.g. renaming a CREATE TABLE
@@ -493,6 +535,10 @@
 	// restores its input. Guarded on the path so a staging round-trip
 	// (emit → page → runFormInitialArgs) doesn't re-seed and loop. The read-only
 	// branch uses PipelineScriptView's own onArgsChange instead.
+	// Declared before the pre-effect that seeds it: a `$state` referenced by an
+	// earlier-registered `$effect.pre` hits a TDZ ("Cannot access 'args' before
+	// initialization") when the pane remounts and the pre-effect runs before this
+	// line executes.
 	let args = $state<Record<string, any>>({})
 	let argsSeedPath: string | undefined = undefined
 	$effect.pre(() => {
@@ -1197,21 +1243,59 @@
 												</span>
 											</div>
 										{/if}
-										{#if selectionColumnGraph && assetColumnNodes(selectionColumnGraph, selection.asset_kind, selection.path).length > 0}
-											<div class="border-b shrink-0">
-												<ColumnLineageTrace
-													graph={selectionColumnGraph}
-													assetKind={selection.asset_kind}
-													assetPath={selection.path}
-													targetLabel={selection.path}
-												/>
-											</div>
-										{/if}
+										<ColumnTraceSection
+											graph={selectionColumnGraph}
+											assetKind={selection.asset_kind}
+											assetPath={selection.path}
+											targetLabel={selection.path}
+											loading={selectionColumnLoading}
+											truncated={selectionColumnTruncated}
+										/>
 										<div class="flex-1 min-h-0">
 											<DucklakeAssetPanel path={selection.path} {workspace} {schemaCanEvolve} />
 										</div>
 									</div>
 								{/key}
+							{:else if selectionDbt && (selectionDbt.raw_code || selectionDbtHasColumns || selectionColumnNodes.length > 0 || selectionColumnLoading)}
+								<!-- The transform behind the node. Read-only on purpose: dbt
+								     development is a local loop (`dbt run --select`, `dbt test`
+								     against a dev target), and a browser textarea over one file
+								     of a project is a worse version of it. The header names the
+								     file's path in the bundle so the edit is one `cd` away. -->
+								<div class="flex flex-col h-full min-h-0">
+									<div
+										class="shrink-0 flex items-center gap-2 px-3 py-1.5 text-2xs border-b bg-surface-secondary text-secondary"
+									>
+										<DbtIcon width={11} height={11} />
+										<span class="font-mono truncate">{dbtBundlePath ?? selectionDbt.unique_id}</span
+										>
+										{#if selectionDbt.raw_code}
+											<span class="ml-auto shrink-0 opacity-70">read-only · edit locally</span>
+										{/if}
+									</div>
+									<!-- Above the SQL rather than beside it: the columns are what
+									     the SQL below produces, so reading them in that order is
+									     the model's own shape. Same trace component the ducklake
+									     assets use — the graph is one graph across both. -->
+									{#if selectionDbtHasColumns}
+										<div class="border-b shrink-0 overflow-auto max-h-48 px-3 py-1.5">
+											<DbtColumnList dbt={selectionDbt} />
+										</div>
+									{/if}
+									<ColumnTraceSection
+										graph={selectionColumnGraph}
+										assetKind={selection.asset_kind}
+										assetPath={selection.path}
+										targetLabel={selectionDbt.unique_id}
+										loading={selectionColumnLoading}
+										truncated={selectionColumnTruncated}
+									/>
+									{#if selectionDbt.raw_code}
+										<div class="flex-1 min-h-0 overflow-auto">
+											<HighlightCode language="sql" code={selectionDbt.raw_code} />
+										</div>
+									{/if}
+								</div>
 							{:else}
 								<div class="p-3 text-xs text-secondary">
 									No inline preview yet for {selection.asset_kind}. Use the producer/consumer arrows

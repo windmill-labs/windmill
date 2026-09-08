@@ -355,7 +355,7 @@
 		</div>
 	{/if}
 {/if}
-{#if ($generatedCode.length === 0 || genLoading) && SUPPORTED_LANGUAGES.has(lang ?? '')}
+{#if ($generatedCode.length === 0 || genLoading) && SUPPORTED_LANGUAGES.has(lang ?? '') && !$copilotInfo.workspaceDisabled}
 	<Popover
 		floatingConfig={{
 			middleware: [

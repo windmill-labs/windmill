@@ -4,13 +4,22 @@ import {
 	commitSessionWorkspace,
 	createSession,
 	decideSessionLifecycle,
+	findEmptyLandingSession,
 	isForkSession,
+	isTearingDownOpenSession,
 	renameSession,
 	sessionInCurrentFamily,
 	setGeneratedSessionSummary,
+	setSessionDraftPrompt,
 	sessionState,
+	withOpenSessionTeardown,
 	type Session
 } from './sessionState.svelte'
+import {
+	clearSessionRecovered,
+	isSessionRecovered,
+	markSessionRecovered
+} from './sessionRecoveryNotice.svelte'
 import {
 	enterpriseLicense,
 	usersWorkspaceStore,
@@ -338,33 +347,56 @@ describe('sessionInCurrentFamily', () => {
 	})
 })
 
-describe('createSession — transient reuse is family-scoped', () => {
-	it('reuses a transient from the active family', () => {
+describe('createSession — reuses an untouched draft, family-scoped', () => {
+	it('reuses an untouched (transient) draft from the active family', () => {
 		const restore = withTwoFamilies('rootA')
 		const prevCurrent = sessionState.currentSessionId
-		const transient = session({
-			id: 'transient-same-family',
+		const untouched = session({
+			id: 'untouched-same-family',
 			name: 'session-901',
 			pending_workspace_id: 'forkA',
 			transient: true
 		})
-		sessionState.sessions.push(transient)
+		sessionState.sessions.push(untouched)
 		try {
 			const created = createSession()
-			expect(created.id).toBe('transient-same-family')
-			expect(sessionState.currentSessionId).toBe('transient-same-family')
+			// No new entry piled up: `+` switched back to the pristine draft.
+			expect(created.id).toBe('untouched-same-family')
+			expect(sessionState.currentSessionId).toBe('untouched-same-family')
 		} finally {
-			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'transient-same-family')
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'untouched-same-family')
 			sessionState.currentSessionId = prevCurrent
 			restore()
 		}
 	})
 
-	it('drops a transient left over from another family and starts in the active workspace', () => {
+	it('clears the recovery notice off the draft it reuses, so `+` is not answered with "not found"', () => {
+		const restore = withTwoFamilies('rootA')
+		const prevCurrent = sessionState.currentSessionId
+		const landed = session({
+			id: 'recovered-blank',
+			name: 'session-903',
+			pending_workspace_id: 'forkA',
+			transient: true
+		})
+		sessionState.sessions.push(landed)
+		markSessionRecovered(landed.id)
+		try {
+			expect(createSession().id).toBe('recovered-blank')
+			expect(isSessionRecovered('recovered-blank')).toBe(false)
+		} finally {
+			clearSessionRecovered('recovered-blank')
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'recovered-blank')
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
+	it('drops an untouched draft left over from another family and starts in the active workspace', () => {
 		const restore = withTwoFamilies('rootB')
 		const prevCurrent = sessionState.currentSessionId
 		const stale = session({
-			id: 'transient-other-family',
+			id: 'untouched-other-family',
 			name: 'session-902',
 			pending_workspace_id: 'forkA',
 			transient: true
@@ -374,15 +406,190 @@ describe('createSession — transient reuse is family-scoped', () => {
 		try {
 			const created = createSession()
 			createdId = created.id
-			expect(created.id).not.toBe('transient-other-family')
+			expect(created.id).not.toBe('untouched-other-family')
 			expect(created.pending_workspace_id).toBe('rootB')
-			expect(sessionState.sessions.some((s) => s.id === 'transient-other-family')).toBe(false)
+			expect(sessionState.sessions.some((s) => s.id === 'untouched-other-family')).toBe(false)
 		} finally {
 			sessionState.sessions = sessionState.sessions.filter(
-				(s) => s.id !== 'transient-other-family' && s.id !== createdId
+				(s) => s.id !== 'untouched-other-family' && s.id !== createdId
 			)
 			sessionState.currentSessionId = prevCurrent
 			restore()
 		}
+	})
+
+	it('does not reuse a touched (persisted) pending session — those spawn a fresh draft', () => {
+		const restore = withTwoFamilies('rootA')
+		const prevCurrent = sessionState.currentSessionId
+		// Touched pending session: persisted (no transient flag), same family.
+		const touched = session({
+			id: 'touched-same-family',
+			name: 'session-903',
+			pending_workspace_id: 'rootA',
+			draftPrompt: 'already typed'
+		})
+		sessionState.sessions.push(touched)
+		let createdId: string | undefined
+		try {
+			const created = createSession()
+			createdId = created.id
+			expect(created.id).not.toBe('touched-same-family')
+			expect(created.transient).toBe(true)
+			// Both coexist: a touched draft stays put, the new blank is its own entry.
+			expect(sessionState.sessions.some((s) => s.id === 'touched-same-family')).toBe(true)
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => s.id !== 'touched-same-family' && s.id !== createdId
+			)
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
+	it('stops reusing a draft the instant it is typed into, before the debounce flush', () => {
+		// The real transition (not a hand-built flag): a keystroke sets draftPrompt
+		// while the write is debounced. The draft stays transient (survives hydration)
+		// but is no longer a reusable blank, so `+` within the window spawns a second
+		// session and must not discard the typed draft.
+		vi.useFakeTimers()
+		const restore = withTwoFamilies('rootA')
+		const prevCurrent = sessionState.currentSessionId
+		const draft = session({
+			id: 'typed-within-window',
+			name: 'session-904',
+			pending_workspace_id: 'rootA',
+			transient: true
+		})
+		sessionState.sessions.push(draft)
+		let createdId: string | undefined
+		try {
+			setSessionDraftPrompt('typed-within-window', 'h')
+			// Still transient (persistence deferred), but now carries typed text.
+			expect(draft.transient).toBe(true)
+			expect(draft.draftPrompt).toBe('h')
+			const created = createSession()
+			createdId = created.id
+			expect(created.id).not.toBe('typed-within-window')
+			expect(created.transient).toBe(true)
+			// The typed draft survives the non-reuse drop as its own entry.
+			expect(sessionState.sessions.some((s) => s.id === 'typed-within-window')).toBe(true)
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => s.id !== 'typed-within-window' && s.id !== createdId
+			)
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
+	it('does not reuse a draft typed into then erased back to empty (flush still pending)', () => {
+		// draftPrompt is '' here, not undefined: the user edited it (a flush is pending),
+		// so it must stay a real session — reusing/dropping it would be inconsistent
+		// across the 400ms boundary and could resurrect it via the pending timer.
+		vi.useFakeTimers()
+		const restore = withTwoFamilies('rootA')
+		const prevCurrent = sessionState.currentSessionId
+		const draft = session({
+			id: 'typed-then-erased',
+			name: 'session-905',
+			pending_workspace_id: 'rootA',
+			transient: true
+		})
+		sessionState.sessions.push(draft)
+		let createdId: string | undefined
+		try {
+			setSessionDraftPrompt('typed-then-erased', 'h')
+			setSessionDraftPrompt('typed-then-erased', '')
+			expect(draft.draftPrompt).toBe('')
+			const created = createSession()
+			createdId = created.id
+			expect(created.id).not.toBe('typed-then-erased')
+			expect(sessionState.sessions.some((s) => s.id === 'typed-then-erased')).toBe(true)
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => s.id !== 'typed-then-erased' && s.id !== createdId
+			)
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+})
+
+describe('findEmptyLandingSession — where an unresolvable session link lands', () => {
+	it('takes an untouched draft', () => {
+		const restore = withTwoFamilies('forkA')
+		const blank = session({
+			id: 'landing-blank',
+			name: 'session-910',
+			pending_workspace_id: 'forkA',
+			transient: true
+		})
+		sessionState.sessions.push(blank)
+		try {
+			expect(findEmptyLandingSession()?.id).toBe('landing-blank')
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'landing-blank')
+			restore()
+		}
+	})
+
+	it('passes over a persisted session, onto which chat seeding can graft a conversation', () => {
+		const restore = withTwoFamilies('forkA')
+		// ensureChatIdsSeeded assigns untagged legacy chats to `!transient` sessions
+		// and initRuntime loads them, without touching a field checked here.
+		const abandoned = session({
+			id: 'landing-abandoned',
+			name: 'session-910',
+			pending_workspace_id: 'forkA'
+		})
+		const others = sessionState.sessions
+		sessionState.sessions = [abandoned]
+		try {
+			expect(findEmptyLandingSession()).toBeUndefined()
+		} finally {
+			sessionState.sessions = others
+			restore()
+		}
+	})
+
+	it('passes over a session that has been sent, so recovery never reopens a conversation', () => {
+		const restore = withTwoFamilies('forkA')
+		const sent = session({ id: 'landing-sent', name: 'session-911', workspace_id: 'forkA' })
+		// Sole candidate, so `undefined` pins the exclusion: `not.toBe` would also
+		// pass on any unrelated session the shared module state happens to hold.
+		const others = sessionState.sessions
+		sessionState.sessions = [sent]
+		try {
+			expect(findEmptyLandingSession()).toBeUndefined()
+		} finally {
+			sessionState.sessions = others
+			restore()
+		}
+	})
+})
+
+describe('withOpenSessionTeardown — the gate that holds recovery off during a delete', () => {
+	it('stays shut until the outermost teardown finishes', async () => {
+		let innerDone = false
+		await withOpenSessionTeardown(async () => {
+			await withOpenSessionTeardown(async () => {})
+			innerDone = true
+			expect(isTearingDownOpenSession()).toBe(true)
+		})
+		expect(innerDone).toBe(true)
+		expect(isTearingDownOpenSession()).toBe(false)
+	})
+
+	it('reopens when the teardown throws, so a failed delete cannot wedge recovery shut', async () => {
+		await expect(
+			withOpenSessionTeardown(async () => {
+				throw new Error('fork deletion failed')
+			})
+		).rejects.toThrow('fork deletion failed')
+		expect(isTearingDownOpenSession()).toBe(false)
 	})
 })

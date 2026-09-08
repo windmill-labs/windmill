@@ -214,15 +214,15 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     let script = sqlx::query!(
-        "SELECT on_behalf_of_email FROM script WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM script WHERE path = $1 AND workspace_id = $2",
         "u/test-user/script_admin_preserve",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        script.on_behalf_of_email.as_deref(),
-        Some("original@windmill.dev"),
+        script.on_behalf_of.as_deref(),
+        Some("u/original-user"),
         "Admin should preserve on_behalf_of_email"
     );
 
@@ -249,15 +249,15 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     let script = sqlx::query!(
-        "SELECT on_behalf_of_email FROM script WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM script WHERE path = $1 AND workspace_id = $2",
         "u/deployer-user/script_deployer_preserve",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        script.on_behalf_of_email.as_deref(),
-        Some("original@windmill.dev"),
+        script.on_behalf_of.as_deref(),
+        Some("u/original-user"),
         "Deployer should preserve on_behalf_of_email"
     );
 
@@ -284,15 +284,15 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     let script = sqlx::query!(
-        "SELECT on_behalf_of_email FROM script WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM script WHERE path = $1 AND workspace_id = $2",
         "u/test-user-2/script_no_preserve",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        script.on_behalf_of_email.as_deref(),
-        Some("test2@windmill.dev"),
+        script.on_behalf_of.as_deref(),
+        Some("u/test-user-2"),
         "Non-admin should have their own email as on_behalf_of_email"
     );
 
@@ -319,15 +319,15 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     let flow = sqlx::query!(
-        "SELECT on_behalf_of_email FROM flow WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM flow WHERE path = $1 AND workspace_id = $2",
         "u/test-user/flow_admin_preserve",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        flow.on_behalf_of_email.as_deref(),
-        Some("original@windmill.dev"),
+        flow.on_behalf_of.as_deref(),
+        Some("u/original-user"),
         "Admin should preserve flow on_behalf_of_email"
     );
 
@@ -354,15 +354,15 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     let flow = sqlx::query!(
-        "SELECT on_behalf_of_email FROM flow WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM flow WHERE path = $1 AND workspace_id = $2",
         "u/deployer-user/flow_deployer_preserve",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        flow.on_behalf_of_email.as_deref(),
-        Some("original@windmill.dev"),
+        flow.on_behalf_of.as_deref(),
+        Some("u/original-user"),
         "Deployer should preserve flow on_behalf_of_email"
     );
 
@@ -389,15 +389,15 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     let flow = sqlx::query!(
-        "SELECT on_behalf_of_email FROM flow WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM flow WHERE path = $1 AND workspace_id = $2",
         "u/test-user-2/flow_no_preserve",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        flow.on_behalf_of_email.as_deref(),
-        Some("test2@windmill.dev"),
+        flow.on_behalf_of.as_deref(),
+        Some("u/test-user-2"),
         "Non-admin should have their own email as flow on_behalf_of_email"
     );
 
@@ -745,15 +745,15 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     let script = sqlx::query!(
-        "SELECT on_behalf_of_email FROM script WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM script WHERE path = $1 AND workspace_id = $2",
         "u/test-user/script_no_flag",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        script.on_behalf_of_email.as_deref(),
-        Some("test@windmill.dev"),
+        script.on_behalf_of.as_deref(),
+        Some("u/test-user"),
         "Without preserve flag, admin's email should be used"
     );
 
@@ -841,15 +841,15 @@ async fn test_script_update_preserves_on_behalf_of(db: Pool<Postgres>) -> anyhow
     );
 
     let script = sqlx::query!(
-        "SELECT on_behalf_of_email FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+        "SELECT on_behalf_of FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
         "u/original-user/script_to_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        script.on_behalf_of_email.as_deref(),
-        Some("original@windmill.dev"),
+        script.on_behalf_of.as_deref(),
+        Some("u/original-user"),
         "Admin update should preserve script on_behalf_of_email"
     );
 
@@ -896,15 +896,15 @@ async fn test_script_update_preserves_on_behalf_of(db: Pool<Postgres>) -> anyhow
     );
 
     let script = sqlx::query!(
-        "SELECT on_behalf_of_email FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+        "SELECT on_behalf_of FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
         "u/deployer-user/script_deploy_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        script.on_behalf_of_email.as_deref(),
-        Some("original@windmill.dev"),
+        script.on_behalf_of.as_deref(),
+        Some("u/original-user"),
         "Deployer update should preserve script on_behalf_of_email"
     );
 
@@ -951,15 +951,15 @@ async fn test_script_update_preserves_on_behalf_of(db: Pool<Postgres>) -> anyhow
     );
 
     let script = sqlx::query!(
-        "SELECT on_behalf_of_email FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+        "SELECT on_behalf_of FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
         "u/test-user-2/script_nonadmin_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        script.on_behalf_of_email.as_deref(),
-        Some("test2@windmill.dev"),
+        script.on_behalf_of.as_deref(),
+        Some("u/test-user-2"),
         "Non-admin update should overwrite script on_behalf_of_email with their own"
     );
 
@@ -1025,15 +1025,15 @@ async fn test_flow_update_preserves_on_behalf_of(db: Pool<Postgres>) -> anyhow::
     );
 
     let flow = sqlx::query!(
-        "SELECT on_behalf_of_email FROM flow WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM flow WHERE path = $1 AND workspace_id = $2",
         "u/original-user/flow_to_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        flow.on_behalf_of_email.as_deref(),
-        Some("original@windmill.dev"),
+        flow.on_behalf_of.as_deref(),
+        Some("u/original-user"),
         "Admin update should preserve flow on_behalf_of_email"
     );
 
@@ -1091,15 +1091,15 @@ async fn test_flow_update_preserves_on_behalf_of(db: Pool<Postgres>) -> anyhow::
     );
 
     let flow = sqlx::query!(
-        "SELECT on_behalf_of_email FROM flow WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM flow WHERE path = $1 AND workspace_id = $2",
         "u/deployer-user/flow_deploy_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        flow.on_behalf_of_email.as_deref(),
-        Some("original@windmill.dev"),
+        flow.on_behalf_of.as_deref(),
+        Some("u/original-user"),
         "Deployer update should preserve flow on_behalf_of_email"
     );
 
@@ -1157,15 +1157,15 @@ async fn test_flow_update_preserves_on_behalf_of(db: Pool<Postgres>) -> anyhow::
     );
 
     let flow = sqlx::query!(
-        "SELECT on_behalf_of_email FROM flow WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM flow WHERE path = $1 AND workspace_id = $2",
         "u/test-user-2/flow_nonadmin_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        flow.on_behalf_of_email.as_deref(),
-        Some("test2@windmill.dev"),
+        flow.on_behalf_of.as_deref(),
+        Some("u/test-user-2"),
         "Non-admin update should overwrite flow on_behalf_of_email with their own"
     );
 
@@ -2806,6 +2806,171 @@ async fn test_schedule_permissions_superadmin_not_in_workspace(
     assert_eq!(
         schedule_after.email, schedule.email,
         "email should remain the same after self-edit"
+    );
+
+    Ok(())
+}
+
+// ============================================================================
+// Forged-superadmin on_behalf_of guard (GHSA-hfh4-cx4h-3fcr)
+// ============================================================================
+
+/// Reserved internal sentinel identities are rejected by name at deploy time on
+/// every entity that stores a preserved on_behalf_of. Real identities stay
+/// deployable by a `wm_deployers` member — including a real superadmin, and even
+/// their email pinned onto an unrelated principal — because that escalation is
+/// closed at execution by the job-token cap, not by restricting what is stored.
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_reject_reserved_sentinel_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    // Reserved internal sentinel (grants is_super_admin at execution by email).
+    const SENTINEL: &str = "superadmin_secret@windmill.dev";
+    // Reserved sentinel matched on permissioned_as.
+    const SYNC_SENTINEL: &str = "superadmin_sync@windmill.dev";
+    // Real instance superadmin, present only in `password` (not a workspace member).
+    const REAL_SA: &str = "superadmin-external@windmill.dev";
+
+    // App: deployer cannot pin the sentinel email.
+    let resp = authed(
+        client().post(format!("{base}/apps/create")),
+        "DEPLOYER_TOKEN",
+    )
+    .json(&new_app_with_on_behalf_of(
+        "u/deployer-user/app_sentinel",
+        Some("u/original-user"),
+        Some(SENTINEL),
+        true,
+    ))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "deployer must not pin the sentinel as an app on_behalf_of_email: {}",
+        resp.text().await?
+    );
+
+    // App: a real superadmin on_behalf_of is *allowed* at deploy (deployers may
+    // deploy on behalf of any real user). The escalation is closed at execution
+    // by the job-token cap, not by restricting what can be stored, so even a
+    // superadmin email pinned onto an unrelated principal deploys fine here.
+    let resp = authed(
+        client().post(format!("{base}/apps/create")),
+        "DEPLOYER_TOKEN",
+    )
+    .json(&new_app_with_on_behalf_of(
+        "u/deployer-user/app_real_sa",
+        Some("u/original-user"),
+        Some(REAL_SA),
+        true,
+    ))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        201,
+        "a real superadmin on_behalf_of is allowed at deploy (capped at execution): {}",
+        resp.text().await?
+    );
+
+    // App: a consistently named real superadmin identity is likewise allowed.
+    let resp = authed(
+        client().post(format!("{base}/apps/create")),
+        "DEPLOYER_TOKEN",
+    )
+    .json(&new_app_with_on_behalf_of(
+        "u/deployer-user/app_consistent_sa",
+        Some("u/superadmin-external"),
+        Some(REAL_SA),
+        true,
+    ))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        201,
+        "deployer may preserve a consistently named superadmin identity: {}",
+        resp.text().await?
+    );
+
+    // Flow: deployer cannot pin the sentinel email.
+    let resp = authed(
+        client().post(format!("{base}/flows/create")),
+        "DEPLOYER_TOKEN",
+    )
+    .json(&new_flow_with_on_behalf_of(
+        "u/deployer-user/flow_sentinel",
+        Some(SENTINEL),
+        true,
+    ))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "deployer must not pin the sentinel as a flow on_behalf_of_email: {}",
+        resp.text().await?
+    );
+
+    // Script: deployer cannot pin the sentinel email.
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "DEPLOYER_TOKEN",
+    )
+    .json(&new_script_with_on_behalf_of(
+        "u/deployer-user/script_sentinel",
+        Some(SENTINEL),
+        true,
+    ))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "deployer must not pin the sentinel as a script on_behalf_of_email: {}",
+        resp.text().await?
+    );
+
+    // Schedule: deployer cannot preserve the sync sentinel as permissioned_as.
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "DEPLOYER_TOKEN",
+    )
+    .json(&new_script_with_on_behalf_of(
+        "u/deployer-user/sched_guard_script",
+        None,
+        false,
+    ))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+
+    let resp = authed(
+        client().post(format!("{base}/schedules/create")),
+        "DEPLOYER_TOKEN",
+    )
+    .json(&json!({
+        "path": "u/deployer-user/schedule_sync_sentinel",
+        "schedule": "0 0 */6 * * *",
+        "timezone": "UTC",
+        "script_path": "u/deployer-user/sched_guard_script",
+        "is_flow": false,
+        "enabled": false,
+        "permissioned_as": SYNC_SENTINEL,
+        "preserve_permissioned_as": true
+    }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "deployer must not preserve the sync sentinel as a schedule permissioned_as: {}",
+        resp.text().await?
     );
 
     Ok(())

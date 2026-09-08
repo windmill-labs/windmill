@@ -31,6 +31,21 @@ The `up.sql` usually defines:
   - trigger-specific fields
 - Indexes on foreign keys + any frequently-filtered columns
 - Foreign key to `workspace`
+- The RLS policies (`see_own`, `see_member`, `see_folder_extra_perms_user_*`, `see_extra_perms_user_*`, `see_extra_perms_groups_*`), copied from an existing trigger table
+
+**RLS: wrap every session GUC read in a scalar sub-select.** Write the session
+reads as `(select current_setting('session.user'))`,
+`= any((select regexp_split_to_array(current_setting('session.groups'), ','))::text[])`,
+`?| (select regexp_split_to_array(current_setting('session.pgroups'), ','))::text[]`,
+`? (select concat('u/', current_setting('session.user')))`, etc. — not the bare
+`current_setting(...)`. The GUCs are set with `SET LOCAL`, so the sub-select
+hoists them to a one-time InitPlan instead of re-evaluating per scanned row.
+Put the `::text[]` cast **outside** the sub-select for the array cases: in an
+`= any (...)` context, casting inside — `= any((select ...::text[]))` — makes
+Postgres parse the operand as a row-returning subquery and fails at CREATE with
+`operator does not exist: text = text[]`. The outside cast keeps it in
+array-operand form. See migration `20260714230440_wrap_session_gucs_in_rls_policies`
+for the canonical wrapped forms.
 
 Down migration drops the table and any enum types.
 

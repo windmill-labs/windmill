@@ -1,9 +1,12 @@
+import json
 import os
+import re
 import shutil
 import tempfile
 import time
 import unittest
 import uuid
+from pathlib import Path
 
 import git as gitpython
 
@@ -17,6 +20,21 @@ def ts_script(body: str) -> str:
 
 def unique_name(prefix: str = "git-sync-test") -> str:
     return f"{prefix}-{uuid.uuid4().hex[:8]}"
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def ui_pull_script_path() -> str:
+    """The hub script the git-sync UI runs for a pull (git → workspace)."""
+    with open(REPO_ROOT / "frontend/src/lib/hubPaths.json") as f:
+        return json.load(f)["gitInitRepo"]
+
+
+def backend_pull_script_path() -> str:
+    """The hub script the backend runs for an auto-pull: `GIT_SYNC_PULL_SCRIPT_PATH`."""
+    source = (REPO_ROOT / "backend/windmill-common/src/workspaces.rs").read_text()
+    return re.search(r'GIT_SYNC_PULL_SCRIPT_PATH: &str = "([^"]+)"', source).group(1)
 
 
 class GitSyncTestBase(unittest.TestCase):
@@ -220,6 +238,84 @@ class GitSyncTestBase(unittest.TestCase):
             f"Expected '{script_path}' .ts file in repo files: {files}",
         )
         return matching[0]
+
+    def _seed_wmill_yaml(
+        self, repo_name: str, branch: str = "main", include_schedules: bool = False
+    ):
+        """Commit a minimal wmill.yaml: the pull CLI requires one in the repo.
+        Real setups get it from the init/settings-push flow; pushes alone
+        don't write it."""
+        self._gitea.create_file(
+            repo_name,
+            "wmill.yaml",
+            "defaultTs: bun\n"
+            "includes:\n"
+            '  - "**"\n'
+            "excludes: []\n"
+            "codebases: []\n"
+            "skipVariables: true\n"
+            "skipResources: true\n"
+            "skipResourceTypes: true\n"
+            "skipSecrets: true\n"
+            f"includeSchedules: {'true' if include_schedules else 'false'}\n"
+            "includeTriggers: false\n",
+            branch=branch,
+        )
+
+    def _create_fork(self, client: WindmillClient) -> tuple:
+        """Fork `client`'s workspace the way the UI does (branch job first, then
+        the workspace). Returns (fork_id, fork_branch)."""
+        fork_id = f"wm-fork-{uuid.uuid4().hex[:8]}"
+        self._fork_workspaces_to_cleanup.append(fork_id)
+        job_ids = client.create_workspace_fork_branch(fork_id, f"Fork {fork_id}")
+        if job_ids:
+            client.wait_for_jobs_by_ids(job_ids, timeout=90)
+            time.sleep(3)
+        client.create_workspace_fork(fork_id, f"Fork {fork_id}")
+        return fork_id, f"wm-fork/main/{fork_id[len('wm-fork-'):]}"
+
+    def _run_ui_pull(
+        self,
+        client: WindmillClient,
+        resource_path: str,
+        include_type: list,
+        clone_ref: str = None,
+        dry_run: bool = False,
+        timeout: int = 180,
+    ) -> dict:
+        """Run the pull the git-sync UI runs (git → `client`'s workspace) and
+        return the job's result. `dry_run` is the UI's preview."""
+        payload = {
+            "workspace_id": client._workspace,
+            "repo_url_resource_path": resource_path,
+            "dry_run": dry_run,
+            "pull": True,
+            "only_wmill_yaml": False,
+            "settings_json": json.dumps({
+                "include_path": ["**"],
+                "exclude_path": [],
+                "extra_include_path": [],
+                "include_type": include_type,
+            }),
+            "use_promotion_overrides": False,
+            **({"clone_ref": clone_ref} if clone_ref else {}),
+        }
+        response = client._client.post(
+            f"/api/w/{client._workspace}/jobs/run/p/{ui_pull_script_path()}",
+            params={"skip_preprocessor": "true"},
+            json=payload,
+        )
+        self.assertEqual(
+            response.status_code // 100, 2, f"UI pull failed to start: {response.content.decode()}"
+        )
+        job_id = response.content.decode()
+        client.wait_for_jobs_by_ids([job_id], timeout=timeout)
+        job = client._client.get(f"/api/w/{client._workspace}/jobs_u/get/{job_id}").json()
+        self.assertTrue(
+            job.get("success"),
+            f"UI pull job {job_id} failed: {job.get('result')}\n{job.get('logs')}",
+        )
+        return job.get("result") or {}
 
 
 class TestGitSync(GitSyncTestBase):
@@ -802,27 +898,6 @@ class TestGitSyncAutoPull(GitSyncTestBase):
     # Two poll cycles + job execution, with slack for a loaded CI runner.
     PULL_TIMEOUT = 240
 
-    def _seed_wmill_yaml(self, repo_name: str, branch: str = "main"):
-        """Commit a minimal wmill.yaml: the pull CLI requires one in the repo.
-        Real setups get it from the init/settings-push flow; pushes alone
-        don't write it."""
-        self._gitea.create_file(
-            repo_name,
-            "wmill.yaml",
-            "defaultTs: bun\n"
-            "includes:\n"
-            '  - "**"\n'
-            "excludes: []\n"
-            "codebases: []\n"
-            "skipVariables: true\n"
-            "skipResources: true\n"
-            "skipResourceTypes: true\n"
-            "skipSecrets: true\n"
-            "includeSchedules: false\n"
-            "includeTriggers: false\n",
-            branch=branch,
-        )
-
     def _configure_auto_pull(self, resource_path: str, sync_forks: bool = False):
         """Single sync repo with auto-pull enabled in polling mode."""
         auto_pull = {"enabled": True, "mode": "polling"}
@@ -914,16 +989,7 @@ class TestGitSyncAutoPull(GitSyncTestBase):
 
         self._configure_auto_pull(resource_path, sync_forks=True)
 
-        # Create the fork (branch first, then workspace), like the UI does.
-        fork_id = f"wm-fork-{uuid.uuid4().hex[:8]}"
-        self._fork_workspaces_to_cleanup.append(fork_id)
-        job_ids = self._client.create_workspace_fork_branch(fork_id, f"Fork {fork_id}")
-        if job_ids:
-            self._client.wait_for_jobs_by_ids(job_ids, timeout=90)
-            time.sleep(3)
-        self._client.create_workspace_fork(fork_id, f"Fork {fork_id}")
-
-        fork_branch = f"wm-fork/main/{fork_id[len('wm-fork-'):]}"
+        fork_id, fork_branch = self._create_fork(self._client)
         self._gitea.create_file(
             repo_name, script_file, ts_script("return 'fork only'"),
             branch=fork_branch,
@@ -941,6 +1007,110 @@ class TestGitSyncAutoPull(GitSyncTestBase):
             "fork only",
             self._client.get_script_content(script_path),
             "Parent workspace received a commit from a fork branch",
+        )
+
+    def test_fork_of_dev_workspace_branch_deploys_into_fork(self):
+        """A throwaway fork OF a dev workspace pushes to wm-fork/<tracked>/<id>
+        (the tracked branch, NOT the dev's label), and the root's sync_forks
+        poller enumerates wm-fork/<tracked>/* and routes a commit on that branch
+        into the nested fork — through the root, since only the root holds
+        auto-pull config. Regression for the assumption that such a fork lives on
+        wm-fork/<dev-label>/<id> and is therefore never collected/reconciled."""
+        repo_name, _ = self._create_test_repo()
+        resource_path = self._setup_git_sync_resource(repo_name)
+        self._configure_single_repo_sync(resource_path, include_type=["script"])
+
+        script_path = self._deploy_seed_script("forkofdev")
+        script_file = self._repo_script_file(repo_name, script_path)
+        # Seed before the fork branch is created so the branch inherits it.
+        self._seed_wmill_yaml(repo_name)
+
+        self._configure_auto_pull(resource_path, sync_forks=True)
+
+        # Attach an existing workspace as a dev workspace of the root (label
+        # "dev"). It carries the same inherited sync repo so a fork beneath it
+        # resolves against it.
+        dev_id = f"it-dev-{uuid.uuid4().hex[:8]}"
+        self._fork_workspaces_to_cleanup.append(dev_id)
+        dev_client = WindmillClient(workspace=dev_id)
+        dev_client.create_resource(
+            path=resource_path,
+            resource_type="git_repository",
+            value={
+                "url": self._gitea.get_docker_clone_url(repo_name),
+                "branch": "main",
+                "is_github_app": False,
+            },
+            update_if_exists=True,
+        )
+        dev_client.configure_git_sync({
+            "repositories": [{
+                "git_repo_resource_path": f"$res:{resource_path}",
+                "use_individual_branch": False,
+                "group_by_folder": False,
+                "settings": {"include_type": ["script"], "include_path": ["**"]},
+            }],
+        })
+        root = self._client._workspace
+        # Only one dev workspace per root, so clear any left attached by a prior
+        # test before attaching ours, and detach ours afterward so we don't leak.
+        existing = self._client._client.get(
+            f"/api/w/{root}/workspaces/get_dev_workspace"
+        )
+        if existing.status_code == 200 and existing.json():
+            self._client._client.post(
+                f"/api/w/{root}/workspaces/detach_dev_workspace",
+                json={"dev_workspace_id": existing.json()["id"]},
+            )
+        self.addCleanup(
+            lambda: self._client._client.post(
+                f"/api/w/{root}/workspaces/detach_dev_workspace",
+                json={"dev_workspace_id": dev_id},
+            )
+        )
+        attach = self._client._client.post(
+            f"/api/w/{root}/workspaces/attach_dev_workspace",
+            json={"dev_workspace_id": dev_id, "dev_workspace_label": "dev"},
+        )
+        self.assertEqual(
+            attach.status_code // 100,
+            2,
+            f"attach_dev_workspace failed: {attach.content.decode()}",
+        )
+
+        # Fork the dev workspace — its parent is the dev, so this is a fork OF
+        # a dev workspace.
+        fork_id, fork_branch = self._create_fork(dev_client)
+
+        # The fork branch is named after the tracked branch, not the dev label.
+        fork_suffix = fork_id[len("wm-fork-"):]
+        branches = self._get_branches(self._clone_repo_all_branches(repo_name))
+        self.assertTrue(
+            any(fork_branch in b for b in branches),
+            f"expected {fork_branch} in the repo after forking the dev, got: {branches}",
+        )
+        self.assertFalse(
+            any(f"wm-fork/dev/{fork_suffix}" in b for b in branches),
+            f"fork-of-dev must not live on a wm-fork/<dev-label>/* branch: {branches}",
+        )
+
+        self._gitea.create_file(
+            repo_name, script_file, ts_script("return 'fork only'"),
+            branch=fork_branch,
+        )
+
+        fork_client = WindmillClient(workspace=fork_id)
+        self._wait_until(
+            lambda: "fork only" in fork_client.get_script_content(script_path),
+            timeout=self.PULL_TIMEOUT,
+            message=f"fork-of-dev workspace {fork_id} did not receive the fork-branch commit",
+        )
+
+        # The root (the fork's grandparent, holder of the poller) must not see it.
+        self.assertNotIn(
+            "fork only",
+            self._client.get_script_content(script_path),
+            "Root workspace received a commit from a fork-of-dev branch",
         )
 
     def test_settings_normalization_and_redaction(self):
@@ -1083,4 +1253,74 @@ class TestGitSyncAutoPull(GitSyncTestBase):
             self._client.count_deployment_callback_jobs(),
             initial_count,
             "Unknown webhook delivery enqueued a job",
+        )
+
+
+class TestGitSyncUiPull(GitSyncTestBase):
+    """The pull the git-sync UI runs (hub init script, git → workspace)."""
+
+    def test_ui_pull_script_is_the_backend_pull_script(self):
+        """The UI's pull and the backend's auto-pull are the same hub script,
+        so the two pins must move together."""
+        self.assertEqual(ui_pull_script_path(), backend_pull_script_path())
+
+    def test_fork_pull_does_not_report_parent_owned_schedule_enabled(self):
+        """In a fork, a schedule the parent also has takes its `enabled` from
+        the parent, so a fork-branch file that disagrees on that flag can never
+        be made to agree: a pull that treated it as a change would list the
+        same row on every run. Pull into the fork, then preview: the schedule
+        must not be reported, while an ordinary fork-branch edit does land."""
+        repo_name, _ = self._create_test_repo()
+        resource_path = self._setup_git_sync_resource(repo_name)
+        include_type = ["script", "schedule"]
+        self._configure_single_repo_sync(resource_path, include_type=include_type)
+
+        script_path = self._deploy_seed_script("forkuipull")
+        schedule_path = f"u/admin/{unique_name('forkuipull_sched')}"
+        initial_count = self._client.count_deployment_callback_jobs()
+        self._client.create_schedule(schedule_path, script_path, schedule="0 0 0 1 1 *")
+        self.addCleanup(self._client.delete_schedule, schedule_path)
+        self._client.wait_for_sync_jobs(initial_count, min_new=1)
+        time.sleep(3)
+        self._seed_wmill_yaml(repo_name, include_schedules=True)
+
+        # Fork after the schedule reached git so the fork branch inherits it
+        # with the parent's `enabled: true`; the fork's own copy lands disabled.
+        fork_id, fork_branch = self._create_fork(self._client)
+
+        schedule_file = f"{schedule_path}.schedule.yaml"
+        fork_dir = self._clone_repo(repo_name, branch=fork_branch)
+        content = self._read_file_content(fork_dir, schedule_file)
+        self.assertIn(
+            "enabled: true", content, f"expected the parent's enabled schedule in git:\n{content}"
+        )
+        self._gitea.create_file(
+            repo_name,
+            schedule_file,
+            content.replace("enabled: true", "enabled: false"),
+            branch=fork_branch,
+        )
+        # A real change alongside it proves the pull ran against the fork branch.
+        script_file = self._repo_script_file(repo_name, script_path, branch=fork_branch)
+        self._gitea.create_file(
+            repo_name, script_file, ts_script("return 'fork ui pull'"), branch=fork_branch
+        )
+
+        fork_client = WindmillClient(workspace=fork_id)
+        self._run_ui_pull(fork_client, resource_path, include_type, clone_ref=fork_branch)
+        self.assertIn(
+            "fork ui pull",
+            fork_client.get_script_content(script_path),
+            "the fork-branch script edit was not applied by the pull",
+        )
+        preview = self._run_ui_pull(
+            fork_client, resource_path, include_type, clone_ref=fork_branch, dry_run=True
+        )
+        self.assertIn("changes", preview, f"preview result has no changes list: {preview}")
+        changes = preview["changes"]
+        self.assertIsInstance(changes, list, f"preview changes is not a list: {preview}")
+        self.assertEqual(
+            [c for c in changes if c.get("path", "").endswith(schedule_file)],
+            [],
+            f"a pull into the fork keeps reporting the parent-owned schedule flag: {changes}",
         )

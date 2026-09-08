@@ -51,6 +51,14 @@ pub fn start_all_listeners(db: DB, killpill_rx: &tokio::sync::broadcast::Receive
         listen_to(MqttTrigger, db.clone(), mqtt_killpill_rx)
     }
 
+    #[cfg(feature = "amqp_trigger")]
+    {
+        let amqp_killpill_rx = killpill_rx.resubscribe();
+        use crate::triggers::amqp::AmqpTrigger;
+
+        listen_to(AmqpTrigger, db.clone(), amqp_killpill_rx)
+    }
+
     #[cfg(feature = "websocket")]
     {
         let mqtt_killpill_rx = killpill_rx.resubscribe();

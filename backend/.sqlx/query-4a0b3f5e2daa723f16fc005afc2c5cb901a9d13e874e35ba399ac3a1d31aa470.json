@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, archived, schema_validation, ws_error_handler_muted, deleted)\n         VALUES\n         ('test-workspace', 'f/shared/same', 1, 'def main(): pass', 'Same', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false),\n         ('test-workspace', 'f/shared/differs', 2, 'def main(): return 1', 'Differs', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false),\n         ('test-workspace', 'f/shared/only_here', 3, 'def main(): return 2', 'Only here', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false),\n         ('other-workspace', 'f/shared/same', 4, 'def main(): pass', 'Same', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false),\n         ('other-workspace', 'f/shared/differs', 5, 'def main(): return 99', 'Differs', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "4a0b3f5e2daa723f16fc005afc2c5cb901a9d13e874e35ba399ac3a1d31aa470"
+}

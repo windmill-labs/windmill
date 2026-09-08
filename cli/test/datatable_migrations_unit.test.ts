@@ -15,6 +15,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { parseDatatableMigrationPath } from "../src/types.ts";
 import { validateLocalMigrations } from "../src/commands/datatable_migrations.ts";
+import { untrackedDatatableMigrationDeletions } from "../src/commands/sync/sync.ts";
 
 describe("parseDatatableMigrationPath", () => {
   test("parses up and down files of the new layout", () => {
@@ -118,5 +119,63 @@ describe("validateLocalMigrations", () => {
 
   test("returns no errors when the migrations folder is absent", () => {
     expect(validateLocalMigrations()).toEqual([]);
+  });
+});
+
+// =============================================================================
+// untrackedDatatableMigrationDeletions — the push-side safety net.
+//
+// Migrations bypass the repo's path filters, so a clone made before they were
+// synced sees every server-side migration as remote-only, and
+// `pushMigrationFromDisk` reads a missing `.up.sql` as "delete it". What the repo
+// has ever committed under migrations/datatable/ is the durable answer to "did we
+// track this?" — the working tree is not, because creating a migration locally
+// makes the directory appear without anything having been tracked.
+// =============================================================================
+
+describe("untrackedDatatableMigrationDeletions", () => {
+  const A_UP = "migrations/datatable/mydb/20260101000000_a.up.sql";
+  const A_DOWN = "migrations/datatable/mydb/20260101000000_a.down.sql";
+  const changes = [
+    { name: "deleted", path: A_UP },
+    { name: "deleted", path: A_DOWN },
+    { name: "deleted", path: "f/foo/bar.script.yaml" },
+    { name: "added", path: "migrations/datatable/mydb/20260102000000_b.up.sql" },
+  ];
+
+  test("trusts a deletion the repository has committed before", () => {
+    expect(
+      untrackedDatatableMigrationDeletions(changes, { kind: "known", paths: new Set([A_UP, A_DOWN]) }),
+    ).toEqual([]);
+  });
+
+  test("flags migrations this repository has never recorded", () => {
+    expect(
+      untrackedDatatableMigrationDeletions(changes, { kind: "known", paths: new Set() }).map((c) => c.path),
+    ).toEqual([A_UP, A_DOWN]);
+  });
+
+  test("a locally created migration does not vouch for unrelated ones", () => {
+    // `wmill datatable migrate new` makes migrations/datatable/ exist without the
+    // checkout having tracked anything, so only the recorded paths count.
+    const recorded = {
+      kind: "known" as const,
+      paths: new Set(["migrations/datatable/mydb/20260102000000_b.up.sql"]),
+    };
+    expect(
+      untrackedDatatableMigrationDeletions(changes, recorded).map((c) => c.path),
+    ).toEqual([A_UP, A_DOWN]);
+  });
+
+  test("trusts nothing when the history cannot be consulted", () => {
+    // A shallow clone or a non-repository can't prove a path was never tracked,
+    // so absence is not read as permission to delete.
+    expect(
+      untrackedDatatableMigrationDeletions(changes, {
+        kind: "unknown",
+        reason: "this is a shallow clone, so its history is truncated",
+        remedy: "Fetch the full history (for actions/checkout, fetch-depth: 0)",
+      }).map((c) => c.path),
+    ).toEqual([A_UP, A_DOWN]);
   });
 });

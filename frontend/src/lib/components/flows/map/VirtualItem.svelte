@@ -165,6 +165,7 @@
 							clazz="p-1"
 							{onEditInput}
 							selectionId={id ?? label ?? ''}
+							logsToggle={nodeKind === 'result'}
 							testJob={job}
 							disableMock
 							disableHistory

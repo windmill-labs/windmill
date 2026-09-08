@@ -22,7 +22,7 @@
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Button, Skeleton } from '$lib/components/common'
+	import { Alert, Button, EmptyState, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -56,7 +56,7 @@
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import AzureTriggerEditor from '$lib/components/triggers/azure/AzureTriggerEditor.svelte'
-	import { AzureIcon } from '$lib/components/icons'
+	import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
 	import { getHttpRoute } from '$lib/components/triggers/http/utils'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
@@ -79,11 +79,14 @@
 	}
 	getDeployUiSettings()
 	async function loadTriggers(): Promise<void> {
-		triggers = (await AzureTriggerService.listAzureTriggers({ workspace: $workspaceStore!, includeDraftOnly: true })).map(
-			(x) => {
-				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
-			}
-		)
+		triggers = (
+			await AzureTriggerService.listAzureTriggers({
+				workspace: $workspaceStore!,
+				includeDraftOnly: true
+			})
+		).map((x) => {
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'azure', $usedTriggerKinds)
 		loading = false
 	}
@@ -255,13 +258,11 @@
 
 	function updateQueryFilters(selectedFilterKind, filterUserFolders) {
 		setQuery(
-			new URL(window.location.href),
 			TRIGGER_PATH_KIND_FILTER_SETTING,
 			selectedFilterKind,
 			window.location.hash || undefined
 		).then(() => {
 			setQuery(
-				new URL(window.location.href),
 				FILTER_USER_FOLDER_SETTING_NAME,
 				String(filterUserFolders),
 				window.location.hash || undefined
@@ -403,14 +404,27 @@
 				<Skeleton layout={[[6], 0.4]} />
 			{/each}
 		{:else if !triggers?.length}
-			<div class="text-center text-sm text-primary mt-2"> No Azure Event Grid triggers </div>
+			<EmptyState
+				icon={AzureIcon}
+				title="No Azure Event Grid triggers yet"
+				description="Windmill can subscribe to an Azure Event Grid topic and trigger scripts or flows on each event."
+				action={{
+					label: 'Add an Azure Event Grid trigger',
+					icon: Plus,
+					onClick: () => azureTriggerEditor?.openNew(false),
+					aiId: 'azure-triggers-empty-add',
+					aiDescription: 'Add Azure Event Grid trigger'
+				}}
+			/>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
 				{#each items.slice(0, nbDisplayed) as { azure_resource_path, azure_mode, scope_resource_id, topic_name, subscription_name, workspace_id, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, mode, server_id, retry, error_handler_path, error_handler_args, draft_only, is_draft } (path)}
+					{@const hasDraft = getLocalDraftHint($workspaceStore, 'trigger_azure', path) ?? is_draft}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const ping = new Date()}
 					{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
-					{@const enabled = mode === 'enabled' || mode === 'suspended'}
+					{@const effectiveMode = draft_only ? 'disabled' : mode}
+					{@const enabled = effectiveMode === 'enabled' || effectiveMode === 'suspended'}
 					{@const is_pull = azure_mode === 'namespace_pull'}
 					{@const topic_label = topic_name
 						? topic_name
@@ -429,7 +443,7 @@
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
 								<div class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate">
-									{path} - {topic_label} ({azure_mode}, {subscription_name}){(getLocalDraftHint($workspaceStore, 'trigger_azure', path) ?? is_draft) ? '*' : ''}
+									{path} - {topic_label} ({azure_mode}, {subscription_name}){hasDraft ? '*' : ''}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
 									runnable: {script_path}
@@ -438,9 +452,6 @@
 
 							<div class="hidden lg:flex flex-row gap-1 items-center">
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
-									{#if draft_only}
-										<DraftBadge draft_only is_draft={false} />
-									{/if}
 							</div>
 
 							{#if is_pull}
@@ -488,26 +499,35 @@
 								</div>
 							{/if}
 
-							{#if is_pull}
-								<TriggerModeToggle
-									onToggleMode={(newMode) => onToggleMode(path, newMode)}
-									triggerMode={mode}
-									includeModalConfig={{
-										triggerPath: path,
-										triggerKind: 'azure',
-										runnableConfig: {
-											path: script_path,
-											kind: is_flow ? 'flow' : 'script',
-											retry,
-											errorHandlerPath: error_handler_path,
-											errorHandlerArgs: error_handler_args
-										}
-									}}
-									{canWrite}
-									hideToggleLabels
-									hideDropdown
-								/>
-							{/if}
+							<div class="flex items-center justify-end gap-2 shrink-0 min-w-[8rem]">
+								<DraftBadge {draft_only} is_draft={hasDraft} />
+								{#if is_pull}
+									<TriggerModeToggle
+										disabled={draft_only}
+										title={draft_only
+											? 'Draft only: deploy the trigger to enable it'
+											: hasDraft
+												? 'Enables/disables the deployed trigger; the draft is not affected'
+												: undefined}
+										onToggleMode={(newMode) => onToggleMode(path, newMode)}
+										triggerMode={effectiveMode}
+										includeModalConfig={{
+											triggerPath: path,
+											triggerKind: 'azure',
+											runnableConfig: {
+												path: script_path,
+												kind: is_flow ? 'flow' : 'script',
+												retry,
+												errorHandlerPath: error_handler_path,
+												errorHandlerArgs: error_handler_args
+											}
+										}}
+										{canWrite}
+										hideToggleLabels
+										hideDropdown
+									/>
+								{/if}
+							</div>
 
 							<div class="flex gap-2 items-center justify-end">
 								{#if !is_pull}
@@ -542,7 +562,7 @@
 												goto(href)
 											}
 										},
-										...(canWrite && mode !== 'suspended'
+										...(canWrite && !draft_only && mode !== 'suspended'
 											? [
 													{
 														displayName: 'Suspend job execution',
@@ -620,8 +640,8 @@
 						<div class="w-full flex justify-between items-baseline">
 							<div
 								class="flex flex-wrap text-[0.7em] text-primary gap-1 items-center justify-end truncate pr-2"
-								><div class="truncate">edited by {edited_by}</div><div class="truncate"
-									>the {displayDate(edited_at)}</div
+								>{#if edited_by}<div class="truncate">edited by {edited_by}</div>{/if}<div
+									class="truncate">{edited_by ? 'the ' : ''}{displayDate(edited_at)}</div
 								></div
 							></div
 						>

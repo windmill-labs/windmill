@@ -9,7 +9,7 @@
 	import { untrack } from 'svelte'
 	import { Trash2 } from 'lucide-svelte'
 
-	type ResourceType = 'scripts' | 'flows' | 'apps'
+	type ResourceType = 'scripts' | 'flows' | 'apps' | 'resources'
 
 	let quotas:
 		| {
@@ -80,6 +80,8 @@
 				return 'This will permanently delete all non-HEAD flow versions. Only the latest version of each flow will be kept. This frees up storage but does not reduce the flow count (quota counts unique flows, not versions).'
 			case 'apps':
 				return 'This will permanently delete all non-HEAD app versions. Only the latest version of each app will be kept. This frees up storage but does not reduce the app count (quota counts unique apps, not versions).'
+			case 'resources':
+				return 'This will permanently delete the value history of every resource. Only the current value of each resource will be kept, so past values can no longer be compared or restored. This frees up storage but does not reduce the resource count (quota counts unique resources, not versions).'
 		}
 	}
 
@@ -88,7 +90,7 @@
 		{ label: 'Flows', key: 'flows', prunable: true },
 		{ label: 'Apps', key: 'apps', prunable: true },
 		{ label: 'Variables', key: 'variables', prunable: false },
-		{ label: 'Resources', key: 'resources', prunable: false },
+		{ label: 'Resources', key: 'resources', prunable: true },
 		{ label: 'Forks', key: 'forks', prunable: false }
 	]
 </script>

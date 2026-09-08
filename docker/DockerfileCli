@@ -1,7 +1,15 @@
 FROM oven/bun:slim
 
-RUN bun install -g windmill-cli
+# Pick up upstream OS security fixes present in the base image (e.g. openssl CVE-2026-34182).
+RUN apt-get update \
+    && apt-get -y upgrade \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN ln -s $(bun pm bin -g)/wmill /usr/bin/wmill
+# Install the CLI, then drop bun's package download cache: its cached manifests
+# (e.g. esrap's dev-only vitest devDependency) trip vulnerability scanners and are
+# unused at runtime.
+RUN bun install -g windmill-cli \
+    && ln -s $(bun pm bin -g)/wmill /usr/bin/wmill \
+    && rm -rf /root/.bun/install/cache
 
 ENTRYPOINT [ "wmill" ]

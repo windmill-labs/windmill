@@ -29,12 +29,13 @@
 
 	// Embedder side: the logged-in member's session mints a scoped embed token for
 	// the opaque iframe, isolating the in-workspace app from their full session.
-	async function fetchEmbedToken(): Promise<{ token?: string }> {
+	async function fetchEmbedToken(opts?: { sdkConsent?: boolean }): Promise<{ token?: string }> {
 		const headers: Record<string, string> = {}
 		if (typeof OpenAPI.TOKEN === 'string' && OpenAPI.TOKEN) {
 			headers['Authorization'] = `Bearer ${OpenAPI.TOKEN}`
 		}
-		const res = await fetch(`${OpenAPI.BASE}/w/${workspace}/apps/embed_token/p/${path}`, {
+		const consent = opts?.sdkConsent ? '?sdk_consent=true' : ''
+		const res = await fetch(`${OpenAPI.BASE}/w/${workspace}/apps/embed_token/p/${path}${consent}`, {
 			headers
 		})
 		if (!res.ok) {

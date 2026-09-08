@@ -30,8 +30,14 @@ jobs:
     outputs:
       authorized: ${{ steps.check.outputs.authorized }}
     steps:
+      # This check is purely additive: callers OR it with author_association, so it must
+      # never fail the job. Failing here would block every dependent reviewer job through
+      # `needs`, turning an unconfigured or misconfigured app into a total review outage
+      # rather than a fallback to the author_association path.
       - name: Mint internal app token
         id: app
+        if: vars.INTERNAL_APP_ID != ''
+        continue-on-error: true
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ vars.INTERNAL_APP_ID }}
@@ -41,7 +47,9 @@ jobs:
       - name: Resolve authorization
         id: check
         env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
+          # Without the app token, the default token still resolves public members and
+          # repo collaborators; private members simply fall through to author_association.
+          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
           USERNAME: ${{ inputs.username }}
           TRUSTED_BOT: ${{ inputs.trusted_bot }}
           REPO: ${{ github.repository }}

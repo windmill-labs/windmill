@@ -2,10 +2,12 @@ import { getDraftItems, type DraftItem } from '$lib/workspaceDrafts.svelte'
 import {
 	checkDeployPermission,
 	checkItemExists,
+	deployPermissionForKind,
 	getItemValue,
 	type DeployPermission,
 	type DeployResult
 } from '$lib/utils_workspace_deploy'
+import type { Kind } from '$lib/utils_deployable'
 import {
 	deployDraft,
 	discardDraft,
@@ -23,6 +25,8 @@ import {
 	type DeployPlanEntry
 } from './sessionDeployModel'
 import { maskKey } from './modifiedItemsMask'
+import { sessionState } from './sessionState.svelte'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
 
 export type DeploymentStatus = { status: 'loading' | 'failed'; error?: string }
 
@@ -206,9 +210,9 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	})
 
 	// ── Deploy permission ────────────────────────────────────────────────────
-	// Preflight the shared checkDeployPermission (operator / RestrictDeployToDeployers)
-	// for the session workspace so the button disables with a reason instead of
-	// failing on click. `ok` defaults true while resolving (fail-open).
+	// Preflight the shared checkDeployPermission for the session workspace so the
+	// button disables with a reason instead of failing on click. `ok` defaults
+	// true while resolving (fail-open).
 	let deployPerm = $state<DeployPermission>({ ok: true })
 	let deployPermFetchedFor = ''
 	$effect(() => {
@@ -261,10 +265,14 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	async function deployOne(item: DeployItem, discard = false): Promise<boolean> {
 		const plan = discard ? discardPlanFor(item) : deployPlanFor(item)
 		if (!plan) return false
-		// Don't attempt a deploy we know the user can't make (no write permission
-		// on the path, or blocked by the operator / deployer rule) — the UI
-		// disables it too; this is the guard behind that.
-		if (!discard && (!item.canWrite || !deployPerm.ok)) return false
+		// Snapshot before the await: the user may switch sessions while the
+		// deploy runs, and the event belongs to the initiating session.
+		const initiatingSessionId = sessionState.currentSessionId
+		// Don't attempt a deploy we know the user can't make (no write permission on
+		// the path, or refused by the preflight for this kind) — the UI disables it
+		// too; this is the guard behind that.
+		if (!discard && (!item.canWrite || !deployPermissionForKind(deployPerm, item.deployKind).ok))
+			return false
 		setStatus(item.key, { status: 'loading' })
 		deploying = true
 		try {
@@ -280,6 +288,11 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 						.add(item.key)
 						.add(maskKey(item.draftKind, item.displayPath))
 					getArgs().onItemDeployed?.(item)
+					logFeatureUsage('ai_session', 'deployed', {
+						key: item.draftKind,
+						entityId: initiatingSessionId,
+						workspace: getArgs().workspaceId
+					})
 				}
 			}
 			return res.success
@@ -339,9 +352,13 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		staleOf(key: string): boolean {
 			return staleKeys.has(key)
 		},
-		/** Whether the user may deploy into the session workspace. */
-		get deployPermission(): DeployPermission {
-			return deployPerm
+		/**
+		 * Whether the user may deploy into the session workspace. Per-kind, because a
+		 * direct-deployment lock never reaches schedules or triggers server-side — a row of
+		 * that kind stays deployable while a script row does not.
+		 */
+		deployPermissionForKind(kind: Kind): DeployPermission {
+			return deployPermissionForKind(deployPerm, kind)
 		},
 		deployRow,
 		discardRow

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO eval_dataset (workspace_id, path, summary, scorers, extra_perms, created_at, created_by, edited_at, edited_by)\n         SELECT $2, path, summary, scorers, extra_perms, created_at, created_by, edited_at, edited_by\n         FROM eval_dataset WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "479427dc09ebacb80cb20d553e93a577bb85b389ab056909a326212565a338bc"
+}

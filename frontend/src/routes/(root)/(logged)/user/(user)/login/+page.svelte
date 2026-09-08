@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths'
 	import { goto } from '$lib/navigation'
 	import { page } from '$app/state'
 
@@ -10,17 +11,18 @@
 		enterpriseLicense,
 		whitelabelNameStore
 	} from '$lib/stores'
-	import { classNames, emptyString, parseQueryParams } from '$lib/utils'
+	import { emptyString, parseQueryParams } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
-	import { WindmillIcon } from '$lib/components/icons'
 	import LoginPageHeader from '$lib/components/LoginPageHeader.svelte'
-	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
+	import { WindmillIcon } from '$lib/components/icons'
 	import { clearStores } from '$lib/storeUtils'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import Login from '$lib/components/Login.svelte'
+	import LoginHeading from '$lib/components/LoginHeading.svelte'
 	import { onMount } from 'svelte'
 	import { refreshSuperadmin } from '$lib/refreshUser'
 	import { isValidLogoutRedirect, toSameOriginRelativePath } from '$lib/logoutRedirect'
+	import { confirmPendingLoginMethod } from '$lib/lastLoginMethod'
 
 	const email = page.url.searchParams.get('email') ?? ''
 	const password = page.url.searchParams.get('password') ?? ''
@@ -37,8 +39,10 @@
 	const sameOriginRd = toSameOriginRelativePath(rawRd)
 	const rd = sameOriginRd ?? rawRd
 
-	let showPassword = false
 	let firstTime = $state(false)
+	// A third-party login creates the account on first use, so the page only offers sign-up
+	// once the instance has one configured. undefined until the card reports what it loaded.
+	let hasThirdParty = $state<boolean | undefined>(undefined)
 
 	function clearWindmillCloudCookies() {
 		const domain = window.location.hostname
@@ -106,7 +110,8 @@
 				} else {
 					goto(rd ?? '/')
 				}
-			} else if (rd?.startsWith('/user/workspaces')) {
+				// See (root)/+layout.svelte for why /projects/import skips the picker.
+			} else if (rd?.startsWith('/user/workspaces') || rd?.startsWith(`${base}/projects/import`)) {
 				goto(rd)
 			} else if (rd == '/#user-settings') {
 				goto(`/user/workspaces#user-settings`)
@@ -118,6 +123,8 @@
 
 	async function redirectIfNecessary() {
 		await UserService.getCurrentEmail()
+		// Reached only with a session: an SSO round trip that landed back here worked.
+		confirmPendingLoginMethod()
 		redirectUser()
 	}
 
@@ -134,30 +141,32 @@
 	}
 </script>
 
-<div
-	class="flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative bg-surface-secondary h-screen"
->
-	<LoginPageHeader />
-	<div class="sm:mx-auto sm:w-full sm:max-w-md">
+<!-- Anchored to the top, not centered: the card grows when the password form opens or an
+	error appears, and centering would slide the mark and the fields under the pointer. -->
+<div class="flex flex-col pt-24 pb-12 sm:px-6 lg:px-8 relative bg-surface-secondary min-h-screen">
+	<!-- The one page that keeps the mark in the middle: it names the instance you are logging
+		into, so the header's corner lockup would just say it twice. -->
+	<LoginPageHeader showBrand={false} />
+	<div class="sm:mx-auto sm:w-full sm:max-w-sm">
 		<div class="mx-auto flex justify-center">
 			{#if !$enterpriseLicense || !$whitelabelNameStore}
-				<WindmillIcon height="80px" width="80px" spin="slow" />
+				<WindmillIcon height="48px" width="48px" spin="slow" />
 			{/if}
 		</div>
-		<h2 class="mt-6 text-center text-2xl font-semibold tracking-tight text-emphasis">
-			Log in or sign up
-		</h2>
-		<p class="mt-2 text-center text-xs text-secondary">
-			Log in or sign up with any of the methods below
-		</p>
+		<div class="mt-6">
+			<LoginHeading {hasThirdParty} />
+		</div>
 	</div>
 
-	<div
-		class={classNames('mt-8 sm:mx-auto sm:w-full sm:max-w-xl', showPassword ? 'mb-16' : 'mb-48')}
-	>
-		<div class="flex justify-end">
-			<DarkModeToggle forcedDarkMode={false} />
-		</div>
-		<Login {firstTime} {rd} {error} {password} {email} autoRedirect={false} />
+	<div class="mt-6 sm:mx-auto sm:w-full sm:max-w-sm">
+		<Login
+			{firstTime}
+			{rd}
+			{error}
+			{password}
+			{email}
+			autoRedirect={false}
+			onOptionsLoaded={(options) => (hasThirdParty = options.hasThirdParty)}
+		/>
 	</div>
 </div>

@@ -18,7 +18,7 @@
 	import { onDestroy, tick, untrack } from 'svelte'
 	import { page } from '$app/state'
 	import { UserDraft } from '$lib/userDraft.svelte'
-	import { stripNewDraftFlagOnSave } from '$lib/newDraftFlag'
+	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { runResetToDeployed } from '$lib/userDraftToast'
 
@@ -70,7 +70,10 @@
 		// `?new_draft=true` (from `/apps/add`'s redirect): a fresh, never-saved
 		// `draft_{uuid}` path. Skip the backend fetch (would 404) and seed empty
 		// with `path = ''` for the friendly auto-name. See /scripts/edit's loader.
-		if (page.url.searchParams.get('new_draft') === 'true') {
+		// Skip the seed branch once the draft is persisted this session so a stale
+		// `?new_draft` loads the saved draft instead of blanking it — see
+		// shouldSeedNewDraft.
+		if (shouldSeedNewDraft(page.url.searchParams, $workspaceStore, 'app', path)) {
 			// Suspend autosave across the bootstrap: the seed assignment and
 			// AppEditor's `firstMirror` are programmatic writes that must not POST
 			// as the first edit. AppEditor lifts it in `onMount`.
@@ -104,8 +107,6 @@
 				itemKind: 'app',
 				path
 			})
-			// Backend's `Policy` requires `execution_mode` (empty object fails to
-			// deserialize on deploy); `publisher` is the default authoring mode.
 			const emptyPolicy = { execution_mode: 'publisher' } as any
 			// One-shot import handoff via $importStore (YAML/JSON or "Build app").
 			// Wrapped exports carry { summary, value, policy }; bare ones are the App value.
@@ -208,6 +209,10 @@
 			}
 			return
 		}
+		// Falling through with `?new_draft=true` still set means the draft is
+		// already persisted (see shouldSeedNewDraft) — drop the now-meaningless
+		// flag so it doesn't linger in the URL / remembered nav route.
+		stripNewDraftFlag()
 		let backendApp = await AppService.getAppByPath({
 			path: page.params.path ?? '',
 			workspace: $workspaceStore!,
@@ -254,7 +259,6 @@
 				summary: savedDraftApp?.summary ?? '',
 				value: (savedDraftApp ?? {}) as App,
 				path: page.params.path ?? '',
-				// `execution_mode` required; matches the new-app seed above.
 				policy: { execution_mode: 'publisher' } as any,
 				custom_path: undefined,
 				versions: undefined as any,

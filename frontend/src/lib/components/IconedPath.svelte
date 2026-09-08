@@ -18,12 +18,12 @@
 		<div>
 			<IconedResourceType width="20px" height="20px" name={path.split('/')[2]} silent={true} />
 		</div>
-		<span class="text-sm truncate">{path}</span>
+		<span class="truncate text-xs text-primary">{path}</span>
 	{:else}
 		<div class="center-center">
 			<Building size={16} />
 		</div>
-		<span class="text-sm truncate">{path}</span>
+		<span class="truncate text-xs text-primary">{path}</span>
 		{#if hash}
 			<Badge>{truncateHash(hash)}</Badge>
 		{/if}

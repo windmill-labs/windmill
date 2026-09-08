@@ -9,6 +9,7 @@ import {
   HttpTrigger,
   KafkaTrigger,
   MqttTrigger,
+  AmqpTrigger,
   NatsTrigger,
   PostgresTrigger,
   SqsTrigger,
@@ -22,7 +23,7 @@ import { Command } from "@cliffy/command";
 import { Table } from "@cliffy/table";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
-import { sep as SEP } from "node:path";
+import { sep as SEP, resolve as pathResolve } from "node:path";
 import {
   GlobalOptions,
   isSuperset,
@@ -40,6 +41,8 @@ import { getCurrentGitBranch } from "../../utils/git.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { validatePath, resolveWorkspace } from "../../core/context.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { buildPermissionedAsContext } from "../../core/permissioned_as.ts";
+import { readEffectiveSyncBehavior } from "../../core/conf.ts";
 
 type Trigger = {
   http: HttpTrigger;
@@ -48,6 +51,7 @@ type Trigger = {
   nats: NatsTrigger;
   postgres: PostgresTrigger;
   mqtt: MqttTrigger;
+  amqp: AmqpTrigger;
   sqs: SqsTrigger;
   gcp: GcpTrigger;
   azure: AzureTrigger;
@@ -84,6 +88,7 @@ async function getTrigger<K extends TriggerType>(
     nats: wmill.getNatsTrigger,
     postgres: wmill.getPostgresTrigger,
     mqtt: wmill.getMqttTrigger,
+    amqp: wmill.getAmqpTrigger,
     sqs: wmill.getSqsTrigger,
     gcp: wmill.getGcpTrigger,
     azure: wmill.getAzureTrigger,
@@ -114,6 +119,7 @@ async function updateTrigger<K extends TriggerType>(
     nats: wmill.updateNatsTrigger,
     postgres: wmill.updatePostgresTrigger,
     mqtt: wmill.updateMqttTrigger,
+    amqp: wmill.updateAmqpTrigger,
     sqs: wmill.updateSqsTrigger,
     gcp: wmill.updateGcpTrigger,
     azure: wmill.updateAzureTrigger,
@@ -142,6 +148,7 @@ async function createTrigger<K extends TriggerType>(
     nats: wmill.createNatsTrigger,
     postgres: wmill.createPostgresTrigger,
     mqtt: wmill.createMqttTrigger,
+    amqp: wmill.createAmqpTrigger,
     sqs: wmill.createSqsTrigger,
     gcp: wmill.createGcpTrigger,
     azure: wmill.createAzureTrigger,
@@ -381,6 +388,13 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     subscribe_topics: [],
     enabled: false,
   },
+  amqp: {
+    script_path: "",
+    is_flow: false,
+    amqp_resource_path: "",
+    queue_name: "",
+    enabled: false,
+  },
   sqs: {
     script_path: "",
     is_flow: false,
@@ -536,6 +550,7 @@ async function list(opts: GlobalOptions & { json?: boolean }) {
     natsTriggers,
     postgresTriggers,
     mqttTriggers,
+    amqpTriggers,
     sqsTriggers,
     gcpTriggers,
     azureTriggers,
@@ -547,6 +562,7 @@ async function list(opts: GlobalOptions & { json?: boolean }) {
     listOrEmpty(() => wmill.listNatsTriggers({ workspace: ws })),
     listOrEmpty(() => wmill.listPostgresTriggers({ workspace: ws })),
     listOrEmpty(() => wmill.listMqttTriggers({ workspace: ws })),
+    listOrEmpty(() => wmill.listAmqpTriggers({ workspace: ws })),
     listOrEmpty(() => wmill.listSqsTriggers({ workspace: ws })),
     listOrEmpty(() => wmill.listGcpTriggers({ workspace: ws })),
     listOrEmpty(() => wmill.listAzureTriggers({ workspace: ws })),
@@ -559,6 +575,7 @@ async function list(opts: GlobalOptions & { json?: boolean }) {
     ...natsTriggers.map((x) => ({ path: x.path, kind: "nats" })),
     ...postgresTriggers.map((x) => ({ path: x.path, kind: "postgres" })),
     ...mqttTriggers.map((x) => ({ path: x.path, kind: "mqtt" })),
+    ...amqpTriggers.map((x) => ({ path: x.path, kind: "amqp" })),
     ...sqsTriggers.map((x) => ({ path: x.path, kind: "sqs" })),
     ...gcpTriggers.map((x) => ({ path: x.path, kind: "gcp" })),
     ...azureTriggers.map((x) => ({ path: x.path, kind: "azure" })),
@@ -605,8 +622,12 @@ async function extractTriggerKindFromPath(filePath: string): Promise<string | un
 }
 
 async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
+  // Reading the config moves the cwd to the wmill.yaml root when it sits in a
+  // parent directory, so pin the file against the invocation cwd first.
+  filePath = pathResolve(filePath);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+  const syncBehavior = await readEffectiveSyncBehavior(opts, workspace);
 
   if (!validatePath(remotePath)) {
     return;
@@ -628,7 +649,8 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
     workspace.workspaceId,
     remotePath,
     undefined,
-    parseFromFile(filePath)
+    parseFromFile(filePath),
+    await buildPermissionedAsContext(workspace.workspaceId, syncBehavior)
   );
   console.log(colors.bold.underline.green("Trigger pushed"));
 }
@@ -643,11 +665,11 @@ const command = new Command()
   .command("get", "get a trigger's details")
   .arguments("<path:string>")
   .option("--json", "Output as JSON (for piping to jq)")
-  .option("--kind <kind:string>", "Trigger kind (http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email). Recommended for faster lookup")
+  .option("--kind <kind:string>", "Trigger kind (http, websocket, kafka, nats, postgres, mqtt, amqp, sqs, gcp, azure, email). Recommended for faster lookup")
   .action(get as any)
   .command("new", "create a new trigger locally")
   .arguments("<path:string>")
-  .option("--kind <kind:string>", "Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email)")
+  .option("--kind <kind:string>", "Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, amqp, sqs, gcp, azure, email)")
   .action(newTrigger as any)
   .command(
     "push",
@@ -662,7 +684,7 @@ const command = new Command()
   .arguments("<path:string> <email:string>")
   .option(
     "--kind <kind:string>",
-    "Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email)"
+    "Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, amqp, sqs, gcp, azure, email)"
   )
   .action((async (opts: any, triggerPath: string, email: string) => {
     const workspace = await resolveWorkspace(opts);

@@ -17,6 +17,7 @@
 	import { debounce, pointerDownOutside } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 	import { createEventDispatcher, untrack } from 'svelte'
+	import { getOverlayHost, overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
 	import { Button } from '$lib/components/common'
 	import DocLink from '$lib/components/apps/editor/settingsPanel/DocLink.svelte'
 	import type { FloatingConfig } from '@melt-ui/svelte/internal/actions/floating'
@@ -59,6 +60,8 @@
 		documentationLink?: string | undefined
 		disableFocusTrap?: boolean
 		openFocus?: string | HTMLElement | (() => HTMLElement | null) | null | undefined
+		/** Element to focus when the popover closes; defaults to the trigger, `null` leaves focus alone. */
+		closeFocus?: string | HTMLElement | (() => HTMLElement | null) | null | undefined
 		escapeBehavior?: EscapeBehaviorType
 		enableFlyTransition?: boolean
 		onKeyDown?: (e: KeyboardEvent) => void
@@ -89,7 +92,7 @@
 		closeOnOutsideClick = true,
 		contentClasses = '',
 		contentStyle = '',
-		portal = 'body',
+		portal = undefined,
 		closeOnOtherPopoverOpen = false,
 		allowFullScreen = false,
 		extraProps = {},
@@ -98,6 +101,7 @@
 		documentationLink = undefined,
 		disableFocusTrap = false,
 		openFocus = undefined,
+		closeFocus = undefined,
 		escapeBehavior = 'close',
 		enableFlyTransition = false,
 		onKeyDown = () => {},
@@ -110,8 +114,16 @@
 		content
 	}: Props = $props()
 
-	// Dynamic portal: use 'body' when fullscreen, otherwise use the provided portal
-	let dynamicPortal = $derived(fullScreen ? 'body' : portal)
+	// Fullscreen abandons the trigger-relative positioning for a container of its own:
+	// the host pane when this popover is enclosed in one (so it covers that pane, like a
+	// drawer), else the document.
+	const overlayHost = getOverlayHost()
+	const hostPortal = overlayPortalTarget('body')
+	const fullScreenHost = $derived(fullScreen ? overlayHost?.el() : undefined)
+	// `null` is melt's "render in place" and must survive; only an absent prop defers to the host.
+	let dynamicPortal = $derived(
+		fullScreen ? (fullScreenHost ?? 'body') : portal === undefined ? hostPortal() : portal
+	)
 
 	const {
 		elements: { trigger: _trigger, content: _content, arrow, close: closeElement, overlay },
@@ -124,6 +136,7 @@
 		disableFocusTrap: untrack(() => disableFocusTrap),
 		escapeBehavior: untrack(() => escapeBehavior),
 		openFocus: untrack(() => openFocus),
+		closeFocus: untrack(() => closeFocus),
 		onOpenChange: ({ curr, next }) => {
 			if (curr != next) {
 				dispatch('openChange', next)
@@ -251,7 +264,8 @@
 </button>
 
 {#if fullScreen && isOpen && !disablePopup}
-	<div use:melt={$overlay} class="fixed inset-0 z-10 bg-black/50"></div>
+	<div use:melt={$overlay} class="{fullScreenHost ? 'absolute' : 'fixed'} inset-0 z-10 bg-black/50"
+	></div>
 {/if}
 
 {#if isOpen && !disablePopup}
@@ -268,14 +282,20 @@
 		class={twMerge(
 			'relative dark:border rounded-md bg-surface-tertiary shadow-lg',
 			fullScreen
-				? `fixed !top-1/2 !left-1/2 !-translate-x-1/2 !-translate-y-1/2 !resize-none`
+				? `${fullScreenHost ? 'absolute' : 'fixed'} !top-1/2 !left-1/2 !-translate-x-1/2 !-translate-y-1/2 !resize-none`
 				: 'w-fit',
-			contentClasses,
-			`z-[5001]`
+			// Last so `contentClasses` can raise it: a popover inside a ConfirmationModal has to
+			// clear that modal's own z-index, which sits above this layer.
+			`z-[5001]`,
+			contentClasses
 		)}
 		data-popover
 		{...extraProps}
-		style={fullScreen ? `width: 90vw; max-width: 800px; height: 90vh;` : contentStyle}
+		style={fullScreen
+			? `width: ${fullScreenHost ? '90%' : '90vw'}; max-width: 800px; height: ${
+					fullScreenHost ? '90%' : '90vh'
+				};`
+			: contentStyle}
 	>
 		{#if displayArrow}
 			<div use:melt={$arrow}></div>

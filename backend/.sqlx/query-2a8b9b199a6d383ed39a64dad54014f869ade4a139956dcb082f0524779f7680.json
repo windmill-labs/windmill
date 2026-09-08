@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT relation_root_at_last_ingest FROM dbt_graph_snapshot\n                  WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3\n                    AND job_id = '00000000-0000-0000-0000-000000000000'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "relation_root_at_last_ingest",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "2a8b9b199a6d383ed39a64dad54014f869ade4a139956dcb082f0524779f7680"
+}

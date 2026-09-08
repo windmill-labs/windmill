@@ -7,12 +7,13 @@ import type { AssetGraphResponse } from './types'
 // wires it. `getFolder` returns the bare folder name (as the route/session do).
 function makeHandle(
 	initial: Array<[string, PipelineDraft]> = [],
-	runnables: Array<{ path: string }> = []
+	runnables: Array<{ path: string }> = [],
+	folder = 'x'
 ) {
 	let drafts = new Map(initial)
 	let forgotten: string[] = []
 	const handle = createPipelineAiHelpers({
-		getFolder: () => 'x',
+		getFolder: () => folder,
 		getWorkspace: () => 'w',
 		getResolvedGraph: () =>
 			({ assets: [], runnables, edges: [], triggers: [] }) as unknown as AssetGraphResponse,
@@ -67,6 +68,15 @@ describe('pipeline AI direct-draft helpers', () => {
 		)
 	})
 
+	it('scopes nodes to the folder name even when the caller passes the owner path', async () => {
+		// A caller holding `f/x` must not turn every node path into `f/f/x/…`.
+		vi.spyOn(ScriptService, 'getScriptByPath').mockRejectedValue(new Error('404'))
+		const { handle, drafts } = makeHandle([], [], 'f/x')
+		expect(handle.getPipelineContext().folder).toBe('x')
+		await handle.proposeNode({ path: 'f/x/n', language: 'duckdb' as any, content: '-- pipeline' })
+		expect([...drafts().keys()]).toEqual(['f/x/n'])
+	})
+
 	it('proposeNode rejects a path outside the open folder', async () => {
 		const { handle, drafts } = makeHandle()
 		await expect(
@@ -112,6 +122,37 @@ describe('pipeline AI direct-draft helpers', () => {
 		).rejects.toThrow(/already exists/)
 		expect(spy).toHaveBeenCalled()
 		expect(drafts().size).toBe(0)
+	})
+
+	// The output_kind seed is a random placeholder that live inference overwrites
+	// and deploy re-derives, so it must not read as detected lineage — else a
+	// dynamic/unwritten output looks wired when the deployed script has no edge.
+	it('does not report the output_kind seed as detected lineage', async () => {
+		vi.spyOn(ScriptService, 'getScriptByPath').mockRejectedValue(new Error('404'))
+		const { handle, drafts } = makeHandle()
+		const res = await handle.proposeNode({
+			path: 'f/x/seeded',
+			language: 'duckdb' as any,
+			content: '-- pipeline\n-- on schedule\nSELECT 1',
+			outputKind: 'ducklake' as any
+		})
+		expect(drafts().get('f/x/seeded')?.outputAssets?.length).toBeGreaterThan(0)
+		expect(res.detectedWrites).toEqual([])
+	})
+
+	// `inferAssets` returns the `// materialize` target separately from body
+	// writes, so it must be folded into detectedWrites or a canonical materialize
+	// node would falsely read as having no output.
+	it('reports the `-- materialize` target as a detected write', async () => {
+		vi.spyOn(ScriptService, 'getScriptByPath').mockRejectedValue(new Error('404'))
+		const { handle } = makeHandle()
+		const res = await handle.proposeNode({
+			path: 'f/x/mat',
+			language: 'duckdb' as any,
+			content: '-- pipeline\n-- on schedule\n-- materialize ducklake://main/out\nSELECT 1',
+			outputKind: 'ducklake' as any
+		})
+		expect(res.detectedWrites).toEqual(['ducklake://main/out'])
 	})
 
 	it('editNode rejects a path outside the open folder', async () => {

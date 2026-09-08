@@ -41,6 +41,8 @@ COPY /python-client/docs/ /frontend/static/pydocs/
 
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
+# Must be declared for the build-arg to reach the bundle. See frontend/svelte.config.js.
+ARG WM_BUILD_VERSION=""
 RUN npm run build
 
 
@@ -84,6 +86,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
     cd windmill-duckdb-ffi-internal && \
     CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release
 

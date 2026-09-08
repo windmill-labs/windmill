@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(\n                SELECT 1 FROM workspace WHERE owner = $1\n                UNION ALL SELECT 1 FROM workspace_settings WHERE slack_email = $1\n                UNION ALL SELECT 1 FROM usage WHERE id = $1 AND NOT is_workspace\n                UNION ALL SELECT 1 FROM v2_job WHERE permissioned_as = $1 AND id IN (SELECT id FROM v2_job_queue))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c9513c08e03089a581a8bcc5178094fc42098ac26facbd010006ae06da284131"
+}

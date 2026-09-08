@@ -12,17 +12,24 @@ import * as wmill from "../../../gen/services.gen.ts";
 import { ListableApp, Policy } from "../../../gen/types.gen.ts";
 
 import { GlobalOptions, isSuperset } from "../../types.ts";
-import { getWmillYamlPath } from "../../core/conf.ts";
+import {
+  getWmillYamlPath,
+  mergeConfigWithConfigFile,
+  readEffectiveSyncBehavior,
+} from "../../core/conf.ts";
 import { readInlinePathSync } from "../../utils/utils.ts";
 import devCommand from "./dev.ts";
 import lintCommand from "./lint.ts";
+import bundleCommand from "./bundle_command.ts";
 import newCommand from "./new.ts";
 import generateAgentsCommand from "./generate_agents.ts";
 import { isVersionsGeq1585 } from "../sync/global.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { buildPermissionedAsContext } from "../../core/permissioned_as.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 
 export interface AppFile {
+  guests?: boolean;
   value: any;
   public?: boolean;
   summary: string;
@@ -109,6 +116,28 @@ export function replaceInlineScripts(
 export function isExecutionModeAnonymous(app: any) {
   return app?.["policy"]?.["execution_mode"] == "anonymous";
 }
+export function isExecutionModeGuest(app: any) {
+  return app?.["policy"]?.["execution_mode"] == "guest";
+}
+export type AppExecutionMode = "anonymous" | "guest" | "publisher";
+/** The access mode is the one policy field a tracked app keeps, as `public` (anonymous)
+ * or `guests` (guest); the rest of the policy is regenerated on push. */
+export function markAccessFromPolicy(app: any) {
+  if (isExecutionModeAnonymous(app)) {
+    app.public = true;
+  } else if (isExecutionModeGuest(app)) {
+    app.guests = true;
+  }
+}
+export function executionModeFromAppFile(app: any): AppExecutionMode {
+  if (app?.["public"] ?? isExecutionModeAnonymous(app)) {
+    return "anonymous";
+  }
+  if (app?.["guests"] ?? isExecutionModeGuest(app)) {
+    return "guest";
+  }
+  return "publisher";
+}
 export async function pushApp(
   workspace: string,
   remotePath: string,
@@ -139,9 +168,7 @@ export async function pushApp(
     remoteOnBehalfOfEmail = app.policy.on_behalf_of_email;
   }
 
-  if (isExecutionModeAnonymous(app)) {
-    app.public = true;
-  }
+  markAccessFromPolicy(app);
   // console.log(app);
   if (app) {
     app.policy = undefined;
@@ -154,12 +181,7 @@ export async function pushApp(
   const localApp = (await yamlParseFile(path)) as AppFile;
 
   replaceInlineScripts(localApp.value, localPath, true);
-  await generatingPolicy(
-    localApp,
-    remotePath,
-    localApp?.["public"] ??
-      localApp?.["policy"]?.["execution_mode"] == "anonymous"
-  );
+  await generatingPolicy(localApp, remotePath, executionModeFromAppFile(localApp));
 
   const preserveFields: { preserve_on_behalf_of?: boolean } = {};
   if (permissionedAsContext?.userIsAdminOrDeployer) {
@@ -229,12 +251,12 @@ export async function pushApp(
 export async function generatingPolicy(
   app: any,
   path: string,
-  publicApp: boolean
+  executionMode: AppExecutionMode
 ) {
   log.info(colors.gray(`Generating fresh policy for app ${path}...`));
   try {
     app.policy = await windmillUtils.updatePolicy(app.value, undefined);
-    app.policy.execution_mode = publicApp ? "anonymous" : "publisher";
+    app.policy.execution_mode = executionMode;
   } catch (e) {
     log.error(colors.red(`Error generating policy for app ${path}: ${e}`));
     throw e;
@@ -402,10 +424,28 @@ async function push(
 
   if (isRawAppByName || hasRawAppYaml) {
     const { pushRawApp } = await import("./raw_apps.ts");
-    await pushRawApp(workspace.workspaceId, remotePath, absoluteFilePath);
+    const merged = await mergeConfigWithConfigFile(opts);
+    // Raw-app ownership preservation is not implemented on either push
+    // path: sync push hands pushRawApp no context either.
+    await pushRawApp(
+      workspace.workspaceId,
+      remotePath,
+      absoluteFilePath,
+      undefined,
+      merged.defaultTs,
+    );
     log.info(colors.bold.underline.green("Raw app pushed"));
   } else {
-    await pushApp(workspace.workspaceId, remotePath, absoluteFilePath);
+    await pushApp(
+      workspace.workspaceId,
+      remotePath,
+      absoluteFilePath,
+      undefined,
+      await buildPermissionedAsContext(
+        workspace.workspaceId,
+        await readEffectiveSyncBehavior(opts, workspace),
+      ),
+    );
     log.info(colors.bold.underline.green("App pushed"));
   }
 }
@@ -429,6 +469,7 @@ const command = new Command()
   .action(push as any)
   .command("dev", devCommand)
   .command("lint", lintCommand)
+  .command("bundle", bundleCommand)
   .command("new", newCommand)
   .command("generate-agents", generateAgentsCommand)
   .command(

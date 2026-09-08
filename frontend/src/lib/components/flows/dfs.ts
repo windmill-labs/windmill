@@ -2,11 +2,7 @@ import type { FlowModule } from '$lib/gen'
 
 type FlowDfsOptions = { skipToolNodes?: boolean }
 
-type FlowModuleVisitor<T> = (
-	x: FlowModule,
-	modules: FlowModule[],
-	branches: FlowModule[][]
-) => T
+type FlowModuleVisitor<T> = (x: FlowModule, modules: FlowModule[], branches: FlowModule[][]) => T
 
 function traverseFlowModules(
 	modules: FlowModule[],
@@ -31,8 +27,10 @@ function traverseFlowModules(
 				traverseFlowModules(branch, visit, opts)
 			}
 		} else if (module.value.type == 'aiagent' && !opts.skipToolNodes) {
-			visit(module, modules, [module.value.tools as FlowModule[]])
-			traverseFlowModules(module.value.tools as FlowModule[], visit, opts)
+			// Absent on a linked agent, whose tools live in the resource.
+			const tools = (module.value.tools ?? []) as FlowModule[]
+			visit(module, modules, [tools])
+			traverseFlowModules(tools, visit, opts)
 		} else {
 			visit(module, modules, [])
 		}
@@ -45,9 +43,13 @@ export function dfs<T>(
 	opts: FlowDfsOptions = {}
 ): T[] {
 	let result: T[] = []
-	traverseFlowModules(modules, (module, parentModules, branches) => {
-		result.push(f(module, parentModules, branches))
-	}, opts)
+	traverseFlowModules(
+		modules,
+		(module, parentModules, branches) => {
+			result.push(f(module, parentModules, branches))
+		},
+		opts
+	)
 	return result
 }
 

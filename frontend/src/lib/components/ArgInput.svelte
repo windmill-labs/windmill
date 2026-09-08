@@ -719,7 +719,8 @@
 							onkeydown: () => (ignoreValueUndefined = true),
 							placeholder: placeholder ?? defaultValue ?? '',
 							min: extra['min'],
-							max: extra['max']
+							max: extra['max'],
+							step: extra['step']
 						}}
 						{error}
 						bind:value
@@ -840,6 +841,7 @@
 							{disablePortal}
 							{disabled}
 							{prettifyHeader}
+							{workspace}
 							{schema}
 							bind:args={value}
 						/>
@@ -982,6 +984,7 @@
 															{disablePortal}
 															{disabled}
 															{prettifyHeader}
+															{workspace}
 															schema={getSchemaFromProperties(itemsType?.properties)}
 															bind:args={value[i]}
 														/>
@@ -1070,7 +1073,14 @@
 				{/if}
 			</div>
 		{:else if inputCat == 'dynamic'}
-			<DynamicInput name={label} {otherArgs} {helperScript} bind:value format={format ?? ''} />
+			<DynamicInput
+				name={label}
+				{otherArgs}
+				{helperScript}
+				{workspace}
+				bind:value
+				format={format ?? ''}
+			/>
 		{:else if inputCat == 'resource-object' && resourceTypes == undefined}
 			<span class="text-2xs text-primary">Loading resource types...</span>
 		{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format && format?.split('-').length > 1 && resourceTypes.includes(format?.substring('resource-'.length))))}
@@ -1078,6 +1088,7 @@
 			<ObjectResourceInput
 				datatableAsPgResource={label === 'database'}
 				{disabled}
+				{workspace}
 				{defaultValue}
 				selectFirst={!noDefaultOnSelectFirst && required}
 				{disablePortal}
@@ -1141,6 +1152,7 @@
 											{disablePortal}
 											{disabled}
 											{prettifyHeader}
+											{workspace}
 											bind:schema={
 												() => ({
 													properties: obj.properties ?? {},
@@ -1177,6 +1189,7 @@
 											{disabled}
 											{prettifyHeader}
 											{chatInputEnabled}
+											{workspace}
 											hiddenArgs={['label', 'kind']}
 											schema={{
 												properties: obj.properties,
@@ -1261,6 +1274,7 @@
 							{disablePortal}
 							{disabled}
 							{prettifyHeader}
+							{workspace}
 							schema={{
 								properties,
 								$schema: '',
@@ -1292,6 +1306,7 @@
 							{disablePortal}
 							{disabled}
 							{prettifyHeader}
+							{workspace}
 							schema={{
 								properties,
 								order,
@@ -1423,6 +1438,7 @@
 			<ResourcePicker
 				selectFirst={noDefaultOnSelectFirst}
 				{disablePortal}
+				{workspace}
 				bind:value
 				initialValue={defaultValue}
 				resourceType={format && format.split('-').length > 1
@@ -1431,7 +1447,7 @@
 				{showSchemaExplorer}
 			/>
 		{:else if inputCat == 'ai-provider'}
-			<AIProviderPicker bind:value {disabled} {actions} />
+			<AIProviderPicker bind:value {disabled} {actions} {workspace} />
 		{:else if inputCat == 'email'}
 			<input
 				{autofocus}
@@ -1461,7 +1477,7 @@
 								/>
 							{/if}
 						{:else}
-							<PasswordArgInput {disabled} minRows={extra?.['minRows']} bind:value />
+							<PasswordArgInput {disabled} minRows={extra?.['minRows']} {workspace} bind:value />
 						{/if}
 					{:else}
 						{#key extra?.['minRows']}

@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO app_version (app_id, value, created_by, created_at, raw_app)\n             VALUES ($1, $2, 'test@windmill.dev', NOW(), $3) RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Json",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6658faa1fcf54885ee6313d39cf3ee4a13c4b30daefc0c67b63d263d77f0e9b7"
+}

@@ -72,11 +72,10 @@
 		lastAction: undefined as 'previous' | 'next' | undefined
 	})
 
-	async function handleTabSelection() {
-		if (runnableComponent && !debugMode) {
-			await runnableComponent?.runComponent()
-		}
-
+	// Bookkeeping only. The runnable is the step validation function and must run exclusively in
+	// runStep, where its error gates the navigation: running it here would also fire it on every
+	// pointerdown in a subgrid, and a second time right after runStep moved to the next step.
+	function handleTabSelection() {
 		selectedIndex = tabs?.indexOf(selected)
 		if (selectedIndex > maxReachedIndex) {
 			maxReachedIndex = selectedIndex

@@ -62,19 +62,7 @@ lazy_static::lazy_static! {
     static ref PY_CONCURRENT_DOWNLOADS: usize =
     var("PY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
 
-    // uv's HTTP request timeout (seconds). spawn_uv_install uses env_clear(), so a
-    // UV_HTTP_TIMEOUT set on the worker is dropped unless forwarded explicitly.
-    // Only forwarded when set; otherwise uv keeps its own default. Lets operators
-    // raise it for slow/contended private registries ("operation timed out").
-    static ref UV_HTTP_TIMEOUT: Option<String> =
-    var("UV_HTTP_TIMEOUT").ok().filter(|v| !v.is_empty());
-
-
     static ref NON_ALPHANUM_CHAR: Regex = regex::Regex::new(r"[^0-9A-Za-z=.-]").unwrap();
-
-    static ref TRUSTED_HOST: Option<String> = var("PY_TRUSTED_HOST").ok().or(var("PIP_TRUSTED_HOST").ok());
-    pub static ref INDEX_CERT: Option<String> = var("PY_INDEX_CERT").ok().or(var("PIP_INDEX_CERT").ok());
-    pub static ref NATIVE_CERT: bool = var("PY_NATIVE_CERT").ok().or(var("UV_NATIVE_TLS").ok()).map(|flag| flag == "true").unwrap_or(false);
 
     static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(((u|f)\.)|\.)"#).unwrap();
 
@@ -129,6 +117,12 @@ const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
 pub const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
+/// Every file exchanged with a job is UTF-8 by construction, so the interpreter
+/// must agree. A job env carries no locale: Linux then picks UTF-8 on its own
+/// (PEP 540), Windows picks the ANSI code page. Applied after the whitelisted
+/// envs so the protocol is not the user's to opt out of.
+pub const PYTHON_UTF8_ENVS: [(&str, &str); 1] = [("PYTHONUTF8", "1")];
+
 /// Render loader.py with the TEMP_SCRIPT_REFS placeholder substituted by a
 /// Python dict literal. Preview jobs pass a path -> temp-hash map so relative
 /// imports resolve from not-yet-deployed local content; deployed runs pass
@@ -155,16 +149,18 @@ use windmill_object_store::OBJECT_STORE_SETTINGS;
 use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file,
-        read_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
-        OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL,
+        read_result, render_nsjail_rlimit_as, resolve_nsjail_timeout,
+        resolve_nsjail_tmp_mount_block, start_child_process, OccupancyMetrics, StreamNotifier,
+        DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry_with_workspace_override,
     worker_utils::ping_job_status,
-    PyV, DISABLE_NUSER, HOME_ENV, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL,
-    PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, UV_CACHE_DIR,
-    UV_EXCLUDE_NEWER, UV_INDEX_STRATEGY, UV_PYTHON_INSTALL_MIRROR,
+    PyV, DISABLE_NUSER, HOME_ENV, INDEX_CERT, NATIVE_CERT, NSJAIL_AVAILABLE, NSJAIL_PATH,
+    NSJAIL_PY_RLIMIT_AS_MB, PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS,
+    PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TRUSTED_HOST, TZ_ENV, UV_CACHE_DIR,
+    UV_EXCLUDE_NEWER, UV_HTTP_TIMEOUT, UV_INDEX_STRATEGY, UV_PYTHON_INSTALL_MIRROR,
 };
 use windmill_common::client::AuthedClient;
 
@@ -828,7 +824,7 @@ pub async fn handle_python_job(
                 del pre_args[k]
         kwargs = inner_script.preprocessor(**pre_args)
         kwrags_json = res_to_json(kwargs, type(kwargs))
-        with open("args.json", 'w') as f:
+        with open("args.json", 'w', encoding="utf-8") as f:
             f.write(kwrags_json)"#
         )
     } else {
@@ -863,7 +859,7 @@ pub async fn handle_python_job(
         _pre_result = asyncio.run(_pre_result)
     kwargs = _pre_result if _pre_result is not None else {{}}
     _pre_json = json.dumps(kwargs, separators=(',', ':'), default=str)
-    with open("args.json", 'w') as f:
+    with open("args.json", 'w', encoding="utf-8") as f:
         f.write(_pre_json)
     sys.stdout.write("wm_res[preprocessed_args]:" + _pre_json + "\n")
     sys.stdout.flush()"#
@@ -884,11 +880,11 @@ import sys
 from {module_dir_dot} import {last} as inner_script
 from wmill.client import _run_workflow
 
-with open("args.json") as f:
+with open("args.json", encoding="utf-8") as f:
     kwargs = json.load(f, strict=False)
 {transforms}
 
-with open("checkpoint.json") as f:
+with open("checkpoint.json", encoding="utf-8") as f:
     checkpoint = json.load(f, strict=False)
 
 result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
@@ -914,12 +910,12 @@ try:
         print("")
         print("--- WAC: complete ---")
     output_json = json.dumps(output, separators=(',', ':'), default=str)
-    with open(result_json, 'w') as f:
+    with open(result_json, 'w', encoding="utf-8") as f:
         f.write(output_json)
 except BaseException as e:
     exc_type, exc_value, exc_traceback = sys.exc_info()
     tb = traceback.format_tb(exc_traceback)
-    with open(result_json, 'w') as f:
+    with open(result_json, 'w', encoding="utf-8") as f:
         err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}
         extra = e.__dict__
         if extra and len(extra) > 0:
@@ -946,7 +942,7 @@ import sys
 from {module_dir_dot} import {last} as inner_script
 import re
 
-with open("args.json") as f:
+with open("args.json", encoding="utf-8") as f:
     kwargs = json.load(f, strict=False)
 args = {{}}
 {transforms}
@@ -982,12 +978,12 @@ try:
             print("WM_STREAM: " + chunk.replace('\n', '\\n'))
         res = None
     res_json = res_to_json(res, typ)
-    with open(result_json, 'w') as f:
+    with open(result_json, 'w', encoding="utf-8") as f:
         f.write(res_json)
 except BaseException as e:
     exc_type, exc_value, exc_traceback = sys.exc_info()
     tb = traceback.format_tb(exc_traceback)
-    with open(result_json, 'w') as f:
+    with open(result_json, 'w', encoding="utf-8") as f:
         err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}
         extra = e.__dict__
         if extra and len(extra) > 0:
@@ -1077,6 +1073,10 @@ mount {{
             job_dir,
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
+                .replace(
+                    "{RLIMIT_AS}",
+                    &render_nsjail_rlimit_as(NSJAIL_PY_RLIMIT_AS_MB.as_deref(), 4096),
+                )
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{PY_INSTALL_DIR}", &*PY_INSTALL_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
@@ -1123,6 +1123,7 @@ mount {{
                 )
                 .await?,
             )
+            .envs(PYTHON_UTF8_ENVS)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -1158,6 +1159,7 @@ mount {{
                 )
                 .await?,
             )
+            .envs(PYTHON_UTF8_ENVS)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -1229,6 +1231,7 @@ mount {{
             result,
             job,
             conn,
+            canceled_by,
             modules,
             new_args.as_ref(),
         ))
@@ -2827,11 +2830,12 @@ pub async fn handle_python_reqs(
             };
 
             // Cross-process advisory lock. Best-effort: if the filesystem doesn't
-            // support flock we log and proceed — verify_wheel_record + job retry
-            // still guard correctness, just without the dedup.
-            #[cfg(unix)]
+            // support locking we log and proceed — verify_wheel_record + job retry
+            // still guard correctness, just without the dedup. Cross-platform
+            // (flock on unix, LockFileEx on windows) so agents sharing a wheel-cache
+            // dir on a Windows host serialize just as they do on unix.
             let _venv_file_lock: Option<std::fs::File> = {
-                use std::os::unix::io::AsRawFd;
+                use fs4::fs_std::FileExt;
                 let lock_path = format!("{venv_p}.lock");
                 if let Some(parent) = std::path::Path::new(&lock_path).parent() {
                     let _ = std::fs::create_dir_all(parent);
@@ -2839,17 +2843,17 @@ pub async fn handle_python_reqs(
                 match std::fs::OpenOptions::new().create(true).write(true).open(&lock_path) {
                     Ok(f) => {
                         // Bounded wait: a holder that crashes releases the lock (the
-                        // kernel drops it on fd close), but a live-but-stuck holder
+                        // OS drops it on handle close), but a live-but-stuck holder
                         // (e.g. uv wedged on a hung mount) would otherwise block us
                         // forever. After the cap, proceed degraded rather than hang —
                         // verify_wheel_record + retry still guard correctness.
                         const MAX_WAIT: std::time::Duration = std::time::Duration::from_secs(300);
                         let waited_since = std::time::Instant::now();
                         loop {
-                            match nix::fcntl::flock(f.as_raw_fd(), nix::fcntl::FlockArg::LockExclusiveNonblock) {
-                                Ok(()) => break Some(f),
-                                // EWOULDBLOCK == EAGAIN on Linux: another holder has the lock.
-                                Err(nix::errno::Errno::EWOULDBLOCK) => {
+                            match f.try_lock_exclusive() {
+                                Ok(true) => break Some(f),
+                                // Another holder has the lock.
+                                Ok(false) => {
                                     if waited_since.elapsed() >= MAX_WAIT {
                                         tracing::warn!(
                                             workspace_id = %w_id,
@@ -2871,7 +2875,7 @@ pub async fn handle_python_reqs(
                                 Err(e) => {
                                     tracing::warn!(
                                         workspace_id = %w_id,
-                                        "could not flock {lock_path}, proceeding without cross-process install lock: {e}"
+                                        "could not lock {lock_path}, proceeding without cross-process install lock: {e}"
                                     );
                                     break Some(f);
                                 }
@@ -3020,7 +3024,11 @@ pub async fn handle_python_reqs(
                     "failed to get PID for python installation process: {}",
                     &req
                   )))
-                  .and_then(|pid| write_file(&format!("/proc/{pid}"), "oom_score_adj", "1000"))
+                  .and_then(|pid| write_file(
+                      &format!("/proc/{pid}"),
+                      "oom_score_adj",
+                      &windmill_common::worker::JOB_OOM_SCORE_ADJ.to_string(),
+                  ))
                 {
                   tracing::error!(
                       req = %req,
@@ -3431,7 +3439,10 @@ pub async fn start_worker(
     )
     .await;
 
-    let mut proc_envs = HashMap::new();
+    let mut proc_envs: HashMap<String, String> = PYTHON_UTF8_ENVS
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
     let additional_python_paths_folders = additional_python_paths.iter().join(":");
     proc_envs.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
     proc_envs.insert("PATH".to_string(), PATH_ENV.to_string());
@@ -3777,14 +3788,14 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
     #[tokio::test]
     async fn test_venv_file_lock_excludes_across_descriptions() {
-        // The cross-process layer: flock on a sibling `.lock` excludes a second
-        // independent open file description (i.e. another worker process) while
-        // held, and frees it on close. Mirrors the loop in handle_python_reqs.
-        use nix::fcntl::{flock, FlockArg};
-        use std::os::unix::io::AsRawFd;
+        // The cross-process layer: an advisory lock on a sibling `.lock` excludes a
+        // second independent open file handle (i.e. another worker process) while
+        // held, and frees it on close. Mirrors the loop in handle_python_reqs and
+        // must hold on every platform (flock on unix, LockFileEx on windows) — a
+        // Windows host running several agents against one wheel cache relies on it.
+        use fs4::fs_std::FileExt;
 
         let dir = std::env::temp_dir().join("wm_venv_lock_test");
         std::fs::create_dir_all(&dir).unwrap();
@@ -3795,24 +3806,28 @@ mod tests {
             .write(true)
             .open(&lock_path)
             .unwrap();
-        flock(f1.as_raw_fd(), FlockArg::LockExclusiveNonblock).unwrap();
+        assert!(
+            f1.try_lock_exclusive().unwrap(),
+            "first holder must acquire the lock"
+        );
 
-        // A second descriptor (stand-in for another process) cannot take it.
+        // A second handle (stand-in for another process) cannot take it.
         let f2 = std::fs::OpenOptions::new()
             .create(true)
             .write(true)
             .open(&lock_path)
             .unwrap();
-        assert_eq!(
-            flock(f2.as_raw_fd(), FlockArg::LockExclusiveNonblock),
-            Err(nix::errno::Errno::EWOULDBLOCK),
+        assert!(
+            !f2.try_lock_exclusive().unwrap(),
             "a second holder must be blocked while the lock is held"
         );
 
         // Releasing the first lets the second acquire it.
         drop(f1);
-        flock(f2.as_raw_fd(), FlockArg::LockExclusiveNonblock)
-            .expect("lock must be acquirable once the holder releases it");
+        assert!(
+            f2.try_lock_exclusive().unwrap(),
+            "lock must be acquirable once the holder releases it"
+        );
 
         drop(f2);
         let _ = std::fs::remove_file(&lock_path);

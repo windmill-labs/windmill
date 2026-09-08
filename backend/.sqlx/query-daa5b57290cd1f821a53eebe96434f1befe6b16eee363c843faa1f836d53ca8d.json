@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT mode::text AS \"mode!\", log_ts FROM log_file WHERE hostname = $1 AND file_path = $2 ORDER BY log_ts DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "mode!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "log_ts",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      false
+    ]
+  },
+  "hash": "daa5b57290cd1f821a53eebe96434f1befe6b16eee363c843faa1f836d53ca8d"
+}

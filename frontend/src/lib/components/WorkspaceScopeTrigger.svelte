@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { userWorkspaces } from '$lib/stores'
+	import { userWorkspaces, type UserWorkspace } from '$lib/stores'
 	import { findWorkspaceRoot } from '$lib/utils/workspaceHierarchy'
 	import { forkAccentStyle } from '$lib/utils/forkColor'
 	import { Badge, Button } from '$lib/components/common'
@@ -24,6 +24,7 @@
 		interactive = true,
 		menuItems = undefined,
 		disableTitle = false,
+		forkableWorkspaces,
 		class: className = ''
 	}: {
 		workspaceId?: string
@@ -55,19 +56,23 @@
 		// Suppress the chip's native `title` so it doesn't double-pop when a
 		// consumer wraps the chip in a richer hover tooltip (e.g. NameIdTooltip).
 		disableTitle?: boolean
+		// Pre-resolved workspace list from a consumer that folded in a
+		// superadmin-visited workspace (see useForkableWorkspaces), so the chip
+		// resolves its name/family for a workspace absent from `$userWorkspaces`.
+		// Omitted consumers fall back to the member-only list.
+		forkableWorkspaces?: UserWorkspace[]
 		class?: string
 	} = $props()
 
-	const root = $derived(findWorkspaceRoot(workspaceId, $userWorkspaces))
-	const currentWs = $derived(
-		workspaceId ? $userWorkspaces.find((w) => w.id === workspaceId) : undefined
-	)
+	const workspaces = $derived(forkableWorkspaces ?? $userWorkspaces)
+	const root = $derived(findWorkspaceRoot(workspaceId, workspaces))
+	const currentWs = $derived(workspaceId ? workspaces.find((w) => w.id === workspaceId) : undefined)
 	const isFork = $derived(!!currentWs && !!root && currentWs.id !== root.id)
 	const showFork = $derived(!!pendingFork || isFork)
 	const name = $derived(pendingFork?.name ?? currentWs?.name ?? workspaceId ?? 'Pick workspace')
 	const parentId = $derived(pendingFork?.parent_workspace_id ?? currentWs?.parent_workspace_id)
 	const parentName = $derived(
-		parentId ? ($userWorkspaces.find((w) => w.id === parentId)?.name ?? parentId) : undefined
+		parentId ? (workspaces.find((w) => w.id === parentId)?.name ?? parentId) : undefined
 	)
 	// The parent segment only appears for a fork of a fork — forking off the
 	// root is the default and doesn't need spelling out.

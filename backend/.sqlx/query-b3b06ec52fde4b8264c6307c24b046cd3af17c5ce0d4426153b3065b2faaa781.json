@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT workspace.id, workspace.name\n                 FROM workspace\n                 JOIN usr ON usr.workspace_id = workspace.id\n                 WHERE usr.email = $1 AND usr.disabled = false AND workspace.deleted = false\n                 ORDER BY workspace.name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "b3b06ec52fde4b8264c6307c24b046cd3af17c5ce0d4426153b3065b2faaa781"
+}

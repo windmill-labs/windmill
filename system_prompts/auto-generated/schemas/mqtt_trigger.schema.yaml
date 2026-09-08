@@ -3,9 +3,6 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -40,6 +37,18 @@ properties:
     type: array
     items:
       type: object
+      properties:
+        qos:
+          type: string
+          enum:
+          - qos0
+          - qos1
+          - qos2
+        topic:
+          type: string
+      required:
+      - qos
+      - topic
     description: Array of MQTT topics to subscribe to, each with topic name and QoS
       level
   v3_config:
@@ -66,7 +75,9 @@ properties:
     - v5
   error_handler_path:
     type: string
-    description: Path to a script or flow to run when the triggered job fails
+    description: Path to a script to run when the triggered job fails. A bare path,
+      without the script/ or flow/ prefix a schedule error handler takes; it cannot
+      be a flow.
   error_handler_args:
     type: object
     description: The arguments to pass to the script or flow
@@ -107,7 +118,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - subscribe_topics
 - mqtt_resource_path

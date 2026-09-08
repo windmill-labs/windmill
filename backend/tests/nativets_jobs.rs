@@ -263,6 +263,43 @@ export function main(): number[] {
         );
     }
 
+    // -- result + wm_labels carrying a NUL: must complete, jsonb-safe & text[]-safe --
+    {
+        // `\u0000` here is 6 literal chars in the raw string; the JS runtime emits
+        // a real U+0000. It aborts the jsonb result insert (22P05) and, via
+        // wm_labels, the `text[]` labels update - both in the completion tx.
+        // `nul`/label come back stripped; `literal` (escaped backslash + text
+        // "u0000", no real NUL) survives untouched.
+        let result = push_and_wait(
+            &db,
+            RunJob::from(nativets_code(
+                r#"//native
+
+export function main(): {nul: string, literal: string, wm_labels: string[]} {
+    return { nul: "a\u0000b", literal: "a\\u0000b", wm_labels: ["x\u0000y"] };
+}
+"#,
+            )),
+            &mut listener,
+        )
+        .await;
+        assert!(result.success, "nul_result failed: {:?}", result.result);
+        let val = result.json_result().unwrap();
+        assert_eq!(val["nul"], serde_json::json!("ab"));
+        assert_eq!(val["literal"], serde_json::json!("a\\u0000b"));
+
+        // The wm_labels entry is persisted to the `text[]` column NUL-free.
+        let labels: Option<Vec<String>> =
+            sqlx::query_scalar("SELECT labels FROM v2_job WHERE id = $1")
+                .bind(result.id)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        let labels = labels.unwrap_or_default();
+        assert!(labels.iter().any(|l| l == "xy"), "expected stripped label, got {labels:?}");
+        assert!(!labels.iter().any(|l| l.contains('\0')), "labels must be NUL-free: {labels:?}");
+    }
+
     killpill.send();
     Ok(())
 }
