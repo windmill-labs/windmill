@@ -5,7 +5,7 @@
  * that builds none silently reassigns the schedule to whoever ran it.
  */
 
-import { expect, test, describe, beforeEach, mock } from "bun:test";
+import { expect, test, describe, afterAll, beforeEach, mock } from "bun:test";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,7 +25,27 @@ const REMOTE_SCHEDULE = () => ({
   permissioned_as: remotePermissionedAs,
 });
 
-mock.module("../gen/services.gen.ts", () => ({
+// A module mock is process-global and outlives the file that installs it, and
+// `mock.restore()` does not undo one: every mocked module has to be handed back
+// its real exports here, or whichever file `bun test` happens to run next gets
+// this file's stubs.
+const realModules: [string, Record<string, unknown>][] = [];
+async function mockModule(
+  specifier: string,
+  factory: (real: Record<string, unknown>) => Record<string, unknown>
+): Promise<void> {
+  const real = { ...((await import(specifier)) as Record<string, unknown>) };
+  realModules.push([specifier, real]);
+  mock.module(specifier, () => factory(real));
+}
+
+afterAll(() => {
+  for (const [specifier, real] of realModules) {
+    mock.module(specifier, () => real);
+  }
+});
+
+await mockModule("../gen/services.gen.ts", () => ({
   getSchedule: async () => REMOTE_SCHEDULE(),
   updateSchedule: async (a: unknown) => {
     updateScheduleCalls.push(a);
@@ -38,9 +58,8 @@ mock.module("../gen/services.gen.ts", () => ({
   }),
 }));
 
-const realContext = await import("../src/core/context.ts");
-mock.module("../src/core/context.ts", () => ({
-  ...realContext,
+await mockModule("../src/core/context.ts", (real) => ({
+  ...real,
   resolveWorkspace: async () => ({
     workspaceId: "w",
     name: "w",
@@ -49,9 +68,8 @@ mock.module("../src/core/context.ts", () => ({
   }),
 }));
 
-const realAuth = await import("../src/core/auth.ts");
-mock.module("../src/core/auth.ts", () => ({
-  ...realAuth,
+await mockModule("../src/core/auth.ts", (real) => ({
+  ...real,
   requireLogin: async () => ({}),
 }));
 

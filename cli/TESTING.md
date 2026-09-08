@@ -22,6 +22,12 @@ Pure local tests — no backend, no database. Uses `bunfig.unit.toml` (no preloa
 
 Examples: `git_unit`, `lint_command_unit`, `tar_creation_unit`, `workspace_conflicts_unit`
 
+`mock.module()` mocks the module for the whole `bun test` process, not for the file
+that installs it, and `mock.restore()` does not undo it. A file that mocks a module
+must hand back its real exports in `afterAll` (see
+`schedule_push_permissioned_as_unit`), or it silently rewires whichever file runs
+next — and the run order is the directory's, so it differs between Linux and Windows.
+
 ### Integration tests
 
 Require a running backend and PostgreSQL. The `setup.ts` preload builds the backend
