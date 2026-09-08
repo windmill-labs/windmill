@@ -1,6 +1,5 @@
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import LabelManagerDrawer from '$lib/components/labels/LabelManagerDrawer.svelte'
 	import LabelBadge from '$lib/components/labels/LabelBadge.svelte'
 	import { PIPELINE_DRAFT_KIND, pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
 	import { Button, Skeleton } from '$lib/components/common'
@@ -28,7 +27,6 @@
 		Code2,
 		LayoutDashboard,
 		ListFilterPlus,
-		Palette,
 		SearchCode
 	} from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -1055,7 +1053,6 @@
 	function itemLabels(x: { labels?: string[]; inherited_labels?: string[] }): string[] {
 		return [...(x.labels ?? []), ...(x.inherited_labels ?? [])]
 	}
-	let labelManagerDrawer: LabelManagerDrawer | undefined = $state()
 
 	let allLabels = $derived(
 		Array.from(new Set(combinedItems?.flatMap((x) => itemLabels(x)) ?? [])).sort()
@@ -1604,14 +1601,6 @@
 						{#if label === labelFilter}&cross;{/if}
 					</LabelBadge>
 				{/each}
-				<Button
-					variant="subtle"
-					unifiedSize="2xs"
-					startIcon={{ icon: Palette }}
-					onclick={() => labelManagerDrawer?.open()}
-				>
-					Manage labels
-				</Button>
 			</div>
 		{/if}
 		{#if filteredItems?.length == 0}
@@ -1846,5 +1835,3 @@
 		onDone={reloadItemsAndCounts}
 	/>
 {/if}
-
-<LabelManagerDrawer bind:this={labelManagerDrawer} workspace={$workspaceStore} />

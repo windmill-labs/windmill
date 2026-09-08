@@ -1,11 +1,10 @@
 <script lang="ts">
 	import Button from './common/button/Button.svelte'
-	import { Plus, Tag, X } from 'lucide-svelte'
-	import type { Label, LabelColor } from '$lib/gen'
+	import { Plus, Tag } from 'lucide-svelte'
+	import type { Label } from '$lib/gen'
 	import LabelBadge from './labels/LabelBadge.svelte'
-	import LabelColorPicker from './labels/LabelColorPicker.svelte'
-	import { labelCache, labelColorOf, loadLabels, setLabelColor } from './labels/labelStore'
-	import { LABEL_COLOR_SWATCHES } from './labels/labelColors'
+	import LabelPickerDropdown from './labels/LabelPickerDropdown.svelte'
+	import { loadLabels } from './labels/labelStore'
 
 	interface Props {
 		labels: string[] | undefined
@@ -22,29 +21,11 @@
 	let { labels = $bindable(), workspace, onchange, class: clazz = '' }: Props = $props()
 
 	let adding = $state(false)
-	let inputValue = $state('')
-	let inputEl: HTMLInputElement | undefined = $state()
 	let existingLabels: Label[] = $state([])
-	let selectedIdx = $state(-1)
+	let picker: LabelPickerDropdown | undefined = $state()
 
-	let suggestions = $derived(
-		existingLabels
-			.filter(
-				(l) =>
-					(!inputValue || l.name.toLowerCase().includes(inputValue.toLowerCase())) &&
-					!(labels ?? []).includes(l.name)
-			)
-			.slice(0, 8)
-	)
-	let trimmedInput = $derived(inputValue.trim())
-	let showCreateNew = $derived(
-		trimmedInput.length > 0 &&
-			!suggestions.some((s) => s.name.toLowerCase() === trimmedInput.toLowerCase()) &&
-			!(labels ?? []).includes(trimmedInput)
-	)
-
-	// The chips need colors before the suggestion list is ever opened, and
-	// `loadLabels` is cached per workspace, so this costs one request per workspace.
+	// The chips need colors before the picker is ever opened, and `loadLabels` is
+	// cached per workspace, so this costs one request per workspace.
 	$effect(() => {
 		if (workspace) {
 			loadLabels(workspace).catch(() => {})
@@ -61,25 +42,15 @@
 		} catch {}
 	}
 
-	async function pickColor(name: string, color: LabelColor | undefined) {
-		if (!workspace) return
-		existingLabels = await setLabelColor(workspace, name, color)
-	}
-
 	function startAdding() {
+		picker?.reset()
 		adding = true
-		inputValue = ''
-		selectedIdx = -1
 		loadExistingLabels()
-		setTimeout(() => inputEl?.focus(), 0)
 	}
 
-	function addLabel(value?: string) {
-		const v = (value ?? inputValue).trim().slice(0, 50)
-		if (!v) {
-			adding = false
-			return
-		}
+	function addLabel(value: string) {
+		const v = value.trim().slice(0, 50)
+		if (!v) return
 		if (!labels) {
 			labels = []
 		}
@@ -87,8 +58,6 @@
 			labels = [...labels, v]
 			onchange?.()
 		}
-		inputValue = ''
-		adding = false
 	}
 
 	function removeLabel(label: string) {
@@ -97,110 +66,24 @@
 			onchange?.()
 		}
 	}
-
-	function onKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter') {
-			e.preventDefault()
-			if (selectedIdx >= 0 && selectedIdx < suggestions.length) {
-				addLabel(suggestions[selectedIdx].name)
-			} else {
-				addLabel() // either "Create new" selected or free text
-			}
-		} else if (e.key === 'Escape') {
-			inputValue = ''
-			adding = false
-		} else if (e.key === 'ArrowDown') {
-			e.preventDefault()
-			const maxIdx = suggestions.length + (showCreateNew ? 1 : 0) - 1
-			selectedIdx = Math.min(selectedIdx + 1, maxIdx)
-		} else if (e.key === 'ArrowUp') {
-			e.preventDefault()
-			selectedIdx = Math.max(selectedIdx - 1, -1)
-		}
-	}
-
-	function onBlur() {
-		// Delay to allow click on suggestion
-		setTimeout(() => {
-			if (adding) addLabel()
-		}, 150)
-	}
 </script>
 
 <div class="inline-flex items-center gap-1 ml-0.5 h-5 {clazz}">
 	{#each labels ?? [] as label (label)}
-		<div class="inline-flex items-center">
-			<LabelColorPicker
-				color={labelColorOf($labelCache, workspace, label)}
-				onSelect={(c) => pickColor(label, c)}
-			>
-				{#snippet anchor()}
-					<LabelBadge
-						{label}
-						{workspace}
-						title="Pick a color for {label}"
-						class="rounded-r-none pr-0.5"
-					/>
-				{/snippet}
-			</LabelColorPicker>
-			<button
-				class="text-2xs rounded-r-md pl-0.5 pr-1 py-0.5 bg-surface-sunken hover:text-red-500"
-				aria-label="Remove label {label}"
-				onclick={() => removeLabel(label)}
-			>
-				<X size={10} />
-			</button>
-		</div>
+		<LabelBadge {label} {workspace} onRemove={removeLabel} />
 	{/each}
 	{#if adding}
-		<div class="relative">
-			<input
-				bind:this={inputEl}
-				bind:value={inputValue}
-				onkeydown={onKeydown}
-				onblur={onBlur}
-				class="text-2xs border border-blue-300 rounded px-1.5 py-0 h-5 max-w-32 outline-none focus:ring-1 focus:ring-blue-400"
-				placeholder="label"
+		<div class="w-40">
+			<LabelPickerDropdown
+				bind:this={picker}
+				bind:open={adding}
+				{workspace}
+				labels={existingLabels}
+				taken={labels ?? []}
+				onPick={addLabel}
+				onLabelsChanged={loadExistingLabels}
+				inputClass="!h-5 !min-h-0 !py-0 text-2xs"
 			/>
-			{#if suggestions.length > 0 || showCreateNew}
-				<div
-					class="absolute top-6 left-0 z-50 bg-surface border border-light rounded shadow-md max-h-32 overflow-y-auto min-w-32"
-				>
-					{#each suggestions as suggestion, i}
-						<button
-							class="w-full flex items-center gap-1.5 text-left text-2xs px-2 py-1 hover:bg-surface-hover {i ===
-							selectedIdx
-								? 'bg-surface-hover'
-								: ''}"
-							onmousedown={(e) => {
-								e.preventDefault()
-								addLabel(suggestion.name)
-							}}
-						>
-							<span
-								class="block w-2 h-2 rounded-full shrink-0 {LABEL_COLOR_SWATCHES[
-									suggestion.color ?? 'blue'
-								]}"
-							></span>
-							{suggestion.name}
-						</button>
-					{/each}
-					{#if showCreateNew}
-						<button
-							class="w-full text-left text-2xs px-2 py-1 hover:bg-surface-hover text-blue-600 {selectedIdx ===
-							suggestions.length
-								? 'bg-surface-hover'
-								: ''}"
-							onmousedown={(e) => {
-								e.preventDefault()
-								addLabel()
-							}}
-						>
-							+ Create "{trimmedInput}"
-						</button>
-					{/if}
-				</div>
-			{/if}
 		</div>
 	{:else}
 		<Button
@@ -210,7 +93,7 @@
 			endIcon={{ icon: Plus, props: { size: 8 } }}
 			btnClasses="!gap-0.5"
 			aria-label="Add label"
-			onclick={startAdding}
+			onClick={startAdding}
 		/>
 	{/if}
 </div>

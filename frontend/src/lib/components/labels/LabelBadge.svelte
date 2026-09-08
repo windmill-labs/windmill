@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte'
-	import { Folder, Tag } from 'lucide-svelte'
+	import { Folder, Tag, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { labelBadgeColor } from './labelColors'
@@ -19,7 +19,13 @@
 		title?: string
 		class?: string
 		onclick?: (event: MouseEvent) => void
-		/** Trailing content inside the chip, e.g. a remove button. */
+		/**
+		 * Renders a remove cross inside the chip, so it carries the chip's own
+		 * colour instead of sitting next to it. Not combinable with `clickable`:
+		 * that renders the chip itself as a button, and a button cannot nest one.
+		 */
+		onRemove?: (label: string) => void
+		/** Trailing content inside the chip. */
 		children?: Snippet
 	}
 
@@ -34,6 +40,7 @@
 		title,
 		class: clazz = '',
 		onclick,
+		onRemove,
 		children
 	}: Props = $props()
 
@@ -58,4 +65,17 @@
 	{/if}
 	{label}
 	{@render children?.()}
+	{#if onRemove}
+		<button
+			type="button"
+			class="-mr-0.5 rounded-sm opacity-60 hover:opacity-100 hover:text-red-500"
+			aria-label="Remove label {label}"
+			onclick={(e) => {
+				e.stopPropagation()
+				onRemove?.(label)
+			}}
+		>
+			<X size={10} />
+		</button>
+	{/if}
 </Badge>

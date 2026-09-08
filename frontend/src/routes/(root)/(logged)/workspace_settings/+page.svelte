@@ -43,6 +43,7 @@
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { Slack, Target } from 'lucide-svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
+	import LabelSettings from '$lib/components/workspaceSettings/LabelSettings.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -374,6 +375,7 @@
 			| 'teams'
 			| 'premium'
 			| 'general'
+			| 'labels'
 			| 'webhook'
 			| 'deploy_to'
 			| 'dev_workspace'
@@ -1192,6 +1194,12 @@
 					label: 'Windmill AI',
 					aiId: 'workspace-settings-ai',
 					aiDescription: 'Windmill AI workspace settings'
+				},
+				{
+					id: 'labels',
+					label: 'Labels',
+					aiId: 'workspace-settings-labels',
+					aiDescription: 'Colors for the labels used across this workspace'
 				},
 				{
 					id: 'premium',
@@ -2190,6 +2198,8 @@ export async function main(
 							/>
 						{:else if tab == 'shared_ui'}
 							<SharedUiSettings />
+						{:else if tab == 'labels'}
+							<LabelSettings />
 						{:else if tab == 'trashbin'}
 							<SettingsPageHeader
 								title="Trashbin"

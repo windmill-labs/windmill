@@ -16,17 +16,21 @@
 
 <div class="grid grid-cols-5 gap-1" style="min-width: 140px">
 	{#each colors as color (color)}
+		<!-- The colour lives on an inner span, not on the button: the button's own
+		     hover and focus-visible backgrounds would otherwise paint over it, and a
+		     just-clicked swatch would sit there showing the hover grey. -->
 		<Button
 			variant="subtle"
 			unifiedSize="2xs"
 			title={color.charAt(0).toUpperCase() + color.slice(1)}
 			aria-label={`Select ${color} color`}
-			onclick={() => onSelect(color)}
+			onClick={() => onSelect(color)}
 			btnClasses={twMerge(
 				'w-6 h-6 p-0 rounded-full hover:scale-110 transition-transform duration-100',
-				swatches[color],
-				selected === color ? 'ring-2 ring-accent' : 'dark:border-gray-600'
+				selected === color ? 'ring-2 ring-accent' : ''
 			)}
-		/>
+		>
+			<span class={twMerge('w-full h-full rounded-full', swatches[color])}></span>
+		</Button>
 	{/each}
 </div>
