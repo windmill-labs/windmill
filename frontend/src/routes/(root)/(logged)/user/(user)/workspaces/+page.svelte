@@ -34,6 +34,7 @@
 		LogOut
 	} from 'lucide-svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import { isValidLogoutRedirect, toSameOriginRelativePath } from '$lib/logoutRedirect'
 	import { canCreateWorkspace } from '$lib/workspaceCreation'
 	import SimpleCreateWorkspace from '$lib/components/workspaceSettings/SimpleCreateWorkspace.svelte'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
@@ -59,7 +60,20 @@
 	let userSettings: UserSettings | undefined = $state()
 	let superadminSettings: SuperadminSettings | undefined = $state()
 
-	let rd = $derived($page.url.searchParams.get('rd'))
+	// Sanitized here rather than at each hand-off below: all four send an absolute `rd` to
+	// `window.location.href`, which unlike `goto` leaves the origin, and a fourth weaker copy
+	// of the check is how one of them gets missed. Absolute targets keep the allowance the
+	// OAuth callback uses (`isValidLogoutRedirect`: same origin, `*.windmill.dev`, the hub),
+	// since honouring one is why those branches exist. Anything else falls back to '/'.
+	let rd = $derived.by(() => {
+		const raw = $page.url.searchParams.get('rd')
+		if (!raw) return null
+		// Truthy for a safe relative path and for a same-origin URL; null for `//host`,
+		// `/\host` and control characters, which read as relative but are not.
+		if (toSameOriginRelativePath(raw)) return raw
+		if (!raw.startsWith('http')) return null
+		return isValidLogoutRedirect(raw) ? raw : null
+	})
 
 	run(() => {
 		if (userSettings && $page.url.hash.startsWith(USER_SETTINGS_HASH)) {
@@ -132,7 +146,11 @@
 		getCreateWorkspaceRequireSuperadmin()
 	}
 
-	refreshSuperadmin()
+	// Forced: this page hands the superadmin their instance settings and the list-all toggle,
+	// and stands the picker down entirely for a user who has nothing to pick — so a `false`
+	// left over from a logged-out load in this session (see `refreshSuperadmin`) does not just
+	// hide a button, it decides what the page is.
+	refreshSuperadmin({ force: true })
 	loadInvites()
 	loadWorkspaces()
 
@@ -142,22 +160,37 @@
 	// the empty list, so it *is* that action. Shown as the creation form rather than a page
 	// asking you to choose between one thing. Held back until the invites have loaded, or a
 	// user with an invite waiting would see a form for a workspace they do not need.
-	// `$derived.by` for the loaded test: a `$derived` reading `workspaces` directly narrows it
-	// to `never` here, the same reason `allWorkspaces` is written that way above.
-	let workspacesLoaded = $derived.by(() => workspaces !== undefined)
+	// Both halves, the way the markup below tests it: `workspaces` is assigned from
+	// `$userWorkspaces` by the legacy pre-effect, and that derives to `[]` while
+	// `usersWorkspaceStore` is still undefined — so `workspaces !== undefined` alone is true
+	// from the first flush of a hard load, with an empty list behind it. Since `showCreate`
+	// latches, one such frame would swap a member's picker for the create form until reload.
+	// `$derived.by` because a plain `$derived` reading `workspaces` narrows it to `never`
+	// here, the same reason `allWorkspaces` is written that way above.
+	let workspacesLoaded = $derived.by(
+		() => workspaces !== undefined && $usersWorkspaceStore !== undefined
+	)
+	// Not for a superadmin: this page is also where they reach the instance settings and the
+	// list-all toggle, and standing the picker down takes both away — a superadmin with no
+	// membership of their own has business here besides creating a workspace. Waiting for the
+	// store to answer rather than reading `!$superadmin`, which is true while `globalWhoami`
+	// is still in flight.
 	let nothingToChoose = $derived(
 		workspacesLoaded &&
 			invitesLoaded &&
 			createWorkspace &&
+			$superadmin !== undefined &&
+			!$superadmin &&
 			!list_all_as_super_admin &&
 			allWorkspaces.length === 0 &&
 			invites.length === 0
 	)
 
 	/**
-	 * Where to go once a workspace exists. `rd` can be absolute — the CLI login flow sends one —
-	 * and `goto` refuses those, which would strand the caller on its "Creating …" screen with
-	 * the workspace already made. Same hand-off every other `rd` path on this page makes.
+	 * Where to go once a workspace exists. `rd` can be absolute — a login flow persists the page
+	 * URL it interrupted — and `goto` refuses those, which would strand the caller on its
+	 * "Creating …" screen with the workspace already made. Same hand-off every other `rd` path
+	 * on this page makes, over the value sanitized where `rd` is derived.
 	 */
 	function leaveForWorkspace() {
 		if (rd?.startsWith('http')) {
@@ -174,6 +207,11 @@
 	let showCreate = $state(false)
 	$effect(() => {
 		if (nothingToChoose) showCreate = true
+		// Except for a superadmin, whom `nothingToChoose` excludes — so this only ever undoes a
+		// latch that should not have happened: one taken on a stale `false` before the forced
+		// `refreshSuperadmin` above answered. Without it that superadmin would be stuck on the
+		// create form, instance settings and the list-all toggle gone with it, until a reload.
+		else if ($superadmin) showCreate = false
 	})
 
 	async function speakFriendAndEnterWorkspace(workspaceId: string) {

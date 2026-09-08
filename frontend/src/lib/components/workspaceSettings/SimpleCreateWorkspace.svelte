@@ -19,6 +19,15 @@
 		WORKSPACE_HANDOVER_MS
 	} from '$lib/workspaceCreation'
 
+	/**
+	 * Creates a workspace. It enforces no permission of its own — `create_workspace` is the
+	 * gate, and it refuses when `CREATE_WORKSPACE_REQUIRE_SUPERADMIN` is on and the caller is
+	 * not one — so a surface that offers this form to someone who may not create is offering
+	 * an action that ends in a 401. A caller must establish that first. The workspace picker
+	 * asks `canCreateWorkspace()`; the onboarding step does not, because it is reached only
+	 * from the cloud sign-in path, where the setting is off by definition — a surface with
+	 * any other way in owes the check.
+	 */
 	interface Props {
 		/** Where to go once the workspace exists. It is already the active one by then. */
 		onCreated: () => void

@@ -1016,10 +1016,12 @@
 	 * Whether a workspace the default listing found empty is empty at all, or just has nothing
 	 * unarchived — two different states that want two different things said about them. Asked
 	 * only in that case, and once per workspace: one request for one row, never on a workspace
-	 * with something in it. A failure answers "no archived items", which shows the ordinary
-	 * placeholder rather than promising items that may not be there.
+	 * with something in it. `hasArchived` is undefined when the request failed — see the catch
+	 * for what that leaves standing.
 	 */
-	let archivedProbe = $state<{ workspace: string; hasArchived: boolean } | undefined>(undefined)
+	let archivedProbe = $state<{ workspace: string; hasArchived: boolean | undefined } | undefined>(
+		undefined
+	)
 	$effect(() => {
 		const ws = $workspaceStore
 		if (!ws || !workspaceEmpty || archivedProbe?.workspace === ws) return
@@ -1039,11 +1041,20 @@
 			})
 			archivedProbe = { workspace, hasArchived: (res.items?.length ?? 0) > 0 }
 		} catch (error) {
+			// Undefined, not false: false would say the workspace is empty and — since the
+			// toolbar is inert on the strength of the placeholder carrying the way to archived
+			// items — leave no way to them at all. Unknown keeps the ordinary caption, which
+			// promises nothing, and leaves the searchbar live as the fallback it used to be.
 			console.error('Could not check for archived items:', error)
-			archivedProbe = { workspace, hasArchived: false }
+			archivedProbe = { workspace, hasArchived: undefined }
 		}
 	}
 	let emptyStateAnswered = $derived(archivedProbe?.workspace === $workspaceStore)
+	/**
+	 * The probe could not tell. The toolbar stays usable in that case: `inert` is only right
+	 * while the placeholder is the way to archived items, and here it cannot be.
+	 */
+	let archivedUnknown = $derived(emptyStateAnswered && archivedProbe?.hasArchived === undefined)
 	/**
 	 * Whether this user may be offered the create actions. The empty state's template import
 	 * and create menu do no permission check of their own, so an operator — or a workspace
@@ -1066,6 +1077,12 @@
 			visiblePipelineFolders.size === 0 &&
 			!hasMoreServer
 	)
+	/**
+	 * The toolbar is dimmed either way; `inert` also takes it off the pointer, which is only
+	 * right while the placeholder carries the way to archived items. A probe that could not
+	 * tell leaves it live as the fallback.
+	 */
+	let toolbarInert = $derived(workspaceEmpty && !archivedUnknown)
 
 	// Owners the counts found the user has something in, split by kind. They cover
 	// what the folder/username lists miss: an item shared individually out of a
@@ -1736,7 +1753,7 @@
 			     lands; `inert` takes it out of the tab order and off the pointer meanwhile. A
 			     workspace with nothing but archived items reaches them from its own placeholder,
 			     so these controls are not the way there. -->
-			<div class="flex justify-start" class:opacity-40={workspaceEmpty} inert={workspaceEmpty}>
+			<div class="flex justify-start" class:opacity-40={workspaceEmpty} inert={toolbarInert}>
 				<ToggleButtonGroup
 					selected={itemKind}
 					onSelected={(v) => {
@@ -1838,7 +1855,7 @@
 			<div
 				class="relative text-primary w-full min-w-[200px] max-w-[26rem]"
 				class:opacity-40={workspaceEmpty}
-				inert={workspaceEmpty}
+				inert={toolbarInert}
 			>
 				<FilterSearchbar
 					schema={searchbarSchema}
@@ -1854,7 +1871,7 @@
 			<!-- Same gate the old create actions used: hidden from operators and in workspaces
 			     whose direct-deploy protection cleared showEditButtons (NoDirectDeployAlert), since
 			     the menu itself does no permission check. -->
-			{#if !$userStore?.operator && showEditButtons}
+			{#if canCreateHere}
 				<!-- No hub entry where the instance has the hub turned off: the same setting the
 				     script and flow hub pickers observe. -->
 				<CreateActionsMenu

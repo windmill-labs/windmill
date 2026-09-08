@@ -6,13 +6,14 @@ use axum::{
     http::{request::Parts, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
-    Router,
+    Extension, Router,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use windmill_common::{
     error::{to_anyhow, Error},
+    global_settings::{load_value_from_global_settings, DISABLE_HUB_SETTING},
     utils::require_admin,
-    HUB_BASE_URL,
+    DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
 };
 
 pub fn workspaced_service() -> Router {
@@ -553,17 +554,67 @@ async fn get_project_by_source(ctx: HubPublishCtx) -> Result<impl IntoResponse, 
 // `HubPublishCtx`, which requires an admin: nothing here is workspace-scoped or
 // publishing-related. It exists at all because the hub's listing endpoint sends no
 // CORS header, so the browser cannot read it directly the way it reads a single
-// project. The caller's token rides along only so a private hub can authenticate the
-// reader; `accept: application/json` is what makes the hub answer with JSON.
+// project. `accept: application/json` is what makes the hub answer with JSON.
+//
+// The caller's token is sent only to a hub this instance was pointed at deliberately.
+// Every other route here is admin-only; this one is not, so forwarding a member's
+// bearer token to `hub.windmill.dev` would put a credential replayable against this
+// instance on a host outside it — for a listing that needs no credential at all.
+/// Whether this instance points at the public hub. Compared by parsed host rather than by the
+/// string: `hub_base_url` is stored as the operator typed it, so `http://`, a port, a trailing
+/// slash, a mixed-case scheme or host, userinfo and a trailing dot all name the same public
+/// host — and each spelling that failed to match would send a member's token there. Parsing is
+/// what `reqwest` does with the same string a line later, so this reads the host the request
+/// will actually go to.
+///
+/// A value that does not parse answers "not the public hub", so the caller attaches the token —
+/// harmless, because `reqwest` cannot build a request from that same value: it is rejected
+/// before a connection is opened, and the token never reaches a socket.
+fn is_public_hub(hub: &str) -> bool {
+    fn host_of(url: &str) -> Option<String> {
+        let parsed = url::Url::parse(url.trim()).ok()?;
+        if !matches!(parsed.scheme(), "http" | "https") {
+            return None;
+        }
+        Some(
+            parsed
+                .host_str()?
+                .trim_end_matches('.')
+                .to_ascii_lowercase(),
+        )
+    }
+    match (host_of(hub), host_of(DEFAULT_HUB_BASE_URL)) {
+        (Some(host), Some(default_host)) => host == default_host,
+        _ => false,
+    }
+}
+
 async fn list_projects(
     _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Tokened { token }: Tokened,
 ) -> Result<impl IntoResponse, Error> {
-    let url = format!("{}/projects", **HUB_BASE_URL.load());
-    let res = HTTP_CLIENT
-        .get(&url)
-        .header("accept", "application/json")
-        .bearer_auth(&token)
+    // `disable_hub` turns the hub off for a closed instance, and this handler makes an
+    // outbound request. The frontend hides its entry points on the same setting, but that
+    // is presentation: an authenticated member can call this route directly, so the refusal
+    // has to live here.
+    let disabled = load_value_from_global_settings(&db, DISABLE_HUB_SETTING)
+        .await?
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if disabled {
+        return Err(Error::BadRequest(
+            "The hub is disabled on this instance".to_string(),
+        ));
+    }
+
+    let hub = (**HUB_BASE_URL.load()).clone();
+    let url = format!("{}/projects", hub);
+    let mut req = HTTP_CLIENT.get(&url).header("accept", "application/json");
+    if !is_public_hub(&hub) {
+        req = req.bearer_auth(&token);
+    }
+    let res = req
         .send()
         .await
         .map_err(|e| Error::InternalErr(format!("hub request failed: {e}")))?;
@@ -673,4 +724,43 @@ async fn forward_to_hub<T: Serialize>(
         .map_err(|e| Error::InternalErr(format!("hub response read failed: {e}")))?;
 
     Ok((status, text))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_public_hub;
+
+    #[test]
+    fn public_hub_recognized_in_every_spelling() {
+        // The predicate decides whether a workspace member's bearer token leaves the
+        // instance, so both directions matter: a miss on the public hub sends the token
+        // to windmill.dev, and a false match withholds it from a private hub that needs it.
+        // Every spelling here is one `hub_base_url` can hold and `reqwest` will still send.
+        for hub in [
+            "https://hub.windmill.dev",
+            "http://hub.windmill.dev/",
+            "HTTPS://hub.windmill.dev",
+            "https://HUB.WINDMILL.DEV",
+            "https://hub.windmill.dev:443",
+            "https://hub.windmill.dev.",
+            "https://hub.windmill.dev/some/path",
+            "  https://hub.windmill.dev  ",
+        ] {
+            assert!(is_public_hub(hub), "{hub} should be the public hub");
+        }
+        for hub in [
+            "https://hub.internal.example",
+            "https://hub.windmill.dev.evil.example",
+            "https://windmill.dev",
+            // The host is what the request goes to, whatever precedes the `@`.
+            "https://hub.windmill.dev@hub.internal.example",
+            // Unparseable, or not a scheme a request can be built from. Grouped with the
+            // private hubs because the caller then attaches the token, which is harmless here:
+            // `reqwest` rejects the same value before opening a connection.
+            "hub.windmill.dev",
+            "ftp://hub.windmill.dev",
+        ] {
+            assert!(!is_public_hub(hub), "{hub} should not be the public hub");
+        }
+    }
 }

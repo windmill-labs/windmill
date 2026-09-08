@@ -185,7 +185,6 @@ export function hubProjectCatalogue(workspace: string): Promise<HubProjectPick[]
 	return catalogue.projects
 }
 
-
 async function loadCatalogue(workspace: string): Promise<HubProjectPick[]> {
 	const raw = await HubPublishService.listHubProjects({ workspace })
 	const rows = ((typeof raw === 'string' ? JSON.parse(raw) : raw)?.projects ??

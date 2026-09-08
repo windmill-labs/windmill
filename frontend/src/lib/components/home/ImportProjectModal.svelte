@@ -18,6 +18,13 @@
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { sendUserToast } from '$lib/toast'
 
+	/**
+	 * Writes a hub project's items into the active workspace. It checks no permission itself,
+	 * so a caller must not offer it to an operator or in a workspace whose direct-deploy
+	 * protection has cleared `showEditButtons` — `ItemsList` gates both of its entry points on
+	 * exactly that, and the import would otherwise fail item by item against the server's own
+	 * checks, after the dialog had promised to run.
+	 */
 	interface Props {
 		/** The project the picker chose. Setting it opens the dialog. */
 		pick: HubProjectPick | undefined
@@ -133,9 +140,18 @@
 	// the import step show them, so the detail is fetched for the one project chosen. The
 	// card renders from the pick until it lands — counts are the only thing missing, and
 	// zero counts render as no badges rather than as zeroes.
+	//
+	// The answer is checked against the slug that asked for it: `resource()` aborts the
+	// previous controller but `fetchHubProject` takes no signal, and nothing orders the
+	// responses — so picking A, dismissing, then picking B can land A's name, author and
+	// counts over an import that writes B.
 	const detail = resource(
 		() => slug,
-		async (s) => (s ? await fetchHubProject(s) : undefined)
+		async (s) => {
+			if (!s) return undefined
+			const fetched = await fetchHubProject(s)
+			return s === slug ? fetched : detail.current
+		}
 	)
 	let project = $derived<ImportProjectSummary | undefined>(
 		detail.current ??
@@ -178,13 +194,7 @@
 	// The counters' key vocabularies, enumerated here so the whole set is reviewable at once.
 	type AbandonStage = 'running' | 'setup' | 'done' | 'idle'
 	type SetupOutcome = 'filled' | 'skipped' | 'none' | 'unchecked'
-	type SetupBucket =
-		| 'filled'
-		| 'none'
-		| 'unchecked'
-		| 'skipped_1'
-		| 'skipped_2_5'
-		| 'skipped_6plus'
+	type SetupBucket = 'filled' | 'none' | 'unchecked' | 'skipped_1' | 'skipped_2_5' | 'skipped_6plus'
 
 	// Set for the closing that Finish itself asks for, since that closing reaches `dismiss()`
 	// by the same falling edge as the X.

@@ -1061,8 +1061,7 @@
 						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
 						<li
 							>user usage (author count, operator count, the distinct guests of the last 30 days,
-							the seats they add past the free allowance, and the workspaces that allow
-							guests)</li
+							the seats they add past the free allowance, and the workspaces that allow guests)</li
 						>
 						<li>superadmin email addresses</li>
 						<li>development instance status</li>
@@ -1078,8 +1077,8 @@
 							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
 							membership, the plan tier and quota shown when the execution meter is opened, whether
 							app sandbox isolation is turned on, whether a step's workspace script is edited from
-							the flow editor, how data tables and their migrations are set up and used, how often an
-							empty workspace home is seen, how often the home page’s create menu and hub-project
+							the flow editor, how data tables and their migrations are set up and used, how often
+							an empty workspace home is seen, how often the home page’s create menu and hub-project
 							picker are opened and from which entry point, and the name of any public hub project
 							imported from the home page and how far that import got, last 30 days)</li
 						>
@@ -1131,8 +1130,7 @@
 						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
 						<li
 							>user usage (author count, operator count, the distinct guests of the last 30 days,
-							the seats they add past the free allowance, and the workspaces that allow
-							guests)</li
+							the seats they add past the free allowance, and the workspaces that allow guests)</li
 						>
 						<li>development instance status</li>
 						<li
@@ -1142,8 +1140,8 @@
 							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
 							membership, the plan tier and quota shown when the execution meter is opened, whether
 							app sandbox isolation is turned on, whether a step's workspace script is edited from
-							the flow editor, how data tables and their migrations are set up and used, how often an
-							empty workspace home is seen, how often the home page’s create menu and hub-project
+							the flow editor, how data tables and their migrations are set up and used, how often
+							an empty workspace home is seen, how often the home page’s create menu and hub-project
 							picker are opened and from which entry point, and the name of any public hub project
 							imported from the home page and how far that import got, last 30 days)</li
 						>

@@ -64,15 +64,7 @@
 	import { setNoteEditorContext } from './graph/noteEditor.svelte'
 	import { GroupEditor, setGroupEditorContext } from './graph/groupEditor.svelte'
 	import { cleanFlow } from './flows/utils.svelte'
-	import {
-		DiffIcon,
-		HistoryIcon,
-		FileJson,
-		Settings,
-		Undo,
-		Redo,
-		Disc
-	} from 'lucide-svelte'
+	import { DiffIcon, HistoryIcon, FileJson, Settings, Undo, Redo, Disc } from 'lucide-svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
 	import { type FlowCopilotContext } from './copilot/flow'
