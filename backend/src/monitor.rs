@@ -4737,6 +4737,17 @@ async fn maintain_git_credentials(db: &Pool<Postgres>) {
             return;
         }
     };
+    // The transaction stays idle while the sweep talks to git hosts, and the
+    // pool's ten-minute idle-in-transaction timeout would end it, lock included,
+    // partway through a sweep over enough slow hosts. Lifted for this
+    // transaction only; it dies with the connection either way.
+    if let Err(e) = sqlx::query("SET LOCAL idle_in_transaction_session_timeout = 0")
+        .execute(&mut *lock_tx)
+        .await
+    {
+        tracing::error!("git credentials: failed to lift the idle timeout: {e:#}");
+        return;
+    }
     let locked: bool = match sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1)")
         .bind(GIT_CREDENTIAL_LOCK_ID)
         .fetch_one(&mut *lock_tx)
