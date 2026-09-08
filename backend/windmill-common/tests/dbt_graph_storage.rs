@@ -161,6 +161,33 @@ async fn an_identical_run_stores_no_snapshot(db: Pool<Postgres>) {
     assert_eq!(markers(&db, 1).await, 1, "and leaves no marker of its own");
 }
 
+/// A column that is projected AND used as a predicate for the same output column
+/// has both a `copy` edge and a `scan` one. They are two facts, and the digest
+/// counts both — so the uniqueness key has to carry `lineage_kind`, or the
+/// second is dropped by `ON CONFLICT DO NOTHING` while the digest still claims
+/// it was stored.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn both_kinds_of_one_column_pair_are_stored(db: Pool<Postgres>) {
+    deploy_script(&db, 1).await;
+    let pair = |kind: &str| IngestedColumnEdge {
+        parent_unique_id: "model.p.a".to_string(),
+        parent_column: "id".to_string(),
+        child_unique_id: "model.p.b".to_string(),
+        child_column: "id".to_string(),
+        lineage_kind: kind.to_string(),
+    };
+    let mut m = manifest(&["a", "b"]);
+    m.column_edges = vec![pair("copy"), pair("scan")];
+
+    let mut tx = db.begin().await.unwrap();
+    replace_dbt_manifest(&mut tx, WS, PATH, 1, None, &m, "root")
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    assert_eq!(column_edges_for(&db, 1).await, 2, "both kinds survive");
+}
+
 /// A run whose model set differs keeps its own, and the version's is untouched:
 /// this is what lets an older run page render the project that run built.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]

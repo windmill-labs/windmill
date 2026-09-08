@@ -387,7 +387,7 @@ pub(crate) async fn handle_dbt_job(
         // For a retry the restored manifest already describes the invocation
         // being resumed, so only the ingest runs — with that invocation's
         // arguments, which the selection resolver needs to interpolate.
-        ingest_from_run(&prepared, &descriptor, &inv, &command, &mut ctx, job, conn).await?;
+        ingest_from_run(&prepared, &descriptor, &inv, &mut ctx, job, conn).await?;
     }
 
     // A read-only command prints rows to stdout, so it is captured rather than
@@ -664,9 +664,6 @@ pub(crate) async fn dbt_dep(
             &prepared,
             &descriptor,
             &inv,
-            // A deploy resolves the project by parsing it; nothing is built, so
-            // the pass takes the descriptor's own answer.
-            "parse",
             &mut ctx,
             job_id,
             w_id,
@@ -2250,7 +2247,7 @@ async fn run_dbt(
         if let Some(t) = descriptor.threads {
             cmd.args(["--threads", &t.to_string()]);
         }
-        if full_refresh(descriptor, inv, command)? {
+        if full_refresh(descriptor, inv)? {
             cmd.arg("--full-refresh");
         }
     }
@@ -3109,7 +3106,6 @@ async fn run_parse_only(
         p,
         descriptor,
         inv,
-        "parse",
         ctx,
         &job.id,
         &job.workspace_id,
@@ -3186,7 +3182,6 @@ async fn attach_column_index(
     p: &PreparedProject,
     descriptor: &DbtDescriptor,
     inv: &Invocation,
-    command: &str,
     ctx: &mut JobCtx<'_>,
     job_id: &Uuid,
     w_id: &str,
@@ -3200,9 +3195,7 @@ async fn attach_column_index(
         .map(|n| n.unique_id.as_str())
         .collect();
     let index =
-        crate::dbt_column_index::collect(
-            p, descriptor, inv, command, ctx, job_id, w_id, conn, &kept,
-        )
+        crate::dbt_column_index::collect(p, descriptor, inv, ctx, job_id, w_id, conn, &kept)
             .await?;
     drop(kept);
     let Some(index) = index else {
@@ -3238,7 +3231,6 @@ async fn ingest_from_run(
     p: &PreparedProject,
     descriptor: &DbtDescriptor,
     inv: &Invocation,
-    command: &str,
     ctx: &mut JobCtx<'_>,
     job: &MiniPulledJob,
     conn: &Connection,
@@ -3266,7 +3258,6 @@ async fn ingest_from_run(
         p,
         descriptor,
         inv,
-        command,
         ctx,
         &job.id,
         &job.workspace_id,
@@ -4983,23 +4974,13 @@ fn selection_is_overridden(
 }
 
 /// Whether this invocation rebuilds incremental models from scratch: the run
-/// form's answer when it gave one, else the descriptor's — and never for a
-/// `test`, which builds nothing whatever the form said.
+/// form's answer when it gave one, else the descriptor's.
 ///
 /// Shared with the column-lineage pass rather than recomputed there, because
 /// `is_incremental()` branches on it: the same model compiles to different SQL —
 /// a `{{ this }}` self-join, and any `ref()` inside the incremental branch — so a
-/// pass that guessed would describe a build that never ran. The `test` case sits
-/// inside for that same reason: applied at one call site and not the other, the
-/// two disagree for exactly the runs that build nothing.
-pub(crate) fn full_refresh(
-    descriptor: &DbtDescriptor,
-    inv: &Invocation,
-    command: &str,
-) -> error::Result<bool> {
-    if command == "test" {
-        return Ok(false);
-    }
+/// pass that guessed would describe a build that never ran.
+pub(crate) fn full_refresh(descriptor: &DbtDescriptor, inv: &Invocation) -> error::Result<bool> {
     Ok(arg_bool(&inv.args, "full_refresh")?.unwrap_or(descriptor.full_refresh))
 }
 
@@ -6027,8 +6008,7 @@ mod tests {
     }
 
     /// The build and the analysis pass read this through one function, so they
-    /// cannot disagree about which SQL the run compiles — including for `test`,
-    /// which rebuilds nothing whatever the descriptor or the form said.
+    /// cannot disagree about which SQL the run compiles.
     #[test]
     fn full_refresh_is_one_answer_for_the_build_and_the_pass() {
         let inv = |args: HashMap<String, Box<RawValue>>| Invocation {
@@ -6044,15 +6024,11 @@ mod tests {
             RawValue::from_string("true".to_string()).unwrap(),
         )]);
 
-        assert!(full_refresh(&always, &inv(Default::default()), "build").unwrap());
-        assert!(!full_refresh(&never, &inv(Default::default()), "build").unwrap());
+        assert!(full_refresh(&always, &inv(Default::default())).unwrap());
+        assert!(!full_refresh(&never, &inv(Default::default())).unwrap());
         assert!(
-            full_refresh(&never, &inv(on), "build").unwrap(),
+            full_refresh(&never, &inv(on)).unwrap(),
             "the form's answer wins over the descriptor's"
-        );
-        assert!(
-            !full_refresh(&always, &inv(Default::default()), "test").unwrap(),
-            "a test builds nothing, so neither the build nor the pass may pass the flag"
         );
     }
 

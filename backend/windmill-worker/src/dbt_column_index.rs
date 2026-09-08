@@ -80,9 +80,6 @@ pub(crate) async fn collect(
     p: &PreparedProject,
     descriptor: &DbtDescriptor,
     inv: &Invocation,
-    // The dbt subcommand the job runs, which decides the effective
-    // `--full-refresh` — see `dbt_executor::full_refresh`.
-    command: &str,
     ctx: &mut JobCtx<'_>,
     job_id: &Uuid,
     w_id: &str,
@@ -109,7 +106,7 @@ pub(crate) async fn collect(
     }
 
     let index_dir = p.project_dir.join(CLL_ARTIFACTS_DIR).join("index");
-    let Some(compiled) = compile_index(p, descriptor, inv, command, ctx, job_id, w_id, conn).await? else {
+    let Some(compiled) = compile_index(p, descriptor, inv, ctx, job_id, w_id, conn).await? else {
         return Ok(None);
     };
     let coverage = Coverage::of(&compiled);
@@ -208,7 +205,6 @@ async fn compile_index(
     p: &PreparedProject,
     descriptor: &DbtDescriptor,
     inv: &Invocation,
-    command: &str,
     ctx: &mut JobCtx<'_>,
     job_id: &Uuid,
     w_id: &str,
@@ -245,7 +241,7 @@ async fn compile_index(
     // branches on it, so a model reading `{{ this }}` compiles its self-join —
     // and any `ref()` inside that branch — only when this is absent. Guessing
     // here stores lineage for SQL the run never executed.
-    if crate::dbt_executor::full_refresh(descriptor, inv, command)? {
+    if crate::dbt_executor::full_refresh(descriptor, inv)? {
         cmd.arg("--full-refresh");
     }
     // Captured rather than streamed: a strict-analysis failure is a wall of
