@@ -2019,9 +2019,20 @@
 		}
 		return [...paths]
 	})
+	// Which fetch of the folder graph is on screen. `graphRes.current` is a new
+	// object per fetch, so this moves on a Refresh, a deploy and a folder switch
+	// — and on nothing else, which is what keeps a keystroke in the editor from
+	// re-asking. Without it a redeploy would leave the pane pairing the new
+	// version's SQL and columns with the old version's edges, since the relation,
+	// the pin and the seeds are all unchanged by one.
+	let graphGeneration = $state(0)
+	$effect(() => {
+		if (graphRes.current) untrack(() => graphGeneration++)
+	})
 	const dbtColumnLineage = useDbtColumnLineage({
 		workspace: () => $workspaceStore,
-		assetPaths: () => dbtSeedPaths
+		assetPaths: () => dbtSeedPaths,
+		generation: () => graphGeneration
 	})
 	// One graph across both, so a trace crosses the dbt/ducklake boundary in
 	// either direction rather than stopping at it.
@@ -2630,6 +2641,7 @@
 				selectionColumnGraph={pe.activeDraft ? EMPTY_COLUMN_GRAPH : columnGraph}
 				selectionColumnLoading={dbtColumnLineage.loading}
 				selectionColumnTruncated={dbtColumnLineage.truncated}
+				selectionColumnFailed={dbtColumnLineage.failed}
 				{schemaCanEvolve}
 				{selectionForkMaterialization}
 				{schemaContractContext}

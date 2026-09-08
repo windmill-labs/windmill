@@ -1689,11 +1689,23 @@ served — a synthetic 3000-model project whose models share a column returns 58
 direct edges and 7.3MB. The walk is breadth-first from the asked-for relations and
 stops at 5000 edges, so what survives is the part nearest the selection rather
 than an arbitrary slice, and `truncated` says so: a trace that stops short is
-otherwise indistinguishable from one that ends. The FETCH is not bounded the same
-way — a project's edges arrive whole, because the walk is what decides which of
-them are in the component, and a `LIMIT` would cut a set that need not contain
-the asked-for relation at all. What bounds it is the ingest's own cap per version
-plus a stop on discovering further projects once the held set is outsized.
+otherwise indistinguishable from one that ends.
+
+`truncated` is set only where a project this caller may read is left unread, or
+where the walk itself was cut. Neither the expansion's size budget nor a relation
+whose owners were never asked about is evidence on its own: a big project's small
+component is answered whole, and the relations still waiting to be asked about at
+the end are almost always owned by the project already in hand. The order the
+rounds run in is what makes that decidable — the owners query comes before the
+budget check, so the stop happens with a named unread project rather than a
+suspicion of one.
+
+The FETCH is not bounded the way the answer is: a project's edges arrive whole,
+because the walk is what decides which of them are in the component, and a
+`LIMIT` would cut a set that need not contain the asked-for relation at all. The
+seeds' own projects are therefore read whatever their size — reading them is the
+answer. What bounds a single fetch is the ingest's own cap per version; the
+budget bounds only the expansion on top of it.
 
 The walk is in Rust rather than a recursive CTE. `EXPLAIN ANALYZE` on that same
 project measured 1243ms against 59ms for the query alone: a CTE has no index to

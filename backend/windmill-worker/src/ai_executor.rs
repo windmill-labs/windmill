@@ -621,7 +621,7 @@ pub async fn handle_ai_agent_job(
                     (schema, input_transforms, derived_description)
                 }
                 FlowModuleValue::RawScript { content, language, input_transforms, .. } => {
-                    let schema = Some(parse_raw_script_schema(&content, &language)?);
+                    let schema = Some(parse_raw_script_schema(&content, &language).await?);
                     (schema, input_transforms, None)
                 }
                 FlowModuleValue::AIAgent { input_transforms, .. } => {

@@ -940,3 +940,74 @@ async fn a_component_past_the_bound_is_cut_and_says_so(db: Pool<Postgres>) {
     assert_eq!(body["edges"].as_array().unwrap().len(), 5000);
     assert_eq!(body["truncated"], serde_json::json!(true));
 }
+
+/// The other side of the same flag: a project big enough to stop the expansion
+/// still answers a small component WHOLE, and must not claim it was cut.
+///
+/// Reaching the size that stops expansion says nothing on its own — nor does a
+/// relation whose owners have not been asked about, since those owners are
+/// usually the project already in hand. Only a project this caller may read and
+/// this answer does not contain is a cut.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn a_whole_component_in_a_big_project_is_not_called_cut(db: Pool<Postgres>) {
+    seed(&db, uuid::Uuid::from_u128(7)).await;
+    seed_deployed_orders(&db).await;
+    // A second family, two relations and one edge, sharing no column with the
+    // first — the whole of what a selection on it should return.
+    sqlx::query!(
+        "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,
+                               resource_type, name, asset_path, tags)
+         VALUES ($1, $2, $3, '00000000-0000-0000-0000-000000000000', 'model.p.stock',
+                 'model', 'stock', 'u/a/wh/analytics/stock', '{}'),
+                ($1, $2, $3, '00000000-0000-0000-0000-000000000000', 'model.p.stock_daily',
+                 'model', 'stock_daily', 'u/a/wh/analytics/stock_daily', '{}')",
+        WS,
+        PATH,
+        HASH,
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+    sqlx::query!(
+        "INSERT INTO dbt_column_edge (workspace_id, script_path, script_hash, job_id,
+                                      parent_unique_id, parent_column, child_unique_id,
+                                      child_column, lineage_kind)
+         VALUES ($1, $2, $3, '00000000-0000-0000-0000-000000000000',
+                 'model.p.stock', 'sku', 'model.p.stock_daily', 'sku', 'copy')",
+        WS,
+        PATH,
+        HASH,
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+    // And enough unrelated families beside them to pass the expansion budget.
+    sqlx::query!(
+        "INSERT INTO dbt_column_edge (workspace_id, script_path, script_hash, job_id,
+                                      parent_unique_id, parent_column, child_unique_id,
+                                      child_column, lineage_kind)
+         SELECT $1, $2, $3, '00000000-0000-0000-0000-000000000000',
+                'model.p.raw_orders', 'c' || i, 'model.p.orders', 'c' || i, 'copy'
+           FROM generate_series(1, 100000) i",
+        WS,
+        PATH,
+        HASH,
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+
+    let admin = ApiAuthed { is_admin: true, ..outsider() };
+    let body = column_lineage(&db, &admin, &["u/a/wh/analytics/stock_daily"], None).await;
+    assert_eq!(
+        body["edges"],
+        serde_json::json!([{
+            "from_asset_path": "u/a/wh/analytics/stock",
+            "from_column": "sku",
+            "to_asset_path": "u/a/wh/analytics/stock_daily",
+            "to_column": "sku",
+            "kind": "copy",
+        }]),
+    );
+    assert_eq!(body["truncated"], serde_json::json!(false));
+}

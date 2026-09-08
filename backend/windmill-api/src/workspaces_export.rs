@@ -1434,9 +1434,11 @@ pub(crate) async fn tarball_workspace(
                 // Native triggers (Nextcloud, Google Drive, GitHub) are never
                 // cloned into a fork — a fork only has one if its owner created
                 // it there, so it's always "fork-only" and keeps its own mode.
-                // No parent-value substitution applies; we only strip the
-                // webhook token hash.
-                let native_ignore_keys = vec!["webhook_token_hash"];
+                // No parent-value substitution applies; we strip the webhook
+                // token hash, and `enabled`, which is operational state a sync
+                // deliberately does not carry — whether a trigger is paused
+                // belongs to the workspace it runs in, not to the code.
+                let native_ignore_keys = vec!["webhook_token_hash", "enabled"];
 
                 for trigger in native_triggers {
                     let trigger_str = &to_string_without_metadata(
@@ -1586,10 +1588,11 @@ pub(crate) async fn tarball_workspace(
         .await?;
 
         // Use v2 format only if explicitly requested, otherwise use v1 (legacy) for backward compatibility
-        // Server-owned auto-pull state (the HMAC webhook secret + hook id/error and
-        // the synced-sha / last-pull status) must never leave the server: keep it out
-        // of export archives and synced repos, and don't let a re-imported workspace
-        // inherit another install's hook/sync state. Mirrors the GET-settings redaction.
+        // Server-owned state (the HMAC webhook secret + hook id/error, the
+        // synced-sha / last-pull status, and what the credential check observed)
+        // must never leave the server: keep it out of export archives and synced
+        // repos, and don't let a re-imported workspace inherit another install's
+        // hook/sync state. Mirrors the GET-settings redaction.
         fn redact_git_sync_for_export(git_sync: Option<Value>) -> Option<Value> {
             let mut git_sync = git_sync?;
             if let Some(repos) = git_sync
@@ -1609,6 +1612,13 @@ pub(crate) async fn tarball_workspace(
                         ] {
                             auto_pull.remove(field);
                         }
+                    }
+                    // What this install observed about its own credential: a token
+                    // id and expiry, and a `checked_at` that moves on its own.
+                    // None of it describes the workspace, and in a git-synced
+                    // `wmill.yaml` it would churn the file for no reason.
+                    if let Some(repo) = repo.as_object_mut() {
+                        repo.remove("credential");
                     }
                 }
             }
