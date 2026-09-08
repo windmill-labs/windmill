@@ -538,6 +538,8 @@ impl QueryBuilder for OpenAIQueryBuilder {
             } else {
                 Some(parser.accumulated_content)
             },
+            reasoning: (!parser.accumulated_reasoning.is_empty())
+                .then_some(parser.accumulated_reasoning),
             tool_calls: parser.accumulated_tool_calls.into_values().collect(),
             events_str: Some(parser.events_str),
             annotations: parser.annotations,

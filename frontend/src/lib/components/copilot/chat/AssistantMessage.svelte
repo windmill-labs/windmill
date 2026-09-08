@@ -32,6 +32,15 @@
 	const runHref = $derived(
 		jobId ? `${base}/run/${jobId}?workspace=${$workspaceStore}` : undefined
 	)
+	// Today's answers show the time alone; the day earns its place only on a conversation
+	// read back later. Resolved at render, so a chat left open across midnight keeps
+	// yesterday's format until it is reopened.
+	const timestamp = $derived.by(() => {
+		if (!createdAt) return undefined
+		const at = new Date(createdAt)
+		const today = new Date().toDateString() === at.toDateString()
+		return displayDate(at, false, !today)
+	})
 
 	const reasoning = $derived(
 		message.role === 'assistant' ? message.reasoning?.trim() || undefined : undefined
@@ -150,17 +159,20 @@
 	</div>
 {/if}
 
-{#if message.content || createdAt || runHref}
+{#if message.content}
 	<!-- Present but invisible until the answer is hovered: kept in flow so revealing it
-	     does not nudge the message below. -->
+	     does not nudge the message below, and with no margin of its own so it sits in the
+	     gap the transcript already leaves between messages. A row carrying only thinking
+	     has no answer to copy or date, and the run behind it is the one the next row
+	     already links. -->
 	<div
-		class="mt-1.5 flex items-center gap-2 text-2xs text-tertiary opacity-0 transition-opacity duration-150 group-hover/answer:opacity-100 focus-within:opacity-100"
+		class="flex items-center gap-2 text-2xs text-tertiary opacity-0 transition-opacity duration-150 group-hover/answer:opacity-100 focus-within:opacity-100"
 	>
 		{#if message.content}
 			<CopyButton value={message.content} title="Copy answer" class="-ml-1" />
 		{/if}
-		{#if createdAt}
-			<span>{displayDate(createdAt)}</span>
+		{#if timestamp}
+			<span>{timestamp}</span>
 		{/if}
 		{#if runHref}
 			<a

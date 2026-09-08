@@ -114,6 +114,7 @@ function toDisplayMessage(
 				role: 'assistant',
 				content: message.content,
 				streaming: message.streaming,
+				reasoning: message.reasoning ?? undefined,
 				stepName: showStepNames ? (message.step_name ?? undefined) : undefined,
 				// The run behind the answer, so a reader can open what produced it. Absent on
 				// the temp message a stream builds, which has no job id until it settles.
@@ -205,8 +206,9 @@ export class FlowChatViewHost implements ChatViewHost {
 	loadingLabel = undefined
 	compacting = false
 	currentReply = ''
-	currentReasoning = ''
-	currentReasoningActive = false
+	// The turn's thinking while it streams; it moves onto the answer once that starts.
+	currentReasoning = $derived.by(() => this.#manager.currentReasoning)
+	currentReasoningActive = $derived.by(() => this.#manager.isReasoningActive)
 	reasoningHiddenIndicatorLabel = undefined
 
 	#automaticScroll = $state(true)

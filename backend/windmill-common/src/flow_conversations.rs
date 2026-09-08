@@ -77,6 +77,16 @@ pub async fn get_or_create_conversation_with_id(
     Ok(conversation)
 }
 
+/// What a row carries beyond its text, for the parts of a turn that no job holds: an
+/// MCP or provider-native tool runs inside the agent's job, and thinking is streamed
+/// and never returned in a response body.
+#[derive(Debug, Clone, Default)]
+pub struct MessageExtras {
+    pub tool_arguments: Option<String>,
+    pub tool_result: Option<String>,
+    pub reasoning: Option<String>,
+}
+
 /// Add a message to a conversation using an existing transaction
 /// If the conversation doesn't exist, logs a warning and returns Ok (no error thrown)
 /// This allows memory_id to be used for agent memory without requiring a conversation
@@ -88,6 +98,7 @@ pub async fn add_message_to_conversation_tx(
     message_type: MessageType,
     step_name: Option<&str>,
     success: bool,
+    extras: Option<&MessageExtras>,
 ) -> Result<()> {
     // Check if conversation exists first
     let conversation_exists = sqlx::query!(
@@ -108,14 +119,17 @@ pub async fn add_message_to_conversation_tx(
 
     // Insert the message
     sqlx::query!(
-        "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id, step_name, success)
-         VALUES ($1, $2, $3, $4, $5, $6)",
+        "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id, step_name, success, tool_arguments, tool_result, reasoning)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         conversation_id,
         message_type as MessageType,
         content,
         job_id,
         step_name,
-        success
+        success,
+        extras.and_then(|e| e.tool_arguments.as_deref()),
+        extras.and_then(|e| e.tool_result.as_deref()),
+        extras.and_then(|e| e.reasoning.as_deref())
     )
     .execute(&mut **tx)
     .await?;

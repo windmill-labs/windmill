@@ -1195,6 +1195,11 @@ impl BedrockQueryBuilder {
 
         Ok(ParsedResponse::Text {
             content,
+            // The block folded for replay is also what the reader sees as thinking.
+            reasoning: reasoning
+                .as_ref()
+                .and_then(|r| r.reasoning_text.clone())
+                .filter(|t| !t.is_empty()),
             tool_calls,
             events_str: if events_str.is_empty() {
                 None

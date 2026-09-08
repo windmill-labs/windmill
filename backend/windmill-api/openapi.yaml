@@ -27021,6 +27021,18 @@ components:
         success:
           type: boolean
           description: Whether the message is a success
+        tool_arguments:
+          type: string
+          nullable: true
+          description: The arguments of a tool call whose tool has no job of its own
+        tool_result:
+          type: string
+          nullable: true
+          description: What that tool call returned
+        reasoning:
+          type: string
+          nullable: true
+          description: The thinking the model streamed before this answer
 
     EndpointTool:
       type: object

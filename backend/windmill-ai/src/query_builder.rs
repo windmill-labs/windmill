@@ -33,6 +33,8 @@ pub struct BuildRequestArgs<'a> {
 pub enum ParsedResponse {
     Text {
         content: Option<String>,
+        /// The thinking the model streamed before the answer, when it emitted any.
+        reasoning: Option<String>,
         tool_calls: Vec<OpenAIToolCall>,
         events_str: Option<String>,
         annotations: Vec<UrlCitation>,

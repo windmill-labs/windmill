@@ -12,18 +12,21 @@ import { workspaceStore, userStore } from '$lib/stores'
 import { get } from 'svelte/store'
 import { parseStreamEvents, toolSummary } from '$lib/components/chat/utils'
 import { randomUUID } from '$lib/utils/uuid'
+import {
+	prefersInstantReveal,
+	TypewriterReveal
+} from '$lib/components/copilot/chat/typewriterReveal'
 
 export interface ChatMessage extends FlowConversationMessage {
 	loading?: boolean
 	streaming?: boolean
 	/**
-	 * The call behind a tool row, as the stream reports it. Local to a running turn: the
-	 * server stores only the summary sentence, and once the run settles the same details
-	 * are read back from the tool's own job instead (see toolCallContext).
+	 * The tool a row's call belongs to, as the stream reports it. Local to a running turn:
+	 * afterwards the name comes from the summary the server stored, and the call itself
+	 * from the tool's own job (see toolCallContext) or from the row's own
+	 * `tool_arguments` / `tool_result` when the tool had no job.
 	 */
 	tool_name?: string
-	tool_arguments?: string
-	tool_result?: string
 }
 
 export interface ConversationWithDraft extends FlowConversation {
@@ -51,6 +54,71 @@ export class FlowChatManager {
 	conversations = $state<ConversationWithDraft[]>([])
 	deletingConversationId = $state<string | undefined>(undefined)
 	isSidebarExpanded = $state(false)
+	/** The thinking of the turn in flight, until it is attached to the answer it produced. */
+	currentReasoning = $state('')
+	/** The model is reasoning: true from the first thinking token until the answer starts. */
+	isReasoningActive = $state(false)
+
+	// The row the stream is currently writing into, and the text revealed so far. Fields
+	// rather than locals of the stream handler: the typewriter reveals on animation
+	// frames, long after the chunk that delivered the text was applied.
+	#streamConversationId = ''
+	#streamAssistantId = ''
+	#streamContent = ''
+
+	// The worker's events reach us in bursts — the provider batches tokens, and the SSE
+	// endpoint ships whatever accumulated — so display is paced separately from arrival,
+	// exactly as the session chat does it. Answer and thinking pace independently.
+	#replyReveal = new TypewriterReveal({
+		onReveal: (chunk) => {
+			this.#streamContent += chunk
+			this.#upsertStreamedAssistantRow()
+		},
+		instant: prefersInstantReveal()
+	})
+	#reasoningReveal = new TypewriterReveal({
+		onReveal: (chunk) => {
+			this.currentReasoning += chunk
+			this.#upsertStreamedAssistantRow()
+		},
+		instant: prefersInstantReveal()
+	})
+
+	/** Create or update the row holding the turn's answer and the thinking before it. */
+	#upsertStreamedAssistantRow() {
+		const reasoning = this.currentReasoning === '' ? undefined : this.currentReasoning
+		if (this.#streamContent === '' && reasoning === undefined) return
+		if (this.#streamAssistantId === '') {
+			this.#streamAssistantId = 'temp-' + randomUUID()
+			this.messages = [
+				...this.messages,
+				{
+					id: this.#streamAssistantId,
+					content: this.#streamContent,
+					created_at: new Date().toISOString(),
+					created_seq: 0,
+					message_type: 'assistant',
+					conversation_id: this.#streamConversationId,
+					job_id: '',
+					loading: false,
+					streaming: true,
+					reasoning
+				}
+			]
+		} else {
+			this.messages = this.messages.map((msg) =>
+				msg.id === this.#streamAssistantId
+					? { ...msg, content: this.#streamContent, reasoning }
+					: msg
+			)
+		}
+	}
+
+	/** Reveal everything buffered now, so the row is whole before the turn moves on. */
+	#flushReveals() {
+		this.#replyReveal.flush()
+		this.#reasoningReveal.flush()
+	}
 	/**
 	 * Which conversations the list holds. The editor shows its own test chats, since
 	 * testing is what happens there; a deployed flow shows the chats its users started,
@@ -102,6 +170,12 @@ export class FlowChatManager {
 	}
 
 	cleanup() {
+		this.#replyReveal.reset()
+		this.#reasoningReveal.reset()
+		this.#streamAssistantId = ''
+		this.#streamContent = ''
+		this.currentReasoning = ''
+		this.isReasoningActive = false
 		if (this.currentEventSource) {
 			this.currentEventSource.close()
 			this.currentEventSource = undefined
@@ -574,8 +648,11 @@ export class FlowChatManager {
 		this.#toolMessageIds.clear()
 
 		// Track stream state for this message
-		let accumulatedContent = ''
-		let assistantMessageId = ''
+		this.#streamConversationId = currentConversationId
+		this.#streamAssistantId = ''
+		this.#streamContent = ''
+		this.#replyReveal.reset()
+		this.#reasoningReveal.reset()
 		let isCompleted = false
 
 		try {
@@ -654,10 +731,16 @@ export class FlowChatManager {
 							// chunk holding a call and its result must produce both.
 							for (const event of parseStreamEvents(data.new_result_stream)) {
 								if (event.kind === 'tool_call' || event.kind === 'tool_execution') {
+									// Whatever is still buffered belongs to the row before the tool —
+									// thinking that led straight to the call included, which is why this
+									// runs before the reset below.
+									this.#flushReveals()
+									this.currentReasoning = ''
+									this.isReasoningActive = false
 									// The assistant text so far is finished; the tool row follows it.
 									this.#settleStreamingMessage()
-									assistantMessageId = ''
-									accumulatedContent = ''
+									this.#streamAssistantId = ''
+									this.#streamContent = ''
 									this.#upsertToolMessage(currentConversationId, event.callId, {
 										tool_name: event.name,
 										content: `Running ${event.name}`,
@@ -676,33 +759,11 @@ export class FlowChatManager {
 										success: event.success,
 										loading: false
 									})
+								} else if (event.kind === 'reasoning') {
+									this.isReasoningActive = true
+									this.#reasoningReveal.push(event.content)
 								} else if (event.kind === 'token') {
-									accumulatedContent += event.content
-								}
-							}
-							// The assistant's own text is one growing message until a tool
-							// interrupts it, which is what resets the id above.
-							if (accumulatedContent.length > 0) {
-								if (assistantMessageId.length === 0) {
-									assistantMessageId = 'temp-' + randomUUID()
-									this.messages = [
-										...this.messages,
-										{
-											id: assistantMessageId,
-											content: accumulatedContent,
-											created_at: new Date().toISOString(),
-											created_seq: 0,
-											message_type: 'assistant',
-											conversation_id: currentConversationId,
-											job_id: '',
-											loading: false,
-											streaming: true
-										}
-									]
-								} else {
-									this.messages = this.messages.map((msg) =>
-										msg.id === assistantMessageId ? { ...msg, content: accumulatedContent } : msg
-									)
+									this.#replyReveal.push(event.content)
 								}
 							}
 						}
@@ -710,6 +771,8 @@ export class FlowChatManager {
 						// Handle completion
 						if (data.completed) {
 							isCompleted = true
+							// Anything still buffered would be dropped by the temp-row sweep below.
+							this.#flushReveals()
 							// Do a final poll to get all messages from database
 							if (this.selectedConversationId) {
 								await this.pollConversationMessages(this.selectedConversationId, {

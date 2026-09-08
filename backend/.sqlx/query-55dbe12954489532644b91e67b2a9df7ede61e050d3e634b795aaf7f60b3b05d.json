@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id, step_name, success)\n         VALUES ($1, $2, $3, $4, $5, $6)",
+  "query": "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id, step_name, success, tool_arguments, tool_result, reasoning)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
   "describe": {
     "columns": [],
     "parameters": {
@@ -21,10 +21,13 @@
         "Text",
         "Uuid",
         "Varchar",
-        "Bool"
+        "Bool",
+        "Text",
+        "Text",
+        "Text"
       ]
     },
     "nullable": []
   },
-  "hash": "b1a9a433e577133869c067b2ce383fc6ce4e9df307feb5fd3edc0d1276d61ff1"
+  "hash": "55dbe12954489532644b91e67b2a9df7ede61e050d3e634b795aaf7f60b3b05d"
 }

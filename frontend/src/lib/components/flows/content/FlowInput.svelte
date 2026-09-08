@@ -665,6 +665,17 @@
 				applied.push('context memory set to 10')
 			}
 
+			// Without streaming the chat has no SSE to read, so a turn shows nothing —
+			// no thinking, no answer — until the run ends and its rows are written.
+			if (
+				isUnconfigured(value.input_transforms['streaming']) ||
+				(value.input_transforms['streaming']?.type === 'static' &&
+					value.input_transforms['streaming'].value === false)
+			) {
+				value.input_transforms['streaming'] = { type: 'static', value: true }
+				applied.push('streaming turned on')
+			}
+
 			sendUserToast(
 				applied.length > 0
 					? `Chat mode enabled. AI agent configured with ${applied.join(' and ')}.`
