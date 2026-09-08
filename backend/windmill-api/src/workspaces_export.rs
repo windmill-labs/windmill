@@ -665,7 +665,7 @@ pub(crate) async fn tarball_workspace(
         check_scopes(&authed, || "variables:read".to_string())?;
     }
 
-    // Opt-in behavior for surfacing per-resource ACLs on flow/app rows.
+    // Opt-in behavior for surfacing per-resource ACLs on flow/script/app/variable rows.
     // Folder and group rows have always carried `extra_perms` in source and
     // continue to do so unconditionally (`KeepEvenEmpty`) so existing
     // customer git repos see no one-time noisy diff.

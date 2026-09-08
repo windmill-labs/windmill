@@ -413,23 +413,40 @@ describe("variable", () => {
       expect(pulled).toContain("extra_perms:");
       expect(pulled).toContain("g/all: true");
 
-      // Demote the grant to read-only, leaving the rest of the spec untouched:
-      // the perms diff must go through /acls/* without rewriting the variable.
+      const readVariable = async () => {
+        const resp = await backend.apiRequest!(
+          `/api/w/${backend.workspace}/variables/get/${varPath}`
+        );
+        expect(resp.status).toEqual(200);
+        return resp.json();
+      };
+      const before = await readVariable();
+
+      // Demote the grant, then drop it entirely. Each push edits only
+      // extra_perms, so it must reach the variable through /acls/* — an
+      // unchanged edited_at is what proves the row was never rewritten.
       await writeFile(specFile, pulled.replace("g/all: true", "g/all: false"), "utf-8");
+      expect(
+        (await backend.runCLICommand(["sync", "push", "--yes"], tempDir)).code
+      ).toEqual(0);
 
-      const pushResult = await backend.runCLICommand(
-        ["sync", "push", "--yes"],
-        tempDir
-      );
-      expect(pushResult.code).toEqual(0);
-
-      const getResp = await backend.apiRequest!(
-        `/api/w/${backend.workspace}/variables/get/${varPath}`
-      );
-      expect(getResp.status).toEqual(200);
-      const varData = await getResp.json();
+      let varData = await readVariable();
       expect(varData.extra_perms).toEqual({ "g/all": false });
+
+      // `extra_perms: {}` is a revoke; an absent key would mean "no opinion".
+      await writeFile(
+        specFile,
+        pulled.replace("extra_perms:\n  g/all: true\n", "extra_perms: {}\n"),
+        "utf-8"
+      );
+      expect(
+        (await backend.runCLICommand(["sync", "push", "--yes"], tempDir)).code
+      ).toEqual(0);
+
+      varData = await readVariable();
+      expect(varData.extra_perms).toEqual({});
       expect(varData.value).toBe("perm_value");
+      expect(varData.edited_at).toBe(before.edited_at);
     });
   });
 });
