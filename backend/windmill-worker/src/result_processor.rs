@@ -1109,6 +1109,51 @@ fn git_sync_push_result_pushed(result: &str) -> Option<bool> {
         .as_bool()
 }
 
+/// When a git-sync push job pushed a commit, record it as the workspace's synced
+/// head for that branch, the way a pull records the commit it applied. The PR
+/// CI-test check reads that state to know when the workspace reflects a head.
+/// Best-effort: failures are logged, never propagated.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn maybe_record_git_sync_pushed_head(
+    db: &DB,
+    job_id: &uuid::Uuid,
+    workspace_id: &str,
+    result: &str,
+) {
+    #[derive(serde::Deserialize)]
+    struct PushResult {
+        pushed: bool,
+        sha: Option<String>,
+        branch: Option<String>,
+    }
+    let Ok(PushResult { pushed: true, sha: Some(sha), branch: Some(branch) }) =
+        serde_json::from_str::<PushResult>(result)
+    else {
+        return;
+    };
+    let repo_path = match sqlx::query_scalar!(
+        "SELECT args->>'repo_url_resource_path' FROM v2_job WHERE id = $1",
+        job_id
+    )
+    .fetch_optional(db)
+    .await
+    {
+        Ok(Some(Some(p))) => p,
+        Ok(_) => return,
+        Err(e) => {
+            tracing::error!("git sync push: failed to read job args: {e:#}");
+            return;
+        }
+    };
+    if let Err(e) =
+        windmill_git_sync::record_pushed_head(db, workspace_id, &repo_path, &branch, &sha).await
+    {
+        tracing::warn!(
+            "git sync push: failed to record pushed head {sha} on {branch} for {workspace_id}/{repo_path}: {e:#}"
+        );
+    }
+}
+
 /// When a git-sync push job carrying `__git_sync_open_pr` succeeds, open (or
 /// reopen) the PR for the branch it pushed: `wm-fork/<base>/<id>` for a fork
 /// deploy, `wm_deploy/**` for a promotion deploy. Runs outbound with the
@@ -1707,6 +1752,7 @@ pub async fn process_completed_job(
         #[cfg(all(feature = "enterprise", feature = "private"))]
         if job.kind == JobKind::DeploymentCallback {
             maybe_post_git_sync_check(db, &job_id, &workspace_id, true, result.get()).await;
+            maybe_record_git_sync_pushed_head(db, &job_id, &workspace_id, result.get()).await;
             maybe_open_git_sync_deploy_pr(db, &job_id, &workspace_id, result.get()).await;
         }
         // WIN-2051: a CI test job just finished → advance any open "Windmill CI tests"

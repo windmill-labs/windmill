@@ -654,15 +654,19 @@ corresponds to; the check reflects that fork's current results on the PR head.
   without expanding `ci_test_reference`, and no file-path→item reconstruction is needed;
   a job counts only while its test script still exists and still references its tested
   item (wildcards included), so a deleted, archived or de-annotated test's last run, or a
-  target the test dropped, stops deciding the verdict. Fail-fast on any failed/canceled; `success` once all
-  settle (or "No CI tests" when none ran); `skipped` (debounce-superseded) ignored. The
-  fork's live status is authoritative once the fork reflects the head: a deploy from
-  Windmill triggers its tests before the push that raises the PR event, and an external push
-  to the fork branch enqueues a pull alongside it, during which the check stays pending:
-  while the fork's `last_pull_status` names a still-queued pull job for the head, and while
-  any dependency job is queued in the fork (a lockfile-generating deploy hands its CI tests
-  to one, which outlives the pull). A failed pull rolls that state back, so the check then
-  concludes from the fork's previous state; the commit's deploy check shows the failure.
+  target the test dropped, stops deciding the verdict. Fail-fast on any failed/canceled;
+  `success` once all settle (or "No CI tests" when none ran); `skipped`
+  (debounce-superseded) ignored.
+- **Readiness** — the verdict is read only once the fork reflects the head, so it does not
+  matter which webhook GitHub delivers first. The evidence is the fork repo entry's
+  `auto_pull.last_synced_sha[head_ref]`: a pull records the commit it applies, and the
+  deploy push script now reports `{pushed, sha, branch}` so the push completion hook
+  records the commit it pushed the same way (`record_pushed_head`). The row stores
+  `head_ref` for that lookup. Because a pull is recorded when enqueued, the check also
+  waits while that pull job, or any dependency job in the fork (a lockfile-generating
+  deploy hands its CI tests to one), is still queued. A failed pull rolls its state back
+  and the check times out; the commit's deploy check shows why. Needs the hub push script
+  version that reports the sha (`LATEST_GIT_SYNC_SCRIPT_PATH`).
 - **Drivers** — a per-`ci_test`-job completion hook (low latency) and the git-sync poller
   (the backstop: retries the GitHub create/deliver, times stuck checks out after 30 min,
   prunes old rows). Both call one idempotent `evaluate_and_conclude`, which claims the

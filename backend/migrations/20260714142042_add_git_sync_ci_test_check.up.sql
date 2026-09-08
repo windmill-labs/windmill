@@ -6,6 +6,9 @@ CREATE TABLE git_sync_ci_test_check (
     -- jobs are what the check reflects.
     workspace_id VARCHAR(50) NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
     head_sha VARCHAR(64) NOT NULL,
+    -- The PR's head branch: the check waits until the fork's synced state for this
+    -- branch (written by its pushes and pulls alike) names `head_sha`.
+    head_ref VARCHAR(255) NOT NULL,
     -- The workspace whose GitHub App installation posts the check run: the one that
     -- received the pull_request webhook (the parent owning the repo hook).
     github_workspace_id VARCHAR(50) NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,

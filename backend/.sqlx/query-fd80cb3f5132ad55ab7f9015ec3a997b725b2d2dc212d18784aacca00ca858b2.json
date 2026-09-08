@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (\n               SELECT 1\n               FROM workspace_settings ws,\n                    jsonb_array_elements(\n                        CASE WHEN jsonb_typeof(ws.git_sync->'repositories') = 'array'\n                             THEN ws.git_sync->'repositories' END\n                    ) r\n               WHERE ws.workspace_id = $1\n                 AND r->'auto_pull'->'last_synced_sha'->>$3 = $2\n           ) AND NOT EXISTS (\n               SELECT 1\n               FROM workspace_settings ws,\n                    jsonb_array_elements(\n                        CASE WHEN jsonb_typeof(ws.git_sync->'repositories') = 'array'\n                             THEN ws.git_sync->'repositories' END\n                    ) r\n               JOIN v2_job_queue q\n                 ON q.id = (r->'auto_pull'->'last_pull_status'->>'job_id')::uuid\n               WHERE ws.workspace_id = $1\n                 AND r->'auto_pull'->'last_pull_status'->>'synced_sha' = $2\n           ) AND NOT EXISTS (\n               SELECT 1\n               FROM v2_job_queue q\n               JOIN v2_job j ON j.id = q.id\n               WHERE q.workspace_id = $1\n                 AND j.kind IN ('dependencies', 'flowdependencies', 'appdependencies')\n           ) as \"ready!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ready!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "fd80cb3f5132ad55ab7f9015ec3a997b725b2d2dc212d18784aacca00ca858b2"
+}
