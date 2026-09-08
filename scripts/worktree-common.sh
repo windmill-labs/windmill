@@ -13,6 +13,26 @@ wm_main_repo_root() {
   cd "$(git -C "$repo_root" rev-parse --git-common-dir 2>/dev/null)/.." && pwd
 }
 
+# These field names are documented in AGENTS.md as how an agent finds its own ports and database.
+wm_write_env_local() {
+  local repo_root=$1
+  local backend_port=$2
+  local frontend_port=$3
+  local env_file="${repo_root}/.env.local"
+
+  cat > "$env_file" <<EOF
+BACKEND_PORT=$backend_port
+FRONTEND_PORT=$frontend_port
+REMOTE=http://localhost:$backend_port
+EOF
+
+  if [[ -n "${CARGO_FEATURES:-}" ]]; then
+    echo "CARGO_FEATURES=$CARGO_FEATURES" >> "$env_file"
+  fi
+
+  echo "Created .env.local with ports: backend=$backend_port, frontend=$frontend_port"
+}
+
 wm_setup_database() {
   local repo_root=$1
   local env_file=$2
