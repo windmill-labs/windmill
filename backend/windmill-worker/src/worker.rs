@@ -5159,7 +5159,7 @@ async fn try_validate_schema(
                             code,
                             language,
                             job.script_entrypoint_override.clone(),
-                        )? {
+                        ).await? {
                             Ok(Some(schema_validator_from_main_arg_sig(&sig)))
                         } else {
                             Err(anyhow!("Job was expected to validate the arguments schema, but no schema was provided and couldn't be inferred from the script for language `{language:?}`. Try removing schema validation for this job").into())
@@ -7051,7 +7051,7 @@ mount {{
     result
 }
 
-pub fn parse_sig_of_lang(
+pub async fn parse_sig_of_lang(
     code: &str,
     language: Option<&ScriptLang>,
     main_override: Option<String>,
@@ -7086,10 +7086,9 @@ pub fn parse_sig_of_lang(
             ScriptLang::DuckDb => Some(windmill_parser_sql::parse_duckdb_sig(code)?),
             ScriptLang::OracleDB => Some(windmill_parser_sql::parse_oracledb_sig(code)?),
             #[cfg(feature = "php")]
-            ScriptLang::Php => Some(windmill_parser_php::parse_php_signature(
-                code,
-                main_override,
-            )?),
+            ScriptLang::Php => {
+                Some(crate::php_executor::parse_php_signature(code, main_override).await?)
+            }
             #[cfg(not(feature = "php"))]
             ScriptLang::Php => None,
             #[cfg(feature = "rust")]

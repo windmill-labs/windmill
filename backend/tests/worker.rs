@@ -3091,16 +3091,16 @@ async fn test_php_job(db: Pool<Postgres>) -> anyhow::Result<()> {
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
-    let content = r#"
+    let content = r#"// schema_validation
 <?php
 
-function main(string $name): string {
-    return "hello " . $name;
+function main(string $name, string $prefix = "hello "): string {
+    return $prefix . $name;
 }
 "#
     .to_owned();
 
-    let result = RunJob::from(JobPayload::Code(RawCode {
+    let code = RawCode {
         hash: None,
         content,
         path: None,
@@ -3114,14 +3114,24 @@ function main(string $name): string {
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
         tag: None,
-    }))
-    .arg("name", json!("world"))
-    .run_until_complete(&db, false, port)
-    .await
-    .json_result()
-    .unwrap();
+    };
+    let completed = RunJob::from(JobPayload::Code(code.clone()))
+        .arg("name", json!("world"))
+        .run_until_complete(&db, false, port)
+        .await;
 
-    assert_eq!(result, serde_json::json!("hello world"));
+    assert!(completed.success, "{:?}", completed.result);
+    assert_eq!(
+        completed.json_result().unwrap(),
+        serde_json::json!("hello world")
+    );
+
+    let invalid = RunJob::from(JobPayload::Code(code))
+        .arg("name", json!(42))
+        .run_until_complete(&db, false, port)
+        .await;
+    // PHP coerces numbers to strings; rejection proves inferred validation ran.
+    assert!(!invalid.success, "{:?}", invalid.result);
     Ok(())
 }
 
