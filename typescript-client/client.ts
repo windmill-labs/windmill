@@ -1804,6 +1804,11 @@ export class WorkflowCtx {
    *  into a `complete` — the parent would then record the caught branch's value as
    *  a successful step. Boxed: the thrown value may be any falsy value. */
   private _pendingStepFailure: { error: unknown } | null = null;
+  /** Failed tasks whose rejection nothing has consumed, by step key. An unawaited
+   *  task is still dispatched and still fails, but nothing drives the rejecting
+   *  thenable it returned. The first `.then()` on that thenable drops the entry,
+   *  so what remains is only what the body never looked at. */
+  private _unobservedTaskFailures = new Map<string, Error>();
   /** When set, the task matching this key executes its inner function directly */
   _executingKey: string | null;
   /** Serializes fast-path POSTs across concurrent step() calls within one
@@ -1876,7 +1881,8 @@ export class WorkflowCtx {
             continue;
           }
           const err = taskErrorFromMarker(value, `Task '${name}' failed`);
-          return { then: (_resolve: any, reject?: any) => { if (reject) reject(err); else throw err; } } as PromiseLike<any>;
+          this._unobservedTaskFailures.set(baseKey, err);
+          return { then: (_resolve: any, reject?: any) => { this._unobservedTaskFailures.delete(baseKey); if (reject) reject(err); else throw err; } } as PromiseLike<any>;
         }
         return { then: (resolve: any) => resolve(value) };
       }
@@ -2219,6 +2225,22 @@ export class WorkflowCtx {
     const f = this._pendingStepFailure;
     this._pendingStepFailure = null;
     return f;
+  }
+
+  /** Report the task failures the body never looked at, and forget them. Which
+   *  rounds may call this is the runner's constraint, stated where it is enforced. */
+  _warnUnobservedTaskFailures(): void {
+    // A child round replays the body just to reach one step, so the failures it
+    // re-registers from the checkpoint are the parent round's to report.
+    if (this._executingKey !== null) return;
+    for (const [key, err] of this._unobservedTaskFailures) {
+      // stdout, like every other `--- WAC:` marker: the two streams are merged
+      // without preserving order, so a warning on stderr floats away from them.
+      console.log(
+        `\n--- WAC: task '${key}' failed but was never awaited, so the workflow result does not reflect it: ${err.message} ---`,
+      );
+    }
+    this._unobservedTaskFailures.clear();
   }
 }
 
