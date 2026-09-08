@@ -78,7 +78,10 @@
 	>
 		{#if archivedOnly}
 			<!-- Its own line: the state and the invitation are two sentences, and splicing them
-			     into one leaves a link doing the work of a conjunction. -->
+			     into one leaves a link doing the work of a conjunction.
+			     Every link in this caption is a bare <button>, signed off by design: <Button>
+			     carries its own padding and background and cannot sit inline in running text.
+			     They take `text-accent`, never a raw Tailwind blue. -->
 			<span class="block">
 				Everything in this workspace is archived.
 				<button
@@ -129,10 +132,7 @@
 			{/if}
 			<CreateActionsMenu source="empty_state" triggerElement={newLinkEl}>
 				{#snippet trigger()}
-					<!-- A bare <button> for a link inside a sentence, signed off by design: <Button>
-				     carries its own padding and background and cannot sit inline in running text.
-				     Inline links take `text-accent`, never a raw Tailwind blue.
-				     The full stop rides inside the snippet: across a component boundary Svelte
+					<!-- The full stop rides inside the snippet: across a component boundary Svelte
 				     keeps the markup whitespace, which would leave a gap before it. -->
 					<button
 						bind:this={newLinkEl}
