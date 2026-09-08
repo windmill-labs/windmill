@@ -8,7 +8,7 @@
  * runs a step body and its replays, so a mirror would not pin it. The two
  * generated modules are stubbed so the import works without ./build.sh.
  */
-import { expect, test, describe, mock, beforeEach } from "bun:test";
+import { expect, test, describe, mock, beforeEach, afterAll } from "bun:test";
 
 mock.module("../services.gen", () => ({
   ResourceService: {},
@@ -34,6 +34,8 @@ process.env.WM_WORKSPACE = "admins";
 /** Last checkpoint POSTed by the fast path. */
 let posted: Record<string, any>;
 
+const realFetch = globalThis.fetch;
+
 beforeEach(() => {
   posted = {};
   // @ts-ignore — stand in for the inline_checkpoint endpoint.
@@ -42,6 +44,15 @@ beforeEach(() => {
     posted[payload.key] = payload.result;
     return new Response("{}", { status: 200 });
   };
+});
+
+// `bun test` runs every file in one process, so the env above and the stub
+// together satisfy the fast-path gate for whatever file runs next, silently
+// changing what a `step()` there does.
+afterAll(() => {
+  globalThis.fetch = realFetch;
+  delete process.env.WM_JOB_ID;
+  delete process.env.WM_WORKSPACE;
 });
 
 describe("inline step round parity", () => {
