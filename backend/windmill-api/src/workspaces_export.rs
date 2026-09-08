@@ -1435,9 +1435,11 @@ pub(crate) async fn tarball_workspace(
                 // Native triggers (Nextcloud, Google Drive, GitHub) are never
                 // cloned into a fork — a fork only has one if its owner created
                 // it there, so it's always "fork-only" and keeps its own mode.
-                // No parent-value substitution applies; we only strip the
-                // webhook token hash.
-                let native_ignore_keys = vec!["webhook_token_hash"];
+                // No parent-value substitution applies; we strip the webhook
+                // token hash, and `enabled`, which has no create/update payload
+                // to be pushed back through and so would only ever be a field
+                // git-sync shows a diff on and then ignores.
+                let native_ignore_keys = vec!["webhook_token_hash", "enabled"];
 
                 for trigger in native_triggers {
                     let trigger_str = &to_string_without_metadata(

@@ -23,6 +23,7 @@
 	import GitHubTriggerForm from './services/github/GitHubTriggerForm.svelte'
 	import TriggerEditorToolbar from '$lib/components/triggers/TriggerEditorToolbar.svelte'
 	import { handleConfigChange, type Trigger } from '$lib/components/triggers/utils'
+	import type { TriggerMode } from '$lib/gen'
 	import { deepEqual } from 'fast-equals'
 	import type { Snippet } from 'svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
@@ -107,6 +108,7 @@
 	let loadError = $state<string | undefined>(undefined)
 	let externalError = $state<string | undefined>(undefined)
 	let retryEdit = $state<(() => void) | undefined>(undefined)
+	let enabled = $state(true)
 
 	export function openNew(
 		nis_flow?: boolean,
@@ -136,6 +138,7 @@
 		loadError = undefined
 		externalError = undefined
 		retryEdit = undefined
+		enabled = true
 	}
 
 	export function openRecreate(nativeTrigger: ExtendedNativeTrigger) {
@@ -163,6 +166,7 @@
 		loadError = undefined
 		externalError = undefined
 		retryEdit = undefined
+		enabled = true
 	}
 
 	export async function openEdit(
@@ -196,6 +200,7 @@
 		scriptPath = ''
 		initialScriptPath = ''
 		summary = ''
+		enabled = true
 
 		try {
 			const fullTrigger = await NativeTriggerService.getNativeTrigger({
@@ -211,6 +216,7 @@
 			summary = fullTrigger.summary ?? ''
 			externalData = fullTrigger.external_data
 			externalError = fullTrigger.external_error ?? undefined
+			enabled = fullTrigger.enabled
 
 			// Apply default values if provided (for draft triggers)
 			if (defaultValues) {
@@ -292,6 +298,31 @@
 			handleConfigChange(saveCfg, initialConfig, saveDisabled, !isNew, onConfigChange)
 		}
 	})
+
+	async function handleToggleMode(newMode: TriggerMode): Promise<boolean | void> {
+		if (isNew || !externalId) {
+			return false
+		}
+		const previous = enabled
+		const next = newMode === 'enabled'
+		enabled = next
+		try {
+			await NativeTriggerService.setNativeTriggerEnabled({
+				workspace: $workspaceStore!,
+				serviceName: service,
+				externalId,
+				requestBody: { enabled: next }
+			})
+		} catch (err: any) {
+			enabled = previous
+			sendUserToast(
+				`Failed to ${next ? 'enable' : 'disable'} trigger: ${err.body ?? err.message}`,
+				true
+			)
+			return false
+		}
+		sendUserToast(`${next ? 'Enabled' : 'Disabled'} ${serviceInfo?.serviceDisplayName} trigger`)
+	}
 
 	async function save(): Promise<void> {
 		loading = true
@@ -396,7 +427,7 @@
 		<TriggerEditorToolbar
 			{trigger}
 			permissions={loadingConfig || !can_write ? 'none' : 'create'}
-			mode="enabled"
+			mode={enabled ? 'enabled' : 'disabled'}
 			{allowDraft}
 			edit={!isNew}
 			isLoading={loading}
@@ -406,7 +437,7 @@
 			{onReset}
 			{onDelete}
 			{cloudDisabled}
-			onToggleMode={() => {}}
+			onToggleMode={handleToggleMode}
 			disableSuspendedMode={true}
 		/>
 	{/if}

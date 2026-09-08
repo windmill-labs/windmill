@@ -226,6 +226,10 @@ pub struct NativeTrigger {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub summary: Option<String>,
+    /// Whether incoming webhooks for this trigger start a job. Purely operational: it is set
+    /// through `setenabled` alone, never through create/update, so saving a configuration can
+    /// never silently re-enable a trigger someone paused.
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1405,7 +1409,8 @@ pub async fn get_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>>(
             error,
             created_at,
             updated_at,
-            summary
+            summary,
+            enabled
         FROM
             native_trigger
         WHERE
@@ -1444,7 +1449,8 @@ pub async fn get_native_trigger_by_script<'c, E: sqlx::Executor<'c, Database = P
             error,
             created_at,
             updated_at,
-            summary
+            summary,
+            enabled
         FROM
             native_trigger
         WHERE
@@ -1491,7 +1497,8 @@ pub async fn list_native_triggers<'c, E: sqlx::Executor<'c, Database = Postgres>
             nt.error,
             nt.created_at,
             nt.updated_at,
-            nt.summary
+            nt.summary,
+            nt.enabled
         FROM
             native_trigger nt
         WHERE
@@ -1553,6 +1560,66 @@ pub async fn update_native_trigger_error<'c, E: sqlx::Executor<'c, Database = Po
     .await?;
 
     Ok(())
+}
+
+/// Pause or resume a trigger. Returns `false` when there is no such trigger.
+pub async fn set_native_trigger_enabled<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
+    workspace_id: &str,
+    service_name: ServiceName,
+    external_id: &str,
+    enabled: bool,
+) -> Result<bool> {
+    // `updated_at` is the row version `record_reregistration` conditions on, so leave it alone:
+    // pausing a trigger must not make a registration that is mid-flight discard its result.
+    let updated = sqlx::query!(
+        r#"
+        UPDATE native_trigger
+        SET enabled = $1
+        WHERE
+            workspace_id = $2
+            AND service_name = $3
+            AND external_id = $4
+        "#,
+        enabled,
+        workspace_id,
+        service_name as ServiceName,
+        external_id,
+    )
+    .execute(db)
+    .await?
+    .rows_affected();
+
+    Ok(updated > 0)
+}
+
+/// Whether a webhook arriving for this trigger should start a job.
+///
+/// A trigger Windmill no longer knows about counts as enabled: the token in the URL is what
+/// authorizes the run, and this is a pause switch, not a second authorization check.
+pub async fn native_trigger_is_enabled<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
+    workspace_id: &str,
+    service_name: ServiceName,
+    external_id: &str,
+) -> Result<bool> {
+    let enabled = sqlx::query_scalar!(
+        r#"
+        SELECT enabled
+        FROM native_trigger
+        WHERE
+            workspace_id = $1
+            AND service_name = $2
+            AND external_id = $3
+        "#,
+        workspace_id,
+        service_name as ServiceName,
+        external_id,
+    )
+    .fetch_optional(db)
+    .await?;
+
+    Ok(enabled.unwrap_or(true))
 }
 
 pub async fn update_native_trigger_service_config<

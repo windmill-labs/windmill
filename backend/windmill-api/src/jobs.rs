@@ -6476,7 +6476,7 @@ pub async fn run_flow_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: RawWebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let (args, trigger_metadata) = get_args_and_trigger_metadata(
+    let (args, trigger_metadata) = match get_args_and_trigger_metadata(
         &db,
         &authed,
         RunnableId::from_flow_path(flow_path.to_path()),
@@ -6484,7 +6484,15 @@ pub async fn run_flow_by_path(
         &w_id,
         args,
     )
-    .await?;
+    .await?
+    {
+        WebhookRun::Run(args, trigger_metadata) => (args, trigger_metadata),
+        // 200 rather than an error: services drop a webhook that keeps failing, and disabling a
+        // trigger in Windmill must not cost it its registration.
+        WebhookRun::TriggerDisabled => {
+            return Ok((StatusCode::OK, NATIVE_TRIGGER_DISABLED_MSG.to_string()))
+        }
+    };
 
     let (uuid, _, _, _) = push_flow_job_by_path_into_queue(
         authed,
@@ -6909,7 +6917,7 @@ pub async fn run_script_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: RawWebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let (args, trigger_metadata) = get_args_and_trigger_metadata(
+    let (args, trigger_metadata) = match get_args_and_trigger_metadata(
         &db,
         &authed,
         RunnableId::from_script_path(script_path.to_path()),
@@ -6917,7 +6925,13 @@ pub async fn run_script_by_path(
         &w_id,
         args,
     )
-    .await?;
+    .await?
+    {
+        WebhookRun::Run(args, trigger_metadata) => (args, trigger_metadata),
+        WebhookRun::TriggerDisabled => {
+            return Ok((StatusCode::OK, NATIVE_TRIGGER_DISABLED_MSG.to_string()))
+        }
+    };
 
     let (uuid, _, _) = push_script_job_by_path_into_queue(
         authed,
@@ -6935,6 +6949,16 @@ pub async fn run_script_by_path(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
+/// What a webhook delivery resolved to: the arguments to run with, or nothing to run.
+pub enum WebhookRun {
+    Run(PushArgsOwned, Option<TriggerMetadata>),
+    /// The native trigger this delivery belongs to is disabled.
+    TriggerDisabled,
+}
+
+const NATIVE_TRIGGER_DISABLED_MSG: &str =
+    "This trigger is disabled in Windmill, so no job was created";
+
 #[allow(unused)]
 pub async fn get_args_and_trigger_metadata(
     db: &DB,
@@ -6943,14 +6967,21 @@ pub async fn get_args_and_trigger_metadata(
     run_query: &RunJobQuery,
     w_id: &str,
     args: RawWebhookArgs,
-) -> error::Result<(PushArgsOwned, Option<TriggerMetadata>)> {
+) -> error::Result<WebhookRun> {
     use windmill_common::triggers::TriggerMetadata;
 
     // Build trigger metadata if this is a native trigger request
     #[cfg(feature = "native_trigger")]
     let (trigger_metadata, native_args) = if let Some(service_name_str) = &run_query.service_name {
-        use crate::native_triggers::{prepare_native_trigger_args, ServiceName};
+        use crate::native_triggers::{
+            native_trigger_is_enabled, prepare_native_trigger_args, ServiceName,
+        };
         let service_name = ServiceName::try_from(service_name_str.to_owned())?;
+        if let Some(external_id) = run_query.trigger_external_id.as_deref() {
+            if !native_trigger_is_enabled(db, w_id, service_name, external_id).await? {
+                return Ok(WebhookRun::TriggerDisabled);
+            }
+        }
         let metadata = Some(TriggerMetadata::new(
             run_query.trigger_external_id.clone(),
             service_name.as_job_trigger_kind(),
@@ -6986,7 +7017,7 @@ pub async fn get_args_and_trigger_metadata(
         .await?
     };
 
-    Ok((args, trigger_metadata))
+    Ok(WebhookRun::Run(args, trigger_metadata))
 }
 
 #[derive(Deserialize)]

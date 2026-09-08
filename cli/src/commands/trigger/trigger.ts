@@ -222,9 +222,11 @@ export async function pushTrigger<K extends TriggerType>(
   }
 }
 
+// `enabled` is operational state: the server strips it from the workspace export and no
+// create/update payload carries it, so a synced file never holds it.
 type NativeTriggerFile = Omit<
   NativeTrigger,
-  "external_id" | "workspace_id" | "error"
+  "external_id" | "workspace_id" | "error" | "enabled"
 >;
 
 export async function pushNativeTrigger(
@@ -262,6 +264,7 @@ export async function pushNativeTrigger(
       service_config: result.service_config,
       error: result.error,
       summary: result.summary,
+      enabled: result.enabled,
     };
     log.debug(`Native trigger ${serviceName}/${externalId} exists on remote`);
   } catch {
