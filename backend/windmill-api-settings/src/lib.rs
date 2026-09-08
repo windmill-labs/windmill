@@ -58,12 +58,12 @@ use windmill_common::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
         DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
-        GITHUB_APP_WEBHOOK_BASE_URL_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
-        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
-        RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RUFF_CONFIG_SETTING,
-        WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
-        WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
-        WS_BASE_URL_SETTING,
+        GITHUB_APP_WEBHOOK_BASE_URL_SETTING, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
+        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
+        MAX_RETENTION_OVERRIDE_WORKSPACES, RETENTION_PERIOD_SECS_OVERRIDES_SETTING,
+        RUFF_CONFIG_SETTING, WORKSPACE_FAIRNESS_DURATION_SECS_SETTING,
+        WORKSPACE_FAIRNESS_ENABLED_SETTING, WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING,
+        WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING, WS_BASE_URL_SETTING,
     },
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
@@ -1044,6 +1044,12 @@ async fn run_setting_pre_write_hook(
                 }
             }
         }
+        HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING => {
+            // Rejected at write time rather than at boot: a mistyped origin
+            // matches no request, so it would silently block the very app it
+            // names with nothing but a log line to go on.
+            windmill_common::global_settings::parse_allowed_origins_setting(Some(value))?;
+        }
         HTTP_ROUTE_WORKSPACED_ROUTE_SETTING => {
             let serde_json::Value::Bool(workspaced_route) = value else {
                 return Err(error::Error::BadRequest(format!(
@@ -1311,6 +1317,11 @@ pub async fn get_global_setting(
         && key != EMAIL_DOMAIN_SETTING
         && key != APP_WORKSPACED_ROUTE_SETTING
         && key != HTTP_ROUTE_WORKSPACED_ROUTE_SETTING
+        // The route editor shows the inherited default to whoever is editing a
+        // trigger, who is usually not a superadmin. Not a secret either: any
+        // browser discovers the list by reading Access-Control-Allow-Origin off
+        // a response.
+        && key != HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
         && key != WS_BASE_URL_SETTING
     {
         require_super_admin(&db, &authed).await?;

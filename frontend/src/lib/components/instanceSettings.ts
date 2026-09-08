@@ -1,4 +1,5 @@
 import type { ButtonType } from './common/button/model'
+import { allowedOriginsSettingError } from './triggers/http/utils'
 import { z } from 'zod'
 import { writable } from 'svelte/store'
 
@@ -263,6 +264,22 @@ export const settings: Record<string, Setting[]> = {
 			key: 'http_route_workspaced_route',
 			fieldType: 'boolean',
 			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'HTTP route default allowed origins',
+			description:
+				'Origins that HTTP routes allow to call them from a browser when the route sets none of its own. A route overrides this with its own list, and opts out entirely by setting its allowed origins to *. Leave unset for no instance-wide default, so every route is callable from any origin unless it restricts itself.',
+			key: 'http_route_default_allowed_origins',
+			fieldType: 'text',
+			placeholder: 'https://app.example.com, https://admin.example.com',
+			storage: 'setting',
+			error:
+				'Each origin must be visible ASCII with no comma, and there can be at most 100 of them. null is not allowed, since every sandboxed iframe sends it.',
+			// The same check the API applies, so a value it would refuse cannot be
+			// saved here and then silently drop to no restriction at the next boot.
+			isValid: (value: unknown) => allowedOriginsSettingError(value) === undefined,
 			ee_only: '',
 			hideInQuickSetup: true
 		},
