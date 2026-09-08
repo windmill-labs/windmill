@@ -1682,6 +1682,30 @@ export type JsonifiedFn<T extends (...args: any[]) => Promise<any>> = (
   ...args: Parameters<T>
 ) => Promise<Jsonified<Awaited<ReturnType<T>>>>;
 
+/** Re-dispatch policy for a failed task.
+ *
+ * Every attempt is a step of its own (`fetch`, `fetch#2`, `fetch#3`), and the
+ * wait between two of them is a durable sleep, so a retrying task holds no
+ * worker while it backs off.
+ *
+ * A workflow sleeps once per round, so tasks backing off in the same fan-out
+ * wait one after another rather than together: three `delay: 30` retries
+ * dispatched by one `parallel()` come back after 90s, not 30s. Retries with no
+ * `delay` all go out in a single round.
+ */
+export interface TaskRetry {
+  /** Attempts after the first failure: `2` runs the task at most 3 times. */
+  attempts: number;
+  /** Seconds to wait before the first retry. Default 0, retry immediately.
+   *  Sub-second delays are dropped — a durable sleep resolves to the second. */
+  delay?: number;
+  /** Applied to the delay after each attempt: 1 (the default) keeps it
+   *  constant, 2 doubles it. */
+  multiplier?: number;
+  /** Ceiling for the delay in seconds, for a `multiplier` above 1. */
+  max_delay?: number;
+}
+
 export interface TaskOptions {
   timeout?: number;
   tag?: string;
@@ -1690,6 +1714,24 @@ export interface TaskOptions {
   concurrency_limit?: number;
   concurrency_key?: string;
   concurrency_time_window_s?: number;
+  retry?: TaskRetry;
+}
+
+/** The worker deserializes a sleep into a `u32` of seconds and fails the whole
+ *  job on anything wider, so a delay a multiplier has run away with has to be
+ *  capped here rather than sent. */
+const MAX_SLEEP_SECONDS = 0xffffffff;
+
+/** Seconds to wait before retry number `attempt` (0 is the first retry). */
+function retryDelaySeconds(retry: TaskRetry, attempt: number): number {
+  const base = retry.delay ?? 0;
+  if (!(base > 0)) return 0;
+  const grown = base * Math.pow(retry.multiplier ?? 1, attempt);
+  // Clamping against the ceiling also absorbs the `Infinity` an aggressive
+  // multiplier reaches within a few attempts. Floor, rather than round, so
+  // sub-second delays drop the same way they do in the python client.
+  const seconds = Math.floor(Math.min(retry.max_delay ?? grown, grown, MAX_SLEEP_SECONDS));
+  return seconds > 0 ? seconds : 0;
 }
 
 /** A step key travels as one path segment when its URLs are minted, so it must be
@@ -1777,59 +1819,99 @@ export class WorkflowCtx {
     options?: TaskOptions,
   ): PromiseLike<any> {
     this._rethrowSwallowed();
-    const key = this._allocKey(name || script || "step");
+    const stepName = name || script || "step";
+    const maxRetries = Math.max(0, Math.trunc(options?.retry?.attempts ?? 0));
 
-    if (key in this.completed) {
-      const value = this.completed[key];
-      if (value && typeof value === "object" && (value as any).__wmill_error) {
-        const err = taskErrorFromMarker(value, `Task '${name}' failed`);
-        return { then: (_resolve: any, reject?: any) => { if (reject) reject(err); else throw err; } } as PromiseLike<any>;
+    // One pass per attempt. Every attempt the checkpoint already holds is
+    // decided here — a failed one either retries (deriving the next key) or is
+    // handed back to the body — so the loop always ends at the first attempt
+    // that has yet to run.
+    //
+    // The attempts after the first are named off the first attempt's key rather
+    // than off `stepName`, so how many attempts a task burns never shifts the
+    // keys of the steps around it: in `Promise.all([t(1), t(2)])` a retry of the
+    // first call would otherwise take `t_2` and read the second call's result.
+    let baseKey = "";
+    for (let attempt = 0; ; attempt++) {
+      const key =
+        attempt === 0 ? (baseKey = this._allocKey(stepName)) : this._allocKey(`${baseKey}#${attempt + 1}`);
+
+      if (key in this.completed) {
+        const value = this.completed[key];
+        if (value && typeof value === "object" && (value as any).__wmill_error) {
+          if (attempt < maxRetries) {
+            this._retryBackoff(baseKey, options!.retry!, attempt);
+            continue;
+          }
+          const err = taskErrorFromMarker(value, `Task '${name}' failed`);
+          return { then: (_resolve: any, reject?: any) => { if (reject) reject(err); else throw err; } } as PromiseLike<any>;
+        }
+        return { then: (resolve: any) => resolve(value) };
       }
-      return { then: (resolve: any) => resolve(value) };
-    }
 
-    // If this is a child job executing a specific step, return null to signal
-    // that the task wrapper should run the inner function directly
-    if (this._executingKey === key) {
-      return { then: (resolve: any) => resolve(null), _execute_directly: true } as any;
-    }
+      // If this is a child job executing a specific step, return null to signal
+      // that the task wrapper should run the inner function directly
+      if (this._executingKey === key) {
+        return { then: (resolve: any) => resolve(null), _execute_directly: true } as any;
+      }
 
-    // In child job mode (_executingKey is set), non-matching uncompleted steps
-    // should never resolve or throw — the matching step will throw step_complete
-    // which terminates the workflow. Returning a never-resolving thenable prevents
-    // race conditions where a non-matching step's StepSuspend fires before step_complete.
-    if (this._executingKey !== null) {
-      return { then: () => new Promise(() => {}) };
-    }
+      // In child job mode (_executingKey is set), non-matching uncompleted steps
+      // should never resolve or throw — the matching step will throw step_complete
+      // which terminates the workflow. Returning a never-resolving thenable prevents
+      // race conditions where a non-matching step's StepSuspend fires before step_complete.
+      if (this._executingKey !== null) {
+        return { then: () => new Promise(() => {}) };
+      }
 
-    const stepInfo: any = { name: name || key, script: script || key, args, key, dispatch_type };
-    if (options) {
-      if (options.timeout !== undefined) stepInfo.timeout = options.timeout;
-      if (options.tag !== undefined) stepInfo.tag = options.tag;
-      if (options.cache_ttl !== undefined) stepInfo.cache_ttl = options.cache_ttl;
-      if (options.priority !== undefined) stepInfo.priority = options.priority;
-      if (options.concurrency_limit !== undefined) stepInfo.concurrent_limit = options.concurrency_limit;
-      if (options.concurrency_key !== undefined) stepInfo.concurrency_key = options.concurrency_key;
-      if (options.concurrency_time_window_s !== undefined) stepInfo.concurrency_time_window_s = options.concurrency_time_window_s;
+      const stepInfo: any = { name: name || key, script: script || key, args, key, dispatch_type };
+      if (options) {
+        if (options.timeout !== undefined) stepInfo.timeout = options.timeout;
+        if (options.tag !== undefined) stepInfo.tag = options.tag;
+        if (options.cache_ttl !== undefined) stepInfo.cache_ttl = options.cache_ttl;
+        if (options.priority !== undefined) stepInfo.priority = options.priority;
+        if (options.concurrency_limit !== undefined) stepInfo.concurrent_limit = options.concurrency_limit;
+        if (options.concurrency_key !== undefined) stepInfo.concurrency_key = options.concurrency_key;
+        if (options.concurrency_time_window_s !== undefined) stepInfo.concurrency_time_window_s = options.concurrency_time_window_s;
+      }
+      this.pending.push(stepInfo);
+      return {
+        then: (): never => {
+          // Only the first .then() call throws with all accumulated steps.
+          // Subsequent calls (e.g. from Promise.all resolving other thenables)
+          // also throw (they'll be caught by the same handler).
+          if (this._suspended) return new Promise(() => {}) as never;
+          this._suspended = true;
+          const steps = [...this.pending];
+          this.pending = [];
+          const names = steps.map(s => s.name).join(", ");
+          console.log(`\n--- WAC: ${names} ---`);
+          this._raiseSuspend({
+            mode: steps.length > 1 ? "parallel" : "sequential",
+            steps,
+          });
+        },
+      };
     }
-    this.pending.push(stepInfo);
-    return {
-      then: (): never => {
-        // Only the first .then() call throws with all accumulated steps.
-        // Subsequent calls (e.g. from Promise.all resolving other thenables)
-        // also throw (they'll be caught by the same handler).
-        if (this._suspended) return new Promise(() => {}) as never;
-        this._suspended = true;
-        const steps = [...this.pending];
-        this.pending = [];
-        const names = steps.map(s => s.name).join(", ");
-        console.log(`\n--- WAC: ${names} ---`);
-        this._raiseSuspend({
-          mode: steps.length > 1 ? "parallel" : "sequential",
-          steps,
-        });
-      },
-    };
+  }
+
+  /** Wait out the backoff between two attempts of a retried task, as a durable
+   *  sleep, and return once there is nothing to wait for — no delay configured,
+   *  or the sleep already in the checkpoint.
+   *
+   *  Raises where it stands, the way `_sleep` does, rather than handing back a
+   *  thenable: a task call the body never awaits is still dispatched (the runner
+   *  flushes `pending`), so a backoff that only fired when awaited would drop
+   *  the retry and let the round report the workflow complete. */
+  private _retryBackoff(baseKey: string, retry: TaskRetry, attempt: number): void {
+    const seconds = retryDelaySeconds(retry, attempt);
+    if (seconds < 1) return;
+    const key = this._allocKey(`${baseKey}#retry${attempt + 2}`);
+    if (key in this.completed) return;
+    // Child mode never raises: the parent dispatched this child only after its
+    // own round had slept, so the loop moves on to the attempt being executed.
+    if (this._executingKey !== null) return;
+    console.log(`\n--- WAC: sleep(${key}, ${seconds}s) before retrying ${baseKey} ---`);
+    this._raiseSuspend({ mode: "sleep", key, seconds, steps: [] });
   }
   /** Return and clear any pending (unawaited) steps. */
   _flushPending(): Array<{ name: string; script: string; args: Record<string, any>; key: string; dispatch_type: string }> {
@@ -2145,9 +2227,11 @@ export async function step<T>(
  * @example
  * const extract_data = task(async (url: string) => { ... });
  * const run_external = task("f/external_script", async (x: number) => { ... });
+ * const call_api = task(fetchOrders, { retry: { attempts: 3, delay: 30, multiplier: 2 } });
  *
  * Inside a `workflow()`, calling a task dispatches it as a step.
- * Outside a workflow, the function body executes directly.
+ * Outside a workflow, the function body executes directly and
+ * {@link TaskOptions} — retry included — does not apply.
  *
  * A task runs as its own job, so its result is always encoded as JSON and
  * decoded back before the caller sees it: a `Date` comes back as a string, a
