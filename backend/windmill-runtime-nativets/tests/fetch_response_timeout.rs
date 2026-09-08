@@ -400,3 +400,74 @@ export async function main(): Promise<string> {{
         .expect("script should catch the error");
     assert_eq!(out, "\"TypeError\"");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_accessor_backed_init_reads_against_its_own_receiver() {
+    // A getter on the init must run with the object it was defined on as `this`,
+    // or a private field is unreachable and it throws. Carrying the init across
+    // by inheritance rather than by handing it to Request would break this.
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let port = spawn_echo_peer(seen.clone()).await;
+
+    let ts = format!(
+        r#"
+class Init {{
+    #method = "POST";
+    #body = "from-private-field";
+    get method(): string {{ return this.#method; }}
+    get body(): string {{ return this.#body; }}
+}}
+export async function main(): Promise<number> {{
+    const res = await fetch("http://127.0.0.1:{port}/accessor", new Init() as any);
+    return res.status;
+}}
+"#
+    );
+
+    let out = run_with_timeout_secs(&ts, TIMEOUT_SECS)
+        .await
+        .expect("an accessor-backed init must not throw");
+    assert_eq!(out, "200");
+
+    let body = String::from_utf8_lossy(&seen.lock().await.clone()).to_string();
+    assert!(
+        body.starts_with("POST /accessor") && body.contains("from-private-field"),
+        "getter-provided method and body should both reach the wire, got: {body}",
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_request_input_keeps_its_body_and_headers() {
+    // The wrapper builds a Request and hands that to fetch, so the body survives
+    // one more construction than it used to -- deno proxies it rather than
+    // consuming it, and this pins that.
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let port = spawn_echo_peer(seen.clone()).await;
+
+    let ts = format!(
+        r#"
+export async function main(): Promise<number> {{
+    const req = new Request("http://127.0.0.1:{port}/from-request", {{
+        method: "PUT",
+        headers: {{ "x-probe": "yes" }},
+        body: "payload-body",
+    }});
+    const res = await fetch(req);
+    return res.status;
+}}
+"#
+    );
+
+    let out = run_with_timeout_secs(&ts, TIMEOUT_SECS)
+        .await
+        .expect("a Request input must work");
+    assert_eq!(out, "200");
+
+    let body = String::from_utf8_lossy(&seen.lock().await.clone()).to_string();
+    assert!(
+        body.starts_with("PUT /from-request")
+            && body.to_lowercase().contains("x-probe: yes")
+            && body.contains("payload-body"),
+        "method, headers and body should all survive, got: {body}",
+    );
+}

@@ -40,19 +40,15 @@ const ORIGINAL_FETCH = fetch.fetch;
 // invocation".
 const setTimeoutUnbound = timers.setTimeout;
 const clearTimeoutUnbound = timers.clearTimeout;
-// Captured before user code can reach the isolate and redefine it.
-const objectCreate = Object.create;
 
 // Installed per isolate by __wmInitPerIsolate; 0 disables. Only a backstop
 // for the impossible case of fetch running before that init.
 let fetchResponseTimeoutMs = 900_000;
 
-function fetchResponseTimeoutError(input, timeoutMs) {
+function fetchResponseTimeoutError(requestUrl, timeoutMs) {
   let target;
   try {
-    const parsed = new url.URL(
-      typeof input === "string" ? input : input.url ?? String(input),
-    );
+    const parsed = new url.URL(requestUrl);
     // Query and fragment routinely carry tokens, and this reaches a job log.
     target = parsed.origin + parsed.pathname;
   } catch {
@@ -75,49 +71,32 @@ globalThis.btoa = base64.btoa;
 // matching deno_fetch's own `async function fetch`.
 globalThis.fetch = async function fetch(input, init) {
   const timeoutMs = fetchResponseTimeoutMs;
-  if (!(timeoutMs > 0)) {
+  if (!(timeoutMs > 0) || arguments.length < 1) {
     return ORIGINAL_FETCH(input, init);
   }
 
-  // Layered onto the caller's signal rather than replacing it, so their abort
-  // still wins with their own reason. `init.signal === null` means "no signal"
-  // per spec and must not fall back to a Request input's signal.
-  let callerSignal;
-  if (init != null && init.signal !== undefined) {
-    callerSignal = init.signal;
-  } else if (input instanceof request.Request) {
-    callerSignal = input.signal;
-  }
+  // The caller's init is never read here -- it is handed to the same Request
+  // constructor fetch() itself would call, and our signal travels in an init of
+  // our own. RequestInit is a WebIDL dictionary, and every way of carrying it
+  // across changes how one is read: copying drops inherited and non-enumerable
+  // members, and inheriting runs accessors against the wrong receiver, which
+  // throws for a private-field getter. Handing it over untouched has neither
+  // failure mode, and a non-dictionary still raises deno_fetch's own TypeError.
+  const req = new request.Request(input, init);
 
-  if (init != null && typeof init !== "object" && typeof init !== "function") {
-    // Not a dictionary; let deno_fetch raise its own TypeError for it.
-    return ORIGINAL_FETCH(input, init);
-  }
-
+  // `req.signal` is deno's own resolution of init.signal over an input
+  // Request's signal, so combining with it preserves the caller's abort and
+  // reason while ours only adds a ceiling.
   const controller = new abortSignal.AbortController();
-  const signal = callerSignal == null
-    ? controller.signal
-    : abortSignal.AbortSignal.any([callerSignal, controller.signal]);
-
-  // Inheriting from the caller's init rather than spreading a copy of it:
-  // RequestInit is a WebIDL dictionary, so deno_fetch reads its members with
-  // plain property gets that walk the prototype chain. A spread drops anything
-  // inherited or non-enumerable, silently turning a POST into a GET.
-  const initWithSignal = init == null
-    ? { signal }
-    : objectCreate(init, {
-      signal: { value: signal, writable: true, enumerable: true, configurable: true },
-    });
+  const signal = abortSignal.AbortSignal.any([req.signal, controller.signal]);
 
   let timer = setTimeoutUnbound(() => {
     timer = undefined;
-    controller.abort(fetchResponseTimeoutError(input, timeoutMs));
+    controller.abort(fetchResponseTimeoutError(req.url, timeoutMs));
   }, timeoutMs);
 
   try {
-    // Passing an init at all resets referrer/referrerPolicy to their defaults
-    // when `input` is a Request; a Request's own signal is carried over above.
-    return await ORIGINAL_FETCH(input, initWithSignal);
+    return await ORIGINAL_FETCH(req, { signal });
   } finally {
     // Cleared on headers, never on body completion: a response that has begun
     // arriving must be free to stream for as long as it needs.
