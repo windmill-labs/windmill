@@ -631,11 +631,19 @@ pub async fn move_drafts_for_path(
     // guard (see `backend/tests/drafts_nul.rs`). Such a row is skipped by the
     // rewrite and carried on its `path` column alone: one teammate's poisoned
     // draft must not abort an unrelated user's rename mid-transaction.
-    let moved = sqlx::query_scalar!(
+    // `poisoned` is computed once here and returned, so the two follow-up
+    // statements can skip the same rows without re-deriving it. The `replace`
+    // strips escaped backslashes first: only an ODD-parity backslash-u0000 is a real NUL
+    // escape, and a draft whose source text legitimately contains those six
+    // characters (`s.replace("\u0000", "")` in a Python step) serialises as
+    // `\\u0000` and converts to jsonb perfectly well — flagging it would silently
+    // skip its rewrite and leave the path stale.
+    let moved = sqlx::query!(
         r#"UPDATE draft AS d
            SET path = $3,
                value = CASE
-                   WHEN position(chr(92) || 'u0000' in d.value::text) > 0 THEN d.value
+                   WHEN position(chr(92) || 'u0000' in replace(d.value::text, chr(92) || chr(92), '')) > 0
+                       THEN d.value
                    WHEN to_jsonb(d.value) -> $4::text = to_jsonb($2::text)
                        THEN to_json(jsonb_set(to_jsonb(d.value), ARRAY[$4::text], to_jsonb($3::text), false))
                    ELSE d.value
@@ -650,7 +658,9 @@ pub async fn move_drafts_for_path(
                    AND o.typ = d.typ
                    AND o.email IS NOT DISTINCT FROM d.email
              )
-           RETURNING d.id"#,
+           RETURNING d.id,
+                     position(chr(92) || 'u0000' in replace(d.value::text, chr(92) || chr(92), '')) > 0
+                         as "poisoned!" "#,
         w_id,
         old_path,
         new_path,
@@ -659,6 +669,15 @@ pub async fn move_drafts_for_path(
     )
     .fetch_all(&mut **tx)
     .await?;
+    // Every carried row, for the outcome count; only the convertible ones for the
+    // value rewrites below — `to_jsonb` on a poisoned row raises 22P05 and would
+    // abort the whole deploy transaction.
+    let moved_ids = moved.iter().map(|r| r.id).collect::<Vec<_>>();
+    let clean_ids = moved
+        .iter()
+        .filter(|r| !r.poisoned)
+        .map(|r| r.id)
+        .collect::<Vec<_>>();
 
     // A flow draft carries the deployed path it forked from in `path`, next to
     // the staged rename in `draft_path`. The editor layers the draft over the
@@ -667,7 +686,7 @@ pub async fn move_drafts_for_path(
     // triggers following it. Same tri-state rule as the typed path. Scripts need
     // no second pass (their typed path IS `path`); an app draft has no such key
     // and `create_missing = false` leaves it untouched.
-    if typed_path_field != "path" && !moved.is_empty() {
+    if typed_path_field != "path" && !clean_ids.is_empty() {
         sqlx::query!(
             r#"UPDATE draft
                SET value = to_json(
@@ -679,14 +698,14 @@ pub async fn move_drafts_for_path(
                WHERE id = ANY($3)"#,
             new_path,
             old_path,
-            &moved,
+            &clean_ids,
         )
         .execute(&mut **tx)
         .await?;
     }
 
     if let Some((field, version)) = base_version {
-        if !moved.is_empty() {
+        if !clean_ids.is_empty() {
             sqlx::query!(
                 r#"UPDATE draft
                    SET value = to_json(
@@ -695,7 +714,7 @@ pub async fn move_drafts_for_path(
                    WHERE id = ANY($3) AND email = $4"#,
                 field,
                 version,
-                &moved,
+                &clean_ids,
                 restamp_email,
             )
             .execute(&mut **tx)
@@ -716,7 +735,7 @@ pub async fn move_drafts_for_path(
     .fetch_one(&mut **tx)
     .await?;
 
-    Ok(MoveDraftsOutcome { moved: moved.len(), left_behind: left_behind as usize })
+    Ok(MoveDraftsOutcome { moved: moved_ids.len(), left_behind: left_behind as usize })
 }
 
 /// What `move_drafts_for_path` did. `left_behind` is non-zero only when the

@@ -14,8 +14,12 @@ import { updateItemPathAndSummary } from '$lib/components/moveRenameManager'
 import { discardDraft } from '$lib/utils_draft_deploy'
 import type { BulkItem } from './homeSelection.svelte'
 
-/** The draft overlay is the one place a raw app is its own kind. */
-function draftKind(item: BulkItem): UserDraftItemKind {
+/** The draft overlay is the one place a raw app is its own kind. Narrowed to the
+ * four kinds `moveDraft` accepts — a `BulkItem` is never anything else, and
+ * saying so lets the compiler check that rather than trusting it. */
+function draftKind(
+	item: BulkItem
+): Extract<UserDraftItemKind, 'script' | 'flow' | 'app' | 'raw_app'> {
 	return item.kind === 'app' && item.rawApp ? 'raw_app' : item.kind
 }
 
