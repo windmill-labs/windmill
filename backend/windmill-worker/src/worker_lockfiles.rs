@@ -174,7 +174,7 @@ async fn handle_build_binary_job(
     if !crate::global_cache::object_store_available().await {
         return Ok(to_raw_value_owned(json!({
             "status": "skipped",
-            "reason": "this worker cannot reach the instance object store, so the binary \
+            "reason": "this worker cannot reach an object store, so the binary \
                        would not be shared with other workers",
         })));
     }
