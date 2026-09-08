@@ -1318,26 +1318,20 @@ async fn create_script_internal<'c>(
         }
     }
 
-    // No live version at the path, but it may still hold a retired lineage — a sync push
-    // that applies a deletion before the corresponding update leaves exactly that. Chaining
-    // onto it keeps an unchanged redeploy from hashing to the parentless version the path
-    // was first deployed with, since the parent is part of the hash. A deleted version is
-    // still a candidate: its row keeps the hash it was deployed under even once its content
-    // is wiped, so skipping it is what makes the redeploy collide.
+    // A retired path keeps its versions, and the newest is where a redeploy belongs: hashed
+    // as a first deploy instead, unchanged content lands on the row the path's own first
+    // version already holds. A deleted version still counts — its row keeps the hash it was
+    // deployed under even once the content is wiped, so skipping it is what collides.
     //
-    // Reached by any deploy that named no parent, not only an `auto_parent` one: the CLI
-    // sends none at all for a path its listing no longer shows, which is where a retried
-    // push lands once the archive has committed. Only when nothing is live there, so a
-    // parentless deploy onto a live path still meets the path conflict the match below
-    // raises.
+    // Any parentless deploy, not only an `auto_parent` one: the CLI names no parent for a
+    // path its listing no longer shows, which is where a retried push lands. Gated on
+    // nothing being live there, so a parentless deploy onto a live path still meets the
+    // path conflict the match below raises.
     let mut parent_adopted_from_retired_path = false;
     if ns.parent_hash.is_none() && clashing_script.is_none() {
-        // Locked before the descendant probe below, not merely read: a competing deploy
-        // chaining onto this same candidate takes `FOR UPDATE` on it before inserting, so
-        // holding the row here is what serializes the two. Probing first would ask about a
-        // child still uncommitted, adopt anyway, and leave the pair sharing a parent — a
-        // fork the caller-scoped check further down cannot be relied on to catch, since the
-        // competitor's destination may be RLS-hidden from us.
+        // Locked, not merely read: a competing deploy chaining onto this same candidate
+        // takes `FOR UPDATE` on it before inserting, so holding the row is what serializes
+        // the two. Probe first and the child still uncommitted reads as absent.
         let candidate = sqlx::query_scalar::<_, i64>(
             "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 \
              ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
@@ -1347,12 +1341,9 @@ async fn create_script_internal<'c>(
         .fetch_optional(&mut *tx)
         .await?;
         // Adoptable only if nothing already descends from it: a rename leaves its source
-        // path holding a version whose child lives at the destination, and giving that
-        // one a second child forks a lineage the guard below requires to be linear. The
-        // descendant is looked for on the unscoped pool, since the rename may have moved
-        // it somewhere this caller cannot see and an invisible child forks just as hard.
-        // No candidate means a fresh lineage — which, having no parent to vary its hash,
-        // can still collide with the path's own first version.
+        // path holding a version whose child lives at the destination, and a second child
+        // forks a lineage the guard below requires to be linear. Nothing adoptable means a
+        // fresh lineage, which has no parent to vary its hash and can still collide.
         ns.parent_hash = match candidate {
             Some(hash) => sqlx::query_scalar!(
                 "SELECT 1 FROM script WHERE parent_hashes[1] = $1 AND workspace_id = $2",
@@ -1412,12 +1403,16 @@ async fn create_script_internal<'c>(
                 ));
             };
 
+            // Unscoped, and sound only under the lock above: linearity is a property of the
+            // lineage, not of what this caller may read. A child can sit where they cannot
+            // see it — a folder they renamed it into, or grants an adopting deploy reset —
+            // and asked through `tx` it reads as absent, letting the fork through.
             let clashing_hash_o = sqlx::query_scalar!(
                 "SELECT hash FROM script WHERE parent_hashes[1] = $1 AND workspace_id = $2",
                 p_hash.0,
                 &w_id
             )
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&db)
             .await?;
 
             if let Some(clashing_hash) = clashing_hash_o {
@@ -1488,12 +1483,10 @@ async fn create_script_internal<'c>(
                 }
                 Some(_) | None => Ok(Some(ParentInfo {
                     p_hashes: ph,
-                    // A tip adopted above was taken for its lineage, not its grants: the
-                    // caller named no parent, so whatever lands at a retired path may be a
-                    // different script, and it would otherwise start life holding an ACL
-                    // nobody granted it — including one an admin `delete/h` purged. A parent
-                    // the caller did name still carries them, which is what unarchive
-                    // restores.
+                    // A version adopted above was taken for its lineage, not its grants: a
+                    // retired path may be reused by a different script, which must not start
+                    // life holding an ACL nobody gave it — including one `delete/h` purged.
+                    // A parent the caller named still carries them, as unarchive expects.
                     perms: if parent_adopted_from_retired_path {
                         json!({})
                     } else {
