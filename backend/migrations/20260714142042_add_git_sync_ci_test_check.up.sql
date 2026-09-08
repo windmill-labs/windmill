@@ -1,6 +1,6 @@
--- One "Windmill CI tests" GitHub check run per (workspace, deployed commit): a
--- git-sync deploy opens the check in_progress and it is concluded once the CI
--- tests triggered by that deploy settle, so the results can gate a GitHub PR.
+-- One "Windmill CI tests" GitHub check run per (fork workspace, PR head commit):
+-- the pull_request webhook opens the check in_progress and it is concluded once
+-- the fork's CI tests settle, so the results can gate a GitHub PR.
 CREATE TABLE git_sync_ci_test_check (
     -- The fork workspace whose CI tests gate the PR: keys the row, and its `ci_test`
     -- jobs are what the check reflects (a fork inherits no git_app_installations).
