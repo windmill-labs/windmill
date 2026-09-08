@@ -663,10 +663,21 @@ struct DbtAssetProvenance {
     description: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     data_tests: Vec<DbtDataTest>,
-    /// Declared column metadata (name -> description). NOT column lineage —
-    /// `manifest.json` carries none (docs/dbt-runtime.md, decision 14).
+    /// Declared column metadata (name -> description): what `manifest.json`
+    /// carries, which is only the columns an author wrote down.
     #[serde(skip_serializing_if = "Option::is_none")]
     columns: Option<serde_json::Value>,
+    /// Every column of the relation, typed and in order —
+    /// `[{"name": …, "type": …}]` — from the engine's static analysis. Present
+    /// only for a project that opted into it.
+    ///
+    /// Gated exactly like `columns` and the model's SQL: a full column list is
+    /// the shape of what the author WROTE, one level finer than the `ref()`
+    /// graph, which is ungated only because it draws relations the caller
+    /// already sees in `asset`. Widening that boundary has to be a decision, not
+    /// a consequence of a project turning the analysis pass on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    column_schema: Option<serde_json::Value>,
     /// A source's declared freshness policy, for the staleness chip.
     #[serde(skip_serializing_if = "Option::is_none")]
     freshness: Option<serde_json::Value>,
@@ -1323,7 +1334,7 @@ pub async fn asset_graph_for(
                   n.resource_type AS "resource_type!", n.name AS "name!", n.asset_path,
                   n.materialized, n.materialize_strategy, n.tags AS "tags!", n.description,
                   n.test_kind, n.test_column, n.test_args, n.severity, n.attached_node,
-                  n.columns, n.freshness,
+                  n.columns, n.column_schema, n.freshness,
                   n.raw_code, n.original_file_path,
                   -- Whether the caller may read the project this row describes.
                   -- The query deliberately reaches outside the requested folder
@@ -1379,6 +1390,10 @@ pub async fn asset_graph_for(
     // `ref()` lineage between two models, resolved to the relations they
     // produce. Joined to `dbt_node` on both key columns because a dbt
     // `unique_id` is only unique within its project.
+    //
+    // Column lineage is NOT here. It is stored per relation and per column, and
+    // this response is folder-wide and polled by a run page, so it carries only
+    // what the canvas draws for every node at once.
     let dbt_edge_rows = sqlx::query!(
         r#"WITH live AS (
              SELECT * FROM (
@@ -1604,6 +1619,7 @@ pub async fn asset_graph_for(
             description: r.description.clone().filter(|_| source_allowed),
             data_tests: vec![],
             columns: r.columns.clone().filter(|_| source_allowed),
+            column_schema: r.column_schema.clone().filter(|_| source_allowed),
             freshness: r.freshness.clone().filter(|_| source_allowed),
         };
         // One relation can carry rows from several projects — typically a model

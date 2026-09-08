@@ -36,7 +36,7 @@ the dominant way dbt is orchestrated today.
 | 11 | Asset kind | `dbt://<warehouse>/<schema>/<name>` — keyed on the relation, not on dbt's node id. See below |
 | 12 | Graph refresh | Deploy-time, re-ingested per run only when the descriptor is dynamic, plus an explicit `parse` of the editor's buffer. See below |
 | 13 | Manifest storage | Sidecar table for nodes/edges; the whole manifest is kept once per environment, for deferral — see below |
-| 14 | Metadata depth | Tests, strategy, tags, freshness, column descriptions. Column **lineage** is not in the manifest — see below |
+| 14 | Metadata depth | Tests, strategy, tags, freshness, column descriptions. Column **lineage** and real column schemas come from the engine's parquet index, opt-in per project — see below |
 | 15 | Node rendering | Asset nodes per model plus one runnable node for the script |
 | 16 | Progress | Live, from the JSON event stream |
 | 17 | Test failures | Honor dbt's own `severity` |
@@ -943,6 +943,8 @@ profile:
 select: ["tag:nightly+"]
 exclude: []
 test_behavior: build              # build | after_all | none
+column_lineage: false             # opt in to the static-analysis pass that
+                                  # produces column-level lineage (decision 14)
 vars:                             # typed: numbers/bools/lists keep their type,
   run_date: "{{ run_date }}"      # and string leaves take job arguments
   strict: false
@@ -1567,11 +1569,115 @@ answers for a machine's history rather than for the environment. So exactly one
 manifest is kept per (script, environment), replaced by each successful run,
 rather than one per version (see "Durable state per environment" above).
 
-**Decision 14 — column lineage is not available.** The decision assumed
-`manifest.json` carries column-to-column edges; it does not, in either core
-engine. What it does carry is declared column *descriptions*, which are
-ingested. Real column lineage would need Fusion (which does static analysis) or
-a SQL-AST pass of our own, so `columnLineageGraph.ts` is not wired up for dbt.
+**Decision 14 — column lineage comes from the parquet index, not the manifest.**
+`manifest.json` carries no column-to-column edges, in any engine, and its
+`columns` are the ones an author declared in `schema.yml`. Both halves exist in a
+different artifact: `dbt compile --static-analysis strict --write-index` writes
+`target/index/`, and two of its tables are `dbt.column_lineage.parquet`
+(`from_node_unique_id`, `from_column_name`, `to_node_unique_id`,
+`to_column_name`, `lineage_kind`) and `dbt.node_columns.parquet` (every column of
+every node, with its declared type, its inferred type and its description).
+
+Three measured properties decide the shape of the ingest.
+
+**Strict analysis is a stricter dialect.** `select no_such_column from
+ref(...)` is `UnresolvedIdentifier (dbt0227)` and exit 1 under `strict`, and
+compiles fine under `baseline` (the default). So this is a separate `dbt compile`
+with its own `--target-path`, never a flag on the build, and it is opt-in per
+project: `column_lineage: true` in the descriptor. Off, nothing changes. On, a
+project that cannot be analyzed keeps exactly the graph it had.
+
+The pass is best-effort about everything that is ITS: a wrong engine, a rejected
+analysis, a missing or unreadable artifact, an over-long output and outrunning its
+own time budget all degrade to partial lineage or none, plus a line in the job
+log saying which. It is not best-effort about the JOB: a cancellation or the job's
+own deadline fail it, because swallowing those would let a run that blew its
+timeout inside an optional annotation publish a graph and report success. That
+split is why the two halves have separate error contracts — the compile owns the
+job's semantics and may `Err`; nothing the artifact does or fails to do is a
+reason to fail a job, so an absent, unreadable or partial index is a value. The
+decode still runs under the job poller, which both heartbeats through it and
+ends it if the job is cancelled or completed meanwhile: the job reaching in, not
+the artifact reaching out. The
+budget is half the job's remaining wall clock, spent on the compile alone, so the
+build that follows cannot be starved by it.
+
+**A failed pass still writes the index**, holding every edge of the models that
+did analyze, so the artifact is read whatever the exit status and partial lineage
+is a normal outcome. An unreachable *source* is milder still: `RemoteError
+(dbt1014)` downgrades that model to `static_analysis: off` and the compile
+succeeds. (Strict analysis queries the warehouse catalog for source schemas; a
+`ref()`ed model is inferred statically and needs no built table.)
+
+**The flag is not the capability.** `dbt-core` 2.0.0-alpha.5 — the version
+`DBT_CORE_2X_VERSION` pins — accepts `--write-index` and `--write-lineage`, and
+its own `views.sql` declares views over both tables, but it writes neither
+parquet; only Fusion does today. The ADAPTER decides too: an experimental one
+(postgres under `DBT_ALLOW_EXPERIMENTAL_ADAPTERS`) turns static analysis off and
+says so only in a warning on an otherwise successful compile. The gate is
+therefore "the engine has the flag" (everything but 1.x, whose Python CLI has no
+such option) plus "the file appeared", so a later release picking the feature up
+needs no change here — and the job log carries the engine's own stderr whenever
+no index appears, since without it "no column lineage" has no explanation.
+
+`lineage_kind` is stored as TEXT, not an enum. Three values exist — `copy`
+(passthrough), `mod` (transformed) and `scan` (the column was read to produce the
+ROW rather than the value: a join key, a `where` predicate, a `group by`) — and
+the engine's own reader maps those three and passes anything else through, so the
+set is the engine's to extend. All three are stored, and `copy`/`mod` are kept
+first when the bound bites: a `scan` edge reaches every output column of its
+model, so it is most of what a project's index holds and would draw as a complete
+bipartite graph. Keeping it in the table anyway is what lets a later "show
+indirect" view ask for it without every project being redeployed.
+
+Storage mirrors `dbt_edge` exactly: `dbt_column_edge`, keyed by (path, version,
+job) with the same composite foreign key to `script`, so a version's column
+lineage dies with the version and a run's snapshot with the sweep.
+
+**A table of its own, not `dbt_edge.column_lineage` JSONB.** Hanging the links on
+the `ref()` edge they sit beneath would inherit its clone, prune, clear and
+cascade paths for free, and it does not work: a model reading `{{ this }}` gets
+column lineage from itself to itself, and `parent_map` has no self-loop, because
+a model does not `ref()` itself. Those pairs have no `dbt_edge` row to attach to.
+The loss is not hypothetical — an incremental that selects from `{{ this }}`
+(`coalesce(p.dbl, s.dbl)`, `p.up as prev_up`) yields `up → prev_up` with kind
+`copy`, a drawn edge meaning "this column carries the previous run's value".
+Inventing self-loop `dbt_edge` rows to hold it is not an option either: that
+table is `ref()` lineage. The typed column list lands in
+`dbt_node.column_schema`, beside `columns` rather than merged into it —
+`columns` stays what the author *declared*.
+
+**Stored now, served later.** This change lands the ingest and the storage; the
+endpoint that draws a column trace is a follow-up. What is user-visible today is
+`column_schema` — every column of a relation, typed and in the order the model
+emits them — which rides the asset graph the details pane already fetches, and
+replaces a panel that could only list the columns an author happened to document.
+The edges sit in `dbt_column_edge` waiting for their surface.
+
+`column_schema` is gated on being able to read the producing project, like the
+model's SQL: a column-level view is the shape of what the author wrote, one level
+finer than the `ref()` graph, which is ungated only because it draws relations the
+caller already sees. A share-link viewer entitled to a dbt run therefore gets its
+relations and `ref()` edges, and neither the SQL nor the columns.
+
+**The analysis pass takes the build's own `--full-refresh`.** `is_incremental()`
+branches on it, so an incremental model reading `{{ this }}` compiles its
+self-join — and any `ref()` inside that branch — only when the flag is absent. A
+pass that used the descriptor's default while the run overrode it would store
+lineage for SQL that run never executed. For the same reason an invocation that
+overrides the flag counts as `per_run_models`: its graph is its own, keyed to the
+job, rather than standing as the version's.
+
+That flag is not the whole of it, and the rest is a property rather than a bug to
+fix. `is_incremental()` is also false when the target table does not exist, so an
+incremental model has **two shapes and one ingest holds one of them**: a deploy
+before the first build compiles the cold shape, and the same project deployed
+again once its tables exist compiles the incremental one. A static descriptor
+re-ingests on neither runs nor time, so what is stored stays whatever the compile
+in front of it saw. dbt has no mode that emits both, and re-analyzing per run
+would buy a second `dbt compile` on every build to keep a graph nobody asked to
+refresh. The contract is therefore the honest one: a version's graph describes
+the compile that produced it, and a run that re-ingests describes its own run.
 
 ## Concept mapping
 
@@ -1583,7 +1689,9 @@ a SQL-AST pass of our own, so `columnLineageGraph.ts` is not wired up for dbt.
 | `materialized: incremental` | `append` or `merge` (by `unique_key`) | same |
 | `{% snapshot %}` | `scd2` | same, incl. `<dim>_current` handling |
 | `unique`/`not_null`/`accepted_values`/`relationships` | `data_tests` | exact 1:1 with the four `// data_test` kinds |
-| declared column metadata | `columns` on the asset node | descriptions only; see the note below |
+| declared column metadata | `columns` on the asset node | descriptions only, from the manifest |
+| analyzed column schema | `column_schema` on the asset node | `dbt.node_columns.parquet`, opt-in |
+| column-to-column lineage | `dbt_column_edge` rows (no view yet) | `dbt.column_lineage.parquet`, opt-in |
 | model `tags` | node badge | `tag` |
 | source freshness | `freshness` | `last_success_at` chip |
 | `run_results.json` | materialization records | `record_materialization` |

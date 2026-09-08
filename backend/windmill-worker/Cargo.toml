@@ -114,6 +114,10 @@ rust_decimal.workspace = true
 jsonwebtoken.workspace = true
 sha2.workspace = true
 hmac.workspace = true
+# Reads the dbt engine's `target/index/*.parquet`, which is where column-level
+# lineage lives. Unconditional rather than behind the `parquet` FEATURE: that one
+# is object storage, and a build without it still runs dbt jobs.
+parquet.workspace = true
 pem = { workspace = true, optional = true }
 rsa = { workspace = true, optional = true }
 urlencoding.workspace = true
