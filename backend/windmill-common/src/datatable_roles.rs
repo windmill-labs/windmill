@@ -37,7 +37,6 @@ pub const CUSTOM_INSTANCE_USER: &str = "custom_instance_user";
 /// One catalog entry. The password is per role and instance-wide, and lives in the instance's own
 /// [`DATATABLE_ROLES_SETTING`] row rather than in any workspace's settings.
 #[derive(Deserialize, Serialize, Clone)]
-#[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
 pub struct InstanceDatatableRole {
     /// The Postgres role name, verbatim.
     pub name: String,
@@ -115,6 +114,22 @@ fn quote_literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
+/// The catalog as a settings reader may see it: every entry, no password.
+///
+/// `GET /settings/global/{key}` and the settings listing hand back whatever is in the row, so the
+/// one key whose value is a set of live cluster credentials has to be filtered on the way out.
+/// Applied by name, since those endpoints do not know what they are returning.
+pub fn redact_role_catalog_setting(name: &str, value: serde_json::Value) -> serde_json::Value {
+    if name != DATATABLE_ROLES_SETTING {
+        return value;
+    }
+    let mut catalog = parse_role_catalog(Some(value));
+    for role in catalog.values_mut() {
+        role.pwd = None;
+    }
+    serde_json::to_value(&catalog).unwrap_or(serde_json::Value::Null)
+}
+
 /// Serialize every mutation of the catalog, from the read through the cluster DDL to the write.
 ///
 /// The catalog is one JSON document, so create/rename/enable/delete are all read-modify-write.
@@ -171,7 +186,7 @@ pub async fn write_role_catalog(
         .map_err(|e| Error::internal_err(format!("serializing the role catalog: {e}")))?;
     sqlx::query!(
         "INSERT INTO global_settings (name, value) VALUES ($1, $2)
-         ON CONFLICT (name) DO UPDATE SET value = $2",
+         ON CONFLICT (name) DO UPDATE SET value = $2, updated_at = now()",
         DATATABLE_ROLES_SETTING,
         value
     )
