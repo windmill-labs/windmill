@@ -63,9 +63,30 @@ async fn freeing_a_principal_takes_its_datatable_tenant(db: Pool<Postgres>) -> a
     .await?;
     assert_eq!(resp.status(), 200, "delete user: {}", resp.text().await?);
 
+    // Leaving is the other way a membership ends, and there are two `/leave` routes — the one the
+    // UI and the generated client call is this one. A tenant left behind here comes back with the
+    // person on rejoin, or attaches to whoever takes the username next.
+    sqlx::query(
+        r#"UPDATE workspace_settings SET datatable = jsonb_set(datatable,
+             '{datatables,main,permissions,roles,role1,tenants}', '["u/test-user-3"]'::jsonb)
+           WHERE workspace_id = 'test-workspace'"#,
+    )
+    .execute(&db)
+    .await?;
+    let resp = authed(
+        client().post(format!("{base}/workspaces/leave")),
+        "SECRET_TOKEN_3",
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "leave: {}", resp.text().await?);
     // Nothing left naming a principal that no longer exists: a later group or account reusing one
     // of those names must not inherit the access this one had.
-    assert!(tenants(&db, "test-workspace").await.is_empty());
+    assert!(
+        tenants(&db, "test-workspace").await.is_empty(),
+        "leaving kept the tenant: {:?}",
+        tenants(&db, "test-workspace").await
+    );
     Ok(())
 }
 

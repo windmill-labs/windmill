@@ -2719,10 +2719,8 @@ async fn delete_datatable_role(
 
     windmill_common::datatable_roles::drop_instance_role(&db, &mut tx, &role.name).await?;
     windmill_common::datatable_roles::delete_role_catalog_entry(&mut tx, &id).await?;
+    windmill_common::workspaces::forget_datatable_role_everywhere(&mut tx, &id).await?;
     tx.commit().await?;
-    // After the drop commits: a tenant naming a role that still exists is harmless, one naming a
-    // role that is gone is not, so this only ever runs once the cluster agrees it is gone.
-    windmill_common::workspaces::forget_datatable_role_everywhere(&db, &id).await?;
 
     audit_log(
         &db,

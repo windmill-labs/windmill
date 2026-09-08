@@ -432,6 +432,11 @@ async fn run_datatable_migrations(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Query(query): Query<RunDatatableMigrationsQuery>,
 ) -> JsonResult<RunDatatableMigrationsResult> {
+    // Before the admin connection is opened at all: the bookkeeping below is created and read
+    // through it, so a caller no role covers must be refused here rather than after the fact.
+    crate::datatable_permissions::ensure_reaches_datatable(&db, &w_id, &datatable_name, &authed)
+        .await?;
+
     audit_log(
         &db,
         &authed,
@@ -564,6 +569,11 @@ async fn rollback_datatable_migrations(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Query(query): Query<RollbackDatatableMigrationsQuery>,
 ) -> JsonResult<RollbackDatatableMigrationsResult> {
+    // Before the admin connection is opened at all: the bookkeeping below is created and read
+    // through it, so a caller no role covers must be refused here rather than after the fact.
+    crate::datatable_permissions::ensure_reaches_datatable(&db, &w_id, &datatable_name, &authed)
+        .await?;
+
     audit_log(
         &db,
         &authed,
@@ -817,10 +827,15 @@ async fn read_applied_datatable_versions(
 
 /// List a data table's migrations annotated with whether each has been applied.
 async fn datatable_migrations_status(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
 ) -> JsonResult<DatatableMigrationsStatusResult> {
+    // Reads `_wm_migrations` through the data table's admin connection, so it answers to the same
+    // question as running one: may you reach this data table at all.
+    crate::datatable_permissions::ensure_reaches_datatable(&db, &w_id, &datatable_name, &authed)
+        .await?;
+
     let enabled = datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
     if !enabled {
         return Ok(Json(DatatableMigrationsStatusResult {

@@ -2000,19 +2000,26 @@ pub async fn rename_datatable_tenant_in_workspace(
 /// naming a role that no longer exists.
 ///
 /// Authorization: reaches every workspace on the instance. Callers MUST be the superadmin path
-/// that just dropped the role from the cluster — it exists to follow that, not to edit tenants. A data table whose default role was the deleted one falls
+/// dropping the role from the cluster — it exists to follow that, not to edit tenants.
+///
+/// Takes that path's transaction rather than opening its own: run afterwards, a failure part-way
+/// leaves the catalog row already gone, so the retry answers `NotFound` while some workspaces
+/// still name a role nothing can connect as. In the transaction, the cluster drop, the catalog row
+/// and every tenant list commit together or not at all. A data table whose default role was the deleted one falls
 /// back to `admin` — the one role that is always present.
-pub async fn forget_datatable_role_everywhere(db: &DB, role_id: &str) -> Result<()> {
+pub async fn forget_datatable_role_everywhere(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    role_id: &str,
+) -> Result<()> {
     let workspaces = sqlx::query_scalar!(
         "SELECT workspace_id FROM workspace_settings WHERE datatable::text LIKE $1",
         format!("%{}%", role_id)
     )
-    .fetch_all(db)
+    .fetch_all(&mut **tx)
     .await?;
 
     for w_id in workspaces {
-        let mut tx = db.begin().await?;
-        update_datatable_permissions_in_workspace(&mut tx, &w_id, |permissions| {
+        update_datatable_permissions_in_workspace(tx, &w_id, |permissions| {
             let mut touched = permissions.roles.remove(role_id).is_some();
             if permissions.default_role.as_deref() == Some(role_id) {
                 permissions.default_role = Some(ADMIN_DATATABLE_ROLE.to_string());
@@ -2021,7 +2028,6 @@ pub async fn forget_datatable_role_everywhere(db: &DB, role_id: &str) -> Result<
             touched
         })
         .await?;
-        tx.commit().await?;
     }
     Ok(())
 }

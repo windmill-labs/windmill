@@ -9178,6 +9178,14 @@ async fn leave_workspace(
 ) -> Result<String> {
     windmill_api_auth::forbid_job_token_account_destruction(&authed)?;
     let mut tx = db.begin().await?;
+    // The membership is what made `u/<username>` mean this person. Leaving it behind in a tenant
+    // list would hand their data table access back on rejoin, or to whoever takes the name next.
+    windmill_common::workspaces::remove_datatable_tenant_in_workspace(
+        &mut tx,
+        &w_id,
+        &format!("u/{}", authed.username),
+    )
+    .await?;
     sqlx::query!(
         "DELETE FROM usr WHERE workspace_id = $1 AND email = $2",
         &w_id,
