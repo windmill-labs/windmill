@@ -74,6 +74,8 @@ dbt_edge: workspace_id(char), script_path(char), script_hash(bigint), job_id(uui
   FK: (workspace_id) -> workspace(id), (workspace_id, script_hash) -> script(workspace_id, hash)
 dbt_graph_snapshot: workspace_id(char), script_path(char), script_hash(bigint), job_id(uuid), digest(text), relation_root_at_last_ingest(text), ingested_at(ts), permissioned_as(char)
   FK: (workspace_id) -> workspace(id), (workspace_id, script_hash) -> script(workspace_id, hash)
+dbt_environment_state: workspace_id(char), script_path(char), environment(text), job_id(uuid), manifest(text), manifest_key(text), run_results(text), run_results_key(text), updated_at(ts)
+  FK: (workspace_id) -> workspace(id)
 dbt_node: workspace_id(char), script_path(char), script_hash(bigint), job_id(uuid), unique_id(text), resource_type(text), name(text), asset_path(text), materialized(text), materialize_strategy(text), unique_key(text), tags(text[]), description(text), test_kind(text), test_column(text), test_args(jsonb), severity(text), attached_node(text), columns(jsonb), freshness(jsonb), raw_code(text), original_file_path(text), ingested_at(ts)
   FK: (workspace_id) -> workspace(id), (workspace_id, script_hash) -> script(workspace_id, hash)
 dbt_run_progress: workspace_id(char), job_id(uuid), asset_kind(asset_kind), asset_path(char), status(materialization_status), row_count(bigint), error(text), updated_at(ts)
