@@ -50,10 +50,11 @@ import {
 } from '$lib/components/raw_apps/templates'
 import {
 	coerceArgsToSchema,
+	dropUndeclaredArgs,
+	enforceDisabledDefaults,
 	redactFileArgs,
 	redactSecretArgs,
-	stripFileArgs,
-	stripSecretArgs
+	stripFileArgs
 } from '$lib/components/job_args'
 import { processSecretArgs } from '$lib/components/secretArgUtils'
 import { PLAN_MODE_MESSAGES } from '../planModeMessages'
@@ -5560,25 +5561,28 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		? undefined
 		: coerceArgsToSchema(normalizeTestRunArgs(spec.proposed), schema)
 	let proposed: Record<string, any>
+	let resetKeys: string[]
+	let undeclaredKeys: string[]
 	if (coerced) {
-		// A secret or a file the model prefilled is one the transcript then carries, which is
-		// saved on every turn: the field opens empty and the user supplies it. What they type
-		// never lands in the arguments either — the widget mints it on the way to the job.
-		proposed = stripFileArgs(
-			stripSecretArgs(coerced.args, schema as any, strippedKeys),
-			schema as any,
-			strippedKeys
-		)
+		resetKeys = coerced.resetKeys
+		undeclaredKeys = coerced.undeclaredKeys
+		// Bytes only. A secret the model proposed is already in its own tool call, in the same
+		// stored record as this card, so emptying the field hides it from nobody and costs the
+		// user a retype — and PasswordArgInput mints whatever it opens with before the job.
+		proposed = stripFileArgs(coerced.args, schema as any, strippedKeys)
 	} else {
+		// Both rules hold against every caller, not only the ones a form stands in front of:
+		// an undeclared argument has no field anywhere, and a disabled one is nobody's to set.
+		// Without the rest of the coercion, which answers what a mounted widget would show.
+		const declared = dropUndeclaredArgs(normalizeTestRunArgs(spec.proposed), schema)
+		undeclaredKeys = declared.undeclaredKeys
+		const enforced = enforceDisabledDefaults(declared.args, schema)
+		resetKeys = enforced.resetKeys
 		// In the widget's stead, and before anything is shown or stored: with no form there is
 		// no PasswordArgInput to turn a proposed secret into a reference, and both the job's
 		// arguments and this card outlive the run.
 		try {
-			proposed = await processSecretArgs(
-				normalizeTestRunArgs(spec.proposed),
-				schema as any,
-				workspace
-			)
+			proposed = await processSecretArgs(enforced.args, schema as any, workspace)
 		} catch (e) {
 			const message = `Failed to store the sensitive arguments of "${spec.path}": ${e}`
 			toolCallbacks.setToolStatus(toolId, {
@@ -5600,7 +5604,7 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		submitted: autoAccepted || undefined,
 		args: proposed,
 		clearedKeys: coerced?.clearedKeys.length ? coerced.clearedKeys : undefined,
-		resetKeys: coerced?.resetKeys.length ? coerced.resetKeys : undefined,
+		resetKeys: resetKeys.length ? resetKeys : undefined,
 		strippedKeys: strippedKeys.length ? strippedKeys : undefined
 	}
 
@@ -5644,9 +5648,27 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		return PLAN_MODE_MESSAGES.blockedResult
 	}
 
+	// Every job leaves through here, so this is where a sensitive argument becomes a reference:
+	// the form mints as the user types and the bypass mints in its stead, but a host answering
+	// the form its own way — the eval harness does — would hand over a literal. Idempotent, so
+	// the two that already minted pay a walk and no round trip.
+	let toRun: Record<string, any>
+	try {
+		toRun = await processSecretArgs(submitted, schema as any, workspace)
+	} catch (e) {
+		const message = `Failed to store the sensitive arguments of "${spec.path}": ${e}`
+		toolCallbacks.setToolStatus(toolId, {
+			content: message,
+			isLoading: false,
+			isStreamingArguments: false,
+			error: message
+		})
+		return message
+	}
+
 	// The card's details pane must show what ran, not what was proposed — and it is
 	// persisted, so it carries no more of a secret or a file than the model's copy does.
-	const forCard = redactFileArgs(redactSecretArgs(submitted, schema as any), schema as any)
+	const forCard = redactFileArgs(redactSecretArgs(toRun, schema as any), schema as any)
 	// The transcript is re-cloned into IndexedDB on every save and a form carries whatever was
 	// pasted into it, so past what the pane would render the card reads the arguments off the
 	// job instead. Only once there is a job to read them from: substituting the marker any
@@ -5658,7 +5680,7 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 
 	const outcome = await executeTestRun({
 		jobStarter: async () => {
-			const jobId = await spec.startJob(submitted)
+			const jobId = await spec.startJob(toRun)
 			// The form's own submitted flag flips a round trip earlier, when the user presses
 			// Run; only from here is there a job for a stopped turn to say it left running.
 			toolCallbacks.markRunFormStarted?.(toolId)
@@ -5686,18 +5708,21 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	const cleared = clearedKeys.length
 		? `\nThe ${schemaNoun} declares ${clearedKeys.join(', ')}, but you sent ${clearedKeys.length > 1 ? 'them in shapes' : 'it in a shape'} with no reading in the declared ${clearedKeys.length > 1 ? 'types' : 'type'}, so the ${clearedKeys.length > 1 ? 'fields opened' : 'field opened'} empty and the run did not carry ${clearedKeys.length > 1 ? 'them' : 'it'}. Re-read the input schema and match ${clearedKeys.length > 1 ? 'their declared types' : 'its declared type'}.`
 		: ''
-	const resetKeys = coerced?.resetKeys ?? []
 	const reset = resetKeys.length
-		? `\nThe ${schemaNoun} disables ${resetKeys.join(', ')}, so the form held ${resetKeys.length > 1 ? 'their defaults' : 'its default'} rather than the proposed ${resetKeys.length > 1 ? 'values' : 'value'}. Do not propose ${resetKeys.length > 1 ? 'them' : 'it'} again.`
+		? `\nThe ${schemaNoun} disables ${resetKeys.join(', ')}, so the run used ${resetKeys.length > 1 ? 'their defaults' : 'its default'} rather than the proposed ${resetKeys.length > 1 ? 'values' : 'value'}. Do not propose ${resetKeys.length > 1 ? 'them' : 'it'} again.`
+		: ''
+	// Nothing renders these, so the model is the only one who can be told they went nowhere.
+	const undeclared = undeclaredKeys.length
+		? `\nThe ${schemaNoun} does not declare ${undeclaredKeys.join(', ')}, so ${undeclaredKeys.length > 1 ? 'they were' : 'it was'} not sent — no run form in Windmill offers a field the schema does not name. Re-read the input schema and use the arguments it declares.`
 		: ''
 	// Otherwise an emptied field reads as the user having deleted it, and the next call
-	// proposes the same secret again.
+	// proposes the same bytes again.
 	const stripped = strippedKeys.length
-		? `\n${strippedKeys.join(', ')} ${strippedKeys.length > 1 ? 'are secret or file arguments' : 'is a secret or file argument'}, so the form opened ${strippedKeys.length > 1 ? 'them' : 'it'} empty for the user to fill in. ${strippedKeys.length > 1 ? 'They are' : 'It is'} theirs to provide, not yours: do not propose ${strippedKeys.length > 1 ? 'them' : 'it'} again.`
+		? `\n${strippedKeys.join(', ')} ${strippedKeys.length > 1 ? 'are file arguments' : 'is a file argument'}, so the form opened ${strippedKeys.length > 1 ? 'them' : 'it'} empty for the user to attach. ${strippedKeys.length > 1 ? 'They are' : 'It is'} theirs to provide, not yours: do not propose ${strippedKeys.length > 1 ? 'them' : 'it'} again.`
 		: ''
 	// Redacted: a variable path is enough to run a job on a value the model cannot read,
 	// and one shown a path proposes it back on the next call.
-	const redacted = redactFileArgs(redactSecretArgs(submitted, schema as any), schema as any)
+	const redacted = redactFileArgs(redactSecretArgs(toRun, schema as any), schema as any)
 	const submittedJson = JSON.stringify(redacted)
 	const shown =
 		submittedJson.length > MAX_SUBMITTED_ARGS_LENGTH
@@ -5709,7 +5734,7 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	const ran = deepEqual(redacted, proposed)
 		? 'Ran with the arguments the form opened with, unedited.'
 		: `Ran with arguments: ${shown}`
-	return `${ran}${cleared}${reset}${stripped}\n${outcome}`
+	return `${ran}${cleared}${reset}${stripped}${undeclared}\n${outcome}`
 }
 
 async function runDeployedScript(

@@ -209,7 +209,7 @@
 		{/if}
 		{#if runForm.strippedKeys?.length}
 			<p class="text-2xs text-secondary">
-				A secret or a file, so it opened empty for you to fill in:
+				A file, so it opened empty for you to attach:
 				<span class="font-mono">{runForm.strippedKeys.join(', ')}</span>
 			</p>
 		{/if}

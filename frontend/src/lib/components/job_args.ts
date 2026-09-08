@@ -90,23 +90,48 @@ function coerceScalar(value: any, type: string): any {
 }
 
 /**
+ * Drop every argument the schema does not declare, naming them. The schema is what every run
+ * surface builds its fields from, so a value under a name it never declares has no widget
+ * anywhere: sending one is sending what nobody could see or edit before the run.
+ */
+export function dropUndeclaredArgs(
+	args: Record<string, any>,
+	schema: { properties?: Record<string, any> } | undefined
+): { args: Record<string, any>; undeclaredKeys: string[] } {
+	const properties = schema?.properties ?? {}
+	// hasOwn, not `in`: every object inherits `constructor` and `toString`, so `in` would
+	// hand an inherited declaration to an argument the schema never named.
+	const kept: Record<string, any> = Object.create(null)
+	const undeclaredKeys: string[] = []
+	for (const [key, value] of Object.entries(args ?? {})) {
+		if (Object.hasOwn(properties, key)) kept[key] = value
+		else undeclaredKeys.push(key)
+	}
+	return { args: { ...kept }, undeclaredKeys }
+}
+
+/**
  * Make arguments say what the run form will show, then apply {@link enforceDisabledDefaults}.
  * A scalar widget renders its own reading of a wrong-typed value and never writes it back, so
  * an untouched form would submit what it never displayed; a value with no reading is cleared.
- * Undeclared keys are carried — the worker obeys its own signature, not a stale stored schema.
  * Top-level only: descending means resolving `oneOf`, where being wrong rewrites user input.
  */
 export function coerceArgsToSchema(
 	args: Record<string, any>,
 	schema: { properties?: Record<string, any> } | undefined
-): { args: Record<string, any>; resetKeys: string[]; clearedKeys: string[] } {
+): {
+	args: Record<string, any>
+	resetKeys: string[]
+	clearedKeys: string[]
+	undeclaredKeys: string[]
+} {
 	const properties = schema?.properties ?? {}
 	const clearedKeys: string[] = []
-	// hasOwn, not `in`: every object inherits `constructor` and `toString`, so `in` would
-	// hand an inherited declaration to an argument the schema never named.
+	const { args: declared, undeclaredKeys } = dropUndeclaredArgs(args, schema)
 	const kept: Record<string, any> = Object.create(null)
-	for (const [key, value] of Object.entries(args ?? {})) {
-		const prop = Object.hasOwn(properties, key) ? properties[key] : undefined
+	for (const [key, value] of Object.entries(declared)) {
+		// Declared, but a declaration can still be nothing, and reading `.type` off it throws.
+		const prop = properties[key]
 		if (
 			prop === undefined ||
 			value == null ||
@@ -129,7 +154,7 @@ export function coerceArgsToSchema(
 		else kept[key] = coerced
 	}
 	const { args: result, resetKeys } = enforceDisabledDefaults({ ...kept }, schema)
-	return { args: result, resetKeys, clearedKeys }
+	return { args: result, resetKeys, clearedKeys, undeclaredKeys }
 }
 
 /**
@@ -192,12 +217,6 @@ function mapLeaves(
 
 export const isSecretProp = (prop: any) => !!prop?.password
 
-/** A reference to a workspace variable, which is how a secret is meant to reach a job: the
- * value stays in the variable and the argument carries only its path, so it is safe to show
- * and safe to store. `$jsonvar:` is deliberately not one of these — those are minted from
- * what the user typed, so a caller naming one is naming a secret it was never shown. */
-const isVariableRef = (value: unknown) => typeof value === 'string' && /^\$var:\S/.test(value)
-
 const isFileProp = (prop: any) =>
 	prop?.contentEncoding === 'base64' || prop?.items?.contentEncoding === 'base64'
 
@@ -221,28 +240,11 @@ export function mapArgLeaves(
 }
 
 /**
- * Empty every password-typed argument holding a secret of its own, so a form the caller prefills
- * does not carry one into the persisted transcript; a workspace-variable reference is kept, since
- * it names the secret rather than holding it. Appends the path of each one emptied, or the caller
- * reads the absence as the user having deleted the value.
- */
-export function stripSecretArgs(
-	args: Record<string, any>,
-	schema: { properties?: Record<string, any> } | undefined,
-	strippedKeys?: string[]
-): Record<string, any> {
-	return mapArgLeaves(args, schema, isSecretProp, (value, _prop, path) => {
-		if (isVariableRef(value)) return value
-		if (value !== undefined) strippedKeys?.push(path)
-		return undefined
-	})
-}
-
-/**
  * Drop every file argument, so a caller cannot propose file bytes on the user's behalf:
  * the field opens empty and the user attaches the file. Bytes a form is prefilled with
  * are bytes the stored transcript carries, unbounded, for a value no caller can produce.
- * Reports what it removed for the same reason {@link stripSecretArgs} does.
+ * Reports the path of each one removed, or the caller reads the absence as the user having
+ * deleted the value.
  */
 export function stripFileArgs(
 	args: Record<string, any>,

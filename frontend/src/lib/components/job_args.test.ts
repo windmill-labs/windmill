@@ -3,8 +3,7 @@ import {
 	coerceArgsToSchema,
 	enforceDisabledDefaults,
 	redactFileArgs,
-	redactSecretArgs,
-	stripSecretArgs
+	redactSecretArgs
 } from './job_args'
 
 describe('coerceArgsToSchema', () => {
@@ -46,15 +45,18 @@ describe('coerceArgsToSchema', () => {
 		expect(clearedKeys.sort()).toEqual(['count', 'flag', 'label'])
 	})
 
-	// The worker takes the arguments its own signature names, so a **kwargs script and one
-	// whose stored schema is stale or absent accept what no property declares. Removing
-	// these made such a script unrunnable through the form.
-	it('carries arguments the schema does not declare', () => {
+	// A field the schema does not name is a field no run surface in the product draws, so a
+	// value under that name would reach the job without anyone having been able to see it.
+	// `constructor` is declared by every object through its prototype and by no schema.
+	it('drops arguments the schema does not declare, naming them', () => {
 		const kept = coerceArgsToSchema({ a: 'keep', b: 2, constructor: 'x' }, {
 			properties: { a: { type: 'string' } }
 		} as any)
-		expect(kept.args).toEqual({ a: 'keep', b: 2, constructor: 'x' })
-		expect(coerceArgsToSchema({ a: 1 }, undefined).args).toEqual({ a: 1 })
+		expect(kept.args).toEqual({ a: 'keep' })
+		expect(kept.undeclaredKeys).toEqual(['b', 'constructor'])
+		// Declaring nothing is declaring no arguments, which is what a `**kwargs` script and a
+		// schema that failed to infer both look like.
+		expect(coerceArgsToSchema({ a: 1 }, undefined).args).toEqual({})
 	})
 
 	// Resolved by the job, so the declared type describes what it receives and never the
@@ -173,27 +175,6 @@ describe('secret args at every level the form nests', () => {
 		// Tagged as branch 'a', but 'b' is stripped too: the tag is runtime state.
 		either: { kind: 'a', key: 'k', other: 'o' }
 	}
-
-	// The transcript is saved on every turn, so a prefilled field carries the model's secret
-	// into storage. A reference names one instead of holding it, and is the caller's to send.
-	it('empties every one of them, keeping a variable reference', () => {
-		expect(stripSecretArgs(args, schema)).toEqual({
-			obj: { inner: '$var:u/ada/prod', keep: 1 },
-			list: [{ name: 'a' }, {}],
-			either: { kind: 'a' }
-		})
-	})
-
-	// `$jsonvar:` paths are minted from what the user typed into the form, so a caller naming
-	// one is naming a secret it was never shown. A bare `$var:` names nothing.
-	it('keeps only a reference that names a workspace variable', () => {
-		const one = { properties: { token: { type: 'string', password: true } } }
-		const kept = (v: unknown) => stripSecretArgs({ token: v }, one).token
-		expect(kept('$var:f/team/api_token')).toBe('$var:f/team/api_token')
-		expect(kept('$jsonvar:u/ada/secret_arg/abc123')).toBeUndefined()
-		expect(kept('$var:')).toBeUndefined()
-		expect(kept('hunter2')).toBeUndefined()
-	})
 
 	it('redacts every one of them', () => {
 		const redacted = JSON.stringify(redactSecretArgs(args, schema))

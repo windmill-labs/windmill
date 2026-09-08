@@ -4516,6 +4516,38 @@ describe('global AI tools', () => {
 		)
 	})
 
+	// A disabled field is declared as not the caller's to set, and the posture answering the
+	// form does not make the model one of the callers it is kept from.
+	it('holds a disabled default against the model when the posture answers', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/locked',
+			schema: {
+				properties: {
+					name: { type: 'string' },
+					mode: { type: 'string', disabled: true, default: 'safe' }
+				}
+			}
+		} as any)
+
+		const result = await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/locked', args: { name: 'Ada', mode: 'destructive' } },
+				{
+					...toolCallbacks,
+					shouldAutoAcceptToolConfirmations: () => true,
+					requestRunArgs: async (_toolId: string, form: any) => form.args
+				}
+			)
+		)
+
+		expect(JobService.runScriptByPath).toHaveBeenCalledWith(
+			expect.objectContaining({ requestBody: { name: 'Ada', mode: 'safe' } })
+		)
+		// Or the next call proposes the same override again.
+		expect(result).toContain('disables mode')
+	})
+
 	// With no form there is no PasswordArgInput to turn a proposed secret into a reference, and
 	// a job's arguments are readable by everyone who can see its run. What starts the job must
 	// be what came back from the minting, never the proposal.
@@ -4654,9 +4686,9 @@ describe('global AI tools', () => {
 		expect(JobService.runScriptPreview).not.toHaveBeenCalled()
 		expect(cancelled).toContain('The user cancelled the run form')
 
-		// Answered, the run carries the argument even though the schema names no field for
-		// it: the worker reads the draft's own signature, not this schema.
-		await withCompletedTestJob(() =>
+		// A schema declaring nothing is a form with no field to hold this, and the card says
+		// as much — so answering it must not send an argument that was never on screen.
+		const answered = await withCompletedTestJob(() =>
 			callGlobalTool(
 				'test_run_script',
 				{ path: 'f/scripts/noargs-test', args: { force_delete: true } },
@@ -4665,9 +4697,56 @@ describe('global AI tools', () => {
 		)
 
 		expect(JobService.runScriptPreview).toHaveBeenCalledWith(
-			expect.objectContaining({
-				requestBody: expect.objectContaining({ args: { force_delete: true } })
-			})
+			expect.objectContaining({ requestBody: expect.objectContaining({ args: {} }) })
+		)
+		expect(answered).toContain('does not declare force_delete')
+	})
+
+	// A host that answers the form without minting, as the eval harness does by returning the
+	// proposal verbatim: the job's arguments are readable by everyone who can see its run.
+	it('mints a secret the host handed back as a literal', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/host-literal',
+			schema: { properties: { token: { type: 'string', password: true } } }
+		} as any)
+		vi.mocked(processSecretArgs).mockImplementationOnce(async () => ({
+			token: '$var:u/ada/secret_arg/minted'
+		}))
+
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/host-literal', args: { token: 'hunter2' } },
+				{ ...toolCallbacks, requestRunArgs: async (_toolId, form) => form.args }
+			)
+		)
+
+		expect(JobService.runScriptByPath).toHaveBeenCalledWith(
+			expect.objectContaining({ requestBody: { token: '$var:u/ada/secret_arg/minted' } })
+		)
+	})
+
+	// The bypass has no form to have shown them either, so the rule holds there too.
+	it('drops an undeclared argument when the posture answers too', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/noargs-yolo',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any)
+
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/noargs-yolo', args: { name: 'Ada', force_delete: true } },
+				{
+					...toolCallbacks,
+					shouldAutoAcceptToolConfirmations: () => true,
+					requestRunArgs: async (_toolId: string, form: any) => form.args
+				}
+			)
+		)
+
+		expect(JobService.runScriptByPath).toHaveBeenCalledWith(
+			expect.objectContaining({ requestBody: { name: 'Ada' } })
 		)
 	})
 
@@ -5009,13 +5088,15 @@ describe('global AI tools', () => {
 			)
 		)
 
-		// Coerced, cleared, left alone, emptied, reset and stripped — every rule reached
-		// through the tool rather than called directly.
+		// Coerced, cleared, left alone, reset, dropped and emptied of bytes — every rule reached
+		// through the tool rather than called directly. The proposed secret is not emptied: it is
+		// already in the model's own tool call in the same stored record, and PasswordArgInput
+		// mints whatever the field opens with before the job sees it.
 		expect(shown).toEqual({
 			count: 7,
 			size: '$var:u/admin/batch_size',
-			locked: 'fixed',
-			force_delete: true
+			token: 'hunter2',
+			locked: 'fixed'
 		})
 		expect(cleared).toEqual(['ratio'])
 		expect(reset).toEqual(['locked'])
@@ -5029,19 +5110,21 @@ describe('global AI tools', () => {
 				count: 7,
 				size: '$var:u/admin/batch_size',
 				locked: 'fixed',
-				force_delete: true,
 				doc: bytes,
 				token: '$var:u/ada/prod_api_key'
 			}
 		})
+		expect(result).toContain('does not declare force_delete')
 		expect(result).toContain('<file: 3 KB>')
-		for (const leak of [bytes, 'hunter2', 'prod_api_key']) {
+		// What ran is redacted everywhere it is read back: the variable the user named is enough
+		// to run a job on a value neither the model nor the stored card can see.
+		for (const leak of [bytes, 'prod_api_key']) {
 			expect(result).not.toContain(leak)
 			expect(JSON.stringify(statuses)).not.toContain(leak)
 		}
 		// Named, or an emptied field reads as the user having deleted the value and the next
-		// call proposes the same secret again.
-		for (const named of ['ratio', 'token', 'locked']) expect(result).toContain(named)
+		// call proposes the same bytes again.
+		for (const named of ['ratio', 'doc', 'locked']) expect(result).toContain(named)
 	})
 
 	// The form is its own confirmation, so it never reaches processToolCall's second gate.
