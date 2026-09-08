@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT hash FROM script s WHERE s.path = $1 AND s.workspace_id = $2 AND NOT EXISTS (SELECT 1 FROM script c WHERE c.workspace_id = s.workspace_id AND c.parent_hashes[1] = s.hash) ORDER BY s.created_at DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "hash",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d4b021a242d65d1903a1b56c942552577299c50f7325c59eca5d151e24acef3d"
+}
