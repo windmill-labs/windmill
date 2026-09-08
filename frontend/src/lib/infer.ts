@@ -207,7 +207,8 @@ export type PreparedAssetsSqlQuery =
 // Scans the leading comment block, stopping at the first line that is neither blank
 // nor a comment. A PHP script opens with `<?php`, which is not a comment, so that line
 // is skipped like a blank one; otherwise the block would end before reaching any
-// annotation. The whole line goes, since the tag may carry code (`<?php declare(…);`).
+// annotation. The whole line goes, since the tag may carry code (`<?php declare(…);`) —
+// so an annotation must sit on its own line, below the opener.
 function parseVolumeAnnotations(code: string, commentPrefix: string): AssetWithAccessType[] {
 	const volumes: AssetWithAccessType[] = []
 	for (const line of code.split('\n')) {

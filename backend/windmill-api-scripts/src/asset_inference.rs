@@ -87,7 +87,8 @@ fn comment_prefix(lang: &ScriptLang) -> Option<&'static str> {
 /// Mirror of the frontend `parseVolumeAnnotations` (infer.ts): `<prefix>
 /// volume: <path>` lines in the leading comment block, each an `rw` volume
 /// asset. Scanning stops at the first non-comment line; blank lines and PHP's
-/// opening tag line are skipped, exactly like the frontend.
+/// opening tag line are skipped whole (the tag may carry code, so an annotation
+/// must sit on its own line below it), exactly like the frontend.
 fn parse_volume_annotations(content: &str, prefix: &str) -> Vec<AssetWithAltAccessType> {
     let mut volumes = Vec::new();
     for line in content.lines() {

@@ -190,7 +190,8 @@ fn is_php_open_tag(trimmed_line: &str) -> bool {
 /// stopping at the first line that is neither blank nor a comment. A PHP script
 /// opens with `<?php`, which is not a comment, so that line is skipped like a blank
 /// one; otherwise the block would end before reaching any annotation. The whole line
-/// goes, since the tag may carry code (`<?php declare(strict_types=1);`).
+/// goes, since the tag may carry code (`<?php declare(strict_types=1);`) — so an
+/// annotation must sit on its own line, below the opener.
 pub fn parse_volume_annotations(content: &str, comment_prefix: &str) -> Vec<VolumeMount> {
     let mut volumes = Vec::new();
     for line in content.lines() {
