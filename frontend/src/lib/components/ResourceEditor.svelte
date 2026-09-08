@@ -9,7 +9,7 @@
 	} from '$lib/gen'
 	import { canWrite } from '$lib/utils'
 	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
 	import ResourceForm from './ResourceForm.svelte'
@@ -17,8 +17,7 @@
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { resource } from 'runed'
-	import { getUserExt } from '$lib/user'
-	import type { UserExt } from '$lib/stores'
+	import { useActingUser } from '$lib/actingUser.svelte'
 	import { UserDraft, draftValuesEqual, type UserDraftHandle } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
@@ -91,18 +90,7 @@
 	let initialStates: Record<string, ResourceState> = $state({})
 	let existedInitially: Record<string, boolean> = $state({})
 	let fetchedResources: Record<string, Resource> = $state({})
-	// The user acting in each loaded workspace other than the navigation one, fetched
-	// alongside the resource. `undefined` stands for "we don't know" — a lookup still in
-	// flight or one that failed. Read through `actingUserIn`, never directly.
-	let perWsUser: Record<string, UserExt | undefined> = $state({})
-
-	/** The user acting in `ws`. `$userStore` is loaded for the navigation workspace and
-	 *  answers only for that one; anywhere else the lookup above answers, and `undefined`
-	 *  must never borrow the navigation user's rights — `canWrite` refuses for it. */
-	function actingUserIn(ws: string | undefined): UserExt | undefined {
-		if (!ws) return undefined
-		return ws === $workspaceStore ? $userStore : perWsUser[ws]
-	}
+	const acting = useActingUser(() => selected)
 
 	const handlesArray = UserDraft.useMany<ResourceState>(() =>
 		workspaceSpecs.map((s) => ({
@@ -237,7 +225,7 @@
 			() => deployedPath,
 			() => deployedUrl,
 			() => resource_type,
-			() => actingUserIn(selected)?.is_admin
+			() => acting.in(selected)?.is_admin
 		],
 		async ([ws, path, _url, type, admin]) =>
 			ws && path && type === 'git_repository' && admin
@@ -254,14 +242,15 @@
 	let resourceToEdit: Resource | undefined = $derived(
 		selected ? fetchedResources[selected] : undefined
 	)
-	let can_write = $derived.by(() => {
-		// A resource that does not exist yet has nobody's permissions on it. In edit mode the
-		// resource and the acting user land together, so a missing one is also a missing
-		// other, and neither may read as writable.
+	// `undefined` until both the resource and the acting user have landed — a pending verdict
+	// is neither a grant nor the denial the read-only alert announces, so the two must stay
+	// distinguishable.
+	let can_write: boolean | undefined = $derived.by(() => {
+		// A resource that does not exist yet has nobody's permissions on it.
 		if (!initialPath || !selected) return true
 		const r = fetchedResources[selected]
-		if (!r) return false
-		return canWrite(current?.path ?? initialPath, r.extra_perms ?? {}, actingUserIn(selected))
+		if (!r || !acting.resolved(selected)) return undefined
+		return canWrite(current?.path ?? initialPath, r.extra_perms ?? {}, acting.in(selected))
 	})
 
 	const dirtyWorkspaces = $derived(
@@ -298,8 +287,7 @@
 		dirtyWorkspaces.every((ws) => {
 			const r = fetchedResources[ws]
 			return (
-				!r ||
-				canWrite(states[ws]?.draft?.path ?? initialPath, r.extra_perms ?? {}, actingUserIn(ws))
+				!r || canWrite(states[ws]?.draft?.path ?? initialPath, r.extra_perms ?? {}, acting.in(ws))
 			)
 		})
 	)
@@ -322,11 +310,6 @@
 			ensureHandle(ws, s)
 			initialStates[ws] = structuredClone(s)
 			existedInitially[ws] = false
-			// A resource being created runs no fetch for the acting user to ride along with,
-			// so a workspace the navigation store cannot answer for is asked here.
-			if (ws !== $workspaceStore && !(ws in perWsUser)) {
-				getUserExt(ws).then((u) => (perWsUser[ws] = u))
-			}
 		})
 	})
 
@@ -336,45 +319,40 @@
 		if (!ws || !initialPath) return
 		if (ws in states) return
 		untrack(() => {
-			// `actingUserIn` answers from `$userStore` for the navigation workspace, so only
-			// another one is worth asking.
-			const needsUser = ws !== $workspaceStore
-			Promise.all([
-				ResourceService.getResource({ workspace: ws, path: initialPath, getDraft: true }),
-				needsUser ? getUserExt(ws) : undefined
-			]).then(([r, user]) => {
-				// `.draft` already holds the editor's `ResourceState` shape.
-				const savedDraftState = (r as any).draft as ResourceState | undefined
-				fetchedResources[ws] = r
-				// Deployed baseline as the dirty-check reference, so the banner
-				// compares draft-vs-deployed and fires immediately when a draft exists.
-				const deployedState: ResourceState = {
-					path: r.path,
-					description: r.description ?? '',
-					args: (r.value ?? {}) as any,
-					labels: r.labels ?? undefined,
-					wsSpecific: r.ws_specific ?? false
+			ResourceService.getResource({ workspace: ws, path: initialPath, getDraft: true }).then(
+				(r) => {
+					// `.draft` already holds the editor's `ResourceState` shape.
+					const savedDraftState = (r as any).draft as ResourceState | undefined
+					fetchedResources[ws] = r
+					// Deployed baseline as the dirty-check reference, so the banner
+					// compares draft-vs-deployed and fires immediately when a draft exists.
+					const deployedState: ResourceState = {
+						path: r.path,
+						description: r.description ?? '',
+						args: (r.value ?? {}) as any,
+						labels: r.labels ?? undefined,
+						wsSpecific: r.ws_specific ?? false
+					}
+					// Open with the saved draft if present, else the deployed.
+					const s: ResourceState = savedDraftState ?? deployedState
+					openedOnDraft[ws] = !!savedDraftState
+					// Gate BEFORE the handle is acquired: `stopSync` queues on a
+					// not-yet-live entry, and the form can settle before the effect
+					// above gets a chance to run. Only worth doing when no draft exists
+					// yet — where one does, there is no phantom to prevent and
+					// suspending could only drop a write.
+					if (!savedDraftState) setGated(ws, true)
+					ensureHandle(ws, s)
+					initialStates[ws] = structuredClone(deployedState)
+					// Draft-only paths (`no_deployed`) have no row — saving must
+					// CREATE, not update (update 404s).
+					existedInitially[ws] = !(r as any).no_deployed
+					// Keep resource_type in sync for the base workspace (controls the schema)
+					if (ws === effectiveWorkspace) {
+						resource_type = r.resource_type
+					}
 				}
-				// Open with the saved draft if present, else the deployed.
-				const s: ResourceState = savedDraftState ?? deployedState
-				openedOnDraft[ws] = !!savedDraftState
-				// Gate BEFORE the handle is acquired: `stopSync` queues on a
-				// not-yet-live entry, and the form can settle before the effect
-				// above gets a chance to run. Only worth doing when no draft exists
-				// yet — where one does, there is no phantom to prevent and
-				// suspending could only drop a write.
-				if (!savedDraftState) setGated(ws, true)
-				ensureHandle(ws, s)
-				initialStates[ws] = structuredClone(deployedState)
-				// Draft-only paths (`no_deployed`) have no row — saving must
-				// CREATE, not update (update 404s).
-				existedInitially[ws] = !(r as any).no_deployed
-				if (needsUser) perWsUser[ws] = user
-				// Keep resource_type in sync for the base workspace (controls the schema)
-				if (ws === effectiveWorkspace) {
-					resource_type = r.resource_type
-				}
-			})
+			)
 		})
 	})
 
@@ -441,7 +419,7 @@
 		onDraftStateChange?.(!!initialPath && selectedDirty)
 	})
 	$effect(() => {
-		onCanWriteChange?.(can_write)
+		onCanWriteChange?.(can_write === true)
 	})
 
 	export function localDraftDeployed(): ResourceState | undefined {
@@ -575,7 +553,9 @@
 			</Alert>
 		{/if}
 
-		{#if current}
+		<!-- Held back until there is a verdict: rendering the form against a pending `can_write`
+			would flash read-only controls at someone who can in fact write. -->
+		{#if current && can_write !== undefined}
 			{#key current}
 				<ResourceForm
 					bind:path={() => current!.path, setPath}
@@ -597,7 +577,7 @@
 					{resourceToEdit}
 					onLoadResourceType={() => resourceTypeResource.refetch()}
 					workspace={selected}
-					actingUser={actingUserIn(selected)}
+					actingUser={acting.in(selected) ?? null}
 				/>
 			{/key}
 		{/if}

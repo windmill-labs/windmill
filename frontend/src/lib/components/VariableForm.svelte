@@ -35,9 +35,10 @@
 		/** Workspace the path is validated against; defaults to the nav workspace. */
 		workspace?: string | undefined
 		/** The user acting in `workspace`, resolved by the editor above. `undefined` while
-		 * that lookup is pending or after it failed: every check below then refuses, rather
-		 * than answering with the navigation user's rights in another workspace. */
-		actingUser: UserExt | undefined
+		 * `null` while that lookup is pending or after it failed: every check below then
+		 * refuses, rather than answering with the navigation user's rights in another
+		 * workspace. */
+		actingUser: UserExt | null
 	}
 
 	let {
@@ -76,14 +77,14 @@
 <div class="flex flex-col gap-1">
 	<label for="path" class="text-xs font-semibold text-emphasis">Path</label>
 	<Path
-		disabled={initialPath != '' && !isOwner(initialPath, actingUser, ws)}
+		disabled={initialPath != '' && !isOwner(initialPath, actingUser ?? undefined, ws)}
 		bind:error={pathError}
 		bind:path
 		{initialPath}
 		namePlaceholder="variable"
 		kind="variable"
 		workspaceOverride={workspace}
-		actingUser={actingUser ?? null}
+		{actingUser}
 	/>
 	<LabelsInput bind:labels />
 </div>

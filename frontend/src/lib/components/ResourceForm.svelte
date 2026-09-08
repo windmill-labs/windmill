@@ -38,7 +38,9 @@
 		viewJsonSchema: boolean
 		jsonError: string
 		deployTo: string | undefined
-		can_write: boolean
+		/** `undefined` while the acting user or the resource is still being resolved: neither a
+		 * grant nor the denial the read-only alert announces. */
+		can_write: boolean | undefined
 		resource_type: string | undefined
 		resourceTypeInfo: ResourceType | undefined
 		resourceSchema: Schema | undefined
@@ -49,9 +51,10 @@
 		 * defaults to the nav workspace. */
 		workspace?: string | undefined
 		/** The user acting in `workspace`, resolved by the editor above. `undefined` while
-		 * that lookup is pending or after it failed: every check below then refuses, rather
-		 * than answering with the navigation user's rights in another workspace. */
-		actingUser: UserExt | undefined
+		 * `null` while that lookup is pending or after it failed: every check below then
+		 * refuses, rather than answering with the navigation user's rights in another
+		 * workspace. */
+		actingUser: UserExt | null
 		/** Fired once the GitLab picker has stored the picked project's token, so a
 		 * form that would otherwise file the URL as a secret knows it holds none. */
 		onCredentialStored?: () => void
@@ -158,7 +161,7 @@
 
 {#if !hidePath}
 	<div>
-		{#if !can_write}
+		{#if can_write === false}
 			<div class="my-2">
 				<Alert type="warning" title="Only read access">
 					You only have read access to this resource and cannot edit it
@@ -168,13 +171,13 @@
 		<Label label="Path">
 			<ResourcePathHint />
 			<Path
-				disabled={initialPath != '' && !isOwner(initialPath, actingUser, ws)}
+				disabled={initialPath != '' && !isOwner(initialPath, actingUser ?? undefined, ws)}
 				bind:path
 				{initialPath}
 				namePlaceholder="resource"
 				kind="resource"
 				workspaceOverride={workspace}
-				actingUser={actingUser ?? null}
+				{actingUser}
 			/>
 		</Label>
 	</div>

@@ -5,10 +5,9 @@
 
 	import { History, Loader2, Save } from 'lucide-svelte'
 	import WsSpecificVersions from './WsSpecificVersions.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { isOwner } from '$lib/utils'
-	import { getUserExt } from '$lib/user'
-	import { resource } from 'runed'
+	import { useActingUser } from '$lib/actingUser.svelte'
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
 	import OpenInSessionButton from './sessions/OpenInSessionButton.svelte'
 	import {
@@ -62,24 +61,13 @@
 	// The editor renders whichever workspace-specific variant `selected` points at, so history has
 	// to follow it too — otherwise a restore would write over the variant the user is not looking at.
 	let historyWorkspace = $derived(selected ?? effectiveWorkspace)
-	// `$userStore` is loaded for the navigation workspace and answers only for that one, so
-	// only history pointed elsewhere costs a lookup — and only once a resource is open, since
-	// this drawer outlives every resource it opens.
-	const otherWsUser = resource(
-		() => (path && historyWorkspace !== $workspaceStore ? historyWorkspace : undefined),
-		async (ws) => (ws ? await getUserExt(ws) : undefined)
-	)
-	const historyUser = $derived.by(() => {
-		if (historyWorkspace === $workspaceStore) return $userStore
-		const u = otherWsUser.current
-		// `resource` keeps the previous result across a refetch, and a superseded lookup can
-		// still land last, so a user only answers for the workspace they were fetched for.
-		return u?.workspace_id === historyWorkspace ? u : undefined
-	})
+	// Gated on `path`: this drawer outlives every resource it opens, so there is nothing to
+	// answer about until one is open.
+	const historyUser = useActingUser(() => (path ? historyWorkspace : undefined))
 	// Clearing is irreversible and the backend gates it on ownership, not write access, so the
 	// verdict has to come from the membership `historyWorkspace` knows about. An unresolved
 	// user gets no Clear button rather than one computed from another workspace's rights.
-	let canClearSelected = $derived(isOwner(path ?? '', historyUser, historyWorkspace))
+	let canClearSelected = $derived(isOwner(path ?? '', historyUser.current, historyWorkspace))
 
 	// A close reaches `on:close` on a later flush, by which point a caller that closed this drawer to
 	// open another editor has already anchored the new one. Clearing then would strip that anchor.

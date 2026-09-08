@@ -29,7 +29,7 @@
 		type Schedule,
 		type ErrorHandler
 	} from '$lib/gen'
-	import { enterpriseLicense, userStore, workspaceStore, type UserExt } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
 	import { base } from '$lib/base'
 	import Section from '$lib/components/Section.svelte'
@@ -50,8 +50,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
-	import { getUserExt } from '$lib/user'
-	import { resource } from 'runed'
+	import { useActingUser } from '$lib/actingUser.svelte'
 
 	let {
 		useDrawer = true,
@@ -139,21 +138,10 @@
 
 	const triggerWs = getTriggerWorkspace()
 	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
-	// `$userStore` is loaded for the navigation workspace and only answers for that one, so
-	// an acting workspace anywhere else has to be asked who is acting in it.
-	const otherWsUser = resource(
-		() => (wsId && wsId !== $workspaceStore ? wsId : undefined),
-		async (ws) => (ws ? await getUserExt(ws) : undefined)
-	)
-	// `undefined` while that lookup is in flight or after it failed; the checks below then
+	// `undefined` while the lookup is in flight or after it failed; the checks below then
 	// refuse rather than fall back to rights that belong to another workspace.
-	const actingUser: UserExt | undefined = $derived.by(() => {
-		if (wsId === $workspaceStore) return $userStore
-		const u = otherWsUser.current
-		// `resource` keeps the previous result across a refetch, and a superseded lookup can
-		// still land last, so a user only answers for the workspace they were fetched for.
-		return u?.workspace_id === wsId ? u : undefined
-	})
+	const acting = useActingUser(() => wsId)
+	const actingUser = $derived(acting.current)
 	const can_write = $derived(
 		permsPath === undefined ? true : canWrite(permsPath, extraPerms, actingUser)
 	)

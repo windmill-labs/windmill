@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { VariableService, WorkspaceService } from '$lib/gen'
 	import { createEventDispatcher, untrack } from 'svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -20,8 +20,7 @@
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import WsSpecificVersions from './WsSpecificVersions.svelte'
 	import { resource } from 'runed'
-	import { getUserExt } from '$lib/user'
-	import type { UserExt } from '$lib/stores'
+	import { useActingUser } from '$lib/actingUser.svelte'
 	import { UserDraft, draftValuesEqual, type UserDraftHandle } from '$lib/userDraft.svelte'
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
 	import { isEncryptedDraftValue } from '$lib/encryptedDraft'
@@ -55,20 +54,9 @@
 	let initialStates: Record<string, VariableState> = $state({})
 	let existedInitially: Record<string, boolean> = $state({})
 	let extraPerms: Record<string, Record<string, boolean>> = $state({})
-	// The user acting in each loaded workspace other than the navigation one, fetched
-	// alongside the variable. `undefined` stands for "we don't know" — a lookup still in
-	// flight or one that failed. Read through `actingUserIn`, never directly.
-	let perWsUser: Record<string, UserExt | undefined> = $state({})
-
-	/** The user acting in `ws`. `$userStore` is loaded for the navigation workspace and
-	 *  answers only for that one; anywhere else the lookup above answers, and `undefined`
-	 *  must never borrow the navigation user's rights — `canWrite` refuses for it. */
-	function actingUserIn(ws: string | undefined): UserExt | undefined {
-		if (!ws) return undefined
-		return ws === $workspaceStore ? $userStore : perWsUser[ws]
-	}
 	let selected: string | undefined = $state(undefined)
 	let pathError = $state('')
+	const acting = useActingUser(() => selected)
 
 	const handlesArray = UserDraft.useMany<VariableState>(() =>
 		workspaceSpecs.map((s) => ({
@@ -125,8 +113,8 @@
 	const can_write: boolean | undefined = $derived.by(() => {
 		if (!selected || !edit) return true
 		const perms = extraPerms[selected]
-		if (!perms) return undefined
-		return canWrite(editPath ?? '', perms, actingUserIn(selected))
+		if (!perms || !acting.resolved(selected)) return undefined
+		return canWrite(editPath ?? '', perms, acting.in(selected))
 	})
 	const dirtyWorkspaces = $derived(
 		Object.keys(states).filter((ws) => !draftValuesEqual(states[ws].draft, initialStates[ws]))
@@ -170,7 +158,7 @@
 	const dirtyCanWrite = $derived(
 		dirtyWorkspaces.every((ws) => {
 			const perms = extraPerms[ws]
-			return !perms || canWrite(editPath ?? '', perms, actingUserIn(ws))
+			return !perms || canWrite(editPath ?? '', perms, acting.in(ws))
 		})
 	)
 
@@ -181,18 +169,12 @@
 		if (!ws || !p) return
 		if (ws in states) return
 		untrack(() => {
-			// `actingUserIn` answers from `$userStore` for the navigation workspace, so only
-			// another one is worth asking.
-			const needsUser = ws !== $workspaceStore
-			Promise.all([
-				VariableService.getVariable({
-					workspace: ws,
-					path: p,
-					decryptSecret: false,
-					getDraft: true
-				}),
-				needsUser ? getUserExt(ws) : undefined
-			]).then(([v, user]) => {
+			VariableService.getVariable({
+				workspace: ws,
+				path: p,
+				decryptSecret: false,
+				getDraft: true
+			}).then((v) => {
 				// `.draft` already holds the editor's `VariableState` shape.
 				const savedDraftState = (v as any).draft as VariableState | undefined
 				// Deployed baseline as the dirty-check reference, so the banner
@@ -215,7 +197,6 @@
 				// CREATE, not update (update 404s).
 				existedInitially[ws] = !(v as any).no_deployed
 				extraPerms[ws] = v.extra_perms ?? {}
-				if (needsUser) perWsUser[ws] = user
 			})
 		})
 	})
@@ -227,7 +208,6 @@
 		initialStates = {}
 		existedInitially = {}
 		extraPerms = {}
-		perWsUser = {}
 		pathError = ''
 	}
 
@@ -245,9 +225,6 @@
 		initialStates[ws] = structuredClone(s)
 		existedInitially[ws] = false
 		selected = ws
-		// A variable being created runs no fetch for the acting user to ride along with, so
-		// a workspace the navigation store cannot answer for is asked here.
-		if (ws !== $workspaceStore) getUserExt(ws).then((u) => (perWsUser[ws] = u))
 		drawer?.openDrawer()
 	}
 
@@ -363,7 +340,9 @@
 				</Alert>
 			{/if}
 
-			{#if current}
+			<!-- Held back until there is a verdict: rendering the form against a pending `can_write`
+			would flash read-only controls at someone who can in fact write. -->
+			{#if current && can_write !== undefined}
 				{#key current}
 					<VariableForm
 						bind:this={form}
@@ -378,7 +357,7 @@
 						{edit}
 						onLoadSecret={loadSecret}
 						workspace={selected}
-						actingUser={actingUserIn(selected)}
+						actingUser={acting.in(selected) ?? null}
 					/>
 				{/key}
 			{/if}
