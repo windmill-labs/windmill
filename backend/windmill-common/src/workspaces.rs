@@ -184,7 +184,7 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28931/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28949/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -192,7 +192,7 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28931/sync-script-to-git-repo
 /// ignores the slug, so the slug is kept free of characters that would be
 /// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
 /// reverse proxies reject as double-encoding when the client re-encodes it).
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28930/git-sync-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28948/git-sync-init-repository-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -346,13 +346,14 @@ pub struct GitRepositorySettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_pull: Option<AutoPullSettings>,
     /// Open a PR when a deploy pushes a `wm_deploy/**` branch of this promotion
-    /// repo (app-backed only; runs from the deploy callback so it works without
+    /// repo (needs a credential the server holds — a GitHub App installation or
+    /// a checked GitLab token; runs from the deploy callback so it works without
     /// inbound webhooks). Off by default so upgrades don't change behavior.
     #[serde(default, skip_serializing_if = "is_false")]
     pub promotion_open_prs: bool,
     /// Parent-level: open a PR when a fork of this workspace deploys to its
-    /// `wm-fork/**` branch (app-backed only; the fork's deploy callback reads
-    /// this from the parent). Off by default.
+    /// `wm-fork/**` branch (needs a credential the server holds; the fork's
+    /// deploy callback reads this from the parent). Off by default.
     #[serde(default, skip_serializing_if = "is_false")]
     pub fork_open_prs: bool,
     /// Server-owned: the last failure opening a PR for a deploy branch of this
@@ -361,6 +362,10 @@ pub struct GitRepositorySettings {
     /// successful PR; never accepted from clients.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_pr_error: Option<String>,
+    /// Server-owned: what the repo's credential says about its own expiry and
+    /// scopes. Written by the credential check, never accepted from clients.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<GitCredentialStatus>,
 }
 
 impl GitRepositorySettings {
@@ -404,6 +409,44 @@ pub enum AutoPullMode {
     Webhook,
     /// Polling only (`git ls-remote` on an interval).
     Polling,
+}
+
+/// Host whose credential lifecycle Windmill can manage from the repo URL.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum GitCredentialProvider {
+    Gitlab,
+}
+
+/// What the repo's own credential says about itself, refreshed by asking the
+/// host. Server-owned: written by the credential check, never accepted from a
+/// client.
+///
+/// Absent means the check has not run or the repo carries no credential we can
+/// introspect (a GitHub App repo mints tokens per call and has nothing to expire).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GitCredentialStatus {
+    pub provider: GitCredentialProvider,
+    /// Changes on every rotation, so it identifies the current token, not the
+    /// credential's whole history.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_id: Option<i64>,
+    /// `None` is a non-expiring token, which only self-managed GitLab can issue
+    /// (and only for a service account). It means no warning and no rotation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<chrono::NaiveDate>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scopes: Vec<String>,
+    /// Whether *this workspace* renews the credential. That needs a scope which
+    /// permits it (`api` or `self_rotate`) and a credential this workspace holds:
+    /// a token carried in the repository URL is the operator's to manage, and one
+    /// resolved from an ancestor is the ancestor's, so neither is renewed here.
+    pub rotatable: bool,
+    /// Unix timestamp (seconds) of the last check.
+    pub checked_at: i64,
+    /// Why the last check or rotation failed, cleared by the next success.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Outcome of the most recent auto-pull attempt, surfaced in the UI.

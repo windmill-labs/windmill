@@ -4067,6 +4067,7 @@ async fn edit_git_sync_config(
                 clear_client_supplied_auto_pull_state(ap);
             }
             repo.open_pr_error = None;
+            repo.credential = None;
         }
         reject_parent_only_git_sync_settings_on_fork(
             &db,
@@ -4167,6 +4168,7 @@ async fn edit_git_sync_config(
                     continue;
                 };
                 repo.open_pr_error = old.open_pr_error.clone();
+                repo.credential = old.credential.clone();
                 if let (Some(new_ap), Some(old_ap)) =
                     (repo.auto_pull.as_mut(), old.auto_pull.as_ref())
                 {
@@ -4212,6 +4214,7 @@ async fn edit_git_sync_config(
             .flatten()
             .and_then(|v| serde_json::from_value(v).ok());
             let removed_webhooks: Vec<(String, i64)> = existing
+                .as_ref()
                 .map(|e| {
                     e.repositories
                         .iter()
@@ -4245,6 +4248,19 @@ async fn edit_git_sync_config(
             // `sync_repo_webhook` writes back the webhook fields it changes itself:
             // the remote hook and the record of it have to move together, so
             // persisting them out here would let one land without the other.
+            // Before the webhook reconcile, which decides whether this repo can have
+            // one from the credential this records. Also puts a short-lived or
+            // under-scoped token in front of the operator while they are still on the
+            // settings page, rather than when it expires.
+            if let Err(e) = windmill_common::git_sync_ee::refresh_git_credential_status(
+                &db,
+                &w_id,
+                &repo.git_repo_resource_path,
+            )
+            .await
+            {
+                tracing::warn!("git credential check error: {}", e);
+            }
             if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await
             {
                 tracing::warn!("git auto-pull: webhook sync error: {}", e);
@@ -4298,6 +4314,7 @@ async fn edit_git_sync_repository(
         clear_client_supplied_auto_pull_state(ap);
     }
     new_config.repository.open_pr_error = None;
+    new_config.repository.credential = None;
     reject_parent_only_git_sync_settings_on_fork(
         &db,
         &w_id,
@@ -4422,6 +4439,7 @@ async fn edit_git_sync_repository(
         // from the UI cannot revert what the poller/webhook layer wrote.
         let mut updated = new_config.repository;
         updated.open_pr_error = existing_repo.open_pr_error.clone();
+        updated.credential = existing_repo.credential.clone();
         match (updated.auto_pull.as_mut(), existing_repo.auto_pull.as_ref()) {
             (Some(new_ap), Some(old_ap)) => {
                 new_ap.last_synced_sha = old_ap.last_synced_sha.clone();
@@ -4479,6 +4497,15 @@ async fn edit_git_sync_repository(
         .iter_mut()
         .find(|r| r.git_repo_resource_path == new_config.git_repo_resource_path)
     {
+        if let Err(e) = windmill_common::git_sync_ee::refresh_git_credential_status(
+            &db,
+            &w_id,
+            &repo.git_repo_resource_path,
+        )
+        .await
+        {
+            tracing::warn!("git credential check error: {}", e);
+        }
         if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await {
             tracing::warn!("git auto-pull: webhook sync error: {}", e);
         }
@@ -4617,6 +4644,10 @@ async fn delete_git_sync_repository(
                 windmill_common::git_sync_ee::delete_repo_webhook(&db, &w_id, &url, hook_id).await;
         }
     }
+
+    // The stored credential is deliberately left alone: it belongs to the git
+    // repository resource, which this endpoint does not delete, and the resource
+    // still authenticates with it for connection tests and commit lookups.
 
     // Trigger git sync for repository deletion
     handle_deployment_metadata(
@@ -6387,9 +6418,10 @@ async fn update_workspace_settings(
             // Auto-pull and fork PRs are parent-owned and must not be inherited:
             // the fork would otherwise carry the parent's webhook id (turning off
             // auto-pull on the fork would delete the parent's webhook). A fork
-            // still inherits the push-direction config and the installation.
-            // Repo → fork sync is driven by the parent's webhook/poller
-            // (`sync_forks`), which routes the fork's `wm-fork/**` branch into it.
+            // still inherits the push-direction config, the installation, and the
+            // recorded credential status, which describes the repository rather
+            // than belonging to either workspace and would otherwise leave the
+            // fork unqualified for managed features until its first check.
             r.auto_pull = None;
             r.fork_open_prs = false;
             r.open_pr_error = None;
@@ -6708,7 +6740,7 @@ async fn clone_scripts(
 }
 
 /// The parsed dbt graph a deployed script carries: its models, their SQL and
-/// tests, and the `ref()` lineage between them.
+/// tests, and the `ref()` and column-level lineage between them.
 ///
 /// Keyed on (workspace_id, script_path, script_hash), and the fork keeps every
 /// script's hash, so each row moves across as itself.
@@ -6726,11 +6758,11 @@ async fn clone_dbt_graph(
         "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,
             resource_type, name, asset_path, materialized, materialize_strategy, unique_key,
             tags, description, test_kind, test_column, test_args, severity, attached_node,
-            columns, freshness, raw_code, original_file_path, ingested_at)
+            columns, column_schema, freshness, raw_code, original_file_path, ingested_at)
          SELECT $2, script_path, script_hash, job_id, unique_id,
             resource_type, name, asset_path, materialized, materialize_strategy, unique_key,
             tags, description, test_kind, test_column, test_args, severity, attached_node,
-            columns, freshness, raw_code, original_file_path, ingested_at
+            columns, column_schema, freshness, raw_code, original_file_path, ingested_at
          FROM dbt_node
          WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
         source_workspace_id,
@@ -6744,6 +6776,24 @@ async fn clone_dbt_graph(
          SELECT $2, script_path, script_hash, job_id, parent_unique_id, child_unique_id,
             ingested_at
          FROM dbt_edge
+         WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
+        source_workspace_id,
+        target_workspace_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    // Column lineage travels with the rest of the graph, and it has to: the
+    // snapshot's digest covers it, so a fork missing these rows recomputes the
+    // digest the source stored, matches, and stores nothing — leaving the
+    // lineage gone until someone redeploys, which is the failure this whole
+    // function exists to prevent.
+    sqlx::query!(
+        "INSERT INTO dbt_column_edge (workspace_id, script_path, script_hash, job_id,
+            parent_unique_id, parent_column, child_unique_id, child_column, lineage_kind,
+            ingested_at)
+         SELECT $2, script_path, script_hash, job_id, parent_unique_id, parent_column,
+            child_unique_id, child_column, lineage_kind, ingested_at
+         FROM dbt_column_edge
          WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
         source_workspace_id,
         target_workspace_id

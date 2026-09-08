@@ -1,11 +1,16 @@
 #[cfg(feature = "private")]
 #[allow(unused)]
 pub use crate::git_sync_ee::*;
-#[cfg(not(feature = "private"))]
+#[cfg(not(all(feature = "private", feature = "enterprise")))]
 use sqlx::{Pool, Postgres};
 use url::Url;
 
-#[cfg(not(feature = "private"))]
+/// Gated on the pair to match [`with_stored_credential`] below, whose callers
+/// reach it through this facade un-gated and so depend on it. Nothing routes
+/// here today (the one caller imports the enterprise item directly), so this is
+/// for uniformity: the next plain caller would otherwise find no definition
+/// under `private` without `enterprise`.
+#[cfg(not(all(feature = "private", feature = "enterprise")))]
 pub async fn get_github_app_token_internal(
     _db: &Pool<Postgres>,
     _job_token: &str,
@@ -13,6 +18,21 @@ pub async fn get_github_app_token_internal(
     return Err(crate::error::Error::BadRequest(
         "Github app authentication is not available on the open source build".to_string(),
     ));
+}
+
+/// Server-held git credentials are an enterprise feature, so on this build a
+/// repository URL authenticates with whatever it already carries.
+///
+/// Gated on the pair rather than on `private` alone: `private` does not imply
+/// `enterprise`, and the callers are plain (no `#[cfg]`), so a build with one
+/// and not the other would find neither this nor the enterprise definition.
+#[cfg(not(all(feature = "private", feature = "enterprise")))]
+pub async fn with_stored_credential(
+    _db: &Pool<Postgres>,
+    _w_id: &str,
+    url: String,
+) -> crate::error::Result<String> {
+    Ok(url)
 }
 
 lazy_static::lazy_static! {

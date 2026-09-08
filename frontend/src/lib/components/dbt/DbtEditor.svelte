@@ -32,6 +32,15 @@
 		DbtAssetProvenance
 	} from '$lib/components/assets/AssetGraph/types'
 	import {
+		useDbtColumnLineage,
+		type DbtGraphPin
+	} from '$lib/components/assets/AssetGraph/dbtColumnLineage.svelte'
+	import {
+		EMPTY_COLUMN_GRAPH,
+		mergeColumnGraphs,
+		type ColumnLineageGraph
+	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
+	import {
 		DBT_DESCRIPTOR,
 		DBT_MODULE_EXTENSIONS,
 		dbtDefaultContent,
@@ -223,6 +232,28 @@
 	// the deployed graph, which previews by version instead. Either way the rows
 	// come from the project whose SQL is displayed above them.
 	let selectedBuffer = $state<DbtPreviewBuffer | undefined>(undefined)
+	// Which graph the selection came from, so the lineage fetched below is the
+	// selected node's own project rather than whatever is deployed.
+	let selectionPin = $state<DbtGraphPin | undefined>(undefined)
+	// The selected model's column lineage, fetched on selection. Its own request
+	// rather than a field on the graph: only a project that opted into the
+	// analysis pass has any, and it is drawn for one model at a time.
+	const columnLineage = useDbtColumnLineage({
+		workspace: () => opWs,
+		assetPaths: () => {
+			const path = selectedDbt ? selectedAsset?.path : undefined
+			return path ? [path] : []
+		},
+		pin: () => selectionPin
+	})
+	// What the scripts around this project declare about its columns, off the
+	// same graph response the canvas drew. Merged rather than chosen between: a
+	// model's column and the ducklake column a script derives from it are one
+	// chain, and the trace has to cross that boundary.
+	let selectionProducerColumns = $state<ColumnLineageGraph>(EMPTY_COLUMN_GRAPH)
+	let selectionColumnGraph = $derived(
+		mergeColumnGraphs(columnLineage.graph, selectionProducerColumns)
+	)
 
 	let jobLoader: JobLoader | undefined = $state(undefined)
 	let testJob: any = $state(undefined)
@@ -525,10 +556,12 @@
 						testRunning={testIsLoading}
 						testResult={testJob?.result}
 						selection={graphSelection}
-						onSelect={(sel, dbt, buffer) => {
+						onSelect={(sel, dbt, buffer, pin, producerColumns) => {
 							graphSelection = sel
 							selectedDbt = dbt
 							selectedBuffer = buffer
+							selectionPin = pin
+							selectionProducerColumns = producerColumns
 						}}
 					/>
 				</Pane>
@@ -550,6 +583,10 @@
 							{args}
 							fileInBundle={!!selectedDbt.original_file_path &&
 								!!modules?.[selectedDbt.original_file_path]}
+							columnGraph={selectionColumnGraph}
+							columnLoading={columnLineage.loading}
+							columnTruncated={columnLineage.truncated}
+							columnFailed={columnLineage.failed}
 							onOpenFile={open}
 							onClose={() => (graphSelection = undefined)}
 						/>

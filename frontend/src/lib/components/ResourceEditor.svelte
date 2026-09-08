@@ -1,12 +1,19 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { ResourceService, WorkspaceService, type Resource, type ResourceType } from '$lib/gen'
+	import {
+		GitSyncService,
+		ResourceService,
+		WorkspaceService,
+		type Resource,
+		type ResourceType
+	} from '$lib/gen'
 	import { canWrite } from '$lib/utils'
 	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
 	import ResourceForm from './ResourceForm.svelte'
+	import ReplaceGitCredential from './git_sync/ReplaceGitCredential.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { resource } from 'runed'
@@ -194,6 +201,40 @@
 	let loadingSchema = $derived(resourceTypeResource.loading)
 
 	let current = $derived(selected ? states[selected]?.draft : undefined)
+	// The saved URL, not the draft's: a credential is bound to the repository it
+	// is issued for, so binding one to an edit that has not landed yet would tie
+	// it to something the resource does not point at.
+	let deployedUrl = $derived(
+		selected ? ((fetchedResources[selected]?.value as any)?.url as string | undefined) : undefined
+	)
+	// The deployed path, for the same reason as the deployed URL: the server
+	// answers about what is stored, and an unsaved rename names nothing yet.
+	let deployedPath = $derived(selected ? (initialStates[selected]?.path ?? initialPath) : undefined)
+	// Asked of the server rather than read off the resource: the resource is
+	// client-editable, exported and copied into forks, so nothing written on it
+	// stays true. Re-asked when the saved URL moves, since that is a different
+	// repository. The answer is for admins, who are the only ones who could act
+	// on it, so nobody else asks.
+	const credentialOrigin = resource(
+		[
+			() => selected,
+			() => deployedPath,
+			() => deployedUrl,
+			() => resource_type,
+			() => (selected ? (perWsUser[selected] ?? $userStore)?.is_admin : undefined)
+		],
+		async ([ws, path, _url, type, admin]) =>
+			ws && path && type === 'git_repository' && admin
+				? await GitSyncService.getCredentialOrigin({ workspace: ws, path }).catch(() => undefined)
+				: undefined
+	)
+	// Only a credential this workspace holds is its to replace: a fork borrows
+	// its ancestor's, and storing a replacement here would split it in two.
+	let holdsCredential = $derived(credentialOrigin.current?.origin === 'held')
+	// Only an unsaved *URL* blocks replacing the token, not any unsaved change:
+	// opening the drawer materialises schema defaults (`folder: ""`), so a whole-
+	// resource dirty check would disable it the moment the drawer opens.
+	let urlDirty = $derived(!!deployedUrl && current?.args?.url !== deployedUrl)
 	let resourceToEdit: Resource | undefined = $derived(
 		selected ? fetchedResources[selected] : undefined
 	)
@@ -492,6 +533,25 @@
 		{#if otherDirty.length > 0}
 			<Alert type="warning" title="Editing multiple workspaces">
 				You are going to edit the value in: {otherDirty.join(', ')}
+			</Alert>
+		{/if}
+
+		{#if holdsCredential && selected}
+			<Alert type="info" title="Windmill holds this repository's access token">
+				<div class="flex flex-col items-start gap-2">
+					<div>
+						The URL carries no credential. Windmill stores the token and renews it before it
+						expires.
+						{#if urlDirty}
+							Save your URL change to replace the token.
+						{/if}
+					</div>
+					<ReplaceGitCredential
+						workspace={selected}
+						repoUrl={deployedUrl ?? ''}
+						disabled={urlDirty || !deployedUrl}
+					/>
+				</div>
 			</Alert>
 		{/if}
 

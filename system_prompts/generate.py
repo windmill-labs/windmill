@@ -1464,9 +1464,10 @@ def extract_wac_ts_sdk(ts_content: str) -> str:
         return ''
 
     declarations = []
-    task_options = _extract_ts_interface(ts_content, 'TaskOptions')
-    if task_options:
-        declarations.append(task_options)
+    for interface_name in ('TaskRetry', 'TaskOptions'):
+        interface = _extract_ts_interface(ts_content, interface_name)
+        if interface:
+            declarations.append(interface)
 
     for function_name in WAC_TS_FUNCTIONS:
         signature = _extract_ts_exported_function(ts_content, function_name)
