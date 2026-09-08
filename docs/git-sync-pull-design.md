@@ -641,10 +641,12 @@ corresponds to; the check reflects that fork's current results on the PR head.
   Partial index `(workspace_id) WHERE NOT concluded OR NOT github_posted` (the live set the
   hook + poller scan).
 - **Open** — in the `pull_request` handler (opened/synchronize/reopened, base = tracked):
-  resolve the fork workspace from the head ref (reusing the fork-branch routing;
-  `resolve_pr_head_workspace`), supersede the fork's previous open check (`neutral` — a
-  synchronize advanced the head), `create_check_run` in_progress on `head_sha` via the
-  parent's installation, persist the intent row (even on create failure), then evaluate.
+  when the head lives in the base repo, resolve the fork workspace from the head ref
+  (reusing the fork-branch routing; `resolve_pr_head_workspace`), `create_check_run`
+  in_progress on `head_sha` via the parent's installation, persist the intent row (even on
+  create failure), then evaluate. An earlier head's open check is left to conclude on its
+  own (fork verdict or timeout): a late-delivered event for an old head must never touch
+  the current head's check.
 - **Conclude** — verdict from the fork's **current** CI test status: the newest `ci_test`
   job per `(trigger, runnable_path)` (tested item × test script) in a recent window. The
   job's `trigger` is the concrete tested item, so wildcard/multi-target tests are covered
@@ -658,9 +660,10 @@ corresponds to; the check reflects that fork's current results on the PR head.
   decision with a guarded `UPDATE ... WHERE NOT concluded RETURNING` (exactly-once) and
   decouples GitHub delivery via `github_posted` so a failed PATCH is retried, not hung.
 
-Invariants: supersession concludes a stale head's check on synchronize so one PR shows one
-live check; the webhook's workspace posts through its own installation; the timeout stops a
-hung test job from blocking a required check forever. A plain feature-branch or
+Invariants: only a head in the base repo can map to a workspace (a contributor fork's
+branch names mean nothing here); the webhook's workspace posts through its own
+installation; the timeout stops a hung test job from blocking a required check forever;
+rows cascade away with either workspace. A plain feature-branch or
 contributor-fork PR resolves to no fork workspace and gets an already-concluded `skipped`
 check (branch protection counts `skipped` as passing, so requiring the check does not block
 those PRs). Known limit (accepted for v1): the fork's status is workspace-wide (all its

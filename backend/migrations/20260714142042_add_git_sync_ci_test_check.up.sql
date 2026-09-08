@@ -4,11 +4,11 @@
 CREATE TABLE git_sync_ci_test_check (
     -- The fork workspace whose CI tests gate the PR: keys the row, and its `ci_test`
     -- jobs are what the check reflects.
-    workspace_id VARCHAR(50) NOT NULL REFERENCES workspace(id),
+    workspace_id VARCHAR(50) NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
     head_sha VARCHAR(64) NOT NULL,
     -- The workspace whose GitHub App installation posts the check run: the one that
     -- received the pull_request webhook (the parent owning the repo hook).
-    github_workspace_id VARCHAR(50) NOT NULL REFERENCES workspace(id),
+    github_workspace_id VARCHAR(50) NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
     repo_url TEXT NOT NULL,
     -- NULL when the GitHub check-run creation failed; the poller retries the create.
     check_run_id BIGINT,
