@@ -753,19 +753,10 @@ export async function handleFile(
     // create_script (which would bump the script hash) and instead route
     // through /acls/* via applyExtraPermsDiff.
     //
-    // No refetch is needed:
-    //  - folder perms are additive at auth time, never merged onto item rows;
-    //  - the body sent to create_script doesn't carry extra_perms, so the two
-    //    branches above each leave the new version's perms where the diff below
-    //    expects them. The update branch names `parent_hash`, which carries the
-    //    previous version's perms over unchanged, so the diff against `remote`
-    //    (captured before the deploy) matches what `wmill acl remove` would do.
-    //    The create branch reaches a path with nothing live on it, where the
-    //    server adopts a retired version for its lineage but resets perms to
-    //    `{}` — and there `remote` is undefined, so the diff is the whole local
-    //    set rather than a delta onto perms that are no longer there.
-    //  - the granular ACL endpoint updates every matching row, so neither leaves
-    //    ghost entries behind.
+    // No refetch is needed: folder perms are additive at auth time and never merged
+    // onto item rows, and each branch above leaves the new version's perms where the
+    // diff expects them — the update branch names a parent, which carries them over,
+    // while the create branch has no `remote` to diff against and sends the whole set.
     await applyExtraPermsDiff(
       workspaceId,
       "script",

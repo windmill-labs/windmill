@@ -1416,11 +1416,29 @@ async fn create_script_internal<'c>(
             .await?;
 
             if let Some(clashing_hash) = clashing_hash_o {
-                return Err(Error::BadRequest(format!(
-                    "A script with hash {} with same parent_hash has been found. However, the \
-                         lineage must be linear: no 2 scripts can have the same parent",
-                    ScriptHash(clashing_hash)
-                )));
+                // Named only when the caller could already read it. The probe above has to be
+                // unscoped to be correct, but a hash alone reads a script's content back
+                // through `raw/h/{hash}`, which authorizes nothing per script — so echoing one
+                // the caller cannot see hands them a way to fetch it.
+                let visible_to_caller = sqlx::query_scalar!(
+                    "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
+                    clashing_hash,
+                    &w_id
+                )
+                .fetch_optional(&mut *tx)
+                .await?
+                .is_some();
+                return Err(Error::BadRequest(if visible_to_caller {
+                    format!(
+                        "A script with hash {} with same parent_hash has been found. However, \
+                         the lineage must be linear: no 2 scripts can have the same parent",
+                        ScriptHash(clashing_hash)
+                    )
+                } else {
+                    "A script with the same parent_hash has been found. However, the lineage \
+                     must be linear: no 2 scripts can have the same parent"
+                        .to_owned()
+                }));
             };
 
             let ScriptWithStarred { script: ps, .. } =
