@@ -1385,8 +1385,10 @@ async fn update_flow(
     if is_new_path {
         // Everything left at the old path is a draft this deploy didn't consume
         // — teammates' rows, and the deployer's own when the caller asked us to
-        // keep it (a move re-deploys the DEPLOYED content, not the draft).
-        // Carry them rather than strand them.
+        // keep it. Carry them rather than strand them. Only the deployer's own
+        // row is restamped: this runs on any path-changing deploy, content edits
+        // included, and a teammate whose draft claimed the new head would lose
+        // their stale-draft warning.
         let outcome = windmill_common::user_drafts::move_drafts_for_path(
             &mut tx,
             &w_id,
@@ -1397,6 +1399,7 @@ async fn update_flow(
             UserDraftItemKind::Flow
                 .base_version_field()
                 .map(|f| (f, version.to_string())),
+            &authed.email,
         )
         .await?;
         if outcome.left_behind > 0 {

@@ -576,10 +576,10 @@ pub async fn delete_own_draft_for_path(
 /// filter: teammates' rows and the legacy NULL-email row follow too.
 ///
 /// `typed_path_field` is the draft JSON key holding the user-typed target path
-/// (`path` for scripts, `draft_path` for flows/apps). It is rewritten whenever
-/// present — a target staged against the old location would otherwise un-move
-/// the item the next time that draft is deployed. Absent means "same as the
-/// row's path", which the move already fixed.
+/// (`path` for scripts, `draft_path` for flows/apps). It is re-pointed only when
+/// it still names `old_path`: absent means "wherever my row sits", which `SET
+/// path` already fixed, and anything else is a rename the user staged in their
+/// own editor, which deploying their draft should still honour.
 ///
 /// `base_version` restamps the version the draft forked from so the carried
 /// draft doesn't read as stale against the version the move just created. The
@@ -587,6 +587,14 @@ pub async fn delete_own_draft_for_path(
 /// `parent_hash` is a hex string, a flow's `version_id` and an app's
 /// `parent_version` are numbers. Only restamps rows that already carry the
 /// field.
+///
+/// The restamp is confined to `restamp_email`'s own row, and that is a safety
+/// property, not an optimisation. This function runs on ANY deploy that changed
+/// the path, including one that renamed and edited in the same breath. Saying
+/// "you are up to date with the new head" to a teammate's draft would delete the
+/// stale-draft warning they need, and they would then deploy straight over the
+/// edit. Only the deployer knows their own draft is not behind the version they
+/// just pushed.
 ///
 /// A row whose owner already has a draft at `new_path` stays put: the target
 /// draft is work in its own right and is never overwritten. Those rows are
@@ -601,6 +609,7 @@ pub async fn move_drafts_for_path(
     new_path: &str,
     typed_path_field: &str,
     base_version: Option<(&str, String)>,
+    restamp_email: &str,
 ) -> Result<MoveDraftsOutcome> {
     let typs = kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>();
     // The typed path is only followed along when it still names the OLD path.
@@ -646,10 +655,11 @@ pub async fn move_drafts_for_path(
                    SET value = to_json(
                        jsonb_set(to_jsonb(value), ARRAY[$1::text], $2::text::jsonb, false)
                    )
-                   WHERE id = ANY($3)"#,
+                   WHERE id = ANY($3) AND email = $4"#,
                 field,
                 version,
                 &moved,
+                restamp_email,
             )
             .execute(&mut **tx)
             .await?;

@@ -355,6 +355,24 @@ struct DraftBaseVersion {
     /// Apps / raw apps: `app_version.id`.
     #[serde(default)]
     parent_version: Option<i64>,
+    /// The user-typed target path — `UserDraftItemKind::typed_path_field`. Both
+    /// spellings live here so the one cheap parse answers the version question
+    /// and the staged-rename question together; serde skips every other key, and
+    /// an app draft's payload runs to hundreds of KB.
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    draft_path: Option<String>,
+}
+
+impl DraftBaseVersion {
+    /// The typed path for this kind, mirroring `typed_path_field`.
+    fn typed_path(&self, kind: UserDraftItemKind) -> Option<&str> {
+        match kind {
+            UserDraftItemKind::Script => self.path.as_deref(),
+            _ => self.draft_path.as_deref(),
+        }
+    }
 }
 
 /// Where the item that used to live at `path` went, for a draft still bound to
@@ -510,14 +528,7 @@ async fn resolve_moved_to(
     // Present and naming the old path ⇒ repoint. Absent ⇒ omit, so the patch
     // never manufactures a target the draft did not have. Naming anywhere else
     // ⇒ omit, so a staged rename is preserved.
-    let repoint_path = serde_json::from_str::<serde_json::Value>(value)
-        .ok()
-        .and_then(|v| {
-            v.get(kind.typed_path_field())
-                .and_then(|p| p.as_str())
-                .map(|p| p == path)
-        })
-        .unwrap_or(false);
+    let repoint_path = base.typed_path(kind) == Some(path);
     Ok(moved.map(|(new_path, new_by, head)| {
         let mut patch = serde_json::Map::new();
         if repoint_path {

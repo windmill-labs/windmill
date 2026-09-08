@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE draft\n                   SET value = to_json(\n                       jsonb_set(to_jsonb(value), ARRAY[$1::text], $2::text::jsonb, false)\n                   )\n                   WHERE id = ANY($3) AND email = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8Array",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b465d4abec4411a59c693efbe569e8c1508b37ca3ee1eef39fb1896c19c61abc"
+}
