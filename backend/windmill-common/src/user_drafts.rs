@@ -594,7 +594,13 @@ pub async fn delete_own_draft_for_path(
 /// "you are up to date with the new head" to a teammate's draft would delete the
 /// stale-draft warning they need, and they would then deploy straight over the
 /// edit. Only the deployer knows their own draft is not behind the version they
-/// just pushed.
+/// just pushed. `resolve_moved_to` scopes its `moved_patch` the same way.
+///
+/// The legacy `email IS NULL` row is carried like every other but deliberately
+/// never restamped: unlike an owned row it is visible to the whole workspace, so
+/// clearing its staleness would clear the warning for everyone, which is the
+/// hazard the scoping exists to prevent. Its owner gets a declinable prompt
+/// instead.
 ///
 /// A row whose owner already has a draft at `new_path` stays put: the target
 /// draft is work in its own right and is never overwritten. Those rows are

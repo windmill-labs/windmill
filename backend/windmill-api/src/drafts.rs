@@ -366,11 +366,15 @@ struct DraftBaseVersion {
 }
 
 impl DraftBaseVersion {
-    /// The typed path for this kind, mirroring `typed_path_field`.
+    /// The typed path for this kind. Keyed off `typed_path_field()` rather than
+    /// re-matching the kind, so this stays one mapping: a kind that later spells
+    /// its typed path a third way lands on `None` here loudly instead of
+    /// silently reading `draft_path` and skipping the repoint.
     fn typed_path(&self, kind: UserDraftItemKind) -> Option<&str> {
-        match kind {
-            UserDraftItemKind::Script => self.path.as_deref(),
-            _ => self.draft_path.as_deref(),
+        match kind.typed_path_field() {
+            "path" => self.path.as_deref(),
+            "draft_path" => self.draft_path.as_deref(),
+            _ => None,
         }
     }
 }
@@ -520,22 +524,29 @@ async fn resolve_moved_to(
 
     // The client re-points its in-flight draft with this patch rather than
     // reproducing `typed_path_field` / `base_version_field` on its own side.
-    // The version is always restamped — it is lineage, not intent, and without
-    // it the draft lands at the new path still claiming the pre-move version and
-    // the editor greets it with a stale-draft prompt. The typed path follows the
-    // same rule as `move_drafts_for_path`: only when it still names the old path,
-    // so a rename the user staged in this very editor survives the relocation.
-    // Present and naming the old path ⇒ repoint. Absent ⇒ omit, so the patch
-    // never manufactures a target the draft did not have. Naming anywhere else
-    // ⇒ omit, so a staged rename is preserved.
+    //
+    // The typed path is repointed only when it still names the old path: absent
+    // ⇒ omit, so the patch never manufactures a target the draft did not have;
+    // naming anywhere else ⇒ omit, so a rename staged in this very editor
+    // survives the relocation. Same rule as `move_drafts_for_path`.
+    //
+    // The version is restamped only for whoever performed the move, matching the
+    // `restamp_email` scoping on the passive carry and for the same reason. The
+    // deploy that moved the item may have edited it in the same breath; handing a
+    // teammate the new head would tell them they are up to date with content they
+    // have never seen, and their next deploy would silently revert it. The mover
+    // knows what they just pushed, so only they are spared the prompt.
     let repoint_path = base.typed_path(kind) == Some(path);
     Ok(moved.map(|(new_path, new_by, head)| {
+        let moved_by_me = new_by.as_deref() == Some(authed.username.as_str());
         let mut patch = serde_json::Map::new();
         if repoint_path {
             patch.insert(kind.typed_path_field().to_string(), json!(&new_path));
         }
-        if let Some(field) = kind.base_version_field() {
-            patch.insert(field.to_string(), head);
+        if moved_by_me {
+            if let Some(field) = kind.base_version_field() {
+                patch.insert(field.to_string(), head);
+            }
         }
         (new_path, new_by, serde_json::Value::Object(patch))
     }))
