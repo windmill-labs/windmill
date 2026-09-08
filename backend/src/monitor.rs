@@ -5179,8 +5179,8 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
 
         // After the store, so a retry that wakes mid-build reads the config being applied
         // rather than the one it replaced. Unconditional rather than gated on the value
-        // changing: it is also what re-evaluates the license plan, and a downgrade has to
-        // drop an override the instance is no longer entitled to.
+        // changing, so that a pass triggered by anything else — a license-plan change, most
+        // of all — still re-evaluates the entitlement.
         #[cfg(feature = "parquet")]
         reload_cache_object_store_override_with_retry(db).await;
     }
@@ -5190,7 +5190,7 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
 /// that failed for a reason that may pass — the periodic settings reload behind it is 12h apart,
 /// which is a long time for a whole group to cache nothing but locally.
 #[cfg(feature = "parquet")]
-async fn reload_cache_object_store_override_with_retry(db: &DB) {
+pub async fn reload_cache_object_store_override_with_retry(db: &DB) {
     let settings = WORKER_CONFIG.load().object_store_cache_config.clone();
     if matches!(
         windmill_object_store::reload_cache_object_store_override(db, settings).await,

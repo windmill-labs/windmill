@@ -168,6 +168,10 @@ lazy_static::lazy_static! {
     /// Everything the server also reads — job results, logs, codebases, app assets — stays on
     /// [`OBJECT_STORE_SETTINGS`], which a worker-local redirect would make unreachable.
     static ref CACHE_OBJECT_STORE_OVERRIDE: Arc<RwLock<Option<ExpirableObjectStore>>> = Arc::new(RwLock::new(None));
+
+    /// The config [`CACHE_OBJECT_STORE_OVERRIDE`] was built from, so a rebuild that fails for a
+    /// config already being served can keep serving it. Locked after the store, never before.
+    static ref CACHE_OVERRIDE_APPLIED: Arc<RwLock<Option<serde_json::Value>>> = Arc::new(RwLock::new(None));
 }
 
 /// Whether a worker-group cache override is configured, held apart from the store it built so
@@ -176,6 +180,14 @@ lazy_static::lazy_static! {
 #[cfg(feature = "parquet")]
 static CACHE_OBJECT_STORE_OVERRIDDEN: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
+
+/// Bumped by every [`reload_cache_object_store_override`] at entry. Builds are slow and several
+/// callers race — a config change, the retry behind a failed one, a license-plan change — so a
+/// reload only commits while it is still the newest; otherwise it would install a store the group
+/// has already moved off.
+#[cfg(feature = "parquet")]
+static CACHE_OVERRIDE_GENERATION: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
 
 #[cfg(feature = "parquet")]
 async fn resolve_object_store(
@@ -250,6 +262,9 @@ pub async fn reload_cache_object_store_override(
     use std::sync::atomic::Ordering;
     use windmill_common::ee_oss::{get_license_plan, LicensePlan};
 
+    let generation = CACHE_OVERRIDE_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    let superseded = || CACHE_OVERRIDE_GENERATION.load(Ordering::SeqCst) != generation;
+
     // DISABLE_S3_STORE turns off the instance object store for this process; a group override
     // must not be a way back in.
     let store_disabled = std::env::var("DISABLE_S3_STORE")
@@ -257,8 +272,8 @@ pub async fn reload_cache_object_store_override(
         .is_some_and(|x| x == "1" || x == "true");
 
     let Some(settings) = settings.filter(|v| !v.is_null() && !store_disabled) else {
-        if CACHE_OBJECT_STORE_OVERRIDDEN.swap(false, Ordering::Relaxed) {
-            *CACHE_OBJECT_STORE_OVERRIDE.write().await = None;
+        if !superseded() && CACHE_OBJECT_STORE_OVERRIDDEN.swap(false, Ordering::Relaxed) {
+            clear_cache_object_store_override().await;
             tracing::info!(
                 "Worker group object store cache override removed, falling back to the instance object store"
             );
@@ -270,8 +285,8 @@ pub async fn reload_cache_object_store_override(
         tracing::error!("Object store cache override is not available for pro plan");
         // Also covers a downgrade: a store loaded while the plan still allowed it must not
         // outlive the entitlement.
-        if CACHE_OBJECT_STORE_OVERRIDDEN.swap(false, Ordering::Relaxed) {
-            *CACHE_OBJECT_STORE_OVERRIDE.write().await = None;
+        if !superseded() && CACHE_OBJECT_STORE_OVERRIDDEN.swap(false, Ordering::Relaxed) {
+            clear_cache_object_store_override().await;
         }
         return ObjectStoreReload::Never;
     }
@@ -280,7 +295,7 @@ pub async fn reload_cache_object_store_override(
     // must stay local-only rather than reach for the instance bucket.
     CACHE_OBJECT_STORE_OVERRIDDEN.store(true, Ordering::Relaxed);
 
-    let (store, reload) = match serde_json::from_value::<ObjectSettings>(settings) {
+    let (store, reload) = match serde_json::from_value::<ObjectSettings>(settings.clone()) {
         Ok(setting) => match build_object_store_from_settings(setting, Some(db)).await {
             Ok(store) => (Some(store), ObjectStoreReload::Never),
             Err(e) => {
@@ -299,14 +314,38 @@ pub async fn reload_cache_object_store_override(
         }
     };
 
-    let built = store.is_some();
-    *CACHE_OBJECT_STORE_OVERRIDE.write().await = store;
-    if built {
-        tracing::info!(
-            "Dependency cache of this worker group now uses its own object store, not the instance one"
-        );
+    if superseded() {
+        return reload;
+    }
+
+    let mut current = CACHE_OBJECT_STORE_OVERRIDE.write().await;
+    match store {
+        Some(store) => {
+            *current = Some(store);
+            *CACHE_OVERRIDE_APPLIED.write().await = Some(settings);
+            tracing::info!(
+                "Dependency cache of this worker group now uses its own object store, not the instance one"
+            );
+        }
+        // A rebuild that failed for the config already being served leaves that store in place:
+        // the group is entitled to it, and dropping it would take the whole group's cache local
+        // over a transient error. A *different* config failing must still clear, or the worker
+        // would keep writing to the bucket the operator redirected it away from.
+        None if current.is_some()
+            && CACHE_OVERRIDE_APPLIED.read().await.as_ref() == Some(&settings) => {}
+        None => {
+            *current = None;
+            *CACHE_OVERRIDE_APPLIED.write().await = None;
+        }
     }
     reload
+}
+
+/// Drop the override store and the config it was built from, in that lock order.
+#[cfg(feature = "parquet")]
+async fn clear_cache_object_store_override() {
+    *CACHE_OBJECT_STORE_OVERRIDE.write().await = None;
+    *CACHE_OVERRIDE_APPLIED.write().await = None;
 }
 
 #[cfg(feature = "parquet")]
@@ -2531,6 +2570,37 @@ mod tests {
         assert!(!cache_object_store_override_failed().await);
 
         *OBJECT_STORE_SETTINGS.write().await = None;
+    }
+
+    /// A rebuild is triggered by any edit to the group config, not only by editing the store, so
+    /// a build that fails for the config already installed must leave it alone — otherwise a
+    /// renamed worker tag plus one flaky token mint takes the whole group's cache local. A
+    /// *different* config failing still has to clear it.
+    #[cfg(feature = "parquet")]
+    #[tokio::test]
+    #[serial_test::serial(object_store_settings)]
+    async fn test_failed_rebuild_keeps_the_store_serving_the_same_config() {
+        let db = sqlx::postgres::PgPool::connect_lazy("postgres://localhost/unused").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let settings = serde_json::json!({
+            "type": "Filesystem", "root_path": dir.path().to_str().unwrap()
+        });
+
+        reload_cache_object_store_override(&db, Some(settings.clone())).await;
+        assert!(get_cache_object_store().await.is_some());
+
+        // Same config, now unbuildable: the store it already produced stays.
+        dir.close().unwrap();
+        reload_cache_object_store_override(&db, Some(settings)).await;
+        assert!(get_cache_object_store().await.is_some());
+
+        // A different config that will not build must not leave the old bucket in place.
+        let moved = serde_json::json!({ "type": "Filesystem", "root_path": "/proc/nonexistent" });
+        reload_cache_object_store_override(&db, Some(moved)).await;
+        assert!(get_cache_object_store().await.is_none());
+        assert!(cache_object_store_override_failed().await);
+
+        reload_cache_object_store_override(&db, None).await;
     }
 
     // --- get_logs_from_store test ---
