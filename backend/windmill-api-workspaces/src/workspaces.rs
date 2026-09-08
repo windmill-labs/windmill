@@ -2508,13 +2508,14 @@ async fn resolve_datatable_pg_as_caller(
     authed: &ApiAuthed,
     w_id: &str,
     datatable_name: &str,
-    role: Option<&str>,
 ) -> Result<PgDatabase> {
     let db_resource = get_datatable_resource_from_db(
         db,
         w_id,
         datatable_name,
-        role,
+        // The data table's default role. Browsing has no way to name another one yet; when the
+        // database manager grows a role picker it passes the pick through here.
+        None,
         DatatableAccess::Authed(authed.to_authed_ref()),
     )
     .await?;
@@ -2528,7 +2529,7 @@ async fn get_datatable_schema(
     w_id: &str,
     datatable_name: &str,
 ) -> Result<SchemaMap> {
-    let pg_db = resolve_datatable_pg_as_caller(db, authed, w_id, datatable_name, None).await?;
+    let pg_db = resolve_datatable_pg_as_caller(db, authed, w_id, datatable_name).await?;
 
     // Connect to the datatable database
     let (client, connection) = pg_db.connect(Some(db)).await?;
@@ -2622,7 +2623,7 @@ async fn get_datatable_tables(
     w_id: &str,
     datatable_name: &str,
 ) -> Result<TableListMap> {
-    let pg_db = resolve_datatable_pg_as_caller(db, authed, w_id, datatable_name, None).await?;
+    let pg_db = resolve_datatable_pg_as_caller(db, authed, w_id, datatable_name).await?;
     let (client, connection) = pg_db.connect(Some(db)).await?;
 
     tokio::spawn(async move {
@@ -2700,7 +2701,7 @@ async fn get_datatable_table_columns(
         )));
     }
 
-    let pg_db = resolve_datatable_pg_as_caller(db, authed, w_id, datatable_name, None).await?;
+    let pg_db = resolve_datatable_pg_as_caller(db, authed, w_id, datatable_name).await?;
     let (client, connection) = pg_db.connect(Some(db)).await?;
 
     tokio::spawn(async move {

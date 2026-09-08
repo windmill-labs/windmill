@@ -45,6 +45,12 @@ pub struct InstanceDatatableRole {
     pub enabled: bool,
     /// Absent only for a role whose provisioning did not finish; resolving as it then errors
     /// rather than falling back to admin.
+    ///
+    /// A plain string rather than a `StringOrSecretRef` like the instance user's password beside
+    /// it: that one is a secret ref because an operator supplies it and may want it to come from
+    /// their own backend, while this one is minted here and never entered by anyone, so there is
+    /// nothing for a ref to point at. Encrypting generated secrets at rest is a separate change
+    /// that would take the replication password with it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pwd: Option<String>,
 }
@@ -109,6 +115,23 @@ fn quote_literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
+/// Serialize every mutation of the catalog, from the read through the cluster DDL to the write.
+///
+/// The catalog is one JSON document, so create/rename/enable/delete are all read-modify-write.
+/// Without this, two concurrent creates both read the same snapshot, both succeed in the cluster,
+/// and the second write drops the first — leaving a live Postgres login with a password nobody
+/// recorded, which is exactly the state the whole delete path exists to avoid. Held for the
+/// transaction, so the DDL has to run on that same transaction to be covered.
+pub async fn lock_role_catalog(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<()> {
+    sqlx::query!("SELECT pg_advisory_xact_lock(hashtext('datatable_role_catalog'))")
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+/// Authorization: returns every role's stored Postgres password in plaintext. Callers MUST
+/// restrict this to superadmin or internal server paths, and MUST NOT put what it returns into a
+/// response, a log line or an audit record.
 pub async fn read_role_catalog(db: &DB) -> Result<DatatableRoleCatalog> {
     let value = sqlx::query_scalar!(
         "SELECT value->'roles' FROM global_settings WHERE name = 'custom_instance_pg_databases'"
@@ -116,10 +139,30 @@ pub async fn read_role_catalog(db: &DB) -> Result<DatatableRoleCatalog> {
     .fetch_optional(db)
     .await?
     .flatten();
-    match value {
-        Some(v) => Ok(serde_json::from_value(v).unwrap_or_default()),
-        None => Ok(Default::default()),
-    }
+    Ok(parse_role_catalog(value))
+}
+
+/// As [`read_role_catalog`], reading inside the caller's transaction so the value is the one
+/// [`lock_role_catalog`] is protecting. Same authorization contract.
+pub async fn read_role_catalog_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<DatatableRoleCatalog> {
+    let value = sqlx::query_scalar!(
+        "SELECT value->'roles' FROM global_settings WHERE name = 'custom_instance_pg_databases'"
+    )
+    .fetch_optional(&mut **tx)
+    .await?
+    .flatten();
+    Ok(parse_role_catalog(value))
+}
+
+/// A catalog that will not deserialize is an empty one, which fails closed: tenants are keyed by
+/// id independently of it, so every role then resolves to "no longer exists on this instance"
+/// rather than to admin.
+fn parse_role_catalog(value: Option<serde_json::Value>) -> DatatableRoleCatalog {
+    value
+        .map(|v| serde_json::from_value(v).unwrap_or_default())
+        .unwrap_or_default()
 }
 
 /// Resolve the role a caller named to its catalog id. A disabled role is an error rather than a
@@ -161,6 +204,9 @@ pub async fn registered_instance_databases(db: &DB) -> Result<Vec<String>> {
 /// `CONNECT` on `dbname` for every enabled role, and none for `PUBLIC`. Run at role creation, at
 /// database creation, and lazily whenever an instance data table is administered, so a database
 /// provisioned before a role existed is repaired rather than left silently unreachable.
+///
+/// Authorization: rewrites a database's ACL with the server's own credentials and checks nothing.
+/// Callers MUST restrict this to superadmin or internal server paths.
 pub async fn converge_connect_grants(db: &DB, dbname: &str) -> Result<()> {
     let catalog = read_role_catalog(db).await?;
     converge_connect_grants_with(db, dbname, &catalog).await
@@ -188,13 +234,20 @@ pub async fn converge_connect_grants_with(
 /// `CREATE ROLE <name> LOGIN PASSWORD ...; GRANT <name> TO custom_instance_user`, and `CONNECT` on
 /// every registered database. No privileges beyond that — an admin grants them through SQL or the
 /// ACL editor.
-pub async fn create_instance_role(db: &DB, name: &str, password: &str) -> Result<()> {
+///
+/// Authorization: creates a cluster-wide Postgres login. Callers MUST restrict this to superadmin
+/// paths, and MUST hold [`lock_role_catalog`] on the same transaction.
+pub async fn create_instance_role(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    name: &str,
+    password: &str,
+) -> Result<()> {
     validate_role_name(name)?;
     let exists = sqlx::query_scalar!(
         "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)",
         name
     )
-    .fetch_one(db)
+    .fetch_one(&mut **tx)
     .await?
     .unwrap_or(false);
     if exists {
@@ -203,37 +256,59 @@ pub async fn create_instance_role(db: &DB, name: &str, password: &str) -> Result
         )));
     }
     let quoted = quote_ident(name);
-    sqlx::raw_sql(&format!(
-        "CREATE ROLE {quoted} LOGIN PASSWORD {};\nGRANT {quoted} TO {};",
-        quote_literal(password),
-        quote_ident(CUSTOM_INSTANCE_USER),
+    // One statement per call rather than a batch: `raw_sql` takes the simple protocol, which is
+    // only needed for genuinely multi-statement SQL, and its future is not `Send` — which an axum
+    // handler holding this transaction requires.
+    sqlx::query(&format!(
+        "CREATE ROLE {quoted} LOGIN PASSWORD {}",
+        quote_literal(password)
     ))
-    .execute(db)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query(&format!(
+        "GRANT {quoted} TO {}",
+        quote_ident(CUSTOM_INSTANCE_USER)
+    ))
+    .execute(&mut **tx)
     .await?;
     Ok(())
 }
 
-pub async fn set_instance_role_login(db: &DB, name: &str, enabled: bool) -> Result<()> {
+/// Authorization: alters a cluster-wide Postgres login. Callers MUST restrict this to superadmin
+/// paths, and MUST hold [`lock_role_catalog`] on the same transaction.
+pub async fn set_instance_role_login(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    name: &str,
+    enabled: bool,
+) -> Result<()> {
     validate_role_name(name)?;
     sqlx::query(&format!(
         "ALTER ROLE {} {}",
         quote_ident(name),
         if enabled { "LOGIN" } else { "NOLOGIN" }
     ))
-    .execute(db)
+    .execute(&mut **tx)
     .await?;
     Ok(())
 }
 
 /// A rename discards an md5-hashed password, so the caller has to hand over a fresh one.
-pub async fn rename_instance_role(db: &DB, from: &str, to: &str, password: &str) -> Result<()> {
+///
+/// Authorization: renames a cluster-wide Postgres login. Callers MUST restrict this to superadmin
+/// paths, and MUST hold [`lock_role_catalog`] on the same transaction.
+pub async fn rename_instance_role(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    from: &str,
+    to: &str,
+    password: &str,
+) -> Result<()> {
     validate_role_name(from)?;
     validate_role_name(to)?;
     let taken = sqlx::query_scalar!(
         "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)",
         to
     )
-    .fetch_one(db)
+    .fetch_one(&mut **tx)
     .await?
     .unwrap_or(false);
     if taken {
@@ -241,14 +316,19 @@ pub async fn rename_instance_role(db: &DB, from: &str, to: &str, password: &str)
             "A Postgres role named '{to}' already exists on this cluster"
         )));
     }
-    sqlx::raw_sql(&format!(
-        "ALTER ROLE {} RENAME TO {};\nALTER ROLE {} PASSWORD {};",
+    sqlx::query(&format!(
+        "ALTER ROLE {} RENAME TO {}",
         quote_ident(from),
-        quote_ident(to),
-        quote_ident(to),
-        quote_literal(password),
+        quote_ident(to)
     ))
-    .execute(db)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query(&format!(
+        "ALTER ROLE {} PASSWORD {}",
+        quote_ident(to),
+        quote_literal(password)
+    ))
+    .execute(&mut **tx)
     .await?;
     Ok(())
 }
@@ -262,7 +342,18 @@ pub async fn rename_instance_role(db: &DB, from: &str, to: &str, password: &str)
 /// owns the databases and can therefore revoke a grant whoever made it. `custom_instance_user`
 /// could only undo what it granted itself, so a privilege planted by an operator in psql — the
 /// ordinary way privileges reach a role — would survive and block the drop.
-pub async fn drop_instance_role(db: &DB, name: &str) -> Result<()> {
+///
+/// Authorization: drops a cluster-wide Postgres login and reassigns everything it owns. Callers
+/// MUST restrict this to superadmin paths, and MUST hold [`lock_role_catalog`] on `tx`.
+///
+/// The per-database passes open their own connections and cannot join `tx`; the lock is what keeps
+/// a concurrent mutation out while they run. Only the final `DROP ROLE` is on `tx`, so it commits
+/// or rolls back with the catalog write that forgets the role.
+pub async fn drop_instance_role(
+    db: &DB,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    name: &str,
+) -> Result<()> {
     validate_role_name(name)?;
     let quoted = quote_ident(name);
     let reassign = format!(
@@ -291,8 +382,17 @@ pub async fn drop_instance_role(db: &DB, name: &str) -> Result<()> {
         })?;
     }
 
-    sqlx::raw_sql(&format!("{reassign}\nDROP ROLE {quoted};"))
-        .execute(db)
+    sqlx::query(&format!(
+        "REASSIGN OWNED BY {quoted} TO {}",
+        quote_ident(CUSTOM_INSTANCE_USER)
+    ))
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query(&format!("DROP OWNED BY {quoted}"))
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query(&format!("DROP ROLE {quoted}"))
+        .execute(&mut **tx)
         .await?;
     Ok(())
 }

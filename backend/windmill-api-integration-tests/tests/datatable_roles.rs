@@ -329,3 +329,51 @@ async fn a_caller_with_no_identity_reaches_a_permissioned_data_table_not_at_all(
     assert_eq!(resolved["dbname"], "dt_main", "{resolved}");
     Ok(())
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn concurrent_role_catalog_writes_do_not_lose_an_entry(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_common::datatable_roles::{
+        lock_role_catalog, read_role_catalog_tx, InstanceDatatableRole,
+    };
+
+    initialize_tracing().await;
+    // The catalog is one JSON document, so every mutation is read-modify-write. Without the lock
+    // two concurrent creates read the same snapshot and the second write drops the first — leaving
+    // the role it dropped as a live cluster login nobody recorded. No DDL here: the losable step is
+    // the catalog write, and that is what this pins.
+    let insert = |id: &'static str| {
+        let db = db.clone();
+        async move {
+            let mut tx = db.begin().await?;
+            lock_role_catalog(&mut tx).await?;
+            let mut catalog = read_role_catalog_tx(&mut tx).await?;
+            // Widen the window the lock has to cover, so an unlocked version fails reliably rather
+            // than occasionally.
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            catalog.insert(
+                id.to_string(),
+                InstanceDatatableRole { name: id.to_string(), enabled: true, pwd: None },
+            );
+            let value = serde_json::to_value(&catalog)?;
+            sqlx::query(
+                "UPDATE global_settings
+                 SET value = jsonb_set(COALESCE(value, '{}'::jsonb), '{roles}', $1)
+                 WHERE name = 'custom_instance_pg_databases'",
+            )
+            .bind(value)
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            Ok::<_, anyhow::Error>(())
+        }
+    };
+
+    let (a, b) = tokio::join!(insert("first"), insert("second"));
+    a?;
+    b?;
+
+    let catalog = windmill_common::datatable_roles::read_role_catalog(&db).await?;
+    assert!(catalog.contains_key("first"), "lost 'first': {catalog:?}");
+    assert!(catalog.contains_key("second"), "lost 'second': {catalog:?}");
+    Ok(())
+}
