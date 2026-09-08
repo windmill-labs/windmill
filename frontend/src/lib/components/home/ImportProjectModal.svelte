@@ -141,24 +141,21 @@
 	// card renders from the pick until it lands — counts are the only thing missing, and
 	// zero counts render as no badges rather than as zeroes.
 	//
-	// The answer is checked against the slug that asked for it: `resource()` aborts the
-	// previous controller but `fetchHubProject` takes no signal, and nothing orders the
-	// responses — so picking A, dismissing, then picking B can land A's name, author and
-	// counts over an import that writes B.
-	// Kept in a local rather than read back off `detail.current` inside `detail`'s own fetcher,
-	// which makes the resource's type circular and resolves it to `any`.
-	let lastDetail = $state<ImportProjectSummary | undefined>(undefined)
+	// Each answer carries the slug that asked for it, and is read only while that slug is
+	// still the chosen one: `resource()` aborts the previous controller but `fetchHubProject`
+	// takes no signal, and nothing orders the responses — so picking A, dismissing, then
+	// picking B can land A's name, author and counts over an import that writes B. Tagging
+	// rather than substituting, because whatever the fetcher returns is published: handing
+	// back the previous project on a superseded response is how it reaches the card.
 	const detail = resource(
 		() => slug,
-		async (s) => {
-			if (!s) return undefined
-			const fetched = await fetchHubProject(s)
-			if (s === slug) lastDetail = fetched
-			return lastDetail
-		}
+		async (s) => (s ? { slug: s, project: await fetchHubProject(s) } : undefined)
+	)
+	let fetchedDetail = $derived<ImportProjectSummary | undefined>(
+		detail.current?.slug === slug ? detail.current?.project : undefined
 	)
 	let project = $derived<ImportProjectSummary | undefined>(
-		detail.current ??
+		fetchedDetail ??
 			(pick
 				? {
 						slug: pick.slug,

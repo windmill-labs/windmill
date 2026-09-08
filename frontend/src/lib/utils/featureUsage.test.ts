@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('$lib/gen', () => ({ OpenAPI: { BASE: '/api' } }))
 
@@ -133,6 +133,13 @@ describe('hubScriptUsageKey', () => {
 })
 
 describe('hubProjectUsageKey', () => {
+	// The fixture is module-level and mutable, so each case states the world it needs rather
+	// than inheriting whatever the case above it left behind.
+	beforeEach(() => {
+		hubBaseUrl.url.set('https://hub.windmill.dev')
+		hubBaseUrl.known.set(true)
+	})
+
 	it('reports the slug for every spelling of the public hub', () => {
 		for (const hub of [
 			'https://hub.windmill.dev',
@@ -150,7 +157,6 @@ describe('hubProjectUsageKey', () => {
 	it('answers private until the instance has said which hub it points at', () => {
 		// The store is seeded with the public hub, so a settings read that failed must not
 		// read as permission to report the name.
-		hubBaseUrl.url.set('https://hub.windmill.dev')
 		hubBaseUrl.known.set(false)
 		expect(hubProjectUsageKey('acme-payroll')).toBe('private')
 		hubBaseUrl.known.set(true)
