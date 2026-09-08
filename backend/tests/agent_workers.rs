@@ -293,6 +293,7 @@ async fn test_agent_worker_volume_e2e(db: Pool<Postgres>) -> anyhow::Result<()> 
     let lfs_config = json!({
         "type": "FilesystemStorage",
         "root_path": storage_root,
+        "volume_storage": "primary",
         "public_resource": null,
         "advanced_permissions": null
     });
@@ -306,7 +307,11 @@ async fn test_agent_worker_volume_e2e(db: Pool<Postgres>) -> anyhow::Result<()> 
     .await?;
 
     // 2. Pre-populate the volume with a file
-    let vol_dir = storage_dir.path().join("volumes").join("test-vol");
+    let vol_dir = storage_dir
+        .path()
+        .join("volumes")
+        .join("test-workspace")
+        .join("test-vol");
     std::fs::create_dir_all(&vol_dir)?;
     std::fs::write(vol_dir.join("hello.txt"), b"hello from volume")?;
 
@@ -343,6 +348,7 @@ async fn test_agent_worker_volume_e2e(db: Pool<Postgres>) -> anyhow::Result<()> 
     // 4. GET /file/* — download the existing file
     let resp = http
         .get(format!("{vol_base}/file/hello.txt"))
+        .query(&[("worker_name", "test-worker-1")])
         .send()
         .await?;
     assert!(
@@ -360,6 +366,7 @@ async fn test_agent_worker_volume_e2e(db: Pool<Postgres>) -> anyhow::Result<()> 
     // 5. PUT /file/* — upload a new file
     let resp = http
         .put(format!("{vol_base}/file/output.txt"))
+        .query(&[("worker_name", "test-worker-1")])
         .body(b"written by agent worker".to_vec())
         .send()
         .await?;
@@ -533,6 +540,7 @@ async fn test_agent_worker_volume_release(db: Pool<Postgres>) -> anyhow::Result<
     let lfs_config = json!({
         "type": "FilesystemStorage",
         "root_path": storage_root,
+        "volume_storage": "primary",
         "public_resource": null,
         "advanced_permissions": null
     });
