@@ -48,8 +48,8 @@
 		/** Workspace the path is validated against and the connection is tested in;
 		 * defaults to the nav workspace. */
 		workspace?: string | undefined
-		/** A git credential the picker chose, for the editor to store once it has
-		 * saved the resource and its path is final. */
+		/** Fired once the GitLab picker has stored the picked project's token, so a
+		 * form that would otherwise file the URL as a secret knows it holds none. */
 		onCredentialStored?: () => void
 	}
 

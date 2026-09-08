@@ -33,8 +33,8 @@
 		 * being navigated. The GitLab picker has to store the credential where the
 		 * resource will look for it. */
 		workspace?: string
-		/** A git credential the picker chose, for the drawer to store once it has
-		 * saved the resource and its path is final. */
+		/** Fired once the GitLab picker has stored the picked project's token, so a
+		 * form that would otherwise file the URL as a secret knows it holds none. */
 		onCredentialStored?: () => void
 		onSynced?: () => void
 	}
