@@ -124,7 +124,12 @@ pub(crate) async fn collect(
     // Cancellation is read from the DB rather than from `ctx.canceled_by`: that
     // field is only ever written by a poller, and the whole point of this check
     // is the window in which no poller is running.
-    if job_ended_during_decode(ctx, job_id, conn).await {
+    //
+    // On an agent worker there is no database to read, so only the deadline
+    // answers: a cancel issued during the decode is not observable there. The
+    // retry path avoids that gap by refusing to run on an agent worker at all,
+    // which an optional annotation has no business doing.
+    if ctx.deadline.is_expired() || crate::dbt_executor::job_is_canceled(job_id, conn).await {
         return Err(error::Error::ExecutionErr(
             "the job ended while the column-lineage index was being read".to_string(),
         ));
@@ -169,33 +174,6 @@ pub(crate) async fn collect(
     // a SUCCESSFUL compile that nothing else would show.
     log(job_id, w_id, &note, &compiled.stderr, conn).await;
     Ok(None)
-}
-
-/// Whether the job is over: its wall clock spent, or a cancellation recorded
-/// while nothing was watching for one.
-///
-/// A failed probe answers "still running". This decides whether to DISCARD work
-/// already done, so an unreachable database must not be the reason a healthy
-/// deploy loses its graph — and if the connection is really gone, everything
-/// after this fails on its own.
-async fn job_ended_during_decode(ctx: &JobCtx<'_>, job_id: &Uuid, conn: &Connection) -> bool {
-    if ctx.deadline.is_expired() {
-        return true;
-    }
-    let Connection::Sql(db) = conn else {
-        return false;
-    };
-    sqlx::query_scalar!(
-        "SELECT canceled_by IS NOT NULL AS \"canceled!\" FROM v2_job_queue WHERE id = $1",
-        job_id
-    )
-    .fetch_optional(db)
-    .await
-    .map(|v| v == Some(true))
-    .unwrap_or_else(|e| {
-        tracing::warn!(%job_id, %e, "checking cancellation after the column-index decode");
-        false
-    })
 }
 
 async fn log(job_id: &Uuid, w_id: &str, note: &str, stderr: &str, conn: &Connection) {
