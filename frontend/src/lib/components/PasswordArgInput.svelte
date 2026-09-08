@@ -144,6 +144,22 @@
 			Reset variable link
 		</Button>
 	</div>
+{:else if value?.startsWith('$var:' + userPrefix) && path === ''}
+	<!-- Minted before this field mounted, so it holds the reference and not what is behind it:
+	     an empty box would read as no value at all. -->
+	<div class="flex items-center gap-2 text-sm text-primary">
+		A value is set
+		<Button
+			unifiedSize="xs"
+			variant="default"
+			{disabled}
+			onclick={() => {
+				value = ''
+			}}
+		>
+			Replace
+		</Button>
+	</div>
 {:else}
 	<Password {disabled} {minRows} bind:password />
 {/if}

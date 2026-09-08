@@ -67,9 +67,11 @@ export async function processSecretArgs(
 	const username = (user.username ?? user.email)?.split('@')[0]
 	if (!username) return args
 
-	// A value that already names a variable is one; anything else is the secret itself.
+	// A value that already names a variable is one; anything else is the secret itself. An empty
+	// field holds nothing to mint, and ArgInput synthesises '' for every untouched string.
 	const holdsSecret = (value: unknown) =>
 		value != null &&
+		value !== '' &&
 		!(
 			typeof value === 'string' &&
 			(value.startsWith('$var:') || value.startsWith('$jsonvar:') || value.startsWith('$res:'))

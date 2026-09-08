@@ -176,13 +176,14 @@ describe('secret args at every level the form nests', () => {
 		either: { kind: 'a', key: 'k', other: 'o' }
 	}
 
-	it('redacts every one of them', () => {
+	it('redacts every value and keeps every reference', () => {
 		const redacted = JSON.stringify(redactSecretArgs(args, schema))
-		for (const secret of ['hunter2', 'prod', 'one', 'two', '"k"', '"o"']) {
+		for (const secret of ['hunter2', 'one', 'two', '"k"', '"o"']) {
 			expect(redacted).not.toContain(secret)
 		}
 		expect(redacted).toContain('<hidden>')
 		expect(redacted).toContain('"name":"a"')
+		expect(redacted).toContain('$var:u/ada/prod')
 	})
 
 	it('reaches a secret under a oneOf branch of an array element', () => {

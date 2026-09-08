@@ -47,9 +47,8 @@
 	let cardNode = $state<HTMLDivElement | undefined>()
 
 	// The picker moves while a form sits open, so this is live state, not mount-time. It holds
-	// off the entrypoint a `dynselect-` argument runs, which does not wait for Run. The other
-	// write a mounted form makes on its own — a password field minting — cannot be held off
-	// here: it happens at mount, so `runThroughForm` refuses to open the form at all instead.
+	// off the entrypoint a `dynselect-` argument runs, which does not wait for Run. A password
+	// field mints at mount, too early to hold off here, so `runThroughForm` gates that instead.
 	const planMode = $derived(aiChatManager.planModeActive)
 
 	onMount(() => {

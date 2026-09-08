@@ -4726,6 +4726,35 @@ describe('global AI tools', () => {
 		)
 	})
 
+	// A `dynselect-` field queues its helper job the moment the form mounts, carrying every
+	// other argument, so a form opened on a literal puts one in a job nobody confirmed.
+	it('opens the form on a reference, never on the proposed literal', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/pw-form',
+			schema: { properties: { token: { type: 'string', password: true } } }
+		} as any)
+		vi.mocked(processSecretArgs).mockImplementationOnce(async () => ({
+			token: '$var:u/ada/secret_arg/minted'
+		}))
+
+		let opened: Record<string, any> | undefined
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/pw-form', args: { token: 'hunter2' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => {
+						opened = form.args
+						return form.args
+					}
+				}
+			)
+		)
+
+		expect(opened).toEqual({ token: '$var:u/ada/secret_arg/minted' })
+	})
+
 	// The bypass has no form to have shown them either, so the rule holds there too.
 	it('drops an undeclared argument when the posture answers too', async () => {
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
@@ -5116,12 +5145,12 @@ describe('global AI tools', () => {
 		})
 		expect(result).toContain('does not declare force_delete')
 		expect(result).toContain('<file: 3 KB>')
-		// What ran is redacted everywhere it is read back: the variable the user named is enough
-		// to run a job on a value neither the model nor the stored card can see.
-		for (const leak of [bytes, 'prod_api_key']) {
-			expect(result).not.toContain(leak)
-			expect(JSON.stringify(statuses)).not.toContain(leak)
-		}
+		// The bytes are the value; the reference is not, and the run page shows it for this
+		// same job.
+		expect(result).not.toContain(bytes)
+		expect(JSON.stringify(statuses)).not.toContain(bytes)
+		expect(result).toContain('$var:u/ada/prod_api_key')
+		expect(JSON.stringify(statuses)).toContain('$var:u/ada/prod_api_key')
 		// Named, or an emptied field reads as the user having deleted the value and the next
 		// call proposes the same bytes again.
 		for (const named of ['ratio', 'doc', 'locked']) expect(result).toContain(named)

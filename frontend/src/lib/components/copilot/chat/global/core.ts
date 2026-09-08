@@ -5545,9 +5545,8 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	}
 
 	// processToolCall gates plan mode once, before the schema fetch, and this form is its own
-	// confirmation so it never reaches that gate again. Repeated wherever plan mode could have
-	// arrived since and a write would follow: a mounted field mints on its own, and no later
-	// gate can unmake that.
+	// confirmation so it never reaches that gate again. Repeated wherever a write follows: a
+	// mounted field mints on its own, which no later gate can unmake.
 	const blockedByPlanMode = (): string | undefined => {
 		if (!toolCallbacks.isPlanModeActive?.()) return undefined
 		toolCallbacks.onToolBlockedByPlanMode?.()
@@ -5572,16 +5571,13 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	const coerced = autoAccepted
 		? undefined
 		: coerceArgsToSchema(normalizeTestRunArgs(spec.proposed), schema)
-	let proposed: Record<string, any>
+	let prepared: Record<string, any>
 	let resetKeys: string[]
 	let undeclaredKeys: string[]
 	if (coerced) {
 		resetKeys = coerced.resetKeys
 		undeclaredKeys = coerced.undeclaredKeys
-		// Bytes only: a proposed secret is already in this card's own tool call, in the same
-		// stored record, and PasswordArgInput mints whatever the field opens with before the
-		// job — so the plaintext reaches neither a reader nor the run.
-		proposed = stripFileArgs(coerced.args, schema as any, strippedKeys)
+		prepared = stripFileArgs(coerced.args, schema as any, strippedKeys)
 	} else {
 		// Both rules hold against every caller, not only the ones a form stands in front of:
 		// an undeclared argument has no field anywhere, and a disabled one is nobody's to set.
@@ -5590,21 +5586,24 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		undeclaredKeys = declared.undeclaredKeys
 		const enforced = enforceDisabledDefaults(declared.args, schema)
 		resetKeys = enforced.resetKeys
-		// In the widget's stead, and before anything is shown or stored: with no form there is
-		// no PasswordArgInput to turn a proposed secret into a reference, and both the job's
-		// arguments and this card outlive the run.
-		try {
-			proposed = await processSecretArgs(enforced.args, schema as any, workspace)
-		} catch (e) {
-			const message = `Failed to store the sensitive arguments of "${spec.path}": ${e}`
-			toolCallbacks.setToolStatus(toolId, {
-				content: message,
-				isLoading: false,
-				isStreamingArguments: false,
-				error: message
-			})
-			return message
-		}
+		prepared = enforced.args
+	}
+
+	// Before anything mounts, rather than in the widget's stead once it has: a `dynselect-`
+	// field queues its helper job at mount carrying every other argument, so a literal left in
+	// the form reaches a job nobody confirmed. The field would mint the same value regardless.
+	let proposed: Record<string, any>
+	try {
+		proposed = await processSecretArgs(prepared, schema as any, workspace)
+	} catch (e) {
+		const message = `Failed to store the sensitive arguments of "${spec.path}": ${e}`
+		toolCallbacks.setToolStatus(toolId, {
+			content: message,
+			isLoading: false,
+			isStreamingArguments: false,
+			error: message
+		})
+		return message
 	}
 	const form: RunFormDisplay = {
 		path: spec.path,
@@ -5620,10 +5619,9 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		strippedKeys: strippedKeys.length ? strippedKeys : undefined
 	}
 
-	// Redacted here rather than on each way out: `displayMessages` is saved as it stands, and
-	// nothing rewrites `runForm.args` after this, so a proposed secret left in the clear is
-	// one every exit has to remember to clear. The plaintext lives on in the form's draft.
-	const persisted = { ...form, args: redactSecretArgs(proposed, schema as any) }
+	// Files only: nothing rewrites `runForm.args` after this, so bytes left in it outlive the
+	// size guard that covers `parameters`.
+	const persisted = { ...form, args: redactFileArgs(proposed, schema as any) }
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: autoAccepted
@@ -5672,9 +5670,10 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		return message
 	}
 
-	// The card's details pane must show what ran, not what was proposed — and it is
-	// persisted, so it carries no more of a secret or a file than the model's copy does.
-	const forCard = redactFileArgs(redactSecretArgs(toRun, schema as any), schema as any)
+	// The card's details pane must show what ran, not what was proposed. Bytes are marked by
+	// size because the card is persisted; everything else stands as the run page shows it for
+	// the same job.
+	const forCard = redactFileArgs(toRun, schema as any)
 	// The transcript is re-cloned into IndexedDB on every save and a form carries whatever was
 	// pasted into it, so past what the pane would render the card reads the arguments off the
 	// job instead. Only once there is a job to read them from: substituting the marker any
@@ -5726,8 +5725,8 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	const stripped = strippedKeys.length
 		? `\n${strippedKeys.join(', ')} ${strippedKeys.length > 1 ? 'are file arguments' : 'is a file argument'}, so the form opened ${strippedKeys.length > 1 ? 'them' : 'it'} empty for the user to attach. ${strippedKeys.length > 1 ? 'They are' : 'It is'} theirs to provide, not yours: do not propose ${strippedKeys.length > 1 ? 'them' : 'it'} again.`
 		: ''
-	// Redacted: a variable path is enough to run a job on a value the model cannot read,
-	// and one shown a path proposes it back on the next call.
+	// Redacted for the model alone: what it proposed is already in its own tool call, but a
+	// secret the user typed into the form would be entering its context here.
 	const redacted = redactFileArgs(redactSecretArgs(toRun, schema as any), schema as any)
 	const submittedJson = JSON.stringify(redacted)
 	const shown =

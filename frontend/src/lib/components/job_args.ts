@@ -269,15 +269,16 @@ export function stripFileArgs(
 }
 
 /**
- * Replace every password-typed argument with a fixed marker, for text that leaves the
- * form. A reference is enough to run a job on something the reader cannot see.
+ * Replace a sensitive value with a fixed marker, for text that leaves the form. A reference is
+ * kept: it names a variable rather than holding one, and the run page shows the same job's
+ * arguments that way.
  */
 export function redactSecretArgs(
 	args: Record<string, any>,
 	schema: { properties?: Record<string, any> } | undefined
 ): Record<string, any> {
 	return mapArgLeaves(args, schema, isSecretProp, (value) =>
-		value == null ? undefined : '<hidden>'
+		value == null ? undefined : isReference(value) ? value : '<hidden>'
 	)
 }
 

@@ -63,9 +63,16 @@ describe('processSecretArgs', () => {
 		expect(created).toEqual([])
 	})
 
-	it('leaves an absent or null secret absent', async () => {
-		const out = await processSecretArgs({ token: null, plain: 'kept' }, schema)
-		expect(out).toEqual({ token: null, plain: 'kept' })
+	// Reached by every run form in the product, not only the ones a chat opens.
+	it('leaves an absent, null or empty secret alone', async () => {
+		expect(await processSecretArgs({ token: null, plain: 'kept' }, schema)).toEqual({
+			token: null,
+			plain: 'kept'
+		})
+		expect(await processSecretArgs({ token: '', plain: 'kept' }, schema)).toEqual({
+			token: '',
+			plain: 'kept'
+		})
 		expect(created).toEqual([])
 	})
 
