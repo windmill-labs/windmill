@@ -1509,7 +1509,8 @@ fn instance_db_grants(dbname: &str) -> String {
 /// the database and `public` schema owner — since only it can hand out an option it holds.
 ///
 /// Authorization: reaches an instance database with the server's own credentials and checks
-/// nothing. Callers MUST restrict this to superadmin or internal server paths.
+/// nothing. Callers MUST have authorized administration of `dbname` — superadmin, or an admin of
+/// the workspace governing a data table on it.
 pub async fn ensure_instance_db_grant_options_unchecked(db: &DB, dbname: &str) -> error::Result<()> {
     let dbname = dbname.trim();
     validate_dbname(dbname)?;

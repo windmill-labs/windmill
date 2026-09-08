@@ -358,24 +358,78 @@ async fn concurrent_role_creations_both_survive(db: Pool<Postgres>) -> anyhow::R
         let body = resp.text().await?;
         Ok::<_, anyhow::Error>((status, body))
     };
-    let (a, b) = tokio::join!(create(names[0].clone()), create(names[1].clone()));
-    let (a, b) = (a?, b?);
-    assert_eq!(a.0, 200, "{}", a.1);
-    assert_eq!(b.0, 200, "{}", b.1);
+    let outcome = async {
+        let (a, b) = tokio::join!(create(names[0].clone()), create(names[1].clone()));
+        let (a, b) = (a?, b?);
+        assert_eq!(a.0, 200, "{}", a.1);
+        assert_eq!(b.0, 200, "{}", b.1);
 
-    let catalog = windmill_common::datatable_roles::read_role_catalog(&db).await?;
-    let recorded: Vec<&str> = catalog.values().map(|r| r.name.as_str()).collect();
-    for name in &names {
-        assert!(
-            recorded.contains(&name.as_str()),
-            "{name} is a live cluster login the catalog forgot: {recorded:?}"
-        );
+        let catalog = windmill_common::datatable_roles::read_role_catalog(&db).await?;
+        let recorded: Vec<&str> = catalog.values().map(|r| r.name.as_str()).collect();
+        for name in &names {
+            assert!(
+                recorded.contains(&name.as_str()),
+                "{name} is a live cluster login the catalog forgot: {recorded:?}"
+            );
+        }
+        Ok::<_, anyhow::Error>(())
     }
+    .await;
 
+    // Roles are cluster-wide, so they outlive this test's throwaway database. Dropped whatever
+    // happened above — a failing run is exactly the one that created them and did not record them.
     for name in &names {
-        sqlx::query(&format!("DROP ROLE IF EXISTS \"{name}\""))
+        let _ = sqlx::query(&format!("DROP ROLE IF EXISTS \"{name}\""))
             .execute(&db)
-            .await?;
+            .await;
     }
+    outcome
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn renaming_a_governing_data_table_carries_its_forks(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // A pointer names the governing data table by name, so a rename that does not follow leaves
+    // every fork resolving to nothing — the data table vanishes from their pickers and their jobs
+    // stop, with nothing in the renaming workspace to suggest why.
+    let resp = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/test-workspace/workspaces/edit_datatable_config"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "settings": {"datatables": {"renamed": {
+            "database": {"resource_type": "instance", "resource_path": "dt_main"}
+        }}},
+        "renames": [{"from": "main", "to": "renamed"}],
+        "deleted_datatables": []
+    }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    let entry: Option<Value> = sqlx::query_scalar(
+        "SELECT datatable->'datatables'->'main' FROM workspace_settings WHERE workspace_id = $1",
+    )
+    .bind("wm-fork-dt")
+    .fetch_one(&db)
+    .await?;
+    let entry = entry.unwrap();
+    assert_eq!(entry["reference"]["datatable"], "renamed", "{entry}");
+
+    // And it still resolves, which is the thing the fork actually cares about.
+    let resp = authed(
+        client().get(format!(
+            "http://localhost:{port}/api/w/wm-fork-dt/workspaces/datatable_usable_roles/main"
+        )),
+        "SECRET_TOKEN_2",
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
     Ok(())
 }

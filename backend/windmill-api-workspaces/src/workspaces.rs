@@ -3619,6 +3619,21 @@ async fn edit_datatable_config(
         dt.permissions = old.and_then(|old| old.permissions.clone());
         dt.reference = old.and_then(|old| old.reference.clone());
         dt.forked_from = old.and_then(|old| old.forked_from.clone());
+        // Carrying the block onto a resource-backed entry would produce a data table the chokepoint
+        // refuses on every job — a save that succeeds and breaks everything afterwards. Refuse it
+        // instead: turning roles off first is one step, and it keeps discarding an access decision
+        // something somebody chose rather than a side effect of moving a database.
+        if dt.permissions.is_some()
+            && dt
+                .database
+                .as_ref()
+                .is_some_and(|d| d.resource_type != DataTableCatalogResourceType::Instance)
+        {
+            return Err(Error::BadRequest(format!(
+                "Data table '{name}' is under roles, which only a data table on the instance \
+                 database can be. Turn its roles off before moving it to a PostgreSQL resource."
+            )));
+        }
         // A pointer names no database of its own, so the form's empty `database` is correct there.
         if dt.reference.is_some() {
             dt.database = None;
@@ -3685,6 +3700,53 @@ async fn edit_datatable_config(
         )
         .await?;
 
+    // A fork points at a data table by name, so a rename here has to follow or every fork's entry
+    // resolves to nothing. Inside the transaction: the rename and the pointers that name it are one
+    // change, and half of it is a fork whose jobs stop.
+    for r in &new_config.renames {
+        sqlx::query!(
+            r#"UPDATE workspace_settings ws
+               SET datatable = (
+                   SELECT jsonb_set(ws.datatable, '{datatables}', jsonb_object_agg(
+                       dt.key,
+                       CASE WHEN dt.value->'reference'->>'workspace_id' = $1
+                                 AND dt.value->'reference'->>'datatable' = $2
+                           THEN jsonb_set(dt.value, '{reference,datatable}', to_jsonb($3::text))
+                           ELSE dt.value END
+                   ))
+                   FROM jsonb_each(ws.datatable->'datatables') dt
+               )
+               WHERE jsonb_typeof(ws.datatable->'datatables') = 'object'
+                 AND ws.datatable::text LIKE '%"reference"%'"#,
+            &w_id,
+            &r.from,
+            &r.to,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // A deletion cannot be followed the same way — there is nothing to point at any more. Read who
+    // is left stranded so the caller is told, the way deleting a workspace does.
+    let mut stranded: Vec<String> = Vec::new();
+    for name in &new_config.deleted_datatables {
+        let rows = sqlx::query!(
+            r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "datatable!"
+               FROM workspace_settings ws
+               CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
+               WHERE dt.value->'reference'->>'workspace_id' = $1
+                 AND dt.value->'reference'->>'datatable' = $2"#,
+            &w_id,
+            name,
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        stranded.extend(
+            rows.into_iter()
+                .map(|r| format!("{}/{}", r.workspace_id, r.datatable)),
+        );
+    }
+
     tx.commit().await?;
 
     for substrate in created_substrates {
@@ -3699,7 +3761,19 @@ async fn edit_datatable_config(
     )
     .await?;
 
-    Ok(format!("Edit datatable config for workspace {}", &w_id))
+    if stranded.is_empty() {
+        Ok(format!("Edit datatable config for workspace {}", &w_id))
+    } else {
+        Ok(format!(
+            concat!(
+                "Edit datatable config for workspace {}. These data tables were governed by one ",
+                "you deleted and no longer resolve: {}. Their databases still exist; a superadmin ",
+                "can point them at another workspace's data table."
+            ),
+            &w_id,
+            stranded.join(", ")
+        ))
+    }
 }
 
 #[derive(Deserialize)]

@@ -1325,6 +1325,7 @@ pub async fn get_global_setting(
         .await?
         .map(|x| x.value);
 
+    let value = value.map(|v| windmill_common::datatable_roles::redact_role_catalog_setting(&key, v));
     Ok(Json(value.unwrap_or_else(|| serde_json::Value::Null)))
 }
 
@@ -1362,7 +1363,13 @@ async fn list_global_settings(
     require_super_admin(&db, &authed).await?;
     let settings = sqlx::query_as!(GlobalSetting, "SELECT name, value FROM global_settings")
         .fetch_all(&db)
-        .await?;
+        .await?
+        .into_iter()
+        .map(|s| GlobalSetting {
+            value: windmill_common::datatable_roles::redact_role_catalog_setting(&s.name, s.value),
+            name: s.name,
+        })
+        .collect();
 
     Ok(Json(settings))
 }
