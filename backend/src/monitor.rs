@@ -4820,11 +4820,16 @@ async fn maintain_git_credentials_inner(db: &Pool<Postgres>) -> error::Result<()
             // Also when a hook exists but carries a warning: a save during a GitLab
             // outage keeps the hook and records why it could not be confirmed, and
             // that warning is only cleared by a reconcile that confirms it again.
-            let needs_hook = repo.auto_pull.as_ref().is_some_and(|a| {
-                a.enabled
-                    && matches!(a.mode, AutoPullMode::Auto | AutoPullMode::Webhook)
-                    && (a.webhook_id.is_none() || a.webhook_error.is_some())
-            });
+            // Only repositories with a checked credential of their own: for
+            // everything else a settings save stays the one place hooks are
+            // reconciled, so an App repository or a plain remote is never touched
+            // here, and a recorded delivery mode nobody saved is never normalized.
+            let needs_hook = repo.credential.is_some()
+                && repo.auto_pull.as_ref().is_some_and(|a| {
+                    a.enabled
+                        && matches!(a.mode, AutoPullMode::Auto | AutoPullMode::Webhook)
+                        && (a.webhook_id.is_none() || a.webhook_error.is_some())
+                });
             if needs_hook {
                 let mut repo = repo.clone();
                 if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(

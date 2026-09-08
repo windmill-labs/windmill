@@ -162,11 +162,18 @@
 	// Asked of the server rather than read off the resource: the resource is
 	// client-editable, exported and copied into forks, so nothing written on it
 	// stays true. Re-asked when the saved URL moves, since that is a different
-	// repository.
+	// repository. The answer is for admins, who are the only ones who could act
+	// on it, so nobody else asks.
 	const credentialOrigin = resource(
-		[() => selected, () => deployedPath, () => deployedUrl, () => resource_type],
-		async ([ws, path, _url, type]) =>
-			ws && path && type === 'git_repository'
+		[
+			() => selected,
+			() => deployedPath,
+			() => deployedUrl,
+			() => resource_type,
+			() => (selected ? (perWsUser[selected] ?? $userStore)?.is_admin : undefined)
+		],
+		async ([ws, path, _url, type, admin]) =>
+			ws && path && type === 'git_repository' && admin
 				? await GitSyncService.getCredentialOrigin({ workspace: ws, path }).catch(() => undefined)
 				: undefined
 	)
