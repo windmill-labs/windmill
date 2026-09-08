@@ -108,6 +108,10 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 debug = false
 
+# The expression parser's fallback call chain exhausts worker stacks without optimization.
+[profile.dev.package.php-parser-rs]
+opt-level = 1
+
 [profile.release]
 lto = "thin"
 debug = "line-tables-only"
