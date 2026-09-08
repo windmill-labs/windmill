@@ -55,6 +55,9 @@
 	import TagList from './TagList.svelte'
 	import DedicatedWorkersSelector from './DedicatedWorkersSelector.svelte'
 	import { computeHashedTag } from './dedicated_worker'
+	import ObjectStoreConfigSettings, {
+		type ObjectStoreConfig
+	} from './ObjectStoreConfigSettings.svelte'
 
 	function computeVCpuAndMemory(workers: [string, WorkerPing[]][]) {
 		let vcpus = 0
@@ -100,6 +103,7 @@
 		min_alive_workers_alert_threshold?: number
 		autoscaling?: AutoscalingConfig
 		native_mode?: boolean
+		object_store_cache_config?: ObjectStoreConfig
 	} = $state({})
 
 	function loadNConfig() {
@@ -207,6 +211,7 @@
 					periodic_script_bash?: string
 					periodic_script_interval_seconds?: number
 					native_mode?: boolean
+					object_store_cache_config?: ObjectStoreConfig
 			  }
 		activeWorkers: number
 		customTags: string[] | undefined
@@ -988,6 +993,35 @@
 					</div>
 				{/if}
 			</Label>
+		</Section>
+
+		<div class="mt-8"></div>
+
+		<Section
+			label="Dependency cache object storage"
+			tooltip="Object storage this group caches dependencies in, for workers that are far from the instance bucket or cannot reach it."
+			collapsable
+			eeOnly={!hasEnterpriseFeatures}
+			initiallyCollapsed={nconfig.object_store_cache_config === undefined}
+		>
+			{#snippet header()}
+				<div class="ml-4 flex flex-row gap-2 items-center">
+					{#if nconfig.object_store_cache_config !== undefined}
+						<Badge color="green">Overridden</Badge>
+					{/if}
+				</div>
+			{/snippet}
+			<p class="text-xs text-secondary mb-2">
+				Workers of this group cache dependencies — virtual envs, bundles and compiled binaries — in
+				this bucket instead of the instance object storage. Everything else, including job results,
+				logs, codebases and app assets, keeps using the instance one. Applied without restarting the
+				workers; while the bucket is unreachable, the cache stays local to each worker.
+			</p>
+			<ObjectStoreConfigSettings
+				bind:bucket_config={nconfig.object_store_cache_config}
+				showInstanceStorageTools={false}
+				disabled={!canEditEEConfig}
+			/>
 		</Section>
 
 		<div class="mt-8"></div>

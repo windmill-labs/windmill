@@ -59,14 +59,21 @@ struct Config {
     config: serde_json::Value,
 }
 
+/// Credential-bearing fields across the `ObjectSettings` variants, which are flattened into a
+/// single object by the `type` tag.
+const OBJECT_STORE_SECRET_KEYS: &[&str] =
+    &["access_key", "secret_key", "accessKey", "serviceAccountKey"];
+
 async fn list_worker_groups(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> error::JsonResult<Vec<Config>> {
-    let mut configs_raw =
-        sqlx::query_as!(Config, "SELECT name, config FROM config WHERE name LIKE 'worker__%'")
-            .fetch_all(&db)
-            .await?;
+    let mut configs_raw = sqlx::query_as!(
+        Config,
+        "SELECT name, config FROM config WHERE name LIKE 'worker__%'"
+    )
+    .fetch_all(&db)
+    .await?;
     // Remove the 'worker__' prefix from all config names
     for config in configs_raw.iter_mut() {
         if let Some(name) = &config.name {
@@ -75,9 +82,10 @@ async fn list_worker_groups(
             }
         }
     }
-    // Worker-group configs are instance-global and expose env_vars_static (may hold
-    // secrets); a job token (capped at workspace admin) gets the obfuscated view even
-    // when its identity is a superadmin. See is_instance_admin (GHSA-hfh4-cx4h-3fcr).
+    // Worker-group configs are instance-global and expose env_vars_static and the bucket
+    // credentials of object_store_cache_config (may hold secrets); a job token (capped at
+    // workspace admin) gets the obfuscated view even when its identity is a superadmin. See
+    // is_instance_admin (GHSA-hfh4-cx4h-3fcr).
     let configs = if !is_instance_admin(&authed) {
         let mut obfuscated_configs: Vec<Config> = vec![];
         for config in configs_raw {
@@ -101,6 +109,16 @@ async fn list_worker_groups(
                         "env_vars_static".to_string(),
                         serde_json::Value::Object(new_env_var_map),
                     );
+                }
+                if let Some(store) = config_value
+                    .get_mut("object_store_cache_config")
+                    .and_then(|v| v.as_object_mut())
+                {
+                    for key in OBJECT_STORE_SECRET_KEYS {
+                        if let Some(secret) = store.get_mut(*key) {
+                            *secret = serde_json::json!("*****");
+                        }
+                    }
                 }
                 obfuscated_configs.push(Config {
                     name: config.name,

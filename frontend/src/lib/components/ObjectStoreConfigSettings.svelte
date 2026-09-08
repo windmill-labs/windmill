@@ -1,3 +1,42 @@
+<script module lang="ts">
+	export type S3Config = {
+		type: 'S3'
+		bucket: string
+		region: string
+		access_key: string
+		secret_key: string
+		endpoint: string
+		allow_http?: boolean
+	}
+
+	export type AzureConfig = {
+		type: 'Azure'
+		accountName: string
+		containerName: string
+		useSSL?: boolean
+		tenantId: string
+		clientId: string
+		accessKey: string
+		federatedTokenFile?: string
+		endpoint?: string
+	}
+
+	export type AwsOidcConfig = {
+		type: 'AwsOidc'
+		bucket: string
+		region: string
+		roleArn: string
+	}
+
+	export type GcsConfig = {
+		type: 'Gcs'
+		bucket: string
+		serviceAccountKey: Record<string, string> | undefined
+	}
+
+	export type ObjectStoreConfig = S3Config | AzureConfig | AwsOidcConfig | GcsConfig
+</script>
+
 <script lang="ts">
 	import { Database, Eye, EyeOff, HardDrive, Loader2, Trash2 } from 'lucide-svelte'
 	import { onDestroy } from 'svelte'
@@ -12,49 +51,18 @@
 	import Label from './Label.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 
-	type S3Config = {
-		type: 'S3'
-		bucket: string
-		region: string
-		access_key: string
-		secret_key: string
-		endpoint: string
-		allow_http?: boolean
-	}
-
-	type AzureConfig = {
-		type: 'Azure'
-		accountName: string
-		containerName: string
-		useSSL?: boolean
-		tenantId: string
-		clientId: string
-		accessKey: string
-		federatedTokenFile?: string
-		endpoint?: string
-	}
-
-	type AwsOidcConfig = {
-		type: 'AwsOidc'
-		bucket: string
-		region: string
-		roleArn: string
-	}
-
-	type GcsConfig = {
-		type: 'Gcs'
-		bucket: string
-		serviceAccountKey: Record<string, string> | undefined
-	}
-
 	interface Props {
-		bucket_config?: S3Config | AzureConfig | AwsOidcConfig | GcsConfig | undefined
+		bucket_config?: ObjectStoreConfig | undefined
+		/** Usage and log-cleanup panels act on the instance store, so a store configured
+		 * elsewhere (a worker group's dependency cache) must not offer them. */
+		showInstanceStorageTools?: boolean
+		disabled?: boolean
 	}
 
 	let {
-		bucket_config = $bindable<S3Config | AzureConfig | AwsOidcConfig | GcsConfig | undefined>(
-			undefined
-		)
+		bucket_config = $bindable<ObjectStoreConfig | undefined>(undefined),
+		showInstanceStorageTools = true,
+		disabled = false
 	}: Props = $props()
 
 	let effectiveAllowHttp = $derived(
@@ -201,7 +209,7 @@
 
 	let hasConfig = $derived(Boolean(bucket_config))
 	$effect(() => {
-		if (hasConfig) {
+		if (hasConfig && showInstanceStorageTools) {
 			let cancelled = false
 			fetchCleanupStatus().then(() => {
 				if (!cancelled && cleanupStatus?.running) {
@@ -263,7 +271,7 @@
 
 <div class="my-0.5">
 	<Toggle
-		disabled={!$enterpriseLicense}
+		disabled={!$enterpriseLicense || disabled}
 		options={{ right: bucket_config ? '' : 'set object store' }}
 		checked={Boolean(bucket_config)}
 		on:change={(e) => {
@@ -284,7 +292,7 @@
 	/>
 </div>
 {#if bucket_config}
-	<div class="">
+	<fieldset {disabled} class="min-w-0">
 		<div class="flex gap-2 py-1">
 			<Button
 				spacingSize="sm"
@@ -309,158 +317,162 @@
 			/>
 		</div>
 
-		<div class="border rounded-md p-3 my-2">
-			<div class="flex items-center justify-between gap-2">
-				<div class="flex flex-col">
-					<span class="text-xs font-semibold text-emphasis">Storage usage by folder</span>
-					<span class="text-tertiary text-2xs">
-						Runs in the background — large buckets can take several minutes.
-					</span>
+		{#if showInstanceStorageTools}
+			<div class="border rounded-md p-3 my-2">
+				<div class="flex items-center justify-between gap-2">
+					<div class="flex flex-col">
+						<span class="text-xs font-semibold text-emphasis">Storage usage by folder</span>
+						<span class="text-tertiary text-2xs">
+							Runs in the background — large buckets can take several minutes.
+						</span>
+					</div>
+					<Button
+						spacingSize="sm"
+						size="xs"
+						btnClasses="h-8"
+						variant="border"
+						disabled={usageStarting || usageStatus?.running}
+						on:click={startUsage}
+					>
+						{#if usageStarting || usageStatus?.running}
+							<Loader2 class="animate-spin mr-2 !h-4 !w-4" />
+						{:else}
+							<HardDrive class="mr-2 !h-4 !w-4" />
+						{/if}
+						{usageStatus?.running
+							? 'Running…'
+							: usageStatus && usageStatus.folders.length > 0
+								? 'Refresh'
+								: 'Show usage'}
+					</Button>
 				</div>
-				<Button
-					spacingSize="sm"
-					size="xs"
-					btnClasses="h-8"
-					variant="border"
-					disabled={usageStarting || usageStatus?.running}
-					on:click={startUsage}
-				>
-					{#if usageStarting || usageStatus?.running}
-						<Loader2 class="animate-spin mr-2 !h-4 !w-4" />
-					{:else}
-						<HardDrive class="mr-2 !h-4 !w-4" />
-					{/if}
-					{usageStatus?.running
-						? 'Running…'
-						: usageStatus && usageStatus.folders.length > 0
-							? 'Refresh'
-							: 'Show usage'}
-				</Button>
-			</div>
 
-			{#if usageStatus}
-				<div class="mt-2 flex flex-col gap-1">
-					{#if usageStatus.running}
-						<div class="text-2xs text-tertiary">
-							Scanning…
-							{usageStatus.scanned_objects.toLocaleString()} objects inspected
-							{#if usageStatus.current_prefix}
-								— currently under
-								<span class="font-mono">{usageStatus.current_prefix}</span>
-							{/if}
-						</div>
-					{:else if usageStatus.finished_at}
-						<div class="text-2xs text-tertiary">
-							Scanned {usageStatus.scanned_objects.toLocaleString()} objects · finished at {new Date(
-								usageStatus.finished_at
-							).toLocaleString()}
-						</div>
-					{/if}
-					{#if usageStatus.error}
-						<div class="text-red-500 text-2xs">Error: {usageStatus.error}</div>
-					{/if}
-					{#if usageStatus.folders.length > 0}
-						<div class="flex flex-col gap-0.5 mt-1">
-							{#each usageStatus.folders as item (item.prefix)}
-								<div
-									class="flex justify-between items-center text-xs py-1 px-2 rounded hover:bg-surface-hover"
-									title={item.partial
-										? 'Listing errored mid-stream; size is a lower bound, not the true total.'
-										: undefined}
-								>
-									<span class="font-mono text-secondary">{item.prefix}</span>
-									<span class="text-tertiary font-semibold">
-										{displaySize(item.size) ?? '0 B'}{item.partial ? ' (partial)' : ''}
-									</span>
-								</div>
-							{/each}
-							<div
-								class="flex justify-between items-center text-xs py-1 px-2 border-t mt-1 pt-2 font-semibold"
-							>
-								<span>Total{usageStatus.running ? ' (partial)' : ''}</span>
-								<span
-									>{displaySize(usageStatus.folders.reduce((acc, item) => acc + item.size, 0)) ??
-										'0 B'}</span
-								>
+				{#if usageStatus}
+					<div class="mt-2 flex flex-col gap-1">
+						{#if usageStatus.running}
+							<div class="text-2xs text-tertiary">
+								Scanning…
+								{usageStatus.scanned_objects.toLocaleString()} objects inspected
+								{#if usageStatus.current_prefix}
+									— currently under
+									<span class="font-mono">{usageStatus.current_prefix}</span>
+								{/if}
 							</div>
-						</div>
-					{:else if !usageStatus.running && usageStatus.finished_at}
-						<div class="text-tertiary text-xs">No objects found in the bucket.</div>
-					{/if}
-				</div>
-			{/if}
-		</div>
-
-		<div class="border rounded-md p-3 my-2">
-			<div class="flex items-center justify-between gap-2">
-				<div class="flex flex-col">
-					<span class="text-xs font-semibold text-emphasis">Clean up expired logs</span>
-					<span class="text-tertiary text-2xs">
-						Delete expired service &amp; job logs from object storage and disk now, then scan the
-						bucket for orphan log files left behind by previously deleted jobs. Uses batched deletes
-						(up to 1000 objects per request).
-					</span>
-				</div>
-				<Button
-					spacingSize="sm"
-					size="xs"
-					btnClasses="h-8"
-					variant="border"
-					disabled={cleanupStarting || cleanupStatus?.running}
-					on:click={startCleanup}
-				>
-					{#if cleanupStarting || cleanupStatus?.running}
-						<Loader2 class="animate-spin mr-2 !h-4 !w-4" />
-					{:else}
-						<Trash2 class="mr-2 !h-4 !w-4" />
-					{/if}
-					{cleanupStatus?.running ? 'Running…' : 'Run cleanup'}
-				</Button>
+						{:else if usageStatus.finished_at}
+							<div class="text-2xs text-tertiary">
+								Scanned {usageStatus.scanned_objects.toLocaleString()} objects · finished at {new Date(
+									usageStatus.finished_at
+								).toLocaleString()}
+							</div>
+						{/if}
+						{#if usageStatus.error}
+							<div class="text-red-500 text-2xs">Error: {usageStatus.error}</div>
+						{/if}
+						{#if usageStatus.folders.length > 0}
+							<div class="flex flex-col gap-0.5 mt-1">
+								{#each usageStatus.folders as item (item.prefix)}
+									<div
+										class="flex justify-between items-center text-xs py-1 px-2 rounded hover:bg-surface-hover"
+										title={item.partial
+											? 'Listing errored mid-stream; size is a lower bound, not the true total.'
+											: undefined}
+									>
+										<span class="font-mono text-secondary">{item.prefix}</span>
+										<span class="text-tertiary font-semibold">
+											{displaySize(item.size) ?? '0 B'}{item.partial ? ' (partial)' : ''}
+										</span>
+									</div>
+								{/each}
+								<div
+									class="flex justify-between items-center text-xs py-1 px-2 border-t mt-1 pt-2 font-semibold"
+								>
+									<span>Total{usageStatus.running ? ' (partial)' : ''}</span>
+									<span
+										>{displaySize(usageStatus.folders.reduce((acc, item) => acc + item.size, 0)) ??
+											'0 B'}</span
+									>
+								</div>
+							</div>
+						{:else if !usageStatus.running && usageStatus.finished_at}
+							<div class="text-tertiary text-xs">No objects found in the bucket.</div>
+						{/if}
+					</div>
+				{/if}
 			</div>
 
-			{#if cleanupStatus}
-				{@const total = cleanupStatus.total_service + cleanupStatus.total_jobs}
-				{@const processed = cleanupStatus.processed_service + cleanupStatus.processed_jobs}
-				<div class="mt-3 flex flex-col gap-1">
-					<div class="w-full h-2 bg-surface-secondary rounded overflow-hidden">
-						<div class="h-full bg-blue-500 transition-all" style:width="{cleanupProgress}%"></div>
-					</div>
-					<div class="flex justify-between text-2xs text-tertiary">
-						<span>
-							Phase: <span class="font-semibold">{cleanupStatus.phase}</span>
-						</span>
-						<span>
-							S3 deleted: {cleanupStatus.s3_deleted.toLocaleString()}
-							{#if (cleanupStatus.s3_not_found ?? 0) > 0}
-								&middot; already absent (404): {(cleanupStatus.s3_not_found ?? 0).toLocaleString()}
-							{/if}
-							{#if cleanupStatus.errors > 0}
-								&middot; errors: {cleanupStatus.errors.toLocaleString()}
-							{/if}
+			<div class="border rounded-md p-3 my-2">
+				<div class="flex items-center justify-between gap-2">
+					<div class="flex flex-col">
+						<span class="text-xs font-semibold text-emphasis">Clean up expired logs</span>
+						<span class="text-tertiary text-2xs">
+							Delete expired service &amp; job logs from object storage and disk now, then scan the
+							bucket for orphan log files left behind by previously deleted jobs. Uses batched
+							deletes (up to 1000 objects per request).
 						</span>
 					</div>
-					<div class="text-2xs text-tertiary">
-						DB: {processed.toLocaleString()} / {total.toLocaleString()} rows deleted ({cleanupProgress}%)
-						&middot; service {cleanupStatus.processed_service.toLocaleString()}/{cleanupStatus.total_service.toLocaleString()},
-						job {cleanupStatus.processed_jobs.toLocaleString()}/{cleanupStatus.total_jobs.toLocaleString()}
-					</div>
-					<div class="text-2xs text-tertiary">
-						Orphan scan: {cleanupStatus.orphans_scanned.toLocaleString()} scanned,
-						{cleanupStatus.orphans_deleted.toLocaleString()} deleted
-					</div>
-					{#if !cleanupStatus.running && cleanupStatus.finished_at}
-						<div class="text-2xs text-tertiary">
-							Finished at {new Date(cleanupStatus.finished_at).toLocaleString()}
-						</div>
-					{/if}
-					{#if cleanupStatus.last_error}
-						<div class="text-red-500 text-2xs mt-1">
-							Last error: {cleanupStatus.last_error}
-						</div>
-					{/if}
+					<Button
+						spacingSize="sm"
+						size="xs"
+						btnClasses="h-8"
+						variant="border"
+						disabled={cleanupStarting || cleanupStatus?.running}
+						on:click={startCleanup}
+					>
+						{#if cleanupStarting || cleanupStatus?.running}
+							<Loader2 class="animate-spin mr-2 !h-4 !w-4" />
+						{:else}
+							<Trash2 class="mr-2 !h-4 !w-4" />
+						{/if}
+						{cleanupStatus?.running ? 'Running…' : 'Run cleanup'}
+					</Button>
 				</div>
-			{/if}
-		</div>
+
+				{#if cleanupStatus}
+					{@const total = cleanupStatus.total_service + cleanupStatus.total_jobs}
+					{@const processed = cleanupStatus.processed_service + cleanupStatus.processed_jobs}
+					<div class="mt-3 flex flex-col gap-1">
+						<div class="w-full h-2 bg-surface-secondary rounded overflow-hidden">
+							<div class="h-full bg-blue-500 transition-all" style:width="{cleanupProgress}%"></div>
+						</div>
+						<div class="flex justify-between text-2xs text-tertiary">
+							<span>
+								Phase: <span class="font-semibold">{cleanupStatus.phase}</span>
+							</span>
+							<span>
+								S3 deleted: {cleanupStatus.s3_deleted.toLocaleString()}
+								{#if (cleanupStatus.s3_not_found ?? 0) > 0}
+									&middot; already absent (404): {(
+										cleanupStatus.s3_not_found ?? 0
+									).toLocaleString()}
+								{/if}
+								{#if cleanupStatus.errors > 0}
+									&middot; errors: {cleanupStatus.errors.toLocaleString()}
+								{/if}
+							</span>
+						</div>
+						<div class="text-2xs text-tertiary">
+							DB: {processed.toLocaleString()} / {total.toLocaleString()} rows deleted ({cleanupProgress}%)
+							&middot; service {cleanupStatus.processed_service.toLocaleString()}/{cleanupStatus.total_service.toLocaleString()},
+							job {cleanupStatus.processed_jobs.toLocaleString()}/{cleanupStatus.total_jobs.toLocaleString()}
+						</div>
+						<div class="text-2xs text-tertiary">
+							Orphan scan: {cleanupStatus.orphans_scanned.toLocaleString()} scanned,
+							{cleanupStatus.orphans_deleted.toLocaleString()} deleted
+						</div>
+						{#if !cleanupStatus.running && cleanupStatus.finished_at}
+							<div class="text-2xs text-tertiary">
+								Finished at {new Date(cleanupStatus.finished_at).toLocaleString()}
+							</div>
+						{/if}
+						{#if cleanupStatus.last_error}
+							<div class="text-red-500 text-2xs mt-1">
+								Last error: {cleanupStatus.last_error}
+							</div>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		{/if}
 
 		<Tabs
 			selected={bucket_config?.type ?? 'S3'}
@@ -772,5 +784,5 @@
 				<div>Unknown bucket type {bucket_config['type']}</div>
 			{/if}
 		</div>
-	</div>
+	</fieldset>
 {/if}

@@ -396,6 +396,8 @@ pub async fn initial_load(
                     additional_python_paths: None,
                     pip_local_dependencies: None,
                     native_mode,
+                    // an agent worker never reads its group's config, only its token
+                    object_store_cache_config: None,
                 }));
             }
         }
@@ -5126,6 +5128,20 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
                 .dedicated_workers
                 .as_ref()
                 .is_some_and(|dws| !dws.is_empty());
+
+        // Outside the `!=` block below so a build that failed on a transient error is retried
+        // by the next settings pass, which sees an unchanged config.
+        #[cfg(feature = "parquet")]
+        if wc.object_store_cache_config != config.object_store_cache_config
+            || windmill_object_store::cache_object_store_override_failed().await
+        {
+            windmill_object_store::reload_cache_object_store_override(
+                db,
+                config.object_store_cache_config.clone(),
+            )
+            .await;
+        }
+
         if **wc != config || has_dedicated {
             if kill_if_change {
                 if has_dedicated
