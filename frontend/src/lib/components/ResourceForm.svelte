@@ -19,6 +19,7 @@
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import TestTriggerConnection from './triggers/TestTriggerConnection.svelte'
 	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
+	import GitLabIntegration from './GitLabIntegration.svelte'
 	import Button from './common/button/Button.svelte'
 	import ResourceGen from './copilot/ResourceGen.svelte'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
@@ -47,6 +48,9 @@
 		/** Workspace the path is validated against and the connection is tested in;
 		 * defaults to the nav workspace. */
 		workspace?: string | undefined
+		/** Fired once the GitLab picker has stored the picked project's token, so a
+		 * form that would otherwise file the URL as a secret knows it holds none. */
+		onCredentialStored?: () => void
 	}
 
 	let {
@@ -68,7 +72,8 @@
 		loadingSchema,
 		resourceToEdit,
 		onLoadResourceType,
-		workspace = undefined
+		workspace = undefined,
+		onCredentialStored
 	}: Props = $props()
 
 	let ws = $derived(workspace ?? $workspaceStore)
@@ -248,11 +253,29 @@
 				{description}
 				onArgsUpdate={(newArgs) => {
 					args = newArgs
-					if (viewJsonSchema) {
+					// The raw editor is also what a workspace missing the resource type
+					// gets, and it holds its own copy of the value: without this the
+					// picker fills in a URL nothing on screen ever shows.
+					if (viewJsonSchema || !resourceSchema) {
 						rawCode = JSON.stringify(args, null, 2)
 					}
 				}}
 				onDescriptionUpdate={(newDescription) => (description = newDescription)}
+			/>
+			<GitLabIntegration
+				resourceType={resource_type}
+				{args}
+				workspace={ws}
+				{onCredentialStored}
+				onArgsUpdate={(newArgs) => {
+					args = newArgs
+					// The raw editor is also what a workspace missing the resource type
+					// gets, and it holds its own copy of the value: without this the
+					// picker fills in a URL nothing on screen ever shows.
+					if (viewJsonSchema || !resourceSchema) {
+						rawCode = JSON.stringify(args, null, 2)
+					}
+				}}
 			/>
 		{/if}
 	</div>
