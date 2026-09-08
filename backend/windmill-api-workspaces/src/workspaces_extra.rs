@@ -995,6 +995,22 @@ pub(crate) async fn delete_workspace(
     // but the destructive cleanup itself runs only after the commit below: a delete that
     // fails mid-way must never leave a live workspace with its fork data destroyed and no
     // registry row to retry from. Read-only: nothing is dropped here.
+    // Read before the delete: another workspace's data table entry can point at one of this
+    // workspace's, and deleting the workspace it names leaves that pointer resolving to nothing.
+    // Nothing sweeps them — turning them back into copies would hand each fork the database
+    // outright — so the deleter is told which data tables they just stranded.
+    let stranded_pointers = sqlx::query!(
+        r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "datatable!"
+           FROM workspace_settings ws
+           CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
+           WHERE dt.value->'reference'->>'workspace_id' = $1
+           ORDER BY ws.workspace_id, dt.key"#,
+        &w_id,
+    )
+    .fetch_all(&db)
+    .await
+    .unwrap_or_default();
+
     let fork_ducklake_cleanups = prepare_fork_ducklake_cleanups(&db, &w_id, None)
         .await
         .unwrap_or_else(|e| {
@@ -1313,7 +1329,19 @@ pub(crate) async fn delete_workspace(
         tracing::warn!("failed to broadcast fork lineage change: {e:#}");
     }
 
-    Ok(format!("Deleted workspace {}", &w_id))
+    if stranded_pointers.is_empty() {
+        Ok(format!("Deleted workspace {}", &w_id))
+    } else {
+        let stranded = stranded_pointers
+            .iter()
+            .map(|r| format!("{}/{}", r.workspace_id, r.datatable))
+            .collect::<Vec<_>>()
+            .join(", ");
+        Ok(format!(
+            "Deleted workspace {}. These data tables were governed by it and no longer resolve:              {}. Their databases still exist; a superadmin can point them at another workspace's              data table.",
+            &w_id, stranded
+        ))
+    }
 }
 
 #[derive(Deserialize)]

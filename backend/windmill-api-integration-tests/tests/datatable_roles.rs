@@ -260,3 +260,72 @@ async fn a_fork_renaming_its_own_entry_leaves_the_governing_bookkeeping_alone(
     assert_eq!(left, 1, "the fork's delete reached the parent's migrations");
     Ok(())
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn a_caller_who_is_not_a_member_of_the_governing_workspace_reaches_nothing(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    // A fork member who was never added to the parent. Their fork membership says nothing there,
+    // and the email lookup that would evaluate them as a member of it finds no row.
+    sqlx::query(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('wm-fork-dt', 'test3@windmill.dev', 'test-user-3', false, 'User')",
+    )
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let resp = authed(
+        client().get(format!(
+            "http://localhost:{port}/api/w/wm-fork-dt/workspaces/datatable_usable_roles/main"
+        )),
+        "SECRET_TOKEN_3",
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await?;
+    assert_eq!(body["roles"], json!([]), "{body}");
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn a_caller_with_no_identity_reaches_a_permissioned_data_table_not_at_all(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use windmill_common::workspaces::{get_datatable_resource_from_db, DatatableAccess};
+
+    initialize_tracing().await;
+    // The compatibility story for an agent worker that predates data table roles and sends no job
+    // id: it keeps resolving an unpermissioned data table, and is refused on a permissioned one
+    // rather than handed an unattributed admin connection.
+    let refused = get_datatable_resource_from_db(
+        &db,
+        "test-workspace",
+        "main",
+        None,
+        DatatableAccess::NoIdentity,
+    )
+    .await;
+    assert!(refused.is_err(), "an unidentified caller was let in");
+
+    sqlx::query(
+        "UPDATE workspace_settings
+         SET datatable = datatable #- '{datatables,main,permissions}'
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .execute(&db)
+    .await?;
+    let resolved = get_datatable_resource_from_db(
+        &db,
+        "test-workspace",
+        "main",
+        None,
+        DatatableAccess::NoIdentity,
+    )
+    .await?;
+    assert_eq!(resolved["dbname"], "dt_main", "{resolved}");
+    Ok(())
+}
