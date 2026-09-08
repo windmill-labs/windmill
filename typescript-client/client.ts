@@ -1689,8 +1689,9 @@ export type JsonifiedFn<T extends (...args: any[]) => Promise<any>> = (
  * worker while it backs off.
  *
  * A workflow sleeps once per round, so tasks backing off in the same fan-out
- * wait one after another rather than together: three `delay: 30` retries
- * dispatched by one `parallel()` come back after 90s, not 30s. Retries with no
+ * wait one after another rather than together: the delay before a fan-out
+ * retries is the sum of every backoff pending in it, not the longest one, and
+ * it grows with both the width of the fan-out and `attempts`. Retries with no
  * `delay` all go out in a single round.
  */
 export interface TaskRetry {
@@ -1822,25 +1823,36 @@ export class WorkflowCtx {
     const stepName = name || script || "step";
     const maxRetries = Math.max(0, Math.trunc(options?.retry?.attempts ?? 0));
 
+    // Every key this call can ever use is claimed here, at the first attempt,
+    // even for attempts that never run. They are named off the first attempt's
+    // key rather than off `stepName` so that how many attempts a task burns
+    // never shifts the keys of the steps beside it — in
+    // `Promise.all([t(1), t(2)])` a retry of the first call would otherwise take
+    // `t_2` and read the second call's result. Claiming them all up front is
+    // what makes that safe in both directions: `step()` names are arbitrary, so
+    // a step really can be called `t#2`, and whichever of the two the body
+    // allocates second is renamed — in every round alike, rather than depending
+    // on which attempts had run by then.
+    const baseKey = this._allocKey(stepName);
+    const attemptKeys = [baseKey];
+    const backoffKeys: string[] = [];
+    for (let i = 0; i < maxRetries; i++) {
+      backoffKeys.push(this._allocKey(`${baseKey}#retry${i + 2}`));
+      attemptKeys.push(this._allocKey(`${baseKey}#${i + 2}`));
+    }
+
     // One pass per attempt. Every attempt the checkpoint already holds is
-    // decided here — a failed one either retries (deriving the next key) or is
+    // decided here — a failed one either retries (moving to the next key) or is
     // handed back to the body — so the loop always ends at the first attempt
     // that has yet to run.
-    //
-    // The attempts after the first are named off the first attempt's key rather
-    // than off `stepName`, so how many attempts a task burns never shifts the
-    // keys of the steps around it: in `Promise.all([t(1), t(2)])` a retry of the
-    // first call would otherwise take `t_2` and read the second call's result.
-    let baseKey = "";
     for (let attempt = 0; ; attempt++) {
-      const key =
-        attempt === 0 ? (baseKey = this._allocKey(stepName)) : this._allocKey(`${baseKey}#${attempt + 1}`);
+      const key = attemptKeys[attempt];
 
       if (key in this.completed) {
         const value = this.completed[key];
         if (value && typeof value === "object" && (value as any).__wmill_error) {
           if (attempt < maxRetries) {
-            this._retryBackoff(baseKey, options!.retry!, attempt);
+            this._retryBackoff(backoffKeys[attempt], baseKey, options!.retry!, attempt);
             continue;
           }
           const err = taskErrorFromMarker(value, `Task '${name}' failed`);
@@ -1902,10 +1914,9 @@ export class WorkflowCtx {
    *  thenable: a task call the body never awaits is still dispatched (the runner
    *  flushes `pending`), so a backoff that only fired when awaited would drop
    *  the retry and let the round report the workflow complete. */
-  private _retryBackoff(baseKey: string, retry: TaskRetry, attempt: number): void {
+  private _retryBackoff(key: string, baseKey: string, retry: TaskRetry, attempt: number): void {
     const seconds = retryDelaySeconds(retry, attempt);
     if (seconds < 1) return;
-    const key = this._allocKey(`${baseKey}#retry${attempt + 2}`);
     if (key in this.completed) return;
     // Child mode never raises: the parent dispatched this child only after its
     // own round had slept, so the loop moves on to the attempt being executed.

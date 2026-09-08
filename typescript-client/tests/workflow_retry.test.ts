@@ -116,9 +116,10 @@ describe("task retry", () => {
     expect(r).toMatchObject({ mode: "sleep", key: "fire#retry2", seconds: 30 });
   });
 
-  test("an inline step named like an attempt key does not stand in for the attempt", async () => {
-    // `step()` names are arbitrary strings, so a derived key has to be claimed
-    // through the allocator rather than assumed free.
+  // `step()` names are arbitrary strings, so a step really can be called `t#2`.
+  // Whichever of the two allocates second is the one renamed, and it has to be
+  // the same one in every round — hence claiming the attempt keys up front.
+  test("an inline step named like an attempt key, before the task, keeps its key", async () => {
     const t = task(async function t(x: number) {
       return x;
     }, { retry: { attempts: 1 } });
@@ -129,6 +130,25 @@ describe("task retry", () => {
 
     const r = await round({ "t#2": "not an attempt", t: failed }, body);
     expect(r.steps.map((s: any) => s.key)).toEqual(["t#2_2"]);
+  });
+
+  test("an inline step named like an attempt key, after the task, does not stand in for it", async () => {
+    const t = task(async function t(x: number) {
+      return x;
+    }, { retry: { attempts: 1 } });
+    const body = async () => {
+      const pending = t(1);
+      const decoy = await step("t#2", () => "not an attempt");
+      return [decoy, await pending];
+    };
+
+    // Round 1 records the step under the key left over after the task claimed
+    // `t#2`, so the retry re-dispatches instead of reading the step's value.
+    let r = await round({}, body);
+    expect(r).toMatchObject({ mode: "inline_checkpoint", key: "t#2_2" });
+
+    r = await round({ t: failed, "t#2_2": "not an attempt" }, body);
+    expect(r.steps.map((s: any) => s.key)).toEqual(["t#2"]);
   });
 
   test("the child dispatched for an attempt walks the loop past the failure and backoff", async () => {

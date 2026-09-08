@@ -11,8 +11,9 @@ Import: `import { workflow, task, taskScript, taskFlow, step, sleep, waitForAppr
  * worker while it backs off.
  *
  * A workflow sleeps once per round, so tasks backing off in the same fan-out
- * wait one after another rather than together: three `delay: 30` retries
- * dispatched by one `parallel()` come back after 90s, not 30s. Retries with no
+ * wait one after another rather than together: the delay before a fan-out
+ * retries is the sum of every backoff pending in it, not the longest one, and
+ * it grows with both the width of the fan-out and `attempts`. Retries with no
  * `delay` all go out in a single round.
  */
 export interface TaskRetry {

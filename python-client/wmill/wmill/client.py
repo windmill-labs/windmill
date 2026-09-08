@@ -2879,6 +2879,21 @@ def _task_error_from_marker(marker: dict, fallback_message: str) -> TaskError:
 # capped here rather than sent.
 _MAX_SLEEP_SECONDS = 2**32 - 1
 
+_RETRY_KEYS = ("attempts", "delay", "multiplier", "max_delay")
+
+
+def _checked_retry(retry: Optional[dict]) -> Optional[dict]:
+    """The policy is a plain dict, so a misspelled key would otherwise be
+    dropped in silence and the task would retry on a policy nobody wrote."""
+    if retry is None:
+        return None
+    unknown = sorted(k for k in retry if k not in _RETRY_KEYS)
+    if unknown:
+        raise ValueError(
+            f"unknown retry option(s): {', '.join(unknown)}. Expected any of: {', '.join(_RETRY_KEYS)}"
+        )
+    return retry
+
 
 def _retry_delay_seconds(retry: dict, attempt: int) -> int:
     """Seconds to wait before retry number ``attempt`` (0 is the first retry)."""
@@ -2955,29 +2970,36 @@ class WorkflowCtx:
         retry = (_task_options or {}).get("retry") or {}
         max_retries = max(0, int(retry.get("attempts") or 0))
 
+        # Every key this call can ever use is claimed here, at the first attempt,
+        # even for attempts that never run. They are named off the first
+        # attempt's key rather than off ``step_name`` so that how many attempts a
+        # task burns never shifts the keys of the steps beside it — in
+        # ``asyncio.gather(t(1), t(2))`` a retry of the first call would
+        # otherwise take ``t_2`` and read the second call's result. Claiming them
+        # all up front is what makes that safe in both directions: ``step()``
+        # names are arbitrary, so a step really can be called ``t#2``, and
+        # whichever of the two the body allocates second is renamed — in every
+        # round alike, rather than depending on which attempts had run by then.
+        base_key = self._alloc_key(step_name)
+        attempt_keys = [base_key]
+        backoff_keys = []
+        for i in range(max_retries):
+            backoff_keys.append(self._alloc_key(f"{base_key}#retry{i + 2}"))
+            attempt_keys.append(self._alloc_key(f"{base_key}#{i + 2}"))
+
         # One pass per attempt. Every attempt the checkpoint already holds is
-        # decided here — a failed one either retries (deriving the next key) or
+        # decided here — a failed one either retries (moving to the next key) or
         # is handed back to the body — so the loop always ends at the first
         # attempt that has yet to run.
-        #
-        # The attempts after the first are named off the first attempt's key
-        # rather than off ``step_name``, so how many attempts a task burns never
-        # shifts the keys of the steps around it: in
-        # ``asyncio.gather(t(1), t(2))`` a retry of the first call would
-        # otherwise take ``t_2`` and read the second call's result.
         attempt = 0
-        base_key = ""
         while True:
-            if attempt == 0:
-                key = base_key = self._alloc_key(step_name)
-            else:
-                key = self._alloc_key(f"{base_key}#{attempt + 1}")
+            key = attempt_keys[attempt]
 
             if key in self._completed:
                 val = self._completed[key]
                 if isinstance(val, dict) and val.get("__wmill_error"):
                     if attempt < max_retries:
-                        self._retry_backoff(base_key, retry, attempt)
+                        self._retry_backoff(backoff_keys[attempt], base_key, retry, attempt)
                         attempt += 1
                         continue
                     raise _task_error_from_marker(val, f"Task '{name}' failed")
@@ -2998,7 +3020,7 @@ class WorkflowCtx:
             self._pending.append(info)
             return self._suspend()
 
-    def _retry_backoff(self, base_key: str, retry: dict, attempt: int) -> None:
+    def _retry_backoff(self, key: str, base_key: str, retry: dict, attempt: int) -> None:
         """Wait out the backoff between two attempts of a retried task, as a
         durable sleep, and return once there is nothing to wait for — no delay
         configured, or the sleep already in the checkpoint.
@@ -3010,7 +3032,6 @@ class WorkflowCtx:
         seconds = _retry_delay_seconds(retry, attempt)
         if seconds < 1:
             return
-        key = self._alloc_key(f"{base_key}#retry{attempt + 2}")
         if key in self._completed:
             return
         # Child mode never raises: the parent dispatched this child only after
@@ -3283,9 +3304,12 @@ def task(
     it constant), ``max_delay`` (ceiling in seconds).
 
     A workflow sleeps once per round, so tasks backing off in the same fan-out
-    wait one after another rather than together: three ``delay=30`` retries
-    dispatched by one ``gather`` come back after 90s, not 30s. Retries with no
-    ``delay`` all go out in a single round.
+    wait one after another rather than together: the delay before a fan-out
+    retries is the sum of every backoff pending in it, not the longest one, and
+    it grows with both the width of the fan-out and ``attempts``. Retries with
+    no ``delay`` all go out in a single round.
+
+    An unknown key in ``retry`` raises rather than being ignored.
 
     Usage::
 
@@ -3308,7 +3332,7 @@ def task(
         "concurrent_limit": concurrency_limit,
         "concurrency_key": concurrency_key,
         "concurrency_time_window_s": concurrency_time_window_s,
-        "retry": retry,
+        "retry": _checked_retry(retry),
     }
     # Remove None values
     _task_opts = {k: v for k, v in _task_opts.items() if v is not None} or None
@@ -3418,7 +3442,7 @@ def task_script(
             data = await extract(url="https://...")
     """
     name = path.rsplit("/", 1)[-1]
-    _opts = {k: v for k, v in {"timeout": timeout, "tag": tag, "cache_ttl": cache_ttl, "priority": priority, "concurrent_limit": concurrency_limit, "concurrency_key": concurrency_key, "concurrency_time_window_s": concurrency_time_window_s, "retry": retry}.items() if v is not None} or None
+    _opts = {k: v for k, v in {"timeout": timeout, "tag": tag, "cache_ttl": cache_ttl, "priority": priority, "concurrent_limit": concurrency_limit, "concurrency_key": concurrency_key, "concurrency_time_window_s": concurrency_time_window_s, "retry": _checked_retry(retry)}.items() if v is not None} or None
 
     def wrapper(**kwargs):
         ctx = _workflow_ctx.get(None)
@@ -3457,7 +3481,7 @@ def task_flow(
             result = await pipeline(input=data)
     """
     name = path.rsplit("/", 1)[-1]
-    _opts = {k: v for k, v in {"timeout": timeout, "tag": tag, "cache_ttl": cache_ttl, "priority": priority, "concurrent_limit": concurrency_limit, "concurrency_key": concurrency_key, "concurrency_time_window_s": concurrency_time_window_s, "retry": retry}.items() if v is not None} or None
+    _opts = {k: v for k, v in {"timeout": timeout, "tag": tag, "cache_ttl": cache_ttl, "priority": priority, "concurrent_limit": concurrency_limit, "concurrency_key": concurrency_key, "concurrency_time_window_s": concurrency_time_window_s, "retry": _checked_retry(retry)}.items() if v is not None} or None
 
     def wrapper(**kwargs):
         ctx = _workflow_ctx.get(None)

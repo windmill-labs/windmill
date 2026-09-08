@@ -1496,9 +1496,11 @@ class TestTaskRetry:
         r = _run_workflow(wf, {"completed_steps": {"fire": _FAILED}}, {})
         assert r == {"type": "sleep", "key": "fire#retry2", "seconds": 30}
 
-    def test_an_inline_step_named_like_an_attempt_key_does_not_stand_in_for_it(self):
-        # ``step()`` names are arbitrary strings, so a derived key has to be
-        # claimed through the allocator rather than assumed free.
+    # ``step()`` names are arbitrary strings, so a step really can be called
+    # ``t#2``. Whichever of the two allocates second is the one renamed, and it
+    # has to be the same one in every round — hence claiming the attempt keys up
+    # front.
+    def test_an_inline_step_named_like_an_attempt_key_before_the_task_keeps_it(self):
         @task(retry={"attempts": 1})
         async def t(x: int):
             return x
@@ -1512,6 +1514,28 @@ class TestTaskRetry:
             wf, {"completed_steps": {"t#2": "not an attempt", "t": _FAILED}}, {}
         )
         assert [s["key"] for s in r["steps"]] == ["t#2_2"]
+
+    def test_an_inline_step_named_like_an_attempt_key_after_the_task_is_not_it(self):
+        @task(retry={"attempts": 1})
+        async def t(x: int):
+            return x
+
+        @workflow
+        async def wf():
+            pending = t(x=1)
+            decoy = await step("t#2", lambda: "not an attempt")
+            return [decoy, await pending]
+
+        # The first round records the step under the key left over after the
+        # task claimed ``t#2``, so the retry re-dispatches instead of reading
+        # the step's value.
+        r = _run_workflow(wf, {}, {})
+        assert r["key"] == "t#2_2"
+
+        r = _run_workflow(
+            wf, {"completed_steps": {"t": _FAILED, "t#2_2": "not an attempt"}}, {}
+        )
+        assert [s["key"] for s in r["steps"]] == ["t#2"]
 
     def test_the_child_dispatched_for_an_attempt_walks_past_failure_and_backoff(self):
         # The non-matching branch awaits a future that never resolves, so a child
@@ -1533,6 +1557,15 @@ class TestTaskRetry:
             {"x": 4},
         )
         assert r == {"type": "complete", "result": 40}
+
+    def test_a_misspelled_retry_option_raises_instead_of_being_ignored(self):
+        # The policy is a plain dict here, unlike the TS `TaskRetry` type, so
+        # nothing else would tell the author the option never took effect.
+        with pytest.raises(ValueError, match="max_delay_s"):
+
+            @task(retry={"attempts": 2, "max_delay_s": 300})
+            async def t(x: int):
+                return x
 
     def test_max_delay_caps_the_backoff_a_multiplier_grows(self):
         @task(retry={"attempts": 2, "delay": 60, "multiplier": 100, "max_delay": 300})
