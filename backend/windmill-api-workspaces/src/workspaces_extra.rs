@@ -1338,7 +1338,11 @@ pub(crate) async fn delete_workspace(
             .collect::<Vec<_>>()
             .join(", ");
         Ok(format!(
-            "Deleted workspace {}. These data tables were governed by it and no longer resolve:              {}. Their databases still exist; a superadmin can point them at another workspace's              data table.",
+            concat!(
+                "Deleted workspace {}. These data tables were governed by it and no longer ",
+                "resolve: {}. Their databases still exist; a superadmin can point them at ",
+                "another workspace's data table."
+            ),
             &w_id, stranded
         ))
     }

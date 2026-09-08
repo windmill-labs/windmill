@@ -2601,8 +2601,12 @@ async fn write_role_catalog(
     .rows_affected();
     if written == 0 {
         return Err(error::Error::internal_err(
-            "The instance Postgres settings row is missing, so the data table role catalog could              not be recorded. Refresh the custom instance user password in instance settings to              recreate it, then try again."
-                .to_string(),
+            concat!(
+                "The instance Postgres settings row is missing, so the data table role catalog ",
+                "could not be recorded. Refresh the custom instance user password in instance ",
+                "settings to recreate it, then try again."
+            )
+            .to_string(),
         ));
     }
     Ok(())

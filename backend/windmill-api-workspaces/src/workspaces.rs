@@ -2158,7 +2158,9 @@ async fn list_datatables(
     let mut items = Vec::with_capacity(names.len());
     for name in names {
         // A pointer entry owns no database, so what it resolves to is the only truthful answer
-        // here; a chain that cannot be followed is reported with what the caller can still see.
+        // here. One that resolves to nothing — a pointer whose workspace was deleted — is dropped
+        // rather than listed with a database it does not have; what happened is named where it is
+        // actionable instead: by the delete that stranded it, and by any attempt to use it.
         let Ok(governing) = resolve_governing_datatable(&db, &w_id, &name).await else {
             continue;
         };
@@ -3630,9 +3632,10 @@ async fn edit_datatable_config(
     )
     .await?;
 
-    // Check that non-superadmins are not abusing Instance databases, nor pointing an entry at
-    // another workspace's data table. Both reach a database this workspace does not own: an
-    // instance database directly, a reference through whoever governs it.
+    // Check that non-superadmins are not abusing Instance databases, which reach a database this
+    // workspace does not own. Pointing an entry at another workspace's data table is not checked
+    // here because it cannot be requested at all: `reference` is overwritten from the stored entry
+    // above, for every caller.
     if !is_superadmin {
         for (name, dt) in new_config.settings.datatables.iter() {
             let old_dt = old_datatables.get(name);
