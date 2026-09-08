@@ -1261,7 +1261,7 @@
 										</div>
 									</div>
 								{/key}
-							{:else if selectionDbt && (selectionDbt.raw_code || selectionDbtHasColumns || selectionColumnNodes.length > 0 || selectionColumnLoading)}
+							{:else if selectionDbt && (selectionDbt.raw_code || selectionDbtHasColumns || selectionColumnNodes.length > 0 || selectionColumnLoading || selectionColumnFailed)}
 								<!-- The transform behind the node. Read-only on purpose: dbt
 								     development is a local loop (`dbt run --select`, `dbt test`
 								     against a dev target), and a browser textarea over one file

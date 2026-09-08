@@ -119,7 +119,8 @@ export function useDbtColumnLineage(args: {
 			// without the analysis pass looks like, and the two must not read
 			// alike. Not retried on its own: the effect reruns whenever the canvas
 			// redraws, and a failing endpoint would then be asked once per redraw.
-			// A Refresh moves `generation` and asks again.
+			// Selecting another node and back asks again, and where a caller
+			// passes `generation`, so does going and fetching the graph.
 			() => {
 				if (id !== latest) return
 				graph = EMPTY_COLUMN_GRAPH
