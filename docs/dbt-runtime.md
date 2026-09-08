@@ -1289,11 +1289,11 @@ no index appears, since without it "no column lineage" has no explanation.
 (passthrough), `mod` (transformed) and `scan` (the column was read to produce the
 ROW rather than the value: a join key, a `where` predicate, a `group by`) — and
 the engine's own reader maps those three and passes anything else through, so the
-set is the engine's to extend. All three are STORED; only `copy` and `mod` are
-served, because a `scan` edge reaches every output column of its model — it would
-render as a complete bipartite graph, and it is most of what a project's index
-holds. Keeping it in the table is what lets a later "show indirect" view ask for
-it without every project being redeployed.
+set is the engine's to extend. All three are stored, and `copy`/`mod` are kept
+first when the bound bites: a `scan` edge reaches every output column of its
+model, so it is most of what a project's index holds and would draw as a complete
+bipartite graph. Keeping it in the table anyway is what lets a later "show
+indirect" view ask for it without every project being redeployed.
 
 Storage mirrors `dbt_edge` exactly: `dbt_column_edge`, keyed by (path, version,
 job) with the same composite foreign key to `script`, so a version's column
@@ -1332,6 +1332,17 @@ pass that used the descriptor's default while the run overrode it would store
 lineage for SQL that run never executed. For the same reason an invocation that
 overrides the flag counts as `per_run_models`: its graph is its own, keyed to the
 job, rather than standing as the version's.
+
+That flag is not the whole of it, and the rest is a property rather than a bug to
+fix. `is_incremental()` is also false when the target table does not exist, so an
+incremental model has **two shapes and one ingest holds one of them**: a deploy
+before the first build compiles the cold shape, and the same project deployed
+again once its tables exist compiles the incremental one. A static descriptor
+re-ingests on neither runs nor time, so what is stored stays whatever the compile
+in front of it saw. dbt has no mode that emits both, and re-analyzing per run
+would buy a second `dbt compile` on every build to keep a graph nobody asked to
+refresh. The contract is therefore the honest one: a version's graph describes
+the compile that produced it, and a run that re-ingests describes its own run.
 
 ## Concept mapping
 

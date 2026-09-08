@@ -3085,17 +3085,6 @@ async fn run_parse_only(
         p.default_database.as_deref(),
         selected.as_ref(),
     );
-    attach_column_index(
-        &mut ingested,
-        p,
-        descriptor,
-        inv,
-        ctx,
-        &job.id,
-        &job.workspace_id,
-        conn,
-    )
-    .await?;
     result.nodes = ingested.nodes.len();
     result.edges = ingested.edges.len();
     for n in &ingested.nodes {
@@ -3110,6 +3099,19 @@ async fn run_parse_only(
     else {
         return Ok(to_raw_value(&result));
     };
+    // AFTER the guard: the pass is a second `dbt compile` and a parquet decode,
+    // and a parse that stores nothing has nowhere to put what it would produce.
+    attach_column_index(
+        &mut ingested,
+        p,
+        descriptor,
+        inv,
+        ctx,
+        &job.id,
+        &job.workspace_id,
+        conn,
+    )
+    .await?;
     match conn {
         Connection::Sql(db) => match job.runnable_id.map(|h| h.0) {
             Some(script_hash) => {
@@ -4961,6 +4963,16 @@ fn add_selection(
 ///
 /// A run that wants the whole project despite a descriptor selector names a
 /// selection that differs — `["*"]`.
+fn selection_is_overridden(
+    descriptor: &DbtDescriptor,
+    args: &HashMap<String, Box<RawValue>>,
+) -> error::Result<bool> {
+    let differs = |key: &str, from: &Vec<String>| -> error::Result<bool> {
+        Ok(arg_list(args, key)?.is_some_and(|v| &v != from))
+    };
+    Ok(differs("select", &descriptor.select)? || differs("exclude", &descriptor.exclude)?)
+}
+
 /// Whether this invocation rebuilds incremental models from scratch: the run
 /// form's answer when it gave one, else the descriptor's.
 ///
@@ -4980,16 +4992,6 @@ fn full_refresh_is_overridden(
     args: &HashMap<String, Box<RawValue>>,
 ) -> error::Result<bool> {
     Ok(arg_bool(args, "full_refresh")?.is_some_and(|v| v != descriptor.full_refresh))
-}
-
-fn selection_is_overridden(
-    descriptor: &DbtDescriptor,
-    args: &HashMap<String, Box<RawValue>>,
-) -> error::Result<bool> {
-    let differs = |key: &str, from: &Vec<String>| -> error::Result<bool> {
-        Ok(arg_list(args, key)?.is_some_and(|v| &v != from))
-    };
-    Ok(differs("select", &descriptor.select)? || differs("exclude", &descriptor.exclude)?)
 }
 
 /// The descriptor's named selector, unless this run named its own selection.

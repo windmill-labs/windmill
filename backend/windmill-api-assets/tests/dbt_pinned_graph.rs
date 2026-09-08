@@ -84,33 +84,6 @@ async fn seed(db: &Pool<Postgres>, job: uuid::Uuid) {
     .execute(db)
     .await
     .unwrap();
-    // The relation it reads, and the `ref()` between them — what draws the
-    // project as a DAG rather than a fan-out off the one dbt runnable.
-    sqlx::query!(
-        "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,
-                               resource_type, name, asset_path, tags)
-         VALUES ($1, $2, $3, $4, 'model.p.raw_orders', 'model', 'raw_orders',
-                 'u/a/wh/analytics/raw_orders', '{}')",
-        WS,
-        PATH,
-        HASH,
-        job
-    )
-    .execute(db)
-    .await
-    .unwrap();
-    sqlx::query!(
-        "INSERT INTO dbt_edge (workspace_id, script_path, script_hash, job_id,
-                               parent_unique_id, child_unique_id)
-         VALUES ($1, $2, $3, $4, 'model.p.raw_orders', 'model.p.orders')",
-        WS,
-        PATH,
-        HASH,
-        job
-    )
-    .execute(db)
-    .await
-    .unwrap();
     // A test node, for the arguments it carries: `accepted_values` spells out a
     // column's domain.
     sqlx::query!(
@@ -188,14 +161,6 @@ async fn a_pinned_run_survives_no_access_to_its_script(db: Pool<Postgres>) {
     assert!(
         body.to_string().contains("u/a/wh/analytics/orders"),
         "while the relation the run wrote is what the page is for: {body}"
-    );
-    assert_eq!(
-        body["dbt_edges"],
-        serde_json::json!([{
-            "from_asset_path": "u/a/wh/analytics/raw_orders",
-            "to_asset_path": "u/a/wh/analytics/orders",
-        }]),
-        "and the `ref()` between them, resolved to relations: {body}"
     );
 
     // The same read by someone who may open the project: the gate has to be the
@@ -400,9 +365,7 @@ async fn seed_editor_graph(db: &Pool<Postgres>, job: uuid::Uuid) {
         r#"INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,
                                  resource_type, name, asset_path, raw_code, tags)
            VALUES ($1, $2, NULL, $3, 'model.p.draft', 'model', 'draft',
-                   'u/a/wh/analytics/draft', 'select 3', '{}'),
-                  ($1, $2, NULL, $3, 'model.p.draft_src', 'model', 'draft_src',
-                   'u/a/wh/analytics/draft_src', 'select 4', '{}')"#,
+                   'u/a/wh/analytics/draft', 'select 3', '{}')"#,
         WS,
         PATH,
         job

@@ -1381,8 +1381,9 @@ full_refresh: false
 # resolved to that Windmill variable, so secrets stay out of this file.
 # env:
 #   DBT_PASSWORD: $var:u/user/my_warehouse_password
-# Column-level lineage and real column schemas, from the engine's static
-# analysis. Opt-in because it runs a separate dbt compile under
+# Real column schemas — every column typed and in the order the model produces
+# it — from the engine's static analysis, which also records column-level
+# lineage for a later view. Opt-in because it runs a separate dbt compile under
 # --static-analysis strict, which rejects SQL the default accepts; a project it
 # cannot analyze keeps the graph it has. Needs an engine that computes it.
 # column_lineage: true

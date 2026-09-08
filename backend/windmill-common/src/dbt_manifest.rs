@@ -490,9 +490,9 @@ pub const MAX_COLUMN_EDGES: usize = 200_000;
 /// Whether the value travelled along this edge, as opposed to the column merely
 /// being read to produce the row.
 ///
-/// The graph endpoint serves these two and the trace draws them; `scan` is kept
-/// in the table for a view that wants indirect influence, and is the first thing
-/// `MAX_COLUMN_EDGES` gives up.
+/// A `scan` edge reaches every output column of its model, so it is most of what
+/// a wide project's index holds and the first thing `MAX_COLUMN_EDGES` gives up.
+/// It is still stored, for a view that wants indirect influence.
 pub fn is_direct(lineage_kind: &str) -> bool {
     matches!(lineage_kind, "copy" | "mod")
 }

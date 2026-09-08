@@ -1391,9 +1391,9 @@ pub async fn asset_graph_for(
     // produce. Joined to `dbt_node` on both key columns because a dbt
     // `unique_id` is only unique within its project.
     //
-    // Column lineage is NOT here: it is per-selected-asset and served by
-    // `/column_lineage`, so this response — which a run page polls — carries
-    // only what the canvas draws for every node at once.
+    // Column lineage is NOT here. It is stored per relation and per column, and
+    // this response is folder-wide and polled by a run page, so it carries only
+    // what the canvas draws for every node at once.
     let dbt_edge_rows = sqlx::query!(
         r#"WITH live AS (
              SELECT * FROM (

@@ -274,8 +274,8 @@
 						     what the model produces. -->
 						{#if !columnsAreAnalyzed}
 							<div class="text-tertiary mt-0.5">
-								Declared metadata. Set `column_lineage: true` in the descriptor for the real column
-								schema and column-level lineage.
+								Declared metadata. Set `column_lineage: true` in the descriptor for the real
+								column schema, typed and in the order the model produces it.
 							</div>
 						{/if}
 					</div>

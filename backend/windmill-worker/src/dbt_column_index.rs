@@ -7,7 +7,7 @@
 //! `mod` or `scan`) and `dbt.node_columns.parquet` (every column of every node,
 //! typed and ordered, rather than only the ones an author documented).
 //!
-//! Three properties shape everything here, all of them measured against the real
+//! Four properties shape everything here, all of them measured against the real
 //! engines rather than assumed:
 //!
 //! - **Strict analysis rejects SQL the default accepts.** An unresolvable
@@ -21,6 +21,17 @@
 //!   `views.sql`, and writes neither file; only Fusion does today. Nothing here
 //!   asks which engine it is beyond "has the flag" — a release that starts
 //!   writing them is picked up with no change.
+//! - **An incremental model has two shapes, and one ingest holds one of them.**
+//!   `is_incremental()` is false when the target does not exist or the build
+//!   is `--full-refresh`, so the `{{ this }}` self-join — and any `ref()` inside
+//!   that branch — compiles only in the other case. What this stores is
+//!   therefore what the compile in front of it saw: at DEPLOY, before the first
+//!   build, that is the cold shape, and a project deployed again after its
+//!   tables exist stores the incremental one for the same source. Nothing here
+//!   can reconcile that; dbt has no mode that emits both. The flag is taken from
+//!   the build so a per-run ingest matches its own run, and the version's graph
+//!   is honest about the compile that produced it rather than about every run
+//!   that will follow.
 
 use std::collections::HashSet;
 use std::ops::ControlFlow;
