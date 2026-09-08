@@ -17,8 +17,6 @@
 
 use std::collections::BTreeMap;
 
-use serde::{Deserialize, Serialize};
-
 use crate::{
     error::{Error, Result},
     DB,
@@ -35,11 +33,13 @@ pub const CUSTOM_INSTANCE_USER: &str = "custom_instance_user";
 
 /// One catalog entry, as stored in `datatable_role`. The password is per role and instance-wide;
 /// it belongs to the instance, not to any workspace's settings.
-#[derive(Deserialize, Serialize, Clone)]
+/// No `Serialize`/`Deserialize`: the catalog is rows now, and a derived `Serialize` would emit
+/// `pwd` — the same way out for a credential that the hand-written `Debug` below closes on the log
+/// side.
+#[derive(Clone)]
 pub struct InstanceDatatableRole {
     /// The Postgres role name, verbatim.
     pub name: String,
-    #[serde(default = "crate::more_serde::default_true")]
     pub enabled: bool,
     /// Absent only for a role whose provisioning did not finish; resolving as it then errors
     /// rather than falling back to admin.
@@ -49,7 +49,6 @@ pub struct InstanceDatatableRole {
     /// backend, while this one is minted here and never entered by anyone, so there is nothing for
     /// a ref to point at. Encrypting generated secrets at rest is a separate change that would
     /// take the replication password with it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pwd: Option<String>,
 }
 

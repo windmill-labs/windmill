@@ -228,16 +228,23 @@
 				requestBody: { settings, renames, deleted_datatables }
 			})
 			dataTableSettings = clone(tempSettings)
-			// The server says here when a delete left another workspace's data table pointing at
-			// nothing. Swallowing it is what made that failure silent for the person who caused it.
-			const stranded = typeof result === 'string' && result.includes('no longer resolve')
-			sendUserToast(
-				stranded ? result : 'Data table settings saved successfully',
-				stranded ? 'warning' : 'success',
-				[],
-				undefined,
-				stranded ? 20000 : 5000
-			)
+			// A delete can leave another workspace's data table governed by nothing. Swallowing
+			// that is what made it silent for the person who caused it.
+			const stranded = result?.stranded_references ?? []
+			if (stranded.length > 0) {
+				sendUserToast(
+					`These data tables were governed by one you deleted and no longer resolve: ${stranded
+						.map((s) => `${s.workspace_id}/${s.datatable}`)
+						.join(', ')}. Their databases still exist; a superadmin can point them at another ` +
+						`workspace's data table.`,
+					'warning',
+					[],
+					undefined,
+					20000
+				)
+			} else {
+				sendUserToast('Data table settings saved successfully')
+			}
 		} catch (e) {
 			sendUserToast(e, true)
 			console.error('Error saving data table settings', e)
