@@ -100,12 +100,17 @@
 		onImport
 	}: Props = $props()
 
-	let viewMode = $state<DbManagerViewMode>('data')
+	let requestedViewMode = $state<DbManagerViewMode>('data')
 
 	// PostgreSQL is the only database whose foreign keys can be read for the whole
 	// database in one query; the others would need one job per table. A caller
 	// already using the sidebar checkboxes to collect tables keeps them.
 	let supportsDiagram = $derived(dbType === 'postgresql' && !multiSelectMode)
+
+	// The manager is not remounted when the drawer switches database, so a switch
+	// away from PostgreSQL would otherwise leave the diagram on screen with no
+	// toggle left to leave it by.
+	let viewMode = $derived(supportsDiagram ? requestedViewMode : 'data')
 
 	// The tables drawn on the diagram. Kept apart from `selectedTables` so that
 	// checking a table to see it in the diagram can never add it to whatever the
@@ -266,6 +271,13 @@
 		selected = { schemaKey, tableKey: table }
 	}
 
+	/** Selecting a table fetches its foreign keys for the data view. The diagram
+	 * shows no preview and reads every relation from one query of its own, so a
+	 * checkbox there must not queue that per-table job. */
+	function previewTableFromSidebar(schemaKey: string, table: string) {
+		if (viewMode !== 'diagram') selectTable(schemaKey, table)
+	}
+
 	/** Where a foreign key's `schema.table` target lives in the sidebar, or
 	 * undefined when it cannot be opened from here. */
 	function resolveForeignKeyTarget(
@@ -369,15 +381,19 @@
 	// Fetched once for the whole database rather than per table: the diagram needs
 	// every relation at once, and the per-table query would be one job each.
 	let relationsError = $state<string | undefined>(undefined)
+	// The keys are only re-read when the schema itself was reloaded, which is what
+	// a new `colDefs` identity means. Toggling back to the diagram must not queue
+	// the query again.
+	let relationsFetchedFor: Record<string, ColumnDef[]> | undefined
 	let relations = resource(
 		[() => viewMode, () => colDefs],
-		async ([mode]): Promise<DbRelation[]> => {
-			// Keeps what was fetched when leaving the diagram, so coming back to it
-			// doesn't queue the query again.
-			if (mode !== 'diagram') return relations.current ?? []
+		async ([mode, defs], _prev, { data }): Promise<DbRelation[]> => {
+			if (mode !== 'diagram' || (data && relationsFetchedFor === defs)) return data ?? []
 			relationsError = undefined
 			try {
-				return await dbSchemaOps.onFetchAllForeignKeys()
+				const fetched = await dbSchemaOps.onFetchAllForeignKeys()
+				relationsFetchedFor = defs
+				return fetched
 			} catch (e) {
 				relationsError = (e as any)?.body ?? (e as Error)?.message ?? String(e)
 				return []
@@ -387,15 +403,24 @@
 
 	// Opening the diagram on an empty canvas would make it look broken, so the
 	// current schema is drawn to start with — unless it is big enough that drawing
-	// all of it is a choice the user should make.
+	// all of it is a choice the user should make. Once per entry into the mode:
+	// re-running it would refill a selection the user has just emptied.
 	const DIAGRAM_AUTOSELECT_LIMIT = 40
+	let autoSelected = false
 	$effect(() => {
-		if (viewMode !== 'diagram' || diagramTables.length) return
-		const schemaKey = untrack(() => selected.schemaKey)
-		if (!schemaKey) return
-		const tables = Object.keys(dbSchema.schema[schemaKey] ?? {})
-		if (tables.length > DIAGRAM_AUTOSELECT_LIMIT) return
-		diagramTables = tables.map((table) => ({ schema: schemaKey, table }))
+		if (viewMode !== 'diagram') {
+			autoSelected = false
+			return
+		}
+		if (autoSelected) return
+		autoSelected = true
+		untrack(() => {
+			const schemaKey = selected.schemaKey
+			if (!schemaKey || diagramTables.length) return
+			const tables = Object.keys(dbSchema.schema[schemaKey] ?? {})
+			if (!tables.length || tables.length > DIAGRAM_AUTOSELECT_LIMIT) return
+			diagramTables = tables.map((table) => ({ schema: schemaKey, table }))
+		})
 	})
 
 	let _dbTable: DBTable | undefined = $state()
@@ -410,7 +435,7 @@
 			{/if}
 			{#if supportsDiagram}
 				<ToggleButtonGroup
-					bind:selected={viewMode}
+					bind:selected={requestedViewMode}
 					noWFull
 					onSelected={(v) => logFeatureUsage('db_manager', 'view_mode', { key: v })}
 				>
@@ -553,12 +578,12 @@
 							role="button"
 							tabindex="0"
 							onclick={() => {
-								selectTable(schemaKey, tableKey)
+								previewTableFromSidebar(schemaKey, tableKey)
 								toggleTableSelection(schemaKey, tableKey)
 							}}
 							onkeydown={(e) => {
 								if (e.key === 'Enter' || e.key === ' ') {
-									selectTable(schemaKey, tableKey)
+									previewTableFromSidebar(schemaKey, tableKey)
 									toggleTableSelection(schemaKey, tableKey)
 								}
 							}}
@@ -705,7 +730,7 @@
 				loading={relations.loading}
 				error={relationsError}
 				onOpenTable={({ schema, table }) => {
-					viewMode = 'data'
+					requestedViewMode = 'data'
 					selectTable(schema, table)
 				}}
 			/>
