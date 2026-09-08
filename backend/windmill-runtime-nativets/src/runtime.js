@@ -40,9 +40,12 @@ const ORIGINAL_FETCH = fetch.fetch;
 // invocation".
 const setTimeoutUnbound = timers.setTimeout;
 const clearTimeoutUnbound = timers.clearTimeout;
+// Captured before user code can reach the isolate and redefine it.
+const objectCreate = Object.create;
 
-// Installed per isolate by __wmInitPerIsolate; 0 disables.
-let fetchResponseTimeoutMs = 300_000;
+// Installed per isolate by __wmInitPerIsolate; 0 disables. Only a backstop
+// for the impossible case of fetch running before that init.
+let fetchResponseTimeoutMs = 900_000;
 
 function fetchResponseTimeoutError(input, timeoutMs) {
   let target;
@@ -86,10 +89,25 @@ globalThis.fetch = async function fetch(input, init) {
     callerSignal = input.signal;
   }
 
+  if (init != null && typeof init !== "object" && typeof init !== "function") {
+    // Not a dictionary; let deno_fetch raise its own TypeError for it.
+    return ORIGINAL_FETCH(input, init);
+  }
+
   const controller = new abortSignal.AbortController();
   const signal = callerSignal == null
     ? controller.signal
     : abortSignal.AbortSignal.any([callerSignal, controller.signal]);
+
+  // Inheriting from the caller's init rather than spreading a copy of it:
+  // RequestInit is a WebIDL dictionary, so deno_fetch reads its members with
+  // plain property gets that walk the prototype chain. A spread drops anything
+  // inherited or non-enumerable, silently turning a POST into a GET.
+  const initWithSignal = init == null
+    ? { signal }
+    : objectCreate(init, {
+      signal: { value: signal, writable: true, enumerable: true, configurable: true },
+    });
 
   let timer = setTimeoutUnbound(() => {
     timer = undefined;
@@ -99,10 +117,7 @@ globalThis.fetch = async function fetch(input, init) {
   try {
     // Passing an init at all resets referrer/referrerPolicy to their defaults
     // when `input` is a Request; a Request's own signal is carried over above.
-    return await ORIGINAL_FETCH(
-      input,
-      init == null ? { signal } : { ...init, signal },
-    );
+    return await ORIGINAL_FETCH(input, initWithSignal);
   } finally {
     // Cleared on headers, never on body completion: a response that has begun
     // arriving must be free to stream for as long as it needs.

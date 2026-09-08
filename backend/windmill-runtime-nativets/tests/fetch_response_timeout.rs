@@ -63,6 +63,27 @@ async fn spawn_silent_peer(seen: Arc<Mutex<Vec<u8>>>, close_after: Duration) -> 
     port
 }
 
+/// A peer that records the request it received and answers 200 immediately.
+async fn spawn_echo_peer(seen: Arc<Mutex<Vec<u8>>>) -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        while let Ok((mut sock, _)) = listener.accept().await {
+            let seen = seen.clone();
+            tokio::spawn(async move {
+                let mut buf = [0u8; 8192];
+                if let Ok(n) = sock.read(&mut buf).await {
+                    seen.lock().await.extend_from_slice(&buf[..n]);
+                }
+                let _ = sock
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                    .await;
+            });
+        }
+    });
+    port
+}
+
 /// A peer that responds after `headers_after`, then dribbles a chunked body out
 /// over `chunks * chunk_every`.
 async fn spawn_streaming_peer(
@@ -314,4 +335,68 @@ export async function main(): Promise<string> {{
         .await
         .expect("script should catch the timeout");
     assert_eq!(out, "\"TimeoutError\"");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_init_whose_members_are_inherited_is_not_flattened() {
+    // RequestInit is a WebIDL dictionary and deno_fetch reads its members with
+    // plain property gets, so they may sit on the prototype chain or be
+    // non-enumerable. Object spread copies neither, which would silently
+    // downgrade this POST to a GET and drop the header.
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let port = spawn_echo_peer(seen.clone()).await;
+
+    let ts = format!(
+        r#"
+declare const Object: any;
+export async function main(): Promise<number> {{
+    const base = {{ method: "POST", headers: {{ "x-probe": "yes" }} }};
+    const res = await fetch("http://127.0.0.1:{port}/inherited", Object.create(base));
+    return res.status;
+}}
+"#
+    );
+
+    let out = run_with_timeout_secs(&ts, TIMEOUT_SECS)
+        .await
+        .expect("request should succeed");
+    assert_eq!(out, "200");
+
+    let body = String::from_utf8_lossy(&seen.lock().await.clone()).to_string();
+    assert!(
+        body.starts_with("POST /inherited"),
+        "inherited `method` should survive, got: {body}",
+    );
+    assert!(
+        body.to_lowercase().contains("x-probe: yes"),
+        "inherited `headers` should survive, got: {body}",
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_non_dictionary_init_still_fails_loudly() {
+    // deno's dictionary converter throws on a non-object init. Copying members
+    // into a fresh object instead of inheriting would turn `"POST"` into
+    // {0:"P",1:"O",...} -- a valid dictionary with ignored keys, i.e. a silent
+    // GET where the caller used to get a TypeError.
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let port = spawn_echo_peer(seen).await;
+
+    let ts = format!(
+        r#"
+export async function main(): Promise<string> {{
+    try {{
+        await fetch("http://127.0.0.1:{port}/x", "POST" as any);
+        return "unexpectedly resolved";
+    }} catch (e) {{
+        return (e as Error).name;
+    }}
+}}
+"#
+    );
+
+    let out = run_with_timeout_secs(&ts, TIMEOUT_SECS)
+        .await
+        .expect("script should catch the error");
+    assert_eq!(out, "\"TypeError\"");
 }
