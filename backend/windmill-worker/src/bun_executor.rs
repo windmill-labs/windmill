@@ -1900,7 +1900,9 @@ pub async fn handle_bun_job(
         // Kept comment-free — this string is written out per job.
         // `_takePendingStepFailure` / `_takePendingSuspend` hand back what the body
         // caught and swallowed; honour them instead of reporting a `complete` (see
-        // `_pendingStepFailure` in client.ts). Optional: npm clients may predate them.
+        // `_pendingStepFailure` in client.ts). `_warnUnobservedTaskFailures` reports
+        // the ones it never awaited, which a `complete` cannot express. Optional:
+        // npm clients may predate them.
         let wrapper_content = if is_wac_v2 {
             format!(
                 r#"
@@ -1958,6 +1960,7 @@ async function run() {{
         if (trailing.length > 0) {{
             return {{ type: "dispatch", mode: trailing.length > 1 ? "parallel" : "sequential", steps: trailing }};
         }}
+        ctx._warnUnobservedTaskFailures?.();
         return {{ type: "complete", result: result ?? null }};
     }} catch (e) {{
         setWorkflowCtx(null);

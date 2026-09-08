@@ -1735,6 +1735,13 @@ export class WorkflowCtx {
    *  into a `complete` — the parent would then record the caught branch's value as
    *  a successful step. Boxed: the thrown value may be any falsy value. */
   private _pendingStepFailure: { error: unknown } | null = null;
+  /** Failed tasks whose rejection nothing has consumed yet, by step key. A task
+   *  called without `await` is still dispatched and still fails, but nothing
+   *  ever drives the rejecting thenable it handed back, so the body sees the
+   *  failure nowhere and the round reports a `complete`. An entry is dropped as
+   *  soon as anything calls `.then()` on that thenable, which `await` and
+   *  `Promise.allSettled` both do, leaving only what the body never looked at. */
+  private _unobservedTaskFailures = new Map<string, Error>();
   /** When set, the task matching this key executes its inner function directly */
   _executingKey: string | null;
   /** Serializes fast-path POSTs across concurrent step() calls within one
@@ -1783,7 +1790,8 @@ export class WorkflowCtx {
       const value = this.completed[key];
       if (value && typeof value === "object" && (value as any).__wmill_error) {
         const err = taskErrorFromMarker(value, `Task '${name}' failed`);
-        return { then: (_resolve: any, reject?: any) => { if (reject) reject(err); else throw err; } } as PromiseLike<any>;
+        this._unobservedTaskFailures.set(key, err);
+        return { then: (_resolve: any, reject?: any) => { this._unobservedTaskFailures.delete(key); if (reject) reject(err); else throw err; } } as PromiseLike<any>;
       }
       return { then: (resolve: any) => resolve(value) };
     }
@@ -2106,6 +2114,19 @@ export class WorkflowCtx {
     const f = this._pendingStepFailure;
     this._pendingStepFailure = null;
     return f;
+  }
+
+  /** Log the task failures the body never looked at. The runner calls this only
+   *  on the path that reports a `complete`, so a round that dispatches more
+   *  steps stays quiet and the surviving failures are reported once, by the
+   *  round that ends the workflow. */
+  _warnUnobservedTaskFailures(): void {
+    for (const [key, err] of this._unobservedTaskFailures) {
+      console.warn(
+        `\n--- WAC: task '${key}' failed but was never awaited, so the workflow result does not reflect it: ${err.message} ---`,
+      );
+    }
+    this._unobservedTaskFailures.clear();
   }
 }
 
