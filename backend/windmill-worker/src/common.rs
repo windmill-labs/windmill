@@ -67,8 +67,6 @@ mount {
 #[cfg(not(debug_assertions))]
 pub const DEV_CONF_NSJAIL: &str = "";
 
-/// Turn a JSON value into the string a shell/CLI arg should receive: a JSON string
-/// becomes its inner value, anything else is re-serialized compactly.
 /// Tells a `spawn_blocking` task to stop when the future awaiting it goes away.
 ///
 /// Dropping a `JoinHandle` detaches the task rather than cancelling it, so a
@@ -83,6 +81,8 @@ impl Drop for AbortOnDrop {
     }
 }
 
+/// Turn a JSON value into the string a shell/CLI arg should receive: a JSON string
+/// becomes its inner value, anything else is re-serialized compactly.
 pub(crate) fn raw_to_string(x: &str) -> String {
     match serde_json::from_str::<serde_json::Value>(x) {
         Ok(serde_json::Value::String(x)) => x,

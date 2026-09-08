@@ -408,8 +408,6 @@ pub fn create_empty_dir(path: &PathBuf) -> std::io::Result<()> {
     }
 }
 
-/// Signals a detached `spawn_blocking` task that the future awaiting it is
-/// gone, so it can stop instead of running to completion in the background.
 /// Lay down the tree of an app-backed repository, which git can't clone
 /// because its URL carries no credential.
 ///
