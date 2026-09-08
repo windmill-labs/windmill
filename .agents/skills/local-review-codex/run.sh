@@ -1,19 +1,42 @@
 #!/usr/bin/env bash
 # Local Codex review — mirrors the .github/workflows/codex-pr-review.yml CI job,
 # but scoped to this branch's unpushed work (committed + uncommitted) so you can
-# review before pushing. Same policy (REVIEW.md), same model (gpt-5.6-sol) and
-# reasoning effort (xhigh) as CI. Runs read-only: Codex cannot modify your tree.
+# review before pushing. Same policy (REVIEW.md) and reasoning effort (xhigh) as CI.
+#
+# The model deliberately differs from CI: gpt-6-astra is confirmed available on the
+# ChatGPT auth `codex login` uses here, but CI authenticates with OPENAI_API_KEY and
+# that tier is unverified for it, so codex-pr-review.yml stays on gpt-5.6-sol.
 #
 # Usage: run.sh [BASE_REF]   (BASE_REF defaults to "main")
 set -euo pipefail
+
+MODEL="gpt-6-astra"
+CODEX_MIN="0.153.4"
 
 BASE_REF="${1:-main}"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
 if ! command -v codex >/dev/null 2>&1; then
-  echo "codex CLI not found. Install with: npm install --global @openai/codex@0.144.1" >&2
+  echo "codex CLI not found. Install with: npm install --global @openai/codex@$CODEX_MIN" >&2
   exit 1
+fi
+
+# Older CLIs reject the model with an error that never names the CLI version as the
+# cause, so check it up front rather than letting the exec fail opaquely. The `|| true`
+# keeps an unrecognised --version format from aborting under `set -e`: an unparseable
+# version means "cannot tell", which must fall through to the exec, not kill the review.
+CODEX_VER="$(codex --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+if [ -n "$CODEX_VER" ] && [ "$(printf '%s\n%s\n' "$CODEX_MIN" "$CODEX_VER" | sort -V | head -1)" != "$CODEX_MIN" ]; then
+  echo "codex $CODEX_VER is too old for $MODEL (need >= $CODEX_MIN). Upgrade with: npm install --global @openai/codex@$CODEX_MIN" >&2
+  exit 1
+fi
+
+# codex prefers OPENAI_API_KEY over the ChatGPT credentials `codex login` stores, and
+# that tier is not confirmed for $MODEL — the resulting failure names the model, not the
+# auth that selected it.
+if [ -n "${OPENAI_API_KEY:-}" ]; then
+  echo "warning: OPENAI_API_KEY is set and takes priority over 'codex login' credentials; $MODEL may be unavailable on that tier." >&2
 fi
 
 # Resolve the base to a concrete commit, preferring a local ref but falling back to
@@ -80,7 +103,7 @@ EOF
 
 codex exec \
   -C "$REPO_ROOT" \
-  -m gpt-5.6-sol \
+  -m "$MODEL" \
   -c 'model_reasoning_effort="xhigh"' \
   -s read-only \
   -o "$OUT" \
