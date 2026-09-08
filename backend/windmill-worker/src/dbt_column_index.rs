@@ -120,7 +120,11 @@ pub(crate) async fn collect(
     // Asked here, because the caller goes on to publish a graph — and a deploy
     // that was cancelled mid-decode would otherwise return success having done
     // so. The job's own semantics, which this module may always `Err` for.
-    if ctx.canceled_by.is_some() || ctx.deadline.is_expired() {
+    //
+    // Cancellation is read from the DB rather than from `ctx.canceled_by`: that
+    // field is only ever written by a poller, and the whole point of this check
+    // is the window in which no poller is running.
+    if job_ended_during_decode(ctx, job_id, conn).await {
         return Err(error::Error::ExecutionErr(
             "the job ended while the column-lineage index was being read".to_string(),
         ));
@@ -165,6 +169,33 @@ pub(crate) async fn collect(
     // a SUCCESSFUL compile that nothing else would show.
     log(job_id, w_id, &note, &compiled.stderr, conn).await;
     Ok(None)
+}
+
+/// Whether the job is over: its wall clock spent, or a cancellation recorded
+/// while nothing was watching for one.
+///
+/// A failed probe answers "still running". This decides whether to DISCARD work
+/// already done, so an unreachable database must not be the reason a healthy
+/// deploy loses its graph — and if the connection is really gone, everything
+/// after this fails on its own.
+async fn job_ended_during_decode(ctx: &JobCtx<'_>, job_id: &Uuid, conn: &Connection) -> bool {
+    if ctx.deadline.is_expired() {
+        return true;
+    }
+    let Connection::Sql(db) = conn else {
+        return false;
+    };
+    sqlx::query_scalar!(
+        "SELECT canceled_by IS NOT NULL AS \"canceled!\" FROM v2_job_queue WHERE id = $1",
+        job_id
+    )
+    .fetch_optional(db)
+    .await
+    .map(|v| v == Some(true))
+    .unwrap_or_else(|e| {
+        tracing::warn!(%job_id, %e, "checking cancellation after the column-index decode");
+        false
+    })
 }
 
 async fn log(job_id: &Uuid, w_id: &str, note: &str, stderr: &str, conn: &Connection) {
