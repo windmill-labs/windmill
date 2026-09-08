@@ -135,6 +135,48 @@ pub(crate) async fn ensure_governs_datatable(
     )))
 }
 
+/// Refuse a caller that no tenant of this data table covers.
+///
+/// The bookkeeping endpoints below open the data table's `admin` connection to read or create
+/// `_wm_migrations` before they know which migration will run — so without this, someone covered
+/// by no role at all can still force admin-backed reads and writes on a database they may not
+/// touch. It asks only "may you reach this data table as anything"; which role a given migration
+/// runs as is still decided per migration, and by the executor after that.
+pub(crate) async fn ensure_reaches_datatable(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+    authed: &ApiAuthed,
+) -> Result<()> {
+    let governing = resolve_governing_datatable(db, w_id, datatable_name).await?;
+    let Some(permissions) = governing.datatable.permissions.as_ref() else {
+        return Ok(());
+    };
+    let catalog = read_role_catalog(db).await?;
+    let access = DatatableAccess::Authed(authed.to_authed_ref());
+    for (id, tenants) in &permissions.roles {
+        // A role the instance no longer defines, or has disabled, cannot be connected as, so being
+        // tenanted into it is not reach.
+        if id != ADMIN_DATATABLE_ROLE && !catalog.get(id).is_some_and(|r| r.enabled) {
+            continue;
+        }
+        if can_use_datatable_role_in_governing_workspace(
+            db,
+            &governing.workspace_id,
+            w_id,
+            tenants,
+            &access,
+        )
+        .await?
+        {
+            return Ok(());
+        }
+    }
+    Err(Error::NotAuthorized(format!(
+        "Not allowed to use data table '{datatable_name}': no role of it covers you"
+    )))
+}
+
 fn validate_tenant(tenant: &str) -> Result<()> {
     if tenant == DATATABLE_TENANT_WILDCARD {
         return Ok(());
