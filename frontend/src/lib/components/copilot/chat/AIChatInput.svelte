@@ -55,6 +55,9 @@
 	} from '$lib/components/common/image/ExpandableImage.svelte'
 
 	const chatHost = getChatViewHost()
+	// Resolved here, not where it is used: getContext is only legal during component
+	// initialisation, and the mention consumer below runs inside the send gesture.
+	const chatManager = getAiChatManager()
 
 	interface Props {
 		availableContext: ContextElement[]
@@ -758,7 +761,7 @@
 		if (chatHost.mode !== AIMode.GLOBAL) return
 		// The mention context belongs to the copilot's own ContextManager, which only
 		// the manager has — the GLOBAL guard above means this host is always it.
-		getAiChatManager().contextManager?.consumeMentionContext()
+		chatManager.contextManager?.consumeMentionContext()
 	}
 
 	function sendRequest() {
