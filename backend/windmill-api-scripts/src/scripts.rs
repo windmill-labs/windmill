@@ -2157,8 +2157,9 @@ async fn create_script_internal<'c>(
             .await?;
             if outcome.left_behind > 0 {
                 tracing::warn!(
-                    "{} script draft(s) stranded at {p_path}: their owner already has a draft at {}",
+                    "{} of {} script draft(s) stranded at {p_path}: their owner already has a draft at {}",
                     outcome.left_behind,
+                    outcome.moved + outcome.left_behind,
                     &ns.path
                 );
             }

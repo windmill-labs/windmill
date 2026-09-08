@@ -3469,8 +3469,9 @@ async fn update_app_internal<'a>(
         .await?;
         if outcome.left_behind > 0 {
             tracing::warn!(
-                "{} app draft(s) stranded at {path}: their owner already has a draft at {npath}",
-                outcome.left_behind
+                "{} of {} app draft(s) stranded at {path}: their owner already has a draft at {npath}",
+                outcome.left_behind,
+                outcome.moved + outcome.left_behind
             );
         }
     }

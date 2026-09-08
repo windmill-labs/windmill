@@ -842,6 +842,11 @@ async fn move_draft(
              AND path = $2
              AND typ = $4
              AND email = $6
+             -- A pre-sanitizer NUL escape makes `to_jsonb` raise 22P05. Excluded
+             -- here so the statement can't 500; reported below instead. Unlike the
+             -- passive carry, rewriting the value IS this operation, so skipping it
+             -- silently would move the row and leave its typed path stale.
+             AND position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) = 0
              -- Skipped on a summary-only edit, where the "target" row is this
              -- row and the guard would refuse the update against itself.
              AND ($2 = $3 OR NOT EXISTS (
@@ -861,17 +866,28 @@ async fn move_draft(
     .await?;
 
     if moved.is_none() {
-        let exists_at_target = sqlx::query_scalar!(
-            "SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $2 AND typ = $3 AND email = $4",
+        let row = sqlx::query!(
+            r#"SELECT
+                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $3
+                        AND typ = $2 AND email = $4) as "at_target!",
+                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5
+                        AND typ = $2 AND email = $4
+                        AND position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) > 0
+                       ) as "poisoned!" "#,
             &w_id,
-            new_path,
             kind as UserDraftItemKind,
+            new_path,
             &authed.email,
+            path,
         )
-        .fetch_optional(&db)
-        .await?
-        .is_some();
-        return Err(Error::BadRequest(if exists_at_target && new_path != path {
+        .fetch_one(&db)
+        .await?;
+        return Err(Error::BadRequest(if row.poisoned {
+            format!(
+                "'{path}' contains a NUL character and predates the sanitizer, so it cannot be \
+                 moved. Reopen it, re-save to rewrite it cleanly, then move it."
+            )
+        } else if row.at_target && new_path != path {
             format!("You already have a draft at '{new_path}'")
         } else {
             format!("You have no draft at '{path}'")

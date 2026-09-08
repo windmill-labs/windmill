@@ -1404,8 +1404,9 @@ async fn update_flow(
         .await?;
         if outcome.left_behind > 0 {
             tracing::warn!(
-                "{} flow draft(s) stranded at {flow_path}: their owner already has a draft at {}",
+                "{} of {} flow draft(s) stranded at {flow_path}: their owner already has a draft at {}",
                 outcome.left_behind,
+                outcome.moved + outcome.left_behind,
                 &nf.path
             );
         }
