@@ -6,6 +6,7 @@ import { sendUserToast } from '$lib/toast'
 import { canWrite } from '$lib/utils'
 import { userStore } from '$lib/stores'
 import { getUserExt } from '$lib/user'
+import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { useTriggerDraftSync, type TriggerDraftSync } from '../triggers/useTriggerDraftSync.svelte'
 import { logReusableAgentUsage } from './agentTelemetry'
 import {
@@ -82,6 +83,95 @@ export interface AgentResourceState {
 	resource_type?: string
 	labels?: string[]
 	wsSpecific: boolean
+}
+
+/**
+ * Why writing this draft to its resource would be refused, if it would. Shared with the flow's
+ * deploy dialog, which lists the drafts of the agents a flow links: an agent the editor's own
+ * Deploy button rejects must not be deployable from a flow either.
+ *
+ * `currentPath` is the path the draft is being deployed to; pass undefined where the caller has
+ * none of its own to compare against.
+ */
+export function agentDraftDeployRefusal(
+	state: AgentResourceState,
+	currentPath: string | undefined
+): string | undefined {
+	// The editor offers only values, but a transform can arrive from a step that was forked
+	// before this existed, or from the generic resource editor: say so rather than writing it.
+	const transformValued = transformValuedBrainKeys(state.args)
+	if (transformValued.length > 0) {
+		const fields = transformValued.map((key) => AGENT_BRAIN_LABELS[key] ?? key)
+		const many = fields.length > 1
+		return `${fields.join(', ')} ${many ? 'are' : 'is'} set to an expression or an AI-filled value, which a saved agent cannot store. Replace ${many ? 'them' : 'it'} with a plain value before deploying.`
+	}
+	// The resource endpoint takes any JSON, so nothing downstream stops an agent that cannot run:
+	// the worker needs a provider to call and rejects a tool whose name it cannot pass to the
+	// model. Deploying one would break every flow linking it, so it is refused here.
+	const blocked = agentConfigRunError(state.args)
+	if (blocked) {
+		return blocked
+	}
+	// Renaming is not the agent editor's to do: moving the resource leaves every step that links to
+	// it naming a path that no longer exists, and reconciling those is a feature of its own. A
+	// renamed path can still reach here, the generic editor writing the same draft row and offering
+	// a path field, so refuse it rather than performing half of a rename.
+	if (currentPath && state.path !== currentPath) {
+		return `This draft renames the agent to ${state.path}. Deploy it from the resource editor instead.`
+	}
+	// Only a draft naming another type: the load refuses a resource that is not an agent, while a
+	// draft the generic resource editor wrote names no type at all and inherits the loaded one.
+	if (state.resource_type && state.resource_type !== 'ai_agent') {
+		return `This draft is a ${state.resource_type} resource, not an agent.`
+	}
+	return undefined
+}
+
+/**
+ * Write an agent to its resource from the state the editor holds, which can be ahead of the
+ * persisted draft row: the form stays editable while a deploy is in flight. Surfaces that deploy
+ * the row itself go through `deployDraft` instead.
+ *
+ * `notAnAgent` separates the one failure that invalidates the caller's whole view of the path, its
+ * holding something else now, from a write that merely failed.
+ */
+type AgentWriteResult = { ok: true } | { ok: false; error: string; notAnAgent?: true }
+
+async function writeAgentResource(
+	workspace: string,
+	state: AgentResourceState,
+	noDeployed: boolean
+): Promise<AgentWriteResult> {
+	const body = {
+		path: state.path,
+		value: state.args,
+		description: state.description,
+		labels: state.labels,
+		ws_specific: state.wsSpecific
+	}
+	try {
+		if (noDeployed) {
+			// A create needs a type, and every caller proved this path is an agent before offering it.
+			await ResourceService.createResource({
+				workspace,
+				requestBody: { ...body, resource_type: state.resource_type ?? 'ai_agent' }
+			})
+		} else {
+			// The type the caller proved is as old as its own load, and an update carries no type of
+			// its own: were the path deleted and recreated as something else meanwhile, this write
+			// would put an agent config inside that resource. Reading it again narrows the window to
+			// the request rather than to however long the editor or the dialog stayed open.
+			const current = await ResourceService.getResource({ workspace, path: state.path })
+			const refused = agentEditorRefusal(state.path, current.resource_type)
+			if (refused) {
+				return { ok: false, error: refused, notAnAgent: true }
+			}
+			await ResourceService.updateResource({ workspace, path: state.path, requestBody: body })
+		}
+	} catch (err) {
+		return { ok: false, error: `Could not save agent: ${err}` }
+	}
+	return { ok: true }
 }
 
 export interface AgentDraftOptions {
@@ -219,6 +309,16 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 						// config before the autosave lands.
 						state =
 							((r as any).draft as AgentResourceState | undefined) ?? structuredClone(deployedState)
+						// Adopt the row's timestamp as this tab's baseline. Without it the first save from
+						// each tab goes out with no `last_sync`, which the backend treats as unconditional
+						// and so silently overwrites another tab's newer draft. It also clears any parked
+						// conflict or failure for the key: a conflict is deliberately sticky (the retry
+						// keeps the same baseline), and nothing else mounts a resolver for `resource`
+						// drafts, so re-opening the agent is the only place it can be resolved.
+						UserDraftDbSyncer.recordRemoteSync(
+							{ workspace: ws, itemKind: 'resource', path },
+							(r as { draft_saved_at?: string }).draft_saved_at
+						)
 						loading = false
 						await sync.maybeRestore()
 					},
@@ -237,42 +337,9 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		const ws = opts.workspace()
 		const s = state
 		if (!ws || !s) return false
-		// The editor offers only values, but a transform can arrive from a step that was forked
-		// before this existed, or from the generic resource editor: say so rather than writing it.
-		const transformValued = transformValuedBrainKeys(s.args)
-		if (transformValued.length > 0) {
-			const fields = transformValued.map((key) => AGENT_BRAIN_LABELS[key] ?? key)
-			const many = fields.length > 1
-			sendUserToast(
-				`${fields.join(', ')} ${many ? 'are' : 'is'} set to an expression or an AI-filled value, which a saved agent cannot store. Replace ${many ? 'them' : 'it'} with a plain value before deploying.`,
-				true
-			)
-			return false
-		}
-		// The resource endpoint takes any JSON, so nothing downstream stops an agent that cannot run:
-		// the worker needs a provider to call and rejects a tool whose name it cannot pass to the
-		// model. Deploying one would break every flow linking it, so it is refused here.
-		const blocked = agentConfigRunError(s.args)
-		if (blocked) {
-			sendUserToast(blocked, true)
-			return false
-		}
-		// Renaming is not this editor's to do: moving the resource leaves every step that links to it
-		// naming a path that no longer exists, and reconciling those is a feature of its own. A
-		// renamed path can still reach here, the generic editor writing the same draft row and
-		// offering a path field, so refuse it rather than performing half of a rename.
-		const currentPath = opts.path()
-		if (currentPath && s.path !== currentPath) {
-			sendUserToast(
-				`This draft renames the agent to ${s.path}. Deploy it from the resource editor instead.`,
-				true
-			)
-			return false
-		}
-		// Only a draft naming another type: the load refuses a resource that is not an agent, while a
-		// draft the generic resource editor wrote names no type at all and inherits the loaded one.
-		if (s.resource_type && s.resource_type !== 'ai_agent') {
-			sendUserToast(`This draft is a ${s.resource_type} resource, not an agent.`, true)
+		const refused = agentDraftDeployRefusal(s, opts.path())
+		if (refused) {
+			sendUserToast(refused, true)
 			return false
 		}
 		// The form stays editable while the request is in flight, so everything below works from a
@@ -280,39 +347,15 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		// made during the request as saved, and the banner would clear on a value the server never
 		// received; against the snapshot it stays a draft, which is what it is.
 		const submitted = structuredClone($state.snapshot(s)) as AgentResourceState
-		const body = {
-			path: submitted.path,
-			value: submitted.args,
-			description: submitted.description,
-			labels: submitted.labels,
-			ws_specific: submitted.wsSpecific
-		}
-		try {
-			if (noDeployed) {
-				await ResourceService.createResource({
-					workspace: ws,
-					// A create needs a type, and the load proved this path is an agent before opening.
-					requestBody: { ...body, resource_type: submitted.resource_type ?? 'ai_agent' }
-				})
+		const written = await writeAgentResource(ws, submitted, noDeployed)
+		if (!written.ok) {
+			// A path that is no longer an agent tears this editor down; anything else is a plain error
+			// the user can retry from the form as it stands.
+			if (written.notAnAgent) {
+				refuse(written.error)
 			} else {
-				// The type this editor proved is as old as the load, and an update carries no type of
-				// its own: were the path deleted and recreated as something else meanwhile, this write
-				// would put an agent config inside that resource. Reading it again narrows the window
-				// to the request rather than to however long the editor stayed open.
-				const current = await ResourceService.getResource({ workspace: ws, path: submitted.path })
-				const refused = agentEditorRefusal(submitted.path, current.resource_type)
-				if (refused) {
-					refuse(refused)
-					return false
-				}
-				await ResourceService.updateResource({
-					workspace: ws,
-					path: submitted.path,
-					requestBody: body
-				})
+				sendUserToast(written.error, true)
 			}
-		} catch (err) {
-			sendUserToast(`Could not save agent: ${err}`, true)
 			return false
 		}
 		// The counter the step card's write-back used to report, from the surface that now owns the

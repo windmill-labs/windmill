@@ -36,9 +36,14 @@ export interface DbtAssetProvenance {
 	tags?: string[]
 	description?: string
 	data_tests?: DbtDataTest[]
-	/** Declared column metadata (name -> description). NOT column lineage:
-	 *  `manifest.json` carries none (docs/dbt-runtime.md, decision 14). */
+	/** Declared column metadata (name -> description): what `manifest.json`
+	 *  carries, which is only the columns an author wrote down. */
 	columns?: Record<string, string>
+	/** Every column of the relation, typed and in the order the model produces
+	 *  them, from the engine's static analysis. Present only for a project that
+	 *  opted into it (`column_lineage: true`); `manifest.json` has no such
+	 *  thing. Lockstep with Rust `DbtAssetProvenance.column_schema`. */
+	column_schema?: { name: string; type?: string }[]
 	/** A source's declared freshness policy. */
 	freshness?: unknown
 	/** The model's SQL as written — the transform behind the node. Read-only:

@@ -27,12 +27,14 @@ const notify = task(async function notify() {
   throw new Error("boom");
 });
 
+const retried = task(async function retried() {
+  throw new Error("boom");
+}, { retry: { attempts: 1 } });
+
+const marker = { __wmill_error: true, message: "boom", error: { name: "Error", message: "boom" } };
+
 /** The checkpoint a replay reads after the dispatched task failed. */
-const failed = {
-  completed_steps: {
-    notify: { __wmill_error: true, message: "boom", error: { name: "Error", message: "boom" } },
-  },
-};
+const failed = { completed_steps: { notify: marker } };
 
 let reported: string[];
 const realLog = console.log;
@@ -66,6 +68,20 @@ describe("unawaited task failure", () => {
 
     const handle = notify();
     await expect(Promise.resolve(handle)).rejects.toThrow("boom");
+
+    ctx._warnUnobservedTaskFailures();
+    expect(reported).toEqual([]);
+  });
+
+  // Only the attempt handed back to the body counts: the ones a retry moved
+  // past are not failures the workflow was ever in a position to see.
+  test("is not reported when a retry recovered from it", async () => {
+    const ctx = new WorkflowCtx({
+      completed_steps: { retried: marker, "retried#retry2": null, "retried#2": 1 },
+    });
+    setWorkflowCtx(ctx);
+
+    retried();
 
     ctx._warnUnobservedTaskFailures();
     expect(reported).toEqual([]);

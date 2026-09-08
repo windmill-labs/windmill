@@ -95,6 +95,19 @@ const OVERLAY_GETTERS: Partial<
 		EmailTriggerService.getEmailTrigger({ workspace, path, getDraft: true })
 }
 
+/** Whether `getDraftDiffValues` can produce a diff for this kind at all. The
+ * script/flow/app family is handled inline; every other kind needs an overlay
+ * getter and throws without one — several trigger kinds have none. */
+export function canDiffDraftKind(kind: DraftKind): boolean {
+	return (
+		kind === 'script' ||
+		kind === 'flow' ||
+		kind === 'app' ||
+		kind === 'raw_app' ||
+		OVERLAY_GETTERS[kind] !== undefined
+	)
+}
+
 /** Strip the per-user draft-overlay metadata, returning `{deployed, draft}`. */
 function splitOverlay(r: any): {
 	deployed: any
@@ -435,8 +448,13 @@ export async function deployDraft(
 	path: string,
 	workspace: string,
 	opts: { draftOnly?: boolean; rawApp?: boolean; deploymentMessage?: string } = {}
-): Promise<DeployResult> {
+): Promise<DeployResult & { noop?: boolean }> {
 	const { draftOnly = false, rawApp = false, deploymentMessage } = opts
+	// Set when the branch found nothing to promote and wrote nothing. Success, because the item is
+	// already at the value a deploy would have left it at and its stale draft state still wants
+	// clearing — but a caller deploying one specific draft it showed the user has to be able to tell
+	// that apart from having deployed it.
+	let noop = false
 	try {
 		if (kind === 'raw_app' || (kind === 'app' && rawApp)) {
 			// Raw apps bundle their source files and deploy via the raw-app
@@ -579,10 +597,34 @@ export async function deployDraft(
 			}
 			void deployed
 		} else if (kind === 'resource') {
-			const { deployed, draft: d } = splitOverlay(await OVERLAY_GETTERS.resource!(workspace, path))
+			const overlay = await OVERLAY_GETTERS.resource!(workspace, path)
+			// Adopt the row this promote is based on as the baseline for the delete below. Without one
+			// the backend deletes unconditionally, so a draft saved between that read and the delete is
+			// destroyed having never been deployed — a caller that only ever read through a listing has
+			// no baseline of its own to supply. With it the delete is refused instead and the newer
+			// draft survives, which is the recoverable outcome of the two. Only ever seeded, never
+			// cleared: passing no timestamp drops whatever baseline the tab already held, which would
+			// turn that same delete back into an unconditional one.
+			if (overlay?.draft_saved_at) {
+				UserDraftDbSyncer.recordRemoteSync(
+					{ workspace, itemKind: kind, path },
+					overlay.draft_saved_at
+				)
+			}
+			const { deployed, draft: d, hasDraft } = splitOverlay(overlay)
 			// ResourceEditor's `ResourceState` draft shape:
 			// { path, description, args, resource_type?, labels?, wsSpecific }
-			if (draftOnly) {
+			// The deployed row is a different shape (`value`, `ws_specific`, no `args` at all), and
+			// `splitOverlay` hands it back as the draft side when the draft row has gone — deployed or
+			// discarded from another tab between the listing and this click. Reading it as a draft is
+			// what made `value: d.args ?? {}` replace a live resource with `{}`. Nothing to promote
+			// then, so write nothing and fall through to the cleanup below, which clears the stale
+			// local draft hint and the drafts listing. The item is already at the value a successful
+			// deploy would have left it at, so this reports success rather than an error, matching
+			// what the other kinds end up doing when their own draft is gone.
+			if (!hasDraft) {
+				noop = true
+			} else if (draftOnly) {
 				await ResourceService.createResource({
 					workspace,
 					requestBody: {
@@ -633,8 +675,8 @@ export async function deployDraft(
 			return { success: false, error: `Deploy not supported for draft kind ${kind}` }
 		}
 		// Delete the draft at its STORAGE path (the row key, = the `path` arg).
-		// Two reasons it must happen here for every kind, mirroring the editors'
-		// post-deploy `discardDraftAfterDeploy(draftPath)`:
+		// Two reasons it must happen here for every kind that promoted something,
+		// mirroring the editors' post-deploy `discardDraftAfterDeploy(draftPath)`:
 		//  - Drawer kinds (variable / resource / triggers) aren't deleted by
 		//    their create/update endpoints at all.
 		//  - script/flow/app/raw_app DO delete server-side, but only the draft at
@@ -642,13 +684,18 @@ export async function deployDraft(
 		//    synthetic `u/{user}/draft_{uuid}` storage path ≠ `d.path`, so its
 		//    draft row survives the deploy and keeps listing. Deleting the
 		//    storage-path draft removes it (a no-op when the server already did).
-		await UserDraftDbSyncer.save({
-			workspace,
-			itemKind: kind,
-			path,
-			value: null,
-			immediate: true
-		})
+		// Skipped when nothing was promoted: the read that set `noop` found no draft of this user's to
+		// delete, so the only row this could reach is one written after it — destroying an edit that
+		// was never deployed, and never even listed.
+		if (!noop) {
+			await UserDraftDbSyncer.save({
+				workspace,
+				itemKind: kind,
+				path,
+				value: null,
+				immediate: true
+			})
+		}
 		// Mutated the workspace's Server Drafts — refresh every mounted reader.
 		invalidateWorkspaceDrafts(workspace)
 		// The DEPLOYED state moved: cached fork comparisons involving this
@@ -659,7 +706,7 @@ export async function deployDraft(
 		// so the syncer-owned hint won't auto-clear — clear it explicitly.
 		// (Idempotent: the drawer-kind delete above already cleared it.)
 		setLocalDraftHint(workspace, kind, path, false)
-		return { success: true }
+		return noop ? { success: true, noop: true } : { success: true }
 	} catch (e: any) {
 		return { success: false, error: e?.body ?? e?.message ?? String(e) }
 	}
