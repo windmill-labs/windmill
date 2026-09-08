@@ -4624,11 +4624,9 @@ async fn sleep_before_retry(
 
 /// Whether the job has been cancelled, as of now.
 ///
-/// Only reachable with a database. The automatic retry that calls this is
-/// refused on an agent worker precisely because it could not answer here; the
-/// column-lineage pass, which cannot refuse, records the same gap at its own
-/// call site.
-pub(crate) async fn job_is_canceled(job_id: &Uuid, conn: &Connection) -> bool {
+/// Only reachable with a database: the automatic retry that calls this is
+/// refused on an agent worker precisely because it could not answer here.
+async fn job_is_canceled(job_id: &Uuid, conn: &Connection) -> bool {
     let Connection::Sql(db) = conn else {
         return false;
     };
