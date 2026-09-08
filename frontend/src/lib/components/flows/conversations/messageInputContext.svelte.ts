@@ -98,6 +98,21 @@ export function argsToMessageInputs(
 }
 
 /**
+ * The same lanes, built from what the composer just sent. The turn in flight has no
+ * job yet, so its row cannot read its inputs back from one; the data URLs are still
+ * in hand, so the thumbnails need no fetch.
+ */
+export function attachmentsToMessageInputs(
+	images: AttachedImage[],
+	blobs: { name: string }[]
+): MessageInputs {
+	const contextElements = blobs.map((blob) =>
+		createAttachedFileContextElement(blob.name, `Attached file · ${blob.name}`)
+	)
+	return images.length > 0 || contextElements.length > 0 ? { images, contextElements } : EMPTY
+}
+
+/**
  * Per-conversation cache of run arguments by job id. One fetch per turn, kept only
  * for as long as the chat is mounted.
  */

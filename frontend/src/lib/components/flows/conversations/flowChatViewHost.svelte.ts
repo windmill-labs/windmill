@@ -15,7 +15,11 @@ import type { AttachedTextFile } from '$lib/components/copilot/chat/textFileUtil
 import { HelpersService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { randomUUID } from '$lib/utils/uuid'
-import { MessageInputsStore } from './messageInputContext.svelte'
+import {
+	attachmentsToMessageInputs,
+	MessageInputsStore,
+	type MessageInputs
+} from './messageInputContext.svelte'
 
 /** What an AI agent step reads out of `user_attachments`. */
 type S3Attachment = { s3: string; filename?: string }
@@ -53,13 +57,18 @@ function toDisplayMessage(
 	showStepNames: boolean,
 	inputs: MessageInputsStore,
 	toolCalls: ToolCallStore,
-	failed: boolean
+	failed: boolean,
+	pendingInputs: MessageInputs | undefined
 ): DisplayMessage {
 	switch (message.message_type) {
 		case 'user': {
 			// What the turn ran with, read back from its job — the message row itself
 			// keeps only the text. Renders through the same lanes the copilot uses.
-			const { images, contextElements } = inputs.get(message.job_id)
+			// The row the composer just added has no job id yet, so until the run is
+			// persisted its own attachments stand in.
+			const { images, contextElements } = message.job_id
+				? inputs.get(message.job_id)
+				: (pendingInputs ?? { images: [], contextElements: [] })
 			return {
 				role: 'user',
 				index: userIndex,
@@ -150,6 +159,9 @@ export class FlowChatViewHost implements ChatViewHost {
 		() => new Set(this.#manager.messages.map((m) => m.step_name).filter(Boolean)).size > 1
 	)
 
+	// What the turn in flight was sent with, until its own row carries a job id.
+	#pendingInputs = $state<MessageInputs | undefined>(undefined)
+
 	#messageInputs = new MessageInputsStore(() => this.#options.workspace?.())
 	#toolCalls = new ToolCallStore(() => this.#options.workspace?.())
 
@@ -157,6 +169,15 @@ export class FlowChatViewHost implements ChatViewHost {
 		let userIndex = 0
 		const showStepNames = this.#showStepNames
 		const messages = this.#manager.messages
+		// Only the newest user row can be the one the composer just added: every earlier
+		// row without a job id predates the column and has no inputs to show.
+		let lastUserIndex = -1
+		for (let i = messages.length - 1; i >= 0; i--) {
+			if (messages[i].message_type === 'user') {
+				lastUserIndex = i
+				break
+			}
+		}
 		return messages.map((message, i) =>
 			toDisplayMessage(
 				message,
@@ -164,7 +185,8 @@ export class FlowChatViewHost implements ChatViewHost {
 				showStepNames,
 				this.#messageInputs,
 				this.#toolCalls,
-				message.message_type === 'user' && turnFailed(messages, i)
+				message.message_type === 'user' && turnFailed(messages, i),
+				i === lastUserIndex ? this.#pendingInputs : undefined
 			)
 		)
 	})
@@ -216,11 +238,13 @@ export class FlowChatViewHost implements ChatViewHost {
 		const args = { ...(this.#options.additionalInputs?.() ?? {}) }
 		const target = this.#options.attachmentsTarget?.()
 		const attachments = [...(options.images ?? []), ...(options.blobs ?? [])]
+		this.#pendingInputs = undefined
 		if (target && attachments.length > 0) {
 			this.#uploading = true
 			try {
 				const uploaded = await this.#uploadAttachments(attachments)
 				args[target.name] = target.multiple ? uploaded : uploaded[0]
+				this.#pendingInputs = attachmentsToMessageInputs(options.images ?? [], options.blobs ?? [])
 			} catch (e) {
 				sendUserToast(
 					`Could not upload the attachments: ${e instanceof Error ? e.message : String(e)}`,
