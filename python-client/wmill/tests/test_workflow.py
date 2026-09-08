@@ -1567,6 +1567,16 @@ class TestTaskRetry:
             async def t(x: int):
                 return x
 
+    def test_an_out_of_range_attempt_count_is_rejected_where_it_is_written(self):
+        # Each attempt claims its keys before the first one is dispatched, so an
+        # unbounded count would hang the workflow allocating them.
+        for attempts in (10_000, -1, 2.5, float("inf")):
+            with pytest.raises(ValueError, match="whole number"):
+
+                @task(retry={"attempts": attempts})
+                async def t(x: int):
+                    return x
+
     def test_max_delay_caps_the_backoff_a_multiplier_grows(self):
         @task(retry={"attempts": 2, "delay": 60, "multiplier": 100, "max_delay": 300})
         async def t(x: int):

@@ -173,6 +173,18 @@ describe("task retry", () => {
     }
   });
 
+  test("an out-of-range attempt count is rejected where it is written", () => {
+    // Each attempt claims its keys before the first one is dispatched, so an
+    // unbounded count would hang the workflow allocating them.
+    for (const attempts of [10_000, -1, 2.5, Infinity, NaN]) {
+      expect(() =>
+        task(async function t(x: number) {
+          return x;
+        }, { retry: { attempts } }),
+      ).toThrow("whole number");
+    }
+  });
+
   test("max_delay caps the backoff a multiplier grows", async () => {
     const t = task(async function t(x: number) {
       return x;

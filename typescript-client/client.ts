@@ -1723,6 +1723,30 @@ export interface TaskOptions {
  *  capped here rather than sent. */
 const MAX_SLEEP_SECONDS = 0xffffffff;
 
+/** Every attempt claims its keys before the first one is dispatched, so an
+ *  unbounded `attempts` is a workflow that hangs allocating rather than a very
+ *  patient one. */
+const MAX_RETRY_ATTEMPTS = 100;
+
+/** Rejected where the policy is written, so a workflow fails at its first line
+ *  rather than mid-run on a replay. */
+function assertUsableRetry(retry: TaskRetry | undefined): void {
+  if (retry === undefined) return;
+  const { attempts } = retry;
+  if (!Number.isInteger(attempts) || attempts < 0 || attempts > MAX_RETRY_ATTEMPTS) {
+    throw new Error(
+      `retry.attempts must be a whole number between 0 and ${MAX_RETRY_ATTEMPTS}, got ${attempts}`,
+    );
+  }
+}
+
+/** How many retries the policy asks for, defended against a value that reached
+ *  `_nextStep` without going through `assertUsableRetry`. */
+function retryAttempts(retry: TaskRetry | undefined): number {
+  const attempts = Math.trunc(retry?.attempts ?? 0) || 0;
+  return Math.min(Math.max(attempts, 0), MAX_RETRY_ATTEMPTS);
+}
+
 /** Seconds to wait before retry number `attempt` (0 is the first retry). */
 function retryDelaySeconds(retry: TaskRetry, attempt: number): number {
   const base = retry.delay ?? 0;
@@ -1821,7 +1845,7 @@ export class WorkflowCtx {
   ): PromiseLike<any> {
     this._rethrowSwallowed();
     const stepName = name || script || "step";
-    const maxRetries = Math.max(0, Math.trunc(options?.retry?.attempts ?? 0));
+    const maxRetries = retryAttempts(options?.retry);
 
     // Every key this call can ever use is claimed here, at the first attempt,
     // even for attempts that never run. They are named off the first attempt's
@@ -2266,6 +2290,8 @@ export function task<T extends (...args: any[]) => Promise<any>>(
     taskOptions = maybeFnOrOptions as TaskOptions | undefined;
   }
 
+  assertUsableRetry(taskOptions?.retry);
+
   const taskName = fn.name || taskPath || "";
 
   // NOT async — in workflow context we return the thenable directly so that
@@ -2350,6 +2376,7 @@ export function task<T extends (...args: any[]) => Promise<any>>(
  * // inside workflow: await extract({ url: "https://..." })
  */
 export function taskScript(path: string, options?: TaskOptions): (...args: any[]) => PromiseLike<any> {
+  assertUsableRetry(options?.retry);
   const name = path.split("/").pop() || path;
   const wrapper = function (...args: any[]) {
     const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
@@ -2375,6 +2402,7 @@ export function taskScript(path: string, options?: TaskOptions): (...args: any[]
  * // inside workflow: await pipeline({ input: data })
  */
 export function taskFlow(path: string, options?: TaskOptions): (...args: any[]) => PromiseLike<any> {
+  assertUsableRetry(options?.retry);
   const name = path.split("/").pop() || path;
   const wrapper = function (...args: any[]) {
     const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");

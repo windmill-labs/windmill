@@ -2881,16 +2881,27 @@ _MAX_SLEEP_SECONDS = 2**32 - 1
 
 _RETRY_KEYS = ("attempts", "delay", "multiplier", "max_delay")
 
+# Every attempt claims its keys before the first one is dispatched, so an
+# unbounded ``attempts`` is a workflow that hangs allocating rather than a very
+# patient one.
+_MAX_RETRY_ATTEMPTS = 100
+
 
 def _checked_retry(retry: Optional[dict]) -> Optional[dict]:
-    """The policy is a plain dict, so a misspelled key would otherwise be
-    dropped in silence and the task would retry on a policy nobody wrote."""
+    """Reject a policy where it is written, rather than mid-run on a replay: the
+    policy is a plain dict, so a misspelled key would otherwise be dropped in
+    silence and the task would retry on a policy nobody wrote."""
     if retry is None:
         return None
     unknown = sorted(k for k in retry if k not in _RETRY_KEYS)
     if unknown:
         raise ValueError(
             f"unknown retry option(s): {', '.join(unknown)}. Expected any of: {', '.join(_RETRY_KEYS)}"
+        )
+    attempts = retry.get("attempts", 0)
+    if isinstance(attempts, bool) or not isinstance(attempts, int) or not 0 <= attempts <= _MAX_RETRY_ATTEMPTS:
+        raise ValueError(
+            f"retry attempts must be a whole number between 0 and {_MAX_RETRY_ATTEMPTS}, got {attempts!r}"
         )
     return retry
 
@@ -2968,7 +2979,9 @@ class WorkflowCtx:
         """Return an awaitable that either resolves from cache or suspends."""
         step_name = name or script or "step"
         retry = (_task_options or {}).get("retry") or {}
-        max_retries = max(0, int(retry.get("attempts") or 0))
+        # Clamped as well as validated at decoration: a policy that reached here
+        # another way must not spin the key loop below.
+        max_retries = min(max(0, int(retry.get("attempts") or 0)), _MAX_RETRY_ATTEMPTS)
 
         # Every key this call can ever use is claimed here, at the first attempt,
         # even for attempts that never run. They are named off the first
