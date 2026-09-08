@@ -2027,9 +2027,9 @@
     forbiddenToolsUsed:
       - write_script
       - deploy_workspace_item
-    # A secret argument is filled by naming the variable that holds it, never by a literal:
-    # the value stays in the variable and only its path travels. A literal would be dropped
-    # on the way in, so the run would reach the job with no token at all.
+    # A secret argument is filled by naming the variable that holds it: the value stays in
+    # the variable and only its path travels. A literal reaches the job as a reference too,
+    # minted on the way in, but it stays in the tool call the model emitted.
     toolCallArgs:
       - tool: run_script
         field: args.api_token

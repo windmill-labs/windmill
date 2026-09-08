@@ -901,7 +901,7 @@ const testRunScriptSchema = z.object({
 const testRunScriptToolDef = createToolDef(
 	testRunScriptSchema,
 	'test_run_script',
-	'Execute a preview-style test run of a script by path, preferring draft content when it exists. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer. For a secret argument pass `$var:<path>` naming an existing workspace variable; a literal secret is dropped and the field opens empty.',
+	'Execute a preview-style test run of a script by path, preferring draft content when it exists. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call.',
 	{ strict: false }
 )
 
@@ -913,7 +913,7 @@ const runScriptSchema = z.object({
 const runScriptToolDef = createToolDef(
 	runScriptSchema,
 	'run_script',
-	'Run a DEPLOYED script for real, under the user\'s own permissions. Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs. For a secret argument pass `$var:<path>` naming an existing workspace variable; a literal secret is dropped and the field opens empty. A required file is the user\'s to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version ("the deployed X", "in production", "for real"); otherwise use test_run_script.',
+	'Run a DEPLOYED script for real, under the user\'s own permissions. Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call. A required file is the user\'s to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version ("the deployed X", "in production", "for real"); otherwise use test_run_script.',
 	{ strict: false }
 )
 
