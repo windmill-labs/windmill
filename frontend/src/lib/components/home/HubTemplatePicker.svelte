@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { ArrowRight, ArrowUpRight, LayoutGrid, Star } from 'lucide-svelte'
 	import InfiniteList from '$lib/components/InfiniteList.svelte'
 	import {
@@ -22,14 +23,32 @@
 	// The hub serves its whole catalogue in one response, so paging happens here: the list
 	// asks for a window and gets a slice of what `hubProjectCatalogue` already holds. Should
 	// the hub ever paginate, only this loader changes.
+	// `InfiniteList` shows its `empty` snippet for a list that came back empty and for one that
+	// failed, so the loader records which happened: a reachable hub that has published nothing
+	// is not a hub that could not be reached.
+	let loadFailed = $state(false)
+
+	// Armed once per workspace, and inside `untrack`: `setLoader` loads immediately, and both
+	// it and `loadData` read the list's own reactive state as well as writing it — called
+	// tracked, this effect depends on what the load changes and re-runs itself. An empty
+	// catalogue never settles that cycle, which spins the tab at full CPU.
+	let loadedFor: string | undefined = undefined
 	$effect(() => {
 		const workspace = $workspaceStore
-		if (!list || !workspace) return
-		list.setLoader(async (page: number, perPage: number) => {
-			const all = await hubProjectCatalogue(workspace)
-			return all.slice((page - 1) * perPage, page * perPage)
+		if (!list || !workspace || loadedFor === workspace) return
+		loadedFor = workspace
+		untrack(() => {
+			list?.setLoader(async (page: number, perPage: number) => {
+				try {
+					const all = await hubProjectCatalogue(workspace)
+					loadFailed = false
+					return all.slice((page - 1) * perPage, page * perPage)
+				} catch (error) {
+					loadFailed = true
+					throw error
+				}
+			})
 		})
-		list.loadData('refresh')
 	})
 
 	let hubUrl = $state('https://hub.windmill.dev')
@@ -120,7 +139,11 @@
 
 			{#snippet empty()}
 				<p class="px-3 py-6 text-xs text-secondary">
-					Could not reach the hub. You can still browse its projects in a new tab.
+					{#if loadFailed}
+						Could not reach the hub. You can still browse its projects in a new tab.
+					{:else}
+						This hub has no projects yet.
+					{/if}
 				</p>
 			{/snippet}
 		</InfiniteList>
