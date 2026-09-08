@@ -533,3 +533,33 @@ async fn a_rename_has_to_match_the_save_it_claims_to_describe(
     assert_eq!(entry.unwrap()["datatable"], "other", "the swap did not carry the pointer");
     Ok(())
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn a_data_table_under_roles_is_not_copied_into_a_fork(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    // `pg_dump` carries no roles and the restore drops ACLs, so a copy would arrive with the
+    // parent's tenants and none of the grants behind them: every role but admin denied by
+    // Postgres in a data table that reads as configured. Refuse the copy rather than ship that,
+    // and refuse it before any data moves.
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let resp = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/test-workspace/workspaces/import_pg_database"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({"source": "datatable://main", "target": "datatable://main",
+                  "fork_behavior": "schema_only"}))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 400);
+    assert!(
+        resp.text().await?.contains("under roles"),
+        "the copy was refused for some other reason"
+    );
+    Ok(())
+}

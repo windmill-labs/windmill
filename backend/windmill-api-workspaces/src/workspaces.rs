@@ -46,7 +46,7 @@ use windmill_common::workspaces::GitRepositorySettings;
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
     check_deploy_rules, check_user_against_rule, get_datatable_resource_from_db,
-    get_datatable_resource_from_db_unchecked, resolve_governing_datatable,
+    get_datatable_resource_from_db_unchecked, parse_datatable_ref, resolve_governing_datatable,
     validate_dev_workspace_id, validate_fork_workspace_id, validate_workspace_name, DataTable,
     DataTableCatalogResourceType, DataTableForkBehavior, DatatableAccess, ProtectionRuleKind,
     ProtectionRules, ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
@@ -3327,6 +3327,32 @@ struct ImportPgDatabaseRequest {
     fork_behavior: DataTableForkBehavior,
 }
 
+/// Refuse to copy a data table that is under roles.
+///
+/// `pg_dump` carries no roles and the import runs with `--no-privileges`, so a clone arrives with
+/// its objects owned by the admin connection and no `GRANT` for any role. The settings copy brings
+/// `permissions` across, so the fork's tenants pass Windmill's check, connect as the role they were
+/// given, and are then denied by Postgres on everything — a data table that looks configured and
+/// answers nothing.
+///
+/// It fails closed rather than open, so this is a usability cliff rather than a hole, and the fix
+/// is to replay the source's owners and ACLs into the clone. That is a change of its own; until it
+/// exists, refusing is the honest answer. Dropping `permissions` from the clone instead would be
+/// the unsafe half: the copy holds the parent's rows, so an unpermissioned clone hands all of them
+/// to everyone in the fork.
+async fn ensure_datatable_is_clonable(db: &DB, w_id: &str, name: &str) -> Result<()> {
+    let governing = resolve_governing_datatable(db, w_id, name).await?;
+    if governing.datatable.permissions.is_some() {
+        return Err(Error::BadRequest(format!(
+            "Data table '{name}' is under roles and cannot be copied yet: a copy carries the \
+             role assignments but not the Postgres privileges behind them, so every role but \
+             admin would be denied in the copy. Fork it keeping the original database, or turn \
+             its roles off first."
+        )));
+    }
+    Ok(())
+}
+
 /// Import (pg_dump/pg_import) from source to target
 async fn import_pg_database(
     authed: ApiAuthed,
@@ -3337,6 +3363,11 @@ async fn import_pg_database(
 ) -> Result<String> {
     if req.fork_behavior == DataTableForkBehavior::KeepOriginal {
         return Ok("No action needed for KeepOriginal behavior".to_string());
+    }
+
+    if let Some(reference) = req.source.strip_prefix("datatable://") {
+        let (name, _) = parse_datatable_ref(reference);
+        ensure_datatable_is_clonable(&db, &w_id, name).await?;
     }
 
     if req.fork_behavior == DataTableForkBehavior::SchemaAndData {
@@ -3774,10 +3805,12 @@ async fn edit_datatable_config(
     // moves once, from what it named before this save. Inside the transaction: the rename and the
     // pointers that name it are one change, and half of it is a fork whose jobs stop.
     for (i, r) in new_config.renames.iter().enumerate() {
-        repoint_datatable_references(&mut tx, &w_id, &r.from, &format!("__wm_rename_tmp/{i}")).await?;
+        repoint_datatable_references(&mut tx, &w_id, &r.from, &format!("__wm_rename_tmp/{i}"))
+            .await?;
     }
     for (i, r) in new_config.renames.iter().enumerate() {
-        repoint_datatable_references(&mut tx, &w_id, &format!("__wm_rename_tmp/{i}"), &r.to).await?;
+        repoint_datatable_references(&mut tx, &w_id, &format!("__wm_rename_tmp/{i}"), &r.to)
+            .await?;
     }
 
     // A deletion cannot be followed the same way — there is nothing to point at any more. Read who
@@ -3795,10 +3828,12 @@ async fn edit_datatable_config(
         )
         .fetch_all(&mut *tx)
         .await?;
-        stranded.extend(rows.into_iter().map(|r| StrandedReference {
-            workspace_id: r.workspace_id,
-            datatable: r.datatable,
-        }));
+        stranded.extend(
+            rows.into_iter().map(|r| StrandedReference {
+                workspace_id: r.workspace_id,
+                datatable: r.datatable,
+            }),
+        );
     }
 
     tx.commit().await?;
@@ -3815,7 +3850,9 @@ async fn edit_datatable_config(
     )
     .await?;
 
-    Ok(Json(EditDataTableConfigResult { stranded_references: stranded }))
+    Ok(Json(EditDataTableConfigResult {
+        stranded_references: stranded,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -7830,6 +7867,7 @@ async fn apply_forked_datatable(
         &DatatableAccess::Authed(authed.to_authed_ref()),
     )
     .await?;
+    ensure_datatable_is_clonable(db, parent_w_id, &fdt.name).await?;
     windmill_common::validate_dbname(&fdt.new_dbname)?;
     if !fdt.new_dbname.starts_with("wm_fork_") {
         return Err(Error::BadRequest(format!(
