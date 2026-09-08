@@ -1899,9 +1899,12 @@ pub async fn handle_bun_job(
 
         // Kept comment-free — this string is written out per job.
         // `_takePendingStepFailure` / `_takePendingSuspend` hand back what the body
-        // caught and swallowed, `_warnUnobservedTaskFailures` what it never awaited;
-        // honour them instead of reporting a bare `complete` (see client.ts).
-        // Optional: npm clients may predate them.
+        // caught and swallowed; honour them instead of reporting a bare `complete`
+        // (see client.ts). Optional: npm clients may predate them.
+        // `_warnUnobservedTaskFailures` reports what the body never awaited, and so
+        // belongs only on the paths that end the round for good. A round that
+        // dispatches, sleeps, checkpoints or waits for approval replays later and
+        // re-registers the same failures from the checkpoint — keep those quiet.
         let wrapper_content = if is_wac_v2 {
             format!(
                 r#"

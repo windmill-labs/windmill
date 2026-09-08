@@ -2227,10 +2227,8 @@ export class WorkflowCtx {
     return f;
   }
 
-  /** Report the task failures the body never looked at. The runner calls this on
-   *  the two paths that end a round for good; a round that only dispatches more
-   *  steps has to stay quiet, or the next round reports the same failure again
-   *  after re-registering it from the checkpoint. */
+  /** Report the task failures the body never looked at, and forget them. Which
+   *  rounds may call this is the runner's constraint, stated where it is enforced. */
   _warnUnobservedTaskFailures(): void {
     // A child round replays the body just to reach one step, so the failures it
     // re-registers from the checkpoint are the parent round's to report.
