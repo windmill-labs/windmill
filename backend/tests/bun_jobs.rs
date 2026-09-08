@@ -1279,6 +1279,156 @@ fn test_generate_bun_bundle_propagates_exit_status() {
     );
 }
 
+/// Pins the two halves of the `//nodejs` CommonJS interop: a package whose
+/// exports only exist once it has run must resolve through `default`, and one
+/// node loads as ESM — through conditional exports that hand bun a different
+/// file, or an extensionless entry — must keep its named imports as live bindings.
+#[test]
+fn test_node_loader_cjs_named_export_interop() {
+    use std::process::Command;
+    use windmill_worker::{build_loader, LoaderMode, BUN_PATH, NODE_BIN_PATH};
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let dir = temp_dir.path();
+    let dir_str = dir.to_str().unwrap();
+    let write_pkg = |name: &str, files: &[(&str, &str)]| {
+        let pkg_dir = dir.join("node_modules").join(name);
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        for (file, content) in files {
+            std::fs::write(pkg_dir.join(file), content).unwrap();
+        }
+    };
+
+    // A CommonJS package whose exports only exist once it has run, which is
+    // what defeats the lexer.
+    write_pkg(
+        "dyn-cjs-pkg",
+        &[
+            (
+                "package.json",
+                r#"{ "name": "dyn-cjs-pkg", "version": "1.0.0", "main": "index.js" }"#,
+            ),
+            (
+                "index.js",
+                r#"
+const api = {};
+["greet"].forEach((k) => { api[k] = (s) => k + " " + s; });
+module.exports = api;
+"#,
+            ),
+        ],
+    );
+
+    // An ESM package whose exported binding changes after evaluation.
+    write_pkg(
+        "live-esm-pkg",
+        &[
+            (
+                "package.json",
+                r#"{ "name": "live-esm-pkg", "version": "1.0.0", "type": "module", "main": "index.js" }"#,
+            ),
+            ("index.js", "export let count = 0;\nexport function bump() { count++; }\n"),
+        ],
+    );
+
+    // Conditional exports that give bun CommonJS and node ESM: only node's
+    // answer says whether the bundle may snapshot the bindings.
+    write_pkg(
+        "dual-cond-pkg",
+        &[
+            (
+                "package.json",
+                r#"{ "name": "dual-cond-pkg", "version": "1.0.0",
+                     "exports": { ".": { "bun": "./bun-cjs.js", "node": "./node-esm.mjs", "default": "./node-esm.mjs" } } }"#,
+            ),
+            ("bun-cjs.js", "module.exports = { count: 0, bump() {} };\n"),
+            (
+                "node-esm.mjs",
+                "export let count = 0;\nexport function bump() { count++; }\n",
+            ),
+        ],
+    );
+
+    // An extensionless entry, which takes its format from the package scope too.
+    write_pkg(
+        "extless-esm-pkg",
+        &[
+            (
+                "package.json",
+                r#"{ "name": "extless-esm-pkg", "version": "1.0.0", "type": "module", "exports": "./entry" }"#,
+            ),
+            ("entry", "export let count = 0;\nexport function bump() { count++; }\n"),
+        ],
+    );
+
+    std::fs::write(
+        dir.join("main.ts"),
+        r#"
+import { greet } from "dyn-cjs-pkg";
+import * as pkg from "dyn-cjs-pkg";
+import { count, bump } from "live-esm-pkg";
+import { count as dual, bump as bumpDual } from "dual-cond-pkg";
+import { count as extless, bump as bumpExtless } from "extless-esm-pkg";
+export function main() {
+    bump();
+    bumpDual();
+    bumpExtless();
+    return [greet("a"), pkg.greet("b"), { ...pkg }.greet("c"), count, dual, extless];
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("wrapper.mjs"),
+        r#"
+import * as Main from "./main.ts";
+console.log(JSON.stringify(Main.main()));
+"#,
+    )
+    .unwrap();
+
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(build_loader(
+            dir_str,
+            "http://localhost:8000",
+            "test_token",
+            "test-workspace",
+            "f/test/script",
+            LoaderMode::Node,
+            &None,
+        ))
+        .expect("build_loader failed");
+
+    let build = Command::new(BUN_PATH.as_str())
+        .args(["run", "node_builder.ts"])
+        .current_dir(dir)
+        .output()
+        .expect("Failed to run bun");
+    assert!(
+        build.status.success(),
+        "node_builder.ts failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    // Same hand-off as generate_wrapper_mjs: the bundle replaces its entrypoint.
+    std::fs::rename(dir.join("wrapper.js"), dir.join("wrapper.mjs")).unwrap();
+
+    let run = Command::new(NODE_BIN_PATH.as_str())
+        .arg("wrapper.mjs")
+        .current_dir(dir)
+        .output()
+        .expect("Failed to run node");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(
+        run.status.success(),
+        "node rejected the bundle:\nstdout:\n{stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(stdout.trim(), r#"["greet a","greet b","greet c",1,1,1]"#);
+}
+
 /// Regression test for the install_bun_lockfile no-DB path: same code shape as
 /// `generate_bun_bundle` (site 3 of the original bug) — `wait().await?` ignored
 /// non-zero bun exits. A `bun install` failure (e.g. malformed package.json)
