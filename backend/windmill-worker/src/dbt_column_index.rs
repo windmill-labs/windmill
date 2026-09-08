@@ -114,24 +114,26 @@ pub(crate) async fn collect(
     };
     let coverage = Coverage::of(&compiled);
 
-    let artifact = read_index(&index_dir, kept).await;
-    // The decode runs on a blocking thread with no poller watching it, so a job
-    // cancelled or out of time while it ran is invisible until something asks.
-    // Asked here, because the caller goes on to publish a graph — and a deploy
-    // that was cancelled mid-decode would otherwise return success having done
-    // so. The job's own semantics, which this module may always `Err` for.
-    //
-    // Asked through `ping_job_status` rather than read from `ctx.canceled_by`:
-    // that field is only ever written by a poller, and the whole point of this
-    // check is the window in which no poller is running. The ping answers over
-    // both connection kinds — it is how the poller itself notices a cancel on an
-    // agent worker — so the check holds there too, where a direct query could
-    // not reach a database at all.
-    if ctx.deadline.is_expired() || job_was_canceled(job_id, conn).await {
-        return Err(error::Error::ExecutionErr(
-            "the job ended while the column-lineage index was being read".to_string(),
-        ));
-    }
+    // Decoded UNDER the poller, not followed by a check of its own. The decode is
+    // the one phase of this pass with no subprocess behind it, so nothing else
+    // heartbeats while it runs: left alone, a large index is a silent worker for
+    // as long as it takes, which the zombie sweep reads as a dead job and
+    // restarts. The poller pings throughout and ends this with an `Err` if the
+    // job is cancelled or completed meanwhile — the job's own semantics, which
+    // this module may always propagate.
+    let artifact = crate::handle_child::run_future_with_polling_update_job_poller(
+        *job_id,
+        ctx.timeout(),
+        conn,
+        ctx.mem_peak,
+        ctx.canceled_by,
+        async { Ok(read_index(&index_dir, kept).await) },
+        ctx.worker_name,
+        w_id,
+        &mut Some(ctx.occupancy_metrics),
+        Box::pin(futures::stream::empty()),
+    )
+    .await?;
 
     // What only the pass knows. The COUNTS are logged where the index is folded
     // into the graph, since the graph decides how much of it is kept.
@@ -172,22 +174,6 @@ pub(crate) async fn collect(
     // a SUCCESSFUL compile that nothing else would show.
     log(job_id, w_id, &note, &compiled.stderr, conn).await;
     Ok(None)
-}
-
-/// Whether a cancel landed while nothing was watching for one.
-///
-/// A failed ping answers "still running". This decides whether to DISCARD work
-/// already done, so a lost request must not be the reason a healthy deploy loses
-/// its graph — and if the connection is really gone, everything after this fails
-/// on its own.
-async fn job_was_canceled(job_id: &Uuid, conn: &Connection) -> bool {
-    match crate::worker_utils::ping_job_status(conn, job_id, None, None).await {
-        Ok(status) => status.canceled_by.is_some(),
-        Err(e) => {
-            tracing::warn!(%job_id, %e, "checking cancellation after the column-index decode");
-            false
-        }
-    }
 }
 
 async fn log(job_id: &Uuid, w_id: &str, note: &str, stderr: &str, conn: &Connection) {
