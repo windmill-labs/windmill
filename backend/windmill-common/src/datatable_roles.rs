@@ -21,7 +21,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     error::{Error, Result},
-    global_settings::DATATABLE_ROLES_SETTING,
     DB,
 };
 
@@ -34,8 +33,8 @@ pub const ADMIN_DATATABLE_ROLE: &str = "admin";
 /// membership is what later lets it `ALTER ... OWNER TO` a role and drop it.
 pub const CUSTOM_INSTANCE_USER: &str = "custom_instance_user";
 
-/// One catalog entry. The password is per role and instance-wide, and lives in the instance's own
-/// [`DATATABLE_ROLES_SETTING`] row rather than in any workspace's settings.
+/// One catalog entry, as stored in `datatable_role`. The password is per role and instance-wide;
+/// it belongs to the instance, not to any workspace's settings.
 #[derive(Deserialize, Serialize, Clone)]
 pub struct InstanceDatatableRole {
     /// The Postgres role name, verbatim.
@@ -45,11 +44,11 @@ pub struct InstanceDatatableRole {
     /// Absent only for a role whose provisioning did not finish; resolving as it then errors
     /// rather than falling back to admin.
     ///
-    /// A plain string rather than a `StringOrSecretRef` like the instance user's password beside
-    /// it: that one is a secret ref because an operator supplies it and may want it to come from
-    /// their own backend, while this one is minted here and never entered by anyone, so there is
-    /// nothing for a ref to point at. Encrypting generated secrets at rest is a separate change
-    /// that would take the replication password with it.
+    /// A plain string rather than a `StringOrSecretRef` like the instance user's password: that
+    /// one is a secret ref because an operator supplies it and may want it to come from their own
+    /// backend, while this one is minted here and never entered by anyone, so there is nothing for
+    /// a ref to point at. Encrypting generated secrets at rest is a separate change that would
+    /// take the replication password with it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pwd: Option<String>,
 }
@@ -114,29 +113,14 @@ fn quote_literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
-/// The catalog as a settings reader may see it: every entry, no password.
+/// Serialize the mutations that are not already serialized by the row itself.
 ///
-/// `GET /settings/global/{key}` and the settings listing hand back whatever is in the row, so the
-/// one key whose value is a set of live cluster credentials has to be filtered on the way out.
-/// Applied by name, since those endpoints do not know what they are returning.
-pub fn redact_role_catalog_setting(name: &str, value: serde_json::Value) -> serde_json::Value {
-    if name != DATATABLE_ROLES_SETTING {
-        return value;
-    }
-    let mut catalog = parse_role_catalog(Some(value));
-    for role in catalog.values_mut() {
-        role.pwd = None;
-    }
-    serde_json::to_value(&catalog).unwrap_or(serde_json::Value::Null)
-}
-
-/// Serialize every mutation of the catalog, from the read through the cluster DDL to the write.
-///
-/// The catalog is one JSON document, so create/rename/enable/delete are all read-modify-write.
-/// Without this, two concurrent creates both read the same snapshot, both succeed in the cluster,
-/// and the second write drops the first — leaving a live Postgres login with a password nobody
-/// recorded, which is exactly the state the whole delete path exists to avoid. Held for the
-/// transaction, so the DDL has to run on that same transaction to be covered.
+/// A create is an insert and a delete is a delete, which Postgres orders for us — the unique index
+/// on `name` is what makes two concurrent creates of the same name one winner and one error. What
+/// still needs it is the window between the cluster DDL and the row: `CREATE ROLE` is not visible
+/// to another transaction's `pg_roles` check until commit, so without this two creates of the same
+/// name both pass their existence check and one fails on the index having already made the login.
+/// Held for the transaction, so the DDL has to run on that same transaction to be covered.
 pub async fn lock_role_catalog(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<()> {
     sqlx::query!("SELECT pg_advisory_xact_lock(hashtext('datatable_role_catalog'))")
         .execute(&mut **tx)
@@ -150,13 +134,18 @@ pub async fn lock_role_catalog(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -
 /// or an export. Nothing about who may call it: the credential is the whole risk, and `Debug` is
 /// hand-written to redact it for the same reason.
 pub async fn read_role_catalog(db: &DB) -> Result<DatatableRoleCatalog> {
-    let value = sqlx::query_scalar!(
-        "SELECT value FROM global_settings WHERE name = $1",
-        DATATABLE_ROLES_SETTING
-    )
-    .fetch_optional(db)
-    .await?;
-    Ok(parse_role_catalog(value))
+    let rows = sqlx::query!("SELECT id, name, enabled, pwd FROM datatable_role")
+        .fetch_all(db)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| {
+            (
+                r.id,
+                InstanceDatatableRole { name: r.name, enabled: r.enabled, pwd: r.pwd },
+            )
+        })
+        .collect())
 }
 
 /// As [`read_role_catalog`], reading inside the caller's transaction so the value is the one
@@ -164,44 +153,70 @@ pub async fn read_role_catalog(db: &DB) -> Result<DatatableRoleCatalog> {
 pub async fn read_role_catalog_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<DatatableRoleCatalog> {
-    let value = sqlx::query_scalar!(
-        "SELECT value FROM global_settings WHERE name = $1",
-        DATATABLE_ROLES_SETTING
-    )
-    .fetch_optional(&mut **tx)
-    .await?;
-    Ok(parse_role_catalog(value))
+    let rows = sqlx::query!("SELECT id, name, enabled, pwd FROM datatable_role")
+        .fetch_all(&mut **tx)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| {
+            (
+                r.id,
+                InstanceDatatableRole { name: r.name, enabled: r.enabled, pwd: r.pwd },
+            )
+        })
+        .collect())
 }
 
-/// Persist the catalog, in the caller's transaction so it commits with the cluster DDL it
-/// describes. Upserts: the row does not exist until the first role is created.
+/// Record a role, in the caller's transaction so it commits with the `CREATE ROLE` it describes.
 ///
-/// Authorization: writes generated Postgres credentials. Callers MUST restrict this to superadmin
+/// Authorization: writes a generated Postgres credential. Callers MUST restrict this to superadmin
 /// paths and MUST hold [`lock_role_catalog`] on `tx`.
-pub async fn write_role_catalog(
+pub async fn insert_role_catalog_entry(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    catalog: &DatatableRoleCatalog,
+    id: &str,
+    role: &InstanceDatatableRole,
 ) -> Result<()> {
-    let value = serde_json::to_value(catalog)
-        .map_err(|e| Error::internal_err(format!("serializing the role catalog: {e}")))?;
     sqlx::query!(
-        "INSERT INTO global_settings (name, value) VALUES ($1, $2)
-         ON CONFLICT (name) DO UPDATE SET value = $2, updated_at = now()",
-        DATATABLE_ROLES_SETTING,
-        value
+        "INSERT INTO datatable_role (id, name, enabled, pwd) VALUES ($1, $2, $3, $4)",
+        id,
+        role.name,
+        role.enabled,
+        role.pwd,
     )
     .execute(&mut **tx)
     .await?;
     Ok(())
 }
 
-/// A catalog that will not deserialize is an empty one, which fails closed: tenants are keyed by
-/// id independently of it, so every role then resolves to "no longer exists on this instance"
-/// rather than to admin.
-fn parse_role_catalog(value: Option<serde_json::Value>) -> DatatableRoleCatalog {
-    value
-        .map(|v| serde_json::from_value(v).unwrap_or_default())
-        .unwrap_or_default()
+/// Update a role's recorded name, login flag and password. Same contract as
+/// [`insert_role_catalog_entry`].
+pub async fn update_role_catalog_entry(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    id: &str,
+    role: &InstanceDatatableRole,
+) -> Result<()> {
+    sqlx::query!(
+        "UPDATE datatable_role SET name = $2, enabled = $3, pwd = $4 WHERE id = $1",
+        id,
+        role.name,
+        role.enabled,
+        role.pwd,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Forget a role. Same contract as [`insert_role_catalog_entry`]; run it in the transaction that
+/// drops the cluster login, so the two cannot disagree.
+pub async fn delete_role_catalog_entry(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    id: &str,
+) -> Result<()> {
+    sqlx::query!("DELETE FROM datatable_role WHERE id = $1", id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
 }
 
 /// Resolve the role a caller named to its catalog id. A disabled role is an error rather than a

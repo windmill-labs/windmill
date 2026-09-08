@@ -122,7 +122,12 @@
 			}
 		}
 
-		await WorkspaceService.deleteWorkspace({ workspace })
+		const result = await WorkspaceService.deleteWorkspace({ workspace })
+		// The server names any data table in another workspace that this delete left governed by
+		// nothing. Only surfaced when there is something to say.
+		if (typeof result === 'string' && result.includes('no longer resolve')) {
+			sendUserToast(result, 'warning', [], undefined, 20000)
+		}
 		await deleteSessionsForWorkspace(workspace).catch((e) =>
 			console.error('Session cleanup after workspace delete failed', e)
 		)
