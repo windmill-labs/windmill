@@ -1370,6 +1370,11 @@ test_behavior: build
 vars: {}
 threads: 4
 full_refresh: false
+# Resolve a ref() this run does not build through the state the last successful
+# run of this environment published, instead of through the schema it writes
+# into. The default for the run form's toggle: the run that publishes the state
+# and the run that defers to it are two invocations of this one script.
+defer: false
 # Rebuild the nodes a failed build left failed or skipped, in this same job,
 # before reporting failure. dbt confines a failure to its own subtree, so a
 # transient warehouse error costs those nodes rather than the whole project.

@@ -37,6 +37,7 @@ mod dbt_column_index;
 mod dbt_engine;
 mod dbt_executor;
 mod dbt_profiles;
+mod dbt_state;
 #[cfg(feature = "private")]
 mod dedicated_worker_ee;
 mod dedicated_worker_oss;
