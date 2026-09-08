@@ -80,6 +80,7 @@
 		selectionColumnGraph,
 		selectionColumnLoading = false,
 		selectionColumnTruncated = false,
+		selectionColumnFailed = false,
 		selectionDbt,
 		schemaCanEvolve = true,
 		selectionForkMaterialization = undefined,
@@ -191,6 +192,9 @@
 		selectionColumnLoading?: boolean
 		/** That trace cut at the part nearest the selection. */
 		selectionColumnTruncated?: boolean
+		/** That trace could not be fetched. Distinguished from an empty one: a
+		 *  project without the analysis pass draws nothing either. */
+		selectionColumnFailed?: boolean
 		/** dbt provenance of the selected relation — carries its SQL. */
 		selectionDbt?: DbtAssetProvenance
 		schemaCanEvolve?: boolean
@@ -525,6 +529,7 @@
 						{selectionColumnGraph}
 						{selectionColumnLoading}
 						{selectionColumnTruncated}
+						{selectionColumnFailed}
 						{selectionDbt}
 						{schemaCanEvolve}
 						{selectionForkMaterialization}

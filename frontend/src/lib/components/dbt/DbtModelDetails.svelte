@@ -43,6 +43,7 @@
 		columnGraph,
 		columnLoading = false,
 		columnTruncated = false,
+		columnFailed = false,
 		onOpenFile,
 		onClose
 	}: {
@@ -57,6 +58,7 @@
 		columnGraph?: ColumnLineageGraph
 		columnLoading?: boolean
 		columnTruncated?: boolean
+		columnFailed?: boolean
 		onOpenFile?: (path: string) => void
 		onClose?: () => void
 	} = $props()
@@ -273,6 +275,7 @@
 			targetLabel={dbt.unique_id}
 			loading={columnLoading}
 			truncated={columnTruncated}
+			failed={columnFailed}
 		/>
 
 		{#if showRows && preview}

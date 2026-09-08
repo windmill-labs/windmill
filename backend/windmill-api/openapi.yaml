@@ -2741,7 +2741,7 @@ paths:
 
   /w/{workspace}/github_app/token:
     post:
-      summary: get github app token
+      summary: get the git credential for a git-sync job (GitHub App token, or the credential stored for the repository)
       operationId: getGithubAppToken
       tags:
         - workspace
@@ -2761,7 +2761,7 @@ paths:
                 - job_token
       responses:
         "200":
-          description: github app token
+          description: git credential
           content:
             application/json:
               schema:
@@ -2904,6 +2904,131 @@ paths:
       responses:
         "200":
           description: Successfully imported the installation
+
+  /w/{workspace}/git_sync/gitlab/projects:
+    post:
+      tags:
+        - Git Sync
+      summary: List the GitLab projects a token can sync
+      description: >-
+        Lists the projects the supplied GitLab token can push to, so a git
+        repository resource can be filled in without hand-writing a project
+        path. The token is used for this call only and is never stored.
+        Requires workspace admin.
+      operationId: listGitlabProjects
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                base_url:
+                  type: string
+                  description: The GitLab instance, e.g. https://gitlab.com
+                token:
+                  type: string
+                  description: A project access token with the api scope, or a group token that reaches the project
+                search:
+                  type: string
+                  description: Narrow the list to projects matching this text
+              required:
+                - base_url
+                - token
+      responses:
+        "200":
+          description: the projects the token can sync
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GitlabProject"
+
+  /w/{workspace}/git_sync/credential/origin:
+    get:
+      tags:
+        - Git Sync
+      summary: Where a repository's credential comes from
+      description: >-
+        Whether Windmill holds this repository's access token, and which host it
+        talks to. `held` means this workspace stores it, `borrowed` means an
+        ancestor does and it is not this workspace's to replace. Both absent
+        means the repository authenticates with whatever its URL carries.
+        Returns no secret. Requires workspace admin.
+      operationId: getCredentialOrigin
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: path
+          in: query
+          required: true
+          description: >-
+            Path of the git repository resource, with or without the `$res:`
+            prefix. A path rather than a URL, because a resource URL may carry a
+            token and a URL in a query string lands in logs.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: where the credential comes from
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  origin:
+                    type: string
+                    enum:
+                      - held
+                      - borrowed
+                  provider:
+                    type: string
+                    enum:
+                      - gitlab
+
+  /w/{workspace}/git_sync/credential:
+    post:
+      tags:
+        - Git Sync
+      summary: Store the credential for a git repository
+      description: >-
+        Stores the access token a git repository authenticates with, so it does
+        not have to be written into the repository URL or a workspace variable.
+        The token is write-only: it is served only to a git-sync job that
+        presents its own job token, and a fork of this workspace reads this
+        copy instead of holding one of its own. Requires workspace admin.
+      operationId: setGitCredential
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                repo_url:
+                  type: string
+                  description: >-
+                    The repository the credential is for, and the key it is
+                    stored under. It is served for this repository and no other,
+                    so repointing a resource elsewhere cannot carry the token
+                    along.
+                token:
+                  type: string
+                  description: The access token, as pasted
+              required:
+                - repo_url
+                - token
+      responses:
+        "200":
+          description: the credential was stored
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/github_app/ghes_installation_callback:
     post:
@@ -24479,9 +24604,13 @@ paths:
           required: true
           description: >
             The `dbt://` relations whose lineage to return. Repeated, once per
-            relation, and answered as one union.
+            relation, and answered as one union. At least one, and at most 1000 —
+            a request naming none, or more than that, is refused rather than
+            answered with an empty component.
           schema:
             type: array
+            maxItems: 1000
+            minItems: 1
             items:
               type: string
         - name: dbt_script_hash
@@ -24728,9 +24857,13 @@ paths:
           required: true
           description: >
             The `dbt://` relations whose lineage to return. Repeated, once per
-            relation, and answered as one union.
+            relation, and answered as one union. At least one, and at most 1000 —
+            a request naming none, or more than that, is refused rather than
+            answered with an empty component.
           schema:
             type: array
+            maxItems: 1000
+            minItems: 1
             items:
               type: string
       responses:
@@ -34500,8 +34633,57 @@ components:
         open_pr_error:
           type: string
           description: server-owned, last failure opening a PR for a deploy branch of this repo
+        credential:
+          $ref: "#/components/schemas/GitCredentialStatus"
       required:
         - git_repo_resource_path
+
+    GitCredentialStatus:
+      type: object
+      description: server-owned, what the repo's own credential reports about itself
+      properties:
+        provider:
+          type: string
+          enum:
+            - gitlab
+        token_id:
+          type: integer
+          format: int64
+        expires_at:
+          type: string
+          format: date
+          description: absent for a non-expiring token
+        scopes:
+          type: array
+          items:
+            type: string
+        rotatable:
+          type: boolean
+          description: whether this workspace renews the credential itself
+        checked_at:
+          type: integer
+          format: int64
+        error:
+          type: string
+      required:
+        - provider
+        - rotatable
+        - checked_at
+
+    GitlabProject:
+      type: object
+      description: a GitLab project a token can sync, as the resource form needs it
+      properties:
+        path_with_namespace:
+          type: string
+          description: nested group path plus project name, which is also GitLab's project id
+        http_url_to_repo:
+          type: string
+        default_branch:
+          type: string
+      required:
+        - path_with_namespace
+        - http_url_to_repo
 
     AutoPullMode:
       type: string

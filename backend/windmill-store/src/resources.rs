@@ -3629,6 +3629,16 @@ async fn get_git_commit_hash(
     })?;
     git_resource.url =
         resolve_azure_devops_url(&db_with_opt_authed, &w_id, &git_resource.url, false).await?;
+    // A credential is stored under the repository it was issued for, so a
+    // resource repointed elsewhere finds none. Which credential can be attached
+    // is bounded by that; who may use it is bounded here, on the same terms as
+    // the installation credential above.
+    let plain_url = git_resource.url.clone();
+    git_resource.url =
+        windmill_common::git_sync_oss::with_stored_credential(&db, &w_id, git_resource.url).await?;
+    if git_resource.url != plain_url {
+        require_admin(authed.is_admin, &authed.username)?;
+    }
 
     let identities: Vec<String> = query
         .git_ssh_identity
@@ -4307,6 +4317,10 @@ pub async fn get_git_repo_head_for_autopull(
     }
     git_resource.url =
         resolve_azure_devops_url(&git_sync_system_dba(db), w_id, &git_resource.url, true).await?;
+    // A repo whose credential Windmill holds carries none in its URL, so the
+    // poller has to attach it here or every probe would be unauthenticated.
+    git_resource.url =
+        windmill_common::git_sync_oss::with_stored_credential(db, w_id, git_resource.url).await?;
 
     if let Some(branch) = git_resource.branch.as_deref().filter(|s| !s.is_empty()) {
         let branch = branch.to_string();
@@ -4413,6 +4427,11 @@ pub async fn get_git_repo_fork_heads_for_autopull(
         ));
     }
     git_resource.url = resolve_azure_devops_url(&dba, w_id, &git_resource.url, true).await?;
+    // Same reason as the head probe above: a repository whose credential Windmill
+    // holds carries none in its URL, and listing the fork branches is the half of
+    // polling that would otherwise go out unauthenticated.
+    git_resource.url =
+        windmill_common::git_sync_oss::with_stored_credential(db, w_id, git_resource.url).await?;
     validate_git_url(&git_resource.url).await?;
     validate_git_ref(base_branch)?;
 

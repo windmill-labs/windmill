@@ -1373,6 +1373,15 @@
 						{linkedSecretCandidates}
 						{resourceType}
 						{resourceTypeInfo}
+						workspace={effectiveWorkspace}
+						onCredentialStored={() => {
+							// `forceSecretValue` files a git_repository's `url` in a secret
+							// variable, for the URLs that carry a token in them. The picker's
+							// does not: the token is stored separately, so that variable would
+							// hold nothing secret and add a second place to keep in step with
+							// the resource.
+							linkedSecrets = linkedSecrets.filter((f) => f !== 'url')
+						}}
 						bind:args
 						bind:isValid
 						onSynced={getResourceTypeInfo}
