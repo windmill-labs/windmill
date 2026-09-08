@@ -5553,14 +5553,18 @@ function requiredValueMissing(value: unknown): boolean {
 function requiredUnanswered(schema: Record<string, any>, proposed: Record<string, any>): boolean {
 	const properties = schema?.properties ?? {}
 	const required = Array.isArray(schema?.required) ? schema.required : []
+	// hasOwn, not a plain read: a parameter named `constructor` or `toString` is a valid one to
+	// declare, and every object inherits a value for it that would read as an answer.
+	const supplied = (key: string) =>
+		proposed != null && Object.hasOwn(proposed, key) ? proposed[key] : undefined
 	for (const key of required) {
 		if (typeof key !== 'string') continue
 		const declared = Object.hasOwn(properties, key) ? properties[key] : undefined
-		if (requiredValueMissing(proposed?.[key]) && declared?.default === undefined) return true
+		if (requiredValueMissing(supplied(key)) && declared?.default === undefined) return true
 	}
 	// The descent applySchemaDefaults makes, so what one fills the other inspects.
 	for (const [key, declared] of Object.entries<any>(properties)) {
-		const value = proposed?.[key]
+		const value = supplied(key)
 		if (
 			!Array.isArray(declared?.oneOf) &&
 			declared?.properties &&

@@ -4626,6 +4626,18 @@ describe('global AI tools', () => {
 		)
 		expect(optional.find((x) => x.runForm)?.runForm.submitted).toBeUndefined()
 
+		// A parameter name every object inherits a value for. Reading it off the prototype would
+		// make an argument nobody sent look answered.
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/inherited',
+			schema: { properties: { constructor: { type: 'string' } }, required: ['constructor'] }
+		} as any)
+		const inherited: any[] = []
+		await withCompletedTestJob(() =>
+			callGlobalTool('run_script', { path: 'f/scripts/inherited', args: {} }, yolo(inherited))
+		)
+		expect(inherited.find((x) => x.runForm)?.runForm.submitted).toBeUndefined()
+
 		// Answered at both levels: nothing is outstanding, so the posture still answers and no
 		// field is mounted. Without this the guard above could pass by never bypassing at all.
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
