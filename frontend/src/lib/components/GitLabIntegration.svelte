@@ -34,7 +34,6 @@
 
 	let baseUrl = $state('https://gitlab.com')
 	let token = $state('')
-	let search = $state('')
 	let projects: GitlabProject[] = $state([])
 	let selectedProject: string | undefined = $state(undefined)
 	let loading = $state(false)
@@ -73,7 +72,7 @@
 			const listedWith = token
 			projects = await GitSyncService.listGitlabProjects({
 				workspace: ws,
-				requestBody: { base_url: baseUrl, token: listedWith, search: search || undefined }
+				requestBody: { base_url: baseUrl, token: listedWith }
 			})
 			listedToken = listedWith
 			selectedProject = projects[0]?.path_with_namespace
@@ -162,10 +161,6 @@
 							Windmill stores it and renews it before it expires. Use one token per project: a group
 							token covers the group, but renewal replaces it for one project at a time.
 						</div>
-					</div>
-					<div class="flex flex-col gap-y-1">
-						<div class="text-xs font-semibold text-emphasis">Filter projects</div>
-						<TextInput bind:value={search} size="sm" inputProps={{ placeholder: 'Optional' }} />
 					</div>
 					<div>
 						<Button

@@ -1499,7 +1499,7 @@ async fn maybe_post_git_sync_check(
             (
                 "failure",
                 "Merge conflicts with the base branch".to_string(),
-                "This PR cannot be merged cleanly, so there is no deploy diff to compute. Resolve the conflicts and push again to re-run this check."
+                "This branch cannot be merged cleanly, so there is no deploy diff to compute. Resolve the conflicts and push again to re-run this check."
                     .to_string(),
             )
         } else if pr_check_error.as_deref() == Some("PR_HEAD_REF_UNAVAILABLE") {
@@ -1509,7 +1509,7 @@ async fn maybe_post_git_sync_check(
             (
                 "neutral",
                 "Could not compute the deploy diff".to_string(),
-                "Windmill could not fetch this PR's head, or enough history, to compute its merge with the base. Push again to re-run this check."
+                "Windmill could not fetch this branch's head, or enough history, to compute its merge with the base. Push again to re-run this check."
                     .to_string(),
             )
         } else if pr_check_error.is_some() {
@@ -1532,20 +1532,20 @@ async fn maybe_post_git_sync_check(
                     "success",
                     "In sync".to_string(),
                     format!(
-                        "Merging this PR would make no changes to the workspace.{}",
+                        "Merging this branch would make no changes to the workspace.{}",
                         scope_note.as_deref().unwrap_or_default()
                     ),
                 ),
                 Some((changes, settings_changed)) => {
                     let mut lines = vec![format!(
-                        "Merging this PR would apply {} change(s) to the workspace:\n",
+                        "Merging this branch would apply {} change(s) to the workspace:\n",
                         changes.len()
                     )];
                     lines.extend(format_change_list(&changes));
                     if settings_changed {
                         lines.push(match check.wmill_yaml_changed {
-                            Some(true) => "\nThis PR changes wmill.yaml: pulling also applies the updated workspace settings.".to_string(),
-                            Some(false) => "\nIndependent of this PR, the workspace's git-sync settings differ from the repo's wmill.yaml and a pull updates them to match.".to_string(),
+                            Some(true) => "\nThis branch changes wmill.yaml: pulling also applies the updated workspace settings.".to_string(),
+                            Some(false) => "\nIndependent of this branch, the workspace's git-sync settings differ from the repo's wmill.yaml and a pull updates them to match.".to_string(),
                             None => "\nA pull also updates the workspace's git-sync settings to match the repo's wmill.yaml.".to_string(),
                         });
                     }
