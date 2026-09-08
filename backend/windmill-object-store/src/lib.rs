@@ -172,6 +172,10 @@ lazy_static::lazy_static! {
     /// The config [`CACHE_OBJECT_STORE_OVERRIDE`] was built from, so a rebuild that fails for a
     /// config already being served can keep serving it. Locked after the store, never before.
     static ref CACHE_OVERRIDE_APPLIED: Arc<RwLock<Option<serde_json::Value>>> = Arc::new(RwLock::new(None));
+
+    /// Held across a whole [`reload_cache_object_store_override`], build included, so that the
+    /// override's flag, store and applied config only ever move together.
+    static ref CACHE_OVERRIDE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::new(());
 }
 
 /// Whether a worker-group cache override is configured, held apart from the store it built so
@@ -182,9 +186,9 @@ static CACHE_OBJECT_STORE_OVERRIDDEN: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 /// Bumped by every [`reload_cache_object_store_override`] at entry. Builds are slow and several
-/// callers race — a config change, the retry behind a failed one, a license-plan change — so a
-/// reload only commits while it is still the newest; otherwise it would install a store the group
-/// has already moved off.
+/// callers race — a config change, the retry behind a failed one, a license-plan change — and the
+/// lock alone would only order them by arrival, so a reload that lost its claim while waiting
+/// drops out rather than installing a store the group has already moved off.
 #[cfg(feature = "parquet")]
 static CACHE_OVERRIDE_GENERATION: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
@@ -262,8 +266,14 @@ pub async fn reload_cache_object_store_override(
     use std::sync::atomic::Ordering;
     use windmill_common::ee_oss::{get_license_plan, LicensePlan};
 
+    // Claim a generation, then take the lock: every state transition below happens inside one
+    // critical section, and a caller that lost its claim while waiting drops out rather than
+    // installing what the group has already moved off.
     let generation = CACHE_OVERRIDE_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
-    let superseded = || CACHE_OVERRIDE_GENERATION.load(Ordering::SeqCst) != generation;
+    let _transition = CACHE_OVERRIDE_LOCK.lock().await;
+    if CACHE_OVERRIDE_GENERATION.load(Ordering::SeqCst) != generation {
+        return ObjectStoreReload::Never;
+    }
 
     // DISABLE_S3_STORE turns off the instance object store for this process; a group override
     // must not be a way back in.
@@ -272,7 +282,7 @@ pub async fn reload_cache_object_store_override(
         .is_some_and(|x| x == "1" || x == "true");
 
     let Some(settings) = settings.filter(|v| !v.is_null() && !store_disabled) else {
-        if !superseded() && CACHE_OBJECT_STORE_OVERRIDDEN.swap(false, Ordering::Relaxed) {
+        if CACHE_OBJECT_STORE_OVERRIDDEN.swap(false, Ordering::Relaxed) {
             clear_cache_object_store_override().await;
             tracing::info!(
                 "Worker group object store cache override removed, falling back to the instance object store"
@@ -281,15 +291,30 @@ pub async fn reload_cache_object_store_override(
         return ObjectStoreReload::Never;
     };
 
-    if matches!(get_license_plan().await, LicensePlan::Pro) {
-        tracing::error!("Object store cache override is not available for pro plan");
-        // Also covers a downgrade: a store loaded while the plan still allowed it must not
-        // outlive the entitlement.
-        if !superseded() && CACHE_OBJECT_STORE_OVERRIDDEN.swap(false, Ordering::Relaxed) {
+    // Enterprise-only, so anything else — Community, including a CE build reaching this through
+    // the config-as-code API, and Pro — must not get a store, and a plan that stops being
+    // Enterprise must drop one loaded while it still was.
+    if !matches!(get_license_plan().await, LicensePlan::Enterprise) {
+        tracing::error!(
+            "Object store cache override requires an enterprise license, ignoring it for this worker group"
+        );
+        if CACHE_OBJECT_STORE_OVERRIDDEN.swap(false, Ordering::Relaxed) {
             clear_cache_object_store_override().await;
         }
         return ObjectStoreReload::Never;
     }
+
+    apply_cache_object_store_override(db, settings).await
+}
+
+/// The half of [`reload_cache_object_store_override`] past the entitlement gate: build the store
+/// and commit it. Split out so the commit rules are testable without a license plan.
+#[cfg(feature = "parquet")]
+async fn apply_cache_object_store_override(
+    db: &windmill_common::DB,
+    settings: serde_json::Value,
+) -> ObjectStoreReload {
+    use std::sync::atomic::Ordering;
 
     // Claim the override before building it: until a store is in place the dependency cache
     // must stay local-only rather than reach for the instance bucket.
@@ -313,10 +338,6 @@ pub async fn reload_cache_object_store_override(
             (None, ObjectStoreReload::Never)
         }
     };
-
-    if superseded() {
-        return reload;
-    }
 
     let mut current = CACHE_OBJECT_STORE_OVERRIDE.write().await;
     match store {
@@ -2586,17 +2607,17 @@ mod tests {
             "type": "Filesystem", "root_path": dir.path().to_str().unwrap()
         });
 
-        reload_cache_object_store_override(&db, Some(settings.clone())).await;
+        apply_cache_object_store_override(&db, settings.clone()).await;
         assert!(get_cache_object_store().await.is_some());
 
         // Same config, now unbuildable: the store it already produced stays.
         dir.close().unwrap();
-        reload_cache_object_store_override(&db, Some(settings)).await;
+        apply_cache_object_store_override(&db, settings).await;
         assert!(get_cache_object_store().await.is_some());
 
         // A different config that will not build must not leave the old bucket in place.
         let moved = serde_json::json!({ "type": "Filesystem", "root_path": "/proc/nonexistent" });
-        reload_cache_object_store_override(&db, Some(moved)).await;
+        apply_cache_object_store_override(&db, moved).await;
         assert!(get_cache_object_store().await.is_none());
         assert!(cache_object_store_override_failed().await);
 
