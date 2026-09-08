@@ -36,7 +36,7 @@ pub const CUSTOM_INSTANCE_USER: &str = "custom_instance_user";
 /// One catalog entry. The password is per role and instance-wide; it lives here rather than in any
 /// workspace's settings, next to the `custom_instance_user` password in the same
 /// `custom_instance_pg_databases` row.
-#[derive(Deserialize, Serialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone)]
 #[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
 pub struct InstanceDatatableRole {
     /// The Postgres role name, verbatim.
@@ -47,6 +47,18 @@ pub struct InstanceDatatableRole {
     /// rather than falling back to admin.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pwd: Option<String>,
+}
+
+/// Hand-written so `{:?}` on a catalog cannot put a live Postgres password in a log line or an
+/// audit record. Everything else about the entry is safe to print.
+impl std::fmt::Debug for InstanceDatatableRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InstanceDatatableRole")
+            .field("name", &self.name)
+            .field("enabled", &self.enabled)
+            .field("pwd", &self.pwd.as_ref().map(|_| "<redacted>"))
+            .finish()
+    }
 }
 
 pub type DatatableRoleCatalog = BTreeMap<String, InstanceDatatableRole>;

@@ -1389,8 +1389,24 @@ pub async fn resolve_governing_datatable(
 ) -> Result<GoverningDatatable> {
     let mut workspace_id = w_id.to_string();
     let mut name = name.to_string();
+    let mut hops = 0;
     for _ in 0..DATATABLE_REFERENCE_MAX_DEPTH {
-        let datatable = read_datatable_entry(db, &workspace_id, &name).await?;
+        let datatable = read_datatable_entry(db, &workspace_id, &name)
+            .await
+            .map_err(|e| {
+                if hops == 0 {
+                    e
+                } else {
+                    // A pointer outlives the workspace it names: deleting one only nulls the fork
+                    // lineage, it does not sweep the entries that pointed at it. Say which one is
+                    // gone rather than reporting a data table this workspace never had.
+                    Error::NotFound(format!(
+                        "Data table '{name}' of workspace '{workspace_id}' governs this one and no \
+                         longer exists. A superadmin can point this data table somewhere else."
+                    ))
+                }
+            })?;
+        hops += 1;
         validate_datatable_shape(&name, &datatable)?;
         match &datatable.reference {
             None => return Ok(GoverningDatatable { workspace_id, name, datatable }),

@@ -2580,18 +2580,31 @@ fn datatable_role_infos(
 
 /// Persist the catalog next to the instance Postgres password, in the same `global_settings` row
 /// the instance database registry lives in.
+///
+/// Errors when it matches nothing. The cluster is written first, so a silent no-op here would
+/// leave a live Postgres login with a password nobody recorded: invisible to the catalog,
+/// un-recreatable (the name is taken) and un-deletable (there is no entry to delete). The row is
+/// normally planted by the boot converge, but that swallows its own failures, so this is a check
+/// rather than an assumption.
 async fn write_role_catalog(
     db: &DB,
     catalog: &windmill_common::datatable_roles::DatatableRoleCatalog,
 ) -> error::Result<()> {
     let value = serde_json::to_value(catalog).map_err(to_anyhow)?;
-    sqlx::query!(
+    let written = sqlx::query!(
         "UPDATE global_settings SET value = jsonb_set(COALESCE(value, '{}'::jsonb), '{roles}', $1)
          WHERE name = 'custom_instance_pg_databases'",
         value
     )
     .execute(db)
-    .await?;
+    .await?
+    .rows_affected();
+    if written == 0 {
+        return Err(error::Error::internal_err(
+            "The instance Postgres settings row is missing, so the data table role catalog could              not be recorded. Refresh the custom instance user password in instance settings to              recreate it, then try again."
+                .to_string(),
+        ));
+    }
     Ok(())
 }
 
