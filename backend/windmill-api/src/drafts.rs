@@ -883,9 +883,12 @@ async fn move_draft(
         .fetch_one(&db)
         .await?;
         return Err(Error::BadRequest(if row.poisoned {
+            // This endpoint also serves a summary-only edit, so name the operation
+            // the caller actually asked for rather than always saying "moved".
+            let attempted = if new_path == path { "updated" } else { "moved" };
             format!(
                 "'{path}' contains a NUL character and predates the sanitizer, so it cannot be \
-                 moved. Reopen it, re-save to rewrite it cleanly, then move it."
+                 {attempted}. Reopen it, re-save to rewrite it cleanly, then retry."
             )
         } else if row.at_target && new_path != path {
             format!("You already have a draft at '{new_path}'")
