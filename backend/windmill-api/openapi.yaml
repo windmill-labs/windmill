@@ -24479,9 +24479,13 @@ paths:
           required: true
           description: >
             The `dbt://` relations whose lineage to return. Repeated, once per
-            relation, and answered as one union.
+            relation, and answered as one union. At least one, and at most 1000 —
+            a request naming none, or more than that, is refused rather than
+            answered with an empty component.
           schema:
             type: array
+            maxItems: 1000
+            minItems: 1
             items:
               type: string
         - name: dbt_script_hash
@@ -24728,9 +24732,13 @@ paths:
           required: true
           description: >
             The `dbt://` relations whose lineage to return. Repeated, once per
-            relation, and answered as one union.
+            relation, and answered as one union. At least one, and at most 1000 —
+            a request naming none, or more than that, is refused rather than
+            answered with an empty component.
           schema:
             type: array
+            maxItems: 1000
+            minItems: 1
             items:
               type: string
       responses:

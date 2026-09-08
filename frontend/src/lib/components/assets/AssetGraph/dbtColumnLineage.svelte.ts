@@ -104,6 +104,11 @@ export function useDbtColumnLineage(args: {
 			loading = false
 			return
 		}
+		// The previous question's failure is not this one's. Cleared as the request
+		// goes out rather than when it lands, or a retry keeps saying the trace is
+		// incomplete while it is being fetched, and a new selection inherits the
+		// last one's failure until its own answer arrives.
+		failed = false
 		loading = true
 		fetchLineage(workspace, paths, pin).then(
 			(r) => {
