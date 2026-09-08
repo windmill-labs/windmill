@@ -537,6 +537,55 @@ fn test_asset_kind_volume_variant() {
 #[cfg(feature = "parquet")]
 #[sqlx::test(fixtures("base"))]
 async fn test_volume_sql_worker_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let code = r#"// volume: test-vol data
+
+import { readFileSync, writeFileSync, existsSync } from "fs";
+
+export function main() {
+    const content = readFileSync("data/hello.txt", "utf-8");
+    writeFileSync("data/output.txt", "written by sql worker");
+    return {
+        read_content: content,
+        output_exists: existsSync("data/output.txt"),
+    };
+}"#;
+    run_volume_sql_worker_e2e(db, ScriptLang::Bun, code).await
+}
+
+#[cfg(all(feature = "parquet", feature = "private", feature = "php"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_php_volume_with_default_stack(db: Pool<Postgres>) -> anyhow::Result<()> {
+    // Nested calls exercise the parser's fallback chain; flattening them weakens this guard.
+    let code = r#"<?php
+// volume: test-vol data
+
+function main() {
+    $content = file_get_contents("data/hello.txt");
+    file_put_contents("data/output.txt", "written by sql worker");
+    return [
+        "read_content" => $content,
+        "output_exists" => in_array("output.txt", array_values(array_diff(scandir("data"), ['.', '..']))),
+    ];
+}"#;
+
+    // CI raises RUST_MIN_STACK; keep the worker at Tokio's default to catch regressions.
+    tokio::task::spawn_blocking(move || {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .thread_stack_size(2 * 1024 * 1024)
+            .enable_all()
+            .build()?
+            .block_on(run_volume_sql_worker_e2e(db, ScriptLang::Php, code))
+    })
+    .await?
+}
+
+#[cfg(feature = "parquet")]
+async fn run_volume_sql_worker_e2e(
+    db: Pool<Postgres>,
+    language: ScriptLang,
+    code: &str,
+) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -571,24 +620,11 @@ async fn test_volume_sql_worker_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
     std::fs::write(vol_dir.join("hello.txt"), b"hello from volume")?;
 
     // 3. Push the job and run with SQL-connected worker
-    let code = r#"// volume: test-vol data
-
-import { readFileSync, writeFileSync, existsSync } from "fs";
-
-export function main() {
-    const content = readFileSync("data/hello.txt", "utf-8");
-    writeFileSync("data/output.txt", "written by sql worker");
-    return {
-        read_content: content,
-        output_exists: existsSync("data/output.txt"),
-    };
-}"#;
-
     let job = JobPayload::Code(RawCode {
         hash: None,
         content: code.to_string(),
         path: None,
-        language: ScriptLang::Bun,
+        language,
         lock: None,
         cache_ttl: None,
         cache_ignore_s3_path: None,
