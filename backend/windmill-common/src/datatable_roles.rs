@@ -129,9 +129,11 @@ pub async fn lock_role_catalog(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -
     Ok(())
 }
 
-/// Authorization: returns every role's stored Postgres password in plaintext. Callers MUST
-/// restrict this to superadmin or internal server paths, and MUST NOT put what it returns into a
-/// response, a log line or an audit record.
+/// Disclosure: returns every role's stored Postgres password in plaintext. Any server path that
+/// has to resolve or name a role may call it — including handlers open to a workspace member, who
+/// need the names — but callers MUST NOT let `pwd` reach a response, a log line, an audit record
+/// or an export. Nothing about who may call it: the credential is the whole risk, and `Debug` is
+/// hand-written to redact it for the same reason.
 pub async fn read_role_catalog(db: &DB) -> Result<DatatableRoleCatalog> {
     let value = sqlx::query_scalar!(
         "SELECT value FROM global_settings WHERE name = $1",
@@ -143,7 +145,7 @@ pub async fn read_role_catalog(db: &DB) -> Result<DatatableRoleCatalog> {
 }
 
 /// As [`read_role_catalog`], reading inside the caller's transaction so the value is the one
-/// [`lock_role_catalog`] is protecting. Same authorization contract.
+/// [`lock_role_catalog`] is protecting. Same disclosure contract.
 pub async fn read_role_catalog_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<DatatableRoleCatalog> {
@@ -228,14 +230,14 @@ pub async fn registered_instance_databases(db: &DB) -> Result<Vec<String>> {
 /// provisioned before a role existed is repaired rather than left silently unreachable.
 ///
 /// Authorization: rewrites a database's ACL with the server's own credentials and checks nothing.
-/// Callers MUST restrict this to superadmin or internal server paths.
+/// Callers MUST have authorized administration of `dbname` — superadmin, or an admin of the
+/// workspace governing a data table on it.
 pub async fn converge_connect_grants(db: &DB, dbname: &str) -> Result<()> {
     let catalog = read_role_catalog(db).await?;
     converge_connect_grants_with(db, dbname, &catalog).await
 }
 
-/// As [`converge_connect_grants`], with a catalog the caller already read. Same authorization
-/// contract: it rewrites a database's ACL with the server's own credentials and checks nothing.
+/// As [`converge_connect_grants`], with a catalog the caller already read. Same contract.
 pub async fn converge_connect_grants_with(
     db: &DB,
     dbname: &str,
