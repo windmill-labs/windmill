@@ -652,8 +652,9 @@ corresponds to; the check reflects that fork's current results on the PR head.
   job per `(trigger, runnable_path)` (tested item × test script) in a recent window. The
   job's `trigger` is the concrete tested item, so wildcard/multi-target tests are covered
   without expanding `ci_test_reference`, and no file-path→item reconstruction is needed;
-  only test scripts that still exist and hold a reference count, so a deleted, archived or
-  de-annotated test's last run stops deciding the verdict. Fail-fast on any failed/canceled; `success` once all
+  a job counts only while its test script still exists and still references its tested
+  item (wildcards included), so a deleted, archived or de-annotated test's last run, or a
+  target the test dropped, stops deciding the verdict. Fail-fast on any failed/canceled; `success` once all
   settle (or "No CI tests" when none ran); `skipped` (debounce-superseded) ignored. The
   fork's live status is authoritative once the fork reflects the head: a deploy from
   Windmill triggers its tests before the push that raises the PR event, and an external push
