@@ -28,6 +28,14 @@
 	import { z } from 'zod'
 	import HomeAIChat from '$lib/components/home/HomeAIChat.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
+	import { onMount, untrack } from 'svelte'
+	import OperatorTour from '$lib/components/tutorials/OperatorTour.svelte'
+	import {
+		hasSeenOperatorTour,
+		TOUR_PARAM,
+		TOUR_PARAM_VALUE,
+		TOUR_START_DELAY_MS
+	} from '$lib/components/tutorials/operatorTour'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -83,6 +91,41 @@
 	}
 
 	let showCreateButtons = $state(false)
+
+	let operatorTour: OperatorTour | undefined = $state(undefined)
+
+	// Delayed so the tabs the first steps point at exist. `runTutorial` refuses while a tour is
+	// already running, which is the guard that matters — the tour ends by telling the operator
+	// to start it again from the menu, so a start has to be possible for the life of the page.
+	function startTour() {
+		setTimeout(() => operatorTour?.runTutorial(), TOUR_START_DELAY_MS)
+	}
+
+	// The sidebar entry asks by URL parameter so it works from any page an operator can be on.
+	// Read reactively rather than on mount: arriving from the menu while already on the home
+	// page is a parameter change, not a new page.
+	$effect(() => {
+		if (page.url.searchParams.get(TOUR_PARAM) !== TOUR_PARAM_VALUE) return
+		const user = $userStore
+		if (!user) return
+		untrack(() => {
+			const url = new URL(page.url)
+			url.searchParams.delete(TOUR_PARAM)
+			replaceState(url, page.state)
+			// Gated here too: the parameter is part of a URL anyone can type, and the tour
+			// describes a home page that only operators see.
+			if (user.operator) startTour()
+		})
+	})
+
+	onMount(async () => {
+		// Operators get the tour once, and only when they have not been through it: they cannot
+		// create anything, so the home page is the whole product to them and it is worth naming
+		// its three tabs. Anyone who can build gets nothing — they have the create button.
+		if (!$userStore?.operator || page.url.searchParams.has(TOUR_PARAM)) return
+		if (await hasSeenOperatorTour()) return
+		startTour()
+	})
 </script>
 
 <Drawer bind:this={codeViewer} size="900px">
@@ -323,6 +366,10 @@
 		<ItemsList bind:subtab showEditButtons={showCreateButtons} />
 	{/if}
 </div>
+
+{#if $userStore?.operator}
+	<OperatorTour bind:this={operatorTour} />
+{/if}
 
 <style>
 	/* The page's content arriving, rather than being there. The layout has already painted the

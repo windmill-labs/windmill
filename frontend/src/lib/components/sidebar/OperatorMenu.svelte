@@ -12,9 +12,11 @@
 		Building,
 		Calendar,
 		ServerCog,
-		Table2
+		Table2,
+		GraduationCap
 	} from 'lucide-svelte'
 	import { base } from '$lib/base'
+	import { TOUR_PARAM, TOUR_PARAM_VALUE } from '$lib/components/tutorials/operatorTour'
 
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
 	import { Plus } from 'lucide-svelte'
@@ -227,6 +229,21 @@
 						>
 							<Settings size={14} />
 							Account settings
+						</MenuItem>
+
+						<MenuItem
+							href="{base}/?{TOUR_PARAM}={TOUR_PARAM_VALUE}"
+							class={twMerge(
+								'flex flex-row gap-3.5 items-center px-2 py-2',
+								sidebarClasses.text,
+								'transition-colors',
+								'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+							)}
+							lightMode
+							{item}
+						>
+							<GraduationCap size={14} />
+							Take the tour
 						</MenuItem>
 					</div>
 
