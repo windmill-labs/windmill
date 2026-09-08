@@ -35,7 +35,7 @@
 			unifiedSize="sm"
 			href="{SELF_HOST_DOCS}#cloud-provider-specific-guides"
 			target="_blank"
-			startIcon={{ icon: Cloud }}
+			startIcon={{ icon: Cloud, props: { size: 16 } }}
 		>
 			AWS, GCP, Azure and more
 		</Button>
