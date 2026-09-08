@@ -438,13 +438,11 @@ impl GlobalSettings {
             serde_json::Value::Object(map) => map.into_iter().collect(),
             _ => unreachable!(),
         };
-        // Strip the runtime-only sub-fields of custom_instance_pg_databases: `databases` is setup
-        // status/logs managed by the setup endpoint, and `roles` is the data table role catalog,
-        // which carries one Postgres password per role. Neither is configuration.
+        // Strip runtime-only `databases` sub-field from custom_instance_pg_databases.
+        // It contains setup status/logs managed by the setup endpoint, not configuration.
         if let Some(pg) = map.get_mut("custom_instance_pg_databases") {
             if let Some(obj) = pg.as_object_mut() {
                 obj.remove("databases");
-                obj.remove("roles");
             }
         }
         map
@@ -795,10 +793,6 @@ pub struct CustomInstancePgDatabases {
     pub user_pwd: Option<StringOrSecretRef>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub databases: BTreeMap<String, CustomInstanceDb>,
-    /// The instance's data table role catalog, keyed by generated id. Runtime state carrying one
-    /// password per role, so it is stripped from config sync exactly like `databases`.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub roles: BTreeMap<String, crate::datatable_roles::InstanceDatatableRole>,
 }
 
 /// Status of a single custom instance database.
@@ -965,6 +959,7 @@ pub const PROTECTED_SETTINGS: &[&str] = &[
     "ducklake_settings",
     "custom_instance_pg_databases",
     "custom_instance_replication_pwd",
+    crate::global_settings::DATATABLE_ROLES_SETTING,
     "uid",
     "rsa_keys",
     "jwt_secret",
@@ -990,6 +985,9 @@ pub const HIDDEN_SETTINGS: &[&str] = &[
     // Server-only (written by setup/refresh via direct SQL), never operator-authored —
     // hidden so the config machinery can't read, rewrite, or drop it.
     "custom_instance_replication_pwd",
+    // The data table role catalog, one generated Postgres password per role. Same reasoning as
+    // the line above: server-written, never operator-authored, and it must not reach an export.
+    crate::global_settings::DATATABLE_ROLES_SETTING,
 ];
 
 /// Top-level settings whose entire value is sensitive and must be fully redacted in logs.
@@ -1201,17 +1199,14 @@ pub fn diff_global_settings(
         } else {
             desired_value.clone()
         };
-        // Preserve the runtime-only sub-fields inside `custom_instance_pg_databases` so that
-        // config sync never wipes setup status/logs managed by the setup endpoint, nor the data
-        // table role catalog — the latter mirrors real Postgres roles, so losing it would leave
-        // the cluster holding logins Windmill can no longer name.
+        // Preserve the runtime-only `databases` sub-field inside
+        // `custom_instance_pg_databases` so that config sync never wipes
+        // setup status/logs that are managed by the setup endpoint.
         if key == "custom_instance_pg_databases" {
             if let Some(existing) = current.get(key) {
-                for runtime_field in ["databases", "roles"] {
-                    if let Some(kept) = existing.get(runtime_field) {
-                        if let Some(obj) = value.as_object_mut() {
-                            obj.entry(runtime_field).or_insert_with(|| kept.clone());
-                        }
+                if let Some(databases) = existing.get("databases") {
+                    if let Some(obj) = value.as_object_mut() {
+                        obj.entry("databases").or_insert_with(|| databases.clone());
                     }
                 }
             }

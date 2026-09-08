@@ -3544,12 +3544,17 @@ async fn edit_datatable_config(
 
     let mut tx = db.begin().await?;
 
+    // Read under the row lock this transaction will write with. `permissions`, `reference` and
+    // `forked_from` are carried across from what this read returns, so a permissions save
+    // committing between the read and the whole-document write below would be silently rolled back
+    // by it.
     let old_datatables: HashMap<String, DataTable> = serde_json::from_value(
         sqlx::query_scalar!(
-            "SELECT ws.datatable->'datatables' FROM workspace_settings ws WHERE ws.workspace_id = $1",
+            "SELECT ws.datatable->'datatables' FROM workspace_settings ws
+             WHERE ws.workspace_id = $1 FOR UPDATE",
             &w_id
         )
-        .fetch_one(&db)
+        .fetch_one(&mut *tx)
         .await?
         .unwrap_or(serde_json::Value::Null),
     )

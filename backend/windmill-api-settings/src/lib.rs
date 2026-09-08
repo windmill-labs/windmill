@@ -2578,40 +2578,6 @@ fn datatable_role_infos(
         .collect()
 }
 
-/// Persist the catalog next to the instance Postgres password, in the same `global_settings` row
-/// the instance database registry lives in.
-///
-/// Errors when it matches nothing. The cluster is written first, so a silent no-op here would
-/// leave a live Postgres login with a password nobody recorded: invisible to the catalog,
-/// un-recreatable (the name is taken) and un-deletable (there is no entry to delete). The row is
-/// normally planted by the boot converge, but that swallows its own failures, so this is a check
-/// rather than an assumption.
-async fn write_role_catalog(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    catalog: &windmill_common::datatable_roles::DatatableRoleCatalog,
-) -> error::Result<()> {
-    let value = serde_json::to_value(catalog).map_err(to_anyhow)?;
-    let written = sqlx::query!(
-        "UPDATE global_settings SET value = jsonb_set(COALESCE(value, '{}'::jsonb), '{roles}', $1)
-         WHERE name = 'custom_instance_pg_databases'",
-        value
-    )
-    .execute(&mut **tx)
-    .await?
-    .rows_affected();
-    if written == 0 {
-        return Err(error::Error::internal_err(
-            concat!(
-                "The instance Postgres settings row is missing, so the data table role catalog ",
-                "could not be recorded. Refresh the custom instance user password in instance ",
-                "settings to recreate it, then try again."
-            )
-            .to_string(),
-        ));
-    }
-    Ok(())
-}
-
 async fn list_datatable_roles(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -2656,7 +2622,7 @@ async fn create_datatable_role(
             pwd: Some(pwd),
         },
     );
-    write_role_catalog(&mut tx, &catalog).await?;
+    windmill_common::datatable_roles::write_role_catalog(&mut tx, &catalog).await?;
     tx.commit().await?;
     converge_connect_grants_everywhere(&db, &catalog).await;
     windmill_common::feature_usage::log_feature_usage("datatable", "role_created", "");
@@ -2713,7 +2679,7 @@ async fn update_datatable_role(
     }
 
     catalog.insert(id.clone(), updated.clone());
-    write_role_catalog(&mut tx, &catalog).await?;
+    windmill_common::datatable_roles::write_role_catalog(&mut tx, &catalog).await?;
     tx.commit().await?;
     converge_connect_grants_everywhere(&db, &catalog).await;
 
@@ -2756,7 +2722,7 @@ async fn delete_datatable_role(
 
     windmill_common::datatable_roles::drop_instance_role(&db, &mut tx, &role.name).await?;
     catalog.remove(&id);
-    write_role_catalog(&mut tx, &catalog).await?;
+    windmill_common::datatable_roles::write_role_catalog(&mut tx, &catalog).await?;
     tx.commit().await?;
     // After the drop commits: a tenant naming a role that still exists is harmless, one naming a
     // role that is gone is not, so this only ever runs once the cluster agrees it is gone.

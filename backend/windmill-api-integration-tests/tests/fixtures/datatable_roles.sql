@@ -2,14 +2,12 @@
 -- carrying a copy. `test-user-2` is a non-admin of the parent and an admin of the fork: the shape
 -- the pointer exists for.
 
-UPDATE global_settings SET value = jsonb_set(value, '{roles}',
-    '{"role1": {"name": "analytics", "enabled": true, "pwd": "pw"}}'::jsonb)
-    WHERE name = 'custom_instance_pg_databases';
-INSERT INTO global_settings (name, value)
-    SELECT 'custom_instance_pg_databases',
-           '{"user_pwd": "pw", "databases": {"dt_main": {}},
-             "roles": {"role1": {"name": "analytics", "enabled": true, "pwd": "pw"}}}'::jsonb
-    WHERE NOT EXISTS (SELECT 1 FROM global_settings WHERE name = 'custom_instance_pg_databases');
+INSERT INTO global_settings (name, value) VALUES
+    ('custom_instance_pg_databases', '{"user_pwd": "pw", "databases": {"dt_main": {}}}'::jsonb),
+    -- The role catalog has its own row: it holds generated credentials and must stay out of the
+    -- operator-facing config the neighbouring row belongs to.
+    ('datatable_roles', '{"role1": {"name": "analytics", "enabled": true, "pwd": "pw"}}'::jsonb)
+    ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value;
 
 UPDATE workspace_settings SET datatable = '{
     "datatables": {

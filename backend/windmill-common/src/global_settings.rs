@@ -243,7 +243,17 @@ pub const AGENT_WORKER_BLOCKED_SETTINGS: &[&str] = &[
     // resolve datatable connections through the dedicated datatable endpoints, never these.
     "custom_instance_pg_databases",
     "custom_instance_replication_pwd",
+    // The data table role catalog: one generated Postgres password per role.
+    DATATABLE_ROLES_SETTING,
 ];
+
+/// The instance's data table role catalog, `{ "<id>": { name, enabled, pwd } }`.
+///
+/// Its own row rather than a field of `custom_instance_pg_databases`, for the same reason
+/// `custom_instance_replication_pwd` is: it holds generated credentials and is written only by the
+/// server, so the config machinery must not be able to read it into an export, rewrite it, or drop
+/// it on a full-row upsert of a neighbour.
+pub const DATATABLE_ROLES_SETTING: &str = "datatable_roles";
 
 /// Whether an agent worker may read the given global setting over HTTP.
 /// Deny-by-exception: everything is readable except [`AGENT_WORKER_BLOCKED_SETTINGS`].
@@ -677,6 +687,7 @@ mod tests {
             OTEL_TRACING_PROXY_SETTING,
             "custom_instance_pg_databases",
             "custom_instance_replication_pwd",
+            DATATABLE_ROLES_SETTING,
         ] {
             assert!(
                 !is_setting_readable_by_agent_worker(key),
