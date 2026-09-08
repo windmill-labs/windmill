@@ -37,8 +37,9 @@ use windmill_common::{
     scripts::ScriptLang,
     utils::calculate_hash,
     worker::{
-        copy_dir_recursively, is_allowed_file_location, pad_string, split_python_requirements,
-        write_file, Connection, PyVAlias, PythonAnnotations, WORKER_CONFIG,
+        copy_dir_recursively, is_allowed_file_location, pad_string, requirement_from_lockfile_line,
+        split_python_requirements, write_file, Connection, PyVAlias, PythonAnnotations,
+        WORKER_CONFIG,
     },
 };
 
@@ -227,9 +228,9 @@ fn filter_pip_local_dependencies(lines: Vec<String>) -> (Vec<String>, Vec<String
 /// `(kept, ignored)`. A line is ignored when it is not a `#` comment and matches any of
 /// `compiled_deps`. Kept separate from config/regex loading so it can be unit-tested.
 fn filter_lines_by_deps(lines: Vec<String>, compiled_deps: &[Regex]) -> (Vec<String>, Vec<String>) {
-    let (ignored, kept): (Vec<String>, Vec<String>) = lines
-        .into_iter()
-        .partition(|s| !s.starts_with('#') && compiled_deps.iter().any(|dep| dep.is_match(s)));
+    let (ignored, kept): (Vec<String>, Vec<String>) = lines.into_iter().partition(|s| {
+        !s.trim_start().starts_with('#') && compiled_deps.iter().any(|dep| dep.is_match(s))
+    });
 
     (kept, ignored)
 }
@@ -2521,10 +2522,9 @@ pub async fn handle_python_reqs(
     // If so, skip them
     let mut in_cache = vec![];
     for req in &requirements {
-        // Ignore python version annotation backed into lockfile
-        if req.starts_with('#') || req.starts_with('-') || req.trim().is_empty() {
+        let Some(req) = requirement_from_lockfile_line(req) else {
             continue;
-        }
+        };
         let py_prefix = &py_version.to_cache_dir(false);
 
         let venv_p = format!(

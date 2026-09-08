@@ -2512,6 +2512,36 @@ pub fn split_python_requirements<T: AsRef<str>>(requirements: T) -> Vec<String> 
         .collect()
 }
 
+/// Byte offset of the comment marker in a requirements-file line, per pip's rule: a `#`
+/// either at the start of the line or preceded by whitespace. A `#` anywhere else belongs
+/// to the requirement itself (`pkg @ https://host/pkg.whl#sha256=...`).
+fn requirement_comment_start(line: &str) -> Option<usize> {
+    line.char_indices()
+        .find(|(i, c)| *c == '#' && (*i == 0 || line[..*i].ends_with(char::is_whitespace)))
+        .map(|(i, _)| i)
+}
+
+/// The installable requirement carried by one lockfile line, or `None` when the line has
+/// none (comment, `-r`/`-e`/`--flag` directive, or blank).
+///
+/// Windmill installs a lockfile one entry at a time, passing each to `uv pip install` as an
+/// argument. Requirements-file syntax that every file-level parser absorbs — comments, and
+/// `\` continuations — is therefore an unparseable package name here, so it has to be
+/// stripped rather than left for uv. Comments arrive indented from `uv pip compile`'s
+/// annotations (`    # via httpx`) and continuations from its `--generate-hashes` output.
+pub fn requirement_from_lockfile_line(line: &str) -> Option<&str> {
+    let requirement = match requirement_comment_start(line) {
+        Some(i) => &line[..i],
+        None => line,
+    }
+    .trim()
+    // The continued lines are the `--hash=` ones, already dropped as flags.
+    .trim_end_matches('\\')
+    .trim_end();
+
+    (!requirement.is_empty() && !requirement.starts_with('-')).then_some(requirement)
+}
+
 #[derive(Eq, PartialEq, Clone, Copy, Default, Debug)]
 #[repr(u32)]
 pub enum PyVAlias {
@@ -2628,6 +2658,51 @@ mod tests {
     /// A workspace id chain: the workspace itself, then its fork ancestors nearest-first.
     fn chain(ids: &[&str]) -> Vec<String> {
         ids.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn test_requirement_from_lockfile_line() {
+        // `uv pip compile` annotations: indented, and sometimes wrapping over several lines.
+        assert_eq!(requirement_from_lockfile_line("    # via httpx"), None);
+        assert_eq!(requirement_from_lockfile_line("    # via"), None);
+        assert_eq!(requirement_from_lockfile_line("    #   anyio"), None);
+        assert_eq!(
+            requirement_from_lockfile_line("    # via -r .tmp/requirements.in"),
+            None
+        );
+        // `--generate-hashes` output: the pin continues onto its `--hash=` lines.
+        assert_eq!(
+            requirement_from_lockfile_line("anyio==4.15.1 \\"),
+            Some("anyio==4.15.1")
+        );
+        assert_eq!(
+            requirement_from_lockfile_line(
+                "    --hash=sha256:6152fdbbf9a77fdec97731721bebf7c4c44f7c29b424b0065826173efc7 \\"
+            ),
+            None
+        );
+        // Our own lockfile header, directives, blanks.
+        assert_eq!(requirement_from_lockfile_line("# py: 3.11"), None);
+        assert_eq!(requirement_from_lockfile_line("-r other.txt"), None);
+        assert_eq!(
+            requirement_from_lockfile_line("--index-url https://x"),
+            None
+        );
+        assert_eq!(requirement_from_lockfile_line("   "), None);
+        // Requirements, with and without a trailing comment.
+        assert_eq!(
+            requirement_from_lockfile_line("httpx==0.27.0"),
+            Some("httpx==0.27.0")
+        );
+        assert_eq!(
+            requirement_from_lockfile_line("httpx==0.27.0  # via -r requirements.in"),
+            Some("httpx==0.27.0")
+        );
+        // A `#` not preceded by whitespace is part of the requirement, not a comment.
+        assert_eq!(
+            requirement_from_lockfile_line("wmill @ https://h/wmill.whl#sha256=abc"),
+            Some("wmill @ https://h/wmill.whl#sha256=abc")
+        );
     }
 
     #[test]
