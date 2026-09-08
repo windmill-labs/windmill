@@ -1316,27 +1316,61 @@ async fn create_script_internal<'c>(
         } else {
             // No live head, but the path may still hold an archived lineage — a sync push
             // that applies a deletion before the corresponding update leaves exactly that.
-            // Chaining onto it keeps the history continuous and, since the parent is part
-            // of the hash, keeps an unchanged redeploy from hashing to the parentless
-            // version the path was first deployed with.
-            //
-            // Only a version nothing else already descends from qualifies: a rename leaves
-            // its source path holding an archived version whose child lives at the
-            // destination, and adopting that one would trip the linear-lineage guard below.
-            // Finding no such version is the signal to start a fresh lineage.
-            let lineage_tip = sqlx::query_scalar!(
-                "SELECT hash FROM script s WHERE s.path = $1 AND s.workspace_id = $2 \
-                 AND NOT EXISTS (SELECT 1 FROM script c WHERE c.workspace_id = s.workspace_id \
-                 AND c.parent_hashes[1] = s.hash) \
-                 ORDER BY s.created_at DESC LIMIT 1",
+            // Chaining onto it carries the history and its `extra_perms` forward, and since
+            // the parent is part of the hash it keeps an unchanged redeploy from hashing to
+            // the parentless version the path was first deployed with. A deleted version is
+            // still a candidate: its row keeps the hash it was deployed under even once its
+            // content is wiped, so skipping it is what makes the redeploy collide.
+            let candidate = sqlx::query_scalar!(
+                "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 \
+                 ORDER BY created_at DESC LIMIT 1",
                 &ns.path,
                 &w_id
             )
             .fetch_optional(&mut *tx)
             .await?;
-            ns.parent_hash = lineage_tip.map(ScriptHash);
+            // Adoptable only if nothing already descends from it: a rename leaves its source
+            // path holding a version whose child lives at the destination, and giving that
+            // one a second child forks a lineage the guard below requires to be linear. The
+            // descendant is looked for on the unscoped pool, since the rename may have moved
+            // it somewhere this caller cannot see and an invisible child forks just as hard.
+            // No candidate means a fresh lineage — which, having no parent to vary its hash,
+            // can still collide with the path's own first version.
+            ns.parent_hash = match candidate {
+                Some(hash) => sqlx::query_scalar!(
+                    "SELECT 1 FROM script WHERE parent_hashes[1] = $1 AND workspace_id = $2",
+                    hash,
+                    &w_id
+                )
+                .fetch_optional(&db)
+                .await?
+                .is_none()
+                .then_some(ScriptHash(hash)),
+                None => None,
+            };
         }
     }
+
+    // Must stay below the parent resolution above: an auto_parent deploy hashed before
+    // it carries a first deploy's lineage, so redeploying content the path has held
+    // before collides with that archived version instead of superseding it. The
+    // folder-derived `on_behalf_of` set further up is likewise covered by the hash.
+    let hash = ScriptHash(hash_script(&ns));
+    if sqlx::query_scalar!(
+        "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
+        hash.0,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .is_some()
+    {
+        return Err(Error::BadRequest(
+            "A script with same hash (hence same path, description, summary, content) already \
+             exists!"
+                .to_owned(),
+        ));
+    };
 
     let parent_hashes_and_perms: Option<ParentInfo> = match (&ns.parent_hash, clashing_script) {
         (None, None) => Ok(None),
@@ -1452,29 +1486,6 @@ async fn create_script_internal<'c>(
             r
         }
     }?;
-
-    // Must stay below the parent resolution above. Hashed before it, an auto_parent deploy
-    // carries a first deploy's lineage, so redeploying content the path has held before
-    // collides with that archived version instead of superseding it. Checked before the
-    // no-op short-circuit, it rejects as a duplicate the very push that has nothing to
-    // deploy. The folder-derived `on_behalf_of` set further up is likewise covered by the hash.
-    let hash = ScriptHash(hash_script(&ns));
-    if sqlx::query_scalar!(
-        "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
-        hash.0,
-        &w_id
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .is_some()
-    {
-        return Err(Error::BadRequest(
-            "A script with same hash (hence same path, description, summary, content) already \
-             exists!"
-                .to_owned(),
-        ));
-    };
-
     let p_hashes = parent_hashes_and_perms.as_ref().map(|v| &v.p_hashes[..]);
     let extra_perms = parent_hashes_and_perms
         .as_ref()
