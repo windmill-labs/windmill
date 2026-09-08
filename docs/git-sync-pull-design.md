@@ -623,9 +623,10 @@ Cloudflare parity without a new permission.
 Surfaces Windmill's own CI tests (the `// test: script/...` annotation) as a
 **"Windmill CI tests"** check run on **any PR** against the tracked branch, so a customer
 can mark it a **required status check** and have Windmill CI results gate the PR —
-replacing the documented GitHub Action that polls `ci_test_results_batch`. App-backed
+replacing the documented GitHub Action that polls `ci_test_results_batch`. GitHub App-backed
 only; reuses the Phase 4 `Checks: write` grant, so no new permission. Token repos keep the
-Action.
+Action, and GitLab merge requests get no CI-test surface for the same reason the Phase 4
+preview lives in a note there (a commit status would fail the project's own pipeline).
 
 Driven by the **`pull_request` webhook** — the same event Phase 4 already reacts to —
 rather than the deploy push/pull, so it's uniform across how the PR's commit came to exist
@@ -650,10 +651,17 @@ corresponds to; the check reflects that fork's current results on the PR head.
 - **Conclude** — verdict from the fork's **current** CI test status: the newest `ci_test`
   job per `(trigger, runnable_path)` (tested item × test script) in a recent window. The
   job's `trigger` is the concrete tested item, so wildcard/multi-target tests are covered
-  without touching `ci_test_reference`, and no file-path→item reconstruction is needed.
-  Fail-fast on any failed/canceled; `success` once all settle (or "No CI tests" when none
-  ran); `skipped` (debounce-superseded) ignored. No time-scope is needed — the tests ran
-  before the PR event, so the fork's live status is authoritative.
+  without expanding `ci_test_reference`, and no file-path→item reconstruction is needed;
+  only test scripts that still exist and hold a reference count, so a deleted, archived or
+  de-annotated test's last run stops deciding the verdict. Fail-fast on any failed/canceled; `success` once all
+  settle (or "No CI tests" when none ran); `skipped` (debounce-superseded) ignored. The
+  fork's live status is authoritative once the fork reflects the head: a deploy from
+  Windmill triggers its tests before the push that raises the PR event, and an external push
+  to the fork branch enqueues a pull alongside it, during which the check stays pending:
+  while the fork's `last_pull_status` names a still-queued pull job for the head, and while
+  any dependency job is queued in the fork (a lockfile-generating deploy hands its CI tests
+  to one, which outlives the pull). A failed pull rolls that state back, so the check then
+  concludes from the fork's previous state; the commit's deploy check shows the failure.
 - **Drivers** — a per-`ci_test`-job completion hook (low latency) and the git-sync poller
   (the backstop: retries the GitHub create/deliver, times stuck checks out after 30 min,
   prunes old rows). Both call one idempotent `evaluate_and_conclude`, which claims the
