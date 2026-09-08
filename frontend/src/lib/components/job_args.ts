@@ -32,39 +32,6 @@ export function enforceDisabledDefaults(
 	return { args: { ...result }, resetKeys }
 }
 
-/**
- * The declared defaults a mounted `ArgInput` puts in a field left empty or null, so a run the
- * autonomy posture accepts without a form does not start missing one. Only the declared ones:
- * `ArgInput` also synthesises a value where there is no default (`''`, `false`, `[]`, a required
- * enum's first member), which the worker supplies from the code's own signature instead.
- */
-export function applySchemaDefaults(
-	args: Record<string, any>,
-	schema: { properties?: Record<string, any> } | undefined
-): Record<string, any> {
-	const result: Record<string, any> = Object.assign(Object.create(null), args)
-	if (!schema?.properties) return { ...result }
-	for (const [key, prop] of Object.entries<any>(schema.properties)) {
-		const value = result[key]
-		// Null as well as absent: `ArgInput` compares loosely, so it fills both.
-		if (value === undefined || value === null) {
-			if (prop?.default !== undefined) result[key] = prop.default
-			continue
-		}
-		// Every object declaration the form would render fields for, and the same descent
-		// `requiredUnanswered` (global toolset) makes: what this fills, that one inspects.
-		if (
-			!Array.isArray(prop?.oneOf) &&
-			prop?.properties &&
-			typeof value === 'object' &&
-			!Array.isArray(value)
-		) {
-			result[key] = applySchemaDefaults(value, prop)
-		}
-	}
-	return { ...result }
-}
-
 /** How a form says what {@link enforceDisabledDefaults} overwrote, shared by the two that
  * run it so the wording cannot drift apart. */
 export const resetKeysToast = (resetKeys: string[]): string =>
@@ -223,7 +190,7 @@ function mapLeaves(
 	return { ...result }
 }
 
-const isSecretProp = (prop: any) => !!prop?.password
+export const isSecretProp = (prop: any) => !!prop?.password
 
 /** A reference to a workspace variable, which is how a secret is meant to reach a job: the
  * value stays in the variable and the argument carries only its path, so it is safe to show
@@ -244,7 +211,7 @@ function fileMarker(base64: string): string {
 /** {@link mapLeaves} over a whole argument object, against a schema that may declare
  * nothing to match. Copies either way, for the reason {@link enforceDisabledDefaults}
  * copies. */
-function mapArgLeaves(
+export function mapArgLeaves(
 	args: Record<string, any>,
 	schema: { properties?: Record<string, any> } | undefined,
 	isLeaf: (prop: any) => boolean,
@@ -254,9 +221,10 @@ function mapArgLeaves(
 }
 
 /**
- * Drop every password-typed argument holding a secret of its own, so a caller cannot propose
- * one on the user's behalf; a workspace-variable reference is kept. Appends the path of each
- * one removed, or the caller reads the absence as the user having deleted the value.
+ * Empty every password-typed argument holding a secret of its own, so a form the caller prefills
+ * does not carry one into the persisted transcript; a workspace-variable reference is kept, since
+ * it names the secret rather than holding it. Appends the path of each one emptied, or the caller
+ * reads the absence as the user having deleted the value.
  */
 export function stripSecretArgs(
 	args: Record<string, any>,

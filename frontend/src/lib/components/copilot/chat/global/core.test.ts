@@ -303,6 +303,12 @@ vi.mock('$lib/gen', async () => {
 	}
 })
 
+// Minting reaches the API and is covered in secretArgUtils.test.ts; what matters here is that a
+// run the posture answers goes through it and starts on what came back.
+vi.mock('$lib/components/secretArgUtils', () => ({
+	processSecretArgs: vi.fn(async (args: Record<string, any>) => args)
+}))
+
 vi.mock('./rawAppBundlerBridge', () => ({
 	bundleRawAppDraft: vi.fn(async () => ({
 		js: 'bundled js',
@@ -358,6 +364,7 @@ import {
 	VariableService
 } from '$lib/gen'
 import { superadmin, userStore, usersWorkspaceStore } from '$lib/stores'
+import { processSecretArgs } from '$lib/components/secretArgUtils'
 import { clearWorkspaceRoleCache } from '$lib/user'
 import { get } from 'svelte/store'
 import type { Tool, ToolCallbacks } from '../shared'
@@ -4477,61 +4484,11 @@ describe('global AI tools', () => {
 		)
 	})
 
-	// The posture answers for consent, not for information. A secret is never the model's to
-	// send and a required field it left empty was never answered, so the form still opens under
-	// the bypass — otherwise the run starts on a value nobody supplied.
-	it('opens a run form under yolo when only the user can fill it', async () => {
-		const yolo = (statuses: any[]) => ({
-			...toolCallbacks,
-			setToolStatus: (_toolId: string, status: any) => statuses.push(status),
-			shouldAutoAcceptToolConfirmations: () => true,
-			requestRunArgs: async (_toolId: string, form: any) => form.args
-		})
-
-		// A required field the model did not send.
-		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-			path: 'f/scripts/needs',
-			schema: { properties: { name: { type: 'string' } }, required: ['name'] }
-		} as any)
-		const missing: any[] = []
-		await withCompletedTestJob(() =>
-			callGlobalTool('run_script', { path: 'f/scripts/needs', args: {} }, yolo(missing))
-		)
-		expect(missing.find((x) => x.runForm)?.runForm.submitted).toBeUndefined()
-
-		// A secret, which is stripped from the proposal whatever the posture.
-		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-			path: 'f/scripts/secret',
-			schema: {
-				properties: { token: { type: 'string', password: true } },
-				required: ['token']
-			}
-		} as any)
-		const secret: any[] = []
-		await withCompletedTestJob(() =>
-			callGlobalTool(
-				'run_script',
-				{ path: 'f/scripts/secret', args: { token: 'hunter2' } },
-				yolo(secret)
-			)
-		)
-		expect(secret.find((x) => x.runForm)?.runForm.submitted).toBeUndefined()
-
-		// Nothing outstanding: the posture answers and no field is ever mounted.
-		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-			path: 'f/scripts/ready',
-			schema: { properties: { name: { type: 'string' } }, required: ['name'] }
-		} as any)
-		const ready: any[] = []
-		await withCompletedTestJob(() =>
-			callGlobalTool('run_script', { path: 'f/scripts/ready', args: { name: 'Ada' } }, yolo(ready))
-		)
-		expect(ready.find((x) => x.runForm)?.runForm.submitted).toBe(true)
-	})
-
-	// A default is an answer the schema already gave, so the posture may skip the form — but only
-	// a mounted ArgInput would have put it in the field, and there is none to do it.
-	it('sends a schema default the model omitted when yolo skips the form', async () => {
+	// The posture is the user's standing answer to whether to ask, so a run it answers starts on
+	// the model's arguments as sent — no default filled in, no required field second-guessed.
+	// Predicting what a mounted field would have held is what kept starting runs the form would
+	// have refused; the schema's own defaults are the worker's job, from the code's signature.
+	it('sends the model arguments as proposed when the posture answers', async () => {
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
 			path: 'f/scripts/defaulted',
 			schema: {
@@ -4555,113 +4512,42 @@ describe('global AI tools', () => {
 
 		expect(statuses.find((x) => x.runForm)?.runForm.submitted).toBe(true)
 		expect(JobService.runScriptByPath).toHaveBeenCalledWith(
-			expect.objectContaining({ requestBody: { name: 'Ada', retries: 3 } })
+			expect.objectContaining({ requestBody: { name: 'Ada' } })
 		)
 	})
 
-	// What the mounted form would have refused to submit, the bypass must not start: ArgInput
-	// marks a required empty scalar invalid and disables Run, and a nested required field is a
-	// question the form would have shown. Neither is a value the posture can answer for.
-	it('opens a run form under yolo for an empty or nested-missing required field', async () => {
-		const yolo = (statuses: any[]) => ({
-			...toolCallbacks,
-			setToolStatus: (_toolId: string, status: any) => statuses.push(status),
-			shouldAutoAcceptToolConfirmations: () => true,
-			requestRunArgs: async (_toolId: string, form: any) => form.args
-		})
-
-		// Required, and the model sent the empty string the form refuses to submit.
+	// With no form there is no PasswordArgInput to turn a proposed secret into a reference, and
+	// a job's arguments are readable by everyone who can see its run. What starts the job must
+	// be what came back from the minting, never the proposal.
+	it('mints a proposed secret into a reference before starting a run the posture answers', async () => {
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-			path: 'f/scripts/blank',
-			schema: { properties: { name: { type: 'string' } }, required: ['name'] }
+			path: 'f/scripts/secret',
+			schema: { properties: { token: { type: 'string', password: true } }, required: ['token'] }
 		} as any)
-		const blank: any[] = []
-		await withCompletedTestJob(() =>
-			callGlobalTool('run_script', { path: 'f/scripts/blank', args: { name: '' } }, yolo(blank))
-		)
-		expect(blank.find((x) => x.runForm)?.runForm.submitted).toBeUndefined()
+		vi.mocked(processSecretArgs).mockImplementationOnce(async () => ({
+			token: '$var:u/ada/secret_arg/minted'
+		}))
 
-		// Required below the top level, where the declaration says exactly which fields the
-		// form would have rendered.
-		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-			path: 'f/scripts/nested',
-			schema: {
-				properties: {
-					config: {
-						type: 'object',
-						properties: { api_key: { type: 'string' } },
-						required: ['api_key']
-					}
-				},
-				required: ['config']
-			}
-		} as any)
-		const nested: any[] = []
 		await withCompletedTestJob(() =>
-			callGlobalTool('run_script', { path: 'f/scripts/nested', args: { config: {} } }, yolo(nested))
-		)
-		expect(nested.find((x) => x.runForm)?.runForm.submitted).toBeUndefined()
-
-		// The same under a parent the schema never required: sending the object is what puts its
-		// fields on the form, so what they require is outstanding whatever the parent was.
-		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-			path: 'f/scripts/optional-parent',
-			schema: {
-				properties: {
-					config: {
-						type: 'object',
-						properties: { api_key: { type: 'string' } },
-						required: ['api_key']
-					}
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/secret', args: { token: 'hunter2' } },
+				{
+					...toolCallbacks,
+					shouldAutoAcceptToolConfirmations: () => true,
+					requestRunArgs: async (_toolId: string, form: any) => form.args
 				}
-			}
-		} as any)
-		const optional: any[] = []
-		await withCompletedTestJob(() =>
-			callGlobalTool(
-				'run_script',
-				{ path: 'f/scripts/optional-parent', args: { config: {} } },
-				yolo(optional)
 			)
 		)
-		expect(optional.find((x) => x.runForm)?.runForm.submitted).toBeUndefined()
 
-		// A parameter name every object inherits a value for. Reading it off the prototype would
-		// make an argument nobody sent look answered.
-		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-			path: 'f/scripts/inherited',
-			schema: { properties: { constructor: { type: 'string' } }, required: ['constructor'] }
-		} as any)
-		const inherited: any[] = []
-		await withCompletedTestJob(() =>
-			callGlobalTool('run_script', { path: 'f/scripts/inherited', args: {} }, yolo(inherited))
+		expect(processSecretArgs).toHaveBeenCalledWith(
+			{ token: 'hunter2' },
+			expect.anything(),
+			expect.anything()
 		)
-		expect(inherited.find((x) => x.runForm)?.runForm.submitted).toBeUndefined()
-
-		// Answered at both levels: nothing is outstanding, so the posture still answers and no
-		// field is mounted. Without this the guard above could pass by never bypassing at all.
-		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-			path: 'f/scripts/filled',
-			schema: {
-				properties: {
-					config: {
-						type: 'object',
-						properties: { api_key: { type: 'string' } },
-						required: ['api_key']
-					}
-				},
-				required: ['config']
-			}
-		} as any)
-		const filled: any[] = []
-		await withCompletedTestJob(() =>
-			callGlobalTool(
-				'run_script',
-				{ path: 'f/scripts/filled', args: { config: { api_key: 'k' } } },
-				yolo(filled)
-			)
+		expect(JobService.runScriptByPath).toHaveBeenCalledWith(
+			expect.objectContaining({ requestBody: { token: '$var:u/ada/secret_arg/minted' } })
 		)
-		expect(filled.find((x) => x.runForm)?.runForm.submitted).toBe(true)
 	})
 
 	// The bypass is the user's standing answer, not a licence for the host to skip asking:
@@ -4682,10 +4568,10 @@ describe('global AI tools', () => {
 		expect(refused).toContain('cannot show a run form')
 	})
 
-	// The posture answers for a host that has a form; it cannot answer for one that has none.
-	// A secret is stripped from the proposal whatever the posture, so bypassing here would run
-	// the script missing the very argument the model tried to supply.
-	it('run_script refuses a formless host under yolo when a field is left unanswered', async () => {
+	// The posture answers wherever it is set, form or no form: what it answers is consent, and a
+	// host without one has nothing left to ask. A secret still becomes a reference first, which
+	// is the only thing the missing form would have done.
+	it('run_script runs on a formless host under yolo', async () => {
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
 			path: 'f/scripts/noform-secret',
 			schema: {
@@ -4693,19 +4579,25 @@ describe('global AI tools', () => {
 				required: ['token']
 			}
 		} as any)
+		vi.mocked(processSecretArgs).mockImplementationOnce(async () => ({
+			token: '$var:u/ada/secret_arg/minted'
+		}))
 
-		const refused = await callGlobalTool(
-			'run_script',
-			{ path: 'f/scripts/noform-secret', args: { token: 'hunter2' } },
-			{
-				...toolCallbacks,
-				requestRunArgs: undefined,
-				shouldAutoAcceptToolConfirmations: () => true
-			}
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/noform-secret', args: { token: 'hunter2' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: undefined,
+					shouldAutoAcceptToolConfirmations: () => true
+				}
+			)
 		)
 
-		expect(JobService.runScriptByPath).not.toHaveBeenCalled()
-		expect(refused).toContain('cannot show a run form')
+		expect(JobService.runScriptByPath).toHaveBeenCalledWith(
+			expect.objectContaining({ requestBody: { token: '$var:u/ada/secret_arg/minted' } })
+		)
 	})
 
 	// The transcript is re-cloned into IndexedDB on every save, and a form takes as much text

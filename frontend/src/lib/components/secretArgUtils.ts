@@ -3,11 +3,53 @@ import { VariableService } from '$lib/gen'
 import { get } from 'svelte/store'
 import { userStore, workspaceStore } from '$lib/stores'
 import { generateRandomString } from '$lib/utils'
+import { isSecretProp, mapArgLeaves } from './job_args'
+
+/** Where a caller's own ephemeral secrets live, so a field can tell one it minted from a
+ * workspace variable someone linked by hand. */
+export function ephemeralSecretPrefix(username: string): string {
+	return `u/${username}/secret_arg/`
+}
 
 /**
- * Process args before job submission: for non-string fields marked as password/sensitive,
- * create ephemeral secret variables and replace values with $jsonvar:path references.
- * String password fields are already handled by PasswordArgInput (uses $var:).
+ * Mint the ephemeral secret variable a sensitive argument is submitted as, and return its path.
+ * It expires on its own, so a run that is abandoned leaves no permanent secret behind.
+ */
+export async function mintEphemeralSecret(
+	workspace: string,
+	username: string,
+	value: string
+): Promise<string> {
+	const path = ephemeralSecretPrefix(username) + generateRandomString(12)
+	await VariableService.createVariable({
+		workspace,
+		requestBody: {
+			value,
+			is_secret: true,
+			path,
+			description: 'Ephemeral secret variable',
+			expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString()
+		}
+	})
+	return path
+}
+
+/** `$var:` hands the job the variable's text and `$jsonvar:` hands it the parsed value, so a
+ * field that cannot hold a string needs the second one whichever the caller named. */
+function referencePrefix(prop: any, value: unknown): '$var:' | '$jsonvar:' {
+	return typeof value === 'string' && prop?.type !== 'object' && prop?.type !== 'array'
+		? '$var:'
+		: '$jsonvar:'
+}
+
+/**
+ * Turn every sensitive argument into a reference before the job is submitted: a plaintext value
+ * is minted into an ephemeral secret variable, so what is stored on the job — and readable by
+ * anyone who can see its run — names a secret instead of holding one.
+ *
+ * The single place that decides how a secret reaches a job: {@link PasswordArgInput} mints
+ * through it while the user types, and a run the autonomy posture starts without a form calls it
+ * in the widget's stead.
  */
 export async function processSecretArgs(
 	args: Record<string, any>,
@@ -24,29 +66,46 @@ export async function processSecretArgs(
 
 	const username = (user.username ?? user.email)?.split('@')[0]
 	if (!username) return args
-	const userPrefix = `u/${username}/secret_arg/`
 
-	const result = { ...args }
+	// A value that already names a variable is one; anything else is the secret itself.
+	const holdsSecret = (value: unknown) =>
+		value != null &&
+		!(
+			typeof value === 'string' &&
+			(value.startsWith('$var:') || value.startsWith('$jsonvar:') || value.startsWith('$res:'))
+		)
 
-	for (const [key, prop] of Object.entries(schema.properties)) {
-		if (!prop.password) continue
-		if (prop.type !== 'object') continue // only object types; strings handled by PasswordArgInput
-		if (result[key] == null || result[key] === undefined) continue
-		if (typeof result[key] === 'string' && result[key].startsWith('$jsonvar:')) continue // already processed
+	// Collected first and substituted after, because the walk is synchronous and minting is not.
+	// Keyed by the path the walk reports, which is what tells two same-named leaves apart.
+	const pending: { path: string; prop: any; value: unknown }[] = []
+	mapArgLeaves(args, schema as any, isSecretProp, (value, prop, path) => {
+		if (holdsSecret(value)) pending.push({ path, prop, value })
+		return value
+	})
 
-		const path = userPrefix + generateRandomString(12)
-		await VariableService.createVariable({
+	const minted = new Map<string, string>()
+	for (const { path, prop, value } of pending) {
+		const reference = referencePrefix(prop, value)
+		const variable = await mintEphemeralSecret(
 			workspace,
-			requestBody: {
-				value: JSON.stringify(result[key]),
-				is_secret: true,
-				path,
-				description: 'Ephemeral secret variable',
-				expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString()
-			}
-		})
-		result[key] = '$jsonvar:' + path
+			username,
+			reference === '$var:' ? String(value) : JSON.stringify(value)
+		)
+		minted.set(path, reference + variable)
 	}
 
-	return result
+	return mapArgLeaves(args, schema as any, isSecretProp, (value, prop, path) => {
+		const replacement = minted.get(path)
+		if (replacement !== undefined) return replacement
+		// A plain variable named for a field that cannot hold a string: the caller meant that
+		// variable's contents, which is the same secret read the way the field needs it.
+		if (
+			typeof value === 'string' &&
+			value.startsWith('$var:') &&
+			referencePrefix(prop, value) === '$jsonvar:'
+		) {
+			return '$jsonvar:' + value.slice('$var:'.length)
+		}
+		return value
+	})
 }

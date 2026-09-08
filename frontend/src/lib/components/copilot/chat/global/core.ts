@@ -49,13 +49,13 @@ import {
 	type FrameworkKey
 } from '$lib/components/raw_apps/templates'
 import {
-	applySchemaDefaults,
 	coerceArgsToSchema,
 	redactFileArgs,
 	redactSecretArgs,
 	stripFileArgs,
 	stripSecretArgs
 } from '$lib/components/job_args'
+import { processSecretArgs } from '$lib/components/secretArgUtils'
 import { PLAN_MODE_MESSAGES } from '../planModeMessages'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
@@ -5536,61 +5536,6 @@ type FormRunSpec = {
 	startJob: (submitted: Record<string, any>) => Promise<string>
 }
 
-/** Whether a required field carries no answer. `''` counts as unanswered because the mounted
- * form says so — ArgInput marks a required empty scalar invalid and disables Run — so treating
- * it as filled would let the bypass start a run the form itself would have refused. Objects are
- * exempt for the same reason, inverted: ArgInput skips them in that check, so an empty one is
- * the form's business and not a missing answer. */
-function requiredValueMissing(value: unknown): boolean {
-	if (value === undefined || value === null) return true
-	return value === ''
-}
-
-/** Whether a required key is unanswered anywhere the mounted form would have shown a field for
- * it: missing at this level, or inside an object the caller supplied — required parent or not,
- * since supplying the object is what puts its fields on the form. `oneOf` is left alone, as
- * guessing which branch is open would park the test-and-iterate loop the posture serves. */
-function requiredUnanswered(schema: Record<string, any>, proposed: Record<string, any>): boolean {
-	const properties = schema?.properties ?? {}
-	const required = Array.isArray(schema?.required) ? schema.required : []
-	// hasOwn, not a plain read: a parameter named `constructor` or `toString` is a valid one to
-	// declare, and every object inherits a value for it that would read as an answer.
-	const supplied = (key: string) =>
-		proposed != null && Object.hasOwn(proposed, key) ? proposed[key] : undefined
-	for (const key of required) {
-		if (typeof key !== 'string') continue
-		const declared = Object.hasOwn(properties, key) ? properties[key] : undefined
-		if (requiredValueMissing(supplied(key)) && declared?.default === undefined) return true
-	}
-	// The descent applySchemaDefaults makes, so what one fills the other inspects.
-	for (const [key, declared] of Object.entries<any>(properties)) {
-		const value = supplied(key)
-		if (
-			!Array.isArray(declared?.oneOf) &&
-			declared?.properties &&
-			typeof value === 'object' &&
-			value !== null &&
-			!Array.isArray(value) &&
-			requiredUnanswered(declared, value as Record<string, any>)
-		) {
-			return true
-		}
-	}
-	return false
-}
-
-/** Whether the form holds something the model could not have supplied, so the bypass posture
- * has nothing to answer with. Either it was stripped for being the user's to give — a secret,
- * a file — or the schema requires it and neither the proposal nor a default carries a value. */
-function formNeedsUser(
-	schema: Record<string, any>,
-	proposed: Record<string, any>,
-	strippedKeys: string[]
-): boolean {
-	if (strippedKeys.length > 0) return true
-	return requiredUnanswered(schema, proposed)
-}
-
 async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
 	// Asked of the posture, not of the tool: every run tool is auto-acceptable now, so a
@@ -5605,31 +5550,46 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	}
 
 	const schema = spec.schema
-	const coerced = coerceArgsToSchema(normalizeTestRunArgs(spec.proposed), schema)
-	// A secret the model picked is not consent, whatever it holds: a literal is a value
-	// the user never chose, a reference names something the card cannot show them. Files
-	// go the same way — prefilled bytes are bytes the stored transcript then carries.
+	// Whether to ask is the only question decided here, and the posture already answers it.
+	// What a mounted field would have held — a default, a synthesised empty, whether Run would
+	// light up — is the form's own business: deriving it a second time in this file is what
+	// kept starting runs the form itself would have refused.
+	const autoAccepted = postureAnswers
 	const strippedKeys: string[] = []
-	// Before stripping, so a secret or file carrying a default is emptied like any other:
-	// what the field opens with is the user's to give, default or not.
-	const proposed = stripFileArgs(
-		stripSecretArgs(applySchemaDefaults(coerced.args, schema), schema as any, strippedKeys),
-		schema as any,
-		strippedKeys
-	)
-	// The posture answers for consent, not for information: a field the model is barred from
-	// filling and a required one it left empty are questions, and the form is the only place
-	// they get answered. Decided before the form is attached rather than once it is waiting —
-	// a form answered a tick after it mounts flashes its fields at a user who was never going
-	// to fill them in.
-	const needsUser = formNeedsUser(schema, proposed, strippedKeys)
-	// The posture cannot answer a question it was never asked. A host with no form has nowhere
-	// to put one, so a run still carrying an unanswered field would start missing an argument —
-	// including the secret just stripped out of the model's own proposal.
-	if (!toolCallbacks.requestRunArgs && needsUser) {
-		return 'This chat cannot show a run form, so a script cannot be run from here.'
+	const coerced = autoAccepted
+		? undefined
+		: coerceArgsToSchema(normalizeTestRunArgs(spec.proposed), schema)
+	let proposed: Record<string, any>
+	if (coerced) {
+		// A secret or a file the model prefilled is one the transcript then carries, which is
+		// saved on every turn: the field opens empty and the user supplies it. What they type
+		// never lands in the arguments either — the widget mints it on the way to the job.
+		proposed = stripFileArgs(
+			stripSecretArgs(coerced.args, schema as any, strippedKeys),
+			schema as any,
+			strippedKeys
+		)
+	} else {
+		// In the widget's stead, and before anything is shown or stored: with no form there is
+		// no PasswordArgInput to turn a proposed secret into a reference, and both the job's
+		// arguments and this card outlive the run.
+		try {
+			proposed = await processSecretArgs(
+				normalizeTestRunArgs(spec.proposed),
+				schema as any,
+				workspace
+			)
+		} catch (e) {
+			const message = `Failed to store the sensitive arguments of "${spec.path}": ${e}`
+			toolCallbacks.setToolStatus(toolId, {
+				content: message,
+				isLoading: false,
+				isStreamingArguments: false,
+				error: message
+			})
+			return message
+		}
 	}
-	const autoAccepted = postureAnswers && !needsUser
 	const form: RunFormDisplay = {
 		path: spec.path,
 		summary: spec.summary || undefined,
@@ -5639,8 +5599,8 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		lang: autoAccepted ? undefined : spec.lang,
 		submitted: autoAccepted || undefined,
 		args: proposed,
-		clearedKeys: coerced.clearedKeys.length ? coerced.clearedKeys : undefined,
-		resetKeys: coerced.resetKeys.length ? coerced.resetKeys : undefined,
+		clearedKeys: coerced?.clearedKeys.length ? coerced.clearedKeys : undefined,
+		resetKeys: coerced?.resetKeys.length ? coerced.resetKeys : undefined,
 		strippedKeys: strippedKeys.length ? strippedKeys : undefined
 	}
 
@@ -5722,11 +5682,13 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	// Only what the form could make no reading of: a wrong-typed value it can read is
 	// converted silently, since the field then shows what the run carries and there is
 	// nothing to report.
-	const cleared = coerced.clearedKeys.length
-		? `\nThe ${schemaNoun} declares ${coerced.clearedKeys.join(', ')}, but you sent ${coerced.clearedKeys.length > 1 ? 'them in shapes' : 'it in a shape'} with no reading in the declared ${coerced.clearedKeys.length > 1 ? 'types' : 'type'}, so the ${coerced.clearedKeys.length > 1 ? 'fields opened' : 'field opened'} empty and the run did not carry ${coerced.clearedKeys.length > 1 ? 'them' : 'it'}. Re-read the input schema and match ${coerced.clearedKeys.length > 1 ? 'their declared types' : 'its declared type'}.`
+	const clearedKeys = coerced?.clearedKeys ?? []
+	const cleared = clearedKeys.length
+		? `\nThe ${schemaNoun} declares ${clearedKeys.join(', ')}, but you sent ${clearedKeys.length > 1 ? 'them in shapes' : 'it in a shape'} with no reading in the declared ${clearedKeys.length > 1 ? 'types' : 'type'}, so the ${clearedKeys.length > 1 ? 'fields opened' : 'field opened'} empty and the run did not carry ${clearedKeys.length > 1 ? 'them' : 'it'}. Re-read the input schema and match ${clearedKeys.length > 1 ? 'their declared types' : 'its declared type'}.`
 		: ''
-	const reset = coerced.resetKeys.length
-		? `\nThe ${schemaNoun} disables ${coerced.resetKeys.join(', ')}, so the form held ${coerced.resetKeys.length > 1 ? 'their defaults' : 'its default'} rather than the proposed ${coerced.resetKeys.length > 1 ? 'values' : 'value'}. Do not propose ${coerced.resetKeys.length > 1 ? 'them' : 'it'} again.`
+	const resetKeys = coerced?.resetKeys ?? []
+	const reset = resetKeys.length
+		? `\nThe ${schemaNoun} disables ${resetKeys.join(', ')}, so the form held ${resetKeys.length > 1 ? 'their defaults' : 'its default'} rather than the proposed ${resetKeys.length > 1 ? 'values' : 'value'}. Do not propose ${resetKeys.length > 1 ? 'them' : 'it'} again.`
 		: ''
 	// Otherwise an emptied field reads as the user having deleted it, and the next call
 	// proposes the same secret again.

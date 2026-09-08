@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-	applySchemaDefaults,
 	coerceArgsToSchema,
 	enforceDisabledDefaults,
 	redactFileArgs,
@@ -153,51 +152,6 @@ describe('enforceDisabledDefaults', () => {
 	})
 })
 
-describe('applySchemaDefaults', () => {
-	const schema = {
-		properties: {
-			name: { type: 'string' },
-			retries: { type: 'number', default: 3 },
-			config: {
-				type: 'object',
-				properties: { region: { type: 'string', default: 'eu' }, tag: { type: 'string' } },
-				required: ['region']
-			},
-			// Every field optional, which an inferred schema gives any object whose members all
-			// carry defaults — and where the form still fills them.
-			opts: { type: 'object', properties: { level: { type: 'string', default: 'info' } } },
-			either: {
-				oneOf: [
-					{ title: 'a', properties: { x: { type: 'string', default: 'no' } }, required: ['x'] }
-				]
-			}
-		}
-	}
-
-	it('fills a missing default at the depth the form would', () => {
-		expect(applySchemaDefaults({ name: 'Ada', config: { tag: 'v1' }, opts: {} }, schema)).toEqual({
-			name: 'Ada',
-			retries: 3,
-			config: { tag: 'v1', region: 'eu' },
-			opts: { level: 'info' }
-		})
-	})
-
-	it('fills a null the same as an absent value', () => {
-		// ArgInput compares loosely, so null reaches the field as its default too — sending it
-		// on would run with null where the form would have run with 3.
-		expect(applySchemaDefaults({ retries: null }, schema)).toEqual({ retries: 3 })
-	})
-
-	it('leaves a supplied value and an ambiguous declaration alone', () => {
-		// A value the caller sent stands, at either level; `oneOf` is never descended, since
-		// which branch is open is guesswork the form resolves and this cannot.
-		expect(
-			applySchemaDefaults({ retries: 0, config: { region: 'us' }, either: {} }, schema)
-		).toEqual({ retries: 0, config: { region: 'us' }, either: {} })
-	})
-})
-
 describe('secret args at every level the form nests', () => {
 	const schema = {
 		properties: {
@@ -220,10 +174,10 @@ describe('secret args at every level the form nests', () => {
 		either: { kind: 'a', key: 'k', other: 'o' }
 	}
 
-	it('strips every one of them, keeping a variable reference', () => {
+	// The transcript is saved on every turn, so a prefilled field carries the model's secret
+	// into storage. A reference names one instead of holding it, and is the caller's to send.
+	it('empties every one of them, keeping a variable reference', () => {
 		expect(stripSecretArgs(args, schema)).toEqual({
-			// Naming a workspace variable is how a secret is meant to reach a job, and the
-			// value never leaves it — so the reference is the caller's to send.
 			obj: { inner: '$var:u/ada/prod', keep: 1 },
 			list: [{ name: 'a' }, {}],
 			either: { kind: 'a' }
@@ -250,11 +204,7 @@ describe('secret args at every level the form nests', () => {
 		expect(redacted).toContain('"name":"a"')
 	})
 
-	it('leaves no key behind for a level the args never carried', () => {
-		expect(Object.keys(stripSecretArgs({ top: 'x' }, schema))).toEqual([])
-	})
-
-	it('strips a secret under a oneOf branch of an array element', () => {
+	it('reaches a secret under a oneOf branch of an array element', () => {
 		const oneOfItems = {
 			properties: {
 				steps: {
@@ -265,17 +215,15 @@ describe('secret args at every level the form nests', () => {
 				}
 			}
 		}
-		const stripped: string[] = []
-		expect(
-			stripSecretArgs({ steps: [{ token: 'hunter2', name: 'a' }] }, oneOfItems, stripped)
-		).toEqual({ steps: [{ name: 'a' }] })
-		expect(stripped).toEqual(['steps[0].token'])
+		expect(redactSecretArgs({ steps: [{ token: 'hunter2', name: 'a' }] }, oneOfItems)).toEqual({
+			steps: [{ token: '<hidden>', name: 'a' }]
+		})
 	})
 
 	// Descending on which keys the declaration carries rather than on the shape of the
 	// value routed this into `properties`, which cannot hold an array — so the elements
 	// were never visited and the secret reached the persisted card verbatim.
-	it('strips through a declaration carrying both items and properties', () => {
+	it('reaches through a declaration carrying both items and properties', () => {
 		const both = {
 			properties: {
 				creds: {
@@ -285,32 +233,30 @@ describe('secret args at every level the form nests', () => {
 				}
 			}
 		}
-		expect(stripSecretArgs({ creds: [{ token: 'hunter2' }] }, both)).toEqual({ creds: [{}] })
+		expect(redactSecretArgs({ creds: [{ token: 'hunter2' }] }, both)).toEqual({
+			creds: [{ token: '<hidden>' }]
+		})
 	})
 
 	// A container shaped unlike its declaration is kept, so the walk has to reach in
 	// through the half the declaration does carry — descending on the value's shape alone
 	// left the secret sitting there for the persisted card and the model to read.
-	it('strips through a container shaped unlike its declaration', () => {
+	it('reaches through a container shaped unlike its declaration', () => {
 		const declaresArray = {
 			properties: {
 				rows: { type: 'array', items: { properties: { token: { password: true } } } }
 			}
 		}
-		expect(stripSecretArgs({ rows: { token: 'hunter2' } }, declaresArray)).toEqual({ rows: {} })
+		expect(redactSecretArgs({ rows: { token: 'hunter2' } }, declaresArray)).toEqual({
+			rows: { token: '<hidden>' }
+		})
 
 		const declaresObject = {
 			properties: { cfg: { type: 'object', properties: { token: { password: true } } } }
 		}
-		expect(stripSecretArgs({ cfg: [{ token: 'hunter2' }] }, declaresObject)).toEqual({ cfg: [{}] })
-	})
-
-	// The caller binds the result to a form that edits in place, so a schema declaring
-	// nothing must not hand back the object it was given.
-	it('copies even when the schema declares nothing to strip', () => {
-		const args = { top: 'x' }
-		expect(stripSecretArgs(args, undefined)).not.toBe(args)
-		expect(stripSecretArgs(args, undefined)).toEqual(args)
+		expect(redactSecretArgs({ cfg: [{ token: 'hunter2' }] }, declaresObject)).toEqual({
+			cfg: [{ token: '<hidden>' }]
+		})
 	})
 })
 
