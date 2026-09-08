@@ -179,15 +179,23 @@ pub fn interpolate_volume_name(
     result
 }
 
+/// PHP's opening tag, which is case-insensitive and may be followed by code.
+fn is_php_open_tag(trimmed_line: &str) -> bool {
+    trimmed_line
+        .get(..5)
+        .is_some_and(|p| p.eq_ignore_ascii_case("<?php"))
+}
+
 /// Scans the leading comment block for `<prefix> volume: <name> <target>` lines,
 /// stopping at the first line that is neither blank nor a comment. A PHP script
-/// opens with `<?php`, which is not a comment, so it is skipped like a blank line;
-/// otherwise the block would end before reaching any annotation.
+/// opens with `<?php`, which is not a comment, so that line is skipped like a blank
+/// one; otherwise the block would end before reaching any annotation. The whole line
+/// goes, since the tag may carry code (`<?php declare(strict_types=1);`).
 pub fn parse_volume_annotations(content: &str, comment_prefix: &str) -> Vec<VolumeMount> {
     let mut volumes = Vec::new();
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed == "<?php" {
+        if trimmed.is_empty() || is_php_open_tag(trimmed) {
             continue;
         }
         if !trimmed.starts_with(comment_prefix) {
@@ -236,7 +244,8 @@ mod tests {
 
     #[test]
     fn parse_php_volume_after_open_tag() {
-        let content = "<?php\n\n// volume: mydata /tmp/data\nfunction main() {}";
+        let content =
+            "<?php declare(strict_types=1);\n\n// volume: mydata /tmp/data\nfunction main() {}";
         let result = parse_volume_annotations(content, "//");
         assert_eq!(
             result,

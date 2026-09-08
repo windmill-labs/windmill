@@ -86,13 +86,17 @@ fn comment_prefix(lang: &ScriptLang) -> Option<&'static str> {
 
 /// Mirror of the frontend `parseVolumeAnnotations` (infer.ts): `<prefix>
 /// volume: <path>` lines in the leading comment block, each an `rw` volume
-/// asset. Scanning stops at the first non-comment line (blank lines and the PHP
-/// open tag are skipped), exactly like the frontend.
+/// asset. Scanning stops at the first non-comment line; blank lines and PHP's
+/// opening tag line are skipped, exactly like the frontend.
 fn parse_volume_annotations(content: &str, prefix: &str) -> Vec<AssetWithAltAccessType> {
     let mut volumes = Vec::new();
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed == "<?php" {
+        if trimmed.is_empty()
+            || trimmed
+                .get(..5)
+                .is_some_and(|p| p.eq_ignore_ascii_case("<?php"))
+        {
             continue;
         }
         let Some(after) = trimmed.strip_prefix(prefix) else {
