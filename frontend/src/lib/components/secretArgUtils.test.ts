@@ -68,4 +68,23 @@ describe('processSecretArgs', () => {
 		expect(out).toEqual({ token: null, plain: 'kept' })
 		expect(created).toEqual([])
 	})
+
+	// A property name can itself contain a dot. Reported under one label these two leaves
+	// would share a mint, and the flat field would run on the nested field's secret.
+	it("tells apart a key that spells another key's path", async () => {
+		const out = await processSecretArgs({ 'db.password': 'FLAT', db: { password: 'NESTED' } }, {
+			properties: {
+				'db.password': { type: 'string', password: true },
+				db: {
+					type: 'object',
+					properties: { password: { type: 'string', password: true } }
+				}
+			}
+		} as any)
+		const flat = out['db.password'].slice('$var:'.length)
+		const nested = out.db.password.slice('$var:'.length)
+		expect(flat).not.toBe(nested)
+		expect(created.find((c) => c.path === flat)?.value).toBe('FLAT')
+		expect(created.find((c) => c.path === nested)?.value).toBe('NESTED')
+	})
 })

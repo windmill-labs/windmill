@@ -1036,10 +1036,12 @@ export class AIChatManager {
 				}
 				const update = await reader.poll()
 				if (gen !== this.#jobPollGeneration) return
-				if (update) {
+				// Only what this reader has collected: the patch is spread over the card, so
+				// naming a field it has nothing for erases output already on it.
+				if (update?.logs || update?.resultStream) {
 					this.applyToolStatus(job.toolCallId, {
-						logs: update.logs || undefined,
-						resultStream: update.resultStream || undefined
+						...(update.logs ? { logs: update.logs } : {}),
+						...(update.resultStream ? { resultStream: update.resultStream } : {})
 					})
 				}
 

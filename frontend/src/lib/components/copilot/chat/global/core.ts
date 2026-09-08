@@ -5544,6 +5544,25 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		return 'This chat cannot show a run form, so a script cannot be run from here.'
 	}
 
+	// processToolCall gates plan mode once, before the schema fetch, and this form is its own
+	// confirmation so it never reaches that gate again. Repeated wherever plan mode could have
+	// arrived since and a write would follow: a mounted field mints on its own, and no later
+	// gate can unmake that.
+	const blockedByPlanMode = (): string | undefined => {
+		if (!toolCallbacks.isPlanModeActive?.()) return undefined
+		toolCallbacks.onToolBlockedByPlanMode?.()
+		toolCallbacks.setToolStatus(toolId, {
+			content: PLAN_MODE_MESSAGES.blockedLabel,
+			isLoading: false,
+			isStreamingArguments: false,
+			error: PLAN_MODE_MESSAGES.blockedResult,
+			blockedByPlanMode: true
+		})
+		return PLAN_MODE_MESSAGES.blockedResult
+	}
+	const blockedBeforeForm = blockedByPlanMode()
+	if (blockedBeforeForm) return blockedBeforeForm
+
 	const schema = spec.schema
 	// Whether to ask is the only question decided here. What a mounted field would hold — a
 	// default, a synthesised empty, whether Run lights up — is the form's own business: any
@@ -5632,20 +5651,8 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		return runFormCancelled(spec.toolName)
 	}
 
-	// processToolCall re-gates plan mode after a standard confirmation, because it can be
-	// entered while a card is pending. This form is its own confirmation and never reaches
-	// that gate, so it repeats it here.
-	if (toolCallbacks.isPlanModeActive?.()) {
-		toolCallbacks.onToolBlockedByPlanMode?.()
-		toolCallbacks.setToolStatus(toolId, {
-			content: PLAN_MODE_MESSAGES.blockedLabel,
-			isLoading: false,
-			isStreamingArguments: false,
-			error: PLAN_MODE_MESSAGES.blockedResult,
-			blockedByPlanMode: true
-		})
-		return PLAN_MODE_MESSAGES.blockedResult
-	}
+	const blockedBeforeRun = blockedByPlanMode()
+	if (blockedBeforeRun) return blockedBeforeRun
 
 	// Every job leaves through here, so this is where a sensitive argument becomes a reference:
 	// the form mints as the user types and the bypass mints in its stead, but a host answering

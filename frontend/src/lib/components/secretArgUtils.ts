@@ -76,26 +76,26 @@ export async function processSecretArgs(
 		)
 
 	// Collected first and substituted after, because the walk is synchronous and minting is not.
-	// Keyed by the path the walk reports, which is what tells two same-named leaves apart.
-	const pending: { path: string; prop: any; value: unknown }[] = []
+	// Keyed by the whole path the walk reports, which is what tells two same-named leaves apart.
+	const pending: { key: string; prop: any; value: unknown }[] = []
 	mapArgLeaves(args, schema as any, isSecretProp, (value, prop, path) => {
-		if (holdsSecret(value)) pending.push({ path, prop, value })
+		if (holdsSecret(value)) pending.push({ key: JSON.stringify(path), prop, value })
 		return value
 	})
 
 	const minted = new Map<string, string>()
-	for (const { path, prop, value } of pending) {
+	for (const { key, prop, value } of pending) {
 		const reference = referencePrefix(prop, value)
 		const variable = await mintEphemeralSecret(
 			workspace,
 			username,
 			reference === '$var:' ? String(value) : JSON.stringify(value)
 		)
-		minted.set(path, reference + variable)
+		minted.set(key, reference + variable)
 	}
 
 	return mapArgLeaves(args, schema as any, isSecretProp, (value, prop, path) => {
-		const replacement = minted.get(path)
+		const replacement = minted.get(JSON.stringify(path))
 		if (replacement !== undefined) return replacement
 		// A plain variable named for a field that cannot hold a string: the caller meant that
 		// variable's contents, which is the same secret read the way the field needs it.

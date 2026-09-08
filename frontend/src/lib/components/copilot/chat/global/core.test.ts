@@ -5153,6 +5153,37 @@ describe('global AI tools', () => {
 		expect(result).toContain('plan mode is active')
 	})
 
+	// A form that reaches the screen mints a proposed secret on mount, which the gate after
+	// the user answers is too late to unmake — so plan mode arriving during the fetch counts.
+	it('run_script opens no form when plan mode is entered during the schema fetch', async () => {
+		let planning = false
+		vi.mocked(ScriptService.getScriptByPath).mockImplementationOnce(async () => {
+			planning = true
+			return {
+				path: 'f/scripts/pw',
+				schema: { properties: { token: { type: 'string', password: true } } }
+			} as any
+		})
+
+		let formOpened = false
+		const result = await callGlobalTool(
+			'run_script',
+			{ path: 'f/scripts/pw', args: { token: 'hunter2' } },
+			{
+				...toolCallbacks,
+				isPlanModeActive: () => planning,
+				requestRunArgs: async (_toolId, form) => {
+					formOpened = true
+					return form.args
+				}
+			}
+		)
+
+		expect(formOpened).toBe(false)
+		expect(JobService.runScriptByPath).not.toHaveBeenCalled()
+		expect(result).toContain('plan mode is active')
+	})
+
 	it('run_script runs the arguments the user submitted, not the ones proposed', async () => {
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
 			path: 'f/scripts/greet',

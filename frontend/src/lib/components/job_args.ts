@@ -179,17 +179,15 @@ function mapLeaves(
 	value: any,
 	prop: any,
 	isLeaf: (prop: any) => boolean,
-	visit: (value: unknown, prop: any, path: string) => unknown,
-	path: string
+	visit: (value: unknown, prop: any, path: (string | number)[]) => unknown,
+	path: (string | number)[]
 ): any {
 	if (value == null || typeof value !== 'object') return value
 	// A container shaped unlike its declaration is kept rather than dropped, since the widget
 	// is the one that reports it — so the walk has to reach in through whichever half the
 	// declaration does carry, or a secret under one leaves the form verbatim.
 	if (Array.isArray(value))
-		return value.map((item, i) =>
-			mapLeaves(item, prop?.items ?? prop, isLeaf, visit, `${path}[${i}]`)
-		)
+		return value.map((item, i) => mapLeaves(item, prop?.items ?? prop, isLeaf, visit, [...path, i]))
 	const bags = declarationBags(prop)
 	if (bags.length === 0)
 		return prop?.items ? mapLeaves(value, prop.items, isLeaf, visit, path) : value
@@ -198,7 +196,9 @@ function mapLeaves(
 	const result: Record<string, any> = Object.assign(Object.create(null), value)
 	for (const key of Object.keys(result)) {
 		const declared = bags.filter((bag) => Object.hasOwn(bag, key)).map((bag) => bag[key])
-		const keyPath = path ? `${path}.${key}` : key
+		// Segments, never a joined name: a key can itself hold a dot, and two leaves reported
+		// under one name let a caller correlating by it take the one for the other.
+		const keyPath = [...path, key]
 		// A matching object is a leaf, not a level: a password object is stored whole as a
 		// single $jsonvar: reference, and a file is one opaque base64 string.
 		const leaf = declared.find(isLeaf)
@@ -233,10 +233,22 @@ export function mapArgLeaves(
 	args: Record<string, any>,
 	schema: { properties?: Record<string, any> } | undefined,
 	isLeaf: (prop: any) => boolean,
-	visit: (value: unknown, prop: any, path: string) => unknown
+	visit: (value: unknown, prop: any, path: (string | number)[]) => unknown
 ): Record<string, any> {
-	return mapLeaves(args ?? {}, { properties: schema?.properties ?? {} }, isLeaf, visit, '')
+	return mapLeaves(args ?? {}, { properties: schema?.properties ?? {} }, isLeaf, visit, [])
 }
+
+/** A leaf's path as the lines naming it to a reader read: `creds[0].secret`. */
+const formatArgPath = (path: (string | number)[]): string =>
+	path.reduce<string>(
+		(acc, segment) =>
+			typeof segment === 'number'
+				? `${acc}[${segment}]`
+				: acc
+					? `${acc}.${segment}`
+					: String(segment),
+		''
+	)
 
 /**
  * Drop every file argument, so a caller cannot propose file bytes on the user's behalf:
@@ -251,7 +263,7 @@ export function stripFileArgs(
 	strippedKeys?: string[]
 ): Record<string, any> {
 	return mapArgLeaves(args, schema, isFileProp, (value, _prop, path) => {
-		if (value !== undefined) strippedKeys?.push(path)
+		if (value !== undefined) strippedKeys?.push(formatArgPath(path))
 		return undefined
 	})
 }
