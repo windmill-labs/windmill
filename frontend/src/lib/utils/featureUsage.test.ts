@@ -1,10 +1,29 @@
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('$lib/gen', () => ({ OpenAPI: { BASE: '/api' } }))
-vi.mock('$lib/stores', () => ({ workspaceStore: { subscribe: () => () => {} } }))
+
+// A store `get()` can read, so a test can say which hub the instance points at.
+const hubBaseUrl = vi.hoisted(() => {
+	let value = 'https://hub.windmill.dev'
+	return {
+		set: (v: string) => (value = v),
+		store: {
+			subscribe: (run: (v: string) => void) => {
+				run(value)
+				return () => {}
+			}
+		}
+	}
+})
+
+vi.mock('$lib/stores', () => ({
+	workspaceStore: { subscribe: () => () => {} },
+	hubBaseUrlStore: hubBaseUrl.store
+}))
 
 import {
 	createFeatureUsageBuffer,
+	hubProjectUsageKey,
 	hubScriptUsageKey,
 	type FeatureUsageEventPayload
 } from './featureUsage'
@@ -105,5 +124,36 @@ describe('hubScriptUsageKey', () => {
 		expect(
 			hubScriptUsageKey({ version_id: 12, app: 'acme', summary: "List a user's items, sorted" })
 		).toBe('acme/list_a_user_s_items_sorted')
+	})
+})
+
+describe('hubProjectUsageKey', () => {
+	it('reports the slug for every spelling of the public hub', () => {
+		for (const hub of [
+			'https://hub.windmill.dev',
+			'http://hub.windmill.dev/',
+			'HTTPS://hub.windmill.dev',
+			'https://HUB.WINDMILL.DEV',
+			'https://hub.windmill.dev:443',
+			'  https://hub.windmill.dev  '
+		]) {
+			hubBaseUrl.set(hub)
+			expect(hubProjectUsageKey('stripe-invoices'), hub).toBe('stripe-invoices')
+		}
+	})
+
+	it("keeps a private hub's project names off the wire", () => {
+		// The slug is the customer's own content on an instance running its own hub, and the
+		// disclosure only claims public project names.
+		for (const hub of [
+			'https://hub.internal.example',
+			'https://hub.windmill.dev.evil.example',
+			'https://windmill.dev',
+			'hub.windmill.dev',
+			'not a url'
+		]) {
+			hubBaseUrl.set(hub)
+			expect(hubProjectUsageKey('acme-payroll'), hub).toBe('private')
+		}
 	})
 })

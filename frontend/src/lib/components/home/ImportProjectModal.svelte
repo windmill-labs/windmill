@@ -15,7 +15,7 @@
 	import { useSetupStep } from '$lib/importWizard/setupStep.svelte'
 	import type { ImportPlan } from '$lib/importWizard/plan'
 	import { workspaceStore } from '$lib/stores'
-	import { logFeatureUsage } from '$lib/utils/featureUsage'
+	import { hubProjectUsageKey, logFeatureUsage } from '$lib/utils/featureUsage'
 	import { sendUserToast } from '$lib/toast'
 
 	/**
@@ -225,7 +225,7 @@
 	function finish(setupOutcome: SetupOutcome, outstanding = 1) {
 		// On the way out rather than on the pick: what is worth counting is an import that
 		// landed, not a dialog that was opened and abandoned.
-		if (slug) logFeatureUsage('home', 'template_import', { key: slug })
+		if (slug) logFeatureUsage('home', 'template_import', { key: hubProjectUsageKey(slug) })
 		logFeatureUsage('home', 'template_setup', { key: setupKey(setupOutcome, outstanding) })
 		finishing = true
 		// Through the same deferred reload every closing uses. `done` survives a retry, so

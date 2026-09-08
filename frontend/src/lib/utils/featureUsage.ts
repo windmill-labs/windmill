@@ -1,7 +1,7 @@
 import { get } from 'svelte/store'
 import { OpenAPI } from '$lib/gen'
-import { workspaceStore } from '$lib/stores'
-import { PRIVATE_HUB_MIN_VERSION } from '$lib/hub'
+import { hubBaseUrlStore, workspaceStore } from '$lib/stores'
+import { DEFAULT_HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION } from '$lib/hub'
 
 // Anonymous product-usage counters (e.g. AI session activity), batched into the
 // backend `feature_usage` accumulator. Only aggregated counts ever leave the
@@ -186,4 +186,32 @@ export function hubScriptUsageKey(script: {
 	const summary = slugify(script.summary)
 	if (!app) return PRIVATE_HUB_KEY
 	return (summary ? `${app}/${summary}` : app).slice(0, 100)
+}
+
+/**
+ * A hub project's slug is only reportable when it names something on the public hub. An
+ * instance pointed at its own hub imports its own projects, whose names are the customer's
+ * content — the same reason `hubScriptUsageKey` collapses a private script to `private`,
+ * and what the disclosure means by "the name of any public hub project".
+ *
+ * Compared by host, so the port, scheme and trailing slash an operator may have typed do
+ * not decide it. Anything unparseable answers private.
+ */
+export function hubProjectUsageKey(slug: string): string {
+	return isPublicHub(get(hubBaseUrlStore)) ? slug : PRIVATE_HUB_KEY
+}
+
+function isPublicHub(hub: string): boolean {
+	const host = (url: string): string | undefined => {
+		try {
+			const parsed = new URL(url.trim())
+			return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+				? parsed.hostname.replace(/\.$/, '').toLowerCase()
+				: undefined
+		} catch {
+			return undefined
+		}
+	}
+	const configured = host(hub)
+	return configured !== undefined && configured === host(DEFAULT_HUB_BASE_URL)
 }
