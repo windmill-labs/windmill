@@ -2521,18 +2521,15 @@ pub async fn handle_python_reqs(
     // Find out if there is already cached dependencies
     // If so, skip them
     let mut in_cache = vec![];
-    // Packages are installed one `uv pip install <req>` at a time, so the `--hash=` lines a
-    // `--generate-hashes` lock continues onto are never passed to uv. Say so: the lock asks
-    // for hash pinning and does not get it.
     if requirements
         .iter()
         .any(|r| lockfile_line_has_continuation(r))
     {
-        tracing::warn!(workspace_id = %w_id, job_id = %job_id, "lockfile carries hash pins that are not enforced");
+        tracing::warn!(workspace_id = %w_id, job_id = %job_id, "lockfile continues entries across lines; the continued lines are dropped");
         append_logs(
             job_id,
             w_id,
-            "\n[!] lockfile uses `--hash=` pinning, which Windmill does not enforce: packages are resolved by version only\n".to_string(),
+            "\n[!] lockfile continues entries across lines and the continued lines are dropped: `--hash=` pins, extras and markers written that way do not apply\n".to_string(),
             conn,
         )
         .await;
