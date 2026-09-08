@@ -654,6 +654,31 @@ pub async fn move_drafts_for_path(
     .fetch_all(&mut **tx)
     .await?;
 
+    // A flow draft carries the deployed path it forked from in `path`, next to
+    // the staged rename in `draft_path`. The editor layers the draft over the
+    // deployed payload, so a `path` left naming the old location wins, and
+    // deploying that draft moves the flow back where it came from — schedules and
+    // triggers following it. Same tri-state rule as the typed path. Scripts need
+    // no second pass (their typed path IS `path`); an app draft has no such key
+    // and `create_missing = false` leaves it untouched.
+    if typed_path_field != "path" && !moved.is_empty() {
+        sqlx::query!(
+            r#"UPDATE draft
+               SET value = to_json(
+                   CASE WHEN to_jsonb(value) -> 'path' = to_jsonb($2::text)
+                        THEN jsonb_set(to_jsonb(value), ARRAY['path'], to_jsonb($1::text), false)
+                        ELSE to_jsonb(value)
+                   END
+               )
+               WHERE id = ANY($3)"#,
+            new_path,
+            old_path,
+            &moved,
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+
     if let Some((field, version)) = base_version {
         if !moved.is_empty() {
             sqlx::query!(

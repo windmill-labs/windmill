@@ -558,6 +558,13 @@ async fn resolve_moved_to(
         if repoint_path {
             patch.insert(kind.typed_path_field().to_string(), json!(&new_path));
         }
+        // A flow draft also carries the deployed `path` it forked from beside its
+        // staged `draft_path`, and the editor layers the draft over the deployed
+        // payload — a stale one there un-moves the flow on the next deploy. Same
+        // rule, same reason as the second UPDATE in `move_drafts_for_path`.
+        if kind.typed_path_field() != "path" && base.path.as_deref() == Some(path) {
+            patch.insert("path".to_string(), json!(&new_path));
+        }
         if moved_by_me {
             if let Some(field) = kind.base_version_field() {
                 patch.insert(field.to_string(), head);
