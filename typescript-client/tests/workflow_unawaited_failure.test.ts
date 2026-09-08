@@ -1,7 +1,6 @@
 /**
- * A task the workflow body never awaits still runs and can still fail, and the
- * workflow result cannot express that. Pins what the ctx reports at the end of
- * the round, against the real client.
+ * A task the body never awaits still runs and can still fail, and the workflow
+ * result cannot express that. Against the real client, not the inline mirror.
  *
  * Run with: bun test typescript-client/tests/workflow_unawaited_failure.test.ts
  */
@@ -35,14 +34,14 @@ const failed = {
   },
 };
 
-let warnings: string[];
-const realWarn = console.warn;
+let reported: string[];
+const realLog = console.log;
 beforeEach(() => {
-  warnings = [];
-  console.warn = (m: any) => warnings.push(String(m));
+  reported = [];
+  console.log = (m: any) => reported.push(String(m));
 });
 afterEach(() => {
-  console.warn = realWarn;
+  console.log = realLog;
   setWorkflowCtx(null);
 });
 
@@ -54,9 +53,9 @@ describe("unawaited task failure", () => {
     notify();
 
     ctx._warnUnobservedTaskFailures();
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain("task 'notify' failed but was never awaited");
-    expect(warnings[0]).toContain("boom");
+    expect(reported).toHaveLength(1);
+    expect(reported[0]).toContain("task 'notify' failed but was never awaited");
+    expect(reported[0]).toContain("boom");
   });
 
   // The body is free to hold the handle and await it further down, so the
@@ -69,6 +68,18 @@ describe("unawaited task failure", () => {
     await expect(Promise.resolve(handle)).rejects.toThrow("boom");
 
     ctx._warnUnobservedTaskFailures();
-    expect(warnings).toEqual([]);
+    expect(reported).toEqual([]);
+  });
+
+  // A child round replays the whole body to reach one step, so it re-registers
+  // every checkpointed failure; reporting them here duplicates them per child.
+  test("is not reported by a child round", async () => {
+    const ctx = new WorkflowCtx({ ...failed, _executing_key: "other" });
+    setWorkflowCtx(ctx);
+
+    notify();
+
+    ctx._warnUnobservedTaskFailures();
+    expect(reported).toEqual([]);
   });
 });

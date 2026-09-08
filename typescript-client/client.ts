@@ -1735,12 +1735,10 @@ export class WorkflowCtx {
    *  into a `complete` — the parent would then record the caught branch's value as
    *  a successful step. Boxed: the thrown value may be any falsy value. */
   private _pendingStepFailure: { error: unknown } | null = null;
-  /** Failed tasks whose rejection nothing has consumed yet, by step key. A task
-   *  called without `await` is still dispatched and still fails, but nothing
-   *  ever drives the rejecting thenable it handed back, so the body sees the
-   *  failure nowhere and the round reports a `complete`. An entry is dropped as
-   *  soon as anything calls `.then()` on that thenable, which `await` and
-   *  `Promise.allSettled` both do, leaving only what the body never looked at. */
+  /** Failed tasks whose rejection nothing has consumed, by step key. An unawaited
+   *  task is still dispatched and still fails, but nothing drives the rejecting
+   *  thenable it returned. The first `.then()` on that thenable drops the entry,
+   *  so what remains is only what the body never looked at. */
   private _unobservedTaskFailures = new Map<string, Error>();
   /** When set, the task matching this key executes its inner function directly */
   _executingKey: string | null;
@@ -2116,13 +2114,18 @@ export class WorkflowCtx {
     return f;
   }
 
-  /** Log the task failures the body never looked at. The runner calls this only
-   *  on the path that reports a `complete`, so a round that dispatches more
-   *  steps stays quiet and the surviving failures are reported once, by the
-   *  round that ends the workflow. */
+  /** Report the task failures the body never looked at. The runner calls this on
+   *  the two paths that end a round for good; a round that only dispatches more
+   *  steps has to stay quiet, or the next round reports the same failure again
+   *  after re-registering it from the checkpoint. */
   _warnUnobservedTaskFailures(): void {
+    // A child round replays the body just to reach one step, so the failures it
+    // re-registers from the checkpoint are the parent round's to report.
+    if (this._executingKey !== null) return;
     for (const [key, err] of this._unobservedTaskFailures) {
-      console.warn(
+      // stdout, like every other `--- WAC:` marker: the two streams are merged
+      // without preserving order, so a warning on stderr floats away from them.
+      console.log(
         `\n--- WAC: task '${key}' failed but was never awaited, so the workflow result does not reflect it: ${err.message} ---`,
       );
     }
