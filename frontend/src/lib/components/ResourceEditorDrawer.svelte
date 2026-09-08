@@ -5,7 +5,7 @@
 
 	import { History, Loader2, Save } from 'lucide-svelte'
 	import WsSpecificVersions from './WsSpecificVersions.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { isOwner } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import { resource } from 'runed'
@@ -62,16 +62,20 @@
 	// The editor renders whichever workspace-specific variant `selected` points at, so history has
 	// to follow it too — otherwise a restore would write over the variant the user is not looking at.
 	let historyWorkspace = $derived(selected ?? effectiveWorkspace)
-	// Gated on `path`: this drawer outlives every resource it opens, so an ungated lookup
-	// would fire on every page that mounts it, for nothing.
-	const historyUser = resource(
-		() => (path ? historyWorkspace : undefined),
+	// `$userStore` is loaded for the navigation workspace and answers only for that one, so
+	// only history pointed elsewhere costs a lookup — and only once a resource is open, since
+	// this drawer outlives every resource it opens.
+	const otherWsUser = resource(
+		() => (path && historyWorkspace !== $workspaceStore ? historyWorkspace : undefined),
 		async (ws) => (ws ? await getUserExt(ws) : undefined)
+	)
+	const historyUser = $derived(
+		historyWorkspace === $workspaceStore ? $userStore : otherWsUser.current
 	)
 	// Clearing is irreversible and the backend gates it on ownership, not write access, so the
 	// verdict has to come from the membership `historyWorkspace` knows about. An unresolved
 	// user gets no Clear button rather than one computed from another workspace's rights.
-	let canClearSelected = $derived(isOwner(path ?? '', historyUser.current, historyWorkspace))
+	let canClearSelected = $derived(isOwner(path ?? '', historyUser, historyWorkspace))
 
 	// A close reaches `on:close` on a later flush, by which point a caller that closed this drawer to
 	// open another editor has already anchored the new one. Clearing then would strip that anchor.

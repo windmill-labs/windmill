@@ -9,7 +9,7 @@
 	} from '$lib/gen'
 	import { canWrite } from '$lib/utils'
 	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
 	import ResourceForm from './ResourceForm.svelte'
@@ -91,11 +91,18 @@
 	let initialStates: Record<string, ResourceState> = $state({})
 	let existedInitially: Record<string, boolean> = $state({})
 	let fetchedResources: Record<string, Resource> = $state({})
-	// The user acting in each loaded workspace, fetched alongside the resource. `undefined`
-	// stands for "we don't know" — a lookup still in flight or one that failed — and
-	// `canWrite` refuses for an unknown user, which is the only safe answer: the navigation
-	// user's rights are another workspace's.
+	// The user acting in each loaded workspace other than the navigation one, fetched
+	// alongside the resource. `undefined` stands for "we don't know" — a lookup still in
+	// flight or one that failed. Read through `actingUserIn`, never directly.
 	let perWsUser: Record<string, UserExt | undefined> = $state({})
+
+	/** The user acting in `ws`. `$userStore` is loaded for the navigation workspace and
+	 *  answers only for that one; anywhere else the lookup above answers, and `undefined`
+	 *  must never borrow the navigation user's rights — `canWrite` refuses for it. */
+	function actingUserIn(ws: string | undefined): UserExt | undefined {
+		if (!ws) return undefined
+		return ws === $workspaceStore ? $userStore : perWsUser[ws]
+	}
 
 	const handlesArray = UserDraft.useMany<ResourceState>(() =>
 		workspaceSpecs.map((s) => ({
@@ -230,7 +237,7 @@
 			() => deployedPath,
 			() => deployedUrl,
 			() => resource_type,
-			() => (selected ? perWsUser[selected]?.is_admin : undefined)
+			() => actingUserIn(selected)?.is_admin
 		],
 		async ([ws, path, _url, type, admin]) =>
 			ws && path && type === 'git_repository' && admin
@@ -254,7 +261,7 @@
 		if (!initialPath || !selected) return true
 		const r = fetchedResources[selected]
 		if (!r) return false
-		return canWrite(current?.path ?? initialPath, r.extra_perms ?? {}, perWsUser[selected])
+		return canWrite(current?.path ?? initialPath, r.extra_perms ?? {}, actingUserIn(selected))
 	})
 
 	const dirtyWorkspaces = $derived(
@@ -291,7 +298,8 @@
 		dirtyWorkspaces.every((ws) => {
 			const r = fetchedResources[ws]
 			return (
-				!r || canWrite(states[ws]?.draft?.path ?? initialPath, r.extra_perms ?? {}, perWsUser[ws])
+				!r ||
+				canWrite(states[ws]?.draft?.path ?? initialPath, r.extra_perms ?? {}, actingUserIn(ws))
 			)
 		})
 	)
@@ -299,9 +307,10 @@
 	// New-resource bootstrap: seed empty state per workspace (edit mode
 	// is seeded by the lazy-fetch effect below).
 	$effect(() => {
-		if (!selected) return
+		const ws = selected
+		if (!ws) return
 		if (initialPath) return
-		if (selected in initialStates) return
+		if (ws in initialStates) return
 		untrack(() => {
 			const s: ResourceState = {
 				path: '',
@@ -310,9 +319,14 @@
 				labels: undefined,
 				wsSpecific: false
 			}
-			ensureHandle(selected, s)
-			initialStates[selected] = structuredClone(s)
-			existedInitially[selected] = false
+			ensureHandle(ws, s)
+			initialStates[ws] = structuredClone(s)
+			existedInitially[ws] = false
+			// A resource being created runs no fetch for the acting user to ride along with,
+			// so a workspace the navigation store cannot answer for is asked here.
+			if (ws !== $workspaceStore && !(ws in perWsUser)) {
+				getUserExt(ws).then((u) => (perWsUser[ws] = u))
+			}
 		})
 	})
 
@@ -580,7 +594,7 @@
 					{resourceToEdit}
 					onLoadResourceType={() => resourceTypeResource.refetch()}
 					workspace={selected}
-					actingUser={selected ? perWsUser[selected] : undefined}
+					actingUser={actingUserIn(selected)}
 				/>
 			{/key}
 		{/if}

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { VariableService, WorkspaceService } from '$lib/gen'
 	import { createEventDispatcher, untrack } from 'svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -55,11 +55,18 @@
 	let initialStates: Record<string, VariableState> = $state({})
 	let existedInitially: Record<string, boolean> = $state({})
 	let extraPerms: Record<string, Record<string, boolean>> = $state({})
-	// The user acting in each loaded workspace, fetched alongside the variable. `undefined`
-	// stands for "we don't know" — a lookup still in flight or one that failed — and
-	// `canWrite` refuses for an unknown user, which is the only safe answer: the navigation
-	// user's rights are another workspace's.
+	// The user acting in each loaded workspace other than the navigation one, fetched
+	// alongside the variable. `undefined` stands for "we don't know" — a lookup still in
+	// flight or one that failed. Read through `actingUserIn`, never directly.
 	let perWsUser: Record<string, UserExt | undefined> = $state({})
+
+	/** The user acting in `ws`. `$userStore` is loaded for the navigation workspace and
+	 *  answers only for that one; anywhere else the lookup above answers, and `undefined`
+	 *  must never borrow the navigation user's rights — `canWrite` refuses for it. */
+	function actingUserIn(ws: string | undefined): UserExt | undefined {
+		if (!ws) return undefined
+		return ws === $workspaceStore ? $userStore : perWsUser[ws]
+	}
 	let selected: string | undefined = $state(undefined)
 	let pathError = $state('')
 
@@ -119,7 +126,7 @@
 		if (!selected || !edit) return true
 		const perms = extraPerms[selected]
 		if (!perms) return undefined
-		return canWrite(editPath ?? '', perms, perWsUser[selected])
+		return canWrite(editPath ?? '', perms, actingUserIn(selected))
 	})
 	const dirtyWorkspaces = $derived(
 		Object.keys(states).filter((ws) => !draftValuesEqual(states[ws].draft, initialStates[ws]))
@@ -163,7 +170,7 @@
 	const dirtyCanWrite = $derived(
 		dirtyWorkspaces.every((ws) => {
 			const perms = extraPerms[ws]
-			return !perms || canWrite(editPath ?? '', perms, perWsUser[ws])
+			return !perms || canWrite(editPath ?? '', perms, actingUserIn(ws))
 		})
 	)
 
@@ -235,6 +242,9 @@
 		initialStates[ws] = structuredClone(s)
 		existedInitially[ws] = false
 		selected = ws
+		// A variable being created runs no fetch for the acting user to ride along with, so
+		// a workspace the navigation store cannot answer for is asked here.
+		if (ws !== $workspaceStore) getUserExt(ws).then((u) => (perWsUser[ws] = u))
 		drawer?.openDrawer()
 	}
 
@@ -364,8 +374,8 @@
 						can_write={can_write === true}
 						{edit}
 						onLoadSecret={loadSecret}
-						{workspace}
-						actingUser={selected ? perWsUser[selected] : undefined}
+						workspace={selected}
+						actingUser={actingUserIn(selected)}
 					/>
 				{/key}
 			{/if}

@@ -83,7 +83,7 @@
 		namePlaceholder="variable"
 		kind="variable"
 		workspaceOverride={workspace}
-		{actingUser}
+		actingUser={actingUser ?? null}
 	/>
 	<LabelsInput bind:labels />
 </div>
@@ -95,7 +95,7 @@
 	<Toggle
 		on:change={() => edit && !hasStagedValue && onLoadSecret?.()}
 		bind:checked={variable.is_secret}
-		disabled={edit && (actingUser?.operator || isEncryptedDraftValue(variable.value))}
+		disabled={edit && (!actingUser || actingUser.operator || isEncryptedDraftValue(variable.value))}
 	/>
 	{#if variable.is_secret}
 		<Alert type="info" title="Audit log for each access">

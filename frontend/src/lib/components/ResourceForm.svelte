@@ -174,7 +174,7 @@
 				namePlaceholder="resource"
 				kind="resource"
 				workspaceOverride={workspace}
-				{actingUser}
+				actingUser={actingUser ?? null}
 			/>
 		</Label>
 	</div>

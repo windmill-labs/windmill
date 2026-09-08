@@ -86,10 +86,10 @@
 		 *  top nav points at (see the sessions preview / dev-workspace flows). */
 		workspaceOverride?: string
 		/** The user acting in `workspaceOverride`, for the owner suggestion and the folder
-		 *  write flags. Defaults to the navigation `$userStore`, who is only a member of the
-		 *  navigation workspace — a caller pointed anywhere else must pass the user resolved
-		 *  for that workspace (`getUserExt`). */
-		actingUser?: UserExt
+		 *  write flags. Omit it to stand in the navigation `$userStore`, who is a member of
+		 *  the navigation workspace only; pass `null` for "not known (yet)", which that user
+		 *  must not answer for either. */
+		actingUser?: UserExt | null
 		/** One path that does not count as taken, for a caller creating something that may
 		 *  already have written there itself — a setup flow correcting its own failed attempt.
 		 *  Every other existing path is still refused. */
@@ -121,10 +121,10 @@
 	}: Props = $props()
 
 	let ws = $derived(workspaceOverride ?? $workspaceStore)
-	// Sole place this component falls back to the ambient user; everything below
-	// reads `user` so a caller acting on another workspace is never mixed with
-	// the navigation user's memberships.
-	let user = $derived(actingUser ?? $userStore)
+	// Sole place this component falls back to the ambient user, and only for a caller that
+	// passed none; everything below reads `user`, so a caller acting on another workspace is
+	// never mixed with the navigation user's memberships.
+	let user = $derived(actingUser === undefined ? $userStore : (actingUser ?? undefined))
 
 	$effect.pre(() => {
 		if (path == undefined) {
