@@ -550,16 +550,6 @@ async fn get_project_by_source(ctx: HubPublishCtx) -> Result<impl IntoResponse, 
     ctx.get("/projects/by_source").await
 }
 
-// The hub's project catalogue. Read by any workspace member rather than through
-// `HubPublishCtx`, which requires an admin: nothing here is workspace-scoped or
-// publishing-related. It exists at all because the hub's listing endpoint sends no
-// CORS header, so the browser cannot read it directly the way it reads a single
-// project. `accept: application/json` is what makes the hub answer with JSON.
-//
-// The caller's token is sent only to a hub this instance was pointed at deliberately.
-// Every other route here is admin-only; this one is not, so forwarding a member's
-// bearer token to `hub.windmill.dev` would put a credential replayable against this
-// instance on a host outside it — for a listing that needs no credential at all.
 /// Whether this instance points at the public hub. Compared by parsed host rather than by the
 /// string: `hub_base_url` is stored as the operator typed it, so `http://`, a port, a trailing
 /// slash, a mixed-case scheme or host, userinfo and a trailing dot all name the same public
@@ -589,6 +579,16 @@ fn is_public_hub(hub: &str) -> bool {
     }
 }
 
+// The hub's project catalogue. Read by any workspace member rather than through
+// `HubPublishCtx`, which requires an admin: nothing here is workspace-scoped or
+// publishing-related. It exists at all because the hub's listing endpoint sends no
+// CORS header, so the browser cannot read it directly the way it reads a single
+// project. `accept: application/json` is what makes the hub answer with JSON.
+//
+// The caller's token is sent only to a hub this instance was pointed at deliberately.
+// Every other route here is admin-only; this one is not, so forwarding a member's
+// bearer token to `hub.windmill.dev` would put a credential replayable against this
+// instance on a host outside it — for a listing that needs no credential at all.
 async fn list_projects(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,

@@ -145,12 +145,16 @@
 	// previous controller but `fetchHubProject` takes no signal, and nothing orders the
 	// responses — so picking A, dismissing, then picking B can land A's name, author and
 	// counts over an import that writes B.
+	// Kept in a local rather than read back off `detail.current` inside `detail`'s own fetcher,
+	// which makes the resource's type circular and resolves it to `any`.
+	let lastDetail = $state<ImportProjectSummary | undefined>(undefined)
 	const detail = resource(
 		() => slug,
 		async (s) => {
 			if (!s) return undefined
 			const fetched = await fetchHubProject(s)
-			return s === slug ? fetched : detail.current
+			if (s === slug) lastDetail = fetched
+			return lastDetail
 		}
 	)
 	let project = $derived<ImportProjectSummary | undefined>(

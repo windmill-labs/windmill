@@ -25624,7 +25624,8 @@ paths:
         Forwards to the configured Hub's public project catalogue and returns its
         status code and raw response body. Readable by any workspace member: the
         listing is not workspace-scoped, and it is proxied only because the Hub's
-        listing endpoint sends no CORS header.
+        listing endpoint sends no CORS header. Refused with 400 when the instance
+        has the Hub disabled, in which case no outbound request is made.
       operationId: listHubProjects
       tags:
         - hubPublish
@@ -25637,6 +25638,8 @@ paths:
             text/plain:
               schema:
                 type: string
+        "400":
+          description: the Hub is disabled on this instance
 
   /w/{workspace}/hub/project:
     get:

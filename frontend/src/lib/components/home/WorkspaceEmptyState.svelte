@@ -40,7 +40,9 @@
 	let newLinkEl: HTMLButtonElement | undefined = $state(undefined)
 
 	onMount(() => {
-		logFeatureUsage('home', 'empty_state_view')
+		// Only the empty case: the counter answers how many workspaces sit empty and what
+		// their owners do next, and a workspace whose items are all archived is neither.
+		if (!archivedOnly) logFeatureUsage('home', 'empty_state_view')
 	})
 
 	// The catalogue is fetched when the picker opens, never on render: `disable_hub` says an
