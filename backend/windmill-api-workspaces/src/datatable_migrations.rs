@@ -38,7 +38,12 @@ use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, Debounci
 use windmill_common::scripts::ScriptLang;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::worker::to_raw_value;
-use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
+use windmill_common::datatable_roles::ADMIN_DATATABLE_ROLE;
+use windmill_common::worker::SqlAnnotations;
+use windmill_common::workspaces::{
+    ensure_can_use_datatable_role, ensure_datatable_admin_access,
+    get_datatable_resource_from_db_unchecked, DatatableAccess,
+};
 use windmill_common::{PgDatabase, DB};
 use windmill_git_sync::{
     handle_deployment_metadata, handle_deployment_metadata_batch, DeployedObject,
@@ -86,6 +91,42 @@ pub(crate) fn routes() -> Router {
         )
 }
 
+/// Refuse a migration whose role this caller may not use, before a job is pushed or a version
+/// recorded.
+///
+/// A migration that declares `-- role <name>` runs as that role, so the caller has to be one of its
+/// tenants. One that declares none runs as `admin` and reaches every object in the database
+/// whatever the roles grant, so it is for the admins of the workspace that governs the data table
+/// — a fork can run a migration under a role it holds, never a migration under `admin`.
+///
+/// The executor re-checks the role when it resolves the connection, so this is not the boundary. It
+/// is what makes the refusal legible: which migration, and which role.
+async fn ensure_migration_role_allowed(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+    authed: &ApiAuthed,
+    sql: &str,
+    timestamp: i64,
+    name: &str,
+) -> Result<()> {
+    let context = format!("Migration {timestamp} ({name})");
+    let access = DatatableAccess::Authed(authed.to_authed_ref());
+    match SqlAnnotations::datatable_role(sql) {
+        Some(role) => {
+            ensure_can_use_datatable_role(db, w_id, datatable_name, Some(&role), &access, &context)
+                .await
+        }
+        None => ensure_datatable_admin_access(db, w_id, datatable_name, &access)
+            .await
+            .map_err(|e| {
+                Error::NotAuthorized(format!(
+                    "{context} declares no role, so it would run as admin. {e}"
+                ))
+            }),
+    }
+}
+
 #[derive(Serialize)]
 struct AppliedMigration {
     version: i64,
@@ -128,7 +169,14 @@ async fn datatable_database_arg(
     .await?
     .ok_or_else(|| Error::internal_err(format!("datatable {datatable_name} not found")))?;
 
-    Ok(to_raw_value(&format!("datatable://{datatable_name}")))
+    // `?role=admin` rather than a bare reference, so a migration that declares no `-- role` runs
+    // as the connection that owns the schema instead of falling through to the data table's
+    // default role — which is what `ensure_migration_role_allowed` gated it as, and which is the
+    // only role a DDL statement can be expected to succeed under. A migration that does declare a
+    // role overrides this: the annotation wins over the reference.
+    Ok(to_raw_value(&format!(
+        "datatable://{datatable_name}?role={ADMIN_DATATABLE_ROLE}"
+    )))
 }
 
 /// Run a migration's SQL as a normal Windmill `postgresql` job, permissioned as
@@ -440,6 +488,16 @@ async fn run_datatable_migrations(
         if applied_versions.contains(&m.timestamp) {
             continue;
         }
+        ensure_migration_role_allowed(
+            &db,
+            &w_id,
+            &datatable_name,
+            &authed,
+            &m.code_up,
+            m.timestamp,
+            &m.name,
+        )
+        .await?;
         run_datatable_migration_job(&db, &user_db, &authed, &w_id, &database_arg, &m.code_up)
             .await
             .map_err(|e| {
@@ -587,6 +645,17 @@ async fn rollback_datatable_migrations(
             version, definition.name
         ))
     })?;
+
+    ensure_migration_role_allowed(
+        &db,
+        &w_id,
+        &datatable_name,
+        &authed,
+        &code_down,
+        version,
+        &definition.name,
+    )
+    .await?;
 
     let database_arg = datatable_database_arg(&db, &w_id, &datatable_name).await?;
     run_datatable_migration_job(&db, &user_db, &authed, &w_id, &database_arg, &code_down)

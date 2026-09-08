@@ -108,11 +108,19 @@ export interface DatatableSqlTemplateFunction extends SqlTemplateFunction {
   query<T = any>(sql: string, ...params: any[]): SqlStatement<T>;
 }
 
+export interface DatatableOptions {
+  /** The data table role to connect as. Omit to get the data table's default role. */
+  role?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Provider interface — captures what differs between datatable and ducklake
 // ---------------------------------------------------------------------------
 
 interface SqlProvider {
+  /** Leading annotation lines. Emitted before everything else: the executor's annotation parser
+   * stops at the first non-comment line. */
+  annotations(): string;
   formatArgDecl(argNum: number, argType: string): string;
   formatArgUsage(
     argNum: number,
@@ -125,11 +133,25 @@ interface SqlProvider {
   providerName: string;
 }
 
-function datatableProvider(name: string, schema?: string): SqlProvider {
+// Interpolated into a `-- role <name>` line, so a value carrying a newline could append
+// statements of its own. Mirrors the server's own role-name rule.
+const ROLE_NAME_RE = /^[A-Za-z0-9_-]{1,63}$/;
+
+function datatableProvider(
+  name: string,
+  schema?: string,
+  role?: string
+): SqlProvider {
+  if (role !== undefined && !ROLE_NAME_RE.test(role)) {
+    throw new Error(
+      `Invalid data table role '${role}': only letters, digits, '_' and '-' are allowed`
+    );
+  }
   return {
     providerName: "datatable",
     language: "postgresql",
     extraArgs: { database: `datatable://${name}` },
+    annotations: () => (role !== undefined ? `-- role ${role}\n` : ""),
     formatArgDecl: (argNum) => `-- $${argNum} arg${argNum}`,
     formatArgUsage: (argNum, explicitType, inferredType) =>
       explicitType !== undefined
@@ -144,6 +166,7 @@ function ducklakeProvider(name: string, schema?: string): SqlProvider {
     providerName: "ducklake",
     language: "duckdb",
     extraArgs: {},
+    annotations: () => "",
     formatArgDecl: (argNum, argType) => `-- $arg${argNum} (${argType})`,
     formatArgUsage: (argNum) => `$arg${argNum}`,
     // `USE dl."schema"` sets the active schema so unqualified tables resolve there.
@@ -272,7 +295,8 @@ function buildSqlTemplateFunction(provider: SqlProvider): SqlTemplateFunction {
         return provider.formatArgDecl(info.argNum, argType);
       });
 
-    let content = argDecls.length ? argDecls.join("\n") + "\n" : "";
+    let content = provider.annotations();
+    content += argDecls.length ? argDecls.join("\n") + "\n" : "";
     content += provider.preamble();
 
     // SQL body — inline raw values, reference params via provider syntax
@@ -322,6 +346,8 @@ function buildSqlTemplateFunction(provider: SqlProvider): SqlTemplateFunction {
 /**
  * Create a SQL template function for PostgreSQL/datatable queries
  * @param name - Database/datatable name (default: "main")
+ * @param opts.role - Connect as this data table role instead of the data table's default one.
+ *   Only meaningful on a data table under roles, and only for a role you are a tenant of.
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.datatable()
@@ -331,10 +357,16 @@ function buildSqlTemplateFunction(provider: SqlProvider): SqlTemplateFunction {
  *   SELECT * FROM friends
  *     WHERE name = ${name} AND age = ${age}::int
  * `.fetch()
+ * @example
+ * // Read through a restricted role
+ * let sql = wmill.datatable("main", { role: "analytics" })
  */
-export function datatable(name: string = "main"): DatatableSqlTemplateFunction {
+export function datatable(
+  name: string = "main",
+  opts?: DatatableOptions
+): DatatableSqlTemplateFunction {
   let { name: n, schema } = parseName(name);
-  let provider = datatableProvider(n, schema);
+  let provider = datatableProvider(n, schema, opts?.role);
   let sqlFn = buildSqlTemplateFunction(provider) as DatatableSqlTemplateFunction;
   // `.query(sql, ...params)` is for SQL strings that already contain
   // positional placeholders ($1, $2, ...). We DON'T go through the template
@@ -353,7 +385,10 @@ export function datatable(name: string = "main"): DatatableSqlTemplateFunction {
       .join("\n");
     let contentBody = sqlString;
     let content =
-      (argDecls ? argDecls + "\n" : "") + provider.preamble() + sqlString;
+      provider.annotations() +
+      (argDecls ? argDecls + "\n" : "") +
+      provider.preamble() +
+      sqlString;
     let args = {
       ...Object.fromEntries(
         params.map((v, i) => [`arg${i + 1}`, serializeArgValue(v)])

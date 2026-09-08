@@ -1078,8 +1078,9 @@
 							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
 							membership, the plan tier and quota shown when the execution meter is opened, whether
 							app sandbox isolation is turned on, whether a step's workspace script is edited from
-							the flow editor, and how data tables and their migrations are set up and used, last 30
-							days)</li
+							the flow editor, how data tables and their migrations are set up and used, and whether
+							data tables are put under roles and whether callers name a role or take the default,
+							last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger, worker and data table
@@ -1140,8 +1141,9 @@
 							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
 							membership, the plan tier and quota shown when the execution meter is opened, whether
 							app sandbox isolation is turned on, whether a step's workspace script is edited from
-							the flow editor, and how data tables and their migrations are set up and used, last 30
-							days)</li
+							the flow editor, how data tables and their migrations are set up and used, and whether
+							data tables are put under roles and whether callers name a role or take the default,
+							last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger, worker and data table

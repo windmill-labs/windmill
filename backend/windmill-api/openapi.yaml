@@ -1428,6 +1428,89 @@ paths:
                 additionalProperties:
                   $ref: "#/components/schemas/CustomInstanceDb"
 
+  /settings/datatable_roles:
+    get:
+      summary: list the instance's data table roles
+      operationId: listInstanceDatatableRoles
+      tags:
+        - setting
+      responses:
+        "200":
+          description: the instance role catalog
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InstanceDatatableRole"
+    post:
+      summary: create a data table role on the instance's Postgres cluster
+      operationId: createInstanceDatatableRole
+      tags:
+        - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        "200":
+          description: the created role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstanceDatatableRole"
+
+  /settings/datatable_roles/{id}:
+    post:
+      summary: rename a data table role or turn its login on and off
+      operationId: updateInstanceDatatableRole
+      tags:
+        - setting
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                enabled:
+                  type: boolean
+      responses:
+        "200":
+          description: the updated role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstanceDatatableRole"
+    delete:
+      summary: drop a data table role from the cluster and from every workspace that named it
+      operationId: deleteInstanceDatatableRole
+      tags:
+        - setting
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: deleted
+
   /settings/setup_custom_instance_pg_database/{name}:
     post:
       summary: Runs CREATE DATABASE on the Windmill Postgres and grants access to the custom_instance_user
@@ -4856,7 +4939,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  required: [name, resource_type, resource_path]
+                  required: [name, resource_type, resource_path, permissioned]
                   properties:
                     name:
                       type: string
@@ -4865,6 +4948,97 @@ paths:
                       enum: [postgres, instance]
                     resource_path:
                       type: string
+                    governing_workspace_id:
+                      type: string
+                    permissioned:
+                      type: boolean
+
+  /w/{workspace}/workspaces/datatable_permissions/{datatable_name}:
+    get:
+      summary: get who may connect to a data table as which role
+      operationId: getDatatablePermissions
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the data table's roles and their tenants
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DatatablePermissions"
+    post:
+      summary: set who may connect to a data table as which role
+      operationId: setDatatablePermissions
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [permissioned]
+              properties:
+                permissioned:
+                  type: boolean
+                default_role:
+                  type: string
+                roles:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/DatatableRoleTenants"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/datatable_usable_roles/{datatable_name}:
+    get:
+      summary: list the data table roles the caller may connect as
+      operationId: listUsableDatatableRoles
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: usable roles
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [permissioned, roles, default_role]
+                properties:
+                  permissioned:
+                    type: boolean
+                  roles:
+                    type: array
+                    items:
+                      type: string
+                  default_role:
+                    type: string
 
   /w/{workspace}/workspaces/list_datatable_schemas:
     get:
@@ -31942,6 +32116,61 @@ components:
         - ducklake
         - datatable
 
+    InstanceDatatableRole:
+      type: object
+      required: [id, name, enabled]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+
+    DatatableRoleTenants:
+      type: object
+      required: [id, tenants]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        tenants:
+          type: array
+          items:
+            type: string
+
+    DatatablePermissions:
+      type: object
+      required: [permissioned, default_role, roles, editable, available_roles]
+      properties:
+        permissioned:
+          type: boolean
+        default_role:
+          type: string
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/DatatableRoleTenants"
+        governing_workspace_id:
+          type: string
+        editable:
+          type: boolean
+        available_roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/InstanceDatatableRole"
+        ungoverned_reachers:
+          type: array
+          items:
+            type: object
+            required: [workspace_id, datatable]
+            properties:
+              workspace_id:
+                type: string
+              datatable:
+                type: string
+
     CustomInstanceDb:
       type: object
       required:
@@ -33987,9 +34216,11 @@ components:
           type: object
           additionalProperties:
             type: object
-            required: [database]
             properties:
               database:
+                description: >-
+                  Set on an entry that owns its database. Absent on a fork's entry, which points at
+                  another workspace's data table instead.
                 type: object
                 properties:
                   resource_type:
@@ -34001,6 +34232,17 @@ components:
                     type: string
                 required:
                   - resource_type
+              reference:
+                description: >-
+                  The workspace and data table that govern this one. Server-owned: written by fork
+                  creation, and carried across a settings save whatever the request says.
+                type: object
+                required: [workspace_id, datatable]
+                properties:
+                  workspace_id:
+                    type: string
+                  datatable:
+                    type: string
               migrations_enabled:
                 type: boolean
                 description: Whether the SQL migrations feature is opted in for this data table

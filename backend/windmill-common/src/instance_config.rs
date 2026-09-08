@@ -438,11 +438,13 @@ impl GlobalSettings {
             serde_json::Value::Object(map) => map.into_iter().collect(),
             _ => unreachable!(),
         };
-        // Strip runtime-only `databases` sub-field from custom_instance_pg_databases.
-        // It contains setup status/logs managed by the setup endpoint, not configuration.
+        // Strip the runtime-only sub-fields of custom_instance_pg_databases: `databases` is setup
+        // status/logs managed by the setup endpoint, and `roles` is the data table role catalog,
+        // which carries one Postgres password per role. Neither is configuration.
         if let Some(pg) = map.get_mut("custom_instance_pg_databases") {
             if let Some(obj) = pg.as_object_mut() {
                 obj.remove("databases");
+                obj.remove("roles");
             }
         }
         map
@@ -793,6 +795,10 @@ pub struct CustomInstancePgDatabases {
     pub user_pwd: Option<StringOrSecretRef>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub databases: BTreeMap<String, CustomInstanceDb>,
+    /// The instance's data table role catalog, keyed by generated id. Runtime state carrying one
+    /// password per role, so it is stripped from config sync exactly like `databases`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub roles: BTreeMap<String, crate::datatable_roles::InstanceDatatableRole>,
 }
 
 /// Status of a single custom instance database.
@@ -1195,14 +1201,17 @@ pub fn diff_global_settings(
         } else {
             desired_value.clone()
         };
-        // Preserve the runtime-only `databases` sub-field inside
-        // `custom_instance_pg_databases` so that config sync never wipes
-        // setup status/logs that are managed by the setup endpoint.
+        // Preserve the runtime-only sub-fields inside `custom_instance_pg_databases` so that
+        // config sync never wipes setup status/logs managed by the setup endpoint, nor the data
+        // table role catalog — the latter mirrors real Postgres roles, so losing it would leave
+        // the cluster holding logins Windmill can no longer name.
         if key == "custom_instance_pg_databases" {
             if let Some(existing) = current.get(key) {
-                if let Some(databases) = existing.get("databases") {
-                    if let Some(obj) = value.as_object_mut() {
-                        obj.entry("databases").or_insert_with(|| databases.clone());
+                for runtime_field in ["databases", "roles"] {
+                    if let Some(kept) = existing.get(runtime_field) {
+                        if let Some(obj) = value.as_object_mut() {
+                            obj.entry(runtime_field).or_insert_with(|| kept.clone());
+                        }
                     }
                 }
             }

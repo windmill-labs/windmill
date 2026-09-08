@@ -147,6 +147,11 @@ pub fn global_service() -> Router {
             "/list_custom_instance_pg_databases",
             post(list_custom_instance_pg_databases),
         )
+        .route("/datatable_roles", get(list_datatable_roles).post(create_datatable_role))
+        .route(
+            "/datatable_roles/{id}",
+            post(update_datatable_role).delete(delete_datatable_role),
+        )
         .route(
             "/refresh_custom_instance_user_pwd",
             post(refresh_custom_instance_user_pwd),
@@ -2525,6 +2530,241 @@ mod object_storage_test_hardening {
         ];
         for (input, expected) in cases {
             assert_eq!(extract_host(input).as_deref(), expected, "input: {input}");
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Data table roles
+// ---------------------------------------------------------------------------
+
+use windmill_audit::audit_oss::audit_log;
+use windmill_audit::ActionKind;
+
+/// One catalog entry as the settings UI sees it. The password never leaves the instance: it is a
+/// Postgres credential Windmill mints and hands only to a resolved connection.
+#[derive(Serialize)]
+struct DatatableRoleInfo {
+    id: String,
+    name: String,
+    enabled: bool,
+}
+
+#[derive(Deserialize)]
+struct CreateDatatableRole {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct UpdateDatatableRole {
+    /// A rename. Absent leaves the name alone.
+    #[serde(default)]
+    name: Option<String>,
+    /// `LOGIN` / `NOLOGIN`. Grants and ownership survive either way.
+    #[serde(default)]
+    enabled: Option<bool>,
+}
+
+fn datatable_role_infos(
+    catalog: &windmill_common::datatable_roles::DatatableRoleCatalog,
+) -> Vec<DatatableRoleInfo> {
+    catalog
+        .iter()
+        .map(|(id, role)| DatatableRoleInfo {
+            id: id.clone(),
+            name: role.name.clone(),
+            enabled: role.enabled,
+        })
+        .collect()
+}
+
+/// Persist the catalog next to the instance Postgres password, in the same `global_settings` row
+/// the instance database registry lives in.
+async fn write_role_catalog(
+    db: &DB,
+    catalog: &windmill_common::datatable_roles::DatatableRoleCatalog,
+) -> error::Result<()> {
+    let value = serde_json::to_value(catalog).map_err(to_anyhow)?;
+    sqlx::query!(
+        "UPDATE global_settings SET value = jsonb_set(COALESCE(value, '{}'::jsonb), '{roles}', $1)
+         WHERE name = 'custom_instance_pg_databases'",
+        value
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+async fn list_datatable_roles(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<Vec<DatatableRoleInfo>> {
+    require_super_admin(&db, &authed).await?;
+    let catalog = windmill_common::datatable_roles::read_role_catalog(&db).await?;
+    Ok(Json(datatable_role_infos(&catalog)))
+}
+
+/// Create the Postgres role first, then record it. The cluster is the source of truth: a catalog
+/// entry naming a role that does not exist would resolve to a login nothing can authenticate as.
+async fn create_datatable_role(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Json(req): Json<CreateDatatableRole>,
+) -> JsonResult<DatatableRoleInfo> {
+    require_super_admin(&db, &authed).await?;
+    windmill_common::datatable_roles::validate_role_name(&req.name)?;
+
+    let mut catalog = windmill_common::datatable_roles::read_role_catalog(&db).await?;
+    if catalog.values().any(|r| r.name == req.name) {
+        return Err(error::Error::BadRequest(format!(
+            "A data table role named '{}' already exists",
+            req.name
+        )));
+    }
+
+    let id = windmill_common::utils::rd_string(12);
+    let pwd = uuid::Uuid::new_v4().to_string();
+    windmill_common::datatable_roles::create_instance_role(&db, &req.name, &pwd).await?;
+
+    catalog.insert(
+        id.clone(),
+        windmill_common::datatable_roles::InstanceDatatableRole {
+            name: req.name.clone(),
+            enabled: true,
+            pwd: Some(pwd),
+        },
+    );
+    write_role_catalog(&db, &catalog).await?;
+    converge_connect_grants_everywhere(&db, &catalog).await;
+    windmill_common::feature_usage::log_feature_usage("datatable", "role_created", "");
+
+    audit_log(
+        &db,
+        &authed,
+        "settings.create_datatable_role",
+        ActionKind::Create,
+        "global",
+        Some(&authed.email),
+        Some([("name", req.name.as_str())].into()),
+    )
+    .await?;
+
+    Ok(Json(DatatableRoleInfo { id, name: req.name, enabled: true }))
+}
+
+async fn update_datatable_role(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateDatatableRole>,
+) -> JsonResult<DatatableRoleInfo> {
+    require_super_admin(&db, &authed).await?;
+    let mut catalog = windmill_common::datatable_roles::read_role_catalog(&db).await?;
+    let role = catalog
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| error::Error::NotFound(format!("No data table role with id '{id}'")))?;
+
+    let mut updated = role.clone();
+    if let Some(name) = req.name.filter(|n| n != &role.name) {
+        windmill_common::datatable_roles::validate_role_name(&name)?;
+        if catalog.values().any(|r| r.name == name) {
+            return Err(error::Error::BadRequest(format!(
+                "A data table role named '{name}' already exists"
+            )));
+        }
+        // RENAME discards an md5-hashed password, so the role gets a fresh one in the same
+        // statement and the catalog records it. Tenants name the id, so nothing else moves.
+        let pwd = uuid::Uuid::new_v4().to_string();
+        windmill_common::datatable_roles::rename_instance_role(&db, &role.name, &name, &pwd)
+            .await?;
+        updated.name = name;
+        updated.pwd = Some(pwd);
+    }
+    if let Some(enabled) = req.enabled.filter(|e| *e != role.enabled) {
+        windmill_common::datatable_roles::set_instance_role_login(&db, &updated.name, enabled)
+            .await?;
+        updated.enabled = enabled;
+    }
+
+    catalog.insert(id.clone(), updated.clone());
+    write_role_catalog(&db, &catalog).await?;
+    converge_connect_grants_everywhere(&db, &catalog).await;
+
+    audit_log(
+        &db,
+        &authed,
+        "settings.update_datatable_role",
+        ActionKind::Update,
+        "global",
+        Some(&authed.email),
+        Some([("name", updated.name.as_str())].into()),
+    )
+    .await?;
+
+    Ok(Json(DatatableRoleInfo {
+        id,
+        name: updated.name,
+        enabled: updated.enabled,
+    }))
+}
+
+/// Drop the Postgres role, then forget it, then strip it from every workspace that tenanted it.
+///
+/// Dropping first is what makes the catalog trustworthy: the drop refuses while any instance
+/// database is unreachable, so a failure leaves the entry in place to retry rather than a live
+/// Postgres login nothing names.
+async fn delete_datatable_role(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(id): Path<String>,
+) -> JsonResult<()> {
+    require_super_admin(&db, &authed).await?;
+    let mut catalog = windmill_common::datatable_roles::read_role_catalog(&db).await?;
+    let role = catalog
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| error::Error::NotFound(format!("No data table role with id '{id}'")))?;
+
+    windmill_common::datatable_roles::drop_instance_role(&db, &role.name).await?;
+    catalog.remove(&id);
+    write_role_catalog(&db, &catalog).await?;
+    windmill_common::workspaces::forget_datatable_role_everywhere(&db, &id).await?;
+
+    audit_log(
+        &db,
+        &authed,
+        "settings.delete_datatable_role",
+        ActionKind::Delete,
+        "global",
+        Some(&authed.email),
+        Some([("name", role.name.as_str())].into()),
+    )
+    .await?;
+
+    Ok(Json(()))
+}
+
+/// Best-effort `CONNECT` convergence over the instance database registry. A database that is
+/// unreachable right now is repaired the next time one of its data tables is administered, so a
+/// role creation is not held hostage by an unrelated database being down.
+async fn converge_connect_grants_everywhere(
+    db: &DB,
+    catalog: &windmill_common::datatable_roles::DatatableRoleCatalog,
+) {
+    let dbnames = match windmill_common::datatable_roles::registered_instance_databases(db).await {
+        Ok(dbnames) => dbnames,
+        Err(e) => {
+            tracing::warn!("Could not list instance databases to grant CONNECT: {e}");
+            return;
+        }
+    };
+    for dbname in dbnames {
+        if let Err(e) =
+            windmill_common::datatable_roles::converge_connect_grants_with(db, &dbname, catalog)
+                .await
+        {
+            tracing::warn!("Could not converge CONNECT grants on instance database '{dbname}': {e}");
         }
     }
 }

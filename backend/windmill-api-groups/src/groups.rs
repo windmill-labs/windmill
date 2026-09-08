@@ -794,6 +794,15 @@ async fn delete_group(
     }
     not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
 
+    // A tenant list names a principal, so a freed name must not linger in one: a later group
+    // reusing it would silently inherit the data table access this one had.
+    windmill_common::workspaces::remove_datatable_tenant_in_workspace(
+        &mut tx,
+        &w_id,
+        &format!("g/{name}"),
+    )
+    .await?;
+
     sqlx::query!(
         "DELETE FROM usr_to_group WHERE group_ = $1 AND workspace_id = $2",
         name,

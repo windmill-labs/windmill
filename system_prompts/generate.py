@@ -1266,6 +1266,12 @@ def _format_py_params(node: ast.FunctionDef, skip_self: bool = False) -> str:
             vararg_str += f": {ast.unparse(args.vararg.annotation)}"
         params.append(vararg_str)
 
+    # A bare `*` before the keyword-only args, when nothing else already introduced them.
+    # Without it the rendered signature reads as all-positional, and a caller written against
+    # these docs passes a keyword-only argument positionally and gets a TypeError.
+    if args.kwonlyargs and not args.vararg:
+        params.append('*')
+
     for i, arg in enumerate(args.kwonlyargs):
         param_str = arg.arg
         if arg.annotation:

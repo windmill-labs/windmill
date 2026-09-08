@@ -1081,6 +1081,39 @@ pub struct SqlAnnotations {
     pub raw_output: bool,
 }
 
+impl SqlAnnotations {
+    /// The data table role a query declares as `-- role <name>`, if any. Only meaningful against a
+    /// `datatable://` database that is under roles; absent means the data table's default role.
+    ///
+    /// Hand-written rather than derived because the value matters, not just the presence, and
+    /// because the executor needs it before it knows the connection is a data table at all. Like
+    /// every annotation it lives in the leading comment block and must be the whole line, so prose
+    /// such as `-- role based access is handled below` never matches.
+    pub fn datatable_role(code: &str) -> Option<String> {
+        for line in code.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if !line.starts_with("--") {
+                break;
+            }
+            let mut tokens = line[2..].split_whitespace();
+            if tokens.next() == Some("role") {
+                if let Some(role) = tokens.next() {
+                    let is_role_name = role
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+                    if is_role_name && tokens.next().is_none() {
+                        return Some(role.to_string());
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
 #[annotations("#")]
 pub struct BashAnnotations {
     pub docker: bool,
@@ -2606,6 +2639,31 @@ pub fn try_parse_locked_python_version_from_requirements<S: AsRef<str>>(
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn datatable_role_is_read_from_the_leading_comment_block() {
+        assert_eq!(
+            SqlAnnotations::datatable_role("-- role analytics\nSELECT 1"),
+            Some("analytics".to_string())
+        );
+        // Blank lines and other annotations before it are fine.
+        assert_eq!(
+            SqlAnnotations::datatable_role("\n-- prepare\n-- role read_only\nSELECT 1"),
+            Some("read_only".to_string())
+        );
+        // Prose that merely starts with the word, and anything past the first statement, is not an
+        // annotation — otherwise a comment could silently change which login a query runs as.
+        assert_eq!(
+            SqlAnnotations::datatable_role("-- role based access is handled below\nSELECT 1"),
+            None
+        );
+        assert_eq!(
+            SqlAnnotations::datatable_role("SELECT 1;\n-- role analytics"),
+            None
+        );
+        assert_eq!(SqlAnnotations::datatable_role("-- role an;alytics"), None);
+        assert_eq!(SqlAnnotations::datatable_role("SELECT 1"), None);
+    }
 
     fn matcher(id: &str) -> WorkspaceMatcher {
         WorkspaceMatcher { id: id.to_string(), include_forks: false }

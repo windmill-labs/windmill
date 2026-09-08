@@ -37,6 +37,7 @@ pub mod bench;
 pub mod cache;
 pub mod client;
 pub mod data_metrics;
+pub mod datatable_roles;
 pub mod db;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_entra_ee;
@@ -1482,6 +1483,52 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Resu
     Ok(())
 }
 
+/// What `custom_instance_user` holds on an instance database.
+///
+/// `WITH GRANT OPTION` throughout: this is the connection every data table resolves to as `admin`,
+/// and it is the one that hands privileges to data table roles. Postgres refuses to let a role pass
+/// on a privilege it does not itself hold with grant option, so without these an admin could own
+/// the database and still be unable to grant `SELECT` on it to `analytics`.
+fn instance_db_grants(dbname: &str) -> String {
+    format!(
+        "GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user WITH GRANT OPTION;
+         GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user WITH GRANT OPTION;
+         DO $$ BEGIN
+           IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'public') THEN
+             GRANT USAGE ON SCHEMA public TO custom_instance_user WITH GRANT OPTION;
+             GRANT CREATE ON SCHEMA public TO custom_instance_user WITH GRANT OPTION;
+             ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;
+           END IF;
+         END $$;"
+    )
+}
+
+/// Re-apply [`instance_db_grants`] to an instance database provisioned before data table roles
+/// existed, whose grants carry no grant option. Connects as the instance's own Postgres user —
+/// the database and `public` schema owner — since only it can hand out an option it holds.
+///
+/// Authorization: reaches an instance database with the server's own credentials and checks
+/// nothing. Callers MUST restrict this to superadmin or internal server paths.
+pub async fn ensure_instance_db_grant_options_unchecked(db: &DB, dbname: &str) -> error::Result<()> {
+    let dbname = dbname.trim();
+    validate_dbname(dbname)?;
+    let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+    let creds = PgDatabase { dbname: dbname.to_string(), ..wmill_pg_creds };
+    let (client, connection) = creds.connect(Some(db)).await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+    let result = client.batch_execute(&instance_db_grants(dbname)).await;
+    drop(client);
+    shutdown_pg_connection(join_handle).await?;
+    result.map_err(|e| {
+        error::Error::internal_err(format!(
+            "Failed to grant permissions on '{}': {}",
+            dbname,
+            crate::error::pg_error_message(&e)
+        ))
+    })
+}
+
 /// Create a custom instance database: CREATE DATABASE, grant permissions, register in global_settings.
 /// The `tag` is stored in global_settings metadata (e.g. "datatable" or "ducklake").
 pub async fn create_custom_instance_database(
@@ -1521,17 +1568,7 @@ pub async fn create_custom_instance_database(
     let (client, connection) = new_pg_creds.connect(Some(db)).await?;
     let join_handle = tokio::spawn(async move { connection.await });
 
-    if let Err(e) = client
-        .batch_execute(&format!(
-            "GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user;
-             GRANT USAGE ON SCHEMA public TO custom_instance_user;
-             GRANT CREATE ON SCHEMA public TO custom_instance_user;
-             GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user;
-             ALTER DEFAULT PRIVILEGES IN SCHEMA public
-                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;"
-        ))
-        .await
-    {
+    if let Err(e) = client.batch_execute(&instance_db_grants(dbname)).await {
         tracing::warn!(
             "Failed to grant permissions on '{}': {}. Continuing.",
             dbname,
@@ -1559,6 +1596,13 @@ pub async fn create_custom_instance_database(
     )
     .execute(db)
     .await?;
+
+    // A data table role can only reach a database it may CONNECT to, and PUBLIC's default CONNECT
+    // would otherwise let every role in regardless of what this instance defines. Best-effort: a
+    // failure here leaves the database usable as `admin`, and the next role change repairs it.
+    if let Err(e) = crate::datatable_roles::converge_connect_grants(db, dbname).await {
+        tracing::warn!("Could not set CONNECT grants on instance database '{dbname}': {e}");
+    }
 
     tracing::info!("Created custom instance database '{}'", dbname);
     Ok(())

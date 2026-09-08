@@ -1430,16 +1430,19 @@ class Windmill:
             },
         )
 
-    def datatable(self, name: str = "main"):
+    def datatable(self, name: str = "main", *, role: Optional[str] = None):
         """Get a DataTable client for SQL queries.
 
         Args:
             name: Database name (default: "main")
+            role: Connect as this data table role instead of the data table's default one.
+                Only meaningful on a data table under roles, and only for a role you are a
+                tenant of.
 
         Returns:
             DataTableClient instance
         """
-        return DataTableClient(self, name)
+        return DataTableClient(self, name, role=role)
 
     def ducklake(self, name: str = "main"):
         """Get a DuckLake client for DuckDB queries.
@@ -2278,16 +2281,17 @@ def username_to_email(username: str) -> str:
 
 
 @init_global_client
-def datatable(name: str = "main") -> DataTableClient:
+def datatable(name: str = "main", *, role: Optional[str] = None) -> DataTableClient:
     """Get a DataTable client for SQL queries.
 
     Args:
         name: Database name (default: "main")
+        role: Connect as this data table role instead of the data table's default one.
 
     Returns:
         DataTableClient instance
     """
-    return _client.datatable(name)
+    return _client.datatable(name, role=role)
 
 @init_global_client
 def ducklake(name: str = "main") -> DucklakeClient:
@@ -2362,17 +2366,28 @@ def stream_result(stream) -> None:
     for text in stream:
         append_to_result_stream(text)
 
+# Interpolated into a `-- role <name>` line, so a value carrying a newline could append
+# statements of its own. Mirrors the server's own role-name rule.
+_ROLE_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,63}$")
+
+
 class DataTableClient:
     """Client for executing SQL queries against Windmill DataTables."""
 
-    def __init__(self, client: Windmill, name: str):
+    def __init__(self, client: Windmill, name: str, role: Optional[str] = None):
         """Initialize DataTableClient.
 
         Args:
             client: Windmill client instance
             name: DataTable name
+            role: Data table role to connect as, or None for the data table's default
         """
+        if role is not None and not _ROLE_NAME_RE.match(role):
+            raise ValueError(
+                f"Invalid data table role '{role}': only letters, digits, '_' and '-' are allowed"
+            )
         self.client = client
+        self.role = role
         self.name, self.schema = parse_sql_client_name(name)
     def query(self, sql: str, *args) -> SqlQuery:
         """Execute a SQL query against the DataTable.
@@ -2393,6 +2408,9 @@ class DataTableClient:
             args_dict[f"arg{i+1}"] = arg
             args_def += f"-- ${i+1} arg{i+1} ({infer_sql_type(arg)})\n"
         sql = args_def + sql
+        # Must lead: the executor's annotation parser stops at the first non-comment line.
+        if self.role is not None:
+            sql = f"-- role {self.role}\n" + sql
         return SqlQuery(
             sql,
             lambda sql: self.client.run_inline_script_preview(

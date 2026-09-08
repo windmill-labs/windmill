@@ -45,11 +45,13 @@
 			const settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore })
 			const datatables = settings.datatable?.datatables ?? {}
 			forkedDatatables = Object.entries(datatables)
-				.filter(([_, dt]) => dt.forked_from != null)
+				// A clone owns its database and is droppable; an entry pointing at the parent's is
+				// not this workspace's to drop, and never carries a clone stamp anyway.
+				.filter(([_, dt]) => dt.forked_from != null && dt.database != null)
 				.map(([name, dt]) => ({
 					name,
-					resourceType: dt.database.resource_type ?? 'instance',
-					resourcePath: dt.database.resource_path ?? '',
+					resourceType: dt.database?.resource_type ?? 'instance',
+					resourcePath: dt.database?.resource_path ?? '',
 					dropOnDelete: true
 				}))
 		} catch {

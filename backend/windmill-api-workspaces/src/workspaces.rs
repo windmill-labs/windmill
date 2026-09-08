@@ -45,10 +45,12 @@ use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
-    check_deploy_rules, check_user_against_rule, get_datatable_resource_from_db_unchecked,
+    check_deploy_rules, check_user_against_rule, get_datatable_resource_from_db,
+    get_datatable_resource_from_db_unchecked, resolve_governing_datatable,
     validate_dev_workspace_id, validate_fork_workspace_id, validate_workspace_name, DataTable,
-    DataTableCatalogResourceType, DataTableForkBehavior, ProtectionRuleKind, ProtectionRules,
-    ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings, DEV_WORKSPACE_LOCK_RULE_NAME,
+    DataTableCatalogResourceType, DataTableForkBehavior, DatatableAccess, ProtectionRuleKind,
+    ProtectionRules, ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
+    DEV_WORKSPACE_LOCK_RULE_NAME,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -141,6 +143,7 @@ pub fn workspaced_service() -> Router {
             get(test_datatable_connection),
         )
         .merge(crate::datatable_migrations::routes())
+        .merge(crate::datatable_permissions::routes())
         .route("/git_sync_enabled", get(get_git_sync_enabled))
         .route("/git_sync_deploy_mode", get(get_git_sync_deploy_mode))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
@@ -1111,6 +1114,8 @@ async fn get_settings(
     if let Some(git_sync) = settings.git_sync.as_mut() {
         redact_git_sync_webhook_secrets(git_sync);
     }
+    settings.datatable =
+        windmill_common::workspaces::strip_datatable_permissions(settings.datatable.take());
 
     Ok(Json(settings))
 }
@@ -1147,8 +1152,10 @@ async fn get_public_settings(
     .await
     .map_err(|e| Error::internal_err(format!("getting public settings: {e:#}")))?;
 
-    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+    let mut settings = not_found_if_none(settings, "workspace settings", &w_id)?;
     tx.commit().await?;
+    settings.datatable =
+        windmill_common::workspaces::strip_datatable_permissions(settings.datatable.take());
 
     Ok(Json(settings))
 }
@@ -2133,6 +2140,12 @@ struct DataTableListItem {
     name: String,
     resource_type: String,
     resource_path: String,
+    /// The workspace whose entry governs this one, when it is not this workspace — a fork pointing
+    /// at its parent. Its permissions apply here, and only its admins may edit them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    governing_workspace_id: Option<String>,
+    /// Whether the governing entry is under roles.
+    permissioned: bool,
 }
 
 async fn list_datatables(
@@ -2140,26 +2153,29 @@ async fn list_datatables(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<DataTableListItem>> {
-    let config = sqlx::query_scalar!(
-        "SELECT datatable->'datatables' FROM workspace_settings WHERE workspace_id = $1",
-        &w_id
-    )
-    .fetch_one(&db)
-    .await?;
+    let names = list_datatable_names(&db, &w_id).await?;
 
-    let items: Vec<DataTableListItem> = match config {
-        Some(val) => {
-            let map: HashMap<String, DataTable> = serde_json::from_value(val).unwrap_or_default();
-            map.into_iter()
-                .map(|(name, dt)| DataTableListItem {
-                    name,
-                    resource_type: dt.database.resource_type.as_ref().to_string(),
-                    resource_path: dt.database.resource_path,
-                })
-                .collect()
-        }
-        None => vec![],
-    };
+    let mut items = Vec::with_capacity(names.len());
+    for name in names {
+        // A pointer entry owns no database, so what it resolves to is the only truthful answer
+        // here; a chain that cannot be followed is reported with what the caller can still see.
+        let Ok(governing) = resolve_governing_datatable(&db, &w_id, &name).await else {
+            continue;
+        };
+        let database = governing
+            .datatable
+            .database
+            .as_ref()
+            .expect("a governing entry owns a database");
+        items.push(DataTableListItem {
+            name,
+            resource_type: database.resource_type.as_ref().to_string(),
+            resource_path: database.resource_path.clone(),
+            governing_workspace_id: (governing.workspace_id != w_id)
+                .then(|| governing.workspace_id.clone()),
+            permissioned: governing.datatable.permissions.is_some(),
+        });
+    }
 
     Ok(Json(items))
 }
@@ -2334,7 +2350,7 @@ async fn test_datatable_connection(
 }
 
 async fn list_datatable_schemas(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<DataTableSchema>> {
@@ -2342,7 +2358,7 @@ async fn list_datatable_schemas(
     let mut results = Vec::new();
 
     for datatable_name in datatable_names {
-        let schema = match get_datatable_schema(&db, &w_id, &datatable_name).await {
+        let schema = match get_datatable_schema(&db, &authed, &w_id, &datatable_name).await {
             Ok(schemas) => DataTableSchema { datatable_name, schemas, error: None },
             Err(e) => DataTableSchema {
                 datatable_name,
@@ -2357,7 +2373,7 @@ async fn list_datatable_schemas(
 }
 
 async fn list_datatable_tables(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<DataTableTables>> {
@@ -2365,7 +2381,7 @@ async fn list_datatable_tables(
     let mut results = Vec::new();
 
     for datatable_name in datatable_names {
-        let tables = match get_datatable_tables(&db, &w_id, &datatable_name).await {
+        let tables = match get_datatable_tables(&db, &authed, &w_id, &datatable_name).await {
             Ok(schemas) => DataTableTables { datatable_name, schemas, error: None },
             Err(e) => DataTableTables {
                 datatable_name,
@@ -2380,13 +2396,14 @@ async fn list_datatable_tables(
 }
 
 async fn get_datatable_table_schema(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(query): Query<GetDataTableSchemaQuery>,
 ) -> JsonResult<DataTableTableSchema> {
     let columns = get_datatable_table_columns(
         &db,
+        &authed,
         &w_id,
         &query.datatable_name,
         &query.schema_name,
@@ -2418,13 +2435,38 @@ async fn list_datatable_names(db: &DB, w_id: &str) -> Result<Vec<String>> {
     .collect())
 }
 
-async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Result<SchemaMap> {
-    // Get the datatable resource (connection credentials)
-    let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+/// Connect to a data table as the caller, not as `admin`: the role they named, or the data table's
+/// default. A data table not under roles resolves as `admin`, exactly as it did before roles.
+///
+/// Every schema-browsing query below then reports what this Postgres role can actually reach,
+/// which is why they filter on `has_schema_privilege` — `pg_catalog` is world-readable, so an
+/// unfiltered listing would name schemas the connection cannot even enter.
+async fn resolve_datatable_pg_as_caller(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    datatable_name: &str,
+    role: Option<&str>,
+) -> Result<PgDatabase> {
+    let db_resource = get_datatable_resource_from_db(
+        db,
+        w_id,
+        datatable_name,
+        role,
+        DatatableAccess::Authed(authed.to_authed_ref()),
+    )
+    .await?;
+    serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))
+}
 
-    // Parse the resource as PgDatabase
-    let pg_db: PgDatabase = serde_json::from_value(db_resource)
-        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+async fn get_datatable_schema(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    datatable_name: &str,
+) -> Result<SchemaMap> {
+    let pg_db = resolve_datatable_pg_as_caller(db, authed, w_id, datatable_name, None).await?;
 
     // Connect to the datatable database
     let (client, connection) = pg_db.connect(Some(db)).await?;
@@ -2444,6 +2486,7 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
             FROM pg_namespace
             WHERE nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
               AND nspname NOT LIKE 'pg_%'
+              AND has_schema_privilege(oid, 'USAGE')
             ORDER BY nspname
             "#,
             &[],
@@ -2511,10 +2554,13 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
     Ok(schema_map)
 }
 
-async fn get_datatable_tables(db: &DB, w_id: &str, datatable_name: &str) -> Result<TableListMap> {
-    let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
-    let pg_db: PgDatabase = serde_json::from_value(db_resource)
-        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+async fn get_datatable_tables(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    datatable_name: &str,
+) -> Result<TableListMap> {
+    let pg_db = resolve_datatable_pg_as_caller(db, authed, w_id, datatable_name, None).await?;
     let (client, connection) = pg_db.connect(Some(db)).await?;
 
     tokio::spawn(async move {
@@ -2530,6 +2576,7 @@ async fn get_datatable_tables(db: &DB, w_id: &str, datatable_name: &str) -> Resu
             FROM pg_namespace
             WHERE nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
               AND nspname NOT LIKE 'pg_%'
+              AND has_schema_privilege(oid, 'USAGE')
             ORDER BY nspname
             "#,
             &[],
@@ -2578,6 +2625,7 @@ async fn get_datatable_tables(db: &DB, w_id: &str, datatable_name: &str) -> Resu
 
 async fn get_datatable_table_columns(
     db: &DB,
+    authed: &ApiAuthed,
     w_id: &str,
     datatable_name: &str,
     schema_name: &str,
@@ -2590,9 +2638,7 @@ async fn get_datatable_table_columns(
         )));
     }
 
-    let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
-    let pg_db: PgDatabase = serde_json::from_value(db_resource)
-        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+    let pg_db = resolve_datatable_pg_as_caller(db, authed, w_id, datatable_name, None).await?;
     let (client, connection) = pg_db.connect(Some(db)).await?;
 
     tokio::spawn(async move {
@@ -2853,22 +2899,13 @@ pub(crate) async fn resolve_pg_source_checked(
 /// Whether the data table `name` is backed by the Windmill instance's own PostgreSQL
 /// rather than a user resource.
 pub(crate) async fn is_instance_datatable(db: &DB, w_id: &str, name: &str) -> Result<bool> {
-    let config = sqlx::query_scalar!(
-        "SELECT datatable->'datatables'->$2 FROM workspace_settings WHERE workspace_id = $1",
-        w_id,
-        name
-    )
-    .fetch_optional(db)
-    .await?
-    .flatten();
-    Ok(config
-        .and_then(|v| {
-            v.get("database")
-                .and_then(|d| d.get("resource_type"))
-                .and_then(|r| r.as_str())
-                .map(|s| s == "instance")
-        })
-        .unwrap_or(false))
+    // Resolved rather than read: a pointer entry owns no database of its own, so only the entry it
+    // lands on can answer. A name that resolves to nothing keeps the historical `false`.
+    Ok(resolve_governing_datatable(db, w_id, name)
+        .await
+        .ok()
+        .and_then(|g| g.datatable.database)
+        .is_some_and(|d| d.resource_type == DataTableCatalogResourceType::Instance))
 }
 
 /// Same, for the `datatable://<name>` / `$res:<path>` form the import endpoints take.
@@ -3532,18 +3569,34 @@ async fn edit_datatable_config(
             .get(name.as_str())
             .copied()
             .unwrap_or(name.as_str());
-        dt.migrations_enabled = match old_datatables.get(lookup) {
+        let old = old_datatables.get(lookup);
+        dt.migrations_enabled = match old {
             Some(old) => old.migrations_enabled,
             None => {
                 // Keyed by how the substrate is serialized into `workspace_settings`,
                 // so these line up with the `datatable_configured` adoption counts.
-                created_substrates.push(match dt.database.resource_type {
-                    DataTableCatalogResourceType::Instance => "instance",
-                    DataTableCatalogResourceType::Postgresql => "postgresql",
+                created_substrates.push(match dt.database.as_ref().map(|d| d.resource_type) {
+                    Some(DataTableCatalogResourceType::Instance) => "instance",
+                    Some(DataTableCatalogResourceType::Postgresql) => "postgresql",
+                    None => "reference",
                 });
                 Some(true)
             }
         };
+        // Three fields this form does not own, carried across from the stored entry rather than
+        // taken from the request. `permissions` is an access decision, edited through its own
+        // endpoint; `reference` is what makes a fork answer to the workspace that governs its data
+        // table, and letting a save clear it would hand the fork the database outright; and
+        // `forked_from` is the clone stamp the fork flow writes. Only fork creation writes any of
+        // them, so a settings save can neither widen nor lose them.
+        dt.permissions = old.and_then(|old| old.permissions.clone());
+        dt.reference = old.and_then(|old| old.reference.clone());
+        dt.forked_from = old.and_then(|old| old.forked_from.clone());
+        // A pointer names no database of its own, so the form's empty `database` is correct there.
+        if dt.reference.is_some() {
+            dt.database = None;
+        }
+        windmill_common::workspaces::validate_datatable_shape(name, dt)?;
     }
 
     let args_for_audit = format!("{:?}", new_config.settings);
@@ -3558,16 +3611,22 @@ async fn edit_datatable_config(
     )
     .await?;
 
-    // Check that non-superadmins are not abusing Instance databases
+    // Check that non-superadmins are not abusing Instance databases, nor pointing an entry at
+    // another workspace's data table. Both reach a database this workspace does not own: an
+    // instance database directly, a reference through whoever governs it.
     if !is_superadmin {
         for (name, dt) in new_config.settings.datatables.iter() {
-            if dt.database.resource_type == DataTableCatalogResourceType::Instance {
-                let old_dt = old_datatables.get(name);
-                if old_dt.is_none()
-                    || old_dt.unwrap().database.resource_type
-                        != DataTableCatalogResourceType::Instance
-                    || old_dt.unwrap().database.resource_path != dt.database.resource_path
-                {
+            let old_dt = old_datatables.get(name);
+            if dt
+                .database
+                .as_ref()
+                .is_some_and(|d| d.resource_type == DataTableCatalogResourceType::Instance)
+            {
+                let unchanged = old_dt.and_then(|o| o.database.as_ref()).is_some_and(|o| {
+                    o.resource_type == DataTableCatalogResourceType::Instance
+                        && Some(&o.resource_path) == dt.database.as_ref().map(|d| &d.resource_path)
+                });
+                if !unchanged {
                     return Err(Error::BadRequest(
                         "Only superadmins can create or modify data tables with Instance databases"
                             .to_string(),
@@ -7440,6 +7499,89 @@ async fn snapshot_datatable_schema(
         .map_err(|e| Error::internal_err(format!("Failed to serialize schema: {}", e)))
 }
 
+/// Turn every data table the fork chose to keep into a pointer at the parent's entry.
+///
+/// `clone_workspace_data` copies `workspace_settings` wholesale, so a kept data table arrives as a
+/// byte-identical copy naming the parent's database — including the parent's `permissions`, which
+/// a fork admin could then edit to widen their own access to it. A pointer has nothing local to
+/// edit: the parent's entry stays the only place the decision lives.
+///
+/// The cloned data tables are skipped: they own a fresh database of their own, and they keep the
+/// copied `permissions` as their starting point, which they then govern.
+async fn point_kept_datatables_at_parent(
+    tx: &mut Transaction<'_, Postgres>,
+    parent_w_id: &str,
+    forked_w_id: &str,
+    cloned: &[ForkedDatatableInfo],
+) -> Result<()> {
+    let settings: Option<serde_json::Value> = sqlx::query_scalar!(
+        "SELECT datatable FROM workspace_settings WHERE workspace_id = $1",
+        forked_w_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?
+    .flatten();
+
+    let Some(mut settings) = settings else {
+        return Ok(());
+    };
+    let Some(datatables) = settings
+        .get_mut("datatables")
+        .and_then(|d| d.as_object_mut())
+    else {
+        return Ok(());
+    };
+
+    let mut changed = false;
+    for (name, entry) in datatables.iter_mut() {
+        if cloned.iter().any(|c| &c.name == name) {
+            continue;
+        }
+        let dt: DataTable = match serde_json::from_value(entry.clone()) {
+            Ok(dt) => dt,
+            Err(_) => continue,
+        };
+        // Already a pointer: the parent was itself a fork, and its entry names the workspace that
+        // governs. Following it from here is the same answer, so leave it alone.
+        if dt.reference.is_some() {
+            continue;
+        }
+        // Only instance databases. A resource-backed data table names a resource, and the settings
+        // clone gave the fork its own copy of that resource in its own workspace — pointing at the
+        // parent's entry would silently move the fork onto the parent's resource instead.
+        if dt
+            .database
+            .as_ref()
+            .is_none_or(|d| d.resource_type != DataTableCatalogResourceType::Instance)
+        {
+            continue;
+        }
+        *entry = serde_json::to_value(DataTable {
+            database: None,
+            reference: Some(windmill_common::workspaces::DataTableReference {
+                workspace_id: parent_w_id.to_string(),
+                datatable: name.clone(),
+            }),
+            forked_from: None,
+            migrations_enabled: dt.migrations_enabled,
+            permissions: None,
+        })
+        .map_err(|e| Error::internal_err(format!("serializing data table '{name}': {e}")))?;
+        changed = true;
+    }
+
+    if changed {
+        sqlx::query!(
+            "UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = $2",
+            settings,
+            forked_w_id
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
 async fn apply_forked_datatable(
     db: &DB,
     tx: &mut Transaction<'_, Postgres>,
@@ -7478,7 +7620,18 @@ async fn apply_forked_datatable(
     let dt: DataTable = serde_json::from_value(config_val)
         .map_err(|e| Error::internal_err(format!("Failed to parse datatable config: {}", e)))?;
 
-    if dt.database.resource_type == DataTableCatalogResourceType::Instance {
+    // A cloned data table owns its copy, so the fork's entry must be terminal. It arrived that way
+    // from the settings clone; a pointer here would mean the parent's own entry was one, and the
+    // clone has to name its new database rather than follow anything.
+    let database = dt.database.as_ref().ok_or_else(|| {
+        Error::BadRequest(format!(
+            "Data table '{}' points at another workspace's data table and cannot be cloned; \
+             fork it from the workspace that owns it.",
+            fdt.name
+        ))
+    })?;
+
+    if database.resource_type == DataTableCatalogResourceType::Instance {
         // Instance: update resource_path to the new dbname
         sqlx::query!(
             r#"UPDATE workspace_settings
@@ -7496,7 +7649,7 @@ async fn apply_forked_datatable(
         .await?;
     } else {
         // Resource: update the resource's dbname and mark as ws_specific
-        let resource_path = &dt.database.resource_path;
+        let resource_path = &database.resource_path;
         sqlx::query!(
             r#"UPDATE resource
                SET value = jsonb_set(value, '{dbname}', to_jsonb($3::text))
@@ -7972,6 +8125,14 @@ async fn create_workspace_fork(
     for fdt in &nw.forked_datatables {
         apply_forked_datatable(&db, &mut tx, &parent_workspace_id, &forked_id, fdt).await?;
     }
+
+    point_kept_datatables_at_parent(
+        &mut tx,
+        &parent_workspace_id,
+        &forked_id,
+        &nw.forked_datatables,
+    )
+    .await?;
 
     // The settings clone copies the source's ducklake config verbatim — including a parent
     // fork's own `fork_behavior` stamps. Sharing is a per-fork-creation choice, never
