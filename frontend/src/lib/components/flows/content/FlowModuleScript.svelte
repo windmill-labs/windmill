@@ -53,6 +53,7 @@
 	let lock: string | undefined = $state(undefined)
 	let date: string | undefined = $state(undefined)
 	let notFound = $state(false)
+	let notFoundReason: string | undefined = $state(undefined)
 
 	function getCachedKey(path: string, hash: string | undefined) {
 		return `${opWs}-${path}-${hash ?? ''}`
@@ -66,6 +67,7 @@
 		previousCode = cachedValues[key]?.previousCode
 		tag = cachedValues[key]?.tag
 		notFound = cachedValues[key]?.notFound ?? false
+		notFoundReason = undefined
 	}
 
 	getCachedValues(
@@ -97,6 +99,7 @@
 	async function loadCode(path: string, hash: string | undefined) {
 		try {
 			notFound = false
+			notFoundReason = undefined
 			const script = path.startsWith('hub/')
 				? await getScriptByPath(path!)
 				: hash
@@ -119,6 +122,9 @@
 			}
 		} catch (e) {
 			notFound = true
+			// A step can reference a script the viewer has no read grant on, so show the
+			// server's reason rather than always claiming the script is missing.
+			notFoundReason = e?.body
 			console.error(e)
 		}
 	}
@@ -140,7 +146,9 @@
 		<div class="text-xs text-primary mb-4">tag: {tag}</div>
 	{/if}
 	{#if notFound}
-		<div class="text-red-400">script not found at {path} in workspace {opWs}</div>
+		<div class="text-red-400">
+			{notFoundReason ?? `script not found at ${path} in workspace ${opWs}`}
+		</div>
 	{:else if showAllCode}
 		{#if showDiff}
 			{#key (previousCode ?? '') + (code ?? '')}

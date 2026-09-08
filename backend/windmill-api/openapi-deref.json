@@ -13818,13 +13818,6 @@
             "schema": {
               "type": "boolean"
             }
-          },
-          {
-            "name": "authed",
-            "in": "query",
-            "schema": {
-              "type": "boolean"
-            }
           }
         ],
         "responses": {
