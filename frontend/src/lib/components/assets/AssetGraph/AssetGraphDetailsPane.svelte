@@ -163,6 +163,9 @@
 		/** The lineage reaches past what the graph holds: the API cut it at the
 		 *  part nearest the selection. */
 		selectionColumnTruncated?: boolean
+		/** That trace could not be fetched. Distinguished from an empty one: a
+		 *  project without the analysis pass draws nothing either. */
+		selectionColumnFailed?: boolean
 		/** dbt provenance of the selected relation, when a dbt project
 		 *  materializes it — carries the model's own SQL. */
 		selectionDbt?: DbtAssetProvenance
@@ -298,6 +301,7 @@
 		selectionColumnGraph,
 		selectionColumnLoading = false,
 		selectionColumnTruncated = false,
+		selectionColumnFailed = false,
 		selectionDbt,
 		schemaCanEvolve = true,
 		selectionForkMaterialization = undefined,
@@ -1250,13 +1254,14 @@
 											targetLabel={selection.path}
 											loading={selectionColumnLoading}
 											truncated={selectionColumnTruncated}
+											failed={selectionColumnFailed}
 										/>
 										<div class="flex-1 min-h-0">
 											<DucklakeAssetPanel path={selection.path} {workspace} {schemaCanEvolve} />
 										</div>
 									</div>
 								{/key}
-							{:else if selectionDbt && (selectionDbt.raw_code || selectionDbtHasColumns || selectionColumnNodes.length > 0 || selectionColumnLoading)}
+							{:else if selectionDbt && (selectionDbt.raw_code || selectionDbtHasColumns || selectionColumnNodes.length > 0 || selectionColumnLoading || selectionColumnFailed)}
 								<!-- The transform behind the node. Read-only on purpose: dbt
 								     development is a local loop (`dbt run --select`, `dbt test`
 								     against a dev target), and a browser textarea over one file
@@ -1289,6 +1294,7 @@
 										targetLabel={selectionDbt.unique_id}
 										loading={selectionColumnLoading}
 										truncated={selectionColumnTruncated}
+										failed={selectionColumnFailed}
 									/>
 									{#if selectionDbt.raw_code}
 										<div class="flex-1 min-h-0 overflow-auto">

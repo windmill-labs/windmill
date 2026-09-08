@@ -586,6 +586,7 @@
 							columnGraph={selectionColumnGraph}
 							columnLoading={columnLineage.loading}
 							columnTruncated={columnLineage.truncated}
+							columnFailed={columnLineage.failed}
 							onOpenFile={open}
 							onClose={() => (graphSelection = undefined)}
 						/>

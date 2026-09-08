@@ -1037,6 +1037,11 @@ impl ColumnLineageQuery {
                 "at least one asset_path is required".to_string(),
             ));
         }
+        if asset_paths.len() > MAX_ASKED_RELATIONS {
+            return Err(windmill_common::error::Error::BadRequest(format!(
+                "at most {MAX_ASKED_RELATIONS} asset_path values may be asked about at once"
+            )));
+        }
         Ok(ColumnLineageQuery { asset_paths, dbt_script_hash })
     }
 }
@@ -1066,14 +1071,22 @@ const MAX_TRACE_EDGES: usize = 5_000;
 /// bound says.
 const MAX_OWNER_ROUNDS: usize = 8;
 
-/// How many edges one trace may HOLD while walking, as opposed to answer with.
-/// A project's edges arrive whole — the walk decides what is in the component,
-/// so a `LIMIT` on the fetch would cut an arbitrary set that need not even
-/// contain the asked-for relation — and a project is bounded at ingest by
-/// `MAX_COLUMN_EDGES`, which is 200k. Rounds are what this bounds: reading a
-/// second project's worth on top of an already outsized first one buys nothing,
-/// since the walk is going to stop at `MAX_TRACE_EDGES` regardless.
-const MAX_HELD_EDGES: usize = 100_000;
+/// How many edges a trace may already hold before it stops looking for projects
+/// it has not read. NOT a bound on what one trace fetches: the seeds' own
+/// projects are read whole whatever their size, because reading them IS the
+/// answer, and a project's edges arrive whole in any case — the walk is what
+/// decides which of them are in the component, so a `LIMIT` would cut a set that
+/// need not contain the asked-for relation at all. What a single fetch is
+/// bounded by is the ingest's `MAX_COLUMN_EDGES` per version. This bounds the
+/// EXPANSION on top of that: reading a further project's worth once a trace is
+/// already this size buys nothing the walk will not cut at `MAX_TRACE_EDGES`.
+const EXPANSION_EDGE_BUDGET: usize = 100_000;
+
+/// How many relations one request may ask about. Generous: the pipeline page
+/// sends every dbt relation the selection's own producer lineage reaches, which
+/// is a handful even in a large folder. It exists so a crafted request cannot
+/// hand `= ANY($2)` an arbitrarily long array.
+const MAX_ASKED_RELATIONS: usize = 1_000;
 
 /// A stored project graph: a deployed version, or one job's snapshot of it.
 /// `script_hash` is NULL for an editor buffer's parse, which names no version.
@@ -1140,8 +1153,9 @@ pub async fn dbt_column_lineage_for(
     let mut answer: Vec<DbtColumnLineageEdge> = Vec::new();
     let mut pending: Vec<String> = seeds.iter().cloned().collect();
     let mut truncated = false;
+    let mut rounds = 0usize;
 
-    for _ in 0..MAX_OWNER_ROUNDS {
+    loop {
         if pending.is_empty() {
             break;
         }
@@ -1232,7 +1246,20 @@ pub async fn dbt_column_lineage_for(
             .map(|o| (o.script_path, o.script_hash, o.job_id))
             .filter(|k| read.insert(k.clone()))
             .collect();
+        // Nothing left this caller may read and has not read: the component is
+        // whole, however many relations were still waiting to be asked about.
+        // Their owners are projects already in hand.
         if fresh.is_empty() {
+            break;
+        }
+        // From here a project exists that this answer will not contain, so the
+        // two stops below are cuts and are reported as such. Deciding it after
+        // the owners query rather than before is what keeps a big project's
+        // small component from being called truncated: `pending` alone only says
+        // a relation has not been ASKED about, not that anything was left out.
+        rounds += 1;
+        if rounds > MAX_OWNER_ROUNDS || edges.len() >= EXPANSION_EDGE_BUDGET {
+            truncated = true;
             break;
         }
         let fresh_paths: Vec<String> = fresh.iter().map(|k| k.0.clone()).collect();
@@ -1313,20 +1340,9 @@ pub async fn dbt_column_lineage_for(
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect();
-        // Stop discovering projects once the held set is outsized. The tail
-        // below reports what that leaves unresolved, and reports nothing when
-        // the walk had already reached everything.
-        if edges.len() >= MAX_HELD_EDGES {
-            break;
-        }
     }
     tx.commit().await?;
-    // Out of rounds with relations still unresolved: more of the component
-    // exists, which is what hitting the edge bound also means.
-    Ok(Json(ColumnLineageResponse {
-        truncated: truncated || !pending.is_empty(),
-        edges: answer,
-    }))
+    Ok(Json(ColumnLineageResponse { truncated, edges: answer }))
 }
 
 struct WalkedComponent {
