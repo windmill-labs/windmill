@@ -64,6 +64,87 @@ struct Config {
 const OBJECT_STORE_SECRET_KEYS: &[&str] =
     &["access_key", "secret_key", "accessKey", "serviceAccountKey"];
 
+/// What an obfuscated read shows a caller who may not see the real credential.
+const OBJECT_STORE_SECRET_MASK: &str = "*****";
+
+/// Blank the secrets in one worker-group config, in place.
+///
+/// Worker-group configs are instance-global and expose `env_vars_static` and the bucket
+/// credentials of `object_store_cache_config`; a job token (capped at workspace admin) gets this
+/// view even when its identity is a superadmin, as does a devops user who is not an instance
+/// admin. See `is_instance_admin` (GHSA-hfh4-cx4h-3fcr). Every route that returns a worker-group
+/// config must go through here — a single unobfuscated read hands over the whole bucket.
+fn obfuscate_worker_config(config: &mut serde_json::Value) {
+    let Some(config) = config.as_object_mut() else {
+        return;
+    };
+    if let Some(env_vars) = config
+        .get_mut("env_vars_static")
+        .and_then(|v| v.as_object_mut())
+    {
+        for (_, value) in env_vars.iter_mut() {
+            // the value is a string, so to_string() it and take -2 to drop the quotes
+            *value = serde_json::json!("*".repeat(value.to_string().len().saturating_sub(2)));
+        }
+    }
+    if let Some(store) = config
+        .get_mut("object_store_cache_config")
+        .and_then(|v| v.as_object_mut())
+    {
+        for key in OBJECT_STORE_SECRET_KEYS {
+            if let Some(secret) = store.get_mut(*key) {
+                *secret = serde_json::json!(OBJECT_STORE_SECRET_MASK);
+            }
+        }
+    }
+}
+
+/// Put back the credentials behind [`OBJECT_STORE_SECRET_MASK`]. A devops user who is not an
+/// instance admin edits the group from the obfuscated view, so a plain save would otherwise
+/// store the mask as the secret and take the group's dependency cache offline — silently, since
+/// a worker that cannot build its override just falls back to caching on local disk.
+async fn restore_masked_object_store_secrets(
+    db: &DB,
+    name: &str,
+    config: &mut serde_json::Value,
+) -> error::Result<()> {
+    let Some(store) = config
+        .get_mut("object_store_cache_config")
+        .and_then(|v| v.as_object_mut())
+    else {
+        return Ok(());
+    };
+    let masked = OBJECT_STORE_SECRET_KEYS
+        .iter()
+        .filter(|k| store.get(**k).and_then(|v| v.as_str()) == Some(OBJECT_STORE_SECRET_MASK))
+        .collect::<Vec<_>>();
+    if masked.is_empty() {
+        return Ok(());
+    }
+
+    let stored = sqlx::query_as!(
+        Config,
+        "SELECT name, config FROM config WHERE name = $1",
+        name
+    )
+    .fetch_optional(db)
+    .await?
+    .map(|c| c.config);
+    let stored = stored
+        .as_ref()
+        .and_then(|c| c.get("object_store_cache_config"))
+        .and_then(|v| v.as_object());
+
+    for key in masked {
+        match stored.and_then(|s| s.get(*key)) {
+            Some(secret) => store.insert(key.to_string(), secret.clone()),
+            // Nothing to put back: drop the mask rather than store it.
+            None => store.remove(*key),
+        };
+    }
+    Ok(())
+}
+
 async fn list_worker_groups(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -82,55 +163,12 @@ async fn list_worker_groups(
             }
         }
     }
-    // Worker-group configs are instance-global and expose env_vars_static and the bucket
-    // credentials of object_store_cache_config (may hold secrets); a job token (capped at
-    // workspace admin) gets the obfuscated view even when its identity is a superadmin. See
-    // is_instance_admin (GHSA-hfh4-cx4h-3fcr).
-    let configs = if !is_instance_admin(&authed) {
-        let mut obfuscated_configs: Vec<Config> = vec![];
-        for config in configs_raw {
-            let config_value_opt = config.config.as_object().map(|obj| obj.to_owned());
-            if let Some(mut config_value) = config_value_opt {
-                if let Some(env_var_map) = config_value
-                    .get("env_vars_static")
-                    .map(|obj| obj.as_object())
-                    .flatten()
-                {
-                    let mut new_env_var_map: serde_json::Map<String, serde_json::Value> =
-                        serde_json::Map::new();
-                    for (key, value) in env_var_map {
-                        new_env_var_map.insert(
-                            key.to_owned(),
-                            // we know the value is a string here, so we to_string() it and take -2 to remove the quotes
-                            serde_json::json!("*".repeat(value.to_string().len() - 2)),
-                        );
-                    }
-                    config_value.insert(
-                        "env_vars_static".to_string(),
-                        serde_json::Value::Object(new_env_var_map),
-                    );
-                }
-                if let Some(store) = config_value
-                    .get_mut("object_store_cache_config")
-                    .and_then(|v| v.as_object_mut())
-                {
-                    for key in OBJECT_STORE_SECRET_KEYS {
-                        if let Some(secret) = store.get_mut(*key) {
-                            *secret = serde_json::json!("*****");
-                        }
-                    }
-                }
-                obfuscated_configs.push(Config {
-                    name: config.name,
-                    config: serde_json::Value::Object(config_value),
-                })
-            }
+    if !is_instance_admin(&authed) {
+        for config in configs_raw.iter_mut() {
+            obfuscate_worker_config(&mut config.config);
         }
-        obfuscated_configs
-    } else {
-        configs_raw
-    };
-    Ok(Json(configs))
+    }
+    Ok(Json(configs_raw))
 }
 
 async fn get_config(
@@ -140,10 +178,20 @@ async fn get_config(
 ) -> error::JsonResult<Option<serde_json::Value>> {
     require_devops_role(&db, &authed).await?;
 
-    let config = sqlx::query_as!(Config, "SELECT name, config FROM config WHERE name = $1", name)
-        .fetch_optional(&db)
-        .await?
-        .map(|c| c.config);
+    let mut config = sqlx::query_as!(
+        Config,
+        "SELECT name, config FROM config WHERE name = $1",
+        name
+    )
+    .fetch_optional(&db)
+    .await?
+    .map(|c| c.config);
+
+    if !is_instance_admin(&authed) {
+        if let Some(config) = config.as_mut() {
+            obfuscate_worker_config(config);
+        }
+    }
 
     Ok(Json(config))
 }
@@ -152,9 +200,13 @@ async fn update_config(
     Path(name): Path<String>,
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
-    Json(config): Json<serde_json::Value>,
+    Json(mut config): Json<serde_json::Value>,
 ) -> error::Result<String> {
     require_devops_role(&db, &authed).await?;
+
+    if name.starts_with("worker__") {
+        restore_masked_object_store_secrets(&db, &name, &mut config).await?;
+    }
 
     #[cfg(not(feature = "enterprise"))]
     let config = if name.starts_with("worker__") {

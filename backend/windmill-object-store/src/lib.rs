@@ -188,11 +188,24 @@ async fn resolve_object_store(
     match &s.refresh {
         Some(refresh) if refresh.refresh_needed() => {
             let refresh = refresh.clone();
+            let refreshed_from = s.store.clone();
             drop(settings);
             let new_store = refresh.refresh().await?;
-            let arc = new_store.store.clone();
-            *settings_lock.write().await = Some(new_store);
-            Some(arc)
+            let mut settings = settings_lock.write().await;
+            match settings.as_ref() {
+                // A reload may have installed a different store while the credentials were
+                // being minted; that one reflects newer config, so the refresh is stale.
+                Some(current) if !Arc::ptr_eq(&current.store, &refreshed_from) => {
+                    Some(current.store.clone())
+                }
+                Some(_) => {
+                    let arc = new_store.store.clone();
+                    *settings = Some(new_store);
+                    Some(arc)
+                }
+                // Cleared while refreshing.
+                None => None,
+            }
         }
         _ => Some(s.store.clone()),
     }
@@ -214,8 +227,10 @@ pub async fn get_cache_object_store() -> Option<Arc<dyn ObjectStore>> {
     resolve_object_store(&OBJECT_STORE_SETTINGS).await
 }
 
-/// True when an override is configured but has no usable store, so the next settings pass
-/// retries a build that failed on a transient error (an OIDC issuer not yet reachable, say).
+/// True when an override is configured but has no usable store. The caller's short retry is the
+/// fast path back; this is the backstop, and the full settings reload it rides on is 12h apart by
+/// default (`SETTINGS_RELOAD_PERIOD_SECS`), so an outage outlasting the retry keeps the group's
+/// dependency cache local until then or until someone edits the group config.
 #[cfg(feature = "parquet")]
 pub async fn cache_object_store_override_failed() -> bool {
     CACHE_OBJECT_STORE_OVERRIDDEN.load(std::sync::atomic::Ordering::Relaxed)
@@ -224,11 +239,14 @@ pub async fn cache_object_store_override_failed() -> bool {
 
 /// Apply the `object_store_cache_config` of this worker's group. `None` (or JSON null) drops the
 /// override and returns the worker to the instance object store.
+///
+/// Returns [`ObjectStoreReload::Later`] when the store did not build for a reason that may pass —
+/// the caller is expected to retry shortly, as `initial_load` does for the instance store.
 #[cfg(feature = "parquet")]
 pub async fn reload_cache_object_store_override(
     db: &windmill_common::DB,
     settings: Option<serde_json::Value>,
-) {
+) -> ObjectStoreReload {
     use std::sync::atomic::Ordering;
     use windmill_common::ee_oss::{get_license_plan, LicensePlan};
 
@@ -245,33 +263,39 @@ pub async fn reload_cache_object_store_override(
                 "Worker group object store cache override removed, falling back to the instance object store"
             );
         }
-        return;
+        return ObjectStoreReload::Never;
     };
 
     if matches!(get_license_plan().await, LicensePlan::Pro) {
         tracing::error!("Object store cache override is not available for pro plan");
-        return;
+        // Also covers a downgrade: a store loaded while the plan still allowed it must not
+        // outlive the entitlement.
+        if CACHE_OBJECT_STORE_OVERRIDDEN.swap(false, Ordering::Relaxed) {
+            *CACHE_OBJECT_STORE_OVERRIDE.write().await = None;
+        }
+        return ObjectStoreReload::Never;
     }
 
     // Claim the override before building it: until a store is in place the dependency cache
     // must stay local-only rather than reach for the instance bucket.
     CACHE_OBJECT_STORE_OVERRIDDEN.store(true, Ordering::Relaxed);
 
-    let store = match serde_json::from_value::<ObjectSettings>(settings) {
+    let (store, reload) = match serde_json::from_value::<ObjectSettings>(settings) {
         Ok(setting) => match build_object_store_from_settings(setting, Some(db)).await {
-            Ok(store) => Some(store),
+            Ok(store) => (Some(store), ObjectStoreReload::Never),
             Err(e) => {
                 tracing::error!(
-                    "Error building the worker group object store cache override, the dependency cache stays local to this worker: {e:?}"
+                    "Error building the worker group object store cache override, the dependency cache stays local to this worker until it builds: {e:?}"
                 );
-                None
+                (None, ObjectStoreReload::Later)
             }
         },
+        // A malformed config will read the same on every retry.
         Err(e) => {
             tracing::error!(
                 "Error parsing the worker group object store cache override, the dependency cache stays local to this worker: {e:?}"
             );
-            None
+            (None, ObjectStoreReload::Never)
         }
     };
 
@@ -282,6 +306,7 @@ pub async fn reload_cache_object_store_override(
             "Dependency cache of this worker group now uses its own object store, not the instance one"
         );
     }
+    reload
 }
 
 #[cfg(feature = "parquet")]
@@ -2453,8 +2478,11 @@ mod tests {
     /// A worker group override that is configured but has no usable store must leave the
     /// dependency cache with no object store at all. Falling back to the instance one would
     /// write the group's cache into the bucket the operator redirected it away from.
+    // Serialized with the other test that swaps OBJECT_STORE_SETTINGS: the store is
+    // process-global and CI runs this binary with --test-threads=10.
     #[cfg(feature = "parquet")]
     #[tokio::test]
+    #[serial_test::serial(object_store_settings)]
     async fn test_get_cache_object_store_override() {
         use object_store::{path::Path, ObjectStore, PutPayload};
         use std::sync::atomic::Ordering;
@@ -2480,23 +2508,28 @@ mod tests {
 
         *OBJECT_STORE_SETTINGS.write().await = Some(ExpirableObjectStore::from(instance));
 
-        // No override: the dependency cache shares the instance store.
         let store = get_cache_object_store().await.unwrap();
         assert_eq!(marker_of(&store).await, "instance");
         assert!(!cache_object_store_override_failed().await);
 
-        // Override in place.
         CACHE_OBJECT_STORE_OVERRIDDEN.store(true, Ordering::Relaxed);
         *CACHE_OBJECT_STORE_OVERRIDE.write().await = Some(ExpirableObjectStore::from(group));
         let store = get_cache_object_store().await.unwrap();
         assert_eq!(marker_of(&store).await, "group");
 
-        // Override configured but unbuilt, as a failed reload leaves it.
+        // Configured but unbuilt, as a failed reload leaves it: no store at all, rather than the
+        // instance bucket the operator redirected the group away from.
         *CACHE_OBJECT_STORE_OVERRIDE.write().await = None;
         assert!(get_cache_object_store().await.is_none());
         assert!(cache_object_store_override_failed().await);
 
-        CACHE_OBJECT_STORE_OVERRIDDEN.store(false, Ordering::Relaxed);
+        // The teardown branch returns before the pool is used, so a lazy one is enough.
+        let db = sqlx::postgres::PgPool::connect_lazy("postgres://localhost/unused").unwrap();
+        reload_cache_object_store_override(&db, None).await;
+        let store = get_cache_object_store().await.unwrap();
+        assert_eq!(marker_of(&store).await, "instance");
+        assert!(!cache_object_store_override_failed().await);
+
         *OBJECT_STORE_SETTINGS.write().await = None;
     }
 
@@ -2504,6 +2537,7 @@ mod tests {
 
     #[cfg(feature = "parquet")]
     #[tokio::test]
+    #[serial_test::serial(object_store_settings)]
     async fn test_get_logs_from_store_with_filesystem() {
         use futures::StreamExt;
         use object_store::{path::Path, ObjectStore, PutPayload};

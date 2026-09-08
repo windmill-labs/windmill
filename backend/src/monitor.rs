@@ -5129,17 +5129,35 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
                 .as_ref()
                 .is_some_and(|dws| !dws.is_empty());
 
-        // Outside the `!=` block below so a build that failed on a transient error is retried
-        // by the next settings pass, which sees an unchanged config.
+        // Outside the `!=` block below so a failed build is retried by a later settings pass,
+        // which sees an unchanged config.
         #[cfg(feature = "parquet")]
         if wc.object_store_cache_config != config.object_store_cache_config
             || windmill_object_store::cache_object_store_override_failed().await
         {
-            windmill_object_store::reload_cache_object_store_override(
-                db,
-                config.object_store_cache_config.clone(),
-            )
-            .await;
+            let settings = config.object_store_cache_config.clone();
+            if matches!(
+                windmill_object_store::reload_cache_object_store_override(db, settings.clone())
+                    .await,
+                ObjectStoreReload::Later
+            ) {
+                // The whole group's dependency cache is local-only until this builds, and the
+                // settings pass that would otherwise retry is 12h away, so try again soon —
+                // an AWS OIDC store cannot mint its first token until the server is serving.
+                let db = db.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                    // The group config may have been edited during the wait; installing the
+                    // settings this retry captured would then pin the worker to a store the
+                    // group no longer asks for, and clear the flag the newer one needs.
+                    if WORKER_CONFIG.load().object_store_cache_config == settings
+                        && windmill_object_store::cache_object_store_override_failed().await
+                    {
+                        windmill_object_store::reload_cache_object_store_override(&db, settings)
+                            .await;
+                    }
+                });
+            }
         }
 
         if **wc != config || has_dedicated {
