@@ -3575,6 +3575,43 @@ async fn edit_datatable_config(
     for r in &new_config.renames {
         crate::datatable_migrations::validate_datatable_path_segment(&r.from)?;
         crate::datatable_migrations::validate_new_datatable_name(&r.to)?;
+        // A rename is a claim about what this save is doing, and other workspaces' pointers are
+        // rewritten from it. Unchecked, a caller could submit an unchanged configuration with
+        // `main -> missing` and repoint every fork of `main` at a name nothing has.
+        if !old_datatables.contains_key(&r.from) {
+            return Err(Error::BadRequest(format!(
+                "Cannot rename data table '{}': this workspace has no such data table",
+                r.from
+            )));
+        }
+        if !new_config.settings.datatables.contains_key(&r.to) {
+            return Err(Error::BadRequest(format!(
+                "Cannot rename data table '{}' to '{}': the save does not contain '{}'",
+                r.from, r.to, r.to
+            )));
+        }
+    }
+    // `A -> B` and `B -> C` applied one after another would move what pointed at `A` all the way
+    // to `C`. Each pointer moves once, from what it named before this save.
+    if new_config.renames.len() > 1 {
+        let mut seen = std::collections::HashSet::new();
+        for r in &new_config.renames {
+            if !seen.insert(r.from.as_str()) {
+                return Err(Error::BadRequest(format!(
+                    "Data table '{}' is renamed twice in one save",
+                    r.from
+                )));
+            }
+        }
+        for r in &new_config.renames {
+            if seen.contains(r.to.as_str()) && r.to != r.from {
+                return Err(Error::BadRequest(format!(
+                    "Data table '{}' is both renamed and the target of another rename in one \
+                     save; do them one at a time",
+                    r.to
+                )));
+            }
+        }
     }
 
     // Map new name -> old name so a renamed data table inherits the previous

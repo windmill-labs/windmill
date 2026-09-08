@@ -959,7 +959,6 @@ pub const PROTECTED_SETTINGS: &[&str] = &[
     "ducklake_settings",
     "custom_instance_pg_databases",
     "custom_instance_replication_pwd",
-    crate::global_settings::DATATABLE_ROLES_SETTING,
     "uid",
     "rsa_keys",
     "jwt_secret",
@@ -985,9 +984,6 @@ pub const HIDDEN_SETTINGS: &[&str] = &[
     // Server-only (written by setup/refresh via direct SQL), never operator-authored —
     // hidden so the config machinery can't read, rewrite, or drop it.
     "custom_instance_replication_pwd",
-    // The data table role catalog, one generated Postgres password per role. Same reasoning as
-    // the line above: server-written, never operator-authored, and it must not reach an export.
-    crate::global_settings::DATATABLE_ROLES_SETTING,
 ];
 
 /// Top-level settings whose entire value is sensitive and must be fully redacted in logs.

@@ -341,9 +341,9 @@ async fn concurrent_role_creations_both_survive(db: Pool<Postgres>) -> anyhow::R
     let suffix: String = uuid::Uuid::new_v4().simple().to_string()[..8].to_string();
     let names = [format!("wmtest_a_{suffix}"), format!("wmtest_b_{suffix}")];
 
-    // The catalog is one JSON document, so create is read-modify-write. Unserialized, both of
-    // these read the same snapshot, both `CREATE ROLE` succeeds, and the second write drops the
-    // first entry — leaving a live cluster login nobody recorded.
+    // The cluster DDL is not visible to another transaction until commit, so without the lock both
+    // of these pass their `pg_roles` existence check and one loses — leaving a live cluster login
+    // the catalog never recorded.
     let create = |name: String| async move {
         let resp = authed(
             client().post(format!(

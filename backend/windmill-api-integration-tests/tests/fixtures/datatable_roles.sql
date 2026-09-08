@@ -2,14 +2,13 @@
 -- carrying a copy. `test-user-2` is a non-admin of the parent and an admin of the fork: the shape
 -- the pointer exists for.
 
+-- Empty registry: role provisioning grants CONNECT on every database named here, and the data
+-- table's `dt_main` is a name in workspace settings, not a database that exists.
 INSERT INTO global_settings (name, value) VALUES
-    -- Empty registry: role provisioning grants CONNECT on every database named here, and the
-    -- data table's `dt_main` is a name in workspace settings, not a database that exists.
-    ('custom_instance_pg_databases', '{"user_pwd": "pw", "databases": {}}'::jsonb),
-    -- The role catalog has its own row: it holds generated credentials and must stay out of the
-    -- operator-facing config the neighbouring row belongs to.
-    ('datatable_roles', '{"role1": {"name": "analytics", "enabled": true, "pwd": "pw"}}'::jsonb)
+    ('custom_instance_pg_databases', '{"user_pwd": "pw", "databases": {}}'::jsonb)
     ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value;
+
+INSERT INTO datatable_role (id, name, enabled, pwd) VALUES ('role1', 'analytics', true, 'pw');
 
 UPDATE workspace_settings SET datatable = '{
     "datatables": {

@@ -1325,7 +1325,6 @@ pub async fn get_global_setting(
         .await?
         .map(|x| x.value);
 
-    let value = value.map(|v| windmill_common::datatable_roles::redact_role_catalog_setting(&key, v));
     Ok(Json(value.unwrap_or_else(|| serde_json::Value::Null)))
 }
 
@@ -1363,13 +1362,7 @@ async fn list_global_settings(
     require_super_admin(&db, &authed).await?;
     let settings = sqlx::query_as!(GlobalSetting, "SELECT name, value FROM global_settings")
         .fetch_all(&db)
-        .await?
-        .into_iter()
-        .map(|s| GlobalSetting {
-            value: windmill_common::datatable_roles::redact_role_catalog_setting(&s.name, s.value),
-            name: s.name,
-        })
-        .collect();
+        .await?;
 
     Ok(Json(settings))
 }
@@ -2604,9 +2597,8 @@ async fn create_datatable_role(
     require_super_admin(&db, &authed).await?;
     windmill_common::datatable_roles::validate_role_name(&req.name)?;
 
-    // The catalog is one JSON document, so read, DDL and write are one critical section: two
-    // concurrent creates would otherwise both land in the cluster and the second write would drop
-    // the first, leaving a live login nobody recorded.
+    // The cluster DDL and the row that records it are one transaction under one lock, so a
+    // half-done create cannot leave a live login the catalog does not know about.
     let mut tx = db.begin().await?;
     windmill_common::datatable_roles::lock_role_catalog(&mut tx).await?;
     let mut catalog = windmill_common::datatable_roles::read_role_catalog_tx(&mut tx).await?;
@@ -2621,15 +2613,13 @@ async fn create_datatable_role(
     let pwd = uuid::Uuid::new_v4().to_string();
     windmill_common::datatable_roles::create_instance_role(&mut tx, &req.name, &pwd).await?;
 
-    catalog.insert(
-        id.clone(),
-        windmill_common::datatable_roles::InstanceDatatableRole {
-            name: req.name.clone(),
-            enabled: true,
-            pwd: Some(pwd),
-        },
-    );
-    windmill_common::datatable_roles::write_role_catalog(&mut tx, &catalog).await?;
+    let entry = windmill_common::datatable_roles::InstanceDatatableRole {
+        name: req.name.clone(),
+        enabled: true,
+        pwd: Some(pwd),
+    };
+    windmill_common::datatable_roles::insert_role_catalog_entry(&mut tx, &id, &entry).await?;
+    catalog.insert(id.clone(), entry);
     tx.commit().await?;
     converge_connect_grants_everywhere(&db, &catalog).await;
     windmill_common::feature_usage::log_feature_usage("datatable", "role_created", "");
@@ -2685,8 +2675,8 @@ async fn update_datatable_role(
         updated.enabled = enabled;
     }
 
+    windmill_common::datatable_roles::update_role_catalog_entry(&mut tx, &id, &updated).await?;
     catalog.insert(id.clone(), updated.clone());
-    windmill_common::datatable_roles::write_role_catalog(&mut tx, &catalog).await?;
     tx.commit().await?;
     converge_connect_grants_everywhere(&db, &catalog).await;
 
@@ -2721,15 +2711,14 @@ async fn delete_datatable_role(
     require_super_admin(&db, &authed).await?;
     let mut tx = db.begin().await?;
     windmill_common::datatable_roles::lock_role_catalog(&mut tx).await?;
-    let mut catalog = windmill_common::datatable_roles::read_role_catalog_tx(&mut tx).await?;
+    let catalog = windmill_common::datatable_roles::read_role_catalog_tx(&mut tx).await?;
     let role = catalog
         .get(&id)
         .cloned()
         .ok_or_else(|| error::Error::NotFound(format!("No data table role with id '{id}'")))?;
 
     windmill_common::datatable_roles::drop_instance_role(&db, &mut tx, &role.name).await?;
-    catalog.remove(&id);
-    windmill_common::datatable_roles::write_role_catalog(&mut tx, &catalog).await?;
+    windmill_common::datatable_roles::delete_role_catalog_entry(&mut tx, &id).await?;
     tx.commit().await?;
     // After the drop commits: a tenant naming a role that still exists is harmless, one naming a
     // role that is gone is not, so this only ever runs once the cluster agrees it is gone.
