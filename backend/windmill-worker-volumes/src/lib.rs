@@ -179,11 +179,15 @@ pub fn interpolate_volume_name(
     result
 }
 
+/// Scans the leading comment block for `<prefix> volume: <name> <target>` lines,
+/// stopping at the first line that is neither blank nor a comment. A PHP script
+/// opens with `<?php`, which is not a comment, so it is skipped like a blank line;
+/// otherwise the block would end before reaching any annotation.
 pub fn parse_volume_annotations(content: &str, comment_prefix: &str) -> Vec<VolumeMount> {
     let mut volumes = Vec::new();
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.is_empty() {
+        if trimmed.is_empty() || trimmed == "<?php" {
             continue;
         }
         if !trimmed.starts_with(comment_prefix) {
@@ -223,6 +227,16 @@ mod tests {
     #[test]
     fn parse_typescript_single_volume() {
         let content = "// volume: mydata /tmp/data\nexport function main() {}";
+        let result = parse_volume_annotations(content, "//");
+        assert_eq!(
+            result,
+            vec![VolumeMount { name: "mydata".to_string(), target: "/tmp/data".to_string() }]
+        );
+    }
+
+    #[test]
+    fn parse_php_volume_after_open_tag() {
+        let content = "<?php\n\n// volume: mydata /tmp/data\nfunction main() {}";
         let result = parse_volume_annotations(content, "//");
         assert_eq!(
             result,

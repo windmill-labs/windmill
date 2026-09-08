@@ -428,6 +428,7 @@ function volumeCommentPrefix(language: string): string | undefined {
     case "bunnative":
     case "nativets":
     case "go":
+    case "php":
       return "//";
     default:
       return undefined;
@@ -435,11 +436,11 @@ function volumeCommentPrefix(language: string): string | undefined {
 }
 
 // `<prefix> volume: <path>` lines in the LEADING comment block, each an `rw`
-// volume asset. Scanning stops at the first non-comment line (blank lines
-// skipped). Exact mirror of frontend `parseVolumeAnnotations` (infer.ts) /
-// backend `parse_volume_annotations` (asset_inference.rs) — the wasm body parser
-// does NOT emit these, so the local graph must supplement them or a `volume:`
-// producer shows disconnected from its `// on volume://…` consumers.
+// volume asset. Scanning stops at the first non-comment line (blank lines and the
+// PHP open tag skipped). Exact mirror of frontend `parseVolumeAnnotations`
+// (infer.ts) / backend `parse_volume_annotations` (asset_inference.rs) — the wasm
+// body parser does NOT emit these, so the local graph must supplement them or a
+// `volume:` producer shows disconnected from its `// on volume://…` consumers.
 function parseVolumeAnnotations(
   content: string,
   prefix: string,
@@ -447,7 +448,7 @@ function parseVolumeAnnotations(
   const out: { kind: string; path: string; access_type: "rw" }[] = [];
   for (const line of content.split("\n")) {
     const trimmed = line.trim();
-    if (trimmed === "") continue;
+    if (trimmed === "" || trimmed === "<?php") continue;
     if (!trimmed.startsWith(prefix)) break;
     const after = trimmed.slice(prefix.length).trim();
     const m = after.match(/^volume:\s*(\S+)/);

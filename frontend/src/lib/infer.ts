@@ -204,11 +204,14 @@ export type PreparedAssetsSqlQuery =
 	| { columns: Record<string, string> } // e.g { id: "number", name: "text" }
 	| { error: string; columns?: undefined } // error message if preparation failed
 
+// Scans the leading comment block, stopping at the first line that is neither blank
+// nor a comment. A PHP script opens with `<?php`, which is not a comment, so it is
+// skipped like a blank line; otherwise the block would end before reaching any annotation.
 function parseVolumeAnnotations(code: string, commentPrefix: string): AssetWithAccessType[] {
 	const volumes: AssetWithAccessType[] = []
 	for (const line of code.split('\n')) {
 		const trimmed = line.trim()
-		if (!trimmed) continue
+		if (!trimmed || trimmed === '<?php') continue
 		if (!trimmed.startsWith(commentPrefix)) break
 		const after = trimmed.slice(commentPrefix.length).trim()
 		const match = after.match(/^volume:\s*(\S+)/)
@@ -233,6 +236,7 @@ function getCommentPrefix(language: SupportedLanguage | undefined): string | und
 		case 'bunnative':
 		case 'nativets':
 		case 'go':
+		case 'php':
 			return '//'
 		default:
 			return undefined
