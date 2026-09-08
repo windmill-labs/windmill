@@ -365,8 +365,8 @@ pub(crate) struct ArchiveQueryParams {
 ///                      pre-existing serialization for folders and groups so
 ///                      no customer sees a one-time noisy diff on upgrade.
 /// * `KeepIfNonEmpty` — keep when there is at least one entry, drop when `{}`
-///                      or null. New surface for flow / script / app, which
-///                      never carried ACLs in source before this change.
+///                      or null. Used for flow / script / app / variable, which
+///                      never carried ACLs in source before granular-ACL sync.
 #[derive(Clone, Copy)]
 pub enum ExtraPermsBehavior {
     Drop,
@@ -1002,8 +1002,7 @@ pub(crate) async fn tarball_workspace(
                     Error::internal_err(format!("Error decrypting variable {}: {}", var.path, e))
                 })?);
             }
-            let var_str =
-                &to_string_without_metadata(&var, ExtraPermsBehavior::Drop, None).unwrap();
+            let var_str = &to_string_without_metadata(&var, new_kinds_extra_perms, None).unwrap();
             archive
                 .write_to_archive(&var_str, &format!("{}.variable.json", var.path))
                 .await?;

@@ -361,6 +361,77 @@ describe("variable", () => {
       expect(content).toContain("is_secret: false");
     });
   });
+
+  test("extra_perms round-trips through pull and is applied via /acls/*", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const uniqueId = Date.now();
+      const varPath = `f/test/perm_var_${uniqueId}`;
+
+      const createResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/create`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: varPath,
+            value: "perm_value",
+            is_secret: false,
+            description: "Variable with granular ACLs",
+          }),
+        }
+      );
+      expect(createResp.status).toBeLessThan(300);
+      await createResp.text();
+
+      const aclResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/acls/add/variable/${varPath}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ owner: "g/all", write: true }),
+        }
+      );
+      expect(aclResp.status).toBeLessThan(300);
+      await aclResp.text();
+
+      await writeFile(
+        join(tempDir, "wmill.yaml"),
+        `defaultTs: bun\nincludes:\n  - "${varPath}**"\nexcludes: []\n`,
+        "utf-8"
+      );
+
+      const pullResult = await backend.runCLICommand(
+        ["sync", "pull", "--yes"],
+        tempDir
+      );
+      expect(pullResult.code).toEqual(0);
+
+      const specFile = join(tempDir, `${varPath}.variable.yaml`);
+      const pulled = await readFile(specFile, "utf-8");
+      expect(pulled).toContain("extra_perms:");
+      expect(pulled).toContain("g/all: true");
+
+      // Demote the grant to read-only, leaving the rest of the spec untouched:
+      // the perms diff must go through /acls/* without rewriting the variable.
+      await writeFile(specFile, pulled.replace("g/all: true", "g/all: false"), "utf-8");
+
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--yes"],
+        tempDir
+      );
+      expect(pushResult.code).toEqual(0);
+
+      const getResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/get/${varPath}`
+      );
+      expect(getResp.status).toEqual(200);
+      const varData = await getResp.json();
+      expect(varData.extra_perms).toEqual({ "g/all": false });
+      expect(varData.value).toBe("perm_value");
+    });
+  });
 });
 
 // =============================================================================
