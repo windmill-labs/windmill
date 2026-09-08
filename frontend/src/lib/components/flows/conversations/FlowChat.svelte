@@ -85,19 +85,22 @@
 </script>
 
 <!-- border-t: the line the chat starts at, dividing it from whatever header sits above.
-     pb-3: the transcript and composer stop short of the panel edge, the way the session
-     chat sits in its own panel. The column's max width and side padding come from
-     AIChatDisplay itself. -->
-<div class="flex overflow-hidden flex-1 pb-3 border-t">
+     The column's max width and side padding come from AIChatDisplay itself. -->
+<div class="flex overflow-hidden flex-1 border-t">
 	{#if !hideSidebar}
 		<FlowConversationsSidebar {manager} />
 	{/if}
-	<FlowChatInterface
-		{manager}
-		{deploymentInProgress}
-		{additionalInputsSchema}
-		{flowModules}
-		{path}
-		{wideLayout}
-	/>
+	<!-- pb-3 on the chat alone, not on the row: the transcript and composer stop short of
+	     the panel edge the way the session chat does, while the sidebar and the border
+	     dividing it from the chat still reach the bottom. -->
+	<div class="flex flex-1 min-w-0 min-h-0 pb-3">
+		<FlowChatInterface
+			{manager}
+			{deploymentInProgress}
+			{additionalInputsSchema}
+			{flowModules}
+			{path}
+			{wideLayout}
+		/>
+	</div>
 </div>
