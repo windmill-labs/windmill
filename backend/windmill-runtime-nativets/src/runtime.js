@@ -30,9 +30,88 @@ import * as performance from "ext:deno_web/15_performance.js";
 import "ext:deno_web/16_image_data.js";
 import "ext:deno_fetch/27_eventsource.js";
 
+// deno_fetch applies no deadline, so a peer that accepts a request and then
+// never answers leaves `await fetch(...)` pending until the job timeout, which
+// self-hosted defaults to 7 days.
+const ORIGINAL_FETCH = fetch.fetch;
+
+// deno_web's timers reject any `this` other than undefined/globalThis, so
+// `timers.setTimeout(...)` passes the module namespace and throws "Illegal
+// invocation".
+const setTimeoutUnbound = timers.setTimeout;
+const clearTimeoutUnbound = timers.clearTimeout;
+
+// Installed per isolate by __wmInitPerIsolate; 0 disables.
+let fetchResponseTimeoutMs = 300_000;
+
+function fetchResponseTimeoutError(input, timeoutMs) {
+  let target;
+  try {
+    const parsed = new url.URL(
+      typeof input === "string" ? input : input.url ?? String(input),
+    );
+    // Query and fragment routinely carry tokens, and this reaches a job log.
+    target = parsed.origin + parsed.pathname;
+  } catch {
+    target = "the request target";
+  }
+  return new domException.DOMException(
+    `fetch to ${target} timed out: no response headers arrived within ` +
+      `${Math.round(timeoutMs / 1000)}s (this covers connect, request upload ` +
+      `and the wait for the server to start replying; once a response begins ` +
+      `it is never interrupted). Change it per script with ` +
+      `"//fetch_response_timeout <seconds>" (0 disables), or instance-wide ` +
+      `with WINDMILL_FETCH_RESPONSE_TIMEOUT_SECS.`,
+    "TimeoutError",
+  );
+}
+
 globalThis.atob = base64.atob;
 globalThis.btoa = base64.btoa;
-globalThis.fetch = fetch.fetch;
+// `async` so a malformed argument rejects rather than throwing synchronously,
+// matching deno_fetch's own `async function fetch`.
+globalThis.fetch = async function fetch(input, init) {
+  const timeoutMs = fetchResponseTimeoutMs;
+  if (!(timeoutMs > 0)) {
+    return ORIGINAL_FETCH(input, init);
+  }
+
+  // Layered onto the caller's signal rather than replacing it, so their abort
+  // still wins with their own reason. `init.signal === null` means "no signal"
+  // per spec and must not fall back to a Request input's signal.
+  let callerSignal;
+  if (init != null && init.signal !== undefined) {
+    callerSignal = init.signal;
+  } else if (input instanceof request.Request) {
+    callerSignal = input.signal;
+  }
+
+  const controller = new abortSignal.AbortController();
+  const signal = callerSignal == null
+    ? controller.signal
+    : abortSignal.AbortSignal.any([callerSignal, controller.signal]);
+
+  let timer = setTimeoutUnbound(() => {
+    timer = undefined;
+    controller.abort(fetchResponseTimeoutError(input, timeoutMs));
+  }, timeoutMs);
+
+  try {
+    // Passing an init at all resets referrer/referrerPolicy to their defaults
+    // when `input` is a Request; a Request's own signal is carried over above.
+    return await ORIGINAL_FETCH(
+      input,
+      init == null ? { signal } : { ...init, signal },
+    );
+  } finally {
+    // Cleared on headers, never on body completion: a response that has begun
+    // arriving must be free to stream for as long as it needs.
+    if (timer !== undefined) {
+      clearTimeoutUnbound(timer);
+      timer = undefined;
+    }
+  }
+};
 globalThis.Request = request.Request;
 globalThis.Response = response.Response;
 globalThis.Blob = file.Blob;
@@ -123,7 +202,11 @@ Object.assign(globalThis, {
 
 // Per-isolate init, invoked from Rust after the snapshot is restored (this
 // module body runs at snapshot-build time, not per isolate).
-globalThis.__wmInitPerIsolate = () => {
+globalThis.__wmInitPerIsolate = (config) => {
+  if (config != null && typeof config.fetchResponseTimeoutMs === "number") {
+    fetchResponseTimeoutMs = config.fetchResponseTimeoutMs;
+  }
+
   // setTimeOrigin() seeds performance.timeOrigin from the isolate's wall clock;
   // without it timeOrigin is undefined and `timeOrigin + performance.now()` is NaN.
   performance.setTimeOrigin();

@@ -26,7 +26,7 @@ use std::{
     cell::RefCell,
     path::PathBuf,
     rc::Rc,
-    sync::{Arc, Mutex},
+    sync::{Arc, LazyLock, Mutex},
 };
 
 // Re-export deno_telemetry for use by windmill-worker's otel proxy
@@ -182,10 +182,28 @@ struct LogString {
     pub s: mpsc::UnboundedSender<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct NativeAnnotation {
     pub useragent: Option<String>,
     pub proxy: Option<(String, Option<(String, String)>)>,
+    /// `//fetch_response_timeout <seconds>`: per-script override of
+    /// [`default_fetch_response_timeout_secs`]. `Some(0)` disables it for this
+    /// script; `None` leaves the default in force.
+    pub fetch_response_timeout_secs: Option<u64>,
+}
+
+/// How long `fetch()` waits for a response to begin, in seconds; `0` disables.
+///
+/// Covers everything up to the response headers and stops there, so a body may
+/// then stream for any length of time. `src/runtime.js` holds the semantics.
+pub fn default_fetch_response_timeout_secs() -> u64 {
+    static SECS: LazyLock<u64> = LazyLock::new(|| {
+        std::env::var("WINDMILL_FETCH_RESPONSE_TIMEOUT_SECS")
+            .ok()
+            .and_then(|x| x.trim().parse::<u64>().ok())
+            .unwrap_or(300)
+    });
+    *SECS
 }
 
 /// Serializes V8 isolate creation as defense-in-depth against concurrent
@@ -401,7 +419,7 @@ pub fn transpile_ts(expr: String) -> anyhow::Result<String> {
 }
 
 pub fn get_annotation(inner_content: &str) -> NativeAnnotation {
-    let mut res = NativeAnnotation { useragent: None, proxy: None };
+    let mut res = NativeAnnotation::default();
 
     let anns = inner_content
         .lines()
@@ -414,6 +432,13 @@ pub fn get_annotation(inner_content: &str) -> NativeAnnotation {
             res.useragent = Some(ann.trim_start_matches("useragent").trim().to_string());
         } else if ann.starts_with("proxy") {
             res.proxy = capture_proxy(ann.trim_start_matches("proxy").trim());
+        } else if ann.starts_with("fetch_response_timeout") {
+            // A typo falls back to the default, never to "no timeout".
+            res.fetch_response_timeout_secs = ann
+                .trim_start_matches("fetch_response_timeout")
+                .trim()
+                .parse::<u64>()
+                .ok();
         }
     }
     res
@@ -554,6 +579,16 @@ pub(crate) fn create_nativets_runtime(
     let ops = vec![op_get_static_args(), op_log()];
     let ext = Extension { name: "windmill", ops: ops.into(), ..Default::default() };
 
+    // deno_web's setTimeout puts its delay through `webidl.converters.long`,
+    // which wraps at 32 bits: past i32::MAX ms (~24.8 days) the delay comes out
+    // negative and fires immediately, so an over-generous setting would abort
+    // every fetch on the spot. Cap rather than wrap.
+    let fetch_response_timeout_ms = ann
+        .fetch_response_timeout_secs
+        .unwrap_or_else(default_fetch_response_timeout_secs)
+        .saturating_mul(1000)
+        .min(i32::MAX as u64);
+
     let fetch_options = deno_fetch::Options {
         root_cert_store_provider: NATIVE_ROOT_CERT_STORE_PROVIDER.clone(),
         user_agent: ann.useragent.unwrap_or_else(|| "windmill/beta".to_string()),
@@ -625,10 +660,15 @@ pub(crate) fn create_nativets_runtime(
     }
 
     // Per-isolate JS init that can't run in the snapshot (runtime.js executes at
-    // snapshot-build time): currently seeds performance.timeOrigin via
-    // setTimeOrigin(), which must read this isolate's wall clock.
+    // snapshot-build time): the wall clock behind performance.timeOrigin and the
+    // fetch response timeout are both per-isolate values.
     js_runtime
-        .execute_script("<wm_init>", "globalThis.__wmInitPerIsolate()")
+        .execute_script(
+            "<wm_init>",
+            format!(
+                "globalThis.__wmInitPerIsolate({{ fetchResponseTimeoutMs: {fetch_response_timeout_ms} }})"
+            ),
+        )
         .map_err(windmill_common::error::to_anyhow)?;
 
     Ok(CreatedRuntime { js_runtime, log_receiver, memory_limit_rx })
