@@ -10,7 +10,7 @@
 	import DataTable from '../table/DataTable.svelte'
 	import Head from '../table/Head.svelte'
 	import Row from '../table/Row.svelte'
-	import { Plus } from 'lucide-svelte'
+	import { Pencil, Plus } from 'lucide-svelte'
 	import { SettingService, type InstanceDatatableRole } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 
@@ -42,10 +42,12 @@
 		try {
 			await fn()
 			sendUserToast(success)
-			await load()
 		} catch (e) {
 			sendUserToast(e?.body ?? e?.message ?? String(e), true)
 		} finally {
+			// Reloaded whether or not it worked: the login toggle is driven by what the server
+			// holds, so a failed flip has to snap back rather than sit there claiming it landed.
+			await load()
 			busy = false
 		}
 	}
@@ -145,12 +147,17 @@
 									<CloseButton small on:close={() => (renaming = undefined)} />
 								</div>
 							{:else}
-								<button
-									class="font-mono text-sm hover:underline"
-									onclick={() => (renaming = { id: role.id, name: role.name })}
-								>
-									{role.name}
-								</button>
+								<div class="flex items-center gap-1">
+									<span class="font-mono text-sm">{role.name}</span>
+									<Button
+										unifiedSize="2xs"
+										variant="subtle"
+										startIcon={{ icon: Pencil }}
+										iconOnly
+										title="Rename this role"
+										on:click={() => (renaming = { id: role.id, name: role.name })}
+									/>
+								</div>
 							{/if}
 						</Cell>
 						<Cell>
