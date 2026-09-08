@@ -8,7 +8,7 @@
 	import Path from './Path.svelte'
 	import LabelsInput from './LabelsInput.svelte'
 	import Required from './Required.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore, type UserExt } from '$lib/stores'
 	import SchemaForm from './SchemaForm.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import FilesetEditor from './FilesetEditor.svelte'
@@ -48,6 +48,10 @@
 		/** Workspace the path is validated against and the connection is tested in;
 		 * defaults to the nav workspace. */
 		workspace?: string | undefined
+		/** The user acting in `workspace`, resolved by the editor above. `undefined` while
+		 * that lookup is pending or after it failed: every check below then refuses, rather
+		 * than answering with the navigation user's rights in another workspace. */
+		actingUser: UserExt | undefined
 		/** Fired once the GitLab picker has stored the picked project's token, so a
 		 * form that would otherwise file the URL as a secret knows it holds none. */
 		onCredentialStored?: () => void
@@ -73,6 +77,7 @@
 		resourceToEdit,
 		onLoadResourceType,
 		workspace = undefined,
+		actingUser,
 		onCredentialStored
 	}: Props = $props()
 
@@ -163,12 +168,13 @@
 		<Label label="Path">
 			<ResourcePathHint />
 			<Path
-				disabled={initialPath != '' && !isOwner(initialPath, $userStore, ws)}
+				disabled={initialPath != '' && !isOwner(initialPath, actingUser, ws)}
 				bind:path
 				{initialPath}
 				namePlaceholder="resource"
 				kind="resource"
 				workspaceOverride={workspace}
+				{actingUser}
 			/>
 		</Label>
 	</div>
@@ -246,7 +252,7 @@
 				workspaceOverride={workspace}
 			/>
 		{/if}
-		{#if resource_type === 'git_repository' && $workspaceStore && ($userStore?.is_admin || $userStore?.is_super_admin)}
+		{#if resource_type === 'git_repository' && ws && (actingUser?.is_admin || actingUser?.is_super_admin)}
 			<GitHubAppIntegration
 				resourceType={resource_type}
 				{args}

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { VariableService, WorkspaceService } from '$lib/gen'
 	import { createEventDispatcher, untrack } from 'svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -38,8 +38,10 @@
 
 	// The "current" workspace this editor defaults New/Edit actions to. Session
 	// editors pass their acting workspace so secrets are created/updated there
-	// rather than in the navigation workspace. Defaults to $workspaceStore.
+	// rather than in the navigation workspace.
 	let { workspace = undefined }: { workspace?: string } = $props()
+	// Sole ambient read in this file: the acting workspace is an input, and only its
+	// default comes from the navigation store.
 	let curWs = $derived(workspace ?? $workspaceStore)
 
 	let editPath: string | undefined = $state(undefined)
@@ -53,6 +55,10 @@
 	let initialStates: Record<string, VariableState> = $state({})
 	let existedInitially: Record<string, boolean> = $state({})
 	let extraPerms: Record<string, Record<string, boolean>> = $state({})
+	// The user acting in each loaded workspace, fetched alongside the variable. `undefined`
+	// stands for "we don't know" — a lookup still in flight or one that failed — and
+	// `canWrite` refuses for an unknown user, which is the only safe answer: the navigation
+	// user's rights are another workspace's.
 	let perWsUser: Record<string, UserExt | undefined> = $state({})
 	let selected: string | undefined = $state(undefined)
 	let pathError = $state('')
@@ -106,11 +112,14 @@
 		pageDrawerSessionSource(VARIABLES_PATH, editPath, selected ?? curWs)
 	)
 	const current = $derived(selected ? states[selected]?.draft : undefined)
-	const can_write = $derived.by(() => {
+	// `undefined` until the selected workspace's permissions and acting user have both
+	// landed — a pending verdict is neither a grant nor the denial the read-only alert
+	// announces, so the two must stay distinguishable.
+	const can_write: boolean | undefined = $derived.by(() => {
 		if (!selected || !edit) return true
 		const perms = extraPerms[selected]
-		if (!perms) return true
-		return canWrite(editPath ?? '', perms, perWsUser[selected] ?? $userStore)
+		if (!perms) return undefined
+		return canWrite(editPath ?? '', perms, perWsUser[selected])
 	})
 	const dirtyWorkspaces = $derived(
 		Object.keys(states).filter((ws) => !draftValuesEqual(states[ws].draft, initialStates[ws]))
@@ -154,7 +163,7 @@
 	const dirtyCanWrite = $derived(
 		dirtyWorkspaces.every((ws) => {
 			const perms = extraPerms[ws]
-			return !perms || canWrite(editPath ?? '', perms, perWsUser[ws] ?? $userStore)
+			return !perms || canWrite(editPath ?? '', perms, perWsUser[ws])
 		})
 	)
 
@@ -329,7 +338,7 @@
 			/>
 		{/snippet}
 		<div class="flex flex-col gap-8 pb-2">
-			{#if !can_write}
+			{#if can_write === false}
 				<Alert type="warning" title="Only read access">
 					You only have read access to this resource and cannot edit it
 				</Alert>
@@ -352,10 +361,11 @@
 						bind:wsSpecific={current.wsSpecific}
 						{initialPath}
 						deployTo={deployTo.current}
-						{can_write}
+						can_write={can_write === true}
 						{edit}
 						onLoadSecret={loadSecret}
 						{workspace}
+						actingUser={selected ? perWsUser[selected] : undefined}
 					/>
 				{/key}
 			{/if}

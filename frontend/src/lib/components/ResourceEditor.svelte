@@ -9,7 +9,7 @@
 	} from '$lib/gen'
 	import { canWrite } from '$lib/utils'
 	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
 	import ResourceForm from './ResourceForm.svelte'
@@ -31,6 +31,9 @@
 		hidePath?: boolean
 		onChange?: (args: { path: string; args: Record<string, any>; description: string }) => void
 		defaultValues?: Record<string, any> | undefined
+		/** Workspace this editor acts in — every call, permission check and cache key below
+		 * derives from it. Optional for the packaged component; the navigation workspace is
+		 * substituted once, at `effectiveWorkspace`, and nowhere else. */
 		workspace?: string | undefined
 		selected?: string | undefined
 		/** Show the value as JSON rather than as the resource type's form. Bindable so a caller can
@@ -70,6 +73,8 @@
 
 	const dispatch = createEventDispatcher()
 
+	// Sole ambient read in this file: the acting workspace is an input, and only its
+	// default comes from the navigation store.
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
 	// Fallback to `effectiveWorkspace` insulates against reactify-style
 	// parents that re-spread props without `selected` — otherwise it
@@ -86,6 +91,10 @@
 	let initialStates: Record<string, ResourceState> = $state({})
 	let existedInitially: Record<string, boolean> = $state({})
 	let fetchedResources: Record<string, Resource> = $state({})
+	// The user acting in each loaded workspace, fetched alongside the resource. `undefined`
+	// stands for "we don't know" — a lookup still in flight or one that failed — and
+	// `canWrite` refuses for an unknown user, which is the only safe answer: the navigation
+	// user's rights are another workspace's.
 	let perWsUser: Record<string, UserExt | undefined> = $state({})
 
 	const handlesArray = UserDraft.useMany<ResourceState>(() =>
@@ -221,7 +230,7 @@
 			() => deployedPath,
 			() => deployedUrl,
 			() => resource_type,
-			() => (selected ? (perWsUser[selected] ?? $userStore)?.is_admin : undefined)
+			() => (selected ? perWsUser[selected]?.is_admin : undefined)
 		],
 		async ([ws, path, _url, type, admin]) =>
 			ws && path && type === 'git_repository' && admin
@@ -239,14 +248,13 @@
 		selected ? fetchedResources[selected] : undefined
 	)
 	let can_write = $derived.by(() => {
-		if (!selected) return true
+		// A resource that does not exist yet has nobody's permissions on it. In edit mode the
+		// resource and the acting user land together, so a missing one is also a missing
+		// other, and neither may read as writable.
+		if (!initialPath || !selected) return true
 		const r = fetchedResources[selected]
-		if (!r) return true
-		return canWrite(
-			current?.path ?? initialPath,
-			r.extra_perms ?? {},
-			perWsUser[selected] ?? $userStore
-		)
+		if (!r) return false
+		return canWrite(current?.path ?? initialPath, r.extra_perms ?? {}, perWsUser[selected])
 	})
 
 	const dirtyWorkspaces = $derived(
@@ -275,7 +283,7 @@
 	const selectedDirty = $derived(!!selected && dirtyWorkspaces.includes(selected))
 	const otherDirty = $derived(
 		dirtyWorkspaces.length == 1
-			? dirtyWorkspaces.filter((ws) => ws !== $workspaceStore)
+			? dirtyWorkspaces.filter((ws) => ws !== effectiveWorkspace)
 			: dirtyWorkspaces
 	)
 	const dirtyValid = $derived(dirtyWorkspaces.every((ws) => perWsValid[ws] !== false))
@@ -283,12 +291,7 @@
 		dirtyWorkspaces.every((ws) => {
 			const r = fetchedResources[ws]
 			return (
-				!r ||
-				canWrite(
-					states[ws]?.draft?.path ?? initialPath,
-					r.extra_perms ?? {},
-					perWsUser[ws] ?? $userStore
-				)
+				!r || canWrite(states[ws]?.draft?.path ?? initialPath, r.extra_perms ?? {}, perWsUser[ws])
 			)
 		})
 	)
@@ -577,6 +580,7 @@
 					{resourceToEdit}
 					onLoadResourceType={() => resourceTypeResource.refetch()}
 					workspace={selected}
+					actingUser={selected ? perWsUser[selected] : undefined}
 				/>
 			{/key}
 		{/if}
