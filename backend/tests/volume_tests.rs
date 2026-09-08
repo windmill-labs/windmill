@@ -555,6 +555,7 @@ export function main() {
 #[cfg(all(feature = "parquet", feature = "private", feature = "php"))]
 #[sqlx::test(fixtures("base"))]
 async fn test_php_volume_with_default_stack(db: Pool<Postgres>) -> anyhow::Result<()> {
+    // Nested calls exercise the parser's fallback chain; flattening them weakens this guard.
     let code = r#"<?php
 // volume: test-vol data
 
