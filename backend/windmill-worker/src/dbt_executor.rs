@@ -38,7 +38,9 @@ use crate::dbt_engine::{provision_engine, ProvisionedEngine, DBT_CACHE_DIR};
 use crate::dbt_profiles::{
     ensure_adapter_licensed, render_dbt_profile, render_profile, DbtAdapter, KnownAdapter,
 };
-use crate::dbt_state::{prepare_deferral, write_state_dir, Deferral, StateManifest, STATE_DIR};
+use crate::dbt_state::{
+    environment_label, prepare_deferral, write_state_dir, Deferral, StateManifest, STATE_DIR,
+};
 use crate::handle_child::{
     get_mem_peak, handle_child, run_future_with_polling_update_job_poller, JobCtx, JobDeadline,
 };
@@ -276,6 +278,16 @@ pub(crate) async fn handle_dbt_job(
     // applies — nothing is built, so there is no test phase, no materialization,
     // no retry state and no ownership to publish.
     if command == "parse" {
+        // Checked here rather than at the seam below, which cannot tell a parse
+        // from a run that simply left `defer` off: a parse never reaches the
+        // deferral at all, so it is the one caller for which "turn `defer` on"
+        // would be advice that leads nowhere.
+        check_state_selectors(
+            &effective_select(&descriptor, &inv)?,
+            &effective_exclude(&descriptor, &inv)?,
+            StateAccess::Never(&command),
+            !selection_is_overridden(&descriptor, &inv.args)?,
+        )?;
         return run_parse_only(
             &prepared,
             &descriptor,
@@ -389,7 +401,11 @@ pub(crate) async fn handle_dbt_job(
     check_state_selectors(
         &effective_select(&descriptor, &inv)?,
         &effective_exclude(&descriptor, &inv)?,
-        defer,
+        if defer {
+            StateAccess::Given
+        } else {
+            StateAccess::OnRequest
+        },
         !selection_is_overridden(&descriptor, &inv.args)?,
     )?;
     // A `show` defers too, and every engine takes the flags on it: it COMPILES
@@ -413,6 +429,28 @@ pub(crate) async fn handle_dbt_job(
             )));
         }
         let deferral = prepare_deferral(&prepared, &job.workspace_id, job_dir, conn).await?;
+        // Only answerable once the state is loaded: `defer` is enough for a
+        // `state:` method, which reads the manifest every publication carries,
+        // but a `result:` one reads `run_results.json` — and a build recovered by
+        // node retry publishes without it, since the results it holds describe
+        // only the nodes the retry rebuilt. dbt-core then raises an INTERNAL
+        // error and the Rust engines match nothing and exit 0.
+        if !deferral.has_run_results
+            && selects_on_results(
+                &effective_select(&descriptor, &inv)?,
+                &effective_exclude(&descriptor, &inv)?,
+            )
+        {
+            return Err(Error::BadRequest(format!(
+                "a `result:` selector reads `run_results.json` out of the published state, and \
+                 the state for this environment ({}) carries only a manifest: run {} was \
+                 recovered by node retry, whose results describe the retried nodes rather than \
+                 the whole build. Run this script once without `defer` and without overrides to \
+                 publish a complete state, or drop the selector",
+                environment_label(&prepared),
+                deferral.published_by
+            )));
+        }
         append_logs(
             &job.id,
             &job.workspace_id,
@@ -5034,7 +5072,11 @@ fn add_selection(
     check_state_selectors(
         &select,
         &exclude,
-        inv.deferral.is_some(),
+        if inv.deferral.is_some() {
+            StateAccess::Given
+        } else {
+            StateAccess::OnRequest
+        },
         !selection_is_overridden(descriptor, &inv.args)?,
     )?;
     for s in select {
@@ -5069,6 +5111,27 @@ fn selection_methods<'a>(entries: &'a [String]) -> impl Iterator<Item = &'a str>
         .filter_map(selector_method)
 }
 
+/// Whether the run being checked has the state directory a `state:` or `result:`
+/// method reads, or could be given one.
+#[derive(Clone, Copy)]
+enum StateAccess<'a> {
+    /// Deferring, so the directory is there.
+    Given,
+    /// Not deferring, and `defer` is what would hand it one.
+    OnRequest,
+    /// This command resolves a selection without ever deferring, so no setting
+    /// gives it a state and "turn `defer` on" would be advice that leads nowhere.
+    Never(&'a str),
+}
+
+/// Whether a selection reads `run_results.json`, which only some publications
+/// carry.
+fn selects_on_results(select: &[String], exclude: &[String]) -> bool {
+    selection_methods(select)
+        .chain(selection_methods(exclude))
+        .any(|method| method == "result")
+}
+
 /// Refuse a selection dbt cannot resolve, before it silently resolves to the
 /// wrong thing.
 ///
@@ -5093,7 +5156,7 @@ fn selection_methods<'a>(entries: &'a [String]) -> impl Iterator<Item = &'a str>
 fn check_state_selectors(
     select: &[String],
     exclude: &[String],
-    deferring: bool,
+    access: StateAccess<'_>,
     from_descriptor: bool,
 ) -> error::Result<()> {
     for method in selection_methods(select).chain(selection_methods(exclude)) {
@@ -5114,13 +5177,24 @@ fn check_state_selectors(
                      run with `defer` on"
                 )))
             }
-            "state" | "result" if !deferring => {
-                return Err(Error::BadRequest(format!(
-                    "a `{method}:` selector compares against the dbt state a previous run of \
-                     this environment published, and only a run with `defer` on is given that \
-                     state. Turn `defer` on, or drop the selector"
-                )))
-            }
+            "state" | "result" => match access {
+                StateAccess::Given => {}
+                StateAccess::OnRequest => {
+                    return Err(Error::BadRequest(format!(
+                        "a `{method}:` selector compares against the dbt state a previous run \
+                         of this environment published, and only a run with `defer` on is given \
+                         that state. Turn `defer` on, or drop the selector"
+                    )))
+                }
+                StateAccess::Never(command) => {
+                    return Err(Error::BadRequest(format!(
+                        "a `{method}:` selector compares against the dbt state a previous run \
+                         of this environment published, and `{command}` resolves its selection \
+                         without building and never defers, so no setting hands it that state. \
+                         Drop the selector"
+                    )))
+                }
+            },
             _ => {}
         }
     }
@@ -6140,6 +6214,27 @@ mod tests {
             .unwrap();
         assert!(untouched.publishes_ownership());
         assert_eq!(untouched.snapshot_job(job), None);
+
+        // `resolve_selection` lets a selection match nothing on exactly this
+        // predicate, because a run that scoped its own selection stores a
+        // snapshot instead of publishing ownership. Should the two ever drift
+        // apart, an empty caller selection would wipe the script's graph and
+        // cascade edges, which is the outcome that guard exists to prevent.
+        // One-directional: a `vars` override also withholds ownership without
+        // touching the selection, which is why this is an implication and not an
+        // equivalence.
+        for args in [
+            arg("select", r#"["state:modified+"]"#),
+            arg("exclude", r#"["tag:nightly"]"#),
+        ] {
+            assert!(selection_is_overridden(&descriptor, &args).unwrap());
+            let mut g = GraphRefresh::default();
+            g.add_caller_args(&descriptor, &args).unwrap();
+            assert!(
+                !g.publishes_ownership(),
+                "an overridden selection must not publish ownership"
+            );
+        }
     }
 
     // `dbt retry` restores the previous run's target/ from this directory, so two
@@ -6188,8 +6283,8 @@ mod tests {
     #[test]
     fn a_state_selector_is_found_under_any_graph_operator() {
         // A run's own selection, which is the only place these belong.
-        let refused = |sel: &str, deferring: bool| {
-            check_state_selectors(&[sel.to_string()], &[], deferring, false).is_err()
+        let refused = |sel: &str, access: StateAccess<'_>| {
+            check_state_selectors(&[sel.to_string()], &[], access, false).is_err()
         };
         for sel in [
             "state:modified",
@@ -6200,25 +6295,50 @@ mod tests {
             "tag:nightly,state:modified",
             "stg_orders+ result:error+",
         ] {
-            assert!(refused(sel, false), "{sel} should need `defer`");
-            assert!(!refused(sel, true), "{sel} should pass while deferring");
+            assert!(
+                refused(sel, StateAccess::OnRequest),
+                "{sel} should need `defer`"
+            );
+            assert!(
+                !refused(sel, StateAccess::Given),
+                "{sel} should pass while deferring"
+            );
+            // A parse resolves a selection without ever deferring, so it is
+            // refused where a run would have been told to turn `defer` on.
+            assert!(
+                refused(sel, StateAccess::Never("parse")),
+                "{sel} cannot parse"
+            );
             // The descriptor's selection also decides what the script owns, and
             // the deploy resolves it with no state, so deferring cannot save it.
             assert!(
-                check_state_selectors(&[sel.to_string()], &[], true, true).is_err(),
+                check_state_selectors(&[sel.to_string()], &[], StateAccess::Given, true).is_err(),
                 "{sel} should never be a descriptor selection"
             );
         }
         // A node whose name merely starts with a method's letters is not one.
         for sel in ["stg_orders+", "tag:nightly", "stateful_model+"] {
-            assert!(!refused(sel, false), "{sel} is not a state selector");
+            assert!(
+                !refused(sel, StateAccess::OnRequest),
+                "{sel} is not a state selector"
+            );
         }
         // No run publishes `sources.json`, so deferring does not help.
-        for deferring in [false, true] {
-            assert!(refused("source_status:fresher+", deferring));
+        for access in [
+            StateAccess::Given,
+            StateAccess::OnRequest,
+            StateAccess::Never("parse"),
+        ] {
+            assert!(refused("source_status:fresher+", access));
         }
         // `exclude` reaches dbt the same way `select` does.
-        assert!(check_state_selectors(&[], &["state:modified".to_string()], false, false).is_err());
+        assert!(check_state_selectors(
+            &[],
+            &["state:modified".to_string()],
+            StateAccess::OnRequest,
+            false
+        )
+        .is_err());
     }
 
     // The one flag choice that is silently wrong rather than loudly wrong: a

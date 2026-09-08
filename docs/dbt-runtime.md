@@ -13,8 +13,8 @@ the dominant way dbt is orchestrated today.
 - **In**: run an unmodified dbt project synced into Windmill, one Windmill job per
   invocation, live per-model observability, dbt models as first-class assets in
   the existing asset graph.
-- **Out**: one Windmill job per dbt model, `state:modified` / slim CI,
-  `dbt docs` hosting, semantic layer, dbt platform integration.
+- **Out**: one Windmill job per dbt model, slim CI orchestration, `dbt docs`
+  hosting, semantic layer, dbt platform integration.
 - **CE**: the runtime, the manifest ingest, the asset graph and every piece of
   UI ship in CE, as do all adapters except two. Only the `mssql` and `oracle`
   adapters are EE, mirroring the native `ScriptLang` boundary (decision 21).
@@ -1590,8 +1590,10 @@ render through the existing `RunnableNode.svelte` / `AssetNode.svelte` /
 on the canvas mid-run. `record_materialization` per model. Profile and select
 pickers in the editor. Per-model failure triage in the run view.
 
-**Phase 4 (not in this PR).** `state:modified` and slim CI, and the fork and
-preview environments a deferral would name instead of its own. Partition and
+**Phase 4 (not in this PR).** Slim CI: the fork and preview environments a
+deferral would name instead of its own. The selectors themselves are here, since
+`state:` and `result:` read the published state like any deferral does; what is
+missing is a per-branch environment to compare a CI run against. Partition and
 backfill integration so `BackfillRangeDialog.svelte` works on dbt models.
 `wmill dbt import <dag.py>` reading `DbtDag(...)` kwargs.
 
@@ -1632,6 +1634,12 @@ Against a real dbt project (jaffle_shop shape) and the local Postgres:
     that builds one downstream model into another schema resolves its unbuilt
     `ref()` to the relation the state names, where the same run without `defer`
     fails with relation-not-found.
+13. **State selectors**: with a state published, `state:modified+` selects
+    nothing while the project is unchanged and exactly the changed model and its
+    children after one is edited. Without `defer` it is refused rather than
+    passed, and a `result:` selector against a state published by a
+    node-retry-recovered build is refused too, that one carrying no
+    `run_results.json`.
 
 Keep only tests that pin behavior a future change could break. Per AGENTS.md,
 delete development scaffolding before marking the PR ready.

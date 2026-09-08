@@ -93,7 +93,7 @@ fn environment_key(
 
 /// The environment as a message names it: the key above is length-prefixed for
 /// storage, which is not something to put in front of a caller.
-fn environment_label(p: &PreparedProject) -> String {
+pub(crate) fn environment_label(p: &PreparedProject) -> String {
     format!(
         "warehouse `{}`, target `{}`, relations in `{}`",
         p.warehouse.as_deref().unwrap_or("(none)"),
@@ -606,6 +606,10 @@ pub(crate) struct Deferral {
     /// The run that published the state, so the job log and the result can say
     /// what this one deferred to.
     pub published_by: Uuid,
+    /// Whether the state carries `run_results.json` beside its manifest. A build
+    /// recovered by node retry publishes without one, and that is the only file a
+    /// `result:` selector reads.
+    pub has_run_results: bool,
 }
 
 /// Materialise the environment's state so `--state` has a directory to read.
@@ -653,13 +657,14 @@ pub(crate) async fn prepare_deferral(
             environment_label(p)
         )));
     };
+    let has_run_results = state.run_results.is_some();
     write_state_dir(
         &PathBuf::from(job_dir).join(STATE_DIR),
         state.run_results.as_deref(),
         StateManifest::Bytes(state.manifest),
     )
     .await?;
-    Ok(Deferral { published_by: state.job_id })
+    Ok(Deferral { published_by: state.job_id, has_run_results })
 }
 
 #[cfg(test)]
