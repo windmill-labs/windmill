@@ -58,3 +58,4 @@ aws-credential-types = { workspace = true, optional = true }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
 object_store.workspace = true
+serial_test = "3"

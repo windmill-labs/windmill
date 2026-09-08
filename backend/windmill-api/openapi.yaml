@@ -19126,6 +19126,49 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/native_triggers/{service_name}/setenabled/{external_id}:
+    post:
+      summary: set enabled state of native trigger
+      description: |
+        Enables or disables a native trigger. A disabled trigger stays registered on the
+        external service but starts no job when it fires.
+        Requires write access to the script or flow that the trigger is associated with.
+      operationId: setNativeTriggerEnabled
+      tags:
+        - native_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+        - name: external_id
+          in: path
+          required: true
+          description: The external ID of the trigger from the external service
+          schema:
+            type: string
+      requestBody:
+        description: updated enabled state
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: native trigger enabled state updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/native_triggers/{service_name}/list:
     get:
       summary: list native triggers
@@ -36095,6 +36138,9 @@ components:
           type: string
           nullable: true
           description: Short summary to be displayed when listed
+        enabled:
+          type: boolean
+          description: Whether the trigger starts a job when it fires
       required:
         - external_id
         - workspace_id
@@ -36102,6 +36148,7 @@ components:
         - script_path
         - is_flow
         - service_config
+        - enabled
 
     NativeTriggerWithExternal:
       type: object
@@ -36133,6 +36180,9 @@ components:
           type: string
           nullable: true
           description: Short summary to be displayed when listed
+        enabled:
+          type: boolean
+          description: Whether the trigger starts a job when it fires
         external_data:
           type: object
           nullable: true
@@ -36153,6 +36203,7 @@ components:
         - script_path
         - is_flow
         - service_config
+        - enabled
         - external_data
 
     WorkspaceIntegrations:
@@ -36238,6 +36289,12 @@ components:
           type: string
           nullable: true
           description: Short summary to be displayed when listed
+        enabled:
+          type: boolean
+          description: >-
+            Whether the trigger starts a job when it fires. Honoured on create only, so a
+            trigger can be registered already paused; an update ignores it and setenabled is
+            the only way to change an existing trigger's state. Defaults to true.
       required:
         - script_path
         - is_flow
