@@ -1563,6 +1563,9 @@ pub async fn update_native_trigger_error<'c, E: sqlx::Executor<'c, Database = Po
 }
 
 /// Pause or resume a trigger. Returns `false` when there is no such trigger.
+///
+/// Callers MUST have verified write access to the trigger's runnable: this writes operational
+/// state and performs no authorization of its own.
 pub async fn set_native_trigger_enabled<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     db: E,
     workspace_id: &str,
@@ -1596,7 +1599,9 @@ pub async fn set_native_trigger_enabled<'c, E: sqlx::Executor<'c, Database = Pos
 /// Whether a webhook arriving for this trigger should start a job.
 ///
 /// A trigger Windmill no longer knows about counts as enabled: the token in the URL is what
-/// authorizes the run, and this is a pause switch, not a second authorization check.
+/// authorizes the run, and this is a pause switch, not a second authorization check. It reads
+/// nothing a caller could not already learn from the trigger it is delivering for, so it needs no
+/// authorization of its own — but it also grants none, and must not be used as one.
 pub async fn native_trigger_is_enabled<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     db: E,
     workspace_id: &str,
