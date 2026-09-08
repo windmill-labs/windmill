@@ -108,20 +108,9 @@ async fn restore_masked_object_store_secrets(
     name: &str,
     config: &mut serde_json::Value,
 ) -> error::Result<()> {
-    let Some(store) = config
-        .get_mut("object_store_cache_config")
-        .and_then(|v| v.as_object_mut())
-    else {
-        return Ok(());
-    };
-    let masked = OBJECT_STORE_SECRET_KEYS
-        .iter()
-        .filter(|k| store.get(**k).and_then(|v| v.as_str()) == Some(OBJECT_STORE_SECRET_MASK))
-        .collect::<Vec<_>>();
-    if masked.is_empty() {
+    if !has_masked_object_store_secret(config) {
         return Ok(());
     }
-
     let stored = sqlx::query_as!(
         Config,
         "SELECT name, config FROM config WHERE name = $1",
@@ -130,19 +119,44 @@ async fn restore_masked_object_store_secrets(
     .fetch_optional(db)
     .await?
     .map(|c| c.config);
-    let stored = stored
-        .as_ref()
-        .and_then(|c| c.get("object_store_cache_config"))
-        .and_then(|v| v.as_object());
+    restore_object_store_secrets(config, stored.as_ref());
+    Ok(())
+}
 
-    for key in masked {
-        match stored.and_then(|s| s.get(*key)) {
+fn has_masked_object_store_secret(config: &serde_json::Value) -> bool {
+    let Some(store) = config.get("object_store_cache_config") else {
+        return false;
+    };
+    OBJECT_STORE_SECRET_KEYS
+        .iter()
+        .any(|k| store.get(k).and_then(|v| v.as_str()) == Some(OBJECT_STORE_SECRET_MASK))
+}
+
+/// The half of [`restore_masked_object_store_secrets`] after the read.
+fn restore_object_store_secrets(
+    config: &mut serde_json::Value,
+    stored: Option<&serde_json::Value>,
+) {
+    let stored = stored
+        .and_then(|c| c.get("object_store_cache_config"))
+        .and_then(|v| v.as_object())
+        .cloned();
+    let Some(store) = config
+        .get_mut("object_store_cache_config")
+        .and_then(|v| v.as_object_mut())
+    else {
+        return;
+    };
+    for key in OBJECT_STORE_SECRET_KEYS {
+        if store.get(*key).and_then(|v| v.as_str()) != Some(OBJECT_STORE_SECRET_MASK) {
+            continue;
+        }
+        match stored.as_ref().and_then(|s| s.get(*key)) {
             Some(secret) => store.insert(key.to_string(), secret.clone()),
             // Nothing to put back: drop the mask rather than store it.
             None => store.remove(*key),
         };
     }
-    Ok(())
 }
 
 async fn list_worker_groups(
@@ -391,9 +405,14 @@ async fn list_configs(
     Extension(db): Extension<DB>,
 ) -> error::JsonResult<Vec<Config>> {
     require_devops_role(&db, &authed).await?;
-    let configs = sqlx::query_as!(Config, "SELECT name, config FROM config")
+    let mut configs = sqlx::query_as!(Config, "SELECT name, config FROM config")
         .fetch_all(&db)
         .await?;
+    if !is_instance_admin(&authed) {
+        for config in configs.iter_mut() {
+            obfuscate_worker_config(&mut config.config);
+        }
+    }
     Ok(Json(configs))
 }
 
@@ -483,4 +502,50 @@ async fn list_all_dedicated_with_deps(
         .collect();
 
     Ok(Json(result))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The mask an obfuscated read hands out must never be storable as the credential itself:
+    /// a devops user who is not an instance admin edits the group from that view, and a worker
+    /// that cannot build its override degrades to a local-only cache without failing a job, so
+    /// the breakage would go unnoticed.
+    #[test]
+    fn masked_secrets_survive_a_save_from_the_obfuscated_view() {
+        let stored = serde_json::json!({
+            "object_store_cache_config": {
+                "type": "S3", "bucket": "cache", "access_key": "AKIA", "secret_key": "s3cr3t"
+            },
+            "env_vars_static": { "TOKEN": "hunter2" },
+        });
+
+        let mut shown = stored.clone();
+        obfuscate_worker_config(&mut shown);
+        let store = &shown["object_store_cache_config"];
+        assert_eq!(store["secret_key"], OBJECT_STORE_SECRET_MASK);
+        assert_eq!(store["access_key"], OBJECT_STORE_SECRET_MASK);
+        assert_eq!(store["bucket"], "cache");
+        assert_ne!(shown["env_vars_static"]["TOKEN"], "hunter2");
+
+        let mut saved = shown.clone();
+        saved["object_store_cache_config"]["bucket"] = serde_json::json!("other");
+        restore_object_store_secrets(&mut saved, Some(&stored));
+        let store = &saved["object_store_cache_config"];
+        assert_eq!(store["secret_key"], "s3cr3t");
+        assert_eq!(store["access_key"], "AKIA");
+        assert_eq!(store["bucket"], "other");
+    }
+
+    #[test]
+    fn a_mask_with_nothing_behind_it_is_dropped_rather_than_stored() {
+        let mut saved = serde_json::json!({
+            "object_store_cache_config": { "type": "S3", "secret_key": OBJECT_STORE_SECRET_MASK }
+        });
+        restore_object_store_secrets(&mut saved, None);
+        assert!(saved["object_store_cache_config"]
+            .get("secret_key")
+            .is_none());
+    }
 }

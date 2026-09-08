@@ -5129,37 +5129,6 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
                 .as_ref()
                 .is_some_and(|dws| !dws.is_empty());
 
-        // Outside the `!=` block below so a failed build is retried by a later settings pass,
-        // which sees an unchanged config.
-        #[cfg(feature = "parquet")]
-        if wc.object_store_cache_config != config.object_store_cache_config
-            || windmill_object_store::cache_object_store_override_failed().await
-        {
-            let settings = config.object_store_cache_config.clone();
-            if matches!(
-                windmill_object_store::reload_cache_object_store_override(db, settings.clone())
-                    .await,
-                ObjectStoreReload::Later
-            ) {
-                // The whole group's dependency cache is local-only until this builds, and the
-                // settings pass that would otherwise retry is 12h away, so try again soon —
-                // an AWS OIDC store cannot mint its first token until the server is serving.
-                let db = db.clone();
-                tokio::spawn(async move {
-                    tokio::time::sleep(Duration::from_secs(10)).await;
-                    // The group config may have been edited during the wait; installing the
-                    // settings this retry captured would then pin the worker to a store the
-                    // group no longer asks for, and clear the flag the newer one needs.
-                    if WORKER_CONFIG.load().object_store_cache_config == settings
-                        && windmill_object_store::cache_object_store_override_failed().await
-                    {
-                        windmill_object_store::reload_cache_object_store_override(&db, settings)
-                            .await;
-                    }
-                });
-            }
-        }
-
         if **wc != config || has_dedicated {
             if kill_if_change {
                 if has_dedicated
@@ -5207,6 +5176,37 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
             store_pull_query(&config).await;
             WORKER_CONFIG.store(std::sync::Arc::new(config));
         }
+
+        // After the store, so a retry that wakes mid-build reads the config being applied
+        // rather than the one it replaced. Unconditional rather than gated on the value
+        // changing: it is also what re-evaluates the license plan, and a downgrade has to
+        // drop an override the instance is no longer entitled to.
+        #[cfg(feature = "parquet")]
+        reload_cache_object_store_override_with_retry(db).await;
+    }
+}
+
+/// Apply this worker group's dependency-cache object store, retrying once shortly after a build
+/// that failed for a reason that may pass — the periodic settings reload behind it is 12h apart,
+/// which is a long time for a whole group to cache nothing but locally.
+#[cfg(feature = "parquet")]
+async fn reload_cache_object_store_override_with_retry(db: &DB) {
+    let settings = WORKER_CONFIG.load().object_store_cache_config.clone();
+    if matches!(
+        windmill_object_store::reload_cache_object_store_override(db, settings).await,
+        ObjectStoreReload::Later
+    ) {
+        let db = db.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            if windmill_object_store::cache_object_store_override_failed().await {
+                // Re-read rather than reuse: the group config may have changed while we slept,
+                // and installing the settings this retry was born with would pin the worker to a
+                // store the group no longer asks for.
+                let settings = WORKER_CONFIG.load().object_store_cache_config.clone();
+                windmill_object_store::reload_cache_object_store_override(&db, settings).await;
+            }
+        });
     }
 }
 

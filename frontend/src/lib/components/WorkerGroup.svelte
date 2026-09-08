@@ -1019,7 +1019,7 @@
 			</p>
 			<ObjectStoreConfigSettings
 				bind:bucket_config={nconfig.object_store_cache_config}
-				showInstanceStorageTools={false}
+				isInstanceStore={false}
 				disabled={!canEditEEConfig}
 			/>
 		</Section>

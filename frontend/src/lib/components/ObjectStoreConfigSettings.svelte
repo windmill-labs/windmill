@@ -53,15 +53,18 @@
 
 	interface Props {
 		bucket_config?: ObjectStoreConfig | undefined
-		/** Usage and log-cleanup panels act on the instance store, so a store configured
-		 * elsewhere (a worker group's dependency cache) must not offer them. */
-		showInstanceStorageTools?: boolean
+		/** Whether this is the instance object store. Everything that reaches out to a store
+		 * rather than just editing its settings — the usage and log-cleanup panels, and both
+		 * connectivity probes — targets the instance one, so a store configured elsewhere (a
+		 * worker group's dependency cache) must not offer them: they would report on a bucket
+		 * other than the one being edited. */
+		isInstanceStore?: boolean
 		disabled?: boolean
 	}
 
 	let {
 		bucket_config = $bindable<ObjectStoreConfig | undefined>(undefined),
-		showInstanceStorageTools = true,
+		isInstanceStore = true,
 		disabled = false
 	}: Props = $props()
 
@@ -209,7 +212,7 @@
 
 	let hasConfig = $derived(Boolean(bucket_config))
 	$effect(() => {
-		if (hasConfig && showInstanceStorageTools) {
+		if (hasConfig && isInstanceStore) {
 			let cancelled = false
 			fetchCleanupStatus().then(() => {
 				if (!cancelled && cleanupStatus?.running) {
@@ -293,31 +296,25 @@
 </div>
 {#if bucket_config}
 	<fieldset {disabled} class="min-w-0">
-		<div class="flex gap-2 py-1">
-			<Button
-				spacingSize="sm"
-				size="xs"
-				btnClasses="h-8"
-				variant="default"
-				on:click={testConnection}
-			>
-				{#if loading}
-					<Loader2 class="animate-spin mr-2 !h-4 !w-4" />
-				{:else}
-					<Database class="mr-2 !h-4 !w-4" />
-				{/if}
-				Test from a server
-			</Button>
-			<TestConnection
-				args={bucket_config}
-				resourceType="s3_bucket"
-				workspaceOverride="admins"
-				buttonTextOverride="Test from a worker"
-				viaWorker
-			/>
-		</div>
+		{#if isInstanceStore}
+			<div class="flex gap-2 py-1">
+				<Button unifiedSize="md" variant="default" on:click={testConnection}>
+					{#if loading}
+						<Loader2 class="animate-spin mr-2 !h-4 !w-4" />
+					{:else}
+						<Database class="mr-2 !h-4 !w-4" />
+					{/if}
+					Test from a server
+				</Button>
+				<TestConnection
+					args={bucket_config}
+					resourceType="s3_bucket"
+					workspaceOverride="admins"
+					buttonTextOverride="Test from a worker"
+					viaWorker
+				/>
+			</div>
 
-		{#if showInstanceStorageTools}
 			<div class="border rounded-md p-3 my-2">
 				<div class="flex items-center justify-between gap-2">
 					<div class="flex flex-col">
@@ -327,10 +324,8 @@
 						</span>
 					</div>
 					<Button
-						spacingSize="sm"
-						size="xs"
-						btnClasses="h-8"
-						variant="border"
+						unifiedSize="md"
+						variant="default"
 						disabled={usageStarting || usageStatus?.running}
 						on:click={startUsage}
 					>
@@ -411,10 +406,8 @@
 						</span>
 					</div>
 					<Button
-						spacingSize="sm"
-						size="xs"
-						btnClasses="h-8"
-						variant="border"
+						unifiedSize="md"
+						variant="default"
 						disabled={cleanupStarting || cleanupStatus?.running}
 						on:click={startCleanup}
 					>
