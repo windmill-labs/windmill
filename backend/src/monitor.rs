@@ -4725,16 +4725,21 @@ async fn maintain_git_credentials(db: &Pool<Postgres>) {
         return;
     }
 
-    let mut lock_conn = match db.acquire().await {
-        Ok(c) => c,
+    // Transaction-scoped advisory lock, as for the schedule reconcile above: a
+    // session lock on a pooled connection would ride back into the pool still
+    // held if the sweep died before unlocking, and wedge the pass on every
+    // replica until a restart. The transaction only owns the lock; the sweep
+    // commits each status and each rotated token on its own as it goes.
+    let mut lock_tx = match db.begin().await {
+        Ok(tx) => tx,
         Err(e) => {
-            tracing::error!("git credentials: failed to acquire connection: {e:#}");
+            tracing::error!("git credentials: failed to begin lock tx: {e:#}");
             return;
         }
     };
-    let locked: bool = match sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+    let locked: bool = match sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1)")
         .bind(GIT_CREDENTIAL_LOCK_ID)
-        .fetch_one(&mut *lock_conn)
+        .fetch_one(&mut *lock_tx)
         .await
     {
         Ok(v) => v,
@@ -4750,14 +4755,7 @@ async fn maintain_git_credentials(db: &Pool<Postgres>) {
     if let Err(e) = maintain_git_credentials_inner(db).await {
         tracing::error!("git credentials: maintenance error: {e:#}");
     }
-
-    if let Err(e) = sqlx::query("SELECT pg_advisory_unlock($1)")
-        .bind(GIT_CREDENTIAL_LOCK_ID)
-        .execute(&mut *lock_conn)
-        .await
-    {
-        tracing::error!("git credentials: advisory unlock failed: {e:#}");
-    }
+    drop(lock_tx);
 }
 
 #[cfg(all(feature = "enterprise", feature = "private"))]
