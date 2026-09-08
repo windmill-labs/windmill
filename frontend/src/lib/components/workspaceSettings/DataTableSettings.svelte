@@ -223,12 +223,21 @@
 			const deleted_datatables = dataTableSettings.dataTables
 				.filter((d) => !tempIds.has(d.id))
 				.map((d) => d.name)
-			await WorkspaceService.editDataTableConfig({
+			const result = await WorkspaceService.editDataTableConfig({
 				workspace: $workspaceStore!,
 				requestBody: { settings, renames, deleted_datatables }
 			})
 			dataTableSettings = clone(tempSettings)
-			sendUserToast('Data table settings saved successfully')
+			// The server says here when a delete left another workspace's data table pointing at
+			// nothing. Swallowing it is what made that failure silent for the person who caused it.
+			const stranded = typeof result === 'string' && result.includes('no longer resolve')
+			sendUserToast(
+				stranded ? result : 'Data table settings saved successfully',
+				stranded ? 'warning' : 'success',
+				[],
+				undefined,
+				stranded ? 20000 : 5000
+			)
 		} catch (e) {
 			sendUserToast(e, true)
 			console.error('Error saving data table settings', e)
