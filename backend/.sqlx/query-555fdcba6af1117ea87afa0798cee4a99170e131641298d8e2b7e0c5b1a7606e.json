@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE git_sync_ci_test_check\n                         SET github_posted = github_posted\n                                 AND check_run_id IS NOT DISTINCT FROM GREATEST(check_run_id, $3),\n                             check_run_id = GREATEST(check_run_id, $3)\n                         WHERE workspace_id = $1 AND head_sha = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "555fdcba6af1117ea87afa0798cee4a99170e131641298d8e2b7e0c5b1a7606e"
+}
