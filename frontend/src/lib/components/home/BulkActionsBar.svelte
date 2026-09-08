@@ -10,13 +10,16 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import { Archive, ArchiveRestore, FolderInput, MoreHorizontal, Trash, X } from 'lucide-svelte'
+	import { fly } from 'svelte/transition'
 	import {
 		blockedReason,
 		eligible,
 		movedPath,
 		runBulk,
+		sourcePath,
 		type BulkAction,
 		type BulkContext,
 		type BulkOutcome
@@ -36,7 +39,17 @@
 	let { selection, workspace, isAdmin, moveTargets, onDone }: Props = $props()
 
 	let ctx: BulkContext = $derived({ workspace, isAdmin })
-	let items = $derived(selection.items)
+	// The bar is still on screen while it flies out, and unticking the last row is
+	// what starts that — by then the live selection is empty. Rendering the last
+	// non-empty one keeps the count and the action states from blinking on the way
+	// out. `keepOnly` only ever removes keys, so acting on the held copy is inert.
+	let lastNonEmpty = $state<BulkItem[]>([])
+	$effect(() => {
+		if (selection.items.length > 0) lastNonEmpty = selection.items
+	})
+	let items = $derived(selection.items.length > 0 ? selection.items : lastNonEmpty)
+
+	let reducedMotion = useReducedMotion()
 
 	const plural = (n: number) => (n === 1 ? '' : 's')
 	const ACTION_LABEL: Record<BulkAction, string> = {
@@ -71,9 +84,6 @@
 
 	function actionTitle(action: BulkAction): string {
 		const n = targets(action).length
-		// Selection mode is entered from the toolbar with nothing picked yet, so this
-		// is the state the primary entry point lands on — it has no blocked reason.
-		if (items.length === 0) return `Select items to ${ACTION_LABEL[action].toLowerCase()}`
 		if (n === 0) return `Cannot ${ACTION_LABEL[action].toLowerCase()}: ${blockedSummary(action)}`
 		if (n < items.length) return `${ACTION_LABEL[action]} ${n} of the ${items.length} selected`
 		return `${ACTION_LABEL[action]} ${n} item${plural(n)}`
@@ -156,92 +166,99 @@
 	}
 </script>
 
-<div
-	class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 rounded-md border bg-surface px-3 py-2 shadow-lg"
->
-	<span class="text-xs font-semibold text-emphasis whitespace-nowrap">
-		{selection.size} selected
-	</span>
-	<div class="h-4 border-l"></div>
-	<Button
-		variant="subtle"
-		unifiedSize="sm"
-		startIcon={{ icon: FolderInput }}
-		disabled={targets('move').length === 0}
-		title={actionTitle('move')}
-		on:click={() => open('move')}
+<!-- Centred by the wrapper rather than by a translate on the bar itself: `fly`
+     composes its slide onto whatever transform the element already has, and a
+     captured `-translate-x-1/2` would be stale the moment the bar's width
+     changed mid-animation. -->
+<div class="fixed bottom-6 inset-x-0 z-40 flex justify-center pointer-events-none">
+	<div
+		transition:fly={{ y: 32, duration: reducedMotion.val ? 0 : 200 }}
+		class="pointer-events-auto flex items-center gap-2 rounded-md border bg-surface px-3 py-2 shadow-lg"
 	>
-		Move{countSuffix('move')}
-	</Button>
-	<!-- Both render when both have targets: a selection mixing archived and active
-	     rows would otherwise be a dead end for whichever action lost the toss. With
-	     no targets either way, Archive stands alone and disabled, explaining why. -->
-	{#if targets('archive').length > 0 || targets('unarchive').length === 0}
+		<span class="text-xs font-semibold text-emphasis whitespace-nowrap">
+			{items.length} selected
+		</span>
+		<div class="h-4 border-l"></div>
 		<Button
 			variant="subtle"
 			unifiedSize="sm"
-			startIcon={{ icon: Archive }}
-			disabled={targets('archive').length === 0}
-			title={actionTitle('archive')}
-			on:click={() => open('archive')}
+			startIcon={{ icon: FolderInput }}
+			disabled={targets('move').length === 0}
+			title={actionTitle('move')}
+			on:click={() => open('move')}
 		>
-			Archive{countSuffix('archive')}
+			Move{countSuffix('move')}
 		</Button>
-	{/if}
-	{#if targets('unarchive').length > 0}
-		<Button
-			variant="subtle"
-			unifiedSize="sm"
-			startIcon={{ icon: ArchiveRestore }}
-			title={actionTitle('unarchive')}
-			on:click={() => open('unarchive')}
-		>
-			Unarchive{countSuffix('unarchive')}
-		</Button>
-	{/if}
-	<DropdownV2
-		placement="top-end"
-		items={[
-			{
-				displayName: `Discard drafts${countSuffix('discard')}`,
-				icon: Trash,
-				action: () => open('discard'),
-				disabled: targets('discard').length === 0,
-				// Only while blocked: a disabled entry can't open its modal, so the reason
-				// has to live here — and an enabled one would render a pointless ⓘ.
-				tooltip: targets('discard').length === 0 ? actionTitle('discard') : undefined
-			},
-			{
-				displayName: `Delete${countSuffix('delete')}`,
-				icon: Trash,
-				type: 'delete' as const,
-				action: () => open('delete'),
-				disabled: targets('delete').length === 0,
-				tooltip: targets('delete').length === 0 ? actionTitle('delete') : undefined
-			}
-		]}
-	>
-		{#snippet buttonReplacement()}
+		<!-- Both render when both have targets: a selection mixing archived and active
+		     rows would otherwise be a dead end for whichever action lost the toss. With
+		     no targets either way, Archive stands alone and disabled, explaining why. -->
+		{#if targets('archive').length > 0 || targets('unarchive').length === 0}
 			<Button
-				nonCaptureEvent
 				variant="subtle"
 				unifiedSize="sm"
-				startIcon={{ icon: MoreHorizontal }}
-				title="More actions"
+				startIcon={{ icon: Archive }}
+				disabled={targets('archive').length === 0}
+				title={actionTitle('archive')}
+				on:click={() => open('archive')}
 			>
-				More
+				Archive{countSuffix('archive')}
 			</Button>
-		{/snippet}
-	</DropdownV2>
-	<div class="h-4 border-l"></div>
-	<Button
-		variant="subtle"
-		unifiedSize="sm"
-		iconOnly
-		startIcon={{ icon: X }}
-		title="Cancel selection (Esc)"
-		on:click={() => selection.exit()}
-	/>
+		{/if}
+		{#if targets('unarchive').length > 0}
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
+				startIcon={{ icon: ArchiveRestore }}
+				title={actionTitle('unarchive')}
+				on:click={() => open('unarchive')}
+			>
+				Unarchive{countSuffix('unarchive')}
+			</Button>
+		{/if}
+		<DropdownV2
+			placement="top-end"
+			items={[
+				{
+					displayName: `Discard drafts${countSuffix('discard')}`,
+					icon: Trash,
+					action: () => open('discard'),
+					disabled: targets('discard').length === 0,
+					// Only while blocked: a disabled entry can't open its modal, so the reason
+					// has to live here — and an enabled one would render a pointless ⓘ.
+					tooltip: targets('discard').length === 0 ? actionTitle('discard') : undefined
+				},
+				{
+					displayName: `Delete${countSuffix('delete')}`,
+					icon: Trash,
+					type: 'delete' as const,
+					action: () => open('delete'),
+					disabled: targets('delete').length === 0,
+					tooltip: targets('delete').length === 0 ? actionTitle('delete') : undefined
+				}
+			]}
+		>
+			{#snippet buttonReplacement()}
+				<Button
+					nonCaptureEvent
+					variant="subtle"
+					unifiedSize="sm"
+					startIcon={{ icon: MoreHorizontal }}
+					title="More actions"
+				>
+					More
+				</Button>
+			{/snippet}
+		</DropdownV2>
+		<div class="h-4 border-l"></div>
+		<Button
+			variant="subtle"
+			unifiedSize="sm"
+			iconOnly
+			startIcon={{ icon: X }}
+			title="Cancel selection (Esc)"
+			on:click={() => selection.exit()}
+		/>
+	</div>
 </div>
 
 <ConfirmationModal
@@ -266,7 +283,7 @@
 				{@const target = moveTarget}
 				{@render pathList(
 					'Will be moved to',
-					pendingItems.map((i) => `${i.path} → ${movedPath(i, target)}`)
+					pendingItems.map((i) => `${sourcePath(i)} → ${movedPath(i, target)}`)
 				)}
 			{/if}
 		{:else if pending === 'discard'}

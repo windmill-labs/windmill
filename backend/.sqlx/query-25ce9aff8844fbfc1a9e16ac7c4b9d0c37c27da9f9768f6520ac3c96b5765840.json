@@ -1,0 +1,66 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $3\n                        AND typ = $2 AND email = $4) as \"at_target!\",\n                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5\n                        AND typ = $2 AND email = $4\n                        AND position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) > 0\n                       ) as \"poisoned!\" ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "at_target!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "poisoned!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "draft_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "flow",
+                "app",
+                "raw_app",
+                "resource",
+                "variable",
+                "trigger_schedule",
+                "trigger_webhook",
+                "trigger_default_email",
+                "trigger_email",
+                "trigger_http",
+                "trigger_websocket",
+                "trigger_postgres",
+                "trigger_kafka",
+                "trigger_nats",
+                "trigger_mqtt",
+                "trigger_sqs",
+                "trigger_gcp",
+                "trigger_azure",
+                "trigger_poll",
+                "trigger_cli",
+                "trigger_nextcloud",
+                "trigger_google",
+                "trigger_github",
+                "data_pipeline",
+                "trigger_amqp"
+              ]
+            }
+          }
+        },
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "25ce9aff8844fbfc1a9e16ac7c4b9d0c37c27da9f9768f6520ac3c96b5765840"
+}

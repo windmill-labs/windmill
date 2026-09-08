@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT a.path, head.id as \"head!\", head.created_by as \"head_by!\"\n                       FROM app_version av\n                       JOIN app a ON a.id = av.app_id\n                       JOIN LATERAL (\n                           SELECT id, created_by FROM app_version\n                           WHERE app_id = a.id ORDER BY created_at DESC LIMIT 1\n                       ) head ON true\n                       WHERE av.id = $2 AND a.workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "head!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "head_by!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "323f975428149815f3a9bc5c47396c1ad11eab84d03dd8c435b824e2e1b03ff1"
+}

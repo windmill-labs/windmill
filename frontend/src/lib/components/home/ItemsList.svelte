@@ -20,7 +20,6 @@
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
 		ArrowDownUp,
-		CheckSquare,
 		ChevronsDownUp,
 		ChevronsUpDown,
 		Code2,
@@ -1693,19 +1692,9 @@
 		{/if}
 
 		{#if !loading && !contentActive}
-			<!-- List controls, between the kind toggle and the searchbar: select mode, tree
-			     view, expand/collapse (tree only), sort. -->
+			<!-- List controls, between the kind toggle and the searchbar: tree view,
+			     expand/collapse (tree only), sort. -->
 			<div class="flex items-center gap-2">
-				{#if homeSelection.available && !homeSelection.active}
-					<Button
-						startIcon={{ icon: CheckSquare }}
-						iconOnly
-						unifiedSize="xs"
-						variant="default"
-						title="Select items — move, archive, delete or discard several at once"
-						on:click={() => homeSelection.enter()}
-					/>
-				{/if}
 				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
 				{#if treeView}
 					<Button

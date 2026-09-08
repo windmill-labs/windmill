@@ -172,7 +172,11 @@
 				<div class="flex min-h-full items-center justify-center p-4">
 					<div
 						class={classNames(
-							'relative transform overflow-hidden rounded-lg bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6',
+							// `w-full max-w-lg` unprefixed, not `sm:`-only: below 640px the panel would
+							// otherwise be sized by its content's min-content width, and since the
+							// wrapper centres it without scrolling, anything wider than the viewport
+							// gets clipped on both sides with the left half unreachable.
+							'relative transform overflow-hidden rounded-lg bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all w-full max-w-lg sm:my-8 sm:p-6',
 							open
 								? 'ease-out duration-300 opacity-100 translate-y-0 sm:scale-100'
 								: 'ease-in duration-200 opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95'
@@ -180,13 +184,20 @@
 					>
 						<div class="flex">
 							{#if showIcon}
+								<!-- shrink-0: the badge is a flex item whose min-content width is the
+								     24px icon, so without it a narrow dialog squeezes the circle into a
+								     24x48 oval instead of wrapping the text beside it. -->
 								<div
-									class={`flex h-12 w-12 items-center justify-center rounded-full ${theme[type].classes.iconWrapper}`}
+									class={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${theme[type].classes.iconWrapper}`}
 								>
 									<Icon class={theme[type].classes.icon} />
 								</div>
 							{/if}
-							<div class={twMerge('ml-0 text-left flex-1 ', showIcon ? 'ml-4' : '')}>
+							<!-- min-w-0: `flex-1` alone keeps `min-width: auto`, so a body containing
+							     one long unbreakable string (a path list, a URL) sizes this column by
+							     that string and pushes it out of the panel — and any `truncate` inside
+							     never engages. -->
+							<div class={twMerge('ml-0 text-left flex-1 min-w-0', showIcon ? 'ml-4' : '')}>
 								<h3 class="text-lg font-medium text-primary">
 									{title}
 								</h3>

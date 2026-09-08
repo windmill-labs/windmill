@@ -2312,6 +2312,37 @@ async fn create_script_internal<'c>(
             .await?;
         }
 
+        if p_path != &ns.path {
+            // Everything left at the old path is a draft this deploy didn't
+            // consume — teammates' rows, and the deployer's own when the caller
+            // asked us to keep it. Carry them rather than strand them. Only the
+            // deployer's own row is restamped: this runs on any path-changing
+            // deploy, content edits included, and a teammate whose draft claimed
+            // the new head would lose their stale-draft warning.
+            let outcome = windmill_common::user_drafts::move_drafts_for_path(
+                &mut tx,
+                &w_id,
+                &[UserDraftItemKind::Script],
+                p_path,
+                &ns.path,
+                UserDraftItemKind::Script.typed_path_field(),
+                // Drafts store a hash the way the API serializes one: hex text.
+                UserDraftItemKind::Script
+                    .base_version_field()
+                    .map(|f| (f, format!("\"{}\"", hash))),
+                &authed.email,
+            )
+            .await?;
+            if outcome.left_behind > 0 {
+                tracing::warn!(
+                    "{} of {} script draft(s) stranded at {p_path}: their owner already has a draft at {}",
+                    outcome.left_behind,
+                    outcome.moved + outcome.left_behind,
+                    &ns.path
+                );
+            }
+        }
+
         sqlx::query!(
             "UPDATE capture_config SET path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS FALSE",
             ns.path,

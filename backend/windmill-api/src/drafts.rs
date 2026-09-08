@@ -14,9 +14,11 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
+    scripts::ScriptHash,
     user_drafts::{DraftUserRef, UserDraftItemKind, ENCRYPTED_DRAFT_PREFIX},
     users::resolve_username_to_email,
     utils::strip_json_nul,
@@ -29,6 +31,7 @@ pub fn workspaced_service() -> Router {
         .route("/get/{kind}/{*path}", get(get_draft_for_user))
         .route("/get_own/{kind}/{*path}", get(get_own_draft))
         .route("/update/{kind}/{*path}", post(update_draft))
+        .route("/move/{kind}/{*path}", post(move_draft))
         .route("/migrate_legacy/{kind}/{*path}", post(migrate_legacy_draft))
 }
 
@@ -312,6 +315,10 @@ pub struct SaveDraftRequest {
 pub enum SaveDraftStatus {
     Saved,
     Conflict,
+    /// The item this draft belongs to was moved away from this path. Nothing
+    /// was written — writing would plant a phantom draft-only item at a path
+    /// the item has left.
+    Moved,
 }
 
 #[derive(Serialize, Debug)]
@@ -319,7 +326,252 @@ pub struct SaveDraftResponse {
     pub status: SaveDraftStatus,
     /// On `saved`: when the change was applied (client remembers it as the
     /// next `last_sync`). On `conflict`: the existing row's `created_at`.
+    /// On `moved`: the server's now().
     pub current_timestamp: chrono::DateTime<chrono::Utc>,
+    /// `moved` only: where the item lives now.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub moved_to: Option<String>,
+    /// `moved` only: who last deployed it at its new path. Best-effort.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub moved_by: Option<String>,
+    /// `moved` only: fields to merge into the refused draft before re-saving it
+    /// at `moved_to` — the typed target path, and the version the item now sits
+    /// at. Sent as a patch so the client never has to reproduce the per-kind
+    /// key names (`UserDraftItemKind::typed_path_field` / `base_version_field`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub moved_patch: Option<serde_json::Value>,
+}
+
+/// The version a draft forked from, as the editors write it into `draft.value`.
+/// Each kind names it differently and only one is ever set.
+#[derive(Deserialize)]
+struct DraftBaseVersion {
+    /// Scripts: hex-encoded script hash.
+    #[serde(default)]
+    parent_hash: Option<String>,
+    /// Flows: `flow_version.id`.
+    #[serde(default)]
+    version_id: Option<i64>,
+    /// Apps / raw apps: `app_version.id`.
+    #[serde(default)]
+    parent_version: Option<i64>,
+    /// The user-typed target path — `UserDraftItemKind::typed_path_field`. Both
+    /// spellings live here so the one cheap parse answers the version question
+    /// and the staged-rename question together; serde skips every other key, and
+    /// an app draft's payload runs to hundreds of KB.
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    draft_path: Option<String>,
+}
+
+impl DraftBaseVersion {
+    /// The typed path for this kind. Keyed off `typed_path_field()` rather than
+    /// re-matching the kind, so this stays one mapping: a kind that later spells
+    /// its typed path a third way lands on `None` here loudly instead of
+    /// silently reading `draft_path` and skipping the repoint.
+    fn typed_path(&self, kind: UserDraftItemKind) -> Option<&str> {
+        match kind.typed_path_field() {
+            "path" => self.path.as_deref(),
+            "draft_path" => self.draft_path.as_deref(),
+            _ => None,
+        }
+    }
+}
+
+/// Where the item that used to live at `path` went, for a draft still bound to
+/// the old path. Resolved from the version the draft already carries — every
+/// kind keeps a pointer that outlives a rename:
+///   - flows: `flow_version.path` is rewritten before the old row is deleted;
+///   - apps: `app_version` points at the app's surrogate id, which never moves;
+///   - scripts: the new version prepends the old hash onto `parent_hashes`.
+///
+/// `None` (⇒ save normally) when the draft carries no base version (a genuine
+/// draft-only item), when the lineage is gone (item deleted, or recreated at
+/// the new path by a CLI/git-sync push that leaves no lineage), or when the
+/// caller can't see where it went.
+///
+/// Read under RLS so the answer can never reveal an item the caller has no
+/// access to.
+async fn resolve_moved_to(
+    authed: &ApiAuthed,
+    user_db: &UserDB,
+    w_id: &str,
+    kind: UserDraftItemKind,
+    path: &str,
+    value: &str,
+) -> Result<Option<(String, Option<String>, serde_json::Value)>> {
+    use UserDraftItemKind::*;
+    if !matches!(kind, Script | Flow | App | RawApp) {
+        return Ok(None);
+    }
+    // A malformed or version-less draft is simply a draft with no lineage. This
+    // is also the autosave hot path's escape hatch: no base version, no query.
+    let Ok(base) = serde_json::from_str::<DraftBaseVersion>(value) else {
+        return Ok(None);
+    };
+    let script_hash = base
+        .parent_hash
+        .as_deref()
+        .and_then(|h| windmill_common::scripts::to_i64(h).ok());
+    let has_base = match kind {
+        Script => script_hash.is_some(),
+        Flow => base.version_id.is_some(),
+        _ => base.parent_version.is_some(),
+    };
+    if !has_base {
+        return Ok(None);
+    }
+
+    // One round-trip per save: "is it still here" and "where did it go" answered
+    // together, so a normal autosave costs a single indexed lookup.
+    let mut tx = user_db.clone().begin(authed).await?;
+    let moved = match kind {
+        Script => {
+            // An archived row keeps sitting at the old path, so a plain
+            // existence check would miss every script move.
+            let still_here = sqlx::query_scalar!(
+                r#"SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2
+                                 AND NOT archived AND NOT deleted) as "e!""#,
+                w_id,
+                path,
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            if still_here {
+                None
+            } else {
+                // Only reached once the item is gone. `parent_hashes` carries no
+                // index, so this is a workspace-wide scan — keeping it behind the
+                // cheap check above is what leaves the autosave hot path at one
+                // indexed lookup.
+                sqlx::query!(
+                    r#"SELECT path, created_by, hash FROM script
+                       WHERE workspace_id = $1 AND $2 = ANY(parent_hashes)
+                         AND NOT archived AND NOT deleted
+                       ORDER BY created_at DESC LIMIT 1"#,
+                    w_id,
+                    script_hash,
+                )
+                .fetch_optional(&mut *tx)
+                .await?
+                // Hex text, the way the API serializes a hash and the way a
+                // script draft stores `parent_hash`.
+                .map(|r| {
+                    (
+                        r.path,
+                        Some(r.created_by),
+                        json!(ScriptHash(r.hash).to_string()),
+                    )
+                })
+            }
+        }
+        Flow => {
+            let still_here = sqlx::query_scalar!(
+                r#"SELECT EXISTS(SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2) as "e!""#,
+                w_id,
+                path,
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            if still_here {
+                None
+            } else {
+                sqlx::query!(
+                    r#"SELECT fv.path, f.edited_by, f.versions[array_upper(f.versions, 1)] as "head!"
+                       FROM flow_version fv
+                       JOIN flow f ON f.workspace_id = fv.workspace_id AND f.path = fv.path
+                       WHERE fv.id = $2 AND fv.workspace_id = $1"#,
+                    w_id,
+                    base.version_id,
+                )
+                .fetch_optional(&mut *tx)
+                .await?
+                .map(|r| (r.path, Some(r.edited_by), json!(r.head)))
+            }
+        }
+        App | RawApp => {
+            let still_here = sqlx::query_scalar!(
+                r#"SELECT EXISTS(SELECT 1 FROM app WHERE workspace_id = $1 AND path = $2) as "e!""#,
+                w_id,
+                path,
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            if still_here {
+                None
+            } else {
+                // `created_by` must come from the HEAD row, not from `av` — `av`
+                // is the version the draft forked from, whose author is usually
+                // the person now reading this. Naming them would make
+                // `moved_by_me` true for the wrong user and restamp a draft that
+                // has never seen the head's content.
+                sqlx::query!(
+                    r#"SELECT a.path, head.id as "head!", head.created_by as "head_by!"
+                       FROM app_version av
+                       JOIN app a ON a.id = av.app_id
+                       JOIN LATERAL (
+                           SELECT id, created_by FROM app_version
+                           WHERE app_id = a.id ORDER BY created_at DESC LIMIT 1
+                       ) head ON true
+                       WHERE av.id = $2 AND a.workspace_id = $1"#,
+                    w_id,
+                    base.parent_version,
+                )
+                .fetch_optional(&mut *tx)
+                .await?
+                .map(|r| (r.path, Some(r.head_by), json!(r.head)))
+            }
+        }
+        _ => None,
+    };
+    tx.commit().await?;
+
+    // Same path back ⇒ nothing moved (a stale read, or a path reused).
+    let moved = moved.filter(|(new_path, _, _)| new_path != path);
+
+    // The client re-points its in-flight draft with this patch rather than
+    // reproducing `typed_path_field` / `base_version_field` on its own side.
+    //
+    // The typed path is repointed only when it still names the old path: absent
+    // ⇒ omit, so the patch never manufactures a target the draft did not have;
+    // naming anywhere else ⇒ omit, so a rename staged in this very editor
+    // survives the relocation. Same rule as `move_drafts_for_path`.
+    //
+    // The version is restamped only for the LAST DEPLOYER AT THE NEW PATH, which
+    // is the strongest "did I put the content there?" test available without
+    // comparing payloads — nothing records who performed a move as distinct from
+    // who deployed. It is deliberately weaker than "the mover": if Alice moves
+    // A→B and Bob then deploys at B, Bob is spared the prompt for a head that
+    // also carries Alice's move-time edits. That residual is a missing prompt for
+    // someone who did deploy the head, not for a bystander.
+    //
+    // The point of the scoping is the bystander: the deploy that moved the item
+    // may have edited it in the same breath, and handing a teammate the new head
+    // would tell them they are up to date with content they have never seen, so
+    // their next deploy would silently revert it. Mirrors `restamp_email` on the
+    // passive carry in `move_drafts_for_path`.
+    let repoint_path = base.typed_path(kind) == Some(path);
+    Ok(moved.map(|(new_path, new_by, head)| {
+        let moved_by_me = new_by.as_deref() == Some(authed.username.as_str());
+        let mut patch = serde_json::Map::new();
+        if repoint_path {
+            patch.insert(kind.typed_path_field().to_string(), json!(&new_path));
+        }
+        // A flow draft also carries the deployed `path` it forked from beside its
+        // staged `draft_path`, and the editor layers the draft over the deployed
+        // payload — a stale one there un-moves the flow on the next deploy. Same
+        // rule, same reason as the second UPDATE in `move_drafts_for_path`.
+        if kind.typed_path_field() != "path" && base.path.as_deref() == Some(path) {
+            patch.insert("path".to_string(), json!(&new_path));
+        }
+        if moved_by_me {
+            if let Some(field) = kind.base_version_field() {
+                patch.insert(field.to_string(), head);
+            }
+        }
+        (new_path, new_by, serde_json::Value::Object(patch))
+    }))
 }
 
 /// Apply the current user's draft at (workspace, kind, path): non-null `value`
@@ -345,6 +597,26 @@ async fn update_draft(
     let is_own_discard = req.value.is_none() && !req.legacy;
     if !is_own_discard {
         require_can_write_path(&authed, &db, &user_db, &w_id, kind, path).await?;
+    }
+
+    // An editor left open across someone else's move is still bound to the old
+    // path and would re-plant its draft there. Refuse and answer with where the
+    // item went; the carried draft is already waiting at the new path.
+    if let Some(value) = &req.value {
+        if let Some((moved_to, moved_by, moved_patch)) =
+            resolve_moved_to(&authed, &user_db, &w_id, kind, path, value.0.get()).await?
+        {
+            let now = sqlx::query_scalar!(r#"SELECT now() as "now!""#)
+                .fetch_one(&db)
+                .await?;
+            return Ok(Json(SaveDraftResponse {
+                status: SaveDraftStatus::Moved,
+                current_timestamp: now,
+                moved_to: Some(moved_to),
+                moved_by,
+                moved_patch: Some(moved_patch),
+            }));
+        }
     }
 
     let applied_at = if let Some(value) = &req.value {
@@ -413,6 +685,9 @@ async fn update_draft(
         return Ok(Json(SaveDraftResponse {
             status: SaveDraftStatus::Saved,
             current_timestamp: ts,
+            moved_to: None,
+            moved_by: None,
+            moved_patch: None,
         }));
     }
 
@@ -437,6 +712,9 @@ async fn update_draft(
         Some(ts) => Ok(Json(SaveDraftResponse {
             status: SaveDraftStatus::Conflict,
             current_timestamp: ts,
+            moved_to: None,
+            moved_by: None,
+            moved_patch: None,
         })),
         // Delete + nothing-was-there ⇒ report success with server's NOW().
         None => {
@@ -446,9 +724,183 @@ async fn update_draft(
             Ok(Json(SaveDraftResponse {
                 status: SaveDraftStatus::Saved,
                 current_timestamp: now,
+                moved_to: None,
+                moved_by: None,
+                moved_patch: None,
             }))
         }
     }
+}
+
+#[derive(Deserialize)]
+pub struct MoveDraftRequest {
+    pub new_path: String,
+    /// Also restate the draft's summary, so the same drawer that renames a
+    /// deployed item can retitle a draft-only one.
+    #[serde(default)]
+    pub summary: Option<String>,
+}
+
+/// Relocate the authed user's own DRAFT-ONLY item. Such an item is nothing but
+/// its draft row, so moving it is a rewrite of that row's path plus the typed
+/// path inside its value — there is no deployed row, schedule or trigger to
+/// cascade to, and no second party to notify (a draft is private to its owner).
+///
+/// Scoped to the caller's own row on purpose: two users can each have a draft
+/// at the same never-deployed path, and those are two separate items.
+///
+/// A DEPLOYED item must move through its own deploy endpoint instead, which
+/// cascades everything that references the path and carries every draft along.
+async fn move_draft(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, kind, path)): Path<(String, UserDraftItemKind, windmill_common::utils::StripPath)>,
+    Json(req): Json<MoveDraftRequest>,
+) -> Result<String> {
+    let path = path.to_path();
+    let new_path = req.new_path.as_str();
+    // Only the full-page editor kinds. The in-value rewrite below keys off
+    // `typed_path_field()`, which answers `draft_path` for every non-script kind
+    // — true for flows and apps, wrong for resources, variables and triggers,
+    // whose drafts keep their deploy target in `value.path`. Moving one of those
+    // would inject a `draft_path` nothing reads and leave the real target naming
+    // the old location, so the next deploy would recreate it where it came from.
+    if !matches!(
+        kind,
+        UserDraftItemKind::Script
+            | UserDraftItemKind::Flow
+            | UserDraftItemKind::App
+            | UserDraftItemKind::RawApp
+    ) {
+        return Err(Error::BadRequest(format!(
+            "moving a {kind:?} draft is not supported — only scripts, flows and apps"
+        )));
+    }
+    // A summary-only edit is a legitimate use of this endpoint: the drawer edits
+    // both fields, and for a draft-only script the path it posts back is the row
+    // path unchanged (`list_scripts` only reports `draft_path` when it differs).
+    // Returning early on the path alone would drop the new summary silently.
+    if new_path == path && req.summary.is_none() {
+        return Ok("unchanged".to_string());
+    }
+    require_can_write_path(&authed, &db, &user_db, &w_id, kind, path).await?;
+    if new_path != path {
+        require_can_write_path(&authed, &db, &user_db, &w_id, kind, new_path).await?;
+    }
+
+    if let Some(table) = kind.deployed_table() {
+        // `table` is from the closed `deployed_table()` enum, never user input.
+        // Archived and soft-deleted rows keep sitting at their path — a script
+        // move archives its parent in place — so an existence check that counted
+        // them would refuse a move away from, or into, a path nothing occupies.
+        // `create_script_internal` resolves its own path clashes the same way.
+        let archived_filter = if table == "script" {
+            " AND NOT archived AND NOT deleted"
+        } else {
+            ""
+        };
+        let query = format!(
+            "SELECT 1 FROM {table} WHERE path = $1 AND workspace_id = $2{archived_filter} LIMIT 1"
+        );
+        let mut tx = user_db.clone().begin(&authed).await?;
+        let deployed_at_old = sqlx::query_scalar::<_, i32>(&query)
+            .bind(path)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        let deployed_at_new = sqlx::query_scalar::<_, i32>(&query)
+            .bind(new_path)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        if deployed_at_old.is_some() {
+            return Err(Error::BadRequest(format!(
+                "'{path}' is deployed — move it from its editor so schedules and triggers follow"
+            )));
+        }
+        if deployed_at_new.is_some() {
+            return Err(Error::BadRequest(format!(
+                "'{new_path}' already has a deployed item — moving there would turn this into a draft on top of it"
+            )));
+        }
+    }
+
+    let moved = sqlx::query_scalar!(
+        r#"UPDATE draft
+           SET path = $3,
+               value = to_json(
+                   jsonb_set(
+                       CASE WHEN $7::text IS NULL THEN to_jsonb(value)
+                            ELSE jsonb_set(to_jsonb(value), ARRAY['summary'], to_jsonb($7::text))
+                       END,
+                       ARRAY[$5::text], to_jsonb($3::text), false
+                   )
+               )
+           WHERE workspace_id = $1
+             AND path = $2
+             AND typ = $4
+             AND email = $6
+             -- A pre-sanitizer NUL escape makes `to_jsonb` raise 22P05. Excluded
+             -- here so the statement can't 500; reported below instead. Unlike the
+             -- passive carry, rewriting the value IS this operation, so skipping it
+             -- silently would move the row and leave its typed path stale.
+             AND position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) = 0
+             -- Skipped on a summary-only edit, where the "target" row is this
+             -- row and the guard would refuse the update against itself.
+             AND ($2 = $3 OR NOT EXISTS (
+                 SELECT 1 FROM draft o
+                 WHERE o.workspace_id = $1 AND o.path = $3 AND o.typ = $4 AND o.email = $6
+             ))
+           RETURNING id"#,
+        &w_id,
+        path,
+        new_path,
+        kind as UserDraftItemKind,
+        kind.typed_path_field(),
+        &authed.email,
+        req.summary,
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    if moved.is_none() {
+        let row = sqlx::query!(
+            r#"SELECT
+                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $3
+                        AND typ = $2 AND email = $4) as "at_target!",
+                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5
+                        AND typ = $2 AND email = $4
+                        AND position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) > 0
+                       ) as "poisoned!" "#,
+            &w_id,
+            kind as UserDraftItemKind,
+            new_path,
+            &authed.email,
+            path,
+        )
+        .fetch_one(&db)
+        .await?;
+        return Err(Error::BadRequest(if row.poisoned {
+            // This endpoint also serves a summary-only edit, so name the operation
+            // the caller actually asked for rather than always saying "moved".
+            let attempted = if new_path == path { "updated" } else { "moved" };
+            format!(
+                "'{path}' contains a NUL character and predates the sanitizer, so it cannot be \
+                 {attempted}. Reopen it, re-save to rewrite it cleanly, then retry."
+            )
+        } else if row.at_target && new_path != path {
+            format!("You already have a draft at '{new_path}'")
+        } else {
+            format!("You have no draft at '{path}'")
+        }));
+    }
+
+    if new_path == path {
+        return Ok(format!("updated draft {path}"));
+    }
+    Ok(format!("moved draft {path} to {new_path}"))
 }
 
 #[derive(Deserialize, Debug)]

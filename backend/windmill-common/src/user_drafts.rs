@@ -160,6 +160,33 @@ impl UserDraftItemKind {
         }
     }
 
+    /// The `draft.value` key holding the user-typed target path — where a
+    /// deploy of this draft would land when the user staged a rename. A script
+    /// draft round-trips its own `path`; every other kind writes a separate
+    /// `draft_path`, and only when it differs from the row's path.
+    pub fn typed_path_field(&self) -> &'static str {
+        match self {
+            UserDraftItemKind::Script => "path",
+            _ => "draft_path",
+        }
+    }
+
+    /// The `draft.value` key holding the deployed version this draft forked
+    /// from, which the staleness check compares against the deployed head.
+    /// `None` for kinds that keep no lineage. Sits next to `typed_path_field`
+    /// because the two travel together: a move rewrites both, and both are
+    /// sent to the client in a `moved` save response so it never has to
+    /// reproduce this mapping.
+    pub fn base_version_field(&self) -> Option<&'static str> {
+        use UserDraftItemKind::*;
+        match self {
+            Script => Some("parent_hash"),
+            Flow => Some("version_id"),
+            App | RawApp => Some("parent_version"),
+            _ => None,
+        }
+    }
+
     /// Whether OTHER users' drafts at a path are visible to a viewer (the
     /// "others are editing" list, owner circles, and the `get_draft_for_user`
     /// View JSON / Fork endpoint). Enabled only for the full-page editor items
@@ -580,6 +607,184 @@ pub async fn delete_own_draft_for_path(
     .execute(db)
     .await?;
     Ok(())
+}
+
+/// Carry every draft at `old_path` over to `new_path` when an item MOVES
+/// (rename or relocation). A draft is bound to its item by nothing but the path
+/// string, so without this a move detaches every draft on the item. No owner
+/// filter: teammates' rows and the legacy NULL-email row follow too.
+///
+/// `typed_path_field` is the draft JSON key holding the user-typed target path
+/// (`path` for scripts, `draft_path` for flows/apps). It is re-pointed only when
+/// it still names `old_path`: absent means "wherever my row sits", which `SET
+/// path` already fixed, and anything else is a rename the user staged in their
+/// own editor, which deploying their draft should still honour.
+///
+/// `base_version` restamps the version the draft forked from so the carried
+/// draft doesn't read as stale against the version the move just created. The
+/// value is JSON text, because the kinds disagree on its type: a script's
+/// `parent_hash` is a hex string, a flow's `version_id` and an app's
+/// `parent_version` are numbers. Only restamps rows that already carry the
+/// field.
+///
+/// The restamp is confined to `restamp_email`'s own row, and that is a safety
+/// property, not an optimisation. This function runs on ANY deploy that changed
+/// the path, including one that renamed and edited in the same breath. Saying
+/// "you are up to date with the new head" to a teammate's draft would delete the
+/// stale-draft warning they need, and they would then deploy straight over the
+/// edit. Only the deployer knows their own draft is not behind the version they
+/// just pushed. `resolve_moved_to` scopes its `moved_patch` the same way.
+///
+/// The legacy `email IS NULL` row is carried like every other but deliberately
+/// never restamped: unlike an owned row it is visible to the whole workspace, so
+/// clearing its staleness would clear the warning for everyone, which is the
+/// hazard the scoping exists to prevent. Its owner gets a declinable prompt
+/// instead.
+///
+/// A row whose owner already has a draft at `new_path` stays put: the target
+/// draft is work in its own right and is never overwritten. Those rows are
+/// reported as `left_behind` rather than swallowed — they are exactly the
+/// orphans this function exists to prevent, so a caller that ignores the count
+/// is choosing to strand them silently.
+pub async fn move_drafts_for_path(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    kinds: &[UserDraftItemKind],
+    old_path: &str,
+    new_path: &str,
+    typed_path_field: &str,
+    base_version: Option<(&str, String)>,
+    restamp_email: &str,
+) -> Result<MoveDraftsOutcome> {
+    let typs = kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>();
+    // The typed path is only followed along when it still names the OLD path.
+    //  - absent (`create_missing = false`): means "wherever my row sits", which
+    //    `SET path` already points at `new_path`.
+    //  - equal to `old_path`: no rename staged, so it has to follow or deploying
+    //    this draft would send the item back where it came from.
+    //  - anything else: a rename the user staged in their editor. Deploying
+    //    should still land there, so the move leaves it alone.
+    //
+    // `draft.value` is a `json` column, so `to_jsonb` raises 22P05 on a row that
+    // still carries a NUL escape from before the write-time `strip_json_nul`
+    // guard (see `backend/tests/drafts_nul.rs`). Such a row is skipped by the
+    // rewrite and carried on its `path` column alone: one teammate's poisoned
+    // draft must not abort an unrelated user's rename mid-transaction.
+    // `poisoned` is computed once here and returned, so the two follow-up
+    // statements can skip the same rows without re-deriving it. The `replace`
+    // strips escaped backslashes first: only an ODD-parity backslash-u0000 is a real NUL
+    // escape, and a draft whose source text legitimately contains those six
+    // characters (`s.replace("\u0000", "")` in a Python step) serialises as
+    // `\\u0000` and converts to jsonb perfectly well — flagging it would silently
+    // skip its rewrite and leave the path stale.
+    let moved = sqlx::query!(
+        r#"UPDATE draft AS d
+           SET path = $3,
+               value = CASE
+                   WHEN position(chr(92) || 'u0000' in replace(d.value::text, chr(92) || chr(92), '')) > 0
+                       THEN d.value
+                   WHEN to_jsonb(d.value) -> $4::text = to_jsonb($2::text)
+                       THEN to_json(jsonb_set(to_jsonb(d.value), ARRAY[$4::text], to_jsonb($3::text), false))
+                   ELSE d.value
+               END
+           WHERE d.workspace_id = $1
+             AND d.path = $2
+             AND d.typ::text = ANY($5::text[])
+             AND NOT EXISTS (
+                 SELECT 1 FROM draft o
+                 WHERE o.workspace_id = d.workspace_id
+                   AND o.path = $3
+                   AND o.typ = d.typ
+                   AND o.email IS NOT DISTINCT FROM d.email
+             )
+           RETURNING d.id,
+                     position(chr(92) || 'u0000' in replace(d.value::text, chr(92) || chr(92), '')) > 0
+                         as "poisoned!" "#,
+        w_id,
+        old_path,
+        new_path,
+        typed_path_field,
+        &typs as &[&str],
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    // Every carried row, for the outcome count; only the convertible ones for the
+    // value rewrites below — `to_jsonb` on a poisoned row raises 22P05 and would
+    // abort the whole deploy transaction.
+    let moved_ids = moved.iter().map(|r| r.id).collect::<Vec<_>>();
+    let clean_ids = moved
+        .iter()
+        .filter(|r| !r.poisoned)
+        .map(|r| r.id)
+        .collect::<Vec<_>>();
+
+    // A flow draft carries the deployed path it forked from in `path`, next to
+    // the staged rename in `draft_path`. The editor layers the draft over the
+    // deployed payload, so a `path` left naming the old location wins, and
+    // deploying that draft moves the flow back where it came from — schedules and
+    // triggers following it. Same tri-state rule as the typed path. Scripts need
+    // no second pass (their typed path IS `path`); an app draft has no such key
+    // and `create_missing = false` leaves it untouched.
+    if typed_path_field != "path" && !clean_ids.is_empty() {
+        sqlx::query!(
+            r#"UPDATE draft
+               SET value = to_json(
+                   CASE WHEN to_jsonb(value) -> 'path' = to_jsonb($2::text)
+                        THEN jsonb_set(to_jsonb(value), ARRAY['path'], to_jsonb($1::text), false)
+                        ELSE to_jsonb(value)
+                   END
+               )
+               WHERE id = ANY($3)"#,
+            new_path,
+            old_path,
+            &clean_ids,
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    if let Some((field, version)) = base_version {
+        if !clean_ids.is_empty() {
+            sqlx::query!(
+                r#"UPDATE draft
+                   SET value = to_json(
+                       jsonb_set(to_jsonb(value), ARRAY[$1::text], $2::text::jsonb, false)
+                   )
+                   WHERE id = ANY($3) AND email = $4"#,
+                field,
+                version,
+                &clean_ids,
+                restamp_email,
+            )
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
+
+    // Anything still sitting at the old path was blocked by the collision
+    // guard. Counted rather than inferred from `moved`, so a concurrent insert
+    // at the old path is reported too.
+    let left_behind = sqlx::query_scalar!(
+        r#"SELECT count(*) as "n!" FROM draft
+           WHERE workspace_id = $1 AND path = $2 AND typ::text = ANY($3::text[])"#,
+        w_id,
+        old_path,
+        &typs as &[&str],
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+
+    Ok(MoveDraftsOutcome { moved: moved_ids.len(), left_behind: left_behind as usize })
+}
+
+/// What `move_drafts_for_path` did. `left_behind` is non-zero only when the
+/// target owner already held a draft at the new path; those rows are now
+/// orphaned at a path their item has left, so a caller that sees a non-zero
+/// count owes the user a warning.
+#[derive(Debug, Clone, Copy)]
+pub struct MoveDraftsOutcome {
+    pub moved: usize,
+    pub left_behind: usize,
 }
 
 /// Fetch the authed user's draft as a standalone payload, for "get by path"

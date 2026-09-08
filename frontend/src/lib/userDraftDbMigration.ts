@@ -262,6 +262,36 @@ export async function migrateUserDraftsToDb(): Promise<void> {
 				path,
 				requestBody: { value, last_sync: writtenAt, created_at: writtenAt }
 			})
+			if (res.status === 'moved' && res.moved_to) {
+				// Nothing was written: the item left this path. Retrying here would
+				// never resolve — `resolve_moved_to` answers from the item's lineage,
+				// so the old path reports `moved` for as long as the item exists — and
+				// dropping the entry would destroy the only copy there is. Follow the
+				// item instead, applying the patch the server just handed us so the
+				// draft lands pointing at where it now lives.
+				const moved = await DraftService.updateDraft({
+					workspace: parsed.workspace,
+					kind: parsed.itemKind,
+					path: res.moved_to,
+					requestBody: {
+						value: { ...(value as object), ...((res.moved_patch as object) ?? {}) },
+						last_sync: writtenAt,
+						created_at: writtenAt
+					}
+				})
+				if (moved.status !== 'saved' && moved.status !== 'conflict') {
+					// Still not landed. Surface it rather than looping: the modal is the
+					// user's only way to see or discard an un-migratable draft.
+					reportDraftMigrationError({
+						key,
+						path,
+						workspace: parsed.workspace,
+						itemKind: parsed.itemKind,
+						value
+					})
+					continue
+				}
+			}
 			if (res.status === 'conflict') {
 				console.info(
 					`UserDraft LS→DB migration: server draft for ${path} is fresher, dropping LS copy`
