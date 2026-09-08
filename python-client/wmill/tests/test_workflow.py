@@ -1577,6 +1577,26 @@ class TestTaskRetry:
                 async def t(x: int):
                     return x
 
+    def test_a_zero_multiplier_is_honoured_not_read_as_the_default_of_one(self):
+        @task(retry={"attempts": 2, "delay": 30, "multiplier": 0})
+        async def t(x: int):
+            return x
+
+        @workflow
+        async def wf(x: int):
+            return await t(x=x)
+
+        r = _run_workflow(wf, {"completed_steps": {"t": _FAILED}}, {"x": 1})
+        assert r == {"type": "sleep", "key": "t#retry2", "seconds": 30}
+
+        # 30 * 0 — the second retry goes out with no wait at all
+        r = _run_workflow(
+            wf,
+            {"completed_steps": {"t": _FAILED, "t#retry2": None, "t#2": _FAILED}},
+            {"x": 1},
+        )
+        assert [s["key"] for s in r["steps"]] == ["t#3"]
+
     def test_max_delay_caps_the_backoff_a_multiplier_grows(self):
         @task(retry={"attempts": 2, "delay": 60, "multiplier": 100, "max_delay": 300})
         async def t(x: int):

@@ -185,6 +185,20 @@ describe("task retry", () => {
     }
   });
 
+  test("a zero multiplier is honoured, not read as the default of 1", async () => {
+    const t = task(async function t(x: number) {
+      return x;
+    }, { retry: { attempts: 2, delay: 30, multiplier: 0 } });
+    const body = () => t(1) as Promise<any>;
+
+    let r = await round({ t: failed }, body);
+    expect(r).toMatchObject({ mode: "sleep", key: "t#retry2", seconds: 30 });
+
+    // 30 * 0 — the second retry goes out with no wait at all
+    r = await round({ t: failed, "t#retry2": null, "t#2": failed }, body);
+    expect(r.steps.map((s: any) => s.key)).toEqual(["t#3"]);
+  });
+
   test("max_delay caps the backoff a multiplier grows", async () => {
     const t = task(async function t(x: number) {
       return x;

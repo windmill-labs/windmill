@@ -1695,7 +1695,9 @@ export type JsonifiedFn<T extends (...args: any[]) => Promise<any>> = (
  * `delay` all go out in a single round.
  */
 export interface TaskRetry {
-  /** Attempts after the first failure: `2` runs the task at most 3 times. */
+  /** Attempts after the first failure: `2` runs the task at most 3 times.
+   *  A whole number from 0 to 100; anything else is rejected where the policy
+   *  is written. */
   attempts: number;
   /** Seconds to wait before the first retry. Default 0, retry immediately.
    *  Sub-second delays are dropped — a durable sleep resolves to the second. */
@@ -1847,16 +1849,10 @@ export class WorkflowCtx {
     const stepName = name || script || "step";
     const maxRetries = retryAttempts(options?.retry);
 
-    // Every key this call can ever use is claimed here, at the first attempt,
-    // even for attempts that never run. They are named off the first attempt's
-    // key rather than off `stepName` so that how many attempts a task burns
-    // never shifts the keys of the steps beside it — in
-    // `Promise.all([t(1), t(2)])` a retry of the first call would otherwise take
-    // `t_2` and read the second call's result. Claiming them all up front is
-    // what makes that safe in both directions: `step()` names are arbitrary, so
-    // a step really can be called `t#2`, and whichever of the two the body
-    // allocates second is renamed — in every round alike, rather than depending
-    // on which attempts had run by then.
+    // Claimed up front, all of them, and named off the first attempt's key: one
+    // allocated later would shift the keys of the steps beside it, and a
+    // `step()` named `t#2` — names are arbitrary — could alias one. Whichever is
+    // allocated second is the one renamed, identically in every round.
     const baseKey = this._allocKey(stepName);
     const attemptKeys = [baseKey];
     const backoffKeys: string[] = [];

@@ -17,7 +17,9 @@ Import: `import { workflow, task, taskScript, taskFlow, step, sleep, waitForAppr
  * `delay` all go out in a single round.
  */
 export interface TaskRetry {
-  /** Attempts after the first failure: `2` runs the task at most 3 times. */
+  /** Attempts after the first failure: `2` runs the task at most 3 times.
+  *  A whole number from 0 to 100; anything else is rejected where the policy
+  *  is written. */
   attempts: number;
   /** Seconds to wait before the first retry. Default 0, retry immediately.
   *  Sub-second delays are dropped — a durable sleep resolves to the second. */

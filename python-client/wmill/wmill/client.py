@@ -2898,7 +2898,7 @@ def _checked_retry(retry: Optional[dict]) -> Optional[dict]:
         raise ValueError(
             f"unknown retry option(s): {', '.join(unknown)}. Expected any of: {', '.join(_RETRY_KEYS)}"
         )
-    attempts = retry.get("attempts", 0)
+    attempts = retry.get("attempts")
     if isinstance(attempts, bool) or not isinstance(attempts, int) or not 0 <= attempts <= _MAX_RETRY_ATTEMPTS:
         raise ValueError(
             f"retry attempts must be a whole number between 0 and {_MAX_RETRY_ATTEMPTS}, got {attempts!r}"
@@ -2911,8 +2911,13 @@ def _retry_delay_seconds(retry: dict, attempt: int) -> int:
     base = retry.get("delay") or 0
     if base <= 0:
         return 0
+    # `or 1` would read an explicit `multiplier: 0` — every retry after the
+    # first going out with no wait — as the default of 1.
+    multiplier = retry.get("multiplier")
+    if multiplier is None:
+        multiplier = 1
     try:
-        grown = base * (retry.get("multiplier") or 1) ** attempt
+        grown = base * multiplier**attempt
     except OverflowError:
         # A float delay times an integer multiplier raised past ~1e308.
         grown = _MAX_SLEEP_SECONDS
@@ -2983,16 +2988,10 @@ class WorkflowCtx:
         # another way must not spin the key loop below.
         max_retries = min(max(0, int(retry.get("attempts") or 0)), _MAX_RETRY_ATTEMPTS)
 
-        # Every key this call can ever use is claimed here, at the first attempt,
-        # even for attempts that never run. They are named off the first
-        # attempt's key rather than off ``step_name`` so that how many attempts a
-        # task burns never shifts the keys of the steps beside it — in
-        # ``asyncio.gather(t(1), t(2))`` a retry of the first call would
-        # otherwise take ``t_2`` and read the second call's result. Claiming them
-        # all up front is what makes that safe in both directions: ``step()``
-        # names are arbitrary, so a step really can be called ``t#2``, and
-        # whichever of the two the body allocates second is renamed — in every
-        # round alike, rather than depending on which attempts had run by then.
+        # Claimed up front, all of them, and named off the first attempt's key:
+        # one allocated later would shift the keys of the steps beside it, and a
+        # ``step()`` named ``t#2`` — names are arbitrary — could alias one.
+        # Whichever is allocated second is the one renamed, in every round alike.
         base_key = self._alloc_key(step_name)
         attempt_keys = [base_key]
         backoff_keys = []
@@ -3312,9 +3311,11 @@ def task(
     Every attempt is a step of its own (``call_api``, ``call_api#2``, ...) and
     the wait between two of them is a durable sleep, so a retrying task holds no
     worker while it backs off. Keys: ``attempts`` (retries after the first
-    failure), ``delay`` (seconds before the first retry, sub-second delays
-    dropped), ``multiplier`` (applied to the delay after each attempt, 1 keeps
-    it constant), ``max_delay`` (ceiling in seconds).
+    failure, a whole number from 0 to 100), ``delay`` (seconds before the first
+    retry, sub-second delays dropped), ``multiplier`` (applied to the delay
+    after each attempt, 1 keeps it constant), ``max_delay`` (ceiling in
+    seconds). ``attempts`` is required, and an out-of-range or unknown key is
+    rejected where the policy is written.
 
     A workflow sleeps once per round, so tasks backing off in the same fan-out
     wait one after another rather than together: the delay before a fan-out

@@ -46,9 +46,11 @@ def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
 # Every attempt is a step of its own (``call_api``, ``call_api#2``, ...) and
 # the wait between two of them is a durable sleep, so a retrying task holds no
 # worker while it backs off. Keys: ``attempts`` (retries after the first
-# failure), ``delay`` (seconds before the first retry, sub-second delays
-# dropped), ``multiplier`` (applied to the delay after each attempt, 1 keeps
-# it constant), ``max_delay`` (ceiling in seconds).
+# failure, a whole number from 0 to 100), ``delay`` (seconds before the first
+# retry, sub-second delays dropped), ``multiplier`` (applied to the delay
+# after each attempt, 1 keeps it constant), ``max_delay`` (ceiling in
+# seconds). ``attempts`` is required, and an out-of-range or unknown key is
+# rejected where the policy is written.
 #
 # A workflow sleeps once per round, so tasks backing off in the same fan-out
 # wait one after another rather than together: the delay before a fan-out
