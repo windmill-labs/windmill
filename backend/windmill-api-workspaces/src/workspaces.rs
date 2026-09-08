@@ -2263,6 +2263,15 @@ async fn test_datatable_connection(
     Path((w_id, datatable_name)): Path<(String, String)>,
 ) -> JsonResult<DataTableConnectionCheck> {
     require_admin(authed.is_admin, &authed.username)?;
+    // Reports what the admin connection can do, so it answers to the workspace that governs the
+    // data table rather than to whichever one is asking.
+    windmill_common::workspaces::ensure_datatable_admin_access(
+        &db,
+        &w_id,
+        &datatable_name,
+        &DatatableAccess::Authed(authed.to_authed_ref()),
+    )
+    .await?;
 
     let db_resource = get_datatable_resource_from_db_unchecked(&db, &w_id, &datatable_name).await?;
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
@@ -2848,7 +2857,10 @@ mod tests {
 }
 
 /// Resolve a source string to PgDatabase credentials with user-scoped permission checks.
-/// For `datatable://name`: accessible to everyone (variables are resolved internally).
+///
+/// For `datatable://name`: the **admin** connection, so it is gated on admin reach. Every caller
+/// copies, dumps or drops a whole database, and a dump taken under a restricted role would be a
+/// silently truncated copy rather than an error — which is worse than refusing.
 /// For `$res:path`: uses UserDB (row-level security) to verify the user can see the resource,
 /// then interpolates `$var:` references in the resource value.
 pub(crate) async fn resolve_pg_source_checked(
@@ -2859,6 +2871,13 @@ pub(crate) async fn resolve_pg_source_checked(
     source: &str,
 ) -> Result<PgDatabase> {
     let db_resource = if let Some(name) = source.strip_prefix("datatable://") {
+        windmill_common::workspaces::ensure_datatable_admin_access(
+            db,
+            w_id,
+            name,
+            &DatatableAccess::Authed(authed.to_authed_ref()),
+        )
+        .await?;
         get_datatable_resource_from_db_unchecked(db, w_id, name).await?
     } else if let Some(path) = source.strip_prefix("$res:") {
         let db_with_authed = windmill_common::db::DbWithOptAuthed::from_authed(
@@ -7585,10 +7604,20 @@ async fn point_kept_datatables_at_parent(
 async fn apply_forked_datatable(
     db: &DB,
     tx: &mut Transaction<'_, Postgres>,
+    authed: &ApiAuthed,
     parent_w_id: &str,
     forked_w_id: &str,
     fdt: &ForkedDatatableInfo,
 ) -> Result<()> {
+    // Cloning reads the parent's whole schema as admin and hands the copy to the fork, so it is
+    // for the workspace that governs the data table — a fork can use one, never duplicate it.
+    windmill_common::workspaces::ensure_datatable_admin_access(
+        db,
+        parent_w_id,
+        &fdt.name,
+        &DatatableAccess::Authed(authed.to_authed_ref()),
+    )
+    .await?;
     windmill_common::validate_dbname(&fdt.new_dbname)?;
     if !fdt.new_dbname.starts_with("wm_fork_") {
         return Err(Error::BadRequest(format!(
@@ -8123,7 +8152,8 @@ async fn create_workspace_fork(
 
     // Update forked datatable settings to point to new databases
     for fdt in &nw.forked_datatables {
-        apply_forked_datatable(&db, &mut tx, &parent_workspace_id, &forked_id, fdt).await?;
+        apply_forked_datatable(&db, &mut tx, &authed, &parent_workspace_id, &forked_id, fdt)
+            .await?;
     }
 
     point_kept_datatables_at_parent(
