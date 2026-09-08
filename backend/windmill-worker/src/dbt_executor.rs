@@ -19,12 +19,13 @@ use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::client::AuthedClient;
 use windmill_common::error::{self, Error};
+use windmill_common::jobs::JobKind;
 use windmill_common::materialization::{
     record_materialization, MaterializationStatus, RecordMaterializationRequest,
 };
 use windmill_common::worker::{to_raw_value, write_file, Connection};
 use windmill_parser_yaml::{
-    parse_dbt_descriptor, DbtDescriptor, DbtTestBehavior, DBT_COMMANDS, DBT_COMMAND_ARG,
+    parse_dbt_descriptor, DbtDescriptor, DbtEngine, DbtTestBehavior, DBT_COMMANDS, DBT_COMMAND_ARG,
     DBT_COMMAND_LABEL, DBT_DEFAULT_WAREHOUSE,
 };
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
@@ -36,6 +37,9 @@ use crate::common::{start_child_process, OccupancyMetrics};
 use crate::dbt_engine::{provision_engine, ProvisionedEngine, DBT_CACHE_DIR};
 use crate::dbt_profiles::{
     ensure_adapter_licensed, render_dbt_profile, render_profile, DbtAdapter, KnownAdapter,
+};
+use crate::dbt_state::{
+    environment_label, prepare_deferral, write_state_dir, Deferral, StateManifest, STATE_DIR,
 };
 use crate::handle_child::{
     get_mem_peak, handle_child, run_future_with_polling_update_job_poller, JobCtx, JobDeadline,
@@ -121,6 +125,12 @@ pub struct DbtRunResult {
     /// the same project — cannot get them from the job.
     #[serde(skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub invocation_args: std::collections::HashMap<String, Box<RawValue>>,
+    /// The run whose stored state this one resolved its unbuilt `ref()`s
+    /// through, absent when it deferred to none. What a deferring run built
+    /// against is otherwise unrecoverable: the state is replaced by the next
+    /// successful run of that environment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deferred_to: Option<Uuid>,
 }
 
 #[derive(Serialize, Debug, Default)]
@@ -189,7 +199,13 @@ pub(crate) async fn handle_dbt_job(
     // result publishes, and both describe an invocation of this script, not one
     // executor's view of it.
     let raw_args = job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default();
-    let inv = Invocation { args: args.clone(), raw_args, envs: envs.clone(), strict: true };
+    let inv = Invocation {
+        args: args.clone(),
+        raw_args,
+        envs: envs.clone(),
+        deferral: None,
+        strict: true,
+    };
     // One wall clock for the whole job. A dbt job is a sequence of
     // subprocesses — provision, deps, parse, ls, build, then the
     // `after_all` tests — and each would otherwise resolve the job's full
@@ -262,6 +278,16 @@ pub(crate) async fn handle_dbt_job(
     // applies — nothing is built, so there is no test phase, no materialization,
     // no retry state and no ownership to publish.
     if command == "parse" {
+        // Checked here rather than at the seam below, which cannot tell a parse
+        // from a run that simply left `defer` off: a parse never reaches the
+        // deferral at all, so it is the one caller for which "turn `defer` on"
+        // would be advice that leads nowhere.
+        check_state_selectors(
+            &effective_select(&descriptor, &inv)?,
+            &effective_exclude(&descriptor, &inv)?,
+            StateAccess::Never(&command),
+            !selection_is_overridden(&descriptor, &inv.args)?,
+        )?;
         return run_parse_only(
             &prepared,
             &descriptor,
@@ -364,6 +390,84 @@ pub(crate) async fn handle_dbt_job(
         inv
     };
 
+    // Read AFTER the retry restore, so a retry defers exactly as the run it
+    // resumes did: a retry's own arguments are the command block alone, and the
+    // relations its unbuilt `ref()`s resolve to must not depend on that.
+    let defer = arg_bool(&inv.args, "defer")?.unwrap_or(descriptor.defer);
+    // Before the state is fetched, not only at the seam where the selection
+    // reaches dbt: a selector that cannot work whatever the state says would
+    // otherwise be masked by the "nothing published yet" refusal, which sends the
+    // caller to publish a state that will not help.
+    check_state_selectors(
+        &effective_select(&descriptor, &inv)?,
+        &effective_exclude(&descriptor, &inv)?,
+        if defer {
+            StateAccess::Given
+        } else {
+            StateAccess::OnRequest
+        },
+        !selection_is_overridden(&descriptor, &inv.args)?,
+    )?;
+    // A `show` defers too, and every engine takes the flags on it: it COMPILES
+    // the model it previews, so a model whose upstream this environment built and
+    // this run did not is exactly the case a deferral exists for.
+    let inv = if defer {
+        // Refused before anything runs. `dbt retry` reads the run it resumes
+        // from `--state`, the flag a deferral needs, so an engine without
+        // `--defer-state` can be given one or the other: told to defer, it
+        // resumes the stored state's own (successful) results and rebuilds
+        // nothing, and left alone it rebuilds the failed nodes with every
+        // `ref()` resolving into the schema THIS run writes — which for the
+        // narrowed run a deferral exists to serve is not where those models go.
+        if command == "retry" && !prepared.engine.engine.has_defer_state_flag() {
+            return Err(Error::BadRequest(format!(
+                "`{}` cannot resume a run that deferred: `dbt retry` takes the run it resumes \
+                 from `--state`, which is also where a deferral reads its manifest, and this \
+                 engine has no `--defer-state` to tell the two apart. Run the script again \
+                 instead of resuming it, or move the project to dbt-core-1x",
+                prepared.engine.engine.as_str()
+            )));
+        }
+        let deferral = prepare_deferral(&prepared, &job.workspace_id, job_dir, conn).await?;
+        // Only answerable once the state is loaded: `defer` is enough for a
+        // `state:` method, which reads the manifest every publication carries,
+        // but a `result:` one reads `run_results.json` — and a build recovered by
+        // node retry publishes without it, since the results it holds describe
+        // only the nodes the retry rebuilt. dbt-core then raises an INTERNAL
+        // error and the Rust engines match nothing and exit 0.
+        if !deferral.has_run_results
+            && selection_names(
+                &effective_select(&descriptor, &inv)?,
+                &effective_exclude(&descriptor, &inv)?,
+                &["result"],
+            )
+        {
+            return Err(Error::BadRequest(format!(
+                "a `result:` selector reads `run_results.json` out of the published state, and \
+                 the state for this environment ({}) carries only the manifest run {} \
+                 published: a build recovered by node retry stores none, its results describing \
+                 the retried nodes rather than the whole build. Run this script once without \
+                 `defer` and without overrides to publish a complete state, or drop the selector",
+                environment_label(&prepared),
+                deferral.published_by
+            )));
+        }
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!(
+                "\nDeferring unbuilt refs to the dbt state published by run {}; this run \
+                 publishes none of its own\n",
+                deferral.published_by
+            ),
+            conn,
+        )
+        .await;
+        Invocation { deferral: Some(deferral), ..inv }
+    } else {
+        inv
+    };
+
     // Ingested BEFORE the build, from a `dbt parse` with this run's vars, so the
     // models shown are the ones about to be built. Rows are keyed by path, version
     // AND job so no two runs collide; the path-keyed `asset` usage belongs to one
@@ -387,7 +491,7 @@ pub(crate) async fn handle_dbt_job(
         // For a retry the restored manifest already describes the invocation
         // being resumed, so only the ingest runs — with that invocation's
         // arguments, which the selection resolver needs to interpolate.
-        ingest_from_run(&prepared, &descriptor, &inv, &mut ctx, job, conn).await?;
+        ingest_from_run(&prepared, &descriptor, &inv, &command, &mut ctx, job, conn).await?;
     }
 
     // A read-only command prints rows to stdout, so it is captured rather than
@@ -428,9 +532,28 @@ pub(crate) async fn handle_dbt_job(
     // previous attempt's `run_results.json` is still in the job directory. Never on
     // an agent worker, which cannot read `v2_job_queue` — the wait below would be
     // uninterruptible, so a cancelled job would hold its slot and then start dbt.
+    // And never where the engine cannot be told to defer on a `retry`: the
+    // rebuild would resolve this run's unbuilt refs into the schema it writes
+    // into, so the nodes it "recovered" would read from the wrong relations.
+    // Said out loud below rather than silently skipped.
+    let retry_would_lose_the_deferral =
+        inv.deferral.is_some() && !prepared.engine.engine.has_defer_state_flag();
     let node_retry = descriptor
         .retry_failed_nodes
-        .filter(|_| matches!(conn, Connection::Sql(_)));
+        .filter(|_| matches!(conn, Connection::Sql(_)))
+        .filter(|_| !retry_would_lose_the_deferral);
+    if descriptor.retry_failed_nodes.is_some() && retry_would_lose_the_deferral {
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!(
+                "\nSkipping the automatic node retry: `{}` cannot defer on a `dbt retry`\n",
+                prepared.engine.engine.as_str()
+            ),
+            conn,
+        )
+        .await;
+    }
     let mut retries_left = node_retry.map(|p| p.attempts()).unwrap_or(0);
     if let Some(policy) = node_retry.filter(|_| run.is_err()) {
         retry_failed_nodes(
@@ -518,6 +641,56 @@ pub(crate) async fn handle_dbt_job(
     .await
     {
         tracing::warn!("dbt: could not save retry state for job {}: {e:#}", job.id);
+    }
+    // What a later run defers to, published by the runs whose relations are the
+    // SCRIPT's — the same condition that decides whether a run's graph becomes
+    // what the script owns, and for the same reason: an invocation that scoped
+    // its own models has no standing to say where this project's relations live.
+    // Success is the other half, because a relation a deferral resolves to has
+    // to exist. A `retry` is excluded: its `run_results.json` names only the
+    // nodes it redid, so publishing it would leave the environment claiming a
+    // run of a handful of models.
+    //
+    // And never a run that DEFERRED, whatever narrowed it. A deferring run built
+    // some of the relations its manifest names and resolved the rest out of the
+    // state it read, so publishing that manifest would record relations nothing
+    // built — and a model renamed since would be recorded under a name only a
+    // full build creates, breaking every later deferral until one repairs it.
+    // `publishes_ownership` cannot see this on its own: it reads the caller's
+    // overrides, and a descriptor that already narrows `select` needs none.
+    if run.is_ok()
+        && command == "build"
+        && inv.deferral.is_none()
+        // A run of the DEPLOYED version, by kind. A preview carries a
+        // caller-supplied `script_hash` into `runnable_id`
+        // (`run_preview_script`), so the version guard alone would let anyone who
+        // may run a job publish arbitrary content as a deployed script's state.
+        && job.kind == JobKind::Script
+        && prepared.graph_refresh.publishes_ownership()
+    {
+        // Losing it costs the next deferral, not the run that just finished —
+        // but silently, so the one actionable case (an artifact too large for
+        // the database on an instance with no object storage) says so.
+        if let Err(e) = crate::dbt_state::publish(
+            &prepared,
+            &job.workspace_id,
+            &job.id,
+            job.runnable_id.map(|h| h.0),
+            // An attempt was spent, so `run_results.json` on disk is the one
+            // `dbt retry` left: the nodes it redid, not the build.
+            node_retry.is_some_and(|p| retries_left < p.attempts()),
+            conn,
+        )
+        .await
+        {
+            append_logs(
+                &job.id,
+                &job.workspace_id,
+                format!("\nCould not publish this run as the environment's dbt state: {e}\n"),
+                conn,
+            )
+            .await;
+        }
     }
     let reconciled = reconcile_materializations(&prepared, &results, job, conn, client).await;
     terminalize_running_relations(job, &reconciled, conn).await;
@@ -653,12 +826,26 @@ pub(crate) async fn dbt_dep(
         None => GraphPublisher::Unversioned,
     };
     let superseded = if let Some(warehouse) = prepared.warehouse.as_deref() {
-        let ingested = windmill_common::dbt_manifest::ingest_manifest(
+        let mut ingested = windmill_common::dbt_manifest::ingest_manifest(
             &manifest,
             warehouse,
             prepared.default_database.as_deref(),
             selected.as_ref(),
         );
+        attach_column_index(
+            &mut ingested,
+            &prepared,
+            &descriptor,
+            &inv,
+            // A deploy resolves the project by parsing it; nothing is built, so
+            // the pass takes the descriptor's own answer.
+            "parse",
+            &mut ctx,
+            job_id,
+            w_id,
+            &conn,
+        )
+        .await?;
         let published = persist_ingest(
             db,
             w_id,
@@ -682,6 +869,7 @@ pub(crate) async fn dbt_dep(
                 &conn,
             )
             .await;
+            warn_dormant_subscribers(db, w_id, job_id, &ingested, &conn).await;
         }
         !published
     } else {
@@ -866,6 +1054,9 @@ impl GraphRefresh {
         if selection_is_overridden(descriptor, args)? {
             self.per_run_models = true;
         }
+        if full_refresh_is_overridden(descriptor, args)? {
+            self.per_run_models = true;
+        }
         Ok(())
     }
 }
@@ -894,6 +1085,17 @@ pub struct PreparedProject {
     /// The descriptor's `profile.target`, passed as `--target` so it applies to
     /// a project-owned `profiles.yml` as well as a rendered one.
     pub target: Option<String>,
+    /// The target dbt actually runs, which is the above only when the descriptor
+    /// names one: otherwise it is the workspace warehouse's, or the project's own
+    /// `profiles.yml` default. Half of an environment's identity, since a
+    /// `target.name` macro decides where a model is built.
+    pub effective_target: Option<String>,
+    /// Whether the profile templates where its relations go — a project-owned
+    /// `profiles.yml`, a `dbt_profile` resource's block, or `profile.schema`,
+    /// all of which reach dbt as written. Two renderings then share one
+    /// `relation_root` and an environment cannot be told apart, so such a
+    /// project neither publishes state nor defers to any.
+    pub templated_location: bool,
     /// The profile target's database. Nodes that override it qualify their
     /// `dbt://` schema segment so two databases cannot collapse onto one node.
     pub default_database: Option<String>,
@@ -931,7 +1133,7 @@ impl PreparedProject {
     /// Where this run's relations live: the resolved schema and database. Drift
     /// here since the deploy means the stored graph names relations that no
     /// longer exist.
-    fn relation_root(&self) -> String {
+    pub(crate) fn relation_root(&self) -> String {
         format!(
             "{}|{}",
             self.default_schema.as_deref().unwrap_or(""),
@@ -1063,8 +1265,8 @@ pub(crate) async fn prepare_project(
         .chain(invocation_env.iter().map(|(k, v)| (k.clone(), v.clone())))
         .collect();
 
-    let (profiles_dir, warehouse, adapter, default_database, default_schema, profile_digest) =
-        write_profiles(descriptor, &project_dir, job_dir, client, &template_env).await?;
+    let profile = write_profiles(descriptor, &project_dir, job_dir, client, &template_env).await?;
+    let adapter = profile.adapter.clone();
     // The lockfile's version, when it pinned one for this same engine — a
     // descriptor edited to another engine invalidates the pin.
     let pinned_version = locks
@@ -1185,18 +1387,20 @@ pub(crate) async fn prepare_project(
             h.finish()
         },
         sandbox_config,
-        profile_digest,
+        profile_digest: profile.digest,
         project_dir,
-        profiles_dir,
+        profiles_dir: profile.dir,
         engine,
         graph_refresh,
-        warehouse,
+        warehouse: profile.warehouse,
         target: descriptor.profile.target.clone(),
+        effective_target: profile.target,
+        templated_location: profile.templated_location,
         descriptor_content: descriptor_content.to_string(),
         descriptor_env,
 
-        default_database,
-        default_schema,
+        default_database: profile.database,
+        default_schema: profile.schema,
         script_path: script_path.to_string(),
         env,
     };
@@ -1511,6 +1715,24 @@ async fn strip_git_remote(dir: &Path) -> std::io::Result<()> {
     tokio::fs::write(&config, out).await
 }
 
+/// What resolving the run's connection settled, beyond the file itself.
+struct ResolvedProfile {
+    dir: PathBuf,
+    /// The workspace warehouse's NAME, when this project belongs to one.
+    warehouse: Option<String>,
+    adapter: DbtAdapter,
+    database: Option<String>,
+    schema: Option<String>,
+    /// The target dbt actually runs, which is not always the descriptor's: it
+    /// falls back to the workspace warehouse's, and to the project's own
+    /// `profiles.yml` default. Resolved because it is half of an environment's
+    /// identity and a `target.name` macro can move every relation.
+    target: Option<String>,
+    /// Whether a project-owned `profiles.yml` templates where its relations go.
+    templated_location: bool,
+    digest: String,
+}
+
 /// Write `profiles.yml`, either rendered from a Windmill resource or taken from
 /// the project itself. Both paths are supported (decision 8): the workspace
 /// warehouse is the ergonomic one, the project's own file is what makes an
@@ -1521,14 +1743,7 @@ async fn write_profiles(
     job_dir: &str,
     client: &AuthedClient,
     template_env: &HashMap<String, String>,
-) -> error::Result<(
-    PathBuf,
-    Option<String>,
-    DbtAdapter,
-    Option<String>,
-    Option<String>,
-    String,
-)> {
+) -> error::Result<ResolvedProfile> {
     // The workspace's warehouse, always: a descriptor names one by NAME or takes
     // `main`, and cannot name a resource at all. The NAME is what asset identity
     // keys on, so every project on one warehouse shares its nodes while the
@@ -1609,14 +1824,16 @@ async fn write_profiles(
             }
             None => None,
         };
-        return Ok((
+        return Ok(ResolvedProfile {
             dir,
-            identity,
+            warehouse: identity,
             adapter,
-            target.database,
-            target.schema,
-            profile_digest,
-        ));
+            database: target.database,
+            schema: target.schema,
+            target: Some(target.name),
+            templated_location: target.templated_location,
+            digest: profile_digest,
+        });
     }
 
     use windmill_common::workspaces::DBT_PROFILE_RESOURCE_TYPE;
@@ -1711,14 +1928,22 @@ async fn write_profiles(
         rendered.root_certificate_pem.as_deref(),
         &client.token,
     );
-    Ok((
+    Ok(ResolvedProfile {
         dir,
-        Some(warehouse.to_string()),
+        warehouse: Some(warehouse.to_string()),
         adapter,
-        rendered.database,
-        rendered.schema,
-        profile_digest,
-    ))
+        // A `dbt_profile` resource is one block of the user's own
+        // `profiles.yml`, copied through unchanged, and `profile.schema` is
+        // written as given — so either can be a template dbt renders and this
+        // runtime does not, exactly as a project-owned file can.
+        templated_location: [rendered.database.as_deref(), rendered.schema.as_deref()]
+            .iter()
+            .any(|v| v.is_some_and(is_jinja)),
+        database: rendered.database,
+        schema: rendered.schema,
+        target: Some(target.to_string()),
+        digest: profile_digest,
+    })
 }
 
 /// Where a workspace warehouse name points: its resource path and, if the
@@ -1859,13 +2084,45 @@ async fn adapter_from_profiles_yml(
     // identically to one on a workspace warehouse, which is what lets the two
     // meet on the same node when they are on the same relation.
     let (database_key, schema_key) = adapter.target_identity_keys();
-    let read = |k: &str| {
+    let raw = |k: &str| {
         out.get(k)
             .and_then(|v| v.as_str())
-            .map(|v| v.to_string())
-            .filter(|v| !v.is_empty() && !v.contains("{{"))
+            .filter(|v| !v.is_empty())
     };
-    Ok(ProfileTarget { adapter, database: read(database_key), schema: read(schema_key) })
+    let read = |k: &str| raw(k).filter(|v| !v.contains("{{")).map(|v| v.to_string());
+    Ok(ProfileTarget {
+        adapter,
+        database: read(database_key),
+        schema: read(schema_key),
+        // A TEMPLATED location is one dbt renders and this runtime does not, so
+        // two renderings of this file resolve to one `relation_root` and would
+        // share one environment — `{{ }}` because `read` drops it and it reads
+        // as absent, `{% %}` because the raw block is kept and reads the same
+        // for every rendering. Distinguished from plainly absent, which is the
+        // adapter's default and does not move.
+        templated_location: [database_key, schema_key]
+            .iter()
+            .any(|k| raw(k).is_some_and(is_jinja)),
+        // The output actually chosen, which for a templated `target:` is the sole
+        // one rather than the template text no output answers to.
+        name: match (
+            templated_target,
+            outputs.as_mapping().and_then(|m| m.keys().next()),
+        ) {
+            (true, Some(only)) => only.as_str().unwrap_or(target).to_string(),
+            _ => target.to_string(),
+        },
+    })
+}
+
+/// Whether dbt would RENDER this value rather than take it literally.
+///
+/// Both delimiters, because dbt renders a profile through Jinja: `{{ … }}`
+/// substitutes and `{% … %}` branches, and a schema spelled
+/// `{% if env_var('ENV') == 'prod' %}analytics{% else %}dev{% endif %}` moves
+/// every relation exactly as an `env_var()` does.
+fn is_jinja(v: &str) -> bool {
+    v.contains("{{") || v.contains("{%")
 }
 
 /// What a project-owned `profiles.yml` target says, for the two things Windmill
@@ -1876,6 +2133,14 @@ struct ProfileTarget {
     adapter: DbtAdapter,
     database: Option<String>,
     schema: Option<String>,
+    /// The output this resolved to, by name.
+    name: String,
+    /// Whether its database or schema is a template rather than a literal. The
+    /// fields above cannot say: a `{{ }}` value is dropped and reads as absent,
+    /// a `{% %}` block is kept and reads the same for every rendering. So this
+    /// is what separates "the adapter's default, which does not move" from
+    /// "wherever this run's environment renders it to".
+    templated_location: bool,
 }
 
 lazy_static::lazy_static! {
@@ -2191,6 +2456,29 @@ async fn retry_failed_nodes(
     }
 }
 
+/// The flags that point a deferring invocation at its state directory.
+///
+/// `--state` is where a deferred `ref()` resolves through — except on a `retry`,
+/// which reads the run it RESUMES from that same flag: handed the deferral's
+/// directory, dbt resumes the successful run stored there and rebuilds nothing.
+/// dbt-core 1.x has `--defer-state` for exactly this split; the Rust engines do
+/// not, and a run that defers is refused a retry there rather than rebuilt with
+/// its refs resolving into the schema it writes into (`handle_dbt_job`), which
+/// is why the last arm never fires in practice.
+///
+/// The directory is relative because dbt records the invocation's flags into
+/// `run_results.json`: an absolute path would name the job directory of the run
+/// being resumed, gone by the time anything reads it back.
+fn defer_flags(command: &str, engine: DbtEngine) -> &'static [&'static str] {
+    match command {
+        // `--defer` itself is restored with the rest of the resumed
+        // invocation's arguments and cannot be set from here.
+        "retry" if engine.has_defer_state_flag() => &["--defer-state", STATE_DIR],
+        "retry" => &[],
+        _ => &["--defer", "--state", STATE_DIR],
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_dbt(
     p: &PreparedProject,
@@ -2212,6 +2500,10 @@ async fn run_dbt(
         .args(["--log-format-file", "json"])
         .args(["--log-level-file", p.engine.engine.progress_log_level()]);
 
+    if inv.deferral.is_some() {
+        cmd.args(defer_flags(command, p.engine.engine));
+    }
+
     if with_selection && command != "retry" {
         add_selection(&mut cmd, descriptor, inv)?;
     }
@@ -2232,8 +2524,7 @@ async fn run_dbt(
         if let Some(t) = descriptor.threads {
             cmd.args(["--threads", &t.to_string()]);
         }
-        let full_refresh = arg_bool(&inv.args, "full_refresh")?.unwrap_or(descriptor.full_refresh);
-        if full_refresh && command != "test" {
+        if full_refresh(descriptor, inv, command)? {
             cmd.arg("--full-refresh");
         }
     }
@@ -2863,6 +3154,9 @@ async fn run_show(
         )));
     }
     let mut cmd = dbt_command(p, &["show"]);
+    if inv.deferral.is_some() {
+        cmd.args(defer_flags("show", p.engine.engine));
+    }
     add_vars(&mut cmd, descriptor, inv)?;
     // Intersected with `resource_type:model`, because `show` is only read-only
     // for models: dbt dispatches a selected SEED through its seed runner and
@@ -2882,7 +3176,8 @@ async fn run_show(
         conn,
         SHOW_MAX_OUTPUT_BYTES,
     )
-    .await?;
+    .await?
+    .stdout;
     // dbt frames the rows as `{"node": …, "show": [ … ]}`, pretty-printed, with a
     // banner before and a deprecation summary after — so neither "the line starting
     // with `{`" nor "first `{` to the end" parses. A streaming deserializer stops at
@@ -2956,6 +3251,7 @@ fn build_result(
         totals,
         nodes,
         invocation_args: inv.raw_args.clone(),
+        deferred_to: inv.deferral.as_ref().map(|d| d.published_by),
     }
 }
 
@@ -3064,7 +3360,7 @@ async fn run_parse_only(
     // manifest and the selection while the warehouse only keys them — so a project
     // with no warehouse identity still reports what dbt found. The placeholder
     // reaches no row: the guard below returns before anything is written.
-    let ingested = windmill_common::dbt_manifest::ingest_manifest(
+    let mut ingested = windmill_common::dbt_manifest::ingest_manifest(
         &manifest,
         p.warehouse.as_deref().unwrap_or("unkeyed"),
         p.default_database.as_deref(),
@@ -3084,6 +3380,20 @@ async fn run_parse_only(
     else {
         return Ok(to_raw_value(&result));
     };
+    // AFTER the guard: the pass is a second `dbt compile` and a parquet decode,
+    // and a parse that stores nothing has nowhere to put what it would produce.
+    attach_column_index(
+        &mut ingested,
+        p,
+        descriptor,
+        inv,
+        "parse",
+        ctx,
+        &job.id,
+        &job.workspace_id,
+        conn,
+    )
+    .await?;
     match conn {
         Connection::Sql(db) => match job.runnable_id.map(|h| h.0) {
             Some(script_hash) => {
@@ -3143,11 +3453,70 @@ async fn run_parse_only(
     Ok(to_raw_value(&result))
 }
 
+/// Fold this project's column lineage into the graph about to be stored, when
+/// the descriptor asked for it.
+///
+/// One helper for all three ingests — deploy, editor parse, per-run refresh —
+/// because a graph that carries column lineage in one provenance and not another
+/// reads as the lineage having disappeared.
+async fn attach_column_index(
+    ingested: &mut windmill_common::dbt_manifest::IngestedManifest,
+    p: &PreparedProject,
+    descriptor: &DbtDescriptor,
+    inv: &Invocation,
+    command: &str,
+    ctx: &mut JobCtx<'_>,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> error::Result<()> {
+    // The nodes this graph kept, so the pass reads only rows it could store: the
+    // index describes the whole project, this graph one selection of it.
+    let kept: std::collections::HashSet<&str> = ingested
+        .nodes
+        .iter()
+        .map(|n| n.unique_id.as_str())
+        .collect();
+    let index =
+        crate::dbt_column_index::collect(
+            p, descriptor, inv, command, ctx, job_id, w_id, conn, &kept,
+        )
+            .await?;
+    drop(kept);
+    let Some(index) = index else {
+        return Ok(());
+    };
+    let found = index.edges.len();
+    ingested.attach_column_index(index);
+    let kept = ingested.column_edges.len();
+    let typed: usize = ingested
+        .nodes
+        .iter()
+        .filter(|n| n.column_schema.is_some())
+        .count();
+    // Counted here rather than at the pass: the index describes the whole
+    // project and this graph describes one selection of it, so `found` is what
+    // dbt produced and `kept` is what the graph can draw.
+    let dropped = match found.saturating_sub(kept) {
+        0 => String::new(),
+        n => format!(" ({n} outside this graph or past the cap)"),
+    };
+    append_logs(
+        job_id,
+        w_id,
+        format!("\nIngested {kept} column lineage edges{dropped} and typed {typed} nodes\n"),
+        conn,
+    )
+    .await;
+    Ok(())
+}
+
 /// Refresh the stored graph from the manifest this run produced.
 async fn ingest_from_run(
     p: &PreparedProject,
     descriptor: &DbtDescriptor,
     inv: &Invocation,
+    command: &str,
     ctx: &mut JobCtx<'_>,
     job: &MiniPulledJob,
     conn: &Connection,
@@ -3164,12 +3533,24 @@ async fn ingest_from_run(
     // filter this run's manifest by a different node set than it built.
     let selected =
         resolve_selection(p, descriptor, inv, ctx, &job.id, &job.workspace_id, conn).await?;
-    let ingested = windmill_common::dbt_manifest::ingest_manifest(
+    let mut ingested = windmill_common::dbt_manifest::ingest_manifest(
         &manifest,
         warehouse,
         p.default_database.as_deref(),
         selected.as_ref(),
     );
+    attach_column_index(
+        &mut ingested,
+        p,
+        descriptor,
+        inv,
+        command,
+        ctx,
+        &job.id,
+        &job.workspace_id,
+        conn,
+    )
+    .await?;
     // Only a run whose models are its own snapshots per run. A static
     // descriptor at a moved profile re-ingests the VERSION's graph, since the
     // move outlives the run; one that neither drifted nor overrode anything
@@ -3177,7 +3558,7 @@ async fn ingest_from_run(
     let snapshot_job = p.graph_refresh.snapshot_job(job.id);
     match conn {
         Connection::Sql(db) => {
-            persist_ingest(
+            let published = persist_ingest(
                 db,
                 &job.workspace_id,
                 script_path,
@@ -3190,6 +3571,13 @@ async fn ingest_from_run(
                 p.graph_refresh.publishes_ownership(),
             )
             .await?;
+            // Publishing ownership from a RUN makes this project the owner of
+            // those relations exactly as a deploy does, so it can be what leaves
+            // a subscription accepted while the relation had no producer with dbt
+            // as its only one. Same warning the deploy emits.
+            if published && p.graph_refresh.publishes_ownership() {
+                warn_dormant_subscribers(db, &job.workspace_id, &job.id, &ingested, conn).await;
+            }
         }
         // An agent worker reaches these tables only through the API. Publishing
         // is the whole of what it needs: a worker that can replace the graph
@@ -3242,7 +3630,7 @@ enum GraphPublisher {
 /// Replace this script's graph, unless a newer version of it has been deployed.
 ///
 /// Write one ingest: the sidecar rows and the `asset` usages the manifest
-/// implies. No subscriptions — a `dbt://` one could never fire.
+/// implies. No subscriptions — a dbt project is not woken by the cascade.
 ///
 /// Returns whether this job was still the one entitled to the path-keyed half —
 /// false once a newer version has superseded it, or once the version is gone.
@@ -3333,9 +3721,10 @@ async fn persist_ingest(
         &ingested.assets,
     )
     .await?;
-    // A `dbt://` subscription can never fire, so none are derived from the
-    // manifest. The delete stays to clear what earlier versions wrote, which would
-    // otherwise keep drawing cascade arrows that wake nothing.
+    // A dbt project is not woken by the asset cascade (refused at deploy), so
+    // none are derived from the manifest either. The delete stays to clear what
+    // earlier versions wrote, which would otherwise keep drawing cascade arrows
+    // that wake nothing.
     sqlx::query!(
         "DELETE FROM script_trigger
           WHERE workspace_id = $1 AND runnable_kind = 'script' AND runnable_path = $2
@@ -3347,6 +3736,56 @@ async fn persist_ingest(
     .await?;
     tx.commit().await?;
     Ok(true)
+}
+
+/// Log the `// on dbt://…` subscriptions this project's relations leave dormant.
+///
+/// Subscribing to a relation dbt already owns is refused at the subscriber's
+/// deploy, but one deployed while nothing produced that relation is accepted —
+/// as it is for every other asset kind — and an ingest is what can afterwards
+/// make dbt its only producer. A dbt run does not dispatch, so such an edge is
+/// drawn on the canvas and never fires; a job's own log is where that ordering is
+/// visible.
+///
+/// Called from both points that publish ownership, the deploy and a run whose
+/// static descriptor found its profile moved — either can be the one that claims
+/// the relation.
+async fn warn_dormant_subscribers(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    w_id: &str,
+    job_id: &Uuid,
+    ingested: &windmill_common::dbt_manifest::IngestedManifest,
+    conn: &Connection,
+) {
+    use windmill_common::assets::AssetUsageAccessType;
+    let relations: Vec<String> = ingested
+        .assets
+        .iter()
+        .filter(|a| {
+            matches!(
+                a.access_type.or(a.alt_access_type),
+                Some(AssetUsageAccessType::W) | Some(AssetUsageAccessType::RW)
+            )
+        })
+        .map(|a| a.path.clone())
+        .collect();
+    match windmill_common::assets::dormant_dbt_subscriptions(db, w_id, &relations).await {
+        Ok(edges) if !edges.is_empty() => {
+            append_logs(
+                job_id,
+                w_id,
+                format!(
+                    "\nThese subscriptions will not fire — a dbt run does not trigger downstream \
+                     runs, and nothing else writes their relation:\n  {}\n",
+                    edges.join("\n  ")
+                ),
+                conn,
+            )
+            .await;
+        }
+        Ok(_) => {}
+        Err(e) => tracing::warn!("listing dormant `dbt://` subscribers failed: {e:#}"),
+    }
 }
 
 /// Serialize publishers for one script path and confirm this job's version is
@@ -3411,6 +3850,12 @@ async fn resolve_selection(
         return Ok(None);
     }
     let mut cmd = dbt_command(p, &["ls"]);
+    // The same state the build resolves through, or a `result:` selector — which
+    // reads `run_results.json` out of it, and which `select` passes to dbt
+    // verbatim — fails here, before the build that would have honoured it.
+    if inv.deferral.is_some() {
+        cmd.args(defer_flags("ls", p.engine.engine));
+    }
     // A project whose models call `var()` without a default fails to parse
     // without these, so the selection resolver needs them exactly as the run
     // does. Placeholders that only a run can fill are dropped rather than
@@ -3424,11 +3869,15 @@ async fn resolve_selection(
     }
     cmd.args(["--output", "json", "--quiet"]);
     add_selection(&mut cmd, descriptor, inv)?;
+    let select = effective_select(descriptor, inv)?;
+    let exclude = effective_exclude(descriptor, inv)?;
     // Captured directly, not through `handle_child`: its `pipe_stdout` path goes
     // through the job-log writer, which `NO_LOGS_AT_ALL` discards — the selection
     // would resolve to the empty set and the ingest would wipe the script's assets
     // while dbt went on building the descriptor's models.
-    let stdout = run_capturing(cmd, "dbt ls", ctx, job_id, w_id, conn, LS_MAX_OUTPUT_BYTES).await?;
+    let stdout = run_capturing(cmd, "dbt ls", ctx, job_id, w_id, conn, LS_MAX_OUTPUT_BYTES)
+        .await?
+        .stdout;
     let mut set = std::collections::HashSet::new();
     for line in stdout.lines() {
         let line = line.trim();
@@ -3441,15 +3890,37 @@ async fn resolve_selection(
             }
         }
     }
-    if set.is_empty() {
-        // A selection that matches nothing would be ingested as "this script
-        // owns no relations", wiping its graph and cascade edges — the same
-        // outcome a failed capture produces, and indistinguishable from it.
-        // Refuse rather than silently un-wire the script.
+    // Empty is a real answer from a `state:` or `result:` method and from nothing
+    // else: `state:modified+` matches nothing exactly when nothing changed since
+    // the published state, and a run with no work to do is a successful one. Any
+    // other selection matching nothing is a selector that names nothing — a
+    // misspelled model, say — which must not pass as a build that did its job.
+    // Exempting by ORIGIN rather than by method would let every such typo through.
+    //
+    // What makes the exemption safe is that the empty set is never ingested as
+    // ownership, and that now holds through `check_state_selectors`: a `state:`
+    // or `result:` method survives it only from a run's OWN selection, which
+    // makes `add_caller_args` set `per_run_models`, which makes
+    // `publishes_ownership()` false, so the run stores a snapshot of its own.
+    // Relax the descriptor arm there and a descriptor-narrowed `state:modified+`
+    // reaches here on an unchanged project and wipes the graph the `else` below
+    // guards, with nothing failing.
+    if set.is_empty() && !selection_names(&select, &exclude, &["state", "result"]) {
         return Err(Error::ExecutionErr(
-            "the descriptor's `select`/`exclude` matched no dbt nodes; fix the selection rather \
-             than deploying a script that owns nothing"
-                .to_string(),
+            if selection_is_overridden(descriptor, &inv.args)? {
+                "this run's `select`/`exclude` matched no dbt nodes, so it would build nothing; \
+                 check the selector. Only a `state:` or `result:` selector may match nothing, \
+                 its empty answer being a real one"
+                    .to_string()
+            } else {
+                // The descriptor's is also ingested as "this script owns no
+                // relations", wiping its graph and cascade edges — the same
+                // outcome a failed capture produces, and indistinguishable from
+                // it. Refuse rather than silently un-wire the script.
+                "the descriptor's `select`/`exclude` matched no dbt nodes; fix the selection \
+                 rather than deploying a script that owns nothing"
+                    .to_string()
+            },
         ));
     }
     Ok(Some(set))
@@ -3458,6 +3929,34 @@ async fn resolve_selection(
 /// A failed command's stderr is quoted back to the user, so it is bounded — and
 /// what is kept is the TAIL, because dbt prints its error summary last.
 const CAPTURE_MAX_STDERR_BYTES: usize = 64 * 1024;
+
+/// What a captured invocation produced. `stderr` is where dbt writes its
+/// diagnostics — the errors and warnings block — so a caller that has to explain
+/// a SUCCESSFUL run needs it as much as a failing one does.
+pub(crate) struct Captured {
+    pub stdout: String,
+    pub stderr: String,
+    /// Whether the child exited zero. Separate from the `Result` on purpose: an
+    /// `Err` from `run_captured` is the JOB's — a cancellation or its deadline —
+    /// so a caller that tolerates a failed command must still propagate one.
+    pub success: bool,
+    /// Whether the output ceiling cut the child short. Only ever true under
+    /// [`Overflow::Truncate`].
+    pub truncated: bool,
+}
+
+/// What an over-long stdout means to the caller.
+///
+/// The ceiling belongs to the PASS, not to the job: a caller that only annotates
+/// a job wants to keep what it read and carry on, while one whose whole result
+/// is that output has nothing to return without it.
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub(crate) enum Overflow {
+    /// Fail the job. For a command whose output IS the answer.
+    Fail,
+    /// Stop reading, kill the child, and report `truncated`.
+    Truncate,
+}
 
 /// Run a command for its stdout under the job's cancellation and timeout.
 /// The same poller `handle_child` uses drives them, so a cancel or a deadline
@@ -3471,7 +3970,7 @@ const CAPTURE_MAX_STDERR_BYTES: usize = 64 * 1024;
 /// never holds more than it, so it has to be enforced while reading. Both pipes
 /// are drained concurrently because a child that fills the one nobody reads
 /// blocks forever.
-async fn run_capturing(
+pub(crate) async fn run_captured(
     mut cmd: Command,
     name: &str,
     ctx: &mut JobCtx<'_>,
@@ -3479,7 +3978,8 @@ async fn run_capturing(
     w_id: &str,
     conn: &Connection,
     max_stdout_bytes: usize,
-) -> error::Result<String> {
+    on_overflow: Overflow,
+) -> error::Result<Captured> {
     use tokio::io::AsyncReadExt;
 
     let mut child = cmd
@@ -3514,6 +4014,7 @@ async fn run_capturing(
             let mut out_buf = vec![0u8; 16 * 1024];
             let mut err_buf = vec![0u8; 16 * 1024];
             let (mut out_open, mut err_open) = (true, true);
+            let mut truncated = false;
             while out_open || err_open {
                 tokio::select! {
                     r = stdout_pipe.read(&mut out_buf[..]), if out_open => match r {
@@ -3521,14 +4022,19 @@ async fn run_capturing(
                         Ok(n) => {
                             if stdout.len() + n > max_stdout_bytes {
                                 // Killed here rather than left to `kill_on_drop`
-                                // so the child is gone before the error unwinds,
-                                // not merely once this future is dropped.
+                                // so the child is gone before this returns, not
+                                // merely once the future is dropped.
                                 let _ = child.kill().await;
-                                return Err(Error::ExecutionErr(format!(
-                                    "{name} produced more than {} MB of output. Narrow the \
-                                     selection, or query the relation from a SQL script.",
-                                    max_stdout_bytes / 1024 / 1024
-                                )));
+                                if on_overflow == Overflow::Fail {
+                                    return Err(Error::ExecutionErr(format!(
+                                        "{name} produced more than {} MB of output. Narrow the \
+                                         selection, or query the relation from a SQL script.",
+                                        max_stdout_bytes / 1024 / 1024
+                                    )));
+                                }
+                                truncated = true;
+                                out_open = false;
+                                continue;
                             }
                             stdout.extend_from_slice(&out_buf[..n]);
                         }
@@ -3551,7 +4057,7 @@ async fn run_capturing(
                 .wait()
                 .await
                 .map_err(|e| Error::internal_err(format!("{name} failed: {e}")))?;
-            Ok((status, stdout, stderr))
+            Ok((status, stdout, stderr, truncated))
         },
         ctx.worker_name,
         w_id,
@@ -3561,14 +4067,46 @@ async fn run_capturing(
         })),
     )
     .await?;
-    let (status, stdout, stderr) = out;
-    if !status.success() {
+    let (status, stdout, stderr, truncated) = out;
+    Ok(Captured {
+        stdout: String::from_utf8_lossy(&stdout).to_string(),
+        stderr: String::from_utf8_lossy(&stderr).to_string(),
+        // A killed child reports failure; under `Truncate` that is the ceiling's
+        // doing, not the project's, and the caller reads `truncated` to tell.
+        success: status.success(),
+        truncated,
+    })
+}
+
+/// `run_captured`, with a non-zero exit folded into the error — what a caller
+/// that needs the command to have WORKED wants.
+pub(crate) async fn run_capturing(
+    cmd: Command,
+    name: &str,
+    ctx: &mut JobCtx<'_>,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+    max_stdout_bytes: usize,
+) -> error::Result<Captured> {
+    let captured = run_captured(
+        cmd,
+        name,
+        ctx,
+        job_id,
+        w_id,
+        conn,
+        max_stdout_bytes,
+        Overflow::Fail,
+    )
+    .await?;
+    if !captured.success {
         return Err(Error::ExecutionErr(format!(
             "{name} failed: {}",
-            String::from_utf8_lossy(&stderr)
+            captured.stderr
         )));
     }
-    Ok(String::from_utf8_lossy(&stdout).to_string())
+    Ok(captured)
 }
 
 /// Run a preparation command through the same child handler the build uses, so
@@ -3761,7 +4299,7 @@ async fn save_run_state(
     if let Connection::Sql(db) = conn {
         {
             // Only while a live dbt version stays at this path — the test
-            // `clear_dbt_run_state_if_path_retired` retires state by, plus the
+            // `clear_dbt_script_state_if_path_retired` retires state by, plus the
             // language, since a rename leaves the old path archived rather than
             // deleted and a path can come back as another language. A job already
             // running finishes after those move or clear the row: writing then
@@ -3923,6 +4461,12 @@ pub struct Invocation {
     /// what it pointed at must not.
     pub raw_args: HashMap<String, Box<RawValue>>,
     pub envs: HashMap<String, String>,
+    /// The stored dbt state this invocation resolves an unbuilt `ref()` through,
+    /// materialised into the job directory. Carried here rather than passed to
+    /// each phase: the model phase, the `after_all` tests and every in-job node
+    /// retry must all resolve a `ref()` the same way, or the tests assert against
+    /// relations the models never read.
+    pub deferral: Option<Deferral>,
     /// A run must fail on a `{{ }}` placeholder it cannot fill; a deploy, which
     /// has no arguments at all, tolerates them. Declared rather than inferred
     /// from the argument count: a run submitted with `{}` is still a run, and
@@ -4075,11 +4619,12 @@ async fn restore_from_db(
     if !has_retryable_node(&row.run_results) {
         return Err(nothing_to_retry());
     }
-    let target = p.project_dir.join(ARTIFACTS_DIR);
-    tokio::fs::create_dir_all(&target).await.ok();
-    tokio::fs::write(target.join("run_results.json"), &row.run_results)
-        .await
-        .map_err(|e| Error::internal_err(format!("restoring run_results.json: {e}")))?;
+    write_state_dir(
+        &p.project_dir.join(ARTIFACTS_DIR),
+        Some(&row.run_results),
+        StateManifest::None,
+    )
+    .await?;
     // No manifest came with the row, so one has to be re-derived — but not here:
     // these arguments are as SUBMITTED, and a `$var:` in them shapes the graph
     // only once resolved. The caller resolves, then parses.
@@ -4311,20 +4856,16 @@ async fn restore_run_state(
         return Err(different_project());
     }
     let saved_args_digest = saved_args_digest.map(str::to_string);
-    let target = p.project_dir.join(ARTIFACTS_DIR);
-    tokio::fs::create_dir_all(&target).await.ok();
-    // From the bytes already read, not by copying the file again: a burst of saves
-    // can prune this generation mid-restore, and a `dbt retry` whose
+    // The results go from the bytes already read, not by copying the file again: a
+    // burst of saves can prune this generation mid-restore, and a `dbt retry` whose
     // `run_results.json` went missing rebuilds nothing and reports success. The
     // manifest has no such copy, so a failure there falls back to a `dbt parse`.
-    tokio::fs::write(target.join("run_results.json"), &saved_results)
-        .await
-        .map_err(|e| {
-            Error::internal_err(format!("could not restore the previous run's results: {e}"))
-        })?;
-    let needs_parse = tokio::fs::copy(snapshot.join("manifest.json"), target.join("manifest.json"))
-        .await
-        .is_err();
+    let needs_parse = !write_state_dir(
+        &p.project_dir.join(ARTIFACTS_DIR),
+        Some(&saved_results),
+        StateManifest::CopyOf(snapshot.join("manifest.json")),
+    )
+    .await?;
     // The generation was chosen from a row read before the file work above. A run
     // finishing in that window publishes a newer one, and resuming the superseded
     // generation redoes nodes it has already rebuilt — appending to an incremental
@@ -4518,7 +5059,11 @@ fn has_retryable_node(run_results: &str) -> bool {
 }
 
 /// Append `--vars` if the descriptor (or the run) declares any.
-fn add_vars(cmd: &mut Command, descriptor: &DbtDescriptor, inv: &Invocation) -> error::Result<()> {
+pub(crate) fn add_vars(
+    cmd: &mut Command,
+    descriptor: &DbtDescriptor,
+    inv: &Invocation,
+) -> error::Result<()> {
     let vars = resolved_vars(descriptor, &inv.args, inv.strict)?;
     if !vars.is_empty() {
         cmd.args(["--vars", &serde_json::to_string(&vars).unwrap_or_default()]);
@@ -4713,14 +5258,139 @@ fn add_selection(
     descriptor: &DbtDescriptor,
     inv: &Invocation,
 ) -> error::Result<()> {
-    for s in effective_select(descriptor, inv)? {
+    let select = effective_select(descriptor, inv)?;
+    let exclude = effective_exclude(descriptor, inv)?;
+    // The seam itself, which the DEPLOY reaches without going through a run: it
+    // resolves the descriptor's selection to decide what the script owns, and
+    // never computes a `defer`. A run has been checked earlier, where the message
+    // can still come before the state fetch.
+    check_state_selectors(
+        &select,
+        &exclude,
+        if inv.deferral.is_some() {
+            StateAccess::Given
+        } else {
+            StateAccess::OnRequest
+        },
+        !selection_is_overridden(descriptor, &inv.args)?,
+    )?;
+    for s in select {
         cmd.args(["--select", &s]);
     }
-    for s in effective_exclude(descriptor, inv)? {
+    for s in exclude {
         cmd.args(["--exclude", &s]);
     }
     if let Some(sel) = effective_selector(descriptor, inv)? {
         cmd.args(["--selector", sel]);
+    }
+    Ok(())
+}
+
+/// The method a selection token names, with the graph operators that can
+/// surround a node stripped (`@model`, `+model`, `2+model`, `model+`).
+fn selector_method(token: &str) -> Option<&str> {
+    token
+        .trim_start_matches('@')
+        .trim_start_matches(|c: char| c.is_ascii_digit())
+        .trim_start_matches('+')
+        .split_once(':')
+        .map(|(method, _)| method)
+}
+
+/// Every method a selection names. Each entry is a union of whitespace-separated
+/// tokens, and each of those an intersection of comma-separated ones.
+fn selection_methods<'a>(entries: &'a [String]) -> impl Iterator<Item = &'a str> {
+    entries
+        .iter()
+        .flat_map(|entry| entry.split([' ', '\t', ',']))
+        .filter_map(selector_method)
+}
+
+/// Whether the run being checked has the state directory a `state:` or `result:`
+/// method reads, or could be given one.
+#[derive(Clone, Copy)]
+enum StateAccess<'a> {
+    /// Deferring, so the directory is there.
+    Given,
+    /// Not deferring, and `defer` is what would hand it one.
+    OnRequest,
+    /// This command resolves a selection without ever deferring, so no setting
+    /// gives it a state and "turn `defer` on" would be advice that leads nowhere.
+    Never(&'a str),
+}
+
+/// Whether a selection names any of these methods.
+fn selection_names(select: &[String], exclude: &[String], methods: &[&str]) -> bool {
+    selection_methods(select)
+        .chain(selection_methods(exclude))
+        .any(|method| methods.contains(&method))
+}
+
+/// Refuse a selection dbt cannot resolve, before it silently resolves to the
+/// wrong thing.
+///
+/// `state:` and `result:` compare against the artifacts in `--state`, which only
+/// a deferring run is given. The engines do not agree on what happens without
+/// one: dbt-core 1.x raises, but dbt-sa-cli and fusion read a missing state as an
+/// EMPTY one and exit 0, so `state:modified` builds nothing and `state:new`
+/// builds the whole project, each as a run that reports success.
+///
+/// From the DESCRIPTOR they are refused whether or not the run defers, because
+/// that selection also decides which nodes the script owns, and "whatever changed
+/// last" is not an ownership answer — the deploy resolves it with no state at all.
+/// They describe one run, so they belong in a run's own `select`.
+///
+/// `source_status:` compares `sources.json`, which `dbt source freshness` writes
+/// and no run publishes here, so it has nothing to compare against under any
+/// setting.
+///
+/// Only what `select` and `exclude` spell directly: a method reached through a
+/// `selectors.yml` definition is named nowhere the worker can read, and dbt's
+/// own behaviour is what stands there.
+fn check_state_selectors(
+    select: &[String],
+    exclude: &[String],
+    access: StateAccess<'_>,
+    from_descriptor: bool,
+) -> error::Result<()> {
+    for method in selection_methods(select).chain(selection_methods(exclude)) {
+        match method {
+            "source_status" => {
+                return Err(Error::BadRequest(
+                    "a `source_status:` selector compares the source freshness recorded in \
+                     `sources.json`, which `dbt source freshness` writes and no run stores \
+                     here, so there is nothing for it to compare against. Drop the selector"
+                        .to_string(),
+                ))
+            }
+            "state" | "result" if from_descriptor => {
+                return Err(Error::BadRequest(format!(
+                    "a `{method}:` selector describes what ONE run builds, but the descriptor's \
+                     selection also decides which nodes this script owns, which a deploy \
+                     resolves with no state to compare against. Move it to the `select` of a \
+                     run with `defer` on"
+                )))
+            }
+            "state" | "result" => match access {
+                StateAccess::Given => {}
+                StateAccess::OnRequest => {
+                    return Err(Error::BadRequest(format!(
+                        "a `{method}:` selector compares against the dbt state a previous run \
+                         of this environment published, and only a run with `defer` on is given \
+                         that state. Turn `defer` on, or drop the selector"
+                    )))
+                }
+                StateAccess::Never(command) => {
+                    return Err(Error::BadRequest(format!(
+                        "a `{method}:` selector compares against the dbt state a previous run \
+                         of this environment published, and `{command}` resolves its selection \
+                         without building and never defers, so no setting hands it that state. \
+                         Drop the selector"
+                    )))
+                }
+            },
+            _ => {}
+        }
     }
     Ok(())
 }
@@ -4746,6 +5416,41 @@ fn selection_is_overridden(
         Ok(arg_list(args, key)?.is_some_and(|v| &v != from))
     };
     Ok(differs("select", &descriptor.select)? || differs("exclude", &descriptor.exclude)?)
+}
+
+/// Whether this invocation rebuilds incremental models from scratch: the run
+/// form's answer when it gave one, else the descriptor's — and never for a
+/// `test`, which builds nothing whatever the form said.
+///
+/// Shared with the column-lineage pass rather than recomputed there, because
+/// `is_incremental()` branches on it: the same model compiles to different SQL —
+/// a `{{ this }}` self-join, and any `ref()` inside the incremental branch — so a
+/// pass that guessed would describe a build that never ran.
+///
+/// `test` returns false because `dbt test` rejects `--full-refresh` outright.
+/// It never arrives as a caller's `dbt_command` — the allowlist has no such
+/// value — so reading only that allowlist suggests this branch is dead. It is
+/// not: `run_dbt` is invoked with `"test"` directly for the `after_all` test
+/// phase, and an `after_all` project with `full_refresh: true` reaches here.
+pub(crate) fn full_refresh(
+    descriptor: &DbtDescriptor,
+    inv: &Invocation,
+    command: &str,
+) -> error::Result<bool> {
+    if command == "test" {
+        return Ok(false);
+    }
+    Ok(arg_bool(&inv.args, "full_refresh")?.unwrap_or(descriptor.full_refresh))
+}
+
+/// Whether this run answered `full_refresh` differently from the deployed
+/// descriptor. Like a selection override it changes what the graph describes,
+/// since an incremental branch can carry its own `ref()`.
+fn full_refresh_is_overridden(
+    descriptor: &DbtDescriptor,
+    args: &HashMap<String, Box<RawValue>>,
+) -> error::Result<bool> {
+    Ok(arg_bool(args, "full_refresh")?.is_some_and(|v| v != descriptor.full_refresh))
 }
 
 /// The descriptor's named selector, unless this run named its own selection.
@@ -5738,6 +6443,79 @@ mod tests {
             .unwrap();
         assert!(untouched.publishes_ownership());
         assert_eq!(untouched.snapshot_job(job), None);
+
+        // `resolve_selection` lets a selection match nothing on exactly this
+        // predicate, because a run that scoped its own selection stores a
+        // snapshot instead of publishing ownership. Should the two ever drift
+        // apart, an empty caller selection would wipe the script's graph and
+        // cascade edges, which is the outcome that guard exists to prevent.
+        // One-directional: a `vars` override also withholds ownership without
+        // touching the selection, which is why this is an implication and not an
+        // equivalence.
+        for args in [
+            arg("select", r#"["state:modified+"]"#),
+            arg("exclude", r#"["tag:nightly"]"#),
+        ] {
+            assert!(selection_is_overridden(&descriptor, &args).unwrap());
+            let mut g = GraphRefresh::default();
+            g.add_caller_args(&descriptor, &args).unwrap();
+            assert!(
+                !g.publishes_ownership(),
+                "an overridden selection must not publish ownership"
+            );
+        }
+
+        // `full_refresh` decides whether `is_incremental()` is true, so an
+        // incremental model's self-join — and any `ref()` inside that branch —
+        // exists in one answer and not the other. A run that flips it describes
+        // a different graph, and gets its own.
+        let mut refreshed = GraphRefresh::default();
+        refreshed
+            .add_caller_args(&descriptor, &arg("full_refresh", "true"))
+            .unwrap();
+        assert!(refreshed.needed());
+        assert_eq!(refreshed.snapshot_job(job), Some(job));
+
+        // The same echo rule: the form posts the descriptor's own value back on
+        // every run, and reading that as an override would make each one
+        // caller-scoped.
+        let always = DbtDescriptor { full_refresh: true, ..Default::default() };
+        let mut echoed_flag = GraphRefresh { profile_drift: true, ..Default::default() };
+        echoed_flag
+            .add_caller_args(&always, &arg("full_refresh", "true"))
+            .unwrap();
+        assert_eq!(echoed_flag.snapshot_job(job), None);
+    }
+
+    /// The build and the analysis pass read this through one function, so they
+    /// cannot disagree about which SQL the run compiles — including for `test`,
+    /// which rebuilds nothing whatever the descriptor or the form said.
+    #[test]
+    fn full_refresh_is_one_answer_for_the_build_and_the_pass() {
+        let inv = |args: HashMap<String, Box<RawValue>>| Invocation {
+            args,
+            raw_args: Default::default(),
+            envs: Default::default(),
+            strict: true,
+            deferral: None,
+        };
+        let always = DbtDescriptor { full_refresh: true, ..Default::default() };
+        let never = DbtDescriptor::default();
+        let on = HashMap::from([(
+            "full_refresh".to_string(),
+            RawValue::from_string("true".to_string()).unwrap(),
+        )]);
+
+        assert!(full_refresh(&always, &inv(Default::default()), "build").unwrap());
+        assert!(!full_refresh(&never, &inv(Default::default()), "build").unwrap());
+        assert!(
+            full_refresh(&never, &inv(on), "build").unwrap(),
+            "the form's answer wins over the descriptor's"
+        );
+        assert!(
+            !full_refresh(&always, &inv(Default::default()), "test").unwrap(),
+            "a test builds nothing, so neither the build nor the pass may pass the flag"
+        );
     }
 
     // `dbt retry` restores the previous run's target/ from this directory, so two
@@ -5764,6 +6542,128 @@ mod tests {
             state_dir("ws", "f/a/one", "u/alice"),
             state_dir("ws", "f/a/one", "u/bob")
         );
+    }
+
+    // A profile whose location dbt renders cannot be told apart from another
+    // rendering of itself, so it neither publishes state nor defers. Both
+    // delimiters count: a conditional block moves a schema exactly as an
+    // `env_var()` substitution does.
+    #[test]
+    fn a_rendered_profile_location_is_recognised_by_either_delimiter() {
+        assert!(is_jinja("{{ env_var('DBT_SCHEMA') }}"));
+        assert!(is_jinja(
+            "{% if env_var('ENV') == 'prod' %}analytics{% else %}dev{% endif %}"
+        ));
+        assert!(!is_jinja("analytics"));
+        assert!(!is_jinja(""));
+    }
+
+    // dbt-sa-cli and fusion exit 0 on a state selector with no state, so nothing
+    // downstream would report this: the graph operators have to be stripped for
+    // the method to be seen at all.
+    #[test]
+    fn a_state_selector_is_found_under_any_graph_operator() {
+        // A run's own selection, which is the only place these belong.
+        let refused = |sel: &str, access: StateAccess<'_>| {
+            check_state_selectors(&[sel.to_string()], &[], access, false).is_err()
+        };
+        for sel in [
+            "state:modified",
+            "state:modified+",
+            "+state:new",
+            "@state:modified",
+            "2+state:modified+3",
+            "tag:nightly,state:modified",
+            "stg_orders+ result:error+",
+        ] {
+            assert!(
+                refused(sel, StateAccess::OnRequest),
+                "{sel} should need `defer`"
+            );
+            assert!(
+                !refused(sel, StateAccess::Given),
+                "{sel} should pass while deferring"
+            );
+            // A parse resolves a selection without ever deferring, so it is
+            // refused where a run would have been told to turn `defer` on.
+            assert!(
+                refused(sel, StateAccess::Never("parse")),
+                "{sel} cannot parse"
+            );
+            // The descriptor's selection also decides what the script owns, and
+            // the deploy resolves it with no state, so deferring cannot save it.
+            assert!(
+                check_state_selectors(&[sel.to_string()], &[], StateAccess::Given, true).is_err(),
+                "{sel} should never be a descriptor selection"
+            );
+        }
+        // A node whose name merely starts with a method's letters is not one.
+        for sel in ["stg_orders+", "tag:nightly", "stateful_model+"] {
+            assert!(
+                !refused(sel, StateAccess::OnRequest),
+                "{sel} is not a state selector"
+            );
+        }
+        // No run publishes `sources.json`, so deferring does not help.
+        for access in [
+            StateAccess::Given,
+            StateAccess::OnRequest,
+            StateAccess::Never("parse"),
+        ] {
+            assert!(refused("source_status:fresher+", access));
+        }
+        // `exclude` reaches dbt the same way `select` does.
+        assert!(check_state_selectors(
+            &[],
+            &["state:modified".to_string()],
+            StateAccess::OnRequest,
+            false
+        )
+        .is_err());
+
+        // The same recognition decides which empty selections `resolve_selection`
+        // lets through. Only these two answer "nothing" meaningfully; a selector
+        // naming nothing must not pass as a build that did its work.
+        const STATE_BACKED: &[&str] = &["state", "result"];
+        for sel in ["state:modified+", "result:error+", "tag:x,state:new"] {
+            assert!(
+                selection_names(&[sel.to_string()], &[], STATE_BACKED),
+                "{sel}"
+            );
+        }
+        for sel in [
+            "mispelled_model",
+            "tag:nightly",
+            "stg_orders+",
+            "source_status:fresher+",
+        ] {
+            assert!(
+                !selection_names(&[sel.to_string()], &[], STATE_BACKED),
+                "{sel}"
+            );
+        }
+    }
+
+    // The one flag choice that is silently wrong rather than loudly wrong: a
+    // `retry` handed `--state` resumes the SUCCESSFUL run stored there and
+    // rebuilds nothing, reporting a green retry of a failed run.
+    #[test]
+    fn a_retry_is_never_handed_the_deferral_as_its_state() {
+        assert_eq!(
+            defer_flags("build", DbtEngine::DbtCore1x),
+            ["--defer", "--state", crate::dbt_state::STATE_DIR]
+        );
+        assert_eq!(
+            defer_flags("test", DbtEngine::Fusion),
+            ["--defer", "--state", crate::dbt_state::STATE_DIR]
+        );
+        assert_eq!(
+            defer_flags("retry", DbtEngine::DbtCore1x),
+            ["--defer-state", crate::dbt_state::STATE_DIR]
+        );
+        for engine in [DbtEngine::DbtCore2x, DbtEngine::Fusion] {
+            assert!(defer_flags("retry", engine).is_empty());
+        }
     }
 
     #[test]

@@ -13,8 +13,8 @@ the dominant way dbt is orchestrated today.
 - **In**: run an unmodified dbt project synced into Windmill, one Windmill job per
   invocation, live per-model observability, dbt models as first-class assets in
   the existing asset graph.
-- **Out**: one Windmill job per dbt model, `state:modified` / slim CI,
-  `dbt docs` hosting, semantic layer, dbt platform integration.
+- **Out**: one Windmill job per dbt model, slim CI orchestration, `dbt docs`
+  hosting, semantic layer, dbt platform integration.
 - **CE**: the runtime, the manifest ingest, the asset graph and every piece of
   UI ship in CE, as do all adapters except two. Only the `mssql` and `oracle`
   adapters are EE, mirroring the native `ScriptLang` boundary (decision 21).
@@ -35,8 +35,8 @@ the dominant way dbt is orchestrated today.
 | 10 | Private repo auth | Not applicable: the project is synced, not fetched |
 | 11 | Asset kind | `dbt://<warehouse>/<schema>/<name>` — keyed on the relation, not on dbt's node id. See below |
 | 12 | Graph refresh | Deploy-time, re-ingested per run only when the descriptor is dynamic, plus an explicit `parse` of the editor's buffer. See below |
-| 13 | Manifest storage | Sidecar table for nodes/edges. Full manifest **not** stored — see below |
-| 14 | Metadata depth | Tests, strategy, tags, freshness, column descriptions. Column **lineage** is not in the manifest — see below |
+| 13 | Manifest storage | Sidecar table for nodes/edges; the whole manifest is kept once per environment, for deferral — see below |
+| 14 | Metadata depth | Tests, strategy, tags, freshness, column descriptions. Column **lineage** and real column schemas come from the engine's parquet index, opt-in per project — see below |
 | 15 | Node rendering | Asset nodes per model plus one runnable node for the script |
 | 16 | Progress | Live, from the JSON event stream |
 | 17 | Test failures | Honor dbt's own `severity` |
@@ -47,6 +47,8 @@ the dominant way dbt is orchestrated today.
 | 22 | Naming | Match Cosmos field names; importer deferred |
 | 23 | Descriptor | `wm_dbt.yaml` inside the project, OPTIONAL. See below |
 | 24 | Warehouse | Configured on the workspace by name, `main` by default. See below |
+| 25 | Cascade direction | Into a relation, not out of a run: `// materialize manual dbt://…` declares a write from any language but dbt's own and wakes `# on dbt://…` subscribers; a finished dbt run still does not dispatch. See "No cascade *from* dbt" |
+| 26 | Deferral | A durable state per environment, published by the runs whose relations are the script's; `defer` is a per-run toggle. See below |
 
 ## Decision 1: engine toggle, and why the shipped default is not Fusion yet
 
@@ -157,11 +159,15 @@ build and an enterprise build whose key did not verify.
 workspace warehouse's NAME, so two scripts running against the same warehouse
 agree on identity.
 
-The SCHEME names the producer, because dbt is the only thing that creates one of
-these: no other language derives warehouse relations, `// materialize` takes
-DuckLake targets only, and a dbt run does not dispatch. Calling the kind
-something generic promised a parity with native Snowflake and BigQuery scripts
-that does not exist.
+The SCHEME names the namespace dbt made, not an exclusive producer. dbt is what
+put warehouse relations in the asset graph and is what derives them from a
+project; no other language *infers* one, and calling the kind something generic
+promised a parity with native Snowflake and BigQuery scripts that does not exist.
+A script can nonetheless DECLARE that it writes one — `// materialize manual
+dbt://<warehouse>/<schema>/<name>`, in any language but dbt's own, whose writes
+come from its manifest — and that declaration lands on the same node the dbt model
+reading the relation does, because identity is the relation rather than the tool.
+See "No cascade *from* dbt" below.
 
 The PATH is the physical relation, and that is the load-bearing half. dbt-core
 has no cross-project `ref()`: two projects meet when one materializes a mart and
@@ -429,7 +435,9 @@ Two things make that safe rather than a widening:
   model set and its relations are already visible to them.
 - **`raw_code` is gated separately**, on an `EXISTS` against `script` in the
   authed transaction. The body of a model is the project's source code and stays
-  behind access to the project, whatever the shape query resolved.
+  behind access to the project, whatever the shape query resolved. `column_schema`
+  and the column trace behind `/jobs/dbt_column_lineage/{id}` take the same gate,
+  for the same reason: both are the shape of what the author wrote.
 
 The path and hash coming from the job row rather than the query also means a
 caller cannot pin one project's version while naming another's run.
@@ -648,10 +656,13 @@ Two consequences worth knowing:
   dropped would be filtered out of its own run's graph. The pinned version's
   nodes are the scope instead.
 
-## No cascade from dbt, and no pipeline membership
+## No cascade *from* dbt, and no pipeline membership
 
 A finished dbt run does not trigger anything. Its models are recorded, drawn and
-tracked; they do not fan out.
+tracked; they do not fan out. The opposite direction does: a script that declares
+`// materialize manual dbt://<warehouse>/<schema>/<name>` is an ordinary producer
+of that relation, and its completion wakes `# on dbt://<relation>` subscribers
+through the same fan-out every other asset kind uses.
 
 A dbt script is also not a pipeline member (`in_pipeline` is forced false for
 `ScriptLang::Dbt` at deploy). It materializes warehouse tables, so it looks like
@@ -663,22 +674,99 @@ Its models are `dbt://` assets in the shared graph regardless: that is what
 puts a native script reading one of them on the same node, and it is independent
 of pipeline membership.
 
-dbt already orders its own DAG, so a cascade would only ever add one thing:
-waking a Windmill script that reads a mart. That edge is real but narrow, and
-only half of it exists — nothing outside dbt can declare a `dbt://` write
-(`// materialize` accepts DuckLake targets only), so the reverse direction, an
-ingestion script waking a dbt project, cannot be expressed at all.
-
-Against that, dispatching correctly from dbt is not cheap. A run's `select` can
-build any subset of the project, so the deploy-time write set is not what ran;
-using it wakes consumers of relations the run never touched, and narrowing it
-needs a per-job record of what was built, which the per-relation state table
-cannot supply (it keeps one row per relation, stamped with the last writer).
+dbt already orders its own DAG, so a cascade out of a run would only ever add one
+thing: waking a Windmill script that reads a mart. That edge is real but narrow,
+and dispatching it correctly is not cheap. A run's `select` can build any subset
+of the project, so the deploy-time write set is not what ran; using it wakes
+consumers of relations the run never touched, and narrowing it needs a per-job
+record of what was built, which the per-relation state table cannot supply (it
+keeps one row per relation, stamped with the last writer).
 
 So dbt materializes and reports, and `asset_dispatch` returns early for
-`ScriptLang::Dbt`. A `# on dbt://<mart>` subscription is refused outright at
-deploy rather than accepted and left dormant — an edge drawn on the canvas that
-can never fire is worse than an error saying so.
+`ScriptLang::Dbt`. Wiring it up later means deciding what a selective run should
+notify — that decision is the work, not the plumbing.
+
+### Declaring the write, and which subscriptions are refused
+
+`// materialize manual dbt://<warehouse>/<schema>/<name>` is how an ingestion
+script says it writes a warehouse relation. `manual` is not a mode but the only
+mode: nothing generates warehouse DDL, so the script issues its own write and
+Windmill records the outcome — the same `materialized_partition` row a DuckLake
+target lands, so the relation carries a last writer on the run page and the graph.
+It is language-agnostic (the DuckLake write ENGINE is DuckDB's; this declaration
+is anyone's but a dbt project's, whose writes are read from its manifest), and the
+recording happens in the generic job path
+(`record_declared_warehouse_write`) rather than in an executor, for the same
+reason. Identity is unchanged — the physical relation — so the ingestion script
+and the dbt model reading it are one node, and a `source` declared on the relation
+puts the whole thing on one lineage. `// data_test` is refused beside it: those
+checks are probes the DuckDB executor splices around a managed write, so on a
+warehouse relation — which the script writes itself, from any language — nothing
+would run them, and a declarer would deploy green with its assertions silently
+skipped. Assert on the relation with a dbt test in the project that reads it.
+The `<warehouse>` segment is resolved at
+deploy for the same reason a descriptor's `profile.warehouse` is: a name no
+warehouse answers to is not a namespace, it strands the write on a node nothing
+else reaches.
+
+Known boundary, shared with every other runtime pipeline annotation: the record
+is written from the normal execution path, and recording and cascading are decided
+separately, so the routes off it differ.
+
+* A **dedicated worker** never enters that path — it bypasses the record exactly
+  as it bypasses `// partitioned` resolution — while its job is still a top-level
+  `Script`, so the fan-out (which reads the deploy-time `asset` rows) runs. It
+  cascades and records nothing, leaving the relation with no last writer.
+* A **flow runner** bypasses the path too, and is routed by `flow_step_id`, which
+  `is_eligible_kind` rejects. Neither record nor cascade.
+* A **flow step running a deployed script** enters the path as a `Script` job, so
+  it records — and carries a `flow_step_id`, so it never cascades.
+* A **flow step with an inline body** is a `FlowScript` job, which the recording
+  guard excludes along with previews: neither.
+
+Fixing the recording half is one change for every runtime pipeline annotation,
+not this one.
+
+A `# on dbt://<relation>` subscription is held to the same relation a producer
+is — a whole `<warehouse>/<schema>/<name>` under a configured warehouse, checked
+by the validator the `// materialize` target goes through, since two spellings of
+that rule would refuse and accept the same string. Beyond that it is refused in
+exactly one shape: when every script that writes that relation is a dbt one. Nothing
+produces it yet is NOT that shape — a subscriber may be deployed before its
+producer, as for every other asset kind, and refusing there would break
+deploy-order-independent syncs. A dbt script may neither subscribe nor declare a
+`// materialize`: its graph ingest republishes that path's trigger and asset rows
+wholesale, so either annotation would deploy something the dependency job then
+silently removes — while the declared write would still stamp the relation on
+every run.
+
+The producer set is read as it stands committed, minus the deploying script's own
+rows — those describe the version being replaced, so a script dropping its
+`// materialize` while adding a subscription would otherwise count itself as the
+producer that wakes it, which it could not be anyway (the dispatcher skips
+self-loops).
+
+What that leaves is a subscription accepted while it was live and later orphaned.
+A dbt project that claims the relation afterwards names those edges in its own log
+rather than leaving them silently dormant — the same "an edge that can never fire
+is worse than saying so" the refusal is for, at the other point where it is
+knowable. Both points that publish ownership warn: the deploy, and a run whose
+static descriptor found its profile moved. An agent run publishes none — it is
+forced to per-run models, so it stores a job-pinned snapshot and leaves workspace
+ownership with the deployed graph — so it cannot orphan a subscription either.
+
+Two orphanings are reported nowhere, and both are accepted rather than overlooked.
+A native producer that drops its `// materialize` and leaves dbt alone on the
+relation: the deploy that causes it does not touch the subscriber. And the
+interleaving where a dbt ingest commits between a subscriber's producer check and
+its own commit — the check sees no producer and accepts, the ingest's warning
+query sees no trigger and says nothing. Closing the second means a per-relation
+lock shared by the deploy path and the ingest, and the ingest takes
+`script … FOR UPDATE` before its own advisory lock, so a deploy holding relation
+locks first inverts that order into a deadlock across two subsystems — a worse
+failure than the cosmetic edge it would prevent. Both are bounded the same way:
+the next deploy of that project warns, and the canvas is where they show
+meanwhile.
 
 A plain READ still renders the consumer beside the model, which is what makes
 the lineage one graph — but it is written in the script's own code, not in a
@@ -687,8 +775,8 @@ comment: the body parsers resolve an asset URI from a string literal
 Python, TS/Bun/Deno, DuckDB or Ansible script is the read. Those four are the
 languages with a body-asset parser; the native warehouse ones (snowflake,
 bigquery, postgresql, mysql, mssql) declare no assets at all today, so a mart
-they consume joins the graph only once that inference exists. Wiring the trigger up later means deciding what a
-selective run should notify — that decision is the work, not the plumbing.
+they consume joins the graph only once that inference exists — while a relation
+one of them WRITES joins it now, through the annotation.
 
 ## Live per-model progress, and why only dbt-core 1.x has it
 
@@ -857,6 +945,8 @@ profile:
 select: ["tag:nightly+"]
 exclude: []
 test_behavior: build              # build | after_all | none
+column_lineage: false             # opt in to the static-analysis pass that
+                                  # produces column-level lineage (decision 14)
 vars:                             # typed: numbers/bools/lists keep their type,
   run_date: "{{ run_date }}"      # and string leaves take job arguments
   strict: false
@@ -1143,19 +1233,500 @@ block, since that is what `dbt_run_state` saves and `invocation_args` publishes.
    without failing. Overriding this would make the same project behave differently
    on Windmill than locally, breaking the core promise.
 
+## Durable state per environment, and what defers to it
+
+`dbt --defer --state <dir>` resolves a `ref()` the run does not build to the
+relation the manifest in `<dir>` names, instead of to the schema this run writes
+into. That is what lets one model be rebuilt into a scratch schema without
+rebuilding everything above it, and it needs a manifest of the environment the
+project actually lives in.
+
+Nothing that already existed could supply one. `dbt_run_state` answers a
+different question — it holds the LAST run whatever its outcome, keyed by the
+principal, so `dbt retry` can resume its failures — and the worker-local
+generations behind it are a cache: the next run of a project usually lands on a
+worker holding neither artifact. So the state is its own table,
+`dbt_environment_state`, one row per (workspace, script path, environment),
+holding `manifest.json` and `run_results.json` from the last SUCCESSFUL run.
+Success is half of the contract: a relation a later run defers to has to exist.
+
+### The environment is the warehouse, the target and where they resolve to
+
+The workspace warehouse's name, the target dbt actually runs, and the database
+and schema that target resolves to — the pair `relation_root` reports to the
+graph's drift check. Each component is length-prefixed rather than joined on a
+separator — `<warehouse>|<target>|<schema>|<database>`, each written `<len>:<value>`,
+so `main`/`prod`/`analytics`/`dbt_wh_defer` is stored as
+`4:main|4:prod|9:analytics|12:dbt_wh_defer`. A target name and a schema are both
+the user's own strings, so `prod|analytics` + `scratch` and `prod` +
+`analytics|scratch` would otherwise be one key, and a profile moving between them
+would read as the same environment rather than as one nothing has published. What
+a message names is spelled out instead, never the encoded key.
+
+The target is the EFFECTIVE one, not the descriptor's `profile.target`: a
+descriptor naming none inherits the workspace warehouse's, or the default in the
+project's own `profiles.yml`, so reading the descriptor's would file every
+inherited target under one empty name — and a `target.name` macro decides where a
+model is built.
+
+The last two are in the key because deferring is resolving a relation NAME. A
+warehouse repointed at another database, or a `profile.schema` moved by a
+redeploy, keeps the first two while putting every relation somewhere else, and a
+manifest is a list of relation names — there is no other way to notice. Keyed on
+the first two alone, such a move would hand the next deferring run the names of
+relations that are no longer there. Keyed on all four, it reads as an
+environment nothing has published yet, which is what it is.
+
+What the key deliberately does NOT carry is the resolved connection. That is the
+`profile_digest` a retry is held to, and it moves when a password is rotated,
+which moves no relation; a warehouse pointing somewhere else entirely is
+decision 11's accepted limitation, spelled the same way here as everywhere else.
+
+Today one script has one environment, because a descriptor fixes both the
+warehouse and the target and a run cannot override either. The key is what makes
+the *later* item — fork and preview environments — an addition rather than a
+migration, and what makes a profile move detectable now.
+
+### Which runs publish it
+
+A successful `build` that did not itself defer, and whose graph becomes what the
+script owns (`GraphRefresh::publishes_ownership`) — the same condition as the
+graph's and the same reason: an invocation that scoped its own model set — a
+`vars` or `select` override, or a descriptor dynamic by construction — describes
+where the CALLER put those relations, not where this project's models live.
+Publishing it would point every later deferral at one caller's scratch schema.
+
+**A run that deferred never publishes, whatever narrowed it**, and that is a
+separate condition rather than a consequence of the first. A deferring run built
+some of the relations its manifest names and resolved the rest out of the state
+it read, so recording that manifest would claim relations nothing built — and a
+model renamed since would be recorded under a name only a full build creates,
+breaking every later deferral until one repairs it. `publishes_ownership` cannot
+see this: it reads the caller's overrides, and a descriptor that already narrows
+`select` needs none.
+
+A `retry` publishes nothing. Its `run_results.json` names only the nodes it
+redid, so the environment would come to claim a run of a handful of models. The
+environment's state is therefore the last full successful build, exactly as dbt
+Cloud's "last successful run" is, and a run recovered by a retry leaves it at
+the previous one.
+
+The AUTOMATIC in-job node retry is the same artifact under a different name: a
+build it recovers is a successful build, but the `run_results.json` on disk is
+the retry's. Such a run publishes the manifest **without** results, rather than
+with a set describing some other slice of the build — the manifest is a function
+of the project rather than of what ran, so deferral is unaffected. A `result:`
+selector is the one thing left with nothing to read, and it is refused by name
+against such a publication rather than passed to dbt (see "Selectors that read
+the state" below).
+
+Under `test_behavior: after_all` the stored `run_results.json` is the test
+phase's, because that is what the second invocation leaves in the target
+directory — the same artifact a local `dbt run && dbt test` leaves behind.
+
+**What that condition means for what the artifacts may carry**, and why this
+table is keyed by environment where `dbt_run_state` is keyed by principal. dbt
+records the invocation's flags into `run_results.json`, and Windmill resolves
+`$var:` / `$res:` references before dbt sees them — which is exactly why the
+retry state is per-principal, so one caller's resolved `select` and `vars` are
+not restorable by the next. Here they cannot be one caller's: a publishing run
+added nothing of its own, and a descriptor that interpolates a `{{ }}`
+placeholder into `vars` never publishes at all, so what is recorded is the
+descriptor's own arguments — the script's content, which anyone entitled to run
+it may already read. Widen the publish condition and that stops being true.
+
+### Where the blob goes
+
+`run_results.json` is small; `manifest.json` is not, and grows with the project
+(535 KB on a two-model fixture). Each takes the same two homes: inline in the row
+under `DBT_STATE_INLINE_MAX_BYTES` (8 MiB), and the INSTANCE's object storage
+above it, with the row keeping the key. Inline is what makes the feature work on
+an instance that has configured no storage at all; the ceiling is what stops one
+project's manifest from becoming a multi-megabyte row rewritten by every run. A
+project past the ceiling with no storage configured is told so, in the job log,
+naming the setting and the variable — the run itself still succeeds, since
+losing the state costs the next deferral rather than the build that just ran.
+
+**The instance store, not the workspace's**, which is where every other internal
+worker artifact already lives (bun bundles, python wheels, job logs, the global
+cache). The workspace bucket is the one members read and write through
+`job_helpers/*` and `wmill.write_s3_file` with a caller-supplied key, and only
+`volumes/` is reserved there — so a manifest under it is one any member could
+replace, and the next deferring run would hand dbt an attacker-chosen
+`defer_relation` for every unbuilt `ref()` while holding the script's warehouse
+credentials. Its compiled SQL would be readable there too, for a project the
+reader may have no access to. The consequence to know: a project past the ceiling
+needs the instance store configured, which is an EE feature, so on CE the ceiling
+is the limit and `DBT_STATE_INLINE_MAX_BYTES` is how it moves.
+
+Each publication writes its OWN keys
+(`wmill_dbt_state/<workspace>/<digest of path and environment>/<job>.<nonce>/<artifact>`)
+and the row switches to them in one statement, so an upload never overwrites an
+artifact the committed row still names: a run that fails between its two uploads,
+or between them and its row, leaves the state pointing at the pair it already
+had. The objects the commit displaced are dropped afterwards, never before, since
+a reader that has already read the row is about to fetch them; a reader that
+loses that race re-reads for as long as the row keeps MOVING, rather than
+reporting a state that is there. A reader takes no lock, so successive
+publications can each overtake one; an unmoved row whose objects are gone is the
+error that means what it says, and a bound on the re-reads is the other, for a
+project republishing faster than a run can read. What a publication uploaded and then could not commit is dropped on the
+way out — except after a commit that REPORTED an error, where what was lost may
+be only the acknowledgement: dropping then would leave a committed row naming
+objects that are gone, so an orphan is the cheaper side to take.
+
+The path and the environment are only a prefix of that key. The row is what says
+where an artifact is, which is why state can travel with a renamed script and go
+on naming objects under the old path's digest. The rest of the key is the job and
+a per-EXECUTION nonce — zombie recovery re-runs a job under its own id, so keyed
+on that alone a second attempt would overwrite the objects the first attempt's
+committed row still names, then read those keys back as displaced and drop them.
+
+Publishers of one environment serialize on `pg_advisory_xact_lock`, so only one
+of them settles the row and the objects it displaces at a time — an advisory lock
+rather than the row's, because the first publish of an environment has no row to
+lock and is exactly when two runs of a newly deployed script are most likely to
+race.
+
+### Retention
+
+None, deliberately, and this is where it differs from the graph tables next
+door. Those are pruned by age by the dbt runs themselves because their reader is
+a transient run page. This one holds a single row per script per environment,
+replaced in place, so it does not grow with runs — and its reader is every later
+run of that script, so a project that runs monthly must still find last month's
+state. It goes with the script instead: a path no live dbt version occupies any
+more clears it, alongside `dbt_run_state` (`clear_dbt_script_state`,
+`clear_dbt_script_state_if_path_retired`).
+
+The write carries a guard of its own, and it names the VERSION rather than the
+path: the live dbt script there must be the one this job ran, or a later version
+of it (`hash = $n OR $n = ANY(parent_hashes)`). "Some live dbt script is here" —
+which is what the retry state settles for — is also satisfied by a script created
+at a path this one was renamed away from, and this job's manifest would then
+become that project's deferral state. A preview names no version and so publishes
+nothing, which is right for a run of content that was never deployed.
+
+The job's KIND is checked beside it, because a preview carries a caller-supplied
+`script_hash` into `runnable_id` (`run_preview_script`): the version alone would
+let anyone who may run a job publish arbitrary content as a deployed script's
+state. A flow or app step naming a deployed dbt script by path is an ordinary
+`script` job carrying that script's own hash, so it publishes like any other run;
+only INLINE flow code is a `FlowScript`, and that has no deployed version to
+publish for.
+
+That guard HOLDS the script row (`FOR SHARE`) for the rest of the publication, so
+a rename, archive or delete of the path either waits for it or is seen by it.
+Read unlocked, it leaves a window where the lifecycle clear finds no row to take,
+finishes, and the publication then commits state at a path a new script goes on
+to occupy. The script row is taken before the sidecar, which is the order every
+other dbt writer takes and what keeps the two off a deadlock.
+
+An artifact too large for its row is left in the store when the row is cleared,
+as a deleted script leaves its bundle: reaching it from the delete would mean an
+object-store client in `windmill-common` and a delete that has to land after the
+caller's transaction commits, for one object per environment of a script that is
+gone.
+
+### Asking for it
+
+`defer` is a field on the `build` command block, defaulting to the descriptor's
+own `defer:`. A per-run toggle rather than a descriptor-only setting, because the
+run that publishes an environment's state and the run that defers to it are two
+invocations of ONE script (decision 6: N scripts means N projects): a project
+that could only defer by descriptor could never populate the state it reads.
+
+A project whose profile selects its schema or database with a TEMPLATE — either
+delimiter, since dbt renders `{% … %}` blocks as well as `{{ … }}` — is refused a
+deferral outright, and publishes no state either: dbt renders those and Windmill
+does not, so two renderings resolve to one `relation_root`, and a
+deferral after the value changed would resolve every unbuilt `ref()` through the
+previous location's manifest. Both sides, because a published template would sit
+under a key a literal profile shares, and de-templating later would make that
+stale manifest readable as the new location's. It covers a project-owned
+`profiles.yml`, a `dbt_profile` resource — one block of the user's own file,
+copied through unchanged — and a `profile.schema` written as given. Plainly
+absent is different: that is the adapter's default, which does not move.
+
+A run that asks to defer with nothing published is refused, naming the
+environment and the runs that cannot publish one. The alternative — running
+without deferral — fails deep inside dbt with a relation-not-found the caller has
+no way to connect back to a missing state. An agent worker is refused the same
+way and for a reason it can act on: it reaches the database only through the API,
+which does not expose this table.
+
+A `show` defers too, and every engine takes the flags on it. It compiles the
+model it previews, so a model whose upstream this environment built and this run
+did not is exactly the case a deferral exists for. So does the `dbt ls` that
+resolves what a run's selection owns, without which a `result:` selector — which
+reads `run_results.json` out of the state directory, and which `select` passes to
+dbt verbatim — would fail before the build that would have honoured it.
+
+The result carries `deferred_to`, the run whose state was used. Without it what
+a deferring run built against is unrecoverable, since the next successful run of
+that environment replaces the state.
+
+### Selectors that read the state, and why they are refused rather than passed
+
+`--state` also feeds dbt's own selector methods, so publishing the state is what
+makes `state:modified+`, `state:new` and `result:error+` resolve at all. Only a
+deferring run is handed the directory, so a `state:` or `result:` method in
+`select` or `exclude` without `defer` is refused before dbt starts.
+
+Refused, rather than left to dbt, because the engines disagree about it and two
+of the three disagree silently. Given a state selector and no `--state`,
+dbt-core 1.x raises (`Got a state selector method, but no comparison manifest`,
+exit 2), but dbt-sa-cli 2.x and fusion read a MISSING state as an EMPTY one and
+exit 0: `state:modified` then selects nothing and the run reports success having
+built nothing, while `state:new` selects everything, because against an empty
+state every node is new. A scheduled run that quietly stops doing work, or
+quietly rebuilds the project, is the failure this state exists to prevent.
+
+From the DESCRIPTOR they are refused whether or not the run defers, and the
+message says so. That selection is also what decides which nodes the script owns,
+and the deploy resolves it before any run exists, with no state to compare
+against. "Whatever changed last" is not an ownership answer. They describe one
+run, so they belong in a run's own `select`.
+
+`source_status:` is refused under any setting: it compares `sources.json`, which
+`dbt source freshness` writes and no run publishes here, so there is nothing to
+compare against even while deferring.
+
+Two more refusals follow from the same argument, that a selector with nothing to
+read must say so rather than resolve to a silent answer:
+
+- A `result:` method while deferring to a state that carries **no**
+  `run_results.json`. Publishing that is deliberate — a build recovered by
+  automatic node retry stores the manifest alone, its results describing the
+  retried nodes rather than the build ("Which runs publish it") — so `defer`
+  being on is not enough to know the file is there. Answerable only once the
+  state is loaded, so it is checked right after, naming the run that published.
+- Any of them on a `parse`. A parse resolves a selection to store the graph and
+  never defers, so `defer` would not hand it a state at any setting, and the
+  remedy the other refusal offers would lead nowhere. It says that instead.
+
+Matching nothing is then an ordinary outcome for these methods, and for no
+others. `state:modified+` selects the empty set exactly when nothing changed
+since the published state, which is the answer a CI run wants, so a selection
+naming a `state:` or `result:` method may resolve to no nodes. Such a run scoped
+its own selection, so what it stores is a snapshot of its own and never what the
+script owns, and nothing is un-wired by the empty set.
+
+The exemption is by METHOD, not by who chose the selection. Exempting every
+caller-chosen one would take a misspelled model name, which resolves to nothing
+just as surely, and report it as a build that did its work. An ordinary selection
+matching nothing stays refused, from a run as from the descriptor — from the
+descriptor because that one also decides ownership.
+
+Only what `select` and `exclude` spell directly. A method reached through a
+`selectors.yml` definition is named nowhere the worker reads, and dbt's own
+behaviour — including the silent one — is what stands there.
+
+### `--state` is also a retry's own argument, and that is a trap
+
+`dbt retry` reads the run it RESUMES from `--state`. Handed the deferral's
+directory it resumes the successful run stored there, finds nothing failed, and
+reports a green retry having rebuilt nothing — silently, on dbt-core 1.x, which
+warns and exits 0.
+
+dbt-core 1.x has `--defer-state`, the deferral-only half of the pair, so a retry
+there passes that and leaves `--state` alone. The Rust engines do not have it,
+and a run that deferred is refused a retry on them, before the build: the
+alternative is rebuilding the failed nodes with every `ref()` resolving into the
+schema this run writes into, which for the narrowed run a deferral exists to
+serve means writing them somewhere they do not belong. The automatic in-job node
+retry is dropped for the same reason and says so in the log.
+
+The state directory is passed RELATIVE (`wm_dbt_state`, beside `wm_target` in the
+job directory). dbt records the invocation's flags into `run_results.json` and a
+later `dbt retry` restores them, so an absolute path would name the job directory
+of the run being resumed, which is gone by then. Relative, it resolves against
+the project root — whichever job directory the retry landed in.
+
+Three engine facts found while wiring this up, all worth knowing before filing a
+bug against the feature. `dbt retry` on dbt-core 2.x restores **neither** the
+resumed invocation's `--vars` nor its deferral: it re-parses with the current
+(empty) ones, so a retry of a run that overrode `vars` rebuilds into the
+descriptor's schema rather than the run's. That is independent of deferral and
+predates it; the refusal above stops the deferring case from being the way it is
+discovered. `dbt show` on either Rust engine prints a bare JSON array where
+dbt-core frames it as `{"node": …, "show": […]}`, which `run_show` is written
+against — so a preview there fails to parse whether or not it defers, and the
+deferral itself resolves correctly under it. And neither Rust engine reached
+dbt's own service-backed State (`--manage-state`) on any run measured here, so no
+flag is passed to disable it.
+
+Because `select` reaches dbt verbatim, a deferring run also has a `--state`
+directory for `result:` selectors, which is why `run_results.json` is stored
+beside the manifest rather than the manifest alone.
+
 ## Two decisions the implementation narrowed
 
-**Decision 13 — no S3 copy of the manifest.** The sidecar holds every field the
-graph renders; nothing reads a stored `manifest.json`, so writing one to S3
-would be an unread copy of data that is already reproducible by redeploying (or,
-for a dynamic descriptor, by the next run). Worth adding the day something needs the
-parts the sidecar drops — compiled SQL, macro definitions — and not before.
+**Decision 13 — the manifest is stored once per environment, not per version.**
+The sidecar holds every field the graph renders, so a copy of `manifest.json`
+bought the graph nothing: it is reproducible by redeploying, or for a dynamic
+descriptor by the next run. Deferral is the reader that changed that — it
+resolves an unbuilt `ref()` through a manifest, and one on worker-local disk
+answers for a machine's history rather than for the environment. So exactly one
+manifest is kept per (script, environment), replaced by each successful run,
+rather than one per version (see "Durable state per environment" above).
 
-**Decision 14 — column lineage is not available.** The decision assumed
-`manifest.json` carries column-to-column edges; it does not, in either core
-engine. What it does carry is declared column *descriptions*, which are
-ingested. Real column lineage would need Fusion (which does static analysis) or
-a SQL-AST pass of our own, so `columnLineageGraph.ts` is not wired up for dbt.
+**Decision 14 — column lineage comes from the parquet index, not the manifest.**
+`manifest.json` carries no column-to-column edges, in any engine, and its
+`columns` are the ones an author declared in `schema.yml`. Both halves exist in a
+different artifact: `dbt compile --static-analysis strict --write-index` writes
+`target/index/`, and two of its tables are `dbt.column_lineage.parquet`
+(`from_node_unique_id`, `from_column_name`, `to_node_unique_id`,
+`to_column_name`, `lineage_kind`) and `dbt.node_columns.parquet` (every column of
+every node, with its declared type, its inferred type and its description).
+
+Three measured properties decide the shape of the ingest.
+
+**Strict analysis is a stricter dialect.** `select no_such_column from
+ref(...)` is `UnresolvedIdentifier (dbt0227)` and exit 1 under `strict`, and
+compiles fine under `baseline` (the default). So this is a separate `dbt compile`
+with its own `--target-path`, never a flag on the build, and it is opt-in per
+project: `column_lineage: true` in the descriptor. Off, nothing changes. On, a
+project that cannot be analyzed keeps exactly the graph it had.
+
+The pass is best-effort about everything that is ITS: a wrong engine, a rejected
+analysis, a missing or unreadable artifact, an over-long output and outrunning its
+own time budget all degrade to partial lineage or none, plus a line in the job
+log saying which. It is not best-effort about the JOB: a cancellation or the job's
+own deadline fail it, because swallowing those would let a run that blew its
+timeout inside an optional annotation publish a graph and report success. That
+split is why the two halves have separate error contracts — the compile owns the
+job's semantics and may `Err`; nothing the artifact does or fails to do is a
+reason to fail a job, so an absent, unreadable or partial index is a value. The
+decode still runs under the job poller, which both heartbeats through it and
+ends it if the job is cancelled or completed meanwhile: the job reaching in, not
+the artifact reaching out. The
+budget is half the job's remaining wall clock, spent on the compile alone, so the
+build that follows cannot be starved by it.
+
+**A failed pass still writes the index**, holding every edge of the models that
+did analyze, so the artifact is read whatever the exit status and partial lineage
+is a normal outcome. An unreachable *source* is milder still: `RemoteError
+(dbt1014)` downgrades that model to `static_analysis: off` and the compile
+succeeds. (Strict analysis queries the warehouse catalog for source schemas; a
+`ref()`ed model is inferred statically and needs no built table.)
+
+**The flag is not the capability.** `dbt-core` 2.0.0-alpha.5 — the version
+`DBT_CORE_2X_VERSION` pins — accepts `--write-index` and `--write-lineage`, and
+its own `views.sql` declares views over both tables, but it writes neither
+parquet; only Fusion does today. The ADAPTER decides too: an experimental one
+(postgres under `DBT_ALLOW_EXPERIMENTAL_ADAPTERS`) turns static analysis off and
+says so only in a warning on an otherwise successful compile. The gate is
+therefore "the engine has the flag" (everything but 1.x, whose Python CLI has no
+such option) plus "the file appeared", so a later release picking the feature up
+needs no change here — and the job log carries the engine's own stderr whenever
+no index appears, since without it "no column lineage" has no explanation.
+
+`lineage_kind` is stored as TEXT, not an enum. Three values exist — `copy`
+(passthrough), `mod` (transformed) and `scan` (the column was read to produce the
+ROW rather than the value: a join key, a `where` predicate, a `group by`) — and
+the engine's own reader maps those three and passes anything else through, so the
+set is the engine's to extend. All three are stored, and `copy`/`mod` are kept
+first when the bound bites: a `scan` edge reaches every output column of its
+model, so it is most of what a project's index holds and would draw as a complete
+bipartite graph. Keeping it in the table anyway is what lets a later "show
+indirect" view ask for it without every project being redeployed.
+
+Storage mirrors `dbt_edge` exactly: `dbt_column_edge`, keyed by (path, version,
+job) with the same composite foreign key to `script`, so a version's column
+lineage dies with the version and a run's snapshot with the sweep.
+
+**A table of its own, not `dbt_edge.column_lineage` JSONB.** Hanging the links on
+the `ref()` edge they sit beneath would inherit its clone, prune, clear and
+cascade paths for free, and it does not work: a model reading `{{ this }}` gets
+column lineage from itself to itself, and `parent_map` has no self-loop, because
+a model does not `ref()` itself. Those pairs have no `dbt_edge` row to attach to.
+The loss is not hypothetical — an incremental that selects from `{{ this }}`
+(`coalesce(p.dbl, s.dbl)`, `p.up as prev_up`) yields `up → prev_up` with kind
+`copy`, a drawn edge meaning "this column carries the previous run's value".
+Inventing self-loop `dbt_edge` rows to hold it is not an option either: that
+table is `ref()` lineage. The typed column list lands in
+`dbt_node.column_schema`, beside `columns` rather than merged into it —
+`columns` stays what the author *declared*.
+
+Two things are user-visible. `column_schema` — every column of a relation, typed
+and in the order the model emits them — rides the asset graph the details pane
+already fetches, and replaces a panel that could only list the columns an author
+happened to document. The edges are served by an endpoint of their own,
+`assets/column_lineage`, which the pane asks for the selection it is drawing.
+
+Both are gated on being able to read the producing project, like the model's SQL:
+a column-level view is the shape of what the author wrote, one level finer than
+the `ref()` graph, which is ungated only because it draws relations the caller
+already sees. A share-link viewer entitled to a dbt run therefore gets its
+relations and `ref()` edges, and neither the SQL nor the columns.
+
+**One request per selection, and the gate re-decided per project.** The endpoint
+takes every relation the view has reached and answers their union, because one
+selection reaches several — a script's output column can derive from columns of
+several models. Holding partial answers between selections instead was tried and
+is what a client cache is: it produced a wrong premise for a relation two projects
+describe, then staleness on redeploy, then a lost retry.
+
+The answer is the connected component around those relations, and that component
+does not stop at the project that owns them: a relation one project produces is
+another's source, so the walk resolves owners, reads their edges, walks, and
+repeats for the relations that walk newly reached. Resolving once — for the
+relations asked about — stops the trace at the first project boundary. The
+security half is that a project reached this way is a project the caller may not
+be entitled to, so the scope filter and the project's visibility are re-applied to
+every project the expansion discovers, not decided once for the first owner set.
+
+A PINNED answer is the exception and needs none of it, whether it names a job or
+a deployed version: the pin says which stored graph is on screen, and another
+project's live graph is not part of it, so it answers for that one project. The
+dbt editor pins by version on every selection and the run page pins by job; the
+pipeline page pins nothing, and is where the walk crosses projects.
+
+**The component is bounded, and says when it was cut.** The renderer draws a box
+per column, so a component past a few thousand edges is unreadable however it is
+served — a synthetic 3000-model project whose models share a column returns 58k
+direct edges and 7.3MB. The walk is breadth-first from the asked-for relations and
+stops at 5000 edges, so what survives is the part nearest the selection rather
+than an arbitrary slice, and `truncated` says so: a trace that stops short is
+otherwise indistinguishable from one that ends. The FETCH is not bounded the same
+way — a project's edges arrive whole, because the walk is what decides which of
+them are in the component, and a `LIMIT` would cut a set that need not contain
+the asked-for relation at all. What bounds it is the ingest's own cap per version
+plus a stop on discovering further projects once the held set is outsized.
+
+The walk is in Rust rather than a recursive CTE. `EXPLAIN ANALYZE` on that same
+project measured 1243ms against 59ms for the query alone: a CTE has no index to
+walk, so the recursive term rescans the doubled edge set once per level (11.7M
+rows), while the same walk over a map is microseconds.
+
+The two halves of a trace — dbt's and the pipeline's — meet at shared node ids. A
+DuckDB script's `// column x <- dbt://wh/s/model.col` mints the same
+`(dbt, path, column)` node dbt's own lineage does, so the producer graph the asset
+graph already carries and the dbt graph are MERGED rather than chosen between, and
+a trace crosses that boundary in either direction. What the browser cannot close
+in one request is a relation the server discovers whose columns are consumed by a
+script that writes into a third project: the producer half of that hop is the
+canvas's, not the server's, and the seeds were computed before the answer arrived.
+
+**The analysis pass takes the build's own `--full-refresh`.** `is_incremental()`
+branches on it, so an incremental model reading `{{ this }}` compiles its
+self-join — and any `ref()` inside that branch — only when the flag is absent. A
+pass that used the descriptor's default while the run overrode it would store
+lineage for SQL that run never executed. For the same reason an invocation that
+overrides the flag counts as `per_run_models`: its graph is its own, keyed to the
+job, rather than standing as the version's.
+
+That flag is not the whole of it, and the rest is a property rather than a bug to
+fix. `is_incremental()` is also false when the target table does not exist, so an
+incremental model has **two shapes and one ingest holds one of them**: a deploy
+before the first build compiles the cold shape, and the same project deployed
+again once its tables exist compiles the incremental one. A static descriptor
+re-ingests on neither runs nor time, so what is stored stays whatever the compile
+in front of it saw. dbt has no mode that emits both, and re-analyzing per run
+would buy a second `dbt compile` on every build to keep a graph nobody asked to
+refresh. The contract is therefore the honest one: a version's graph describes
+the compile that produced it, and a run that re-ingests describes its own run.
 
 ## Concept mapping
 
@@ -1167,7 +1738,9 @@ a SQL-AST pass of our own, so `columnLineageGraph.ts` is not wired up for dbt.
 | `materialized: incremental` | `append` or `merge` (by `unique_key`) | same |
 | `{% snapshot %}` | `scd2` | same, incl. `<dim>_current` handling |
 | `unique`/`not_null`/`accepted_values`/`relationships` | `data_tests` | exact 1:1 with the four `// data_test` kinds |
-| declared column metadata | `columns` on the asset node | descriptions only; see the note below |
+| declared column metadata | `columns` on the asset node | descriptions only, from the manifest |
+| analyzed column schema | `column_schema` on the asset node | `dbt.node_columns.parquet`, opt-in |
+| column-to-column lineage | `dbt_column_edge` rows, drawn as a column trace | `dbt.column_lineage.parquet`, opt-in |
 | model `tags` | node badge | `tag` |
 | source freshness | `freshness` | `last_success_at` chip |
 | `run_results.json` | materialization records | `record_materialization` |
@@ -1195,7 +1768,10 @@ render through the existing `RunnableNode.svelte` / `AssetNode.svelte` /
 on the canvas mid-run. `record_materialization` per model. Profile and select
 pickers in the editor. Per-model failure triage in the run view.
 
-**Phase 4 (not in this PR).** `--defer` and `state:modified`. Partition and
+**Phase 4 (not in this PR).** Slim CI: the fork and preview environments a
+deferral would name instead of its own. The selectors themselves are here, since
+`state:` and `result:` read the published state like any deferral does; what is
+missing is a per-branch environment to compare a CI run against. Partition and
 backfill integration so `BackfillRangeDialog.svelte` works on dbt models.
 `wmill dbt import <dag.py>` reading `DbtDag(...)` kwargs.
 
@@ -1215,18 +1791,33 @@ Against a real dbt project (jaffle_shop shape) and the local Postgres:
    script reading one of the marts gets an edge to it.
 6. **Shared node**: a native script that READS a mart renders as a reader of the
    same node the dbt model writes — one node, not two islands. Declared with a
-   plain read (`# dbt://<mart>`), never `# on`: a `dbt://` subscription is
-   refused at deploy, because nothing but dbt writes a warehouse relation and a
-   dbt run does not dispatch (see "no cascade from dbt").
-7. **Selection**: descriptor `select`/`exclude`, and a run-arg override, each
+   plain read (`# dbt://<mart>`), never `# on`: a subscription to a relation dbt
+   alone builds is refused at deploy, since a dbt run does not dispatch.
+7. **Declared write**: a native `// materialize manual dbt://<relation>` script
+   and a dbt project reading that relation as a `source` render as one node; a
+   run of the script records its materialization and wakes a
+   `# on dbt://<relation>` subscriber — a subscription only that producer makes
+   wakeable, the dbt project reading the relation being no producer of it (see
+   "no cascade *from* dbt").
+8. **Selection**: descriptor `select`/`exclude`, and a run-arg override, each
    build only the expected subset.
-8. **Dynamic descriptors**: a `{{ }}` placeholder in `vars` re-ingests the graph
+9. **Dynamic descriptors**: a `{{ }}` placeholder in `vars` re-ingests the graph
    from the run's own manifest, so a model that placeholder enables appears in
    the same run that builds it.
-9. **Both credential paths**: resource-rendered `profiles.yml`, and the project's
+10. **Both credential paths**: resource-rendered `profiles.yml`, and the project's
    own `profiles.yml` with env-var injection.
-10. **Caching**: a second run reuses the cached `dbt_packages/` with no network
+11. **Caching**: a second run reuses the cached `dbt_packages/` with no network
     fetch.
+12. **Deferral**: a full run publishes the environment's state; a second run
+    that builds one downstream model into another schema resolves its unbuilt
+    `ref()` to the relation the state names, where the same run without `defer`
+    fails with relation-not-found.
+13. **State selectors**: with a state published, `state:modified+` selects
+    nothing while the project is unchanged and exactly the changed model and its
+    children after one is edited. Without `defer` it is refused rather than
+    passed, and a `result:` selector against a state published by a
+    node-retry-recovered build is refused too, that one carrying no
+    `run_results.json`.
 
 Keep only tests that pin behavior a future change could break. Per AGENTS.md,
 delete development scaffolding before marking the PR ready.

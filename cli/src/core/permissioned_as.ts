@@ -3,11 +3,41 @@ import * as log from "./log.ts";
 import { colors } from "@cliffy/ansi/colors";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { getTypeStrFromPath } from "../types.ts";
+import { parseSyncBehavior } from "./conf.ts";
 
 export interface PermissionedAsContext {
   userCache: Map<string, { username: string; email: string }>;
   userIsAdminOrDeployer: boolean;
   userEmail: string;
+}
+
+/**
+ * The whole-tree `sync push` and the single-item `push` commands must resolve
+ * ownership the same way, so both build the context here: a push that leaves it
+ * undefined reassigns `permissioned_as` / `on_behalf_of` to whoever ran it.
+ * Undefined below syncBehavior v1, where that reassignment is the contract, and
+ * for a caller who is neither admin nor in `wm_deployers` the backend enforces
+ * it anyway — the flag on the context is what keeps the CLI from claiming
+ * otherwise.
+ */
+export async function buildPermissionedAsContext(
+  workspace: string,
+  syncBehavior: string | number | undefined
+): Promise<PermissionedAsContext | undefined> {
+  if (parseSyncBehavior(syncBehavior) < 1) {
+    return undefined;
+  }
+  const user = await wmill.whoami({ workspace });
+  const userIsAdminOrDeployer =
+    user.is_admin || (user.groups ?? []).includes("wm_deployers");
+  log.debug(
+    `permissioned_as: user=${user.email}, is_admin=${user.is_admin}, groups=${JSON.stringify(user.groups)}, isAdminOrDeployer=${userIsAdminOrDeployer}`
+  );
+  return {
+    userCache: new Map(),
+    userIsAdminOrDeployer,
+    userEmail: user.email,
+  };
 }
 
 async function ensureUserCache(

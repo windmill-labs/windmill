@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.805.0](https://github.com/windmill-labs/windmill/compare/v1.804.0...v1.805.0) (2026-09-07)
+
+
+### Features
+
+* **git-sync:** sync extra_perms for variables ([#11004](https://github.com/windmill-labs/windmill/issues/11004)) ([ee9e550](https://github.com/windmill-labs/windmill/commit/ee9e550a484fda286eeab43b7db5f314b8b2d0d9))
+* go to referenced row from foreign-keyed cells in the database manager ([#10998](https://github.com/windmill-labs/windmill/issues/10998)) ([e2b63d1](https://github.com/windmill-labs/windmill/commit/e2b63d177ae4e5c980cb5da34154540c90771b63))
+* let `// materialize` declare a `dbt://` warehouse-relation write ([#10978](https://github.com/windmill-labs/windmill/issues/10978)) ([c6e0302](https://github.com/windmill-labs/windmill/commit/c6e0302d7c1c60147f19d55a3923be8b1aa99c9c))
+* report resource type picks to the hub and rank pickers by popularity ([#10982](https://github.com/windmill-labs/windmill/issues/10982)) ([48a5615](https://github.com/windmill-labs/windmill/commit/48a56158c135c3b13a02f73b7b8438bc691f85b4))
+* run a linked AI agent's draft when testing a flow, and offer to deploy it ([#10993](https://github.com/windmill-labs/windmill/issues/10993)) ([7feaf61](https://github.com/windmill-labs/windmill/commit/7feaf619cf0ec021d66be14ef535cf2149bec58a))
+* show the new-tab icon on a chat path pill while the modifier is held ([#10976](https://github.com/windmill-labs/windmill/issues/10976)) ([5da4ea4](https://github.com/windmill-labs/windmill/commit/5da4ea43fbd01e43aa14e75dc597d7ce5d8797ab))
+
+
+### Bug Fixes
+
+* **cli:** keep permissioned_as on single-item push, as sync push does ([#11000](https://github.com/windmill-labs/windmill/issues/11000)) ([5f3f99b](https://github.com/windmill-labs/windmill/commit/5f3f99ba6915b7c5df663a30b35f4cd02050e728))
+* **cli:** say which workspace id is targeted, and when wmill.yaml is bypassed ([#11006](https://github.com/windmill-labs/windmill/issues/11006)) ([7643e9b](https://github.com/windmill-labs/windmill/commit/7643e9bd77c56f72596b8dca50801baf58984198))
+* **frontend:** no phantom draft when opening a CLI-pushed script ([#10997](https://github.com/windmill-labs/windmill/issues/10997)) ([1be390a](https://github.com/windmill-labs/windmill/commit/1be390aa878e15a58f530f3a878e8f9caeb89c43))
+* **frontend:** stop hover flicker on asset nodes shared with an overflow popover ([#10996](https://github.com/windmill-labs/windmill/issues/10996)) ([519a5c8](https://github.com/windmill-labs/windmill/commit/519a5c8bc70b44a7417e83c26c7b9c58b2c4fb9c))
+* let a draft-only schedule, trigger or resource be deleted ([#11010](https://github.com/windmill-labs/windmill/issues/11010)) ([8d0f475](https://github.com/windmill-labs/windmill/commit/8d0f4754e4e0c78696ee0c97ff2de3016ece3bac))
+* point the app viewer's edit button at the editor for the app's kind ([#11009](https://github.com/windmill-labs/windmill/issues/11009)) ([8f553ea](https://github.com/windmill-labs/windmill/commit/8f553eab353103fd8a28a00532e1766f133590de))
+* seed runs page filter defaults through the url so they survive sync ([#11005](https://github.com/windmill-labs/windmill/issues/11005)) ([f381acd](https://github.com/windmill-labs/windmill/commit/f381acdb37f66f5e272bc37938e69f734987d53f))
+* stop an untouched item's form from saving a draft nobody wrote ([#10964](https://github.com/windmill-labs/windmill/issues/10964)) ([c3f7f8a](https://github.com/windmill-labs/windmill/commit/c3f7f8a45830fb548aa628ebf6e2b6c95c6de67f))
+* write and read python job files as utf-8, not the platform locale ([#10994](https://github.com/windmill-labs/windmill/issues/10994)) ([670404f](https://github.com/windmill-labs/windmill/commit/670404ffe27fedc3858b46b0c6b3312fbe175e13))
+
 ## [1.804.0](https://github.com/windmill-labs/windmill/compare/v1.803.0...v1.804.0) (2026-09-05)
 
 
