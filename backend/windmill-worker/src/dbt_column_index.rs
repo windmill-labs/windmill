@@ -35,6 +35,8 @@
 
 use std::collections::HashSet;
 use std::ops::ControlFlow;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::path::Path;
 use std::time::Duration;
 
@@ -70,8 +72,11 @@ const NODE_COLUMNS_PARQUET: &str = "dbt.node_columns.parquet";
 /// - [`compile_index`] runs a subprocess and owns the JOB's semantics. Only a
 ///   cancellation or the job's own deadline can `Err` out of it; a non-zero exit
 ///   and an over-long output are outcomes, not failures.
-/// - [`read_index`] owns the ARTIFACT's semantics. It is infallible and
-///   memory-bounded, and knows nothing about the job.
+/// - [`read_index`] owns the ARTIFACT's semantics. Reading it never fails the
+///   job on the artifact's account: an absent, unreadable or partial index is a
+///   value, not an error. It runs UNDER the poller all the same, so the job can
+///   still end the phase — a cancel, a completion or the phase timeout — which
+///   is the job's semantics reaching in, not the artifact's reaching out.
 ///
 /// The phase budget wraps the compile alone. A budget around the whole pass
 /// would time out with a decode still running on a blocking thread, which is
@@ -356,10 +361,10 @@ fn diagnostics(out: &str) -> String {
     }
 }
 
-/// What came back from the artifact. Never an `Err`: this half owns none of the
-/// job's semantics. `Unreadable` is separate from `Missing` because the two send
-/// a reader looking in different places — one at their engine and adapter, the
-/// other at a file that exists.
+/// What came back from the artifact. Never an `Err`: nothing the file does or
+/// fails to do is a reason to fail a job. `Unreadable` is separate from
+/// `Missing` because the two send a reader looking in different places — one at
+/// their engine and adapter, the other at a file that exists.
 enum Artifact {
     Read(ColumnIndex),
     Missing,
@@ -382,10 +387,18 @@ async fn read_index(index_dir: &Path, kept: &HashSet<&str>) -> Artifact {
     // scoping HERE is what keeps the bound below from being spent on rows the
     // graph would discard anyway.
     let kept: HashSet<String> = kept.iter().map(|s| (*s).to_string()).collect();
+    // Dropping the handle of a blocking task does NOT stop it: the poller
+    // cancelling this phase would otherwise leave a thread decoding millions of
+    // rows for a job that is over. `Abandoned` is set when this future is
+    // dropped, and the row loop reads it.
+    let abandoned = Arc::new(AtomicBool::new(false));
+    let _stop = Abandon(abandoned.clone());
     // Decompressing and decoding a parquet is CPU work on a file the engine just
     // wrote, so it does not belong on the runtime's poll thread.
-    let read =
-        tokio::task::spawn_blocking(move || read_index_blocking(&lineage, &columns, &kept)).await;
+    let read = tokio::task::spawn_blocking(move || {
+        read_index_blocking(&lineage, &columns, &kept, &abandoned)
+    })
+    .await;
     match read {
         Ok(Ok(index)) => Artifact::Read(index),
         Ok(Err(e)) => Artifact::Unreadable(e.to_string()),
@@ -393,10 +406,24 @@ async fn read_index(index_dir: &Path, kept: &HashSet<&str>) -> Artifact {
     }
 }
 
+/// Tells the blocking decode to stop when the future waiting on it goes away.
+///
+/// A `JoinHandle` dropped mid-flight detaches the task rather than cancelling
+/// it, so without this the only thing bounding a cancelled decode is the row
+/// ceiling it was already going to hit.
+struct Abandon(Arc<AtomicBool>);
+
+impl Drop for Abandon {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
 fn read_index_blocking(
     lineage: &Path,
     columns: &Path,
     kept: &HashSet<String>,
+    abandoned: &AtomicBool,
 ) -> error::Result<ColumnIndex> {
     let mut out = ColumnIndex::default();
     // ONE pass, with the two kinds bucketed as they arrive. `copy` and `mod` say
@@ -406,7 +433,7 @@ fn read_index_blocking(
     // left over at the end. Reading the file twice to get that ordering would
     // double the decode of exactly the large index this bound exists for.
     let mut scan: Vec<IngestedColumnEdge> = Vec::new();
-    for_each_row(lineage, |row| {
+    for_each_row(lineage, abandoned, |row| {
         let lineage_kind = string(row, "lineage_kind");
         let parent_unique_id = string(row, "from_node_unique_id");
         let child_unique_id = string(row, "to_node_unique_id");
@@ -458,7 +485,7 @@ fn read_index_blocking(
     // Absent is normal — an engine can write the lineage table and not this one —
     // and unreadable is not worth losing the lineage over.
     let mut held = 0usize;
-    let _ = for_each_row(columns, |row| {
+    let _ = for_each_row(columns, abandoned, |row| {
         let unique_id = string(row, "unique_id");
         let name = string(row, "column_name");
         if held >= MAX_INDEXED_COLUMNS {
@@ -500,9 +527,10 @@ const MAX_INDEXED_COLUMNS: usize = MAX_COLUMN_EDGES;
 /// lineage is emitted from every predicate and join column to every output
 /// column, so a project shaped that way writes an index whose row count is
 /// quadratic in its widest model. This pass runs outside the phase budget, on a
-/// blocking thread, and its whole contract is that it cannot fail a deploy or a
-/// run — so the file it walks needs an end even when almost nothing in it is
-/// retained.
+/// blocking thread, and nothing the file contains may fail a deploy or a run —
+/// so the file it walks needs an end even when almost nothing in it is
+/// retained. The abandonment flag ends it sooner when the job is over; this is
+/// the bound for a job that is not.
 const MAX_INDEX_ROWS: usize = 4_000_000;
 
 /// Decode a parquet a row at a time, handing each to `f` and never holding two.
@@ -514,7 +542,11 @@ const MAX_INDEX_ROWS: usize = 4_000_000;
 /// `f` says when it has all it will take, and that is the ordinary end: this
 /// runs outside the phase budget, so every row decoded past the point of being
 /// able to keep one is wall clock the build below does not get.
-fn for_each_row(path: &Path, mut f: impl FnMut(&Row) -> ControlFlow<()>) -> error::Result<()> {
+fn for_each_row(
+    path: &Path,
+    abandoned: &AtomicBool,
+    mut f: impl FnMut(&Row) -> ControlFlow<()>,
+) -> error::Result<()> {
     let fail = |e: parquet::errors::ParquetError| {
         error::Error::internal_err(format!("reading {}: {e}", path.display()))
     };
@@ -522,6 +554,11 @@ fn for_each_row(path: &Path, mut f: impl FnMut(&Row) -> ControlFlow<()>) -> erro
         .map_err(|e| error::Error::internal_err(format!("opening {}: {e}", path.display())))?;
     let reader = SerializedFileReader::new(file).map_err(fail)?;
     for (n, row) in reader.get_row_iter(None).map_err(fail)?.enumerate() {
+        // Nobody is waiting for this any more — the job was cancelled, completed
+        // or ran out of time while it decoded.
+        if abandoned.load(Ordering::Relaxed) {
+            break;
+        }
         if n >= MAX_INDEX_ROWS {
             tracing::warn!(
                 "dbt column index: {} holds more than {MAX_INDEX_ROWS} rows; the rest is dropped",

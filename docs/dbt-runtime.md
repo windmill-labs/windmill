@@ -1594,7 +1594,11 @@ log saying which. It is not best-effort about the JOB: a cancellation or the job
 own deadline fail it, because swallowing those would let a run that blew its
 timeout inside an optional annotation publish a graph and report success. That
 split is why the two halves have separate error contracts — the compile owns the
-job's semantics and may `Err`; reading the artifact owns none, and cannot. The
+job's semantics and may `Err`; nothing the artifact does or fails to do is a
+reason to fail a job, so an absent, unreadable or partial index is a value. The
+decode still runs under the job poller, which both heartbeats through it and
+ends it if the job is cancelled or completed meanwhile: the job reaching in, not
+the artifact reaching out. The
 budget is half the job's remaining wall clock, spent on the compile alone, so the
 build that follows cannot be starved by it.
 
