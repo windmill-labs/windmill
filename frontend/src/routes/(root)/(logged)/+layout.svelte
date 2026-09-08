@@ -32,6 +32,7 @@
 		type UserExt,
 		defaultScripts,
 		hubBaseUrlStore,
+		hubBaseUrlKnown,
 		wsBaseUrlStore,
 		disableHubStore,
 		usedTriggerKinds,
@@ -474,10 +475,18 @@
 	}
 
 	async function loadHubBaseUrl() {
-		$hubBaseUrlStore =
-			((await SettingService.getGlobal({ key: 'hub_accessible_url' })) as string) ||
-			((await SettingService.getGlobal({ key: 'hub_base_url' })) as string) ||
-			DEFAULT_HUB_BASE_URL
+		// A read that throws leaves the store on its seeded default, which names the public hub
+		// — so the flag, not the value, is what says the instance has answered. An instance that
+		// simply has no setting still answers: the chain falls through to the default.
+		try {
+			$hubBaseUrlStore =
+				((await SettingService.getGlobal({ key: 'hub_accessible_url' })) as string) ||
+				((await SettingService.getGlobal({ key: 'hub_base_url' })) as string) ||
+				DEFAULT_HUB_BASE_URL
+			$hubBaseUrlKnown = true
+		} catch (error) {
+			console.error('Could not read the hub URL:', error)
+		}
 	}
 
 	async function loadWsBaseUrl() {

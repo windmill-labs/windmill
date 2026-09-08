@@ -1,6 +1,6 @@
 import { get } from 'svelte/store'
 import { OpenAPI } from '$lib/gen'
-import { hubBaseUrlStore, workspaceStore } from '$lib/stores'
+import { hubBaseUrlKnown, hubBaseUrlStore, workspaceStore } from '$lib/stores'
 import { DEFAULT_HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION } from '$lib/hub'
 
 // Anonymous product-usage counters (e.g. AI session activity), batched into the
@@ -195,10 +195,13 @@ export function hubScriptUsageKey(script: {
  * and what the disclosure means by "the name of any public hub project".
  *
  * Compared by host, so the port, scheme and trailing slash an operator may have typed do
- * not decide it. Anything unparseable answers private.
+ * not decide it. Anything unparseable, and anything not yet read, answers private.
  */
 export function hubProjectUsageKey(slug: string): string {
-	return isPublicHub(get(hubBaseUrlStore)) ? slug : PRIVATE_HUB_KEY
+	// `hubBaseUrlKnown` and not the URL alone: the store is seeded with the public hub, so an
+	// instance whose setting could not be read would otherwise report its own project names.
+	if (!get(hubBaseUrlKnown) || !isPublicHub(get(hubBaseUrlStore))) return PRIVATE_HUB_KEY
+	return slug.slice(0, 100)
 }
 
 function isPublicHub(hub: string): boolean {

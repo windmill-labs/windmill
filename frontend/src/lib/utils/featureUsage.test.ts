@@ -2,23 +2,28 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('$lib/gen', () => ({ OpenAPI: { BASE: '/api' } }))
 
-// A store `get()` can read, so a test can say which hub the instance points at.
+// Stores `get()` can read, so a test can say which hub the instance points at and whether
+// the instance has answered at all.
 const hubBaseUrl = vi.hoisted(() => {
-	let value = 'https://hub.windmill.dev'
-	return {
-		set: (v: string) => (value = v),
-		store: {
-			subscribe: (run: (v: string) => void) => {
-				run(value)
-				return () => {}
+	const readable = <T>(initial: T) => {
+		let value = initial
+		return {
+			set: (v: T) => (value = v),
+			store: {
+				subscribe: (run: (v: T) => void) => {
+					run(value)
+					return () => {}
+				}
 			}
 		}
 	}
+	return { url: readable('https://hub.windmill.dev'), known: readable(true) }
 })
 
 vi.mock('$lib/stores', () => ({
 	workspaceStore: { subscribe: () => () => {} },
-	hubBaseUrlStore: hubBaseUrl.store
+	hubBaseUrlStore: hubBaseUrl.url.store,
+	hubBaseUrlKnown: hubBaseUrl.known.store
 }))
 
 import {
@@ -137,9 +142,19 @@ describe('hubProjectUsageKey', () => {
 			'https://hub.windmill.dev:443',
 			'  https://hub.windmill.dev  '
 		]) {
-			hubBaseUrl.set(hub)
+			hubBaseUrl.url.set(hub)
 			expect(hubProjectUsageKey('stripe-invoices'), hub).toBe('stripe-invoices')
 		}
+	})
+
+	it('answers private until the instance has said which hub it points at', () => {
+		// The store is seeded with the public hub, so a settings read that failed must not
+		// read as permission to report the name.
+		hubBaseUrl.url.set('https://hub.windmill.dev')
+		hubBaseUrl.known.set(false)
+		expect(hubProjectUsageKey('acme-payroll')).toBe('private')
+		hubBaseUrl.known.set(true)
+		expect(hubProjectUsageKey('acme-payroll')).toBe('acme-payroll')
 	})
 
 	it("keeps a private hub's project names off the wire", () => {
@@ -152,7 +167,7 @@ describe('hubProjectUsageKey', () => {
 			'hub.windmill.dev',
 			'not a url'
 		]) {
-			hubBaseUrl.set(hub)
+			hubBaseUrl.url.set(hub)
 			expect(hubProjectUsageKey('acme-payroll'), hub).toBe('private')
 		}
 	})
