@@ -1436,9 +1436,9 @@ pub(crate) async fn tarball_workspace(
                 // cloned into a fork — a fork only has one if its owner created
                 // it there, so it's always "fork-only" and keeps its own mode.
                 // No parent-value substitution applies; we strip the webhook
-                // token hash, and `enabled`, which has no create/update payload
-                // to be pushed back through and so would only ever be a field
-                // git-sync shows a diff on and then ignores.
+                // token hash, and `enabled`, which is operational state a sync
+                // deliberately does not carry — whether a trigger is paused
+                // belongs to the workspace it runs in, not to the code.
                 let native_ignore_keys = vec!["webhook_token_hash", "enabled"];
 
                 for trigger in native_triggers {

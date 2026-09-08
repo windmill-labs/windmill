@@ -222,8 +222,9 @@ export async function pushTrigger<K extends TriggerType>(
   }
 }
 
-// `enabled` is operational state: the server strips it from the workspace export and no
-// create/update payload carries it, so a synced file never holds it.
+// `enabled` is operational state a sync deliberately does not carry: the server strips it from
+// the workspace export and the push below never sends it, so a created trigger comes up enabled
+// and pausing one stays a local decision.
 type NativeTriggerFile = Omit<
   NativeTrigger,
   "external_id" | "workspace_id" | "error" | "enabled"

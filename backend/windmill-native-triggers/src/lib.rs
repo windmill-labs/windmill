@@ -226,9 +226,9 @@ pub struct NativeTrigger {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub summary: Option<String>,
-    /// Whether incoming webhooks for this trigger start a job. Purely operational: it is set
-    /// through `setenabled` alone, never through create/update, so saving a configuration can
-    /// never silently re-enable a trigger someone paused.
+    /// Whether incoming webhooks for this trigger start a job. Operational state: a create sets
+    /// its initial value and `setenabled` is its only mutator afterwards, so saving a
+    /// configuration can never silently re-enable a trigger someone paused.
     pub enabled: bool,
 }
 
