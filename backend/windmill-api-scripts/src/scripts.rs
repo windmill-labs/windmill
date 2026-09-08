@@ -1318,6 +1318,30 @@ async fn create_script_internal<'c>(
         }
     }
 
+    // A path whose versions are all archived or deleted still owns them — the rows stay —
+    // so a deploy there is the path's next version, not its first, and must carry the
+    // lineage to be hashed apart from it. Resolving to no parent instead re-derives the
+    // hash the lineage started from, which the guard below then rejects as a duplicate of
+    // a version nothing can reach. `wmill sync push` walks into exactly that: a locally
+    // deleted file archives the path, and the push redeploys it unchanged.
+    //
+    // Guarded on nothing being live at the path, so a parentless deploy onto a live one
+    // still meets the path-conflict refusal below; and on the tip having no descendant,
+    // so the linear-lineage check cannot fire on it.
+    if ns.parent_hash.is_none() && clashing_script.is_none() {
+        ns.parent_hash = sqlx::query_scalar::<_, i64>(
+            "SELECT hash FROM script s WHERE s.path = $1 AND s.workspace_id = $2 \
+             AND NOT EXISTS (SELECT 1 FROM script c WHERE c.workspace_id = $2 \
+                 AND c.parent_hashes[1] = s.hash) \
+             ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(&ns.path)
+        .bind(&w_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .map(ScriptHash);
+    }
+
     // Must stay below the parent resolution above: an auto_parent deploy hashed before
     // it carries a first deploy's lineage, so redeploying content the path has held
     // before collides with that archived version instead of superseding it. The
