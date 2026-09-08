@@ -40,8 +40,11 @@ const ORIGINAL_FETCH = fetch.fetch;
 // invocation".
 const setTimeoutUnbound = timers.setTimeout;
 const clearTimeoutUnbound = timers.clearTimeout;
-// Captured before user code shares the isolate and could redefine it.
+// Captured before user code shares the isolate and could redefine them, the
+// way deno's own modules reach intrinsics through primordials.
 const PromiseReject = Promise.reject.bind(Promise);
+const promiseThen = Function.prototype.call.bind(Promise.prototype.then);
+const ReflectApply = Reflect.apply;
 
 // Installed per isolate by __wmInitPerIsolate; 0 disables. Only a backstop
 // for the impossible case of fetch running before that init.
@@ -73,10 +76,13 @@ globalThis.btoa = base64.btoa;
 // pins that an aborted fetch settles in the same tick, which adopting its
 // promise through another one would break. Construction still has to reject
 // rather than throw, so it is caught and handed back as a rejection.
-globalThis.fetch = function fetch(input, init) {
+globalThis.fetch = function fetch(input, init = undefined) {
   const timeoutMs = fetchResponseTimeoutMs;
+  // Forwarded with the original argument count, so deno still sees an empty
+  // call as empty and raises its own "1 argument required". The default on
+  // `init` is what keeps `fetch.length` at 1, as the standard has it.
   if (!(timeoutMs > 0) || arguments.length < 1) {
-    return ORIGINAL_FETCH(input, init);
+    return ReflectApply(ORIGINAL_FETCH, undefined, arguments);
   }
 
   let req;
@@ -121,7 +127,8 @@ globalThis.fetch = function fetch(input, init) {
     }
   };
 
-  return ORIGINAL_FETCH(req, { signal }).then(
+  return promiseThen(
+    ORIGINAL_FETCH(req, { signal }),
     (res) => {
       disarm();
       return res;

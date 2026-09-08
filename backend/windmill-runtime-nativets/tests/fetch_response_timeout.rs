@@ -500,3 +500,54 @@ export async function main(): Promise<string> {
         "the rejection must land before a microtask queued after the call",
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_wrapper_keeps_fetch_s_own_shape() {
+    // The wrapper is indistinguishable from deno's fetch on three counts a
+    // script can observe: its arity, the error for an empty call, and not
+    // depending on a mutable `Promise.prototype.then` the way an ordinary
+    // property lookup would.
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let port = spawn_echo_peer(seen).await;
+
+    let ts = format!(
+        r#"
+declare const Promise: any;
+export async function main(): Promise<string> {{
+    const arity = (fetch as any).length;
+
+    // The message, not just the type: forwarding two explicit `undefined`s
+    // would still throw a TypeError, just deno's invalid-URL one instead of
+    // its required-argument one.
+    let emptyCall = "resolved";
+    try {{
+        await (fetch as any)();
+    }} catch (e) {{
+        emptyCall = (e as Error).message.includes("1 argument required")
+            ? "required-argument"
+            : `other(${{(e as Error).message}})`;
+    }}
+
+    // Patched only across the call: the wrapper reaches for `.then` while
+    // building its return value, and awaiting under a patched prototype would
+    // instead measure V8 treating the promise as a plain thenable.
+    const originalThen = Promise.prototype.then;
+    let pending: any;
+    try {{
+        Promise.prototype.then = undefined;
+        pending = fetch("http://127.0.0.1:{port}/shape");
+    }} finally {{
+        Promise.prototype.then = originalThen;
+    }}
+    const status = (await pending).status;
+
+    return `${{arity}}:${{emptyCall}}:${{status}}`;
+}}
+"#
+    );
+
+    let out = run_with_timeout_secs(&ts, TIMEOUT_SECS)
+        .await
+        .expect("script should run");
+    assert_eq!(out, "\"1:required-argument:200\"");
+}
