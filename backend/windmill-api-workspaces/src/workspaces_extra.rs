@@ -492,6 +492,30 @@ pub(crate) async fn change_workspace_id(
     .fetch_all(&mut *tx)
     .await?;
 
+    // A fork's data table entry names the workspace that governs it by id, so the rename has to
+    // follow there too — anywhere, not just in the reparented children: a detached workspace can
+    // point at this one without being its fork. Left behind, the pointer resolves to the archived
+    // shell and every job through it stops.
+    info!("Re-pointing data table references to the new workspace id");
+    sqlx::query!(
+        r#"UPDATE workspace_settings ws
+           SET datatable = (
+               SELECT jsonb_set(ws.datatable, '{datatables}', jsonb_object_agg(
+                   dt.key,
+                   CASE WHEN dt.value->'reference'->>'workspace_id' = $2
+                       THEN jsonb_set(dt.value, '{reference,workspace_id}', to_jsonb($1::text))
+                       ELSE dt.value END
+               ))
+               FROM jsonb_each(ws.datatable->'datatables') dt
+           )
+           WHERE jsonb_typeof(ws.datatable->'datatables') = 'object'
+             AND ws.datatable::text LIKE '%"reference"%'"#,
+        &rw.new_id,
+        &old_id,
+    )
+    .execute(&mut *tx)
+    .await?;
+
     info!("Updating workspace_protection_rule table");
     sqlx::query!(
         "UPDATE workspace_protection_rule SET workspace_id = $1 WHERE workspace_id = $2",
@@ -1343,15 +1367,20 @@ pub async fn drop_forked_datatable_databases(
     let mut errors: Vec<String> = Vec::new();
 
     for dt_name in &req.datatable_names {
-        let dt = match datatables.get(dt_name) {
-            Some(dt) if dt.forked_from.is_some() => dt,
+        // Only a clone is droppable, and a clone is terminal by construction: a kept data table is
+        // a pointer at the parent's database, which this fork does not own.
+        let database = match datatables.get(dt_name) {
+            Some(dt) if dt.forked_from.is_some() => match dt.database.as_ref() {
+                Some(database) => database,
+                None => continue,
+            },
             _ => continue,
         };
 
-        if dt.database.resource_type
+        if database.resource_type
             == windmill_common::workspaces::DataTableCatalogResourceType::Instance
         {
-            let db_to_drop = &dt.database.resource_path;
+            let db_to_drop = &database.resource_path;
             if !db_to_drop.starts_with("wm_fork_") {
                 errors.push(format!(
                     "Refusing to drop instance database '{}' for datatable://{}:  name does not start with 'wm_fork_'",

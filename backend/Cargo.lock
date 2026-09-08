@@ -15470,6 +15470,7 @@ dependencies = [
  "windmill-ai",
  "windmill-alerting",
  "windmill-api-auth",
+ "windmill-audit",
  "windmill-common",
  "windmill-object-store",
 ]

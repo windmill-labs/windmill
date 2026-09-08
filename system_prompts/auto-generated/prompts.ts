@@ -1860,6 +1860,8 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
 /**
  * Create a SQL template function for PostgreSQL/datatable queries
  * @param name - Database/datatable name (default: "main")
+ * @param opts.role - Connect as this data table role instead of the data table's default one.
+ *   Only meaningful on a data table under roles, and only for a role you are a tenant of.
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.datatable()
@@ -1869,8 +1871,11 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
  *   SELECT * FROM friends
  *     WHERE name = \${name} AND age = \${age}::int
  * \`.fetch()
+ * @example
+ * // Read through a restricted role
+ * let sql = wmill.datatable("main", { role: "analytics" })
  */
-datatable(name: string = "main"): DatatableSqlTemplateFunction
+datatable(name: string = "main", opts?: DatatableOptions): DatatableSqlTemplateFunction
 
 /**
  * Create a SQL template function for DuckDB/ducklake queries
@@ -2385,10 +2390,13 @@ def send_teams_message(conversation_id: str, text: str, success: bool = True, ca
 # 
 # Args:
 #     name: Database name (default: "main")
+#     role: Connect as this data table role instead of the data table's default one.
+#         Only meaningful on a data table under roles, and only for a role you are a
+#         tenant of.
 # 
 # Returns:
 #     DataTableClient instance
-def datatable(name: str = 'main')
+def datatable(name: str = 'main', role: Optional[str] = None)
 
 # Get a DuckLake client for DuckDB queries.
 # 
@@ -3144,6 +3152,8 @@ interface DatatableSqlTemplateFunction {
 
 Create a SQL template function for PostgreSQL/datatable queries
 @param name - Database/datatable name (default: "main")
+@param opts.role - Connect as this data table role instead of the data table's default one.
+  Only meaningful on a data table under roles, and only for a role you are a tenant of.
 @returns SQL template function for building parameterized queries
 @example
 let sql = wmill.datatable()
@@ -3153,8 +3163,12 @@ await sql\`
   SELECT * FROM friends
     WHERE name = \${name} AND age = \${age}::int
 \`.fetch()
+@example
+// Read through a restricted role
+let sql = wmill.datatable("main", { role: "analytics" })
 \`\`\`typescript
-function datatable(name: string = "main"): DatatableSqlTemplateFunction
+function datatable(name: string = "main",
+  opts?: DatatableOptions): DatatableSqlTemplateFunction
 \`\`\`
 `;
 
@@ -3166,10 +3180,11 @@ Import: \`import wmill\`
 # 
 # Args:
 #     name: Database name (default: "main")
+#     role: Connect as this data table role instead of the data table's default one.
 # 
 # Returns:
 #     DataTableClient instance
-def datatable(name: str = 'main') -> DataTableClient
+def datatable(name: str = 'main', *, role: Optional[str] = None) -> DataTableClient
 
 # Client for executing SQL queries against Windmill DataTables.
 class DataTableClient:
@@ -3178,7 +3193,8 @@ class DataTableClient:
     # Args:
     #     client: Windmill client instance
     #     name: DataTable name
-    def __init__(client: Windmill, name: str)
+    #     role: Data table role to connect as, or None for the data table's default
+    def __init__(client: Windmill, name: str, role: Optional[str] = None)
 
     # Execute a SQL query against the DataTable.
     # 
