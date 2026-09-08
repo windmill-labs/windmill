@@ -262,6 +262,17 @@ export async function migrateUserDraftsToDb(): Promise<void> {
 				path,
 				requestBody: { value, last_sync: writtenAt, created_at: writtenAt }
 			})
+			if (res.status === 'moved') {
+				// Nothing was written server-side: the item left this path. Unlike a
+				// conflict, where a fresher server row already holds the work, dropping
+				// the LS entry here would destroy the only copy that exists. Leave it
+				// and let a later mount retry — by then the user has usually followed
+				// the item, and this path resolves normally.
+				console.warn(
+					`UserDraft LS→DB migration: ${path} was moved to ${res.moved_to}, keeping the LS copy`
+				)
+				continue
+			}
 			if (res.status === 'conflict') {
 				console.info(
 					`UserDraft LS→DB migration: server draft for ${path} is fresher, dropping LS copy`

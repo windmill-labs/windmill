@@ -501,18 +501,26 @@ async fn resolve_moved_to(
             if still_here {
                 None
             } else {
+                // `created_by` must come from the HEAD row, not from `av` — `av`
+                // is the version the draft forked from, whose author is usually
+                // the person now reading this. Naming them would make
+                // `moved_by_me` true for the wrong user and restamp a draft that
+                // has never seen the head's content.
                 sqlx::query!(
-                    r#"SELECT a.path, av.created_by,
-                              (SELECT id FROM app_version WHERE app_id = a.id
-                               ORDER BY created_at DESC LIMIT 1) as "head!"
-                       FROM app_version av JOIN app a ON a.id = av.app_id
+                    r#"SELECT a.path, head.id as "head!", head.created_by as "head_by!"
+                       FROM app_version av
+                       JOIN app a ON a.id = av.app_id
+                       JOIN LATERAL (
+                           SELECT id, created_by FROM app_version
+                           WHERE app_id = a.id ORDER BY created_at DESC LIMIT 1
+                       ) head ON true
                        WHERE av.id = $2 AND a.workspace_id = $1"#,
                     w_id,
                     base.parent_version,
                 )
                 .fetch_optional(&mut *tx)
                 .await?
-                .map(|r| (r.path, Some(r.created_by), json!(r.head)))
+                .map(|r| (r.path, Some(r.head_by), json!(r.head)))
             }
         }
         _ => None,
@@ -530,12 +538,19 @@ async fn resolve_moved_to(
     // naming anywhere else ⇒ omit, so a rename staged in this very editor
     // survives the relocation. Same rule as `move_drafts_for_path`.
     //
-    // The version is restamped only for whoever performed the move, matching the
-    // `restamp_email` scoping on the passive carry and for the same reason. The
-    // deploy that moved the item may have edited it in the same breath; handing a
-    // teammate the new head would tell them they are up to date with content they
-    // have never seen, and their next deploy would silently revert it. The mover
-    // knows what they just pushed, so only they are spared the prompt.
+    // The version is restamped only for the LAST DEPLOYER AT THE NEW PATH, which
+    // is the strongest "did I put the content there?" test available without
+    // comparing payloads — nothing records who performed a move as distinct from
+    // who deployed. It is deliberately weaker than "the mover": if Alice moves
+    // A→B and Bob then deploys at B, Bob is spared the prompt for a head that
+    // also carries Alice's move-time edits. That residual is a missing prompt for
+    // someone who did deploy the head, not for a bystander.
+    //
+    // The point of the scoping is the bystander: the deploy that moved the item
+    // may have edited it in the same breath, and handing a teammate the new head
+    // would tell them they are up to date with content they have never seen, so
+    // their next deploy would silently revert it. Mirrors `restamp_email` on the
+    // passive carry in `move_drafts_for_path`.
     let repoint_path = base.typed_path(kind) == Some(path);
     Ok(moved.map(|(new_path, new_by, head)| {
         let moved_by_me = new_by.as_deref() == Some(authed.username.as_str());
