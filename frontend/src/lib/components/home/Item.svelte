@@ -56,12 +56,8 @@
 		homeSelection.register(b)
 		return () => homeSelection.unregister(b.key)
 	})
-	// Gated on `available`, not just on having an item: it is what excludes
-	// operators and the read-only embedded lists. Without it they would get a
-	// checkbox and a Select entry that tick rows while `active` stays false
-	// forever, so the bar that clears the selection never appears.
 	let rowSelection: RowSelection | undefined = $derived(
-		bulkItem && homeSelection?.available
+		bulkItem && homeSelection
 			? {
 					key: bulkItem.key,
 					selected: homeSelection.has(bulkItem.key),

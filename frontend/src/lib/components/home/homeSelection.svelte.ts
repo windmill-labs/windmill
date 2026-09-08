@@ -89,10 +89,6 @@ export class HomeSelection {
 		return this.available && this.selected.size > 0
 	}
 
-	get size(): number {
-		return this.selected.size
-	}
-
 	get items(): BulkItem[] {
 		return [...this.selected.values()]
 	}

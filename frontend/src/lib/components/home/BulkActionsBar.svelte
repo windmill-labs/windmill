@@ -84,9 +84,6 @@
 
 	function actionTitle(action: BulkAction): string {
 		const n = targets(action).length
-		// Reachable by unticking the last row without leaving selection mode: there is
-		// nothing to block, so no reason to report.
-		if (items.length === 0) return `Select items to ${ACTION_LABEL[action].toLowerCase()}`
 		if (n === 0) return `Cannot ${ACTION_LABEL[action].toLowerCase()}: ${blockedSummary(action)}`
 		if (n < items.length) return `${ACTION_LABEL[action]} ${n} of the ${items.length} selected`
 		return `${ACTION_LABEL[action]} ${n} item${plural(n)}`

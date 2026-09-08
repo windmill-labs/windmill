@@ -14,10 +14,11 @@
 
 	type Kind = 'script' | 'resource' | 'schedule' | 'variable' | 'flow' | 'app'
 
-	/** Where a draft-only item's draft row actually lives. It is parked at a
-	 * generated path while the drawer edits the name the user sees, so the two
-	 * can't be the same string. Empty for a deployed item, which is addressed by
-	 * `initialPath` throughout. */
+	/** Where a draft-only item's draft row actually lives, which is what the move
+	 * endpoint addresses; `initialPath` is the name the user sees and edits. The
+	 * two are often equal — a row is only reported under a separate display path
+	 * when the two differ — so this is not a "storage vs display" discriminator,
+	 * only the address. Empty for a deployed item, addressed by `initialPath`. */
 	let storagePath = $state('')
 	let rawApp = $state(false)
 	let draftOnly = $derived(storagePath !== '')
@@ -167,9 +168,8 @@
 				<div class="flex flex-wrap gap-x-3 gap-y-1 mt-1">
 					{#each attachedSummary as { label, count } (label)}
 						<span class="text-xs"
-							><span class="font-mono font-semibold">{count}</span> {label}{count === 1
-								? ''
-								: 's'}</span
+							><span class="font-mono font-semibold">{count}</span>
+							{label}{count === 1 ? '' : 's'}</span
 						>
 					{/each}
 				</div>
