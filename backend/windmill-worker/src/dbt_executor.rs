@@ -3792,6 +3792,15 @@ async fn resolve_selection(
     // other selection matching nothing is a selector that names nothing — a
     // misspelled model, say — which must not pass as a build that did its job.
     // Exempting by ORIGIN rather than by method would let every such typo through.
+    //
+    // What makes the exemption safe is that the empty set is never ingested as
+    // ownership, and that now holds through `check_state_selectors`: a `state:`
+    // or `result:` method survives it only from a run's OWN selection, which
+    // makes `add_caller_args` set `per_run_models`, which makes
+    // `publishes_ownership()` false, so the run stores a snapshot of its own.
+    // Relax the descriptor arm there and a descriptor-narrowed `state:modified+`
+    // reaches here on an unchanged project and wipes the graph the `else` below
+    // guards, with nothing failing.
     if set.is_empty() && !selection_names(&select, &exclude, &["state", "result"]) {
         return Err(Error::ExecutionErr(
             if selection_is_overridden(descriptor, &inv.args)? {
