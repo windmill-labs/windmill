@@ -1944,6 +1944,13 @@ async fn process_notify_event(
                     if let Err(e) = reload_license_key(&db.into()).await {
                         tracing::error!("Failed to reload license key: {e:#}");
                     }
+                    // The worker-group cache override is Enterprise-only, and nothing else
+                    // re-reads the plan for it: the periodic settings pass runs ahead of
+                    // reload_license_key, so it would see the plan this event just replaced.
+                    #[cfg(feature = "parquet")]
+                    if worker_mode {
+                        crate::monitor::reload_cache_object_store_override_with_retry(db).await;
+                    }
                 }
                 DEFAULT_TAGS_PER_WORKSPACE_SETTING => {
                     if let Err(e) = load_tag_per_workspace_enabled(db).await {

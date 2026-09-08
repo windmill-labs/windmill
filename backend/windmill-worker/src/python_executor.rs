@@ -91,10 +91,10 @@ struct PiptarUploadTask {
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<PiptarUploadTask>) {
     use crate::global_cache::build_tar_and_push;
-    use windmill_object_store::get_object_store;
+    use windmill_object_store::get_cache_object_store;
 
     while let Some(task) = rx.recv().await {
-        if let Some(os) = get_object_store().await {
+        if let Some(os) = get_cache_object_store().await {
             match build_tar_and_push(os, task.venv_path.clone(), task.cache_dir, None, false).await
             {
                 Ok(()) => {
@@ -144,7 +144,7 @@ pub fn has_relative_imports(content: &str) -> bool {
 use crate::global_cache::pull_from_tar;
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-use windmill_object_store::OBJECT_STORE_SETTINGS;
+use windmill_object_store::get_cache_object_store;
 
 use crate::{
     common::{
@@ -2449,7 +2449,7 @@ pub async fn handle_python_reqs(
         }
 
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if OBJECT_STORE_SETTINGS.read().await.is_none() {
+        if get_cache_object_store().await.is_none() {
             (s3_pull, s3_push) = (false, false);
         }
 
@@ -2907,7 +2907,7 @@ pub async fn handle_python_reqs(
 
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
             if is_not_pro {
-                if let Some(os) = windmill_object_store::get_object_store().await {
+                if let Some(os) = windmill_object_store::get_cache_object_store().await {
                     tokio::select! {
                         // Cancel was called on the job
                         _ = kill_rx.recv() => return Err(Error::from(anyhow::anyhow!("S3 pull was canceled"))),
