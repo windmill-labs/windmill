@@ -38,7 +38,6 @@ export function syncWorkspaceTo(workspaceId: string | undefined): void {
 }
 import { WorkspaceService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
-import type HistoryManager from '$lib/components/copilot/chat/HistoryManager.svelte'
 import { onUserChange } from '$lib/userScopedStorage'
 
 // A destination the session preview can open as an editor: a workspace item
@@ -405,7 +404,7 @@ export function takeSessionAutoSend(sessionId: string): boolean {
 
 // Persist a session on a genuine user edit, promoting an in-memory-only
 // (transient) pending session to a durable IndexedDB record on first touch.
-// Non-touch writers (runtime chatId seeding via patchStoredSessionChatId, the
+// Non-touch writers (runtime chatId writes via patchStoredSessionChatId, the
 // unread watermark via putSession) persist directly, so an untouched draft
 // stays in memory and vanishes on reload.
 function persistTouched(s: Session): void {
@@ -1183,42 +1182,4 @@ async function patchStoredSessionChatId(s: Session, chatId: string): Promise<voi
 	} catch (e) {
 		console.error('Failed to persist session chat id', e)
 	}
-}
-
-let seedPromise: Promise<void> | undefined
-
-// One-shot pairing of the user's two most-recently-modified saved chats with
-// the two seeded sessions. Idempotent across all callers / SessionWrappers.
-export function ensureChatIdsSeeded(historyManager: HistoryManager): Promise<void> {
-	if (!seedPromise) {
-		seedPromise = (async () => {
-			try {
-				await historyManager.init()
-				// Read directly from storage so we see chats regardless of this manager's
-				// own session-scope filter (getPastChats would hide already-tagged ones).
-				const pastChats = historyManager.getAllSavedChats()
-				const untagged = pastChats
-					.filter((c) => !c.sessionId)
-					.sort((a, b) => b.lastModified - a.lastModified)
-				// Only seed pre-existing (persisted) sessions. Transient
-				// sessions are freshly created via the "+" button and must
-				// start with an empty chat — if the seed catches one (e.g. the
-				// user clicks "New session" before this one-shot runs), it
-				// would graft a previous discussion onto the new session.
-				const seedable = sessionState.sessions.filter((s) => !s.transient)
-				for (let i = 0; i < Math.min(seedable.length, untagged.length); i++) {
-					if (!seedable[i].chatId) {
-						const chatId = untagged[i].id
-						const sessionId = seedable[i].id
-						seedable[i].chatId = chatId
-						await historyManager.tagChatWithSession(chatId, sessionId)
-						void putSession(seedable[i])
-					}
-				}
-			} catch (e) {
-				console.error('Failed to seed chat ids from history', e)
-			}
-		})()
-	}
-	return seedPromise
 }
