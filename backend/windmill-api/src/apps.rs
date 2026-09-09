@@ -3458,7 +3458,7 @@ async fn update_app_internal<'a>(
             path,
             &npath,
             UserDraftItemKind::App.typed_path_field(),
-                UserDraftItemKind::App.mirror_path_field(),
+            UserDraftItemKind::App.mirror_path_field(),
             UserDraftItemKind::App
                 .base_version_field()
                 .map(|f| (f, v_id.to_string())),

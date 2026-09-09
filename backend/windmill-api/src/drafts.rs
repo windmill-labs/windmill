@@ -909,8 +909,8 @@ pub struct MoveDraftRequest {
 }
 
 /// Relocate the authed user's own DRAFT-ONLY item. Such an item is nothing but
-/// its draft row, so moving it is a rewrite of that row's path plus the typed
-/// path inside its value — there is no deployed row, schedule or trigger to
+/// its draft row, so moving it is a rewrite of that row's path plus both path
+/// keys inside its value — there is no deployed row, schedule or trigger to
 /// cascade to, and no second party to notify (a draft is private to its owner).
 ///
 /// Scoped to the caller's own row on purpose: two users can each have a draft
