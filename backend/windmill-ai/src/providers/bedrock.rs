@@ -1188,6 +1188,13 @@ impl BedrockQueryBuilder {
             Some(accumulated_text)
         };
 
+        // The block folded for replay is also what the reader sees as thinking. Read out
+        // before the block itself moves into the tool calls below.
+        let reasoning_text = reasoning
+            .as_ref()
+            .and_then(|r| r.reasoning_text.clone())
+            .filter(|t| !t.is_empty());
+
         let tool_calls = streaming_tool_calls_to_openai(
             accumulated_tool_calls.into_values().collect(),
             reasoning,
@@ -1195,11 +1202,7 @@ impl BedrockQueryBuilder {
 
         Ok(ParsedResponse::Text {
             content,
-            // The block folded for replay is also what the reader sees as thinking.
-            reasoning: reasoning
-                .as_ref()
-                .and_then(|r| r.reasoning_text.clone())
-                .filter(|t| !t.is_empty()),
+            reasoning: reasoning_text,
             tool_calls,
             events_str: if events_str.is_empty() {
                 None
