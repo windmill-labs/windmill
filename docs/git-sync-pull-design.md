@@ -659,8 +659,9 @@ corresponds to; the check reflects that fork's current results on the PR head.
   a job counts only while its test script still exists and still references its tested
   item (wildcards included), so a deleted, archived or de-annotated test's last run, or a
   target the test dropped, stops deciding the verdict. Fail-fast on any failed/canceled;
-  `success` once all settle (or "No CI tests" when none ran, unless the head previously
-  failed and its runs have since expired: the failure then stands); `skipped`
+  `success` once all settle (or "No CI tests" when none ran); a head that previously failed
+  passes again only on runs newer than the event that reopened it, since the runs behind
+  the failure can expire out of the lookback while a passing one has not; `skipped`
   (debounce-superseded) ignored.
 - **Readiness** — the verdict is read only once the fork reflects the head, so it does not
   matter which webhook GitHub delivers first. The evidence is `git_sync_synced_head`: the
