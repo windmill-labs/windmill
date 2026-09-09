@@ -655,8 +655,9 @@ corresponds to; the check reflects that fork's current results on the PR head.
 - **Conclude** — the verdict is the head's own suite. Once the fork reflects the head (below)
   and its dependency jobs settled, every CI test the fork declares is dispatched once, one
   run per `ci_test_reference` row the way a deploy of that item would (`trigger_all_ci_tests`,
-  as the workspace admin an auto pull runs as, and without the per-item debounce so a
-  deploy-triggered run of the same test cannot supersede a suite run), and the job ids are
+  as the fork's owner, the user who created it, with no more reach than they have; a
+  missing or disabled owner concludes the check as failure; and without the per-item
+  debounce so a deploy-triggered run of the same test cannot supersede a suite run), and the job ids are
   recorded on the synced-head row (`ci_test_job_ids`; `tests_dispatched_at` claims the
   dispatch so the per-job hook and the poller queue it once, and a claim that never recorded
   ids is retaken after 5 min). The verdict is exactly those runs: fail-fast on any
