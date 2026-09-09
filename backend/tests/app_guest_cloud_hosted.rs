@@ -57,6 +57,26 @@ async fn the_cloud_admits_no_guest(db: Pool<Postgres>) -> anyhow::Result<()> {
         .await?;
     assert_eq!(resp.status(), 400, "an app cannot be deployed to guests");
 
+    // Nor can a key be configured for the JWT way in — the refusal lands before the
+    // outbound JWKS fetch it would otherwise make.
+    let resp = authed(
+        client().post(format!("{ws}/workspaces/edit_guest_jwt_key")),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({ "jwks_url": "https://issuer.example.com/.well-known/jwks.json" }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 400, "a guest JWT key cannot be configured");
+    // Clearing one stays allowed: a key nobody can use is still worth removing.
+    let resp = authed(
+        client().post(format!("{ws}/workspaces/edit_guest_jwt_key")),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({}))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
     // An app already stored in guest mode — pushed by git-sync, or deployed before the
     // instance became a cloud one — advertises no entry either.
     let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
@@ -80,14 +100,32 @@ async fn the_cloud_admits_no_guest(db: Pool<Postgres>) -> anyhow::Result<()> {
         .execute(&db)
         .await?;
 
-    let secret: String = authed(
+    // Deploying it again is not refused: only widening an app into guests is, so a
+    // git-sync push of one already stored that way keeps working (and keeps being inert).
+    let resp = authed(
+        client().post(format!("{ws}/apps/update/{APP_PATH}")),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({
+        "policy": { "execution_mode": "guest", "triggerables": {} }
+    }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "an app already stored in guest mode must stay deployable: {}",
+        resp.text().await?
+    );
+
+    let resp = authed(
         client().get(format!("{ws}/apps/secret_of/{APP_PATH}")),
         ADMIN_TOKEN,
     )
     .send()
-    .await?
-    .text()
     .await?;
+    assert_eq!(resp.status(), 200, "reading the share secret must succeed");
+    let secret: String = resp.text().await?;
     let resp = client()
         .get(format!("{ws}/apps_u/guest_entry/{secret}"))
         .send()

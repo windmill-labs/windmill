@@ -329,26 +329,41 @@ fn deployment_rule_for_mode(mode: ExecutionMode) -> Option<ProtectionRuleKind> {
     }
 }
 
-/// Refuse an app that could never admit the guests its mode promises, at the write
-/// rather than by silently deploying an app nobody can enter. `path` is where the app
-/// ends up: on a rename, the destination.
-///
-/// Two ways that happens: the deployment does not support guests at all
-/// (`instance_supports_guests`), or a guest session is scoped to its app by path and
-/// this path is one the scope grammar cannot hold as a single literal
-/// (`is_scope_literal_path`).
-fn refuse_unusable_guest_app(path: &str, mode: ExecutionMode) -> Result<()> {
-    if !matches!(mode, ExecutionMode::Guest) {
-        return Ok(());
-    }
-    windmill_common::workspaces::require_guest_support()?;
-    if !windmill_common::auth::is_scope_literal_path(path) {
+/// A guest session is scoped to its app by path, so an app whose path the scope
+/// grammar cannot hold as one literal (`is_scope_literal_path`) can never admit a
+/// guest; refuse the mode at deploy time rather than advertise an app nobody enters.
+/// `path` is where the app ends up: on a rename, the destination.
+fn refuse_unscopable_guest_app(path: &str, mode: ExecutionMode) -> Result<()> {
+    if matches!(mode, ExecutionMode::Guest) && !windmill_common::auth::is_scope_literal_path(path) {
         return Err(Error::BadRequest(format!(
             "app {path} cannot be set to Guests: a path with `:`, `,` or `*`, or a leading `/`, \
              cannot be scoped"
         )));
     }
     Ok(())
+}
+
+/// Refuse *widening* an app into guests where the deployment has none
+/// (`instance_supports_guests`). Only the transition is refused, like the protection
+/// rule below it: an app already stored in the mode — deployed before the instance
+/// became a cloud one, or pushed by git-sync — keeps deploying, and keeps being inert,
+/// since every guest gate refuses it anyway. `deployed_mode` is what the app is stored
+/// as, `None` when it is being created.
+fn refuse_guest_mode_where_unavailable(
+    path: &str,
+    mode: ExecutionMode,
+    deployed_mode: Option<ExecutionMode>,
+) -> Result<()> {
+    if !matches!(mode, ExecutionMode::Guest)
+        || deployed_mode == Some(ExecutionMode::Guest)
+        || windmill_common::workspaces::instance_supports_guests()
+    {
+        return Ok(());
+    }
+    Err(Error::BadRequest(format!(
+        "app {path} cannot be set to Guests: {}",
+        windmill_common::workspaces::GUESTS_UNAVAILABLE_MESSAGE
+    )))
 }
 
 /// Gate a viewer on the app's `execution_mode`, as far as can be decided without an
@@ -2525,7 +2540,8 @@ async fn create_app_internal<'a>(
     // Pin the mode the app is created under, so the stored policy states one
     // even when the caller did not.
     app.policy.set_execution_mode(app.policy.execution_mode());
-    refuse_unusable_guest_app(&app.path, app.policy.execution_mode())?;
+    refuse_unscopable_guest_app(&app.path, app.policy.execution_mode())?;
+    refuse_guest_mode_where_unavailable(&app.path, app.policy.execution_mode(), None)?;
     if let Some(rule) = deployment_rule_for_mode(app.policy.execution_mode()) {
         if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
             w_id,
@@ -3460,7 +3476,7 @@ async fn update_app_internal<'a>(
                     })
                     .unwrap_or_default(),
                 };
-                refuse_unusable_guest_app(npath, mode)?;
+                refuse_unscopable_guest_app(npath, mode)?;
 
                 let exists = sqlx::query_scalar!(
                     "SELECT EXISTS(SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2)",
@@ -3569,9 +3585,16 @@ async fn update_app_internal<'a>(
                         .unwrap_or_default(),
                 );
             }
-            refuse_unusable_guest_app(
+            refuse_unscopable_guest_app(
                 ns.path.as_deref().unwrap_or(path),
                 npolicy.execution_mode(),
+            )?;
+            // An unreadable deployed policy reads as not already-in-mode, the strict
+            // direction, as for the protection rule below.
+            refuse_guest_mode_where_unavailable(
+                ns.path.as_deref().unwrap_or(path),
+                npolicy.execution_mode(),
+                deployed_policy.as_ref().map(|d| d.execution_mode()),
             )?;
             if let Some(rule) =
                 deployment_rule_for_mode(npolicy.execution_mode()).filter(|_| !authed.is_admin)

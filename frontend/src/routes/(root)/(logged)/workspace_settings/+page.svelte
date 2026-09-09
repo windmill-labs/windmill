@@ -574,6 +574,20 @@
 		sendUserToast('Guest JWT key updated')
 	}
 
+	// Removing a key stays allowed where guests are unavailable, and the rest of the card
+	// is hidden there, so this is the only way left to drop one stored earlier.
+	async function clearGuestJwtKey(): Promise<void> {
+		await WorkspaceService.editGuestJwtKey({
+			workspace: $workspaceStore!,
+			requestBody: { public_key: undefined, jwks_url: undefined }
+		})
+		guestJwtPublicKey = ''
+		guestJwtJwksUrl = ''
+		initialGuestJwtPublicKey = ''
+		initialGuestJwtJwksUrl = ''
+		sendUserToast('Guest JWT key cleared')
+	}
+
 	async function editGuestAccess(): Promise<void> {
 		await WorkspaceService.editGuestAccess({
 			workspace: $workspaceStore!,
@@ -2238,6 +2252,17 @@ export async function main(
 									<Alert type="info" title="Not available on Windmill Cloud" size="xs">
 										Guests require a self-hosted instance or a dedicated Windmill Cloud deployment.
 									</Alert>
+									{#if initialGuestJwtPublicKey || initialGuestJwtJwksUrl}
+										<div class="mt-3 flex flex-row items-center gap-3">
+											<span class="text-hint text-2xs">
+												A guest JWT verification key is stored for this workspace and cannot be
+												used.
+											</span>
+											<Button unifiedSize="xs" variant="default" onclick={clearGuestJwtKey}>
+												Clear stored key
+											</Button>
+										</div>
+									{/if}
 								{:else}
 									<Toggle
 										bind:checked={guestAccessEnabled}

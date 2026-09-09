@@ -485,7 +485,7 @@
 					<ToggleButton
 						label="Guests"
 						value="guest"
-						disabled={!guestsAvailable || (!canSetGuest && policy.execution_mode != 'guest')}
+						disabled={policy.execution_mode != 'guest' && (!guestsAvailable || !canSetGuest)}
 						tooltip={!guestsAvailable
 							? 'Not available on Windmill Cloud. Guests require a self-hosted instance or a dedicated Windmill Cloud deployment.'
 							: "Anyone your identity provider authenticates who has no Windmill account, plus workspace members. No membership, no seat up to the instance's allowance."}

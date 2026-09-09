@@ -65,22 +65,6 @@
 	description="People your identity provider authenticated who opened an app set to Guests without a Windmill account. One email is one guest, however many workspaces it opened."
 />
 
-<div class="flex flex-row gap-2 items-center mb-4">
-	{#key usage}
-		<Toggle
-			bind:checked={switchOn}
-			disabled={switchPending || !usage.available}
-			on:change={(e) => setInstanceSwitch(e.detail)}
-			options={{
-				right: 'Allow guests on this instance',
-				rightTooltip: usage.available
-					? 'Off, no guest can sign in anywhere, whatever a workspace or an app says, and sessions already issued stop on their next request.'
-					: 'Guests are unavailable on this deployment, so the switch cannot turn them on.'
-			}}
-		/>
-	{/key}
-</div>
-
 {#if !usage.available}
 	<div class="mb-4">
 		<Alert type="info" size="xs" title="Guests are not available on Windmill Cloud">
@@ -89,6 +73,21 @@
 		</Alert>
 	</div>
 {:else}
+	<div class="flex flex-row gap-2 items-center mb-4">
+		{#key usage}
+			<Toggle
+				bind:checked={switchOn}
+				disabled={switchPending}
+				on:change={(e) => setInstanceSwitch(e.detail)}
+				options={{
+					right: 'Allow guests on this instance',
+					rightTooltip:
+						'Off, no guest can sign in anywhere, whatever a workspace or an app says, and sessions already issued stop on their next request.'
+				}}
+			/>
+		{/key}
+	</div>
+
 	<div class="mb-4">
 		<Alert
 			type={pastAllowance ? 'warning' : 'info'}
