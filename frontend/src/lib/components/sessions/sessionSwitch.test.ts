@@ -2,8 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { get } from 'svelte/store'
 import {
 	enterSessionMode,
+	enterSessionModeFromNav,
 	openSourceInSession,
-	startSessionWithPrompt
+	rememberNavRoute,
+	startSessionWithPrompt,
+	takeNewSessionSeed
 } from './sessionSwitch.svelte'
 import {
 	peekSessionAutoSend,
@@ -20,6 +23,8 @@ import { goto } from '$lib/navigation'
 // monaco (hence that import being dynamic in the first place) and cannot load
 // under node.
 vi.mock('./sessionRuntime.svelte', () => ({ resetSessionPreviewTabs: vi.fn() }))
+import { resetSessionPreviewTabs } from './sessionRuntime.svelte'
+import { registerMountedOpenInSessionHandoff } from './openInSessionContext'
 
 function session(over: Partial<Session> = {}): Session {
 	return { id: 's1', name: 'sess', createdAt: 0, ...over }
@@ -245,6 +250,162 @@ describe('startSessionWithPrompt', () => {
 			sessionState.currentSessionId = prevCurrent
 			usersWorkspaceStore.set(prevUsers)
 			workspaceStore.set(prevWs)
+		}
+	})
+})
+
+describe('takeNewSessionSeed', () => {
+	it('offers the item editor the user came from, once per arrival', () => {
+		rememberNavRoute('/flows/edit/u/me/my_flow?workspace=ws')
+		expect(takeNewSessionSeed()).toEqual({
+			url: '/flows/edit/u/me/my_flow?workspace=ws',
+			route: { kind: 'flow', raw_app: false, itemPath: 'u/me/my_flow' }
+		})
+		// A dismissed or taken offer is not repeated until the user leaves again.
+		expect(takeNewSessionSeed()).toBeUndefined()
+		rememberNavRoute('/apps_raw/edit/f/team/dashboard?workspace=ws')
+		expect(takeNewSessionSeed()?.route).toEqual({
+			kind: 'app',
+			raw_app: true,
+			itemPath: 'f/team/dashboard'
+		})
+	})
+
+	it('offers nothing for a non-item page', () => {
+		rememberNavRoute('/runs?workspace=ws')
+		expect(takeNewSessionSeed()).toBeUndefined()
+	})
+})
+
+describe('enterSessionModeFromNav', () => {
+	const HOUR = 60 * 60 * 1000
+	beforeEach(() => {
+		vi.mocked(goto).mockClear()
+		vi.mocked(resetSessionPreviewTabs).mockClear()
+	})
+
+	// One session in the active family (rootA), as the one the rail would resume.
+	// Restores everything the test touched, the module-level nav route included,
+	// and drops whatever session the call under test created.
+	function withResumable(over: Partial<Session>): { restore: () => void } {
+		const restoreFamilies = withTwoFamilies('rootA')
+		const prevCurrent = sessionState.currentSessionId
+		const before = new Set(sessionState.sessions.map((s) => s.id))
+		const s = session({ workspace_id: 'rootA', ...over })
+		sessionState.sessions.push(s)
+		sessionState.currentSessionId = s.id
+		return {
+			restore: () => {
+				sessionState.sessions = sessionState.sessions.filter((x) => before.has(x.id))
+				sessionState.currentSessionId = prevCurrent
+				rememberNavRoute('/')
+				restoreFamilies()
+			}
+		}
+	}
+
+	it('resumes a recently active session even when coming from an item', async () => {
+		const { restore } = withResumable({
+			id: 'nav-recent',
+			name: 'session-921',
+			lastActivityAt: Date.now() - HOUR / 2
+		})
+		try {
+			rememberNavRoute('/flows/edit/u/me/f?workspace=rootA')
+			await enterSessionModeFromNav()
+			expect(sessionState.currentSessionId).toBe('nav-recent')
+			expect(resetSessionPreviewTabs).not.toHaveBeenCalled()
+		} finally {
+			restore()
+		}
+	})
+
+	it('starts a session on the item, by route, instead of resuming one idle for hours', async () => {
+		const { restore } = withResumable({
+			id: 'nav-stale',
+			name: 'session-922',
+			lastActivityAt: Date.now() - 3 * HOUR
+		})
+		try {
+			rememberNavRoute('/flows/edit/u/me/f?workspace=forkA')
+			await enterSessionModeFromNav()
+			const createdId = sessionState.currentSessionId
+			expect(createdId).not.toBe('nav-stale')
+			expect(resetSessionPreviewTabs).toHaveBeenCalledWith(
+				createdId,
+				'/flows/edit/u/me/f?workspace=forkA'
+			)
+			// The route's workspace, not createSession's pick for the active one.
+			const created = sessionState.sessions.find((s) => s.id === createdId)
+			expect(created?.pending_workspace_id).toBe('forkA')
+			// The arrival opened the item itself, so "New session" does not offer it.
+			expect(takeNewSessionSeed()).toBeUndefined()
+		} finally {
+			restore()
+		}
+	})
+
+	// The editor's hand-off is what its own "Open in AI session" button uses: its
+	// beforeOpen persists the draft the preview loads, and it names the item's
+	// workspace. The rail must take it over opening the route as last persisted.
+	it('hands off through the mounted editor of the item, running its beforeOpen first', async () => {
+		const { restore } = withResumable({
+			id: 'nav-stale-editor',
+			name: 'session-924',
+			lastActivityAt: Date.now() - 3 * HOUR
+		})
+		const order: string[] = []
+		vi.mocked(goto).mockImplementation((async () => {
+			order.push('goto')
+		}) as never)
+		// A script editor mounted alongside (a flow's drawer) must not be taken
+		// for the page's own item.
+		const unregisterScript = registerMountedOpenInSessionHandoff({
+			source: () => ({ target: { kind: 'script', path: 'u/me/s' }, workspaceId: 'rootB' })
+		})
+		const unregisterFlow = registerMountedOpenInSessionHandoff({
+			source: () => ({
+				target: { kind: 'flow', path: 'u/me/f' },
+				workspaceId: 'forkA',
+				beforeOpen: () => {
+					order.push('beforeOpen')
+				}
+			})
+		})
+		try {
+			rememberNavRoute('/flows/edit/u/me/f?workspace=rootA')
+			await enterSessionModeFromNav()
+			const createdId = sessionState.currentSessionId
+			expect(createdId).not.toBe('nav-stale-editor')
+			expect(order).toEqual(['beforeOpen', 'goto'])
+			expect(resetSessionPreviewTabs).toHaveBeenCalledWith(
+				createdId,
+				expect.stringMatching(/\/flows\/edit\/u\/me\/f$/)
+			)
+			const created = sessionState.sessions.find((s) => s.id === createdId)
+			expect(created?.pending_workspace_id).toBe('forkA')
+		} finally {
+			unregisterFlow()
+			unregisterScript()
+			vi.mocked(goto).mockReset()
+			vi.mocked(goto).mockResolvedValue(undefined as never)
+			restore()
+		}
+	})
+
+	it('resumes a stale session when coming from a non-item page', async () => {
+		const { restore } = withResumable({
+			id: 'nav-stale-runs',
+			name: 'session-923',
+			lastActivityAt: Date.now() - 3 * HOUR
+		})
+		try {
+			rememberNavRoute('/runs?workspace=rootA')
+			await enterSessionModeFromNav()
+			expect(sessionState.currentSessionId).toBe('nav-stale-runs')
+			expect(resetSessionPreviewTabs).not.toHaveBeenCalled()
+		} finally {
+			restore()
 		}
 	})
 })

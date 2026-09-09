@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { COMPOSER_BOX, COMPOSER_FIELD_RESET } from './composerBox'
+	import { composerBoxClass, COMPOSER_FIELD_RESET } from './composerBox'
 	import autosize from '$lib/autosize'
 	import { tick, type Snippet } from 'svelte'
 	import type { ContextElement } from './context'
@@ -768,7 +768,7 @@
 	}
 </script>
 
-<div class={COMPOSER_BOX}>
+<div class={composerBoxClass(disabled)}>
 	<!-- Context chips live inside the input box, above the textarea. The snippet
 	     self-guards (renders nothing when empty) so no blank row appears. -->
 	{@render leading?.()}

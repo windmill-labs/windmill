@@ -200,9 +200,12 @@ export class FlowChatViewHost implements ChatViewHost {
 	}
 	messages: readonly unknown[] = []
 	contextTokens = 0
+	operatingWorkspace = $derived.by(() => this.#options.workspace?.())
 	loading = $derived.by(
 		() => this.#manager.isLoading || this.#manager.isWaitingForResponse || this.#uploading
 	)
+	// A flow run is followed from its job, so another tab holds nothing this one can't read.
+	runHeldElsewhere = false
 	loadingLabel = undefined
 	compacting = false
 	currentReply = ''

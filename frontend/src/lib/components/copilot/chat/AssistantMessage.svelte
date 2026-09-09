@@ -6,7 +6,6 @@
 	import { thinkingPreferences } from './thinkingPreferences.svelte'
 	import CodeDisplay from './script/CodeDisplay.svelte'
 	import LinkRenderer from './LinkRenderer.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import {
 		extractCandidatePaths,
 		remarkWindmillPaths,
@@ -21,16 +20,19 @@
 
 	interface Props {
 		message: DisplayMessage
+		// Workspace the message's paths are resolved against: the one the chat
+		// operates on, which is not always the one being navigated.
+		workspace: string | undefined
 	}
 
-	let { message }: Props = $props()
+	let { message, workspace }: Props = $props()
 
 	// The run this answer came out of. Only a flow chat has one — a copilot turn runs in
 	// the browser — so the footer is absent rather than empty elsewhere.
 	const jobId = $derived(message.role === 'assistant' ? message.jobId : undefined)
 	const createdAt = $derived(message.role === 'assistant' ? message.createdAt : undefined)
 	const runHref = $derived(
-		jobId ? `${base}/run/${jobId}?workspace=${$workspaceStore}` : undefined
+		jobId ? `${base}/run/${jobId}?workspace=${workspace}` : undefined
 	)
 	// Today's answers show the time alone; the day earns its place only on a conversation
 	// read back later. Resolved at render, so a chat left open across midnight keeps
@@ -105,12 +107,11 @@
 	// Only populate the registry for messages that contain path-shaped tokens. The
 	// registry still dedups concurrent calls across messages and workspaces.
 	$effect(() => {
-		const ws = $workspaceStore
-		if (ws && candidatePaths.length > 0) workspaceItemRegistry.ensureLoaded(ws)
+		if (workspace && candidatePaths.length > 0) workspaceItemRegistry.ensureLoaded(workspace)
 	})
 
 	const plugins = $derived.by(() => {
-		const ws = $workspaceStore ?? ''
+		const ws = workspace ?? ''
 		if (!ws || candidatePaths.length === 0) {
 			return [gfmPlugin(), rendererPlugin]
 		}
@@ -152,7 +153,7 @@
 {/if}
 
 {#if s3Object}
-	<DisplayResult result={s3Object} workspaceId={$workspaceStore} noControls={true} />
+	<DisplayResult result={s3Object} workspaceId={workspace} noControls={true} />
 {:else if message.content}
 	<div class="w-full space-y-2 {markdownProse.sm}">
 		<Markdown md={message.content} {plugins} />

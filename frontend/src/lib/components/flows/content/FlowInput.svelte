@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import { ButtonType } from '$lib/components/common/button/model'
 	import { getContext, tick, untrack } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
@@ -44,13 +45,13 @@
 	import SideBarTab from '$lib/components/meltComponents/SideBarTab.svelte'
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 	import { isObjectTooBig, readFieldsRecursively } from '$lib/utils'
-	import { refreshFlowStateStore } from '$lib/components/flows/flowStoreRefresh.svelte'
 	import type { AiAgent, InputTransform, ScriptLang } from '$lib/gen'
 	import { deepEqual } from 'fast-equals'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { AI_AGENT_SCHEMA } from '../flowInfers'
+	import { agentStreamingEnabled } from '../agentFormFields'
 	import { nextId } from '../flowModuleNextId'
 	import FlowChat from '../conversations/FlowChat.svelte'
 	import { isEmptyAgentChatInputValue } from '../conversations/agentChatInputs'
@@ -102,11 +103,8 @@
 	let shouldUseStreaming = $derived.by(() => {
 		const modules = flowStore.val.value?.modules
 		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
-		return (
-			lastModule?.value?.type === 'aiagent' &&
-			lastModule?.value?.input_transforms?.streaming?.type === 'static' &&
-			lastModule?.value?.input_transforms?.streaming?.value === true
-		)
+		if (lastModule?.value?.type !== 'aiagent') return false
+		return agentStreamingEnabled(lastModule.value)
 	})
 	// Chat mode shows one of the two at a time: the conversation, or the inputs it sends.
 	let chatPanelTab = $state<'chat' | 'inputs'>('chat')
@@ -792,7 +790,7 @@
 										onAddNew={(argName) => {
 											chatInputsEditTab = true
 											chatEditableSchemaForm?.openField(argName)
-											refreshFlowStateStore(flowStore)
+											refreshStateStore(flowStore)
 										}}
 									>
 										{#snippet trigger()}
@@ -928,7 +926,7 @@
 									onAddNew={(argName) => {
 										handleEditSchema('inputEditor')
 										editableSchemaForm?.openField(argName)
-										refreshFlowStateStore(flowStore)
+										refreshStateStore(flowStore)
 									}}
 								>
 									{#snippet trigger()}

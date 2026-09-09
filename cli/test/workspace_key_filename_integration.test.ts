@@ -7,8 +7,10 @@ import { stringify as yamlStringify } from "yaml";
 
 import { resolveWsNameForGitBranch } from "../src/core/specific_items.ts";
 import { findResourceFile } from "../src/commands/script/script.ts";
-import { resolveWsNameForConfigFromFlags } from "../src/commands/sync/sync.ts";
-import type { SyncOptions } from "../src/core/conf.ts";
+import {
+  resolveWsNameForConfigFromFlags,
+  type SyncOptions,
+} from "../src/core/conf.ts";
 
 // Integration tests covering the bug where workspace-specific filenames used
 // the raw git branch name instead of the wmill.yaml workspace config key.

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { writable } from 'svelte/store'
 import type { FlowAIChatHelpers } from './flow/core'
 import type { PipelineAIChatHelpers } from './pipeline/core'
 import type { CurrentEditor } from '$lib/components/flows/types'
@@ -7,6 +8,7 @@ import type { ChatCompletionMessageParam } from 'openai/resources/chat/completio
 import type { DisplayMessage } from './shared'
 import type { AttachedImage } from './imageUtils'
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
+import { makePasteToken } from './pasteTokens'
 import { chatState } from './sharedChatState.svelte'
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
 import { runChatLoop } from './chatLoop'
@@ -35,6 +37,7 @@ const mocks = vi.hoisted(() => ({
 	runChatLoop: vi.fn(),
 	listResource: vi.fn(),
 	getJob: vi.fn(),
+	getJobUpdates: vi.fn(),
 	whoami: vi.fn(),
 	workspace: 'test_workspace' as string | undefined,
 	// The workspace being browsed, which a session chat's own workspace need not be.
@@ -59,7 +62,8 @@ vi.mock('$lib/gen', () => ({
 		whoami: mocks.whoami
 	},
 	JobService: {
-		getJob: mocks.getJob
+		getJob: mocks.getJob,
+		getJobUpdates: mocks.getJobUpdates
 	}
 }))
 
@@ -120,6 +124,9 @@ vi.mock('$lib/toast', () => ({
 }))
 
 vi.mock('$lib/aiStore', () => ({
+	// `sendRequest` reads it before anything else, so a test that goes through a real turn
+	// rather than driving the manager directly needs it present and enabled.
+	copilotInfo: writable({ enabled: true, workspaceDisabled: false, aiModels: [] }),
 	getCurrentModel: mocks.getCurrentModel,
 	tryGetCurrentModel: mocks.tryGetCurrentModel,
 	getCombinedCustomPrompt: () => '',
@@ -171,6 +178,10 @@ beforeEach(() => {
 	mocks.getOpenaiClient.mockReturnValue({})
 	mocks.getAnthropicClient.mockReturnValue({})
 	mocks.listResource.mockResolvedValue([])
+	// Re-seeded here rather than in the factory: clearAllMocks keeps implementations, so a
+	// test that makes the updates endpoint fail would otherwise leave it failing for the rest
+	// of the file. Neutral by default — completion is getJob's answer.
+	mocks.getJobUpdates.mockResolvedValue({ completed: false, running: true })
 	mocks.workspace = 'test_workspace'
 	mocks.runChatLoop.mockResolvedValue({
 		addedMessages: [],
@@ -222,6 +233,241 @@ describe('AIChatManager unmounted-chat guard', () => {
 		session.instructions = 'do a thing'
 		await session.sendRequest()
 		expect(mocks.runChatLoop).toHaveBeenCalled()
+	})
+})
+
+describe('AIChatManager run form', () => {
+	// A transcript can be persisted mid-turn (a background job's status write) and
+	// restored into a fresh manager, which has none of the turn's callbacks. Cancel is
+	// then the card's only exit, and until it settles pendingUserAction keeps the whole
+	// session reading as needs-confirmation.
+	// A save that fires mid-turn (jobs tray, review dock) stores a transcript nothing
+	// will resume. Storing a card still pending brings back a form whose Run resolves
+	// no callback.
+	it('stores loading cards settled when a mid-turn save fires', async () => {
+		const manager = new AIChatManager()
+		manager.displayMessages = [
+			{
+				role: 'tool',
+				tool_call_id: 'call_r',
+				content: 'Waiting for you to confirm the arguments of "f/a/b"',
+				isLoading: true,
+				runForm: { path: 'f/a/b', schema: {}, args: {} }
+			}
+		]
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+
+		manager.markJobsReviewed([])
+		manager.dismissJob('nope')
+		await Promise.resolve()
+
+		const { isActiveRunForm } = await import('./shared')
+		const stored = saveChat.mock.calls.at(-1)?.[0]?.[0]
+		expect(stored?.runForm?.canceled).toBe(true)
+		// What every mid-turn save has to hold: no stored card renders a live form. A
+		// save path added without settling would restore a Run that resolves nothing.
+		expect(isActiveRunForm(stored!)).toBe(false)
+		// The live card is untouched — the turn is still parked on it.
+		expect(manager.displayMessages[0].isLoading).toBe(true)
+	})
+
+	// Only the rendered form reads the schema, and a settled card renders none. Kept, it
+	// would sit in history for the life of the chat with the script's own password and
+	// file defaults inside it.
+	it('drops the schema from a card that has stopped showing a form', () => {
+		const manager = new AIChatManager()
+		const runForm = { path: 'f/a/b', schema: { properties: { tok: { password: true } } }, args: {} }
+		manager.displayMessages = [
+			{ role: 'tool', tool_call_id: 'call_r', content: '', isLoading: true, runForm }
+		]
+
+		manager.handleRunFormCancel('call_r')
+
+		expect(manager.displayMessages[0].runForm?.schema).toBeUndefined()
+		expect(manager.displayMessages[0].runForm?.canceled).toBe(true)
+	})
+
+	// A run writes what it ran onto the card; a cancelled one never gets there, so without
+	// this its Inputs tab still names the proposal the card was published on — a secret the
+	// mounted field had already replaced with a reference.
+	it('settles a cancelled card on what the form held, not on the proposal', async () => {
+		const manager = new AIChatManager()
+		const schema = {
+			properties: { token: { password: true }, spare: { password: true }, note: {} }
+		}
+		const runForm = {
+			path: 'f/a/b',
+			schema,
+			args: { token: 'hunter2', spare: 'untouched', note: 'hello' }
+		}
+		manager.displayMessages = [
+			{
+				role: 'tool',
+				tool_call_id: 'call_r',
+				content: '',
+				isLoading: true,
+				parameters: { ...runForm.args },
+				runForm
+			}
+		]
+
+		void manager.requestRunArgs('call_r', runForm)
+		const draft = manager.runFormDraft('call_r', runForm)
+		draft.args.token = '$var:u/admin/secret_arg/AbC'
+		draft.args.note = 'goodbye'
+
+		manager.handleRunFormCancel('call_r')
+
+		expect(manager.displayMessages[0].parameters).toEqual({
+			token: '$var:u/admin/secret_arg/AbC',
+			// Never minted, so still the secret itself.
+			spare: '<hidden>',
+			note: 'goodbye'
+		})
+	})
+
+	// Stopping the turn is the form's other way out, and it settles cards through
+	// settledToolDisplay rather than through #settleRunForm.
+	it('settles a stopped form on what it held too', () => {
+		const manager = new AIChatManager()
+		const schema = { properties: { token: { password: true }, note: {} } }
+		const runForm = { path: 'f/a/b', schema, args: { token: 'hunter2', note: 'hello' } }
+		manager.displayMessages = [
+			{
+				role: 'tool',
+				tool_call_id: 'call_r',
+				content: '',
+				isLoading: true,
+				parameters: { ...runForm.args },
+				runForm
+			}
+		]
+
+		void manager.requestRunArgs('call_r', runForm)
+		const draft = manager.runFormDraft('call_r', runForm)
+		draft.args.token = '$var:u/admin/secret_arg/AbC'
+		draft.args.note = 'goodbye'
+
+		manager.cancel()
+
+		expect(manager.displayMessages[0].parameters).toEqual({
+			token: '$var:u/admin/secret_arg/AbC',
+			note: 'goodbye'
+		})
+	})
+
+	// The tool reads the deployed schema before it asks for arguments. A stop during that
+	// read drains the callbacks and settles the card, so a waiter installed afterwards was
+	// one no rendered form could resolve: the turn stayed loading until a second stop.
+	it('installs no run-form waiter once the turn is stopped', async () => {
+		const manager = new AIChatManager()
+		// The turn the tool is running under; cancel aborts it.
+		manager.abortController = new AbortController()
+		manager.displayMessages = [
+			{
+				role: 'tool',
+				tool_call_id: 'call_late',
+				content: 'Executing...',
+				isLoading: true
+			}
+		]
+
+		manager.cancel()
+
+		await expect(
+			manager.requestRunArgs('call_late', { path: 'f/a/b', schema: {}, args: {} })
+		).resolves.toBeUndefined()
+		expect(manager.isRunFormPending('call_late')).toBe(false)
+	})
+
+	// The stop lands while the tool is still reading the deployed schema, so the form is
+	// attached after the card was settled. Nothing settles it a second time — the card
+	// stops loading without the form ever rendering — so the schema would otherwise stay
+	// in the transcript with the script's own password default inside it.
+	it('drops the schema from a form attached after the turn was stopped', async () => {
+		const manager = new AIChatManager()
+		manager.abortController = new AbortController()
+		manager.displayMessages = [
+			{ role: 'tool', tool_call_id: 'call_x', content: 'Executing...', isLoading: true }
+		]
+		manager.cancel()
+
+		const runForm = {
+			path: 'f/a/b',
+			schema: { properties: { tok: { password: true, default: 'hunter2' } } },
+			args: {}
+		}
+		manager.applyToolStatus('call_x', { content: 'Waiting for you...', runForm, isLoading: true })
+
+		await expect(manager.requestRunArgs('call_x', runForm)).resolves.toBeUndefined()
+		expect(manager.displayMessages[0].runForm?.schema).toBeUndefined()
+		expect(JSON.stringify(manager.displayMessages[0])).not.toContain('hunter2')
+	})
+
+	// Stop ends the turn, not the job: the deployed script is already running with all
+	// its side effects, so the transcript must not record it as cancelled.
+	it('does not mark a started run cancelled when the turn is stopped', () => {
+		const manager = new AIChatManager()
+		manager.displayMessages = [
+			{
+				role: 'tool',
+				tool_call_id: 'call_s',
+				content: 'Running "f/a/b"...',
+				isLoading: true,
+				runForm: { path: 'f/a/b', schema: {}, args: {}, submitted: true, started: true }
+			}
+		]
+
+		manager.cancelLoadingTools()
+
+		const settled = manager.displayMessages[0]
+		expect(settled.runForm?.canceled).toBe(false)
+		expect(settled.error).toBe(undefined)
+		expect(settled.isLoading).toBe(false)
+	})
+
+	// Run flips `submitted` a round trip before the job id arrives, and nothing threads
+	// the stop into that request — so the card claims neither outcome for that window.
+	it('claims neither outcome for a run stopped while its job was starting', () => {
+		const manager = new AIChatManager()
+		manager.displayMessages = [
+			{
+				role: 'tool',
+				tool_call_id: 'call_s',
+				content: 'Running "f/a/b"...',
+				isLoading: true,
+				runForm: { path: 'f/a/b', schema: {}, args: {}, submitted: true }
+			}
+		]
+
+		manager.cancelLoadingTools()
+
+		const settled = manager.displayMessages[0]
+		expect(settled.runForm?.canceled).toBe(false)
+		expect(settled.error).toBe(undefined)
+		expect(settled.content).toBe(
+			'Run f/a/b — Canceled while starting, check the runs page for a job'
+		)
+	})
+
+	// Only a form the user never submitted was cancelled outright.
+	it('marks an unsubmitted run cancelled when the turn is stopped', () => {
+		const manager = new AIChatManager()
+		manager.displayMessages = [
+			{
+				role: 'tool',
+				tool_call_id: 'call_u',
+				content: 'Waiting for you to confirm the arguments of "f/a/b"',
+				isLoading: true,
+				runForm: { path: 'f/a/b', schema: {}, args: {} }
+			}
+		]
+
+		manager.cancelLoadingTools()
+
+		const settled = manager.displayMessages[0]
+		expect(settled.runForm?.canceled).toBe(true)
+		expect(settled.content).toBe('Run f/a/b — Canceled')
 	})
 })
 
@@ -2146,6 +2392,56 @@ describe('AIChatManager queued messages', () => {
 		])
 	})
 
+	// A checkpoint that leaves a card loading is betting the poller resolves it after
+	// the reload, and the poller only knows the jobs stored in the same record —
+	// registering one does not write it.
+	it('stores the job behind a card the checkpoint leaves loading', async () => {
+		const leavePage = stubHidingPage()
+		const manager = createManager()
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			config.addedMessages.push({
+				role: 'assistant' as const,
+				content: '',
+				tool_calls: [
+					{ id: 't1', type: 'function' as const, function: { name: 'run_script', arguments: '{}' } }
+				]
+			})
+			// Inside the inline wait: the job is registered and still running, so no
+			// persist path has run for it yet.
+			manager.registerJob({
+				jobId: 'job-1',
+				toolCallId: 't1',
+				kind: 'script',
+				label: 'f/a/b',
+				workspace: 'ws'
+			})
+			config.callbacks.setToolStatus('t1', { content: 'Running...', isLoading: true })
+			leavePage.forEach((fn) => fn())
+			// The wait ends normally, so the only save that stored this card loading is
+			// the checkpoint that landed inside it.
+			config.callbacks.setToolStatus('t1', { content: 'Ran', isLoading: false })
+			manager.updateJob('job-1', { status: 'success' })
+			config.addedMessages.push({ role: 'tool' as const, tool_call_id: 't1', content: 'ran' })
+			return {
+				addedMessages: config.addedMessages,
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'run it' })
+
+		const checkpoint = saveChat.mock.calls.find(([display]) =>
+			(display as DisplayMessage[]).some(
+				(m) => m.role === 'tool' && m.tool_call_id === 't1' && m.isLoading
+			)
+		)
+		expect(checkpoint).toBeDefined()
+		expect(checkpoint?.[4]).toEqual([expect.objectContaining({ jobId: 'job-1' })])
+	})
+
 	it('stops checkpointing once the turn commits, so the transcript is never doubled', async () => {
 		const leavePage = stubHidingPage()
 		const manager = createManager()
@@ -2645,6 +2941,33 @@ describe('AIChatManager queued messages', () => {
 
 		expect(manager.modifiedItems).toBeInstanceOf(Set)
 		expect(manager.modifiedItems?.size).toBe(0)
+	})
+
+	// Reloading resolves no card on its own. Only the poller can, and only for the jobs
+	// that came back with the transcript — so a stored card without one must arrive
+	// settled, whichever build wrote it.
+	it('settles a restored loading card that no job came back to resolve', async () => {
+		const manager = createManager(createInputMock())
+		mocks.getJob.mockResolvedValue({ type: 'QueuedJob', id: 'job-1' })
+		vi.spyOn(manager.historyManager, 'loadPastChat').mockReturnValue({
+			id: 'reloaded',
+			title: 'Reloaded',
+			displayMessages: [
+				{ role: 'tool', tool_call_id: 'orphan', content: 'Running...', isLoading: true },
+				{ role: 'tool', tool_call_id: 'polled', content: 'Running...', isLoading: true }
+			],
+			actualMessages: [],
+			lastModified: 0
+		} as unknown as ReturnType<typeof manager.historyManager.loadPastChat>)
+		vi.spyOn(manager.historyManager, 'getBackgroundJobs').mockReturnValue([
+			{ jobId: 'job-1', toolCallId: 'polled', status: 'running' }
+		] as any)
+
+		await manager.loadPastChat('reloaded')
+
+		const card = (id: string) => manager.displayMessages.find((m) => m.tool_call_id === id) as any
+		expect(card('orphan')).toMatchObject({ isLoading: false, error: 'Interrupted' })
+		expect(card('polled').isLoading).toBe(true)
 	})
 
 	it('seeds a session chat mask from its stored modified-items', async () => {
@@ -3726,6 +4049,36 @@ describe('AIChatManager background job completion', () => {
 		resultFormat: { kind: 'datatable' as const, datatableName: 'main' }
 	}
 
+	// Live, processToolCall clears isLoading when the launching tool returns. A card
+	// restored from a mid-turn checkpoint never sees that return, so completing its job
+	// is the only thing left that can stop it spinning.
+	it('stops a restored card spinning when the poller completes its job', async () => {
+		const manager = new AIChatManager()
+		manager.registerJob(datatableJob)
+		manager.displayMessages = [
+			{ role: 'tool', tool_call_id: 'tc-1', content: 'Running...', isLoading: true } as any
+		]
+		mocks.getJob.mockResolvedValue(completed({ result: [{ n: 1 }] }))
+
+		await completeDetachedJob(manager)
+
+		expect((manager.displayMessages[0] as any).isLoading).toBe(false)
+	})
+
+	// Streaming rides on a second endpoint; landing the job must not. A poll that always
+	// fails would otherwise spend the failure budget and drain a job that finished, leaving
+	// the card on "unreachable".
+	it('completes a job whose updates endpoint keeps failing', async () => {
+		const manager = new AIChatManager()
+		manager.registerJob(datatableJob)
+		mocks.getJobUpdates.mockRejectedValue(new Error('updates unavailable'))
+		mocks.getJob.mockResolvedValue(completed({ result: [{ n: 1 }] }))
+
+		await completeDetachedJob(manager)
+
+		expect(manager.backgroundJobs[0]?.status).toBe('success')
+	})
+
 	it('reconstructs the datatable result contract from the persisted resultFormat', async () => {
 		const manager = new AIChatManager()
 		manager.registerJob(datatableJob)
@@ -3739,10 +4092,46 @@ describe('AIChatManager background job completion', () => {
 		// the SQL contract (row count + shaped rows) rather than generic job output.
 		expect(applyToolStatus).toHaveBeenCalledWith('tc-1', {
 			content: 'Query returned 2 row(s)',
-			result: JSON.stringify([{ n: 1 }, { n: 2 }], null, 2)
+			result: JSON.stringify([{ n: 1 }, { n: 2 }], null, 2),
+			isLoading: false
 		})
 		expect(manager.pendingJobNotes).toHaveLength(1)
 		expect(manager.pendingJobNotes[0]).toContain('"rowCount": 2')
+	})
+
+	// Detaching persists while the card is still loading. Storing it as interrupted would
+	// stick, because the patch a completed job merges in carries no error to clear.
+	it("stores a detached job's card unsettled, so a later success is not left an error", async () => {
+		const manager = new AIChatManager()
+		manager.registerJob(datatableJob)
+		manager.applyToolStatus('tc-1', { content: 'running in background', isLoading: true })
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+
+		manager.markJobDetached('job-1')
+		await vi.waitFor(() => expect(saveChat).toHaveBeenCalled())
+
+		const stored = (saveChat.mock.calls.at(-1)?.[0] as any[]).find((m) => m.tool_call_id === 'tc-1')
+		expect(stored.error).toBeUndefined()
+		expect(stored.content).toBe('running in background')
+	})
+
+	// A job still waiting inline is detached by the restore and polled like any other, so
+	// its card is one the poller resolves too — storing it as interrupted sticks, for the
+	// same reason an already-detached one would.
+	it("stores an inline job's card unsettled, so a later success is not left an error", async () => {
+		const manager = new AIChatManager()
+		manager.registerJob(datatableJob)
+		manager.registerJob({ ...datatableJob, jobId: 'job-2', toolCallId: 'tc-2' })
+		manager.applyToolStatus('tc-1', { content: 'running', isLoading: true })
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+
+		// The other job reaching a terminal status is what fires the save; job-1 is still
+		// inside its inline wait when it lands.
+		manager.updateJob('job-2', { status: 'success' })
+		await vi.waitFor(() => expect(saveChat).toHaveBeenCalled())
+
+		const stored = (saveChat.mock.calls.at(-1)?.[0] as any[]).find((m) => m.tool_call_id === 'tc-1')
+		expect(stored.error).toBeUndefined()
 	})
 
 	it('skips reconstruction and emits no note for a canceled detached job', async () => {
@@ -3756,9 +4145,13 @@ describe('AIChatManager background job completion', () => {
 		// A user cancel isn't a result to shape or a completion to announce.
 		expect(manager.pendingJobNotes).toHaveLength(0)
 		expect(manager.backgroundJobs[0]?.status).toBe('canceled')
+		// The raw result, not the shaping this job's resultFormat would have applied — and no
+		// `error`, which is what keeps the card off the failure styling.
 		expect(applyToolStatus).toHaveBeenCalledWith('tc-1', {
 			content: 'Background job canceled',
-			logs: expect.anything()
+			result: expect.stringContaining('"n": 1'),
+			logs: expect.anything(),
+			isLoading: false
 		})
 	})
 
@@ -3995,5 +4388,137 @@ describe('AIChatManager reasoning duration', () => {
 		await manager.sendRequest()
 
 		expect(assistantDurations(manager)).toEqual([3_000, 7_000])
+	})
+})
+
+describe('AIChatManager cross-tab run seams', () => {
+	// The whole cross-tab feature hangs off these two seams: `loading`'s edges
+	// are the "running here" / "safe to re-read" signals, and the resolver is
+	// the advisory lock. Reverting `loading` to a plain $state field would
+	// silently disconnect every tab.
+	it('reports loading transitions, and only transitions, through onRunningChanged', () => {
+		const manager = new AIChatManager()
+		const seen: boolean[] = []
+		manager.onRunningChanged = (running) => seen.push(running)
+		manager.loading = true
+		manager.loading = true
+		manager.loading = false
+		manager.loading = false
+		expect(seen).toEqual([true, false])
+	})
+
+	it('refuses a send while another tab holds the run, keeping the draft', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.runHeldElsewhereResolver = () => true
+
+		const accepted = await manager.sendRequest({ instructions: 'race loser' })
+
+		expect(accepted).toBe(false)
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(manager.loading).toBe(false)
+		// restoreToInput falls back to the queued draft when no composer is
+		// mounted, so the refused text must surface there rather than vanish.
+		expect(manager.queuedMessage).toBe('race loser')
+	})
+
+	// A synthetic (auto-resume) prompt is client-authored: a refusal must
+	// release it rather than hand it back as a draft the user never wrote —
+	// staged instructions would otherwise block every later auto-resume.
+	it('releases a refused synthetic send instead of restoring it as a draft', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.runHeldElsewhereResolver = () => true
+		manager.instructions = 'A background job just finished.'
+
+		const accepted = await manager.sendRequest({ synthetic: true })
+
+		expect(accepted).toBe(false)
+		expect(manager.instructions).toBe('')
+		expect(manager.queuedMessage).toBe('')
+	})
+
+	// The restore lanes carry no pastes, so a refusal must expand the tokens
+	// into the text — dangling markers with the content gone otherwise.
+	it('expands paste tokens into the text a refusal hands back', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.runHeldElsewhereResolver = () => true
+		const paste = { id: 1, lines: 1, content: 'the pasted block' }
+
+		await manager.sendRequest({
+			instructions: `see ${makePasteToken(paste)}`,
+			pastes: [paste]
+		})
+
+		expect(manager.queuedMessage).toBe('see the pasted block')
+	})
+
+	// The wrapper's check runs before the attachment upkeep awaits; a run
+	// announced by another tab during that upkeep must still be refused before
+	// the turn takes visible effect.
+	it('refuses a run announced by another tab during the preflight awaits', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		let held = false
+		manager.runHeldElsewhereResolver = () => held
+		let releaseUpkeep: (() => void) | undefined
+		vi.spyOn(manager.attachedFiles, 'refreshFolders').mockImplementation(
+			() => new Promise<void>((resolve) => (releaseUpkeep = resolve))
+		)
+
+		const sending = manager.sendRequest({ instructions: 'racing turn' })
+		await vi.waitFor(() => expect(manager.sendInFlight).toBe(true))
+		held = true
+		releaseUpkeep?.()
+
+		expect(await sending).toBe(false)
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(manager.loading).toBe(false)
+	})
+
+	it('refuses a retry/edit while another tab holds the run, before mutating the transcript', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.displayMessages = [
+			{ role: 'user', content: 'original prompt', index: 0 },
+			{ role: 'assistant', content: 'original reply' }
+		] as DisplayMessage[]
+		manager.messages = [
+			{ role: 'user', content: 'original prompt' }
+		] as ChatCompletionMessageParam[]
+		manager.runHeldElsewhereResolver = () => true
+
+		await manager.restartGeneration(0, 'edited prompt')
+
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(manager.displayMessages).toHaveLength(2)
+		expect(manager.messages).toHaveLength(1)
+		// The edited text survives the refusal via restoreToInput's queued-draft
+		// fallback.
+		expect(manager.queuedMessage).toBe('edited prompt')
+	})
+
+	// A cross-tab catch-up re-reads the conversation on screen; the queued
+	// draft is unsent user input (possibly the refusal's kept message) that
+	// this non-switch reload must not destroy — while a real conversation
+	// switch still drops it.
+	it('keeps the queued draft when a catch-up reload preserves it', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		vi.spyOn(manager.historyManager, 'loadPastChat').mockResolvedValue({
+			id: 'c1',
+			actualMessages: [],
+			displayMessages: [],
+			title: '',
+			lastModified: 1
+		} as never)
+
+		manager.queueMessage('kept across catch-up')
+		await manager.loadPastChat('c1', { preserveQueue: true })
+		expect(manager.queuedMessage).toBe('kept across catch-up')
+
+		await manager.loadPastChat('c1')
+		expect(manager.queuedMessage).toBe('')
 	})
 })

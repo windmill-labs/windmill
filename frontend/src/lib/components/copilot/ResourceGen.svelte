@@ -119,69 +119,71 @@
 	})
 </script>
 
-<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
-	{#snippet trigger()}
-		<Button
-			color={genLoading ? 'red' : 'light'}
-			size="xs"
-			unifiedSize="md"
-			nonCaptureEvent={!genLoading}
-			startIcon={{ icon: Wand2 }}
-			iconOnly
-			title="AI Assistant"
-			btnClasses="text-ai bg-violet-100 dark:bg-gray-700"
-			loading={genLoading}
-			clickableWhileLoading
-			on:click={genLoading ? () => abortController?.abort() : () => {}}
-		/>
-	{/snippet}
-	{#snippet content({ close })}
-		<div class="border rounded-lg shadow-lg p-4 bg-surface">
-			{#if $copilotInfo.enabled}
-				<div class="flex flex-col w-80 gap-2">
-					<textarea
-						bind:this={instructionsField}
-						placeholder="Describe the resource values to generate..."
-						bind:value={instructions}
-						rows={3}
-						class="text-xs"
-						onkeydown={(e) => {
-							if (e.key === 'Enter' && !e.shiftKey && instructions.length > 0) {
-								e.preventDefault()
+{#if !$copilotInfo.workspaceDisabled}
+	<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
+		{#snippet trigger()}
+			<Button
+				color={genLoading ? 'red' : 'light'}
+				size="xs"
+				unifiedSize="md"
+				nonCaptureEvent={!genLoading}
+				startIcon={{ icon: Wand2 }}
+				iconOnly
+				title="AI Assistant"
+				btnClasses="text-ai bg-violet-100 dark:bg-gray-700"
+				loading={genLoading}
+				clickableWhileLoading
+				on:click={genLoading ? () => abortController?.abort() : () => {}}
+			/>
+		{/snippet}
+		{#snippet content({ close })}
+			<div class="border rounded-lg shadow-lg p-4 bg-surface">
+				{#if $copilotInfo.enabled}
+					<div class="flex flex-col w-80 gap-2">
+						<textarea
+							bind:this={instructionsField}
+							placeholder="Describe the resource values to generate..."
+							bind:value={instructions}
+							rows={3}
+							class="text-xs"
+							onkeydown={(e) => {
+								if (e.key === 'Enter' && !e.shiftKey && instructions.length > 0) {
+									e.preventDefault()
+									close()
+									generateResource()
+								}
+							}}
+						></textarea>
+						<Button
+							size="xs"
+							color="light"
+							variant="contained"
+							buttonType="button"
+							btnClasses="text-ai bg-violet-100 dark:bg-gray-700"
+							title="Generate resource from prompt"
+							on:click={() => {
 								close()
 								generateResource()
-							}
-						}}
-					></textarea>
-					<Button
-						size="xs"
-						color="light"
-						variant="contained"
-						buttonType="button"
-						btnClasses="text-ai bg-violet-100 dark:bg-gray-700"
-						title="Generate resource from prompt"
-						on:click={() => {
-							close()
-							generateResource()
-						}}
-						disabled={instructions.length == 0}
-						startIcon={{ icon: Wand2 }}
-					>
-						Generate
-					</Button>
-				</div>
-			{:else}
-				<div class="block text-primary">
-					<p class="text-sm"
-						>Enable Windmill AI in the <a
-							href="{base}/workspace_settings?tab=ai"
-							target="_blank"
-							class="inline-flex flex-row items-center gap-1"
-							>workspace settings <ExternalLink size={16} /></a
-						></p
-					>
-				</div>
-			{/if}
-		</div>
-	{/snippet}
-</Popover>
+							}}
+							disabled={instructions.length == 0}
+							startIcon={{ icon: Wand2 }}
+						>
+							Generate
+						</Button>
+					</div>
+				{:else}
+					<div class="block text-primary">
+						<p class="text-sm"
+							>Enable Windmill AI in the <a
+								href="{base}/workspace_settings?tab=ai"
+								target="_blank"
+								class="inline-flex flex-row items-center gap-1"
+								>workspace settings <ExternalLink size={16} /></a
+							></p
+						>
+					</div>
+				{/if}
+			</div>
+		{/snippet}
+	</Popover>
+{/if}

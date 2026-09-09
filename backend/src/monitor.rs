@@ -64,10 +64,11 @@ use windmill_common::{
         JOB_ISOLATION_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPMRC_SETTING, NPM_CONFIG_REGISTRY_SETTING,
         NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING, NUGET_CONFIG_SETTING,
-        OTEL_SETTING, OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING,
-        POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING,
-        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
-        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
+        OTEL_SETTING, OTEL_TRACES_RETENTION_SECS_SETTING, OTEL_TRACING_PROXY_SETTING,
+        PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING,
+        PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
+        SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
         SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
         SANDBOX_IMAGE_PULL_POLICY_SETTING, SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING,
         SERVICE_LOG_RETENTION_SECS_SETTING, SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING,
@@ -97,10 +98,10 @@ use windmill_common::{
     KillpillSender, AUDIT_LOG_RETENTION_DAYS, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE,
     CRITICAL_ALERTS_ON_TOKEN_EXPIRY, CRITICAL_ALERT_MUTE_UI_ENABLED,
     CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL,
-    DEFAULT_SERVICE_LOG_RETENTION_SECS, HUB_BASE_URL, JOB_RETENTION_SECS,
-    JOB_RETENTION_SECS_OVERRIDES, JOB_RETENTION_SECS_OVERRIDES_LOADED, METRICS_DEBUG_ENABLED,
-    METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED,
-    OTEL_TRACING_ENABLED, STORE_AUDIT_LOGS_S3,
+    DEFAULT_OTEL_TRACES_RETENTION_SECS, DEFAULT_SERVICE_LOG_RETENTION_SECS, HUB_BASE_URL,
+    JOB_RETENTION_SECS, JOB_RETENTION_SECS_OVERRIDES, JOB_RETENTION_SECS_OVERRIDES_LOADED,
+    METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED,
+    OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, STORE_AUDIT_LOGS_S3,
 };
 use windmill_common::{
     client::AuthedClient,
@@ -353,7 +354,9 @@ pub async fn initial_load(
                     )
                 }
             });
-            pass.action(windmill_common::min_version::store_min_keep_alive_version(db));
+            pass.action(windmill_common::min_version::store_min_keep_alive_version(
+                db,
+            ));
             pass.setting(
                 windmill_common::global_settings::INSTANCE_EVENTS_WEBHOOK_SETTING,
                 false,
@@ -395,6 +398,8 @@ pub async fn initial_load(
                     additional_python_paths: None,
                     pip_local_dependencies: None,
                     native_mode,
+                    // an agent worker never reads its group's config, only its token
+                    object_store_cache_config: None,
                 }));
             }
         }
@@ -513,6 +518,15 @@ pub async fn initial_load(
                 ),
                 Ordering::Relaxed,
             )
+        });
+        pass.setting(OTEL_TRACES_RETENTION_SECS_SETTING, true, |v| async move {
+            windmill_common::set_otel_traces_retention_secs(parse_setting_value::<i64>(
+                v,
+                OTEL_TRACES_RETENTION_SECS_SETTING,
+                "OTEL_TRACES_RETENTION_SECS",
+                DEFAULT_OTEL_TRACES_RETENTION_SECS,
+                |x| x,
+            ))
         });
         pass.setting(STORE_AUDIT_LOGS_S3_SETTING, true, |v| async move {
             STORE_AUDIT_LOGS_S3.store(
@@ -698,7 +712,6 @@ pub async fn initial_load(
 
     pass.run(conn).await;
 }
-
 
 pub fn apply_metrics_enabled(value: Option<serde_json::Value>) {
     if let Some(serde_json::Value::Bool(t)) = value {
@@ -1056,8 +1069,8 @@ pub fn apply_fork_workspace_tag_append_fork_suffix(value: Option<serde_json::Val
 }
 
 pub async fn reload_critical_alert_mute_ui_setting(conn: &Connection) -> error::Result<()> {
-    let v =
-        load_value_from_global_settings_with_conn(conn, CRITICAL_ALERT_MUTE_UI_SETTING, true).await?;
+    let v = load_value_from_global_settings_with_conn(conn, CRITICAL_ALERT_MUTE_UI_SETTING, true)
+        .await?;
     apply_critical_alert_mute_ui_setting(v);
     Ok(())
 }
@@ -1682,6 +1695,57 @@ const SERVICE_LOG_DELETE_BATCH: i64 = 2_000;
 /// across ticks rather than inside one, the way the neighbouring sweeps already do.
 const SERVICE_LOG_DELETE_MAX_BATCHES: usize = 10;
 
+/// One span per HTTP request made from a job script, so the table grows far faster than the
+/// job table it is keyed against; batched for the same reason the service log sweep is.
+const OTEL_TRACES_DELETE_BATCH: i64 = 10_000;
+const OTEL_TRACES_DELETE_MAX_BATCHES: usize = 10;
+
+/// Delete HTTP request tracing spans older than `retention_secs`, returning how many went.
+///
+/// `retention_secs` is a parameter rather than a read of the process-wide setting so a test can
+/// pin a window without writing state the other tests in this binary run against concurrently.
+async fn delete_expired_otel_traces(db: &DB, retention_secs: i64) -> u64 {
+    // `start_time_unix_nano` is the proto field stored verbatim, so the cutoff is built in that
+    // unit rather than compared against `now()`. Truncating the epoch to whole seconds first
+    // keeps the multiplication inside `bigint`.
+    //
+    // Batched on `ctid`, not on the `(trace_id, span_id)` primary key: with the key the planner
+    // hashes the LIMITed subquery and Seq Scans the whole table to probe it, which at the size
+    // this table reaches is the cost the batching exists to avoid. `ctid` plans as a Tid Scan, so
+    // each batch touches only the rows it deletes. Safe because the subquery and the delete share
+    // one snapshot, and spans are never updated after insert.
+    let mut deleted = 0;
+    for _ in 0..OTEL_TRACES_DELETE_MAX_BATCHES {
+        let batch = sqlx::query!(
+            "DELETE FROM otel_traces WHERE ctid IN (
+                 SELECT ctid FROM otel_traces
+                 WHERE start_time_unix_nano < EXTRACT(
+                     EPOCH FROM now() - ($1::bigint::text || ' s')::interval
+                 )::bigint * 1000000000
+                 LIMIT $2
+             )",
+            retention_secs,
+            OTEL_TRACES_DELETE_BATCH,
+        )
+        .execute(db)
+        .await;
+
+        match batch {
+            Ok(res) => {
+                deleted += res.rows_affected();
+                if (res.rows_affected() as i64) < OTEL_TRACES_DELETE_BATCH {
+                    break;
+                }
+            }
+            Err(e) => {
+                tracing::error!("Error deleting expired otel trace spans: {:?}", e);
+                break;
+            }
+        }
+    }
+    deleted
+}
+
 pub async fn delete_expired_items(db: &DB) -> () {
     let expired_tokens_r = sqlx::query_as!(
         TokenRow,
@@ -1808,6 +1872,12 @@ pub async fn delete_expired_items(db: &DB) -> () {
         }
     }
 
+    let deleted_spans =
+        delete_expired_otel_traces(db, windmill_common::otel_traces_retention_secs()).await;
+    if deleted_spans > 0 {
+        tracing::info!("deleted {} expired otel trace spans", deleted_spans);
+    }
+
     let audit_retention_days = audit_log_retention_days().await;
     let audit_retention_secs: i64 = audit_retention_days * 60 * 60 * 24;
 
@@ -1868,6 +1938,15 @@ pub async fn delete_expired_items(db: &DB) -> () {
         .await
     {
         tracing::error!("Error deleting old feature_usage rows: {e}");
+    }
+
+    // Guest sign-ins, kept a month longer than the seat window they feed so a late
+    // telemetry send still sees a whole month.
+    if let Err(e) = sqlx::query!("DELETE FROM guest_activity WHERE day < CURRENT_DATE - 60")
+        .execute(db)
+        .await
+    {
+        tracing::error!("Error deleting old guest_activity rows: {e}");
     }
 
     match sqlx::query_scalar!(
@@ -2656,7 +2735,6 @@ pub async fn reload_timeout_wait_result_setting(conn: &Connection) {
     .await;
 }
 
-
 pub async fn reload_extra_pip_index_url_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
         conn,
@@ -2746,7 +2824,6 @@ pub async fn reload_bunfig_install_scopes_setting(conn: &Connection) {
     )
     .await;
 }
-
 
 pub async fn reload_nuget_config_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
@@ -2855,7 +2932,6 @@ pub async fn reload_ruby_repos_setting(conn: &Connection) {
     .await;
 }
 
-
 pub async fn reload_workspace_registries_setting(conn: &Connection) {
     match load_value_from_global_settings_with_conn(
         conn,
@@ -2924,6 +3000,21 @@ pub async fn reload_service_log_retention_secs_setting(conn: &Connection) {
     {
         Ok(v) => windmill_common::set_service_log_retention_secs(v),
         Err(e) => tracing::error!("Error reloading service log retention period: {:?}", e),
+    }
+}
+
+pub async fn reload_otel_traces_retention_secs_setting(conn: &Connection) {
+    match load_setting_value::<i64>(
+        conn,
+        OTEL_TRACES_RETENTION_SECS_SETTING,
+        "OTEL_TRACES_RETENTION_SECS",
+        DEFAULT_OTEL_TRACES_RETENTION_SECS,
+        |x| x,
+    )
+    .await
+    {
+        Ok(v) => windmill_common::set_otel_traces_retention_secs(v),
+        Err(e) => tracing::error!("Error reloading otel traces retention period: {:?}", e),
     }
 }
 
@@ -3093,7 +3184,6 @@ pub async fn apply_job_isolation_setting(value: Option<serde_json::Value>) {
         );
     }
 }
-
 
 async fn resolve_license_key_value(conn: &Connection, quiet: bool) -> anyhow::Result<String> {
     let q = load_value_from_global_settings_with_conn(conn, LICENSE_KEY_SETTING, true)
@@ -3389,7 +3479,10 @@ impl<'a> SettingsPass<'a> {
         // on compile-time defaults until the next full reload. Only the single-query transport
         // can fail this way; over HTTP the batch already is the per-setting read.
         if matches!(conn, Connection::Sql(_)) && values.is_empty() && !names.is_empty() {
-            tracing::warn!("Falling back to per-setting reads for {} settings", names.len());
+            tracing::warn!(
+                "Falling back to per-setting reads for {} settings",
+                names.len()
+            );
             values = fetch_settings_individually(conn, &names).await;
         }
         for (name, http) in &declared {
@@ -3780,7 +3873,6 @@ pub fn parse_setting_value<T: FromStr + DeserializeOwned + Display>(
 
     value
 }
-
 
 #[cfg(feature = "prometheus")]
 pub async fn monitor_pool(db: &DB) {
@@ -4225,6 +4317,24 @@ pub async fn monitor_db(
         }
     };
 
+    // Re-check what each git-sync repository's own credential says about its expiry,
+    // and rotate the ones close to it. Every ~40 min: the values move over days, and
+    // `should_run` counts iterations in a u8. Spawned rather than joined: the join
+    // below is cancelled at its deadline, which a long sweep would reach, and a
+    // rotation cut off between GitLab issuing a token and Windmill storing it
+    // loses the token family. Detached, only process shutdown can cut it off,
+    // which a rotation almost never coincides with. The pass's advisory lock
+    // keeps a slow one from overlapping the next.
+    let git_credential_maintenance_f = async {
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(240) {
+            if let Some(db) = conn.as_sql() {
+                let db = db.clone();
+                tokio::spawn(async move { maintain_git_credentials(&db).await });
+            }
+        }
+    };
+
     // run every 2 iterations (~20s at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
     // Enterprise feature: the active `// freshness` backstop lives in
     // windmill-queue's `freshness_watchdog` (`private`); OSS gets a no-op stub.
@@ -4278,6 +4388,7 @@ pub async fn monitor_db(
         export_audit_logs_to_object_store_f,
         cleanup_scheduled_job_deletions_f,
         git_auto_pull_f,
+        git_credential_maintenance_f,
         pipeline_freshness_watchdog_f,
         reconcile_unarmed_schedules_f,
     );
@@ -4600,6 +4711,156 @@ lazy_static::lazy_static! {
 #[cfg(feature = "private")]
 const AUTO_PULL_POLL_SLACK_S: i64 = 30;
 
+/// Advisory lock id ensuring only one server replica maintains git credentials at
+/// a time (adjacent to GIT_AUTO_PULL_LOCK_ID).
+#[cfg(all(feature = "enterprise", feature = "private"))]
+const GIT_CREDENTIAL_LOCK_ID: i64 = 737_483_923;
+
+/// Refresh every git-sync repository's credential status and rotate the ones near
+/// expiry, so a token dies visibly (and usually not at all) rather than taking
+/// sync down on its expiry date.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn maintain_git_credentials(db: &Pool<Postgres>) {
+    use windmill_common::ee_oss::{get_license_plan, LicensePlan};
+
+    if !matches!(get_license_plan().await, LicensePlan::Enterprise) {
+        return;
+    }
+
+    // Transaction-scoped advisory lock, as for the schedule reconcile above: a
+    // session lock on a pooled connection would ride back into the pool still
+    // held if the sweep died before unlocking, and wedge the pass on every
+    // replica until a restart. The transaction only owns the lock; the sweep
+    // commits each status and each rotated token on its own as it goes.
+    let mut lock_tx = match db.begin().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            tracing::error!("git credentials: failed to begin lock tx: {e:#}");
+            return;
+        }
+    };
+    // The transaction stays idle while the sweep talks to git hosts, and the
+    // pool's ten-minute idle-in-transaction timeout would end it, lock included,
+    // partway through a sweep over enough slow hosts. Lifted for this
+    // transaction only; it dies with the connection either way.
+    if let Err(e) = sqlx::query("SET LOCAL idle_in_transaction_session_timeout = 0")
+        .execute(&mut *lock_tx)
+        .await
+    {
+        tracing::error!("git credentials: failed to lift the idle timeout: {e:#}");
+        return;
+    }
+    let locked: bool = match sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1)")
+        .bind(GIT_CREDENTIAL_LOCK_ID)
+        .fetch_one(&mut *lock_tx)
+        .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("git credentials: advisory lock failed: {e:#}");
+            return;
+        }
+    };
+    if !locked {
+        return;
+    }
+
+    if let Err(e) = maintain_git_credentials_inner(db).await {
+        tracing::error!("git credentials: maintenance error: {e:#}");
+    }
+    drop(lock_tx);
+}
+
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn maintain_git_credentials_inner(db: &Pool<Postgres>) -> error::Result<()> {
+    use windmill_common::workspaces::WorkspaceGitSyncSettings;
+
+    // Same deleted/archived exclusion as the auto-pull poller: a dead workspace's
+    // settings row survives, and rotating a token for one would be pure damage.
+    let rows = sqlx::query!(
+        r#"SELECT ws.workspace_id, ws.git_sync
+           FROM workspace_settings ws
+           JOIN workspace w ON w.id = ws.workspace_id
+           WHERE NOT w.deleted
+             AND ws.git_sync IS NOT NULL
+             AND jsonb_typeof(ws.git_sync->'repositories') = 'array'"#
+    )
+    .fetch_all(db)
+    .await?;
+
+    for row in rows {
+        let Some(git_sync) = row.git_sync else {
+            continue;
+        };
+        let settings: WorkspaceGitSyncSettings = match serde_json::from_value(git_sync) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(
+                    "git credentials: invalid git_sync settings for workspace {}: {e}",
+                    row.workspace_id
+                );
+                continue;
+            }
+        };
+
+        for repo in settings.repositories.iter() {
+            let path = &repo.git_repo_resource_path;
+            // This refreshes and records the status on every repository it looks at,
+            // rotating only the ones near expiry, so it is the whole maintenance pass
+            // rather than just the rotation half.
+            if let Err(e) = windmill_common::git_sync_ee::rotate_git_credential_if_due(
+                db,
+                &row.workspace_id,
+                path,
+            )
+            .await
+            {
+                tracing::error!(
+                    "git credentials: maintenance failed for {path} in workspace {}: {e:#}",
+                    row.workspace_id
+                );
+            }
+
+            // A repository that wants webhook delivery but holds no hook never
+            // gets one otherwise: the reconcile runs on a settings save, so a
+            // credential that was unusable when the hook should have been created
+            // would leave it missing until an admin saved again. Checking stored
+            // state costs nothing, and only the repositories actually missing a
+            // hook reach the host.
+            use windmill_common::workspaces::AutoPullMode;
+            // Also when a hook exists but carries a warning: a save during a GitLab
+            // outage keeps the hook and records why it could not be confirmed, and
+            // that warning is only cleared by a reconcile that confirms it again.
+            // Only repositories with a checked credential of their own: for
+            // everything else a settings save stays the one place hooks are
+            // reconciled, so an App repository or a plain remote is never touched
+            // here, and a recorded delivery mode nobody saved is never normalized.
+            let needs_hook = repo.credential.is_some()
+                && repo.auto_pull.as_ref().is_some_and(|a| {
+                    a.enabled
+                        && matches!(a.mode, AutoPullMode::Auto | AutoPullMode::Webhook)
+                        && (a.webhook_id.is_none() || a.webhook_error.is_some())
+                });
+            if needs_hook {
+                let mut repo = repo.clone();
+                if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(
+                    db,
+                    &row.workspace_id,
+                    &mut repo,
+                )
+                .await
+                {
+                    tracing::warn!(
+                        "git credentials: could not reconcile the webhook for {path} in workspace {}: {e:#}",
+                        row.workspace_id
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(feature = "private")]
 async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
     use windmill_common::workspaces::{AutoPullMode, WorkspaceGitSyncSettings};
@@ -4839,7 +5100,7 @@ async fn poll_git_fork_branches(
 }
 
 async fn vacuuming_tables(db: &Pool<Postgres>) -> error::Result<()> {
-    sqlx::query!("VACUUM v2_job, v2_job_completed, job_result_stream_v2, job_stats, job_logs, job_perms, concurrency_key, log_file, metrics")
+    sqlx::query!("VACUUM v2_job, v2_job_completed, job_result_stream_v2, job_stats, job_logs, job_perms, concurrency_key, log_file, metrics, otel_traces")
         .execute(db)
         .await?;
     Ok(())
@@ -5035,6 +5296,7 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
                 .dedicated_workers
                 .as_ref()
                 .is_some_and(|dws| !dws.is_empty());
+
         if **wc != config || has_dedicated {
             if kill_if_change {
                 if has_dedicated
@@ -5082,6 +5344,37 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
             store_pull_query(&config).await;
             WORKER_CONFIG.store(std::sync::Arc::new(config));
         }
+
+        // After the store, so a retry that wakes mid-build reads the config being applied
+        // rather than the one it replaced. Unconditional rather than gated on the value
+        // changing, so that a pass triggered by anything else — a license-plan change, most
+        // of all — still re-evaluates the entitlement.
+        #[cfg(feature = "parquet")]
+        reload_cache_object_store_override_with_retry(db).await;
+    }
+}
+
+/// Apply this worker group's dependency-cache object store, retrying once shortly after a build
+/// that failed for a reason that may pass — the periodic settings reload behind it is 12h apart,
+/// which is a long time for a whole group to cache nothing but locally.
+#[cfg(feature = "parquet")]
+pub async fn reload_cache_object_store_override_with_retry(db: &DB) {
+    let settings = WORKER_CONFIG.load().object_store_cache_config.clone();
+    if matches!(
+        windmill_object_store::reload_cache_object_store_override(db, settings).await,
+        ObjectStoreReload::Later
+    ) {
+        let db = db.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            if windmill_object_store::cache_object_store_override_failed().await {
+                // Re-read rather than reuse: the group config may have changed while we slept,
+                // and installing the settings this retry was born with would pin the worker to a
+                // store the group no longer asks for.
+                let settings = WORKER_CONFIG.load().object_store_cache_config.clone();
+                windmill_object_store::reload_cache_object_store_override(&db, settings).await;
+            }
+        });
     }
 }
 
@@ -6497,7 +6790,6 @@ pub async fn reload_critical_alerts_on_db_oversize(conn: &DB) -> error::Result<(
     Ok(())
 }
 
-
 pub async fn reload_jwt_secret_setting(db: &DB) -> error::Result<()> {
     let v = load_value_from_global_settings(db, JWT_SECRET_SETTING).await?;
     apply_jwt_secret_setting(db, v).await
@@ -6972,6 +7264,46 @@ mod zombie_worker_memory_pct_tests {
             zombie_worker_memory_pct(Some(500), Some(500), Some(0)),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod otel_traces_retention_tests {
+    use super::{delete_expired_otel_traces, DB};
+
+    async fn insert_span(db: &DB, id: u8, age_secs: i64) {
+        sqlx::query!(
+            "INSERT INTO otel_traces (trace_id, span_id, name, kind, start_time_unix_nano, end_time_unix_nano)
+             VALUES ($1, $2, 'GET /', 3, $3, $3)",
+            &[id; 16][..],
+            &[id; 8][..],
+            (chrono::Utc::now() - chrono::Duration::seconds(age_secs))
+                .timestamp_nanos_opt()
+                .unwrap(),
+        )
+        .execute(db)
+        .await
+        .unwrap();
+    }
+
+    /// The cutoff crosses two units: a retention configured in seconds against a column holding
+    /// nanoseconds. Getting that conversion wrong is silent in both directions — a window a
+    /// billion times too wide never deletes anything, one a billion times too narrow deletes
+    /// every span on the next tick — so pin it on either side of the boundary.
+    #[sqlx::test(migrations = "./migrations")]
+    async fn deletes_only_spans_past_the_window(db: DB) -> anyhow::Result<()> {
+        let day = 60 * 60 * 24;
+        insert_span(&db, 1, 60).await;
+        insert_span(&db, 2, 6 * day).await;
+        insert_span(&db, 3, 8 * day).await;
+
+        assert_eq!(delete_expired_otel_traces(&db, 7 * day).await, 1);
+
+        let kept = sqlx::query_scalar!("SELECT trace_id FROM otel_traces ORDER BY trace_id")
+            .fetch_all(&db)
+            .await?;
+        assert_eq!(kept, vec![vec![1u8; 16], vec![2u8; 16]]);
+        Ok(())
     }
 }
 

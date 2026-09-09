@@ -28,7 +28,18 @@
 	import AIPromptsModal from '$lib/components/settings/AIPromptsModal.svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { thinkingPreferences } from './thinkingPreferences.svelte'
-	import { getReasoningCapability, REASONING_OFF, type ReasoningProviderModel } from '../reasoningRegistry'
+	import {
+		getReasoningCapability,
+		REASONING_OFF,
+		type ReasoningProviderModel
+	} from '../reasoningRegistry'
+
+	let {
+		/** Whether this dropdown carries the custom-prompt entries. Off where the surface
+		 * has an assistant settings modal — its Instructions section owns them there, and
+		 * two ways in would drift. The home composer has no such modal, so it keeps them. */
+		promptSettings = true
+	}: { promptSettings?: boolean } = $props()
 
 	const aiChatManager = getAiChatManager()
 	const AI_SETTINGS_HREF = `${base}/workspace_settings?tab=ai`
@@ -225,11 +236,10 @@
 	const config = $derived<ChatModelSettingsConfig>({
 		label: providerModel.model,
 		title: 'Model & reasoning settings',
-		badge:
-			freeTier && !freeTier.exhausted
-				? { text: 'Free', warn: freeRunningLow }
-				: undefined,
-		topItems: (close) => [paramItems(close)],
+		badge: freeTier && !freeTier.exhausted ? { text: 'Free', warn: freeRunningLow } : undefined,
+		// Off in a session: the assistant settings modal's Instructions section owns the
+		// prompt entries there, so the menu would offer the same thing twice.
+		topItems: promptSettings ? (close) => [paramItems(close)] : undefined,
 		sections: [
 			{
 				label: 'Model',
@@ -267,18 +277,20 @@
 
 <ChatModelSettings {config} />
 
-<AIPromptsModal
-	bind:open={modalOpen}
-	bind:customPrompts
-	scope={modalScope}
-	modes={[activeMode]}
-	readOnly={modalReadOnly}
-	{readOnlyReason}
-	onSave={modalReadOnly ? undefined : save}
-	onReset={reset}
-	{hasChanges}
-	title={modalScope === 'user' ? 'User AI prompt' : 'Workspace AI prompt'}
-	target="body"
-	fixedHeight="sm"
-	settingsHref={isAdmin ? AI_SETTINGS_HREF : undefined}
-/>
+{#if promptSettings}
+	<AIPromptsModal
+		bind:open={modalOpen}
+		bind:customPrompts
+		scope={modalScope}
+		modes={[activeMode]}
+		readOnly={modalReadOnly}
+		{readOnlyReason}
+		onSave={modalReadOnly ? undefined : save}
+		onReset={reset}
+		{hasChanges}
+		title={modalScope === 'user' ? 'User AI prompt' : 'Workspace AI prompt'}
+		target="body"
+		fixedHeight="sm"
+		settingsHref={isAdmin ? AI_SETTINGS_HREF : undefined}
+	/>
+{/if}

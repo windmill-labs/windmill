@@ -59,11 +59,11 @@ use windmill_common::{
         CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
         DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         GITHUB_APP_WEBHOOK_BASE_URL_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
-        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
-        RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RUFF_CONFIG_SETTING,
-        WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
-        WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
-        WS_BASE_URL_SETTING,
+        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, INSTANCE_BANNER_SETTING,
+        MAX_RETENTION_OVERRIDE_WORKSPACES, RETENTION_PERIOD_SECS_OVERRIDES_SETTING,
+        RUFF_CONFIG_SETTING, WORKSPACE_FAIRNESS_DURATION_SECS_SETTING,
+        WORKSPACE_FAIRNESS_ENABLED_SETTING, WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING,
+        WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING, WS_BASE_URL_SETTING,
     },
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
@@ -284,15 +284,28 @@ pub async fn test_s3_bucket(
     use bytes::Bytes;
     use futures::StreamExt;
 
-    // The probe executes on the API server itself. On multi-tenant Cloud that is a shared control
-    // plane, so we constrain untrusted callers to remove the SSRF / credential-exfiltration /
-    // local-filesystem surface (see validate_object_storage_test). On self-hosted instances the
-    // object store usually lives on the local/private network and all authenticated users are
-    // trusted, so testing there stays unrestricted. Super admins keep the unrestricted path too.
+    // The probe executes on the API server itself and reflects the upstream response into the
+    // error, so any authenticated caller could otherwise use it as an SSRF / port-scan primitive
+    // against the server's network, exfiltrate its ambient credentials, or write to its local
+    // disk (see validate_object_storage_test). That holds on self-hosted instances as much as on
+    // Cloud, so only super admins get the unrestricted path.
     let is_super_admin = windmill_api_auth::is_super_admin_authed(&db, &authed).await?;
-    let restrict = !is_super_admin && *CLOUD_HOSTED;
+    let restrict = !is_super_admin;
     if restrict {
-        validate_object_storage_test(&test_s3_bucket).await?;
+        validate_object_storage_test(&test_s3_bucket)
+            .await
+            .map_err(|e| match e {
+                // A job token never counts as a super admin (it is capped at workspace admin), so
+                // a super admin calling this route from a script is told why rather than that
+                // they lack a privilege they hold.
+                error::Error::NotAuthorized(msg) if authed.job_id.is_some() => {
+                    error::Error::NotAuthorized(format!(
+                        "{msg} A job token ($WM_TOKEN) is never treated as a super admin; call \
+                         this route with a user token instead."
+                    ))
+                }
+                e => e,
+            })?;
     }
 
     let client = build_object_store_from_settings(test_s3_bucket, Some(&db))
@@ -355,8 +368,8 @@ pub async fn test_s3_bucket(
     }
 }
 
-// Hardening for the object-storage connectivity test by an untrusted (non-super-admin) caller on
-// Cloud. The probe runs on the shared API server, so without these constraints an authenticated
+// Hardening for the object-storage connectivity test by an untrusted (non-super-admin) caller.
+// The probe runs on the API server, so without these constraints an authenticated
 // user could coerce the server into connecting to arbitrary internal endpoints (SSRF), signing
 // requests with the instance role (credential exfiltration), or reading/writing the server's local
 // disk (filesystem object store).
@@ -365,6 +378,11 @@ async fn validate_object_storage_test(settings: &ObjectSettings) -> error::Resul
     fn non_empty(opt: &Option<String>) -> bool {
         opt.as_ref().is_some_and(|s| !s.is_empty())
     }
+
+    // Every refusal names the way out: the resource usually works in jobs (workers reach the
+    // endpoint directly), so without it the refusal reads as a broken resource.
+    const ALTERNATIVE: &str =
+        "Ask a super admin to run it, or test the resource from a script, which runs on a worker.";
 
     // Reject backends that rely on the server's identity or local filesystem, require explicit
     // credentials for the rest (so the server never falls back to its own ambient credentials), and
@@ -376,20 +394,25 @@ async fn validate_object_storage_test(settings: &ObjectSettings) -> error::Resul
     let effective_endpoint: Option<String> = match settings {
         ObjectSettings::Filesystem(_) => {
             return Err(error::Error::NotAuthorized(
-                "Testing a local filesystem object store requires a super admin".to_string(),
+                "Testing a local filesystem object store requires a super admin: it runs on the \
+                 Windmill server and reads and writes the server's local disk. Ask a super admin \
+                 to run it."
+                    .to_string(),
             ));
         }
         ObjectSettings::AwsOidc(_) => {
-            return Err(error::Error::NotAuthorized(
-                "Testing OIDC-based object storage requires a super admin".to_string(),
-            ));
+            return Err(error::Error::NotAuthorized(format!(
+                "Testing OIDC-based object storage requires a super admin: it runs on the \
+                 Windmill server with the server's own identity. {ALTERNATIVE}"
+            )));
         }
         ObjectSettings::S3(s3) => {
             if !(non_empty(&s3.access_key) && non_empty(&s3.secret_key)) {
-                return Err(error::Error::NotAuthorized(
-                    "Testing S3 storage without explicit credentials requires a super admin"
-                        .to_string(),
-                ));
+                return Err(error::Error::NotAuthorized(format!(
+                    "Testing S3 storage without an explicit access key and secret key requires a \
+                     super admin: it runs on the Windmill server, which would use its own ambient \
+                     credentials. {ALTERNATIVE}"
+                )));
             }
             let region = s3
                 .region
@@ -413,10 +436,11 @@ async fn validate_object_storage_test(settings: &ObjectSettings) -> error::Resul
         }
         ObjectSettings::Azure(azure) => {
             if !non_empty(&azure.access_key) {
-                return Err(error::Error::NotAuthorized(
-                    "Testing Azure storage without an explicit access key requires a super admin"
-                        .to_string(),
-                ));
+                return Err(error::Error::NotAuthorized(format!(
+                    "Testing Azure storage without an explicit access key requires a super admin: \
+                     it runs on the Windmill server, which would use its own ambient credentials. \
+                     {ALTERNATIVE}"
+                )));
             }
             Some(
                 azure
@@ -432,10 +456,11 @@ async fn validate_object_storage_test(settings: &ObjectSettings) -> error::Resul
             // otherwise an untrusted caller could probe with the server's identity (the very
             // SSRF/credential-exfil this function guards against).
             if windmill_object_store::gcs_service_account_key_is_blank(&gcs.service_account_key) {
-                return Err(error::Error::NotAuthorized(
-                    "Testing GCS storage without a service account key requires a super admin"
-                        .to_string(),
-                ));
+                return Err(error::Error::NotAuthorized(format!(
+                    "Testing GCS storage without a service account key requires a super admin: \
+                     it runs on the Windmill server, which would use its own ambient credentials. \
+                     {ALTERNATIVE}"
+                )));
             }
             // The service-account-key JSON can override the data-plane URL (`gcs_base_url`) and the
             // OAuth token endpoint (`token_uri`); the GCS client connects to whatever they point at.
@@ -492,10 +517,15 @@ async fn validate_public_endpoint(endpoint: &str) -> error::Result<()> {
     // attempts (a name resolving to both a public and a private address).
     for addr in addrs {
         if is_forbidden_ip(addr.ip()) {
-            return Err(error::Error::NotAuthorized(
-                "Testing object storage at a private, loopback, or link-local endpoint requires a super admin"
-                    .to_string(),
-            ));
+            // The resolved address stays out of the message: it is the server's resolver's
+            // answer, and this message is only ever shown to the caller being constrained.
+            return Err(error::Error::NotAuthorized(format!(
+                "Testing object storage at '{host}', which resolves to a private, loopback, or \
+                 link-local address, requires a super admin: this test runs on the Windmill \
+                 server, which is not allowed to probe internal addresses for non-super-admins. \
+                 Ask a super admin to run it, or test the resource from a script, which runs on \
+                 a worker."
+            )));
         }
     }
     Ok(())
@@ -1142,6 +1172,18 @@ async fn run_setting_pre_write_hook(
                 }
             }
         }
+        INSTANCE_BANNER_SETTING => {
+            match value {
+                // Clearing (delete row) is handled by the caller; allow it through.
+                serde_json::Value::Null => {}
+                serde_json::Value::String(s) if s.trim().is_empty() => {}
+                v => {
+                    windmill_common::global_settings::validate_instance_banner(v).map_err(|e| {
+                        error::Error::BadRequest(format!("{INSTANCE_BANNER_SETTING}: {e}"))
+                    })?;
+                }
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -1282,6 +1324,7 @@ pub async fn get_global_setting(
         && key != APP_WORKSPACED_ROUTE_SETTING
         && key != HTTP_ROUTE_WORKSPACED_ROUTE_SETTING
         && key != WS_BASE_URL_SETTING
+        && key != INSTANCE_BANNER_SETTING
     {
         require_super_admin(&db, &authed).await?;
     }
@@ -2008,7 +2051,10 @@ struct CachedResourceType {
     /// decodes the on-disk cache, where an absent key means "written before the
     /// column, leave the stored extension alone" and an explicit null means the hub
     /// dropped it. Plain serde folds both into `None`.
-    #[serde(default, deserialize_with = "windmill_common::more_serde::double_option")]
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option"
+    )]
     format_extension: Option<Option<String>>,
 }
 

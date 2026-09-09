@@ -1,14 +1,51 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-	agentConfigAsEdited,
 	agentConfigToInputTransforms,
+	agentEditorRefusal,
 	flowLocalInputs,
 	inputTransformsToAgentConfig,
 	nonStaticBrainKeys,
 	summarizeAgentBrain,
-	toolInputOverrides
+	toolInputOverrides,
+	transformValuedBrainKeys
 } from './agentResourceUtils'
+
+describe('transformValuedBrainKeys', () => {
+	// The tag is the whole test: `{type:'ai'}` carries no payload key to look for.
+	it('flags every transform variant, whatever it carries', () => {
+		expect(
+			transformValuedBrainKeys({
+				system_prompt: { type: 'ai' },
+				temperature: { type: 'javascript', expr: 'flow_input.t' },
+				max_iterations: { type: 'static', value: 3 }
+			})
+		).toEqual(['system_prompt', 'temperature', 'max_iterations'])
+	})
+
+	it('leaves the brain values that are legitimately objects', () => {
+		expect(
+			transformValuedBrainKeys({
+				output_schema: { type: 'object', properties: {} },
+				memory: { kind: 'auto', context_length: 20 },
+				provider: { kind: 'openai', model: 'gpt-4o' },
+				system_prompt: 'hi'
+			})
+		).toEqual([])
+	})
+})
+
+describe('agentEditorRefusal', () => {
+	it('opens an agent', () => {
+		expect(agentEditorRefusal('u/admin/agent', 'ai_agent')).toBeUndefined()
+	})
+
+	// A path with no deployed row answers with its own draft, and the generic resource editor writes
+	// no type: assuming `ai_agent` there would create that path as an agent on deploy.
+	it('refuses an unknown type rather than assuming one', () => {
+		expect(agentEditorRefusal('u/admin/db', undefined)).toContain('no deployed agent')
+	})
+})
 
 describe('summarizeAgentBrain', () => {
 	it('returns only set fields, in brain-key order, formatted', () => {
@@ -20,9 +57,9 @@ describe('summarizeAgentBrain', () => {
 			max_iterations: 10
 		})
 		expect(rows).toEqual([
-			{ label: 'Model', value: 'openai · gpt-4o' },
-			{ label: 'System prompt', value: 'You are helpful' },
-			{ label: 'Streaming', value: 'on' },
+			{ label: 'Provider', value: 'openai · gpt-4o' },
+			{ label: 'System message', value: 'You are helpful' },
+			{ label: 'Stream the response', value: 'on' },
 			{ label: 'Temperature', value: '0.7' },
 			{ label: 'Max iterations', value: '10' }
 		])
@@ -67,24 +104,6 @@ describe('inputTransformsToAgentConfig', () => {
 
 	it('defaults tools to []', () => {
 		expect(inputTransformsToAgentConfig({}, undefined)).toEqual({ tools: [] })
-	})
-})
-
-describe('agentConfigAsEdited', () => {
-	it('keeps an expression as itself, where the saved config would drop it', () => {
-		const transforms = {
-			system_prompt: { type: 'static', value: 'hi' },
-			temperature: { type: 'javascript', expr: 'flow_input.t' },
-			max_iterations: { type: 'static', value: undefined },
-			user_message: { type: 'static', value: 'hello' }
-		} as any
-		expect(agentConfigAsEdited(transforms, [])).toEqual({
-			tools: [],
-			system_prompt: 'hi',
-			temperature: { type: 'javascript', expr: 'flow_input.t' }
-		})
-		// The saved shape is blind to the expression: that is the difference this exists for.
-		expect(inputTransformsToAgentConfig(transforms, [])).toEqual({ tools: [], system_prompt: 'hi' })
 	})
 })
 

@@ -46,7 +46,12 @@ export interface ChatViewHost {
 	/** API-level messages. Only the count is read (context usage visibility). */
 	messages: readonly unknown[]
 	contextTokens: number
+	/** The workspace a message's paths and jobs resolve against, which a fork session
+	 * pins away from the navigated one. */
+	readonly operatingWorkspace: string | undefined
 	loading: boolean
+	/** A turn this tab can neither follow nor stop, held by another tab on the same chat. */
+	readonly runHeldElsewhere: boolean
 	loadingLabel: string | undefined
 	compacting: boolean
 	currentReply: string

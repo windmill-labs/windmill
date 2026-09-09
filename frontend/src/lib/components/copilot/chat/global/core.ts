@@ -20,6 +20,7 @@ import {
 	WebsocketTriggerService
 } from '$lib/gen'
 import { createTwoFilesPatch } from 'diff'
+import { deepEqual } from 'fast-equals'
 import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
 import { $ScriptLang } from '$lib/gen/schemas.gen'
 import type {
@@ -47,6 +48,16 @@ import {
 	STARTER_RUNNABLE_KEY,
 	type FrameworkKey
 } from '$lib/components/raw_apps/templates'
+import {
+	coerceArgsToSchema,
+	dropUndeclaredArgs,
+	enforceDisabledDefaults,
+	redactFileArgs,
+	redactSecretArgs,
+	stripFileArgs
+} from '$lib/components/job_args'
+import { processSecretArgs } from '$lib/components/secretArgUtils'
+import { PLAN_MODE_MESSAGES } from '../planModeMessages'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
 import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
@@ -120,6 +131,7 @@ import {
 	isHubPath,
 	type CreatedResourceTriggerKind,
 	type PreviewCardKind,
+	type RunFormDisplay,
 	type Tool,
 	type ToolCallbacks,
 	type ToolDisplayAction
@@ -645,7 +657,7 @@ const writeVariableSchema = variableRequestSchema.extend({
 		.string()
 		.optional()
 		.describe(
-			'The value of the variable. Omit it to leave the value alone — required only when creating a new variable, or when changing a secret variable into a non-secret one. Never invent or guess the value of an existing variable: you cannot read it, and a "$var:..." reference is NOT a valid value (that syntax only references a variable from inside a resource). Omitting it keeps whatever the draft already holds, so a value you set earlier in this conversation stays set; discard_local_draft abandons it.'
+			'The value of the variable. Omit it to leave the value alone — required only when creating a new variable, or when changing a secret variable into a non-secret one. Never invent or guess the value of an existing variable: you cannot read it, and a "$var:..." reference is NOT a valid value (a variable cannot reference itself). Omitting it keeps whatever the draft already holds, so a value you set earlier in this conversation stays set; discard_local_draft abandons it.'
 		),
 	is_secret: z
 		.boolean()
@@ -854,7 +866,9 @@ const testRunArgsSchema = z
 	.record(z.string(), z.any())
 	.nullable()
 	.optional()
-	.describe('Arguments to pass to the runnable. Omit or pass null when no arguments are needed.')
+	.describe(
+		'Arguments to pass to the runnable. Omit or pass null when no arguments are needed. An argument typed as a resource (format "resource-<type>" in the input schema) takes the bare string "$res:<path>" as its whole value — never an object wrapper like {"$res": "<path>"}, and never a plain path, both of which reach the runnable unresolved. Same for a variable, with "$var:<path>". The prefixed string can also sit in a nested field, e.g. {"gh_auth": {"token": "$var:g/all/gh_token"}}.'
+	)
 
 const backgroundArgSchema = z
 	.boolean()
@@ -887,7 +901,19 @@ const testRunScriptSchema = z.object({
 const testRunScriptToolDef = createToolDef(
 	testRunScriptSchema,
 	'test_run_script',
-	'Execute a preview-style test run of a script by path, preferring draft content when it exists.',
+	'Execute a preview-style test run of a script by path, preferring draft content when it exists. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call.',
+	{ strict: false }
+)
+
+const runScriptSchema = z.object({
+	path: z.string().describe('Workspace path of the deployed script to run.'),
+	args: testRunArgsSchema
+})
+
+const runScriptToolDef = createToolDef(
+	runScriptSchema,
+	'run_script',
+	'Run a DEPLOYED script for real, under the user\'s own permissions. Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call. A required file is the user\'s to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version ("the deployed X", "in production", "for real"); otherwise use test_run_script.',
 	{ strict: false }
 )
 
@@ -1320,7 +1346,7 @@ ${pipelineBullet}
 			: ' Pass items ("<kind>:<path>" entries naming the items you changed) so the review is scoped to them — omitting items preselects every pending change in the workspace'
 	}, or mode ("draft" or "fork") to force which comparison is shown. Prefer offering this review page over calling deploy_workspace_item directly when several items changed.
 - For a Windmill operation no other tool covers (workers, queue state, a run's args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
-- runScriptByPath / runFlowByPath from the API catalog run the DEPLOYED version of an item. Use them only when the user explicitly asks to run the deployed version, and read the item with read_workspace_item version: "deployed" first so the arguments match the deployed input schema (a draft may have different inputs). To test something you are editing or just wrote, always use test_run_script, test_run_flow, or test_run_step — they run the draft.
+- Default to test_run_script, test_run_flow, or test_run_step for any run request, an existing script included; they prefer drafts and need no deployment. Use run_script only when the user names the deployed version ("the deployed X", "in production", "for real") — a bare "run X" is not that. For run_script, read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema, and fill in every one you can infer. runFlowByPath from the API catalog runs a deployed flow without a form: only for a flow the user asked to run deployed.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
@@ -2214,7 +2240,7 @@ function getResourceInstructions(): string {
 - Reading a variable returns \`{ type: 'variable', path, summary?, isSecret, isDraft }\` — never its value, secret or not. \`isSecret\` tells you whether the value is encrypted.
 - \`write_variable\` takes \`{ path, value?, is_secret?, description?, account?, is_oauth?, expires_at?, labels? }\`. Creating a variable needs \`value\` and \`is_secret\`; editing one needs only the fields you are changing. Omitting \`value\` keeps the stored value, which is the only way to edit a secret variable — you cannot read its value, so passing any \`value\` you did not get from the user destroys it.
 - For secret fields in a resource value, do NOT inline the raw secret. Create a Variable first with \`is_secret: true\`, then in the resource value reference it as \`"$var:path/to/variable"\`.
-- Reference formats inside resource values: \`$var:g/all/name\` (global), \`$var:u/user/name\` (user), \`$var:f/folder/name\` (folder). Reference another resource with \`$res:path/to/resource\`. These are references FROM a resource value; never store a \`$var:\` string as a variable's own value.
+- Reference formats inside resource values: \`$var:g/all/name\` (global), \`$var:u/user/name\` (user), \`$var:f/folder/name\` (folder). Reference another resource with \`$res:path/to/resource\`. The same strings are also how a resource or variable is passed as a run argument (see the run-argument rule in the resource reference below); what they are never valid as is a variable's own value.
 - When deploying drafts that depend on each other (e.g., a resource and the variables it references), deploy the variables first.
 - Use \`search_resource_types\` to discover valid \`resource_type\` names and their JSON Schemas. Match the resource value to that schema.
 - For OAuth resources, the \`is_oauth: true\` flag is managed by Windmill's OAuth flow; global mode generally creates manual resources, not OAuth ones.
@@ -3637,9 +3663,28 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = testRunScriptSchema.parse(ctx.args)
 			return testRunScriptByPath(parsed, ctx)
 		},
-		requiresConfirmation: true,
-		confirmationMessage: (args) => `Run a test of ${pathLeaf(args?.path, 'the script')}`,
+		// No requiresConfirmation: the argument form is the confirmation, and the bypass posture
+		// answers it with what the form opened with — a decision made for the user, so the
+		// posture's own list has to name it. One thing does run before Run: see the note on
+		// the form's SchemaForm.
+		bypassedByAutoAccept: true,
+		confirmationMessage: 'Run a test of a script',
+		streamingLabel: 'Preparing the test form...',
 		queuedLabel: (args) => `Test ${args?.path ?? 'the script'}`,
+		showDetails: true,
+		autoCollapseDetails: false
+	},
+	{
+		def: runScriptToolDef,
+		fn: async (ctx) => {
+			const parsed = runScriptSchema.parse(ctx.args)
+			return runDeployedScript(parsed, ctx)
+		},
+		// No requiresConfirmation, for the reason test_run_script carries.
+		bypassedByAutoAccept: true,
+		confirmationMessage: 'Run a deployed script',
+		streamingLabel: 'Preparing the run form...',
+		queuedLabel: (args) => `Run ${args?.path ?? 'a script'}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -4280,8 +4325,8 @@ export const SESSION_PREVIEW_TOOL_NAMES = new Set([
 
 /**
  * The global tool set for a given chat: the full `globalTools` for a session
- * chat, or `globalTools` minus the session-only preview tools for the regular
- * global side-panel chat.
+ * chat, or `globalTools` minus the preview tools for the regular global
+ * side-panel chat.
  */
 export function globalToolsFor({ sessionPreview }: { sessionPreview: boolean }): Tool<{}>[] {
 	const tools = sessionPreview
@@ -5105,7 +5150,7 @@ function writeVariableDraft(args: WriteVariableArgs, ctx: WriteDraftCtx): Promis
 	// is always the model echoing the reference syntax back instead of a real value.
 	if (args.value === `$var:${args.path}`) {
 		throw new Error(
-			`"${args.value}" is not a valid value for variable "${args.path}" — it is a self-reference. The "$var:" syntax only references a variable from inside a resource value. Omit value to keep the current one.`
+			`"${args.value}" is not a valid value for variable "${args.path}" — it is a self-reference. Omit value to keep the current one.`
 		)
 	}
 	return writeDraft(VARIABLE_SPEC, 'variable', args.path, args, ctx, { override: args.override })
@@ -5114,16 +5159,52 @@ function writeVariableDraft(args: WriteVariableArgs, ctx: WriteDraftCtx): Promis
 async function loadScriptForEdit(
 	path: string,
 	workspace: string
-): Promise<{ content: string; language: ScriptLang; summary?: string }> {
+): Promise<{
+	content: string
+	language: ScriptLang
+	summary?: string
+	schema?: Record<string, any>
+}> {
 	const draft = await getGlobalDraft(workspace, 'script', path)
 	if (draft) {
 		if (typeof draft.value !== 'string' || !draft.language) {
 			throw new Error(`Draft script "${path}" is missing content or language.`)
 		}
-		return { content: draft.value, language: draft.language, summary: draft.summary }
+		return {
+			content: draft.value,
+			language: draft.language,
+			summary: draft.summary,
+			schema: draft.schema as Record<string, any> | undefined
+		}
 	}
 	const script = await ScriptService.getScriptByPath({ workspace, path })
-	return { content: script.content, language: script.language, summary: script.summary }
+	return {
+		content: script.content,
+		language: script.language,
+		summary: script.summary,
+		schema: script.schema as Record<string, any> | undefined
+	}
+}
+
+/** The fields a test form offers, for code that may never have been deployed. A draft the
+ * chat wrote carries the schema it inferred at write time; anything else — a draft written
+ * elsewhere, a deployed script whose schema predates an edit — is inferred here from the
+ * content that is about to run, so the form cannot offer a field the code no longer takes. */
+async function schemaForTestRun(script: {
+	content: string
+	language: ScriptLang
+	schema?: Record<string, any>
+}): Promise<Record<string, any>> {
+	// Emptily declared is not declared: a stored `properties: {}` means the schema predates
+	// the arguments the code now takes, so infer rather than offer a form with no fields.
+	if (Object.keys(script.schema?.properties ?? {}).length > 0) return script.schema!
+	const schema = emptySchema()
+	try {
+		await inferArgs(script.language, script.content, schema)
+	} catch (e) {
+		console.error('Failed to infer script schema for the test run form', e)
+	}
+	return schema as unknown as Record<string, any>
 }
 
 async function editScript(
@@ -5368,30 +5449,324 @@ async function testRunScriptByPath(
 	args: z.infer<typeof testRunScriptSchema>,
 	ctx: WriteDraftCtx
 ): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
+	const { workspace } = ctx
 	const script = await loadScriptForEdit(args.path, workspace)
-	const testArgs = normalizeTestRunArgs(args.args)
+	const schema = await schemaForTestRun(script)
 
-	return executeTestRun({
-		jobStarter: () =>
-			JobService.runScriptPreview({
-				workspace,
-				requestBody: {
-					path: args.path,
-					content: script.content,
-					args: testArgs,
-					language: script.language
-				}
-			}),
+	return runThroughForm(
+		{
+			path: args.path,
+			schema,
+			summary: script.summary,
+			kind: 'test',
+			code: script.content,
+			lang: script.language,
+			// Never "deployed" here: the code about to run is the draft the model is still
+			// writing, and a line telling it to re-read the deployed schema would send it
+			// to the wrong version.
+			schemaNoun: 'script',
+			toolName: 'test_run_script',
+			proposed: args.args,
+			startMessage: `Running test for script "${args.path}"...`,
+			contextName: 'script',
+			// Its own loop: the model is told to test and iterate, so the posture answers the
+			// form with what it opened with rather than parking the loop on a card.
+			autoAcceptable: true,
+			background: args.background,
+			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
+			startJob: (submitted) =>
+				JobService.runScriptPreview({
+					workspace,
+					requestBody: {
+						path: args.path,
+						content: script.content,
+						args: submitted,
+						language: script.language
+					}
+				})
+		},
+		ctx
+	)
+}
+
+/** The "do not call again" half is load-bearing: without it the model re-proposes the
+ * call, which re-opens the form the user just dismissed, and Stop becomes their only
+ * way out. */
+const runFormCancelled = (toolName: string) =>
+	`The user cancelled the run form. The script did NOT run. Do not call ${toolName} again unless the user asks for it.`
+
+/** The model only needs to see what the user changed, and nothing bounds an object or
+ * array argument the form let them paste into. */
+const MAX_SUBMITTED_ARGS_LENGTH = 4000
+
+/** The card's own copy is bounded separately, and far higher: it is what the details pane
+ * renders, and JobArgs stops rendering the JSON in full at this size regardless. */
+const MAX_PERSISTED_ARGS_LENGTH = 100_000
+
+/** One run through an argument form: conform what the model proposed to the schema of the
+ * version about to run, open the form on it, then run whatever came back. Both tools that
+ * run a script are this, differing only in where the schema comes from and how the job
+ * starts — so the user meets one card whichever they asked for. */
+type FormRunSpec = {
+	path: string
+	schema: Record<string, any>
+	summary?: string
+	kind: 'run' | 'test'
+	/** The code a test run is about to preview, so its form can offer the same dynamic-option
+	 * pickers the script editor's test panel does. Omitted for a deployed run, which names a
+	 * path instead. */
+	code?: string
+	lang?: ScriptLang
+	/** How the lines the model reads back name the version this ran: telling it to re-read
+	 * the "deployed schema" of a draft would send it to the wrong code. */
+	schemaNoun: string
+	toolName: string
+	proposed: Record<string, any> | null | undefined
+	startMessage: string
+	contextName: 'script' | 'flow'
+	/** Whether the bypass posture may answer this form with what it opened with. */
+	autoAcceptable?: boolean
+	background?: boolean
+	detachAfterMs?: number
+	startJob: (submitted: Record<string, any>) => Promise<string>
+}
+
+async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	// Asked of the posture, not of the tool: every run tool is auto-acceptable, so a
+	// host with no form would otherwise run one on the model's arguments alone, in any
+	// posture. What a bypass answers is a decision the user already made; without it there
+	// is no consent to be had here and nothing to fall back on.
+	const postureAnswers = Boolean(
+		spec.autoAcceptable && toolCallbacks.shouldAutoAcceptToolConfirmations?.(spec.toolName)
+	)
+	if (!toolCallbacks.requestRunArgs && !postureAnswers) {
+		return 'This chat cannot show a run form, so a script cannot be run from here.'
+	}
+
+	// processToolCall gates plan mode once, before the schema fetch, and this form is its own
+	// confirmation so it never reaches that gate again. Repeated wherever a write follows: a
+	// mounted field mints on its own, which no later gate can unmake.
+	const blockedByPlanMode = (): string | undefined => {
+		if (!toolCallbacks.isPlanModeActive?.()) return undefined
+		toolCallbacks.onToolBlockedByPlanMode?.()
+		toolCallbacks.setToolStatus(toolId, {
+			content: PLAN_MODE_MESSAGES.blockedLabel,
+			isLoading: false,
+			isStreamingArguments: false,
+			error: PLAN_MODE_MESSAGES.blockedResult,
+			blockedByPlanMode: true
+		})
+		return PLAN_MODE_MESSAGES.blockedResult
+	}
+	const blockedBeforeForm = blockedByPlanMode()
+	if (blockedBeforeForm) return blockedBeforeForm
+
+	const schema = spec.schema
+	// Whether to ask is the only question decided here. What a mounted field would hold — a
+	// default, a synthesised empty, whether Run lights up — is the form's own business: any
+	// second derivation of it here can start a run the form itself would refuse.
+	const autoAccepted = postureAnswers
+	const strippedKeys: string[] = []
+	const coerced = autoAccepted
+		? undefined
+		: coerceArgsToSchema(normalizeTestRunArgs(spec.proposed), schema)
+	let proposed: Record<string, any>
+	let resetKeys: string[]
+	let undeclaredKeys: string[]
+	if (coerced) {
+		resetKeys = coerced.resetKeys
+		undeclaredKeys = coerced.undeclaredKeys
+		// Left as the model proposed it, minted by the widget the field mounts: a reference put
+		// here instead would be normalised away by the nested form an object secret renders as.
+		proposed = stripFileArgs(coerced.args, schema as any, strippedKeys)
+	} else {
+		// Both rules hold against every caller, not only the ones a form stands in front of:
+		// an undeclared argument has no field anywhere, and a disabled one is nobody's to set.
+		// Without the rest of the coercion, which answers what a mounted widget would show.
+		const declared = dropUndeclaredArgs(normalizeTestRunArgs(spec.proposed), schema)
+		undeclaredKeys = declared.undeclaredKeys
+		const enforced = enforceDisabledDefaults(declared.args, schema)
+		resetKeys = enforced.resetKeys
+		// In the widget's stead: with no form there is no PasswordArgInput to turn a proposed
+		// secret into a reference, and the job's arguments outlive the run.
+		try {
+			proposed = await processSecretArgs(enforced.args, schema as any, workspace)
+		} catch (e) {
+			const message = `Failed to store the sensitive arguments of "${spec.path}": ${e}`
+			toolCallbacks.setToolStatus(toolId, {
+				content: message,
+				isLoading: false,
+				isStreamingArguments: false,
+				error: message
+			})
+			return message
+		}
+	}
+	const form: RunFormDisplay = {
+		path: spec.path,
+		summary: spec.summary || undefined,
+		kind: spec.kind,
+		schema: autoAccepted ? undefined : schema,
+		code: autoAccepted ? undefined : spec.code,
+		lang: autoAccepted ? undefined : spec.lang,
+		submitted: autoAccepted || undefined,
+		args: proposed,
+		clearedKeys: coerced?.clearedKeys.length ? coerced.clearedKeys : undefined,
+		resetKeys: resetKeys.length ? resetKeys : undefined,
+		strippedKeys: strippedKeys.length ? strippedKeys : undefined
+	}
+
+	// Files only: nothing rewrites `runForm.args` after this, so bytes left in it outlive the
+	// size guard that covers `parameters`.
+	const persisted = { ...form, args: redactFileArgs(proposed, schema as any) }
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: autoAccepted
+			? spec.startMessage
+			: `Waiting for you to confirm the arguments of "${spec.path}"`,
+		runForm: persisted,
+		// Not the raw tool-call arguments: the card settles on what the form opened with.
+		// Only settles it — the raw proposal still renders while the call streams in.
+		parameters: persisted.args,
+		isLoading: true
+	})
+
+	// `form`, not `persisted`: a password field mints from what it opens with.
+	const submitted = toolCallbacks.requestRunArgs
+		? await toolCallbacks.requestRunArgs(toolId, form, { autoAccepted })
+		: proposed
+	if (!submitted) {
+		toolCallbacks.setToolStatus(toolId, {
+			content: `Run of "${spec.path}" cancelled by user`,
+			isLoading: false,
+			isStreamingArguments: false,
+			error: 'Cancelled by user',
+			declinedByUser: true
+		})
+		return runFormCancelled(spec.toolName)
+	}
+
+	const blockedBeforeRun = blockedByPlanMode()
+	if (blockedBeforeRun) return blockedBeforeRun
+
+	// Every job leaves through here, so this is where a sensitive argument becomes a reference:
+	// the form mints as the user types and the bypass mints in its stead, but a host answering
+	// the form its own way — the eval harness does — would hand over a literal. Idempotent, so
+	// the two that already minted pay a walk and no round trip.
+	let toRun: Record<string, any>
+	try {
+		toRun = await processSecretArgs(submitted, schema as any, workspace)
+	} catch (e) {
+		const message = `Failed to store the sensitive arguments of "${spec.path}": ${e}`
+		toolCallbacks.setToolStatus(toolId, {
+			content: message,
+			isLoading: false,
+			isStreamingArguments: false,
+			error: message
+		})
+		return message
+	}
+
+	// The card's details pane must show what ran, not what was proposed. Bytes are marked by
+	// size because the card is persisted; everything else stands as the run page shows it for
+	// the same job.
+	const forCard = redactFileArgs(toRun, schema as any)
+	// The transcript is re-cloned into IndexedDB on every save and a form carries whatever was
+	// pasted into it, so past what the pane would render the card reads the arguments off the
+	// job instead. Only once there is a job to read them from: substituting the marker any
+	// earlier would leave a run that never started showing nothing but the marker.
+	const oversized = JSON.stringify(forCard).length > MAX_PERSISTED_ARGS_LENGTH
+	if (!oversized) {
+		toolCallbacks.setToolStatus(toolId, { parameters: forCard })
+	}
+
+	const outcome = await executeTestRun({
+		jobStarter: async () => {
+			const jobId = await spec.startJob(toRun)
+			// The form's own submitted flag flips a round trip earlier, when the user presses
+			// Run; only from here is there a job for a stopped turn to say it left running.
+			toolCallbacks.markRunFormStarted?.(toolId)
+			if (oversized) {
+				toolCallbacks.setToolStatus(toolId, { parameters: { reason: 'WINDMILL_TOO_BIG' } })
+			}
+			return jobId
+		},
 		workspace,
 		toolCallbacks,
 		toolId,
-		startMessage: `Running test for script "${args.path}"...`,
-		contextName: 'script',
-		background: args.background,
-		detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
-		label: args.path
+		startMessage: spec.startMessage,
+		contextName: spec.contextName,
+		actionNoun: spec.kind === 'test' ? 'test' : 'run',
+		background: spec.background,
+		detachAfterMs: spec.detachAfterMs,
+		label: spec.path
 	})
+
+	const schemaNoun = `${spec.schemaNoun} schema`
+	// Only what the form could make no reading of: a wrong-typed value it can read is
+	// converted silently, since the field then shows what the run carries and there is
+	// nothing to report.
+	const clearedKeys = coerced?.clearedKeys ?? []
+	const cleared = clearedKeys.length
+		? `\nThe ${schemaNoun} declares ${clearedKeys.join(', ')}, but you sent ${clearedKeys.length > 1 ? 'them in shapes' : 'it in a shape'} with no reading in the declared ${clearedKeys.length > 1 ? 'types' : 'type'}, so the ${clearedKeys.length > 1 ? 'fields opened' : 'field opened'} empty and the run did not carry ${clearedKeys.length > 1 ? 'them' : 'it'}. Re-read the input schema and match ${clearedKeys.length > 1 ? 'their declared types' : 'its declared type'}.`
+		: ''
+	const reset = resetKeys.length
+		? `\nThe ${schemaNoun} disables ${resetKeys.join(', ')}, so the run used ${resetKeys.length > 1 ? 'their defaults' : 'its default'} rather than the proposed ${resetKeys.length > 1 ? 'values' : 'value'}. Do not propose ${resetKeys.length > 1 ? 'them' : 'it'} again.`
+		: ''
+	// Nothing renders these, so the model is the only one who can be told they went nowhere.
+	const undeclared = undeclaredKeys.length
+		? `\nThe ${schemaNoun} does not declare ${undeclaredKeys.join(', ')}, so ${undeclaredKeys.length > 1 ? 'they were' : 'it was'} not sent — no run form in Windmill offers a field the schema does not name. Re-read the input schema and use the arguments it declares.`
+		: ''
+	// Otherwise an emptied field reads as the user having deleted it, and the next call
+	// proposes the same bytes again.
+	const stripped = strippedKeys.length
+		? `\n${strippedKeys.join(', ')} ${strippedKeys.length > 1 ? 'are file arguments' : 'is a file argument'}, so the form opened ${strippedKeys.length > 1 ? 'them' : 'it'} empty for the user to attach. ${strippedKeys.length > 1 ? 'They are' : 'It is'} theirs to provide, not yours: do not propose ${strippedKeys.length > 1 ? 'them' : 'it'} again.`
+		: ''
+	// Redacted for the model alone: what it proposed is already in its own tool call, but a
+	// secret the user typed into the form would be entering its context here.
+	const redacted = redactFileArgs(redactSecretArgs(toRun, schema as any), schema as any)
+	const submittedJson = JSON.stringify(redacted)
+	const shown =
+		submittedJson.length > MAX_SUBMITTED_ARGS_LENGTH
+			? submittedJson.slice(0, MAX_SUBMITTED_ARGS_LENGTH) + '... (truncated)'
+			: submittedJson
+	// Naming them costs a copy of arguments already in the call above, and cleared/reset/
+	// stripped name every way the form's own differ from the proposed ones — so only what
+	// the user changed is news.
+	const ran = deepEqual(redacted, proposed)
+		? 'Ran with the arguments the form opened with, unedited.'
+		: `Ran with arguments: ${shown}`
+	return `${ran}${cleared}${reset}${stripped}${undeclared}\n${outcome}`
+}
+
+async function runDeployedScript(
+	args: z.infer<typeof runScriptSchema>,
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace } = ctx
+	// No getDraft: this runs the script as it is live, so the form has to offer the
+	// inputs the live version accepts and not a draft's.
+	const script = await ScriptService.getScriptByPath({ workspace, path: args.path })
+	return runThroughForm(
+		{
+			path: args.path,
+			schema: (script.schema as Record<string, any>) ?? {},
+			summary: script.summary,
+			kind: 'run',
+			schemaNoun: 'deployed',
+			toolName: 'run_script',
+			proposed: args.args,
+			startMessage: `Running "${args.path}"...`,
+			contextName: 'script',
+			// Bypassable like a test run: the posture is the user's standing answer, and a form
+			// it parks on is a card nobody is watching.
+			autoAcceptable: true,
+			startJob: (submitted) =>
+				JobService.runScriptByPath({ workspace, path: args.path, requestBody: submitted })
+		},
+		ctx
+	)
 }
 
 async function testRunFlowByPath(

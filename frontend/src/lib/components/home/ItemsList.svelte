@@ -16,7 +16,7 @@
 	} from '$lib/gen'
 	import { resource } from 'runed'
 	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { disableHubStore, userStore, workspaceStore } from '$lib/stores'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
 		ArrowDownUp,
@@ -24,7 +24,8 @@
 		ChevronsDownUp,
 		ChevronsUpDown,
 		Code2,
-		LayoutDashboard
+		LayoutDashboard,
+		Tag
 	} from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import CreateActionsMenu from './CreateActionsMenu.svelte'
@@ -39,6 +40,11 @@
 		type FilterSchemaRec
 	} from '$lib/components/FilterSearchbar.svelte'
 	import NoItemFound from './NoItemFound.svelte'
+	import WorkspaceEmptyState from './WorkspaceEmptyState.svelte'
+	import HubProjectPickerModal from './HubProjectPickerModal.svelte'
+	import ImportProjectModal from './ImportProjectModal.svelte'
+	import type { HubProjectPick } from '$lib/hubProject'
+	import ListFilters from './ListFilters.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
@@ -74,10 +80,10 @@
 	)
 
 	// FilterSearchbar schema — `_default_` is the free-text search; the rest mirror the
-	// boolean/kind list filters. Owner and label scoping are offered as searchbar presets
-	// (searchPresets) and resolve server-side (path_start / label) rather than filtering
-	// client-side. `content` is a distinct mode: it swaps the list for the client-side
-	// content-match view below (usable on any instance, not EE-gated).
+	// boolean/kind list filters. Owner and label are also reachable as searchbar presets
+	// (searchPresets) and as on-page chip rows (the ListFilters markup below). `content` is
+	// a distinct mode: it swaps the list for the client-side content-match view below
+	// (usable on any instance, not EE-gated).
 	let searchFilterSchema = $derived({
 		_default_: { type: 'string' as const, hidden: true },
 		content: {
@@ -86,8 +92,8 @@
 			description: 'Search across item contents'
 		},
 		// Owner (u/<user> or f/<folder>) and label are offered as presets built from what the
-		// list actually holds (see searchPresets); they drive the same server path-scope / label
-		// filter the old on-page chips did.
+		// list actually holds (see searchPresets); owner is a server path-scope, label a
+		// client-side filter over the loaded rows.
 		owner: { type: 'string' as const, label: 'Owner' },
 		label: { type: 'string' as const, label: 'Label' },
 		kind: {
@@ -694,6 +700,10 @@
 	// runnables an owner holds. A scope change (sort/archive/kind/…) doesn't go
 	// through here: the counts resource keys on those itself.
 	async function reloadItemsAndCounts(): Promise<void> {
+		// The answer can change with the rows: archiving the last item leaves the listing empty
+		// with something archived behind it, and a cached "nothing archived" would then call
+		// the workspace empty and hide the way to it until a page load.
+		archivedProbe = undefined
 		// A mutated row can be gone, or sit at a new path, afterwards: snapshot what
 		// was on screen so the selection can drop what this reload removes instead of
 		// keeping a dead path. `tick` lets the reloaded rows re-register first.
@@ -717,11 +727,20 @@
 		return true // should not happen
 	}
 
-	// Owner/label scope now live on the URL-synced searchbar filters (set via the presets),
-	// not standalone chip state — the whole data layer below still reads these two, so keep
-	// them as the single derived source. Empty string reads as "no filter".
+	// The whole data layer below reads these two derived views of the searchbar filters, so
+	// keep them the single source. Empty string reads as "no filter".
 	let ownerFilter = $derived((filterValues.val.owner || undefined) as string | undefined)
 	let labelFilter = $derived((filterValues.val.label || undefined) as string | undefined)
+	// Chip-row setters. Clearing deletes the key rather than writing null, which the
+	// searchbar would otherwise render as a `key: null` tag.
+	function setOwnerFilter(o: string | undefined) {
+		if (o == undefined) delete filterValues.val.owner
+		else filterValues.val.owner = o
+	}
+	function setLabelFilter(l: string | undefined) {
+		if (l == undefined) delete filterValues.val.label
+		else filterValues.val.label = l
+	}
 
 	const cmp = new Intl.Collator('en').compare
 
@@ -975,6 +994,105 @@
 		treeLazyMode && ownerCountsRes.current == undefined && ownerCountsRes.loading
 	)
 
+	// An import just landed, so the rows about to replace the empty state are all new: they
+	// fade in one after another rather than appearing as a finished list. Cleared on a timer
+	// because nothing else marks the end — the reload resolves before the rows animate.
+	let justImported = $state(false)
+	let justImportedTimer: ReturnType<typeof setTimeout> | undefined
+	function onImported() {
+		reloadItemsAndCounts()
+		justImported = true
+		clearTimeout(justImportedTimer)
+		justImportedTimer = setTimeout(() => (justImported = false), 2500)
+	}
+
+	// The hub import, owned here rather than by either entry point: the empty state's link and
+	// the create menu's Import section open the same dialog, and mounting one per entry point
+	// would put two of them on the page at once while the workspace is still empty.
+	let hubPick = $state<HubProjectPick | undefined>(undefined)
+	let hubPickerOpen = $state(false)
+
+	/**
+	 * Whether a workspace the default listing found empty is empty at all, or just has nothing
+	 * unarchived — two different states that want two different things said about them. Asked
+	 * only in that case, and once per workspace: one request for one row, never on a workspace
+	 * with something in it. `hasArchived` is undefined when the request failed — see the catch
+	 * for what that leaves standing.
+	 */
+	let archivedProbe = $state<{ workspace: string; hasArchived: boolean | undefined } | undefined>(
+		undefined
+	)
+	$effect(() => {
+		const ws = $workspaceStore
+		if (!ws || !workspaceEmpty || archivedProbe?.workspace === ws) return
+		untrack(() => void probeArchived(ws))
+	})
+	async function probeArchived(workspace: string) {
+		try {
+			// `includeWithoutMain` to match the listing: the backend drops `auto_kind = 'lib'`
+			// without it, so a workspace holding only archived library scripts would answer
+			// "nothing archived". Always true here — hiding library scripts puts a filter in
+			// `activeFilters`, which `workspaceEmpty` requires to be empty.
+			const res = await ScriptService.listRunnables({
+				workspace,
+				showArchived: true,
+				includeWithoutMain: true,
+				perPage: 1
+			})
+			archivedProbe = { workspace, hasArchived: (res.items?.length ?? 0) > 0 }
+		} catch (error) {
+			// Undefined, not false: false would say the workspace is empty and — since the
+			// toolbar is inert on the strength of the placeholder carrying the way to archived
+			// items — leave no way to them at all. Unknown keeps the ordinary caption, which
+			// promises nothing, and leaves the searchbar live as the fallback it used to be.
+			console.error('Could not check for archived items:', error)
+			archivedProbe = { workspace, hasArchived: undefined }
+		}
+	}
+	let emptyStateAnswered = $derived(archivedProbe?.workspace === $workspaceStore)
+	/**
+	 * The probe could not tell. The toolbar stays usable in that case: `inert` is only right
+	 * while the placeholder is the way to archived items, and here it cannot be.
+	 */
+	let archivedUnknown = $derived(emptyStateAnswered && archivedProbe?.hasArchived === undefined)
+	/**
+	 * Whether this user may be offered the create actions. The empty state's template import
+	 * and create menu do no permission check of their own, so an operator — or a workspace
+	 * whose direct-deploy protection cleared `showEditButtons` — must not be shown them.
+	 * Reading archived items is not a write, so it is not gated on this.
+	 */
+	let canCreateHere = $derived(!$userStore?.operator && showEditButtons)
+
+	// The workspace itself holds nothing — no filter is narrowing the list away. It stays
+	// false until the first load resolves: a skeleton already means "loading", and the
+	// empty state must not be mistaken for one. The controls it dims stay mounted, so
+	// nothing moves when the first item lands.
+	let workspaceEmpty = $derived(
+		!loading &&
+			!treeCountsPending &&
+			!contentActive &&
+			activeFilters.length === 0 &&
+			filteredItems != undefined &&
+			filteredItems.length === 0 &&
+			visiblePipelineFolders.size === 0 &&
+			!hasMoreServer
+	)
+	/**
+	 * Whether the placeholder below takes the toolbar's job over — it renders under the same
+	 * conditions. Standing the toolbar down depends on something else offering a way onwards:
+	 * where the placeholder holds back, as it does for an operator in a workspace that is
+	 * simply empty, these controls are all there is and stay live.
+	 */
+	let placeholderTakesOver = $derived(
+		workspaceEmpty && emptyStateAnswered && (archivedProbe?.hasArchived === true || canCreateHere)
+	)
+	/**
+	 * The toolbar is dimmed either way; `inert` also takes it off the pointer, which is only
+	 * right while the placeholder carries the way to archived items. A probe that could not
+	 * tell leaves it live as the fallback.
+	 */
+	let toolbarInert = $derived(placeholderTakesOver && !archivedUnknown)
+
 	// Owners the counts found the user has something in, split by kind. They cover
 	// what the folder/username lists miss: an item shared individually out of a
 	// folder or user space the user is otherwise not a member of.
@@ -1155,11 +1273,26 @@
 	function itemLabels(x: { labels?: string[]; inherited_labels?: string[] }): string[] {
 		return [...(x.labels ?? []), ...(x.inherited_labels ?? [])]
 	}
-	let allLabels = $derived(
-		Array.from(new Set(combinedItems?.flatMap((x) => itemLabels(x)) ?? [])).sort()
+	// Labels ranked by how many loaded rows carry them (ties alphabetical). Unlike the owner
+	// chips there is no workspace-wide count endpoint, so the order is window-local and can
+	// shift as later pages load. A row carrying a label both directly and by inheritance
+	// counts once.
+	let allLabels = $derived.by(() => {
+		const counts = new Map<string, number>()
+		for (const x of combinedItems ?? [])
+			for (const l of new Set(itemLabels(x))) counts.set(l, (counts.get(l) ?? 0) + 1)
+		return [...counts.keys()].sort(
+			(a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0) || cmp(a, b)
+		)
+	})
+	let hasChips = $derived(
+		owners.length > 0 ||
+			allLabels.length > 0 ||
+			ownerFilter != undefined ||
+			labelFilter != undefined
 	)
 	// FilterSearchbar presets: the owner prefixes and labels the list actually holds, so
-	// scoping to one is a click in the searchbar dropdown instead of a wall of on-page chips.
+	// scoping to one is a click in the searchbar dropdown.
 	// Owner sets the `owner` filter (server path-scope), label sets `label` (client filter).
 	// The `:\ ` separator and escaped spaces match the canonical `key:\ value` form parseToText
 	// emits, so the "already applied" check finds them after a reparse and won't re-offer a
@@ -1625,7 +1758,12 @@
 		}}
 	>
 		{#if !contentActive}
-			<div class="flex justify-start">
+			<!-- Kept mounted, not hidden, so the toolbar doesn't reflow the moment the first item
+			     lands; `inert` takes it out of the tab order and off the pointer meanwhile. A
+			     workspace with nothing but archived items reaches them from its own placeholder,
+			     so these controls are not the way there — but only where that placeholder
+			     renders, which is what `placeholderTakesOver` tracks. -->
+			<div class="flex justify-start" class:opacity-40={placeholderTakesOver} inert={toolbarInert}>
 				<ToggleButtonGroup
 					selected={itemKind}
 					onSelected={(v) => {
@@ -1666,9 +1804,10 @@
 			</div>
 		{/if}
 
-		{#if !loading && !contentActive}
+		{#if !loading && !contentActive && !workspaceEmpty}
 			<!-- List controls, between the kind toggle and the searchbar: select mode, tree
-			     view, expand/collapse (tree only), sort. -->
+			     view, expand/collapse (tree only), sort. Nothing to select, group or order on
+			     an empty workspace, so the whole row goes. -->
 			<div class="flex items-center gap-2">
 				{#if homeSelection.available && !homeSelection.active}
 					<Button
@@ -1723,7 +1862,11 @@
 		{/if}
 
 		<div class="flex grow items-center justify-end gap-2 min-w-0">
-			<div class="relative text-primary w-full min-w-[200px] max-w-[26rem]">
+			<div
+				class="relative text-primary w-full min-w-[200px] max-w-[26rem]"
+				class:opacity-40={placeholderTakesOver}
+				inert={toolbarInert}
+			>
 				<FilterSearchbar
 					schema={searchbarSchema}
 					bind:value={filterValues.val}
@@ -1738,12 +1881,40 @@
 			<!-- Same gate the old create actions used: hidden from operators and in workspaces
 			     whose direct-deploy protection cleared showEditButtons (NoDirectDeployAlert), since
 			     the menu itself does no permission check. -->
-			{#if !$userStore?.operator && showEditButtons}
-				<CreateActionsMenu />
+			{#if canCreateHere}
+				<!-- No hub entry where the instance has the hub turned off: the same setting the
+				     script and flow hub pickers observe. -->
+				<CreateActionsMenu
+					onImportHubProject={$disableHubStore ? undefined : () => (hubPickerOpen = true)}
+				/>
 			{/if}
 		</div>
 	</div>
-	{#if filteredItems?.length == 0}
+	{#if !contentActive && hasChips}
+		<!-- Owner and label chips on one line. Each function binding routes the chip's
+		     selection into the searchbar key of the same name, and `queryName` points
+		     ListFilters' own mount-time URL read at the param the filter instance syncs, so
+		     the two writers agree. No `syncQuery`: the filter instance owns the URL. -->
+		<div class="gap-2 w-full flex flex-wrap mt-3">
+			<ListFilters
+				inline
+				bind:selectedFilter={() => ownerFilter, setOwnerFilter}
+				filters={owners}
+				queryName="owner"
+				maxDisplayed={10}
+			/>
+			<ListFilters
+				inline
+				bind:selectedFilter={() => labelFilter, setLabelFilter}
+				filters={allLabels}
+				queryName="label"
+				maxDisplayed={10}
+				color="blue"
+				icon={Tag}
+			/>
+		</div>
+	{/if}
+	{#if filteredItems?.length == 0 && !workspaceEmpty}
 		<div class="mt-10"></div>
 	{/if}
 	<div class="mt-3">
@@ -1770,7 +1941,28 @@
 			<!-- Pipelines aren't part of the text filter, so only fall through to show
 			     them (list rows / injected tree folders) when not actively searching;
 			     a no-match search still reads as empty. -->
-			<NoItemFound {activeFilters} />
+			{#if workspaceEmpty}
+				<!-- Held until the archived probe answers rather than drawn and swapped: the two
+				     placeholders say different things, and showing the wrong one first says the
+				     workspace is empty when it is not. -->
+				{#if emptyStateAnswered}
+					{#if archivedProbe?.hasArchived || canCreateHere}
+						<!-- Shown to whoever has something to do here: the archived notice to
+						     everyone, since reading archived items is not a write, and the create
+						     actions only to a user who may take them. -->
+						<WorkspaceEmptyState
+							archivedOnly={archivedProbe?.hasArchived === true}
+							canCreate={canCreateHere}
+							onPick={(project) => (hubPick = project)}
+							onShowArchived={() => (filterValues.val = { ...filterValues.val, archived: true })}
+						/>
+					{:else}
+						<NoItemFound {activeFilters} />
+					{/if}
+				{/if}
+			{:else}
+				<NoItemFound {activeFilters} />
+			{/if}
 			{#if hasMoreServer && !searching}
 				<!-- The active filter matched nothing on the loaded pages, but the server
 				     has more: keep paging reachable so matches on later pages aren't lost. -->
@@ -1813,7 +2005,7 @@
 				/>
 			{/key}
 		{:else}
-			<div class="border rounded-md bg-surface-tertiary">
+			<div class="border rounded-md bg-surface-tertiary" class:wm-imported={justImported}>
 				{#if filter === ''}
 					{#each [...visiblePipelineFolders].sort() as folder (folder)}
 						<a
@@ -1886,3 +2078,66 @@
 		onDone={reloadItemsAndCounts}
 	/>
 {/if}
+
+<HubProjectPickerModal
+	open={hubPickerOpen}
+	onClose={() => (hubPickerOpen = false)}
+	onPick={(project) => {
+		hubPickerOpen = false
+		hubPick = project
+	}}
+/>
+<ImportProjectModal pick={hubPick} onClose={() => (hubPick = undefined)} {onImported} />
+
+<style>
+	/* Rows arriving after an import, one after another. The animation is declared on the
+	   container's children rather than on each row: a wrapper element around a row would make
+	   every row `first-of-type` and `last-of-type`, which is how Row draws its corners and
+	   separators. The delay steps for the first rows only — past those the stagger is longer
+	   than anyone waits, so they share the last one. */
+	@keyframes wm-row-in {
+		from {
+			opacity: 0;
+			transform: translateY(4px);
+		}
+		to {
+			opacity: 1;
+			transform: none;
+		}
+	}
+
+	.wm-imported > :global(*) {
+		animation: wm-row-in 260ms ease-out both;
+		animation-delay: 320ms;
+	}
+	.wm-imported > :global(*:nth-child(1)) {
+		animation-delay: 0ms;
+	}
+	.wm-imported > :global(*:nth-child(2)) {
+		animation-delay: 40ms;
+	}
+	.wm-imported > :global(*:nth-child(3)) {
+		animation-delay: 80ms;
+	}
+	.wm-imported > :global(*:nth-child(4)) {
+		animation-delay: 120ms;
+	}
+	.wm-imported > :global(*:nth-child(5)) {
+		animation-delay: 160ms;
+	}
+	.wm-imported > :global(*:nth-child(6)) {
+		animation-delay: 200ms;
+	}
+	.wm-imported > :global(*:nth-child(7)) {
+		animation-delay: 240ms;
+	}
+	.wm-imported > :global(*:nth-child(8)) {
+		animation-delay: 280ms;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.wm-imported > :global(*) {
+			animation: none;
+		}
+	}
+</style>

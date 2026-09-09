@@ -36,8 +36,9 @@
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
 	import ScrollFade from '$lib/components/ScrollFade.svelte'
-	import McpConnections from './McpConnections.svelte'
-	import SkillsPicker from './SkillsPicker.svelte'
+	import AssistantSettingsModal from './AssistantSettingsModal.svelte'
+	import { SkillsMenu } from './skills/skillsMenu.svelte'
+	import { McpMenu } from '$lib/components/mcp/mcpMenu.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
@@ -45,6 +46,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { AIAutonomyMode, AIMode } from './AIChatManager.svelte'
 	import { getChatViewHost } from './chatViewHost'
+	import { getAiChatManager } from './aiChatManagerContext'
 	import ChatTypingIndicator from './ChatTypingIndicator.svelte'
 	import AIChatInput from './AIChatInput.svelte'
 	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
@@ -70,6 +72,10 @@
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
 	const chatHost = getChatViewHost()
+	// Two session-only surfaces the seam deliberately doesn't carry: the skill and MCP
+	// menus take an AIChatManager, and the run form lives in the session's preview panel.
+	// Both render only under GLOBAL, which a non-copilot host never sets.
+	const aiChatManager = getAiChatManager()
 
 	// The user spent their one-time free Windmill AI grant: there is no model left to send
 	// to, so say so in the thread itself rather than only failing on send.
@@ -225,8 +231,11 @@
 	} = $props()
 
 	let aiChatInput: AIChatInput | undefined = $state()
-	let mcpConnections: McpConnections | undefined = $state()
-	let skillsPicker: SkillsPicker | undefined = $state()
+	let assistantSettings: AssistantSettingsModal | undefined = $state()
+	// The "+" menu's skill and MCP rows: enough state to check and flip one, with
+	// everything else about them behind the assistant settings modal.
+	const skillsMenu = new SkillsMenu(aiChatManager, () => assistantSettings?.open('skills'))
+	const mcpMenu = new McpMenu(aiChatManager, () => assistantSettings?.open('mcp'))
 	let plusMenuOpen = $state(false)
 	let editingMessageIndex = $state<number | null>(null)
 
@@ -241,7 +250,15 @@
 			const active = document.activeElement
 			const focusOnChat =
 				!active || active === document.body || (panelEl?.contains(active) ?? false)
-			if (!focusOnChat) return
+			// An Escape while a run form is open must not discard what the user typed, so the action
+			// row alone stops the turn — wherever it is mounted, since the preview panel holds the
+			// form outside `panelEl`. Matched by call: two chats can be loading at once, and one's
+			// row must not answer for the other.
+			if (aiChatManager.hasPendingRunForm) {
+				const row = active?.closest('[data-run-form-actions]')
+				const toolCallId = row?.getAttribute('data-run-form-actions')
+				if (!toolCallId || !aiChatManager.isRunFormPending(toolCallId)) return
+			} else if (!focusOnChat) return
 			e.preventDefault()
 			// Immediate form: other chat panels' identical listeners must not
 			// also cancel on body focus, nor a drawer/modal close on this press.
@@ -335,7 +352,10 @@
 		}
 	})
 
-	const showTypingIndicator = $derived(chatHost.loading)
+	// Also shown for a run held by another tab, labeled with where it is: the
+	// dots say a turn is in flight even before the reader reaches the footer
+	// note. Remote runs pause nothing and offer no Stop — this tab can't cancel.
+	const showTypingIndicator = $derived(chatHost.loading || chatHost.runHeldElsewhere)
 
 	// The manual `@` context-picker button. Shown in SCRIPT/FLOW (workspace items +
 	// code blocks) and APP (datatables, frontend files). Hidden in GLOBAL — there
@@ -600,7 +620,7 @@
 
 	const yoloBypassedTools = $derived.by(() => {
 		return chatHost.tools
-			.filter((tool) => tool.requiresConfirmation === true)
+			.filter((tool) => tool.requiresConfirmation === true || tool.bypassedByAutoAccept === true)
 			.map((tool) => ({
 				name: tool.def.function.name,
 				// confirmationMessage may be a function of the call args, which we don't
@@ -618,11 +638,17 @@
 	const showFlowPendingActionControls = $derived(
 		(chatHost.flowAiChatHelpers?.hasPendingChanges() ?? false) && !chatHost.autoAcceptEditsActive
 	)
-	// Everything the left group can hold. `canAttachFiles` belongs here too: in GLOBAL
-	// mode the `+` always has the context picker or the autonomy selector beside it, but
-	// a host with attachments and nothing else would lose the group and the `+` with it.
+	// A disabled state with no message (a remote hold, a spent free grant) keeps
+	// the footer toolbar in place — swapping it for an empty strip would make
+	// the model/mode row flash out and back on every remote turn. A state with
+	// a real message (archived, AI off) still shows it, hold or not, matching
+	// the precedence disabledMessage itself encodes.
+	const footerMessageShown = $derived(disabled && disabledMessage !== '')
+	// `canAttachFiles` belongs in the group too: in GLOBAL mode the `+` always has the
+	// context picker or the autonomy selector beside it, but a host with attachments and
+	// nothing else would lose the group and the `+` with it.
 	const showFooterLeftControls = $derived(
-		!disabled &&
+		!footerMessageShown &&
 			(footerControls !== undefined ||
 				canAttachFiles ||
 				showContextPicker ||
@@ -725,10 +751,14 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 									{#each pastChats as chat (chat.id)}
 										<button
 											class="text-left flex flex-row items-center gap-2 justify-between hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md p-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
-											disabled={chatHost.loading || chatHost.sendInFlight}
-											title={chatHost.loading || chatHost.sendInFlight
-												? 'Stop the current answer to switch conversation'
-												: undefined}
+											disabled={chatHost.loading ||
+												chatHost.sendInFlight ||
+												chatHost.runHeldElsewhere}
+											title={chatHost.runHeldElsewhere
+												? 'Wait for the turn in the other tab to switch conversation'
+												: chatHost.loading || chatHost.sendInFlight
+													? 'Stop the current answer to switch conversation'
+													: undefined}
 											onclick={() => {
 												loadPastChat(chat.id)
 												close()
@@ -758,7 +788,10 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					{/snippet}
 				</Popover>
 				<Button
-					title="New chat"
+					title={aiChatManager.runHeldElsewhere
+						? 'Wait for the turn in the other tab to start a new chat'
+						: 'New chat'}
+					disabled={aiChatManager.runHeldElsewhere}
 					on:click={() => {
 						saveAndClear()
 					}}
@@ -822,17 +855,19 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							)}
 						>
 							<ChatTypingIndicator
-								loading={chatHost.loading}
+								loading={showTypingIndicator}
 								paused={waitingForUserAction}
-								label={chatHost.loadingLabel
-									? chatHost.loadingLabel
-									: chatHost.compacting
-										? 'Compacting conversation'
-										: chatHost.currentReasoningActive &&
-											  !chatHost.currentReply &&
-											  !chatHost.currentReasoning
-											? (chatHost.reasoningHiddenIndicatorLabel ?? 'Thinking')
-											: undefined}
+								label={chatHost.runHeldElsewhere
+									? 'Running in another tab'
+									: chatHost.loadingLabel
+										? chatHost.loadingLabel
+										: chatHost.compacting
+											? 'Compacting conversation'
+											: chatHost.currentReasoningActive &&
+												  !chatHost.currentReply &&
+												  !chatHost.currentReasoning
+												? (chatHost.reasoningHiddenIndicatorLabel ?? 'Thinking')
+												: undefined}
 							/>
 						</div>
 					{/if}
@@ -999,8 +1034,8 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 									const closeMenu = () => (plusMenuOpen = false)
 									const inGlobal = chatHost.mode === AIMode.GLOBAL
 									const [skillItems, mcpItems] = await Promise.all([
-										inGlobal ? skillsPicker?.menuItems(closeMenu) : undefined,
-										inGlobal ? mcpConnections?.menuItems(closeMenu) : undefined
+										inGlobal ? skillsMenu.items(closeMenu) : undefined,
+										inGlobal ? mcpMenu.items(closeMenu) : undefined
 									])
 									return [
 										{
@@ -1166,12 +1201,12 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								{/snippet}
 							</Tooltip>
 						{/if}
-						{#if chatHost.mode === AIMode.SCRIPT && hasDiff}
+						{#if chatHost.mode === AIMode.SCRIPT && hasDiff && !disabled}
 							<ChatQuickActions {askAi} {diffMode} />
 						{/if}
 					</div>
 				{/if}
-				{#if disabled}
+				{#if footerMessageShown}
 					<div class="text-primary text-xs my-2 px-2">
 						<Markdown md={disabledMessage} />
 					</div>
@@ -1188,12 +1223,13 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{/if}
 						<ContextUsageIndicator />
 						{#if chatHost.supportsModelSettings}
-							<AIChatModelSettings />
+							<!-- `promptSettings={false}`: in a session, GLOBAL, the settings modal's
+							     Instructions section owns the prompt entries. -->
+							<AIChatModelSettings promptSettings={false} />
 						{/if}
 						{@render footerSettings?.()}
 						{#if chatHost.mode === AIMode.GLOBAL}
-							<SkillsPicker bind:this={skillsPicker} />
-							<McpConnections bind:this={mcpConnections} />
+							<AssistantSettingsModal bind:this={assistantSettings} />
 						{/if}
 
 						{#if chatHost.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}

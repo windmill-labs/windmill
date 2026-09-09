@@ -13,7 +13,7 @@
 	import { AIMode } from './AIChatManager.svelte'
 	import { CHAT_INPUT_PADDING } from './aiChatManagerContext'
 	import { getChatViewHost } from './chatViewHost'
-	import { COMPOSER_BOX, COMPOSER_FIELD_RESET } from './composerBox'
+	import { composerBoxClass, COMPOSER_FIELD_RESET } from './composerBox'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { formatMention } from './mention'
 	import { twMerge } from 'tailwind-merge'
@@ -141,6 +141,12 @@
 
 	// Generate mode-specific placeholder
 	const modePlaceholder = $derived.by(() => {
+		// The composer unlocks by itself when the other tab's turn ends, so the
+		// placeholder names what it is waiting on (the typing indicator says
+		// where the run is).
+		if (chatHost.runHeldElsewhere) {
+			return 'Waiting for the turn in the other tab to finish'
+		}
 		if (pendingQuestionToolCallId !== undefined) {
 			return 'Answer the question above'
 		}
@@ -1344,7 +1350,7 @@
 	{:else}
 		<!-- Same box as the rich composer above, so a host on the plain textarea shows
 		     the identical chip rows inside the identical field. -->
-		<div class={COMPOSER_BOX}>
+		<div class={composerBoxClass(disabled)}>
 			{@render badgeRow()}
 			{@render imageChipsRow()}
 			<div class={twMerge('relative w-full', className)}>

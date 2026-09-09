@@ -4,7 +4,18 @@
 	/** One level of a paginated dialog. Order is the order given: the page on screen sits at rest
 	 *  and every other waits off the side it is listed on, so a deeper page arrives from the right
 	 *  and the way back arrives from the left without anyone naming a direction. */
-	export type ModalPage = { key: string; content: Snippet }
+	export type ModalPage = {
+		key: string
+		content: Snippet
+		/**
+		 * Drawn in place of `content` for a page that has not been opened yet, so the first
+		 * navigation to it has something to slide in — without one, the box arrives empty and
+		 * fills a frame later, which reads as the animation being broken rather than as
+		 * loading. A skeleton is enough: it is on screen for the length of the transition.
+		 * Unnecessary under `warm`, which builds every page up front.
+		 */
+		placeholder?: Snippet
+	}
 </script>
 
 <script lang="ts">
@@ -26,6 +37,9 @@
 		 * around this owns it, and a page component that swallowed it would stop the dialog from
 		 * closing. Without this prop the pages are still navigable, just not from the keyboard —
 		 * the caller owns `current` either way.
+		 *
+		 * A host that stays mounted while hidden must withhold it while hidden: the arrows are
+		 * answered at `window`, so a parked instance would take the key off the visible one.
 		 */
 		onNavigate?: (key: string) => void
 		/**
@@ -80,6 +94,9 @@
 
 	function onKeydown(event: KeyboardEvent) {
 		if (!onNavigate || !listening() || event.metaKey || event.ctrlKey || event.altKey) return
+		// A control on the page that already answered the key keeps it: the arrows move focus
+		// inside a toggle group, a menu, a slider, and those handlers run before this one.
+		if (event.defaultPrevented) return
 		if (!ownsKeyboard(event.target)) return
 		const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
 		if (step === 0) return
@@ -156,7 +173,8 @@
 
 <div bind:this={box} class="relative overflow-hidden {c}">
 	{#each pages as page, i (page.key)}
-		{#if visited.includes(page.key) || warmed}
+		{@const built = visited.includes(page.key) || warmed}
+		{#if built || page.placeholder}
 			<!-- Pages are laid over each other rather than laid out, so the dialog cannot change
 			     height as one replaces another. That needs a definite height from the caller.
 			     `inert` and not just opacity: an off-screen page keeps its DOM, so without it the
@@ -171,7 +189,11 @@
 				style="transform: translateX({(i - index) * TRAVEL_PERCENT}%)"
 				inert={i !== index}
 			>
-				{@render page.content()}
+				{#if built}
+					{@render page.content()}
+				{:else}
+					{@render page.placeholder?.()}
+				{/if}
 			</div>
 		{/if}
 	{/each}
