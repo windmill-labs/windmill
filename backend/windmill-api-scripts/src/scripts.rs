@@ -756,24 +756,23 @@ async fn deploy_script(
         // now; one that did gets its CI tests from the dependency job instead, so
         // they don't run against a version whose lock does not exist yet — and
         // don't run twice.
+        // Awaited so the tests are queued before the deploy is acknowledged: the
+        // git-sync PR check treats a finished pull as "the deploy's tests exist".
         let ready_to_test = matches!(hdm, PostCommitDeploy::Full { .. });
         hdm.handle(&db).await?;
-        let db2 = db.clone();
         if ready_to_test {
-            tokio::spawn(async move {
-                if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
-                    &db2,
-                    &w_id,
-                    &script_path,
-                    "script",
-                    &email,
-                    &username,
-                )
-                .await
-                {
-                    tracing::error!(%e, "error triggering CI tests after script deploy");
-                }
-            });
+            if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+                &db,
+                &w_id,
+                &script_path,
+                "script",
+                &email,
+                &username,
+            )
+            .await
+            {
+                tracing::error!(%e, "error triggering CI tests after script deploy");
+            }
         }
     }
     Ok((StatusCode::CREATED, format!("{}", hash)))
