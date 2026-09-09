@@ -258,3 +258,22 @@ export function isDdlStatement(statement: string): boolean {
 	const firstWord = pruneComments(statement).trim().split(/\s+/)[0]?.toUpperCase()
 	return !!firstWord && DDL_KEYWORDS.includes(firstWord)
 }
+
+export type SqlRun = { isDdl: boolean; statements: string[] }
+
+/**
+ * Split a script into alternating runs of DDL and non-DDL statements. Adjacent
+ * DDL statements share a run so they can become one migration instead of one
+ * prompt each; a non-DDL statement ends the run, since anything after it may
+ * depend on it and the surviving statements must keep their relative order.
+ */
+export function splitSqlRuns(code: string, backslashEscapes = true): SqlRun[] {
+	const runs: SqlRun[] = []
+	for (const statement of splitSqlStatements(code, backslashEscapes)) {
+		const isDdl = isDdlStatement(statement)
+		const last = runs[runs.length - 1]
+		if (last && last.isDdl === isDdl) last.statements.push(statement)
+		else runs.push({ isDdl, statements: [statement] })
+	}
+	return runs
+}
