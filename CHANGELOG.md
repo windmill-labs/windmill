@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.807.0](https://github.com/windmill-labs/windmill/compare/v1.806.0...v1.807.0) (2026-09-09)
+
+
+### Features
+
+* add a dismissible instance-wide announcement banner ([#11037](https://github.com/windmill-labs/windmill/issues/11037)) ([abf4c6c](https://github.com/windmill-labs/windmill/commit/abf4c6c2348014ea4401b9be62b5b15e5800e879))
+* batch chained DDL statements into a single migration ([#11038](https://github.com/windmill-labs/windmill/issues/11038)) ([656e609](https://github.com/windmill-labs/windmill/commit/656e609595833bc854f845d35cf43157e76d732f))
+* create the cloud workspace in onboarding, and teach the empty home ([#10959](https://github.com/windmill-labs/windmill/issues/10959)) ([fd35b47](https://github.com/windmill-labs/windmill/commit/fd35b4765843879cb2254f402c142fd7510f1916))
+* link from the public run view to the authenticated run page ([#11041](https://github.com/windmill-labs/windmill/issues/11041)) ([09b81a9](https://github.com/windmill-labs/windmill/commit/09b81a9294bed2795a1a7b688d0b02e0a61957ea))
+* make guest access unavailable on the shared cloud ([#11040](https://github.com/windmill-labs/windmill/issues/11040)) ([0b63e0a](https://github.com/windmill-labs/windmill/commit/0b63e0a6929088ff25def4fd6547cf61668251a5))
+
+
+### Bug Fixes
+
+* ignore comments and continuations in python lockfiles ([#11035](https://github.com/windmill-labs/windmill/issues/11035)) ([90c4e10](https://github.com/windmill-labs/windmill/commit/90c4e1020a2ff896977648dd68b572413cea7709))
+* refetch an unparseable hub script cache entry instead of panicking ([#11033](https://github.com/windmill-labs/windmill/issues/11033)) ([88c3ebd](https://github.com/windmill-labs/windmill/commit/88c3ebdfc1325ffbea4521d854e71d231a6409c4))
+* stop a new AI session adopting a legacy sidebar chat ([#11039](https://github.com/windmill-labs/windmill/issues/11039)) ([1076b63](https://github.com/windmill-labs/windmill/commit/1076b638d987ba99c5c27e5478ca580534b9d572))
+
 ## [1.806.0](https://github.com/windmill-labs/windmill/compare/v1.805.0...v1.806.0) (2026-09-08)
 
 
