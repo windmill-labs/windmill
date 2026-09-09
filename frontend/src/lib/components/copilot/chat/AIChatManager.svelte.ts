@@ -656,10 +656,13 @@ export class AIChatManager {
 		content: ''
 	})
 	tools = $state<Tool<any>[]>([])
-	/** What the request actually carries: `tools` minus whatever this session's
-	 * capabilities withhold. Anything describing the toolset to the user or counting
-	 * its cost must read this, not `tools`. */
-	shippedTools = $derived(filterSessionTools(this.tools, this.sessionAccess))
+	/** Every tool source converged and capability-filtered — what the request carries,
+	 * so anything describing the toolset or counting its cost reads this, not `tools`.
+	 * One array both advertises the tools and dispatches the calls, which is what makes
+	 * a withheld tool unreachable rather than merely unlisted. */
+	shippedTools = $derived(
+		filterSessionTools([...this.tools, ...this.planMode.tools], this.sessionAccess)
+	)
 	helpers = $state<any | undefined>(undefined)
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
@@ -2032,8 +2035,10 @@ export class AIChatManager {
 		}
 	) {
 		if (!isAIModeVisible(mode)) return
-		// A session chat is GLOBAL for its whole life, and the plan gate reads that mode: moving
-		// it lifts the gate on a session the user still has set to Plan.
+		// A session chat is GLOBAL for its whole life, and two things read that mode: moving it
+		// lifts the plan gate on a session the user still has set to Plan, and leaves
+		// `shippedTools` filtering a toolset whose names have no policy entries, so it fails
+		// closed to nothing.
 		if (this.isSessionChat && mode !== AIMode.GLOBAL) {
 			console.error(`Refusing to move a session chat to ${mode} mode: sessions are GLOBAL-only.`)
 			return
@@ -2688,15 +2693,8 @@ export class AIChatManager {
 					base = self.planMode.decorateSystemMessage(base)
 					return base
 				},
-				// The one place every tool source converges, which is why the capability
-				// filter belongs here and not in `globalToolsFor`. This same array both
-				// advertises the tools and dispatches the calls, so a withheld tool is
-				// unreachable rather than merely unlisted. Filtering is unconditional
-				// because `sessionAccess` is set only for session chats and `changeMode`
-				// keeps those GLOBAL — a non-GLOBAL toolset has no policy entries and
-				// would fail closed to nothing.
 				get tools() {
-					return filterSessionTools([...self.tools, ...self.planMode.tools], self.sessionAccess)
+					return self.shippedTools
 				},
 				get helpers() {
 					return self.helpers
