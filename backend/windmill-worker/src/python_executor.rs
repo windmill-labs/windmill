@@ -324,10 +324,10 @@ pub async fn uv_pip_compile(
             "compile",
             "-q",
             "--no-header",
-            // Windmill installs a lockfile one entry at a time, so an annotated lock is a
-            // lock whose every other line is an unparseable package name. Not emitting the
-            // annotations keeps that out of the stored lockfile rather than relying on the
-            // reader to strip them.
+            // The `#`-line filter applied to the output below only catches whole-line
+            // annotations, and uv's annotation style is configurable: `[pip]
+            // annotation-style = "line"` in the worker HOME's uv.toml emits them inline
+            // ("anyio==4.15.1  # via httpx"), which that filter keeps.
             "--no-annotate",
             file,
             "--strip-extras",
