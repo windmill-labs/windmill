@@ -7,7 +7,7 @@ use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use serde_json::{value::RawValue, Value};
 
-use crate::{error::Error, scripts::ScriptLang};
+use crate::{error::Error, references::is_reference, scripts::ScriptLang};
 
 #[derive(PartialEq, Serialize, Deserialize, Debug, Clone)]
 pub enum JsonPrimitiveType {
@@ -195,12 +195,38 @@ impl SchemaValidationRule {
         Ok(schema_rules)
     }
 
+    /// Whether an unresolved reference has to be let through this rule: it judges
+    /// the shape of a value the worker has not substituted yet.
+    ///
+    /// `StrictEnum` is deliberately absent. An enum parameter never accepted a
+    /// reference, and since the substituted value is not validated afterwards,
+    /// letting one through would leave a reference-valued argument with nothing
+    /// checking it at all. `IsUnionType` is absent so that holds under `anyOf`
+    /// too: it is the only rule a property with variants compiles to, so skipping
+    /// it whole would swallow the `StrictEnum` nested inside one. Walking it
+    /// instead still admits a reference wherever a variant is a shape, since that
+    /// variant's own rules are skipped here.
+    fn skipped_for_reference(&self) -> bool {
+        matches!(
+            self,
+            SchemaValidationRule::IsObject(_)
+                | SchemaValidationRule::IsArray(_)
+                | SchemaValidationRule::IsNumber
+                | SchemaValidationRule::IsInteger
+                | SchemaValidationRule::IsBool
+                | SchemaValidationRule::IsOneOf(_)
+        )
+    }
+
     fn apply_rule(&self, key: &str, val: &Value, required: bool) -> Result<(), Error> {
         if val.is_null() {
             if !required {
                 return Ok(());
             }
             return Err(Error::ArgumentErr(format!("Argument {key} cannot be null")));
+        }
+        if self.skipped_for_reference() && val.as_str().is_some_and(is_reference) {
+            return Ok(());
         }
         match self {
             SchemaValidationRule::IsNull => {
@@ -814,5 +840,140 @@ mod tests {
             "u/user/myXscript",
             "u/user/my_script"
         ));
+    }
+
+    #[test]
+    fn validate_accepts_unresolved_reference_for_object_param() {
+        let schema = r#"{
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+                "gmail": {
+                    "type": "object",
+                    "properties": { "token": { "type": "string" } }
+                }
+            },
+            "required": ["gmail"],
+            "type": "object"
+        }"#;
+        let validator = SchemaValidator::from_schema(schema).expect("valid schema");
+
+        // A `$res:` reference string stands in for the object parameter.
+        let args = json!({ "gmail": "$res:f/team/gmail" });
+        validator
+            .validate(&value_to_rawvalue_map(args).unwrap())
+            .expect("resource reference should pass object validation");
+
+        // `$jsonvar:` / `$var:` / `$encrypted:` references are likewise accepted.
+        for r in ["$jsonvar:f/team/x", "$var:f/team/y", "$encrypted:abc"] {
+            validator
+                .validate(&value_to_rawvalue_map(json!({ "gmail": r })).unwrap())
+                .expect("reference should pass object validation");
+        }
+
+        // A genuine object still validates.
+        let args = json!({ "gmail": { "token": "abc" } });
+        validator
+            .validate(&value_to_rawvalue_map(args).unwrap())
+            .expect("object value should pass");
+
+        // A non-reference, non-object value is still rejected.
+        let args = json!({ "gmail": "not a resource" });
+        validator
+            .validate(&value_to_rawvalue_map(args).unwrap())
+            .err()
+            .expect("plain string should be rejected for an object parameter");
+    }
+
+    #[test]
+    fn validate_rejects_unresolved_reference_for_enum_param() {
+        let schema = r#"{
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+                "choice": {
+                    "type": "string",
+                    "enum": ["my", "enum"]
+                }
+            },
+            "required": ["choice"],
+            "type": "object"
+        }"#;
+        let validator = SchemaValidator::from_schema(schema).expect("valid schema");
+
+        for r in [
+            "$res:f/team/gmail",
+            "$var:f/team/x",
+            "$jsonvar:f/team/y",
+            "$encrypted:abc",
+        ] {
+            validator
+                .validate(&value_to_rawvalue_map(json!({ "choice": r })).unwrap())
+                .err()
+                .expect("reference should not satisfy an enum parameter");
+        }
+
+        // A declared variant still validates.
+        validator
+            .validate(&value_to_rawvalue_map(json!({ "choice": "my" })).unwrap())
+            .expect("enum variant should pass");
+    }
+
+    #[test]
+    fn validate_rejects_unresolved_reference_for_enum_under_any_of() {
+        // A property with variants compiles to a lone IsUnionType, so the enum
+        // check only survives if the union is walked rather than skipped.
+        let schema = r#"{
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+                "choice": {
+                    "anyOf": [
+                        { "type": "string", "enum": ["my"] },
+                        { "type": "string", "enum": ["enum"] }
+                    ]
+                }
+            },
+            "required": ["choice"],
+            "type": "object"
+        }"#;
+        let validator = SchemaValidator::from_schema(schema).expect("valid schema");
+
+        validator
+            .validate(&value_to_rawvalue_map(json!({ "choice": "$var:f/team/x" })).unwrap())
+            .err()
+            .expect("reference should not satisfy a union of enums");
+
+        validator
+            .validate(&value_to_rawvalue_map(json!({ "choice": "my" })).unwrap())
+            .expect("declared variant should pass");
+    }
+
+    #[test]
+    fn validate_accepts_unresolved_reference_for_object_under_any_of() {
+        let schema = r#"{
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+                "gmail": {
+                    "anyOf": [
+                        { "type": "string", "enum": ["none"] },
+                        {
+                            "type": "object",
+                            "properties": { "token": { "type": "string" } }
+                        }
+                    ]
+                }
+            },
+            "required": ["gmail"],
+            "type": "object"
+        }"#;
+        let validator = SchemaValidator::from_schema(schema).expect("valid schema");
+
+        // The object variant is what the resolved resource would satisfy.
+        validator
+            .validate(&value_to_rawvalue_map(json!({ "gmail": "$res:f/team/gmail" })).unwrap())
+            .expect("reference should pass a union carrying an object variant");
+
+        validator
+            .validate(&value_to_rawvalue_map(json!({ "gmail": "not a resource" })).unwrap())
+            .err()
+            .expect("plain string should match neither variant");
     }
 }
