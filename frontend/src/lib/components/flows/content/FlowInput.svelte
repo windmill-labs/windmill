@@ -738,9 +738,9 @@
 				{#if flowStore.val.value?.chat_input_enabled}
 					<ToggleButtonGroup bind:selected={chatPanelTab} noWFull>
 						{#snippet children({ item })}
-							<ToggleButton size="xs" value="chat" label="Chat" icon={MessageCircle} {item} />
+							<ToggleButton size="sm" value="chat" label="Chat" icon={MessageCircle} {item} />
 							<ToggleButton
-								size="xs"
+								size="sm"
 								value="inputs"
 								label="Inputs"
 								icon={Settings2}
