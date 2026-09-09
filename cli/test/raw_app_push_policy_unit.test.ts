@@ -103,10 +103,14 @@ test("a raw-app push without the marker closes an anonymous app back down", asyn
 
 test("a first raw-app push deploys the policy its file states", async () => {
   deployed = false;
-  const body = await push("policy:\n  sandbox: true\n  on_behalf_of: u/impostor\n");
+  const body = await push(
+    "policy:\n  sandbox: true\n  on_behalf_of: u/impostor\n  on_behalf_of_email: impostor@corp\n",
+  );
 
   expect(body.policy.sandbox).toBe(true);
-  // A repo doesn't get to pick who an app runs as: only a deployed identity is
-  // ever claimed, so the backend assigns the pushing user's here.
+  // A repo doesn't get to pick who an app runs as: the identity never reaches
+  // the wire, so no server can be talked into deploying under it.
+  expect(body.policy.on_behalf_of).toBeUndefined();
+  expect(body.policy.on_behalf_of_email).toBeUndefined();
   expect(body.preserve_on_behalf_of).toBeUndefined();
 });

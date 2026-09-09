@@ -288,12 +288,25 @@ export async function generatingPolicy(
 
 /** What the regenerated policy starts from: the deployed one, so a push keeps
  * settings the tracked file doesn't record. A first push has no deployed policy,
- * and then the file is the only thing that could state one. */
+ * and then the file is the only thing that could state one — minus the run
+ * identity, which is never the repo's to name. The backend rewrites an
+ * unclaimed `on_behalf_of` to the pusher, but `wmill` is regularly pointed at
+ * older servers, so never put one on the wire that no deploy vouched for. */
 export function basePolicy(
   localApp: any,
   deployedPolicy: Policy | undefined
 ): Policy | undefined {
-  return deployedPolicy ?? localApp?.policy;
+  if (deployedPolicy) {
+    return deployedPolicy;
+  }
+  const stated = localApp?.policy as Policy | undefined;
+  if (!stated) {
+    return undefined;
+  }
+  const base: Policy = { ...stated };
+  delete base.on_behalf_of;
+  delete base.on_behalf_of_email;
+  return base;
 }
 
 /** Claim the run-as identity the regenerated policy carries over from the
