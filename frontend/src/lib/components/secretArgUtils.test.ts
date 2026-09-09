@@ -94,4 +94,37 @@ describe('processSecretArgs', () => {
 		expect(created.find((c) => c.path === flat)?.value).toBe('FLAT')
 		expect(created.find((c) => c.path === nested)?.value).toBe('NESTED')
 	})
+
+	// Callers bind a form that stays editable while the mints are in flight, and a leaf is
+	// addressed by its path: a row moved between the two walks would take the other row's
+	// reference and the job would run it on the wrong credentials.
+	it('ignores the caller mutating the arguments while minting', async () => {
+		const rows = {
+			creds: [
+				{ name: 'alpha', secret: 'FIRST' },
+				{ name: 'beta', secret: 'SECOND' }
+			]
+		}
+		const arraySchema = {
+			properties: {
+				creds: {
+					type: 'array',
+					items: { properties: { name: {}, secret: { password: true } } }
+				}
+			}
+		} as any
+
+		const pending = processSecretArgs(rows, arraySchema)
+		rows.creds.reverse()
+		const out = await pending
+
+		// Keyed by the row's own name, not its index: a substitution by position lands the
+		// first-minted reference on index 0 either way.
+		const secretOf = (name: string) => {
+			const row = out.creds.find((c: any) => c.name === name)
+			return created.find((c) => c.path === row.secret.slice('$var:'.length))?.value
+		}
+		expect(secretOf('alpha')).toBe('FIRST')
+		expect(secretOf('beta')).toBe('SECOND')
+	})
 })

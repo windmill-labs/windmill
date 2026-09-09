@@ -3,6 +3,7 @@ import { VariableService } from '$lib/gen'
 import { get } from 'svelte/store'
 import { userStore, workspaceStore } from '$lib/stores'
 import { generateRandomString } from '$lib/utils'
+import { stateSnapshot } from '$lib/stateSnapshot.svelte'
 import { isSecretProp, mapArgLeaves } from './job_args'
 
 /** Where a caller's own ephemeral secrets live, so a field can tell one it minted from a
@@ -66,6 +67,11 @@ export async function processSecretArgs(
 
 	const username = (user.username ?? user.email)?.split('@')[0]
 	if (!username) return args
+
+	// Detached from the caller: every one binds a form that stays editable across the awaits
+	// below, and the two walks address a leaf by its path — an array reordered between them
+	// would hand a row the reference minted for another row's secret.
+	args = stateSnapshot(args)
 
 	// A value that already names a variable is one; anything else is the secret itself. An empty
 	// field holds nothing to mint, and ArgInput synthesises '' for every untouched string.
