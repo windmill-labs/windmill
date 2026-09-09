@@ -8445,7 +8445,7 @@ async fn run_inline_preview_script(
 #[cfg(not(feature = "run_inline"))]
 async fn run_inline_preview_script() -> error::Result<Response> {
     Err(error::Error::InternalErr(
-        "inline preview requires the worker feature".to_string(),
+        "inline preview requires the run_inline feature on the worker".to_string(),
     ))
 }
 
