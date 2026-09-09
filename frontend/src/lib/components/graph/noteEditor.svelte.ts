@@ -159,10 +159,7 @@ export class NoteEditor {
 	/**
 	 * Create a group note containing the specified node IDs
 	 */
-	createGroupNote(
-		nodeIds: string[],
-		text: string = '### Group note\nDouble click to edit me'
-	): string {
+	createGroupNote(nodeIds: string[], text: string = '## Note\nDouble click to edit me'): string {
 		// Filter ids in case they contain subflow nodes
 		let filteredNodeIds: string[] = nodeIds
 		let subflowIds: string[] = []
