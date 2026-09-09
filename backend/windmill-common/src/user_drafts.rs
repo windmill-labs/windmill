@@ -162,12 +162,29 @@ impl UserDraftItemKind {
 
     /// The `draft.value` key holding the user-typed target path — where a
     /// deploy of this draft would land when the user staged a rename. A script
-    /// draft round-trips its own `path`; every other kind writes a separate
+    /// draft round-trips its own `path`; flows and apps write a separate
     /// `draft_path`, and only when it differs from the row's path.
-    pub fn typed_path_field(&self) -> &'static str {
+    ///
+    /// `None` for every kind with no editor to stage a rename in — a resource,
+    /// a variable, a trigger. Their drafts carry no such key, so `Some` is also
+    /// the test for whether a kind can be moved at all.
+    pub fn typed_path_field(&self) -> Option<&'static str> {
+        use UserDraftItemKind::*;
         match self {
-            UserDraftItemKind::Script => "path",
-            _ => "draft_path",
+            Script => Some("path"),
+            Flow | App | RawApp => Some("draft_path"),
+            _ => None,
+        }
+    }
+
+    /// The other of the two path keys a draft value can carry. The editors mirror
+    /// the typed path into it while it differs from the row's path, so a move that
+    /// rewrote only `typed_path_field` would leave the mirror naming the old
+    /// location — and the loaders prefer the mirror, which un-does the move.
+    pub fn mirror_path_field(&self) -> Option<&'static str> {
+        match self.typed_path_field()? {
+            "path" => Some("draft_path"),
+            _ => Some("path"),
         }
     }
 
@@ -575,11 +592,21 @@ pub async fn delete_own_draft_for_path(
 /// string, so without this a move detaches every draft on the item. No owner
 /// filter: teammates' rows and the legacy NULL-email row follow too.
 ///
+/// **The caller must have authorized the underlying item move first.** This
+/// rewrites every owner's row at `old_path`, deliberately including rows the
+/// caller has no permission on, and enforces nothing itself — it takes the paths
+/// on trust. It is safe only because it runs inside a deploy that has already
+/// cleared both paths for the caller; reached any other way it is a cross-user
+/// write with no gate.
+///
 /// `typed_path_field` is the draft JSON key holding the user-typed target path
-/// (`path` for scripts, `draft_path` for flows/apps). It is re-pointed only when
-/// it still names `old_path`: absent means "wherever my row sits", which `SET
-/// path` already fixed, and anything else is a rename the user staged in their
-/// own editor, which deploying their draft should still honour.
+/// (`path` for scripts, `draft_path` for flows/apps), and `mirror_path_field`
+/// the other one, which the editors keep in step with it. Both are re-pointed
+/// only when they still name `old_path`: absent means "wherever my row sits",
+/// which `SET path` already fixed, and anything else is a rename the user staged
+/// in their own editor, which deploying their draft should still honour. `None`
+/// on both is a kind with no editor — the row still follows on its `path`
+/// column, and its value carries no path key to correct.
 ///
 /// `base_version` restamps the version the draft forked from so the carried
 /// draft doesn't read as stale against the version the move just created. The
@@ -613,7 +640,8 @@ pub async fn move_drafts_for_path(
     kinds: &[UserDraftItemKind],
     old_path: &str,
     new_path: &str,
-    typed_path_field: &str,
+    typed_path_field: Option<&str>,
+    mirror_path_field: Option<&str>,
     base_version: Option<(&str, String)>,
     restamp_email: &str,
 ) -> Result<MoveDraftsOutcome> {
@@ -679,29 +707,32 @@ pub async fn move_drafts_for_path(
         .map(|r| r.id)
         .collect::<Vec<_>>();
 
-    // A flow draft carries the deployed path it forked from in `path`, next to
-    // the staged rename in `draft_path`. The editor layers the draft over the
-    // deployed payload, so a `path` left naming the old location wins, and
-    // deploying that draft moves the flow back where it came from — schedules and
-    // triggers following it. Same tri-state rule as the typed path. Scripts need
-    // no second pass (their typed path IS `path`); an app draft has no such key
-    // and `create_missing = false` leaves it untouched.
-    if typed_path_field != "path" && !clean_ids.is_empty() {
-        sqlx::query!(
-            r#"UPDATE draft
-               SET value = to_json(
-                   CASE WHEN to_jsonb(value) -> 'path' = to_jsonb($2::text)
-                        THEN jsonb_set(to_jsonb(value), ARRAY['path'], to_jsonb($1::text), false)
-                        ELSE to_jsonb(value)
-                   END
-               )
-               WHERE id = ANY($3)"#,
-            new_path,
-            old_path,
-            &clean_ids,
-        )
-        .execute(&mut **tx)
-        .await?;
+    // Both editors keep two path keys, and whichever is not the typed one mirrors
+    // it. A mirror left naming the old location wins at load: a flow draft's
+    // `path` is layered over the deployed payload, so deploying it moves the flow
+    // back where it came from and drags schedules and triggers with it, and a
+    // session script's `draft_path` is preferred over `path` when the editor
+    // re-seeds. Same tri-state rule as the typed path. `create_missing = false`
+    // leaves a draft without the key — a classic app — untouched.
+    if let Some(mirror) = mirror_path_field {
+        if !clean_ids.is_empty() {
+            sqlx::query!(
+                r#"UPDATE draft
+                   SET value = to_json(
+                       CASE WHEN to_jsonb(value) -> $4::text = to_jsonb($2::text)
+                            THEN jsonb_set(to_jsonb(value), ARRAY[$4::text], to_jsonb($1::text), false)
+                            ELSE to_jsonb(value)
+                       END
+                   )
+                   WHERE id = ANY($3)"#,
+                new_path,
+                old_path,
+                &clean_ids,
+                mirror,
+            )
+            .execute(&mut **tx)
+            .await?;
+        }
     }
 
     if let Some((field, version)) = base_version {

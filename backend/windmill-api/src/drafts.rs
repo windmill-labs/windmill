@@ -371,7 +371,16 @@ impl DraftBaseVersion {
     /// its typed path a third way lands on `None` here loudly instead of
     /// silently reading `draft_path` and skipping the repoint.
     fn typed_path(&self, kind: UserDraftItemKind) -> Option<&str> {
-        match kind.typed_path_field() {
+        match kind.typed_path_field()? {
+            "path" => self.path.as_deref(),
+            "draft_path" => self.draft_path.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// The mirror of the typed path, under the same mapping.
+    fn mirror_path(&self, kind: UserDraftItemKind) -> Option<&str> {
+        match kind.mirror_path_field()? {
             "path" => self.path.as_deref(),
             "draft_path" => self.draft_path.as_deref(),
             _ => None,
@@ -422,17 +431,14 @@ async fn resolve_moved_to(
     w_id: &str,
     kind: UserDraftItemKind,
     path: &str,
-    value: &str,
+    base: &DraftBaseVersion,
 ) -> Result<Option<(String, Option<String>, serde_json::Value)>> {
-    if draft_lineage(kind, value).is_none() {
-        return Ok(None);
-    }
     // `UserDB::begin` is not a bare BEGIN — it also issues `set_session_context`
     // and, under `PG_SCHEMA`, `SET LOCAL search_path`, so this wraps one indexed
-    // existence check in 3-4 round-trips. The `draft_lineage` check above is what
-    // keeps that off every draft with nothing to follow.
+    // existence check in 3-4 round-trips. Callers keep that off a draft with
+    // nothing to follow by having no `DraftBaseVersion` to pass.
     let mut tx = user_db.clone().begin(authed).await?;
-    let moved = resolve_moved_to_in(&mut tx, &authed.username, w_id, kind, path, value).await;
+    let moved = resolve_moved_to_in(&mut tx, &authed.username, w_id, kind, path, base).await;
     tx.commit().await?;
     moved
 }
@@ -450,12 +456,9 @@ async fn resolve_moved_to_in(
     w_id: &str,
     kind: UserDraftItemKind,
     path: &str,
-    value: &str,
+    base: &DraftBaseVersion,
 ) -> Result<Option<(String, Option<String>, serde_json::Value)>> {
     use UserDraftItemKind::*;
-    let Some(base) = draft_lineage(kind, value) else {
-        return Ok(None);
-    };
     let script_hash = base
         .parent_hash
         .as_deref()
@@ -589,15 +592,17 @@ async fn resolve_moved_to_in(
     Ok(moved.map(|(new_path, new_by, head)| {
         let moved_by_me = new_by.as_deref() == Some(saver_username);
         let mut patch = serde_json::Map::new();
-        if repoint_path {
-            patch.insert(kind.typed_path_field().to_string(), json!(&new_path));
+        if let Some(field) = kind.typed_path_field().filter(|_| repoint_path) {
+            patch.insert(field.to_string(), json!(&new_path));
         }
-        // A flow draft also carries the deployed `path` it forked from beside its
-        // staged `draft_path`, and the editor layers the draft over the deployed
-        // payload — a stale one there un-moves the flow on the next deploy. Same
-        // rule, same reason as the second UPDATE in `move_drafts_for_path`.
-        if kind.typed_path_field() != "path" && base.path.as_deref() == Some(path) {
-            patch.insert("path".to_string(), json!(&new_path));
+        // The mirror the editors keep beside the typed path gets the same rule for
+        // the same reason as the second UPDATE in `move_drafts_for_path`: left
+        // naming the old location it wins at load and un-does the move.
+        if let Some(field) = kind
+            .mirror_path_field()
+            .filter(|_| base.mirror_path(kind) == Some(path))
+        {
+            patch.insert(field.to_string(), json!(&new_path));
         }
         if moved_by_me {
             if let Some(field) = kind.base_version_field() {
@@ -694,9 +699,17 @@ async fn update_draft(
     // "unauthorized" for an item they still have permission on — and never learn
     // where it went. Nothing is written on this branch, and `resolve_moved_to`
     // reads under RLS, so it can only name an item the caller can already see.
-    if let Some(value) = &req.value {
+    //
+    // Parsed once here and threaded to all three sites that need it: an app draft
+    // runs to hundreds of KB, and serde tokenizes the whole document even to skip
+    // the keys it does not want.
+    let lineage = req
+        .value
+        .as_ref()
+        .and_then(|value| draft_lineage(kind, value.0.get()));
+    if let Some(base) = &lineage {
         if let Some((moved_to, moved_by, moved_patch)) =
-            resolve_moved_to(&authed, &user_db, &w_id, kind, path, value.0.get()).await?
+            resolve_moved_to(&authed, &user_db, &w_id, kind, path, base).await?
         {
             let now = sqlx::query_scalar!(r#"SELECT now() as "now!""#)
                 .fetch_one(&db)
@@ -741,10 +754,9 @@ async fn update_draft(
         // this same connection and must see exactly what the pre-check saw. `draft`
         // itself carries no policies and grants `windmill_user` full access, so the
         // upsert is unaffected by the role.
-        let mut tx = if draft_lineage(kind, value.0.get()).is_some() {
-            Some(user_db.clone().begin(&authed).await?)
-        } else {
-            None
+        let mut tx = match &lineage {
+            Some(_) => Some(user_db.clone().begin(&authed).await?),
+            None => None,
         };
         // One owned connection for the no-transaction case, so the executor below
         // borrows from a binding that outlives the call.
@@ -785,22 +797,26 @@ async fn update_draft(
             //
             // Run on the connection we already hold: acquiring a second from the
             // same pool while this transaction is open is the two-connection stall.
-            if applied.is_some() && !deployed_still_at(&mut tx, &w_id, kind, path).await? {
-                if let Some((moved_to, moved_by, moved_patch)) =
-                    resolve_moved_to_in(&mut tx, &authed.username, &w_id, kind, path, value.0.get())
-                        .await?
-                {
-                    tx.rollback().await?;
-                    let now = sqlx::query_scalar!(r#"SELECT now() as "now!""#)
-                        .fetch_one(&db)
-                        .await?;
-                    return Ok(Json(SaveDraftResponse {
-                        status: SaveDraftStatus::Moved,
-                        current_timestamp: now,
-                        moved_to: Some(moved_to),
-                        moved_by,
-                        moved_patch: Some(moved_patch),
-                    }));
+            // `tx` exists only because `lineage` did, so this is the same draft the
+            // pre-check consulted.
+            if let Some(base) = lineage.as_ref().filter(|_| applied.is_some()) {
+                if !deployed_still_at(&mut tx, &w_id, kind, path).await? {
+                    if let Some((moved_to, moved_by, moved_patch)) =
+                        resolve_moved_to_in(&mut tx, &authed.username, &w_id, kind, path, base)
+                            .await?
+                    {
+                        tx.rollback().await?;
+                        let now = sqlx::query_scalar!(r#"SELECT now() as "now!""#)
+                            .fetch_one(&db)
+                            .await?;
+                        return Ok(Json(SaveDraftResponse {
+                            status: SaveDraftStatus::Moved,
+                            current_timestamp: now,
+                            moved_to: Some(moved_to),
+                            moved_by,
+                            moved_patch: Some(moved_patch),
+                        }));
+                    }
                 }
             }
             tx.commit().await?;
@@ -911,23 +927,19 @@ async fn move_draft(
 ) -> Result<String> {
     let path = path.to_path();
     let new_path = req.new_path.as_str();
-    // Only the full-page editor kinds. The in-value rewrite below keys off
-    // `typed_path_field()`, which answers `draft_path` for every non-script kind
-    // — true for flows and apps, wrong for resources, variables and triggers,
-    // whose drafts keep their deploy target in `value.path`. Moving one of those
-    // would inject a `draft_path` nothing reads and leave the real target naming
-    // the old location, so the next deploy would recreate it where it came from.
-    if !matches!(
-        kind,
-        UserDraftItemKind::Script
-            | UserDraftItemKind::Flow
-            | UserDraftItemKind::App
-            | UserDraftItemKind::RawApp
-    ) {
+    // Only the full-page editor kinds, which is exactly the set that has a typed
+    // path to rewrite. Reading the movable set off the same mapping the rewrite
+    // uses keeps them from drifting apart: a resource, a variable or a trigger
+    // keeps its deploy target in `value.path` with no editor to stage a rename,
+    // so moving one would leave the real target naming the old location and the
+    // next deploy would recreate it where it came from.
+    let (Some(typed_field), Some(mirror_field)) =
+        (kind.typed_path_field(), kind.mirror_path_field())
+    else {
         return Err(Error::BadRequest(format!(
             "moving a {kind:?} draft is not supported — only scripts, flows and apps"
         )));
-    }
+    };
     // Validate before authorizing: `require_can_write_path` is not a format check
     // (an admin returns immediately, and a user returns early inside their own
     // namespace), so without this a malformed destination is stored as-is, and an
@@ -986,12 +998,20 @@ async fn move_draft(
     let moved = sqlx::query_scalar!(
         r#"UPDATE draft
            SET path = $3,
+               -- Both path keys, not just the typed one: the editors mirror the
+               -- typed path into the other while it differs from the row's path,
+               -- and the loaders prefer the mirror — left naming the old location
+               -- it un-does this move on the next save. `create_missing = false`
+               -- on both, so a draft carrying only one keeps only one.
                value = to_json(
                    jsonb_set(
-                       CASE WHEN $7::text IS NULL THEN to_jsonb(value)
-                            ELSE jsonb_set(to_jsonb(value), ARRAY['summary'], to_jsonb($7::text))
-                       END,
-                       ARRAY[$5::text], to_jsonb($3::text), false
+                       jsonb_set(
+                           CASE WHEN $7::text IS NULL THEN to_jsonb(value)
+                                ELSE jsonb_set(to_jsonb(value), ARRAY['summary'], to_jsonb($7::text))
+                           END,
+                           ARRAY[$5::text], to_jsonb($3::text), false
+                       ),
+                       ARRAY[$8::text], to_jsonb($3::text), false
                    )
                )
            WHERE workspace_id = $1
@@ -1014,9 +1034,10 @@ async fn move_draft(
         path,
         new_path,
         kind as UserDraftItemKind,
-        kind.typed_path_field(),
+        typed_field,
         &authed.email,
         req.summary,
+        mirror_field,
     )
     .fetch_optional(&db)
     .await?;

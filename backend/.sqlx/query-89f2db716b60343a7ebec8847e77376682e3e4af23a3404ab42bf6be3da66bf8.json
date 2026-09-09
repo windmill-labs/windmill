@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE draft\n                   SET value = to_json(\n                       CASE WHEN to_jsonb(value) -> $4::text = to_jsonb($2::text)\n                            THEN jsonb_set(to_jsonb(value), ARRAY[$4::text], to_jsonb($1::text), false)\n                            ELSE to_jsonb(value)\n                       END\n                   )\n                   WHERE id = ANY($3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8Array",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "89f2db716b60343a7ebec8847e77376682e3e4af23a3404ab42bf6be3da66bf8"
+}

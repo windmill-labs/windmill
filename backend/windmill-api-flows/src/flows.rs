@@ -1393,6 +1393,7 @@ async fn update_flow(
             flow_path,
             &nf.path,
             UserDraftItemKind::Flow.typed_path_field(),
+                UserDraftItemKind::Flow.mirror_path_field(),
             UserDraftItemKind::Flow
                 .base_version_field()
                 .map(|f| (f, version.to_string())),
