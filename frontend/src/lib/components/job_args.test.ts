@@ -186,6 +186,14 @@ describe('secret args at every level the form nests', () => {
 		expect(redacted).toContain('$var:u/ada/prod')
 	})
 
+	// ArgInput synthesises '' for every untouched string, so marking one would put a hidden
+	// value on the card for a field nobody filled in — and mint nothing to back it.
+	it('leaves an empty secret empty', () => {
+		expect(
+			redactSecretArgs({ tok: '' }, { properties: { tok: { type: 'string', password: true } } })
+		).toEqual({ tok: '' })
+	})
+
 	it('reaches a secret under a oneOf branch of an array element', () => {
 		const oneOfItems = {
 			properties: {

@@ -271,14 +271,15 @@ export function stripFileArgs(
 /**
  * Replace a sensitive value with a fixed marker, for text that leaves the form. A reference is
  * kept: it names a variable rather than holding one, and the run page shows the same job's
- * arguments that way.
+ * arguments that way. An empty field is kept for the reason `processSecretArgs` mints nothing
+ * for one — marking it would describe a secret the run never carried.
  */
 export function redactSecretArgs(
 	args: Record<string, any>,
 	schema: { properties?: Record<string, any> } | undefined
 ): Record<string, any> {
 	return mapArgLeaves(args, schema, isSecretProp, (value) =>
-		value == null ? undefined : isReference(value) ? value : '<hidden>'
+		value == null ? undefined : value === '' || isReference(value) ? value : '<hidden>'
 	)
 }
 

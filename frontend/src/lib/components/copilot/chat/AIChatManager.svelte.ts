@@ -2017,13 +2017,8 @@ export class AIChatManager {
 		// Cancelled, so no run follows it into that tab (a submitted one is handed over by
 		// registerJob instead) — take the tab with it rather than leaving a dead form open.
 		if (submitted === undefined) this.closeRunForm?.(toolId)
-		// A cancelled form never reaches the write a run makes, so `parameters` would keep the
-		// proposal the card was published on — naming a secret the field had already replaced
-		// with a reference. A reference stands here, anything still literal does not.
 		const cancelledArgs =
-			submitted === undefined && entry
-				? redactFileArgs(redactSecretArgs(entry.draft.args, entry.draft.schema), entry.draft.schema)
-				: undefined
+			submitted === undefined && entry ? this.#settledFormArgs(entry) : undefined
 		this.#patchRunForm(
 			toolId,
 			submitted ? { submitted: true } : { canceled: true },
@@ -2031,6 +2026,15 @@ export class AIChatManager {
 		)
 		entry?.resolve?.(submitted)
 	}
+
+	/**
+	 * What a form that never ran leaves on its card. A run writes its own arguments there once
+	 * it has them and a cancellation never reaches that write, so without this the card keeps
+	 * the proposal it was published on — naming a secret the field had already replaced with a
+	 * reference. A reference stands, anything still literal does not.
+	 */
+	#settledFormArgs = (entry: PendingRunForm): Record<string, any> =>
+		redactFileArgs(redactSecretArgs(entry.draft.args, entry.draft.schema), entry.draft.schema)
 
 	#patchRunForm = (
 		toolId: string,
@@ -4221,8 +4225,11 @@ export class AIChatManager {
 			resolveQuestion(undefined)
 		}
 		this.userQuestionCallbacks.clear()
-		for (const [toolId, runForm] of this.#runForms) {
-			runForm.resolve?.(undefined)
+		for (const [toolId, entry] of this.#runForms) {
+			entry.resolve?.(undefined)
+			// Stopping the turn is the form's other way out, and the draft dies with this loop:
+			// settledToolDisplay settles the card below without ever seeing what was typed.
+			this.#patchRunForm(toolId, {}, () => ({ parameters: this.#settledFormArgs(entry) }))
 			// The form settles with the turn, so a preview tab holding it goes too rather
 			// than being left on a form that can no longer run.
 			this.closeRunForm?.(toolId)

@@ -326,6 +326,36 @@ describe('AIChatManager run form', () => {
 		})
 	})
 
+	// Stopping the turn is the form's other way out, and it settles cards through
+	// settledToolDisplay rather than through #settleRunForm.
+	it('settles a stopped form on what it held too', () => {
+		const manager = new AIChatManager()
+		const schema = { properties: { token: { password: true }, note: {} } }
+		const runForm = { path: 'f/a/b', schema, args: { token: 'hunter2', note: 'hello' } }
+		manager.displayMessages = [
+			{
+				role: 'tool',
+				tool_call_id: 'call_r',
+				content: '',
+				isLoading: true,
+				parameters: { ...runForm.args },
+				runForm
+			}
+		]
+
+		void manager.requestRunArgs('call_r', runForm)
+		const draft = manager.runFormDraft('call_r', runForm)
+		draft.args.token = '$var:u/admin/secret_arg/AbC'
+		draft.args.note = 'goodbye'
+
+		manager.cancel()
+
+		expect(manager.displayMessages[0].parameters).toEqual({
+			token: '$var:u/admin/secret_arg/AbC',
+			note: 'goodbye'
+		})
+	})
+
 	// The tool reads the deployed schema before it asks for arguments. A stop during that
 	// read drains the callbacks and settles the card, so a waiter installed afterwards was
 	// one no rendered form could resolve: the turn stayed loading until a second stop.
