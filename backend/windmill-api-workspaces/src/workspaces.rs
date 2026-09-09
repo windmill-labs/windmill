@@ -922,6 +922,7 @@ fn clear_client_supplied_auto_pull_state(
     auto_pull.webhook_url = None;
     auto_pull.webhook_error = None;
     auto_pull.last_synced_sha = std::collections::HashMap::new();
+    auto_pull.last_pushed_sha = std::collections::HashMap::new();
     auto_pull.last_pull_status = None;
 }
 
@@ -2687,6 +2688,40 @@ fn truncate_column_default(default: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use windmill_common::workspaces::{AutoPullSettings, AutoPullStatus};
+
+    /// Sync state the server writes must not survive a client-supplied settings save;
+    /// a value left in place would feed the git-sync PR check's readiness from the
+    /// request body.
+    #[test]
+    fn client_supplied_auto_pull_state_is_cleared() {
+        let mut ap = AutoPullSettings {
+            enabled: true,
+            webhook_id: Some(7),
+            webhook_secret: Some("s".into()),
+            webhook_url: Some("u".into()),
+            webhook_error: Some("e".into()),
+            last_synced_sha: [("main".to_string(), "a".to_string())].into(),
+            last_pushed_sha: [("main".to_string(), "b".to_string())].into(),
+            last_pull_status: Some(AutoPullStatus {
+                synced_sha: None,
+                at: 0,
+                job_id: None,
+                success: true,
+                error: None,
+            }),
+            ..Default::default()
+        };
+        clear_client_supplied_auto_pull_state(&mut ap);
+        assert!(ap.enabled);
+        assert!(ap.webhook_id.is_none());
+        assert!(ap.webhook_secret.is_none());
+        assert!(ap.webhook_url.is_none());
+        assert!(ap.webhook_error.is_none());
+        assert!(ap.last_synced_sha.is_empty());
+        assert!(ap.last_pushed_sha.is_empty());
+        assert!(ap.last_pull_status.is_none());
+    }
 
     /// The header of a pg_dump, followed by an object whose body also holds a `SET`.
     const DUMP: &str = "--\n\
@@ -4095,6 +4130,7 @@ async fn edit_git_sync_config(
                     new_ap.webhook_secret = old_ap.webhook_secret.clone();
                     new_ap.webhook_url = old_ap.webhook_url.clone();
                     new_ap.last_synced_sha = old_ap.last_synced_sha.clone();
+                    new_ap.last_pushed_sha = old_ap.last_pushed_sha.clone();
                     new_ap.last_pull_status = old_ap.last_pull_status.clone();
                 }
             }
@@ -4362,6 +4398,7 @@ async fn edit_git_sync_repository(
         match (updated.auto_pull.as_mut(), existing_repo.auto_pull.as_ref()) {
             (Some(new_ap), Some(old_ap)) => {
                 new_ap.last_synced_sha = old_ap.last_synced_sha.clone();
+                new_ap.last_pushed_sha = old_ap.last_pushed_sha.clone();
                 new_ap.last_pull_status = old_ap.last_pull_status.clone();
                 new_ap.webhook_id = old_ap.webhook_id;
                 new_ap.webhook_secret = old_ap.webhook_secret.clone();

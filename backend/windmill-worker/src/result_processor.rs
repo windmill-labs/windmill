@@ -1109,10 +1109,10 @@ fn git_sync_push_result_pushed(result: &str) -> Option<bool> {
         .as_bool()
 }
 
-/// When a git-sync push job pushed a commit, record it as the workspace's synced
-/// head for that branch, the way a pull records the commit it applied. The PR
-/// CI-test check reads that state to know when the workspace reflects a head.
-/// Best-effort: failures are logged, never propagated.
+/// When a git-sync push job pushed a commit, record it as the branch's last pushed
+/// head (`auto_pull.last_pushed_sha`, kept apart from the pull-side `last_synced_sha`
+/// so the next poll still pulls). The PR CI-test check reads it to know when the
+/// workspace reflects a head. Best-effort: failures are logged, never propagated.
 #[cfg(all(feature = "enterprise", feature = "private"))]
 async fn maybe_record_git_sync_pushed_head(
     db: &DB,

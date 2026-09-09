@@ -565,9 +565,10 @@ impl AutoPullSettings {
     /// Whether a freshly observed `(git_ref, head_sha)` warrants enqueuing a pull.
     ///
     /// A trigger (poll or webhook) is only a hint: we pull when auto-pull is
-    /// enabled and the observed head differs from the last sha we synced for
-    /// that ref. Re-observing the same head (e.g. a redundant poll, or the
-    /// commit our own deploy callback just pushed back) is a no-op.
+    /// enabled and the observed head differs from the last sha we pulled for
+    /// that ref. Re-observing the same head (a redundant poll) is a no-op. A
+    /// commit our own deploy pushed is not: it is recorded in `last_pushed_sha`,
+    /// not here, so the pull it triggers picks up anything pushed under it.
     pub fn should_pull(&self, git_ref: &str, head_sha: &str) -> bool {
         self.enabled && self.last_synced_sha.get(git_ref).map(String::as_str) != Some(head_sha)
     }
