@@ -655,11 +655,13 @@ corresponds to; the check reflects that fork's current results on the PR head.
 - **Conclude** — the verdict is the head's own suite. Once the fork reflects the head (below)
   and its dependency jobs settled, every CI test the fork declares is dispatched once, one
   run per `ci_test_reference` row the way a deploy of that item would (`trigger_all_ci_tests`,
-  under the identity of the sync job that brought the head in), and the job ids are recorded
-  on the synced-head row (`ci_test_job_ids`; `tests_dispatched_at` claims the dispatch so the
-  per-job hook and the poller queue it once). The verdict is exactly those runs: fail-fast on
-  any failed/canceled; `success` once all settle ("No CI tests" when the fork declares none);
-  `skipped` (debounce-superseded) ignored. Nothing older, newer or workspace-wide stands in
+  as the workspace admin an auto pull runs as, and without the per-item debounce so a
+  deploy-triggered run of the same test cannot supersede a suite run), and the job ids are
+  recorded on the synced-head row (`ci_test_job_ids`; `tests_dispatched_at` claims the
+  dispatch so the per-job hook and the poller queue it once, and a claim that never recorded
+  ids is retaken after 5 min). The verdict is exactly those runs: fail-fast on any
+  failed/canceled; `success` once all settle ("No CI tests" when the fork declares none);
+  `skipped` ignored. Nothing older, newer or workspace-wide stands in
   for a head's runs, so a re-fired event reads the same runs and gets the same answer, a
   test-only change is run because the suite runs on every head, and a deploy in flight in
   the fork cannot feed another head's check. Runs purged by job retention reset the row so
