@@ -135,32 +135,79 @@ pub const INSTANCE_BANNER_SETTING: &str = "instance_banner";
 /// page, so anything longer is a layout accident rather than an announcement.
 pub const INSTANCE_BANNER_MESSAGE_MAX_LEN: usize = 500;
 
+/// Ceiling on the banner's link label, which renders as a button inside that same strip.
+pub const INSTANCE_BANNER_LINK_LABEL_MAX_LEN: usize = 60;
+
 /// Validate an [`INSTANCE_BANNER_SETTING`] value.
 ///
 /// The banner is the one setting rendered to every user of the instance, so its
 /// shape is checked at the boundary rather than trusted from the writer: a value
-/// that reaches the browser malformed either shows nothing (and the admin believes
-/// the announcement is out) or breaks the layout for everyone at once.
+/// that reaches the browser malformed breaks the layout for everyone at once.
 ///
 /// The link is restricted to http(s) so a stored `javascript:`/`data:` URL can
 /// never become the href of an anchor every user sees.
+///
+/// Only shapes that would *misrender* are rejected. An enabled banner with no message
+/// is left alone deliberately: it renders as nothing, and every write path here runs
+/// under the bulk settings save, so rejecting it would fail an admin's whole settings
+/// edit — retention, SMTP and all — over a half-typed announcement.
 pub fn validate_instance_banner(value: &serde_json::Value) -> Result<(), String> {
     let obj = value
         .as_object()
         .ok_or_else(|| "must be a JSON object".to_string())?;
 
-    let message = obj.get("message").and_then(|v| v.as_str()).unwrap_or("");
-    if message.chars().count() > INSTANCE_BANNER_MESSAGE_MAX_LEN {
-        return Err(format!(
-            "message must be at most {INSTANCE_BANNER_MESSAGE_MAX_LEN} characters"
-        ));
+    // Field types are checked before their contents. Every read below is an `as_str`/
+    // `as_bool`, which reports a wrong-typed field as absent — so without this a
+    // `"link": 123` would skip the URL checks entirely and be stored, and the settings
+    // form would then throw on it (`link.trim()` on a number) instead of rendering.
+    for (field, expected, ok) in [
+        (
+            "enabled",
+            "a boolean",
+            obj.get("enabled").is_none_or(|v| v.is_boolean()),
+        ),
+        (
+            "dismissible",
+            "a boolean",
+            obj.get("dismissible").is_none_or(|v| v.is_boolean()),
+        ),
+        (
+            "message",
+            "a string",
+            obj.get("message").is_none_or(|v| v.is_string()),
+        ),
+        (
+            "severity",
+            "a string",
+            obj.get("severity").is_none_or(|v| v.is_string()),
+        ),
+        (
+            "link",
+            "a string",
+            obj.get("link").is_none_or(|v| v.is_string()),
+        ),
+        (
+            "link_label",
+            "a string",
+            obj.get("link_label").is_none_or(|v| v.is_string()),
+        ),
+    ] {
+        if !ok {
+            return Err(format!("{field} must be {expected}"));
+        }
     }
-    if obj
-        .get("enabled")
-        .is_some_and(|v| v.as_bool() == Some(true))
-        && message.trim().is_empty()
-    {
-        return Err("message is required when the banner is enabled".to_string());
+
+    for (field, max) in [
+        ("message", INSTANCE_BANNER_MESSAGE_MAX_LEN),
+        ("link_label", INSTANCE_BANNER_LINK_LABEL_MAX_LEN),
+    ] {
+        let len = obj
+            .get(field)
+            .and_then(|v| v.as_str())
+            .map_or(0, |s| s.chars().count());
+        if len > max {
+            return Err(format!("{field} must be at most {max} characters"));
+        }
     }
 
     if let Some(severity) = obj.get("severity").and_then(|v| v.as_str()) {
@@ -650,7 +697,7 @@ mod tests {
     }
 
     #[test]
-    fn instance_banner_rejects_a_link_that_is_not_http() {
+    fn instance_banner_rejects_unsafe_and_malformed_values() {
         // The link becomes the href of an anchor shown to every user of the instance,
         // so a non-http(s) scheme must not survive a write.
         for link in [
@@ -666,6 +713,37 @@ mod tests {
                 "link '{link}' should be rejected"
             );
         }
+        // A wrong-typed field reads as absent to every accessor here, so without an
+        // explicit type check it would skip validation and be stored.
+        for bad in [
+            serde_json::json!({ "enabled": true, "message": "down", "link": 123 }),
+            serde_json::json!({ "enabled": true, "message": "down", "link_label": ["a"] }),
+            serde_json::json!({ "enabled": true, "message": { "text": "down" } }),
+            serde_json::json!({ "enabled": true, "message": "down", "severity": 2 }),
+            serde_json::json!({ "enabled": "yes", "message": "down" }),
+            serde_json::json!({ "enabled": true, "message": "down", "dismissible": "no" }),
+        ] {
+            assert!(
+                validate_instance_banner(&bad).is_err(),
+                "{bad} should be rejected"
+            );
+        }
+        // The strip is one or two lines tall; both of its texts are bounded.
+        for (field, over) in [
+            ("message", INSTANCE_BANNER_MESSAGE_MAX_LEN + 1),
+            ("link_label", INSTANCE_BANNER_LINK_LABEL_MAX_LEN + 1),
+        ] {
+            let mut banner = serde_json::json!({ "enabled": true, "message": "down" });
+            banner[field] = serde_json::Value::String("x".repeat(over));
+            assert!(
+                validate_instance_banner(&banner).is_err(),
+                "an over-long {field} should be rejected"
+            );
+        }
+        // Enabled with no message renders as nothing and must stay writable: every path
+        // into this validator is a bulk settings save, so rejecting it would fail an
+        // admin's unrelated edits over a half-typed announcement.
+        assert!(validate_instance_banner(&serde_json::json!({ "enabled": true })).is_ok());
         let ok = serde_json::json!({
             "enabled": true, "message": "down", "severity": "warning",
             "link": "https://status.example.com", "dismissible": false

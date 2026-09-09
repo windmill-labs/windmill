@@ -4,7 +4,11 @@
 	import { ExternalLink, X } from 'lucide-svelte'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import { fetchInstanceBanner, type ResolvedInstanceBanner } from './instanceBanner'
+	import {
+		fetchInstanceBanner,
+		isInstanceBannerVisible,
+		type ResolvedInstanceBanner
+	} from './instanceBanner'
 	import { instanceSettingsSaved } from './instanceSettings'
 
 	// An announcement is only worth broadcasting while it is current, so on the managed
@@ -51,7 +55,7 @@
 		}
 	})
 
-	let shown = $derived(banner != undefined && dismissed.val !== banner.fingerprint)
+	let shown = $derived(isInstanceBannerVisible(banner, dismissed.val))
 	let palette = $derived(alertClasses[banner?.severity ?? 'info'])
 	let Icon = $derived(alertIcons[banner?.severity ?? 'info'])
 </script>

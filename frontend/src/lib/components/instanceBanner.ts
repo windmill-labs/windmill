@@ -3,8 +3,8 @@ import { SettingService } from '$lib/gen'
 /** Drives the banner palette and icon; the subset of `AlertType` that fits an announcement. */
 export type InstanceBannerSeverity = 'info' | 'warning' | 'error'
 
-/** Stored shape of the `instance_banner` global setting. Every field is optional:
- *  the value can predate a field, or be written by declarative config sync. */
+/** Stored shape of the `instance_banner` global setting. Every field is optional: a
+ *  stored value can predate a field this code knows about. */
 export interface InstanceBanner {
 	enabled?: boolean
 	message?: string
@@ -17,9 +17,10 @@ export interface InstanceBanner {
 
 export const INSTANCE_BANNER_SETTING = 'instance_banner'
 
-/** Mirrors `INSTANCE_BANNER_MESSAGE_MAX_LEN` in backend/windmill-common/src/global_settings.rs,
- *  which rejects a longer message at write time. */
+/** Mirror `INSTANCE_BANNER_MESSAGE_MAX_LEN` / `INSTANCE_BANNER_LINK_LABEL_MAX_LEN` in
+ *  backend/windmill-common/src/global_settings.rs, which reject longer values at write time. */
 export const INSTANCE_BANNER_MESSAGE_MAX_LEN = 500
+export const INSTANCE_BANNER_LINK_LABEL_MAX_LEN = 60
 
 export type ResolvedInstanceBanner = {
 	message: string
@@ -30,6 +31,17 @@ export type ResolvedInstanceBanner = {
 	/** Dismissal token: a viewer who dismissed one announcement sees the next one,
 	 *  because editing any displayed part of the banner changes this string. */
 	fingerprint: string
+}
+
+/**
+ * Read a stored banner field as a string.
+ *
+ * The setting is a raw `global_settings` row, so its shape is only ever as good as the
+ * writer that last touched it — and anything here that calls `.trim()` on a number throws,
+ * taking the whole settings form down with it.
+ */
+export function bannerString(value: unknown): string {
+	return typeof value === 'string' ? value : ''
 }
 
 export function isHttpUrl(value: string): boolean {
@@ -44,23 +56,24 @@ export function isHttpUrl(value: string): boolean {
 /**
  * Turn the raw setting into what the banner renders, or `undefined` for "show nothing".
  *
- * The scheme check is not redundant with the one the setter runs: declarative instance
- * config writes `global_settings` rows directly, so a `javascript:`/`data:` link can reach
- * this without passing the API validator — and it would become the href of an anchor shown
- * to every user of the instance.
+ * The scheme check repeats the one the writers run on purpose. The link becomes the href of
+ * an anchor shown to every user of the instance, and this is the last place that can refuse
+ * it — a row predating the validator, or written straight to the table, reaches here having
+ * passed nothing.
  */
 export function resolveInstanceBanner(raw: unknown): ResolvedInstanceBanner | undefined {
 	if (!raw || typeof raw !== 'object') return undefined
 	const banner = raw as InstanceBanner
-	const message = typeof banner.message === 'string' ? banner.message.trim() : ''
+	const message = bannerString(banner.message).trim()
 	if (banner.enabled !== true || message === '') return undefined
 
 	const severity: InstanceBannerSeverity =
 		banner.severity === 'warning' || banner.severity === 'error' ? banner.severity : 'info'
-	const rawLink = typeof banner.link === 'string' ? banner.link.trim() : ''
+	const rawLink = bannerString(banner.link).trim()
 	const link = isHttpUrl(rawLink) ? rawLink : undefined
 	const linkLabel =
-		(typeof banner.link_label === 'string' ? banner.link_label.trim() : '') || 'Learn more'
+		bannerString(banner.link_label).trim().slice(0, INSTANCE_BANNER_LINK_LABEL_MAX_LEN) ||
+		'Learn more'
 
 	return {
 		message: message.slice(0, INSTANCE_BANNER_MESSAGE_MAX_LEN),
@@ -70,6 +83,21 @@ export function resolveInstanceBanner(raw: unknown): ResolvedInstanceBanner | un
 		linkLabel,
 		fingerprint: JSON.stringify([message, severity, link ?? '', link ? linkLabel : ''])
 	}
+}
+
+/**
+ * Whether a viewer holding `dismissedFingerprint` should see this announcement.
+ *
+ * A non-dismissible announcement ignores stored dismissals entirely: an admin escalating an
+ * existing notice to mandatory must reach the people who already dismissed it, and the
+ * fingerprint deliberately does not cover `dismissible`, so nothing else would bring it back.
+ */
+export function isInstanceBannerVisible(
+	banner: ResolvedInstanceBanner | undefined,
+	dismissedFingerprint: string
+): banner is ResolvedInstanceBanner {
+	if (banner == undefined) return false
+	return !banner.dismissible || dismissedFingerprint !== banner.fingerprint
 }
 
 export async function fetchInstanceBanner(): Promise<ResolvedInstanceBanner | undefined> {

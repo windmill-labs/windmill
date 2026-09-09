@@ -6,6 +6,8 @@
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import { classes as alertClasses, icons as alertIcons } from '../common/alert/model'
 	import {
+		bannerString,
+		INSTANCE_BANNER_LINK_LABEL_MAX_LEN,
 		INSTANCE_BANNER_MESSAGE_MAX_LEN,
 		INSTANCE_BANNER_SETTING,
 		isHttpUrl,
@@ -26,8 +28,8 @@
 	// button watch. Reads go through a *snapshot* because the form mutates that object in
 	// place — a derived returning the object itself keeps its identity across edits, and
 	// Svelte then stops propagating to whatever depends on it. Every getter below applies
-	// the same default `resolveInstanceBanner` does, so a partial stored value (config
-	// sync, or one written before a field existed) displays as it will actually render.
+	// the same default `resolveInstanceBanner` does, so a value missing a field displays
+	// as it will actually render.
 	let banner: InstanceBanner = $derived(
 		$state.snapshot($values[INSTANCE_BANNER_SETTING] ?? {}) as InstanceBanner
 	)
@@ -41,10 +43,9 @@
 	// Runs the resolver the banner itself uses, so this shows what the instance gets —
 	// including the "nothing is shown" cases (disabled, or an empty message).
 	let preview = $derived(resolveInstanceBanner(banner))
+	let link = $derived(bannerString(banner.link).trim())
 	let linkError = $derived(
-		!!banner.link?.trim() && !isHttpUrl(banner.link.trim())
-			? 'Link must be an absolute http(s) URL'
-			: undefined
+		link !== '' && !isHttpUrl(link) ? 'Link must be an absolute http(s) URL' : undefined
 	)
 </script>
 
@@ -70,7 +71,8 @@
 				placeholder: 'Scheduled maintenance on Saturday 12:00–14:00 UTC. Jobs may be delayed.'
 			}}
 			bind:value={
-				() => banner.message ?? '', (v) => ($values[INSTANCE_BANNER_SETTING].message = String(v))
+				() => bannerString(banner.message),
+				(v) => ($values[INSTANCE_BANNER_SETTING].message = String(v))
 			}
 		/>
 	</div>
@@ -80,7 +82,8 @@
 		<ToggleButtonGroup
 			{disabled}
 			bind:selected={
-				() => banner.severity ?? 'info', (v) => ($values[INSTANCE_BANNER_SETTING].severity = v)
+				() => bannerString(banner.severity) || 'info',
+				(v) => ($values[INSTANCE_BANNER_SETTING].severity = v)
 			}
 		>
 			{#snippet children({ item })}
@@ -99,14 +102,20 @@
 				inputProps={{ type: 'text', disabled, placeholder: 'https://status.windmill.dev' }}
 				error={linkError}
 				bind:value={
-					() => banner.link ?? '', (v) => ($values[INSTANCE_BANNER_SETTING].link = String(v))
+					() => bannerString(banner.link),
+					(v) => ($values[INSTANCE_BANNER_SETTING].link = String(v))
 				}
 			/>
 			<TextInput
 				size="sm"
-				inputProps={{ type: 'text', disabled, placeholder: 'Learn more' }}
+				inputProps={{
+					type: 'text',
+					disabled,
+					maxlength: INSTANCE_BANNER_LINK_LABEL_MAX_LEN,
+					placeholder: 'Learn more'
+				}}
 				bind:value={
-					() => banner.link_label ?? '',
+					() => bannerString(banner.link_label),
 					(v) => ($values[INSTANCE_BANNER_SETTING].link_label = String(v))
 				}
 			/>
@@ -124,7 +133,7 @@
 		options={{
 			right: 'Let users dismiss it',
 			rightTooltip:
-				'Dismissal is remembered per browser and only for this exact announcement: editing the message, severity or link brings it back for everyone.'
+				'Dismissal is remembered per browser and only for this exact announcement: editing the message, severity or link brings it back for everyone. Turning this off also shows it again to everyone who had dismissed it.'
 		}}
 	/>
 
