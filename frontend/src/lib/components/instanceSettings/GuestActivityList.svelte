@@ -65,33 +65,46 @@
 	description="People your identity provider authenticated who opened an app set to Guests without a Windmill account. One email is one guest, however many workspaces it opened."
 />
 
-<div class="flex flex-row gap-2 items-center mb-4">
-	{#key usage}
-		<Toggle
-			bind:checked={switchOn}
-			disabled={switchPending}
-			on:change={(e) => setInstanceSwitch(e.detail)}
-			options={{
-				right: 'Allow guests on this instance',
-				rightTooltip:
-					'Off, no guest can sign in anywhere, whatever a workspace or an app says, and sessions already issued stop on their next request.'
-			}}
-		/>
-	{/key}
-</div>
+{#if !usage.available}
+	<div class="mb-4">
+		<Alert type="info" size="xs" title="Guests are not available on Windmill Cloud">
+			No guest can sign in here, whatever a workspace or an app says. Guests require a self-hosted
+			instance or a dedicated Windmill Cloud deployment.
+		</Alert>
+	</div>
+{:else}
+	<div class="flex flex-row gap-2 items-center mb-4">
+		{#key usage}
+			<Toggle
+				bind:checked={switchOn}
+				disabled={switchPending}
+				on:change={(e) => setInstanceSwitch(e.detail)}
+				options={{
+					right: 'Allow guests on this instance',
+					rightTooltip:
+						'Off, no guest can sign in anywhere, whatever a workspace or an app says, and sessions already issued stop on their next request.'
+				}}
+			/>
+		{/key}
+	</div>
 
-<div class="mb-4">
-	<Alert type={pastAllowance ? 'warning' : 'info'} size="xs" title="{usage.guest_count} of {usage.free_allowance} free guests used in the last {usage.window_days} days">
-		{#if usage.metered}
-			Beyond the allowance, every four guests count as one seat{usage.guest_seats > 0
-				? `: ${usage.billable_guests} guests past it take ${usage.guest_seats} ${usage.guest_seats === 1 ? 'seat' : 'seats'} now`
-				: ''}.
-		{:else}
-			Beyond the allowance, new guests are refused until the count drops below it; an
-			Enterprise license meters them instead.
-		{/if}
-	</Alert>
-</div>
+	<div class="mb-4">
+		<Alert
+			type={pastAllowance ? 'warning' : 'info'}
+			size="xs"
+			title="{usage.guest_count} of {usage.free_allowance} free guests used in the last {usage.window_days} days"
+		>
+			{#if usage.metered}
+				Beyond the allowance, every four guests count as one seat{usage.guest_seats > 0
+					? `: ${usage.billable_guests} guests past it take ${usage.guest_seats} ${usage.guest_seats === 1 ? 'seat' : 'seats'} now`
+					: ''}.
+			{:else}
+				Beyond the allowance, new guests are refused until the count drops below it; an Enterprise
+				license meters them instead.
+			{/if}
+		</Alert>
+	</div>
+{/if}
 
 <DataTable
 	shouldLoadMore={hasMore}
