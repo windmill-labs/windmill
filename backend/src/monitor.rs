@@ -4697,9 +4697,11 @@ pub async fn poll_git_auto_pull(db: &Pool<Postgres>) {
 
     // Backstop for the "Windmill CI tests" checks: retry a failed GitHub create or
     // delivery, conclude checks whose tests settled, time out stuck ones, prune old
-    // rows. Runs outside the advisory lock: its writes are guarded (claimed conclude,
-    // greatest-id upsert), and its GitHub calls must not extend the auto-pull tick.
-    windmill_git_sync::sweep_ci_test_checks(db).await;
+    // rows. Detached and outside the advisory lock: its writes are guarded (claimed
+    // conclude, greatest-id upsert), it is single-flight, and its GitHub calls must not
+    // count against the monitor pass's budget.
+    let db = db.clone();
+    tokio::spawn(async move { windmill_git_sync::sweep_ci_test_checks(&db).await });
 }
 
 #[cfg(feature = "private")]

@@ -14,12 +14,18 @@ pub mod git_sync_oss;
 
 #[cfg(feature = "private")]
 pub use git_sync_ee::{
-    enqueue_git_pull_dry_run, enqueue_git_pull_job, ensure_ci_test_check_for_pr,
-    evaluate_and_conclude_ci_test_checks, handle_deployment_metadata,
+    enqueue_git_pull_dry_run, enqueue_git_pull_job, handle_deployment_metadata,
     handle_deployment_metadata_batch, handle_fork_branch_creation, persist_auto_pull_state,
-    post_ci_test_check_not_applicable, reconcile_and_enqueue_pull, reconcile_fork_branch_pull,
-    record_auto_pull_failure, record_synced_head, resolve_pr_head_workspace,
-    sweep_ci_test_checks, tally_deployed_object_changes,
+    reconcile_and_enqueue_pull, reconcile_fork_branch_pull, record_auto_pull_failure,
+    record_synced_head, sweep_ci_test_checks, tally_deployed_object_changes,
+};
+
+// The CI-test check exists only on enterprise builds; `private` alone (the CE image)
+// compiles git_sync_ee without them.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub use git_sync_ee::{
+    ensure_ci_test_check_for_pr, evaluate_and_conclude_ci_test_checks,
+    post_ci_test_check_not_applicable, resolve_pr_head_workspace,
 };
 
 #[cfg(not(feature = "private"))]
