@@ -645,11 +645,12 @@ corresponds to; the check reflects that fork's current results on the PR head.
   `concluded`, `conclusion`, `concluded_at`, `github_posted`.
   Partial index `(workspace_id) WHERE NOT concluded OR NOT github_posted` (the live set the
   hook + poller scan).
-- **Open** — in the `pull_request` handler (opened/synchronize/reopened, base = tracked):
-  when the head lives in the base repo, resolve the fork workspace from the head ref
-  (reusing the fork-branch routing; `resolve_pr_head_workspace`), `create_check_run`
-  in_progress on `head_sha` via the parent's installation, persist the intent row (even on
-  create failure), then evaluate. An earlier head's open check is left to conclude on its
+- **Open** — in the `pull_request` handler (opened/synchronize/reopened, or edited with a
+  base change, base = tracked): when the head lives in the base repo, resolve the fork
+  workspace from the head ref (reusing the fork-branch routing;
+  `resolve_pr_head_workspace`), persist the intent row with a null check-run id, then
+  `create_check_run` in_progress on `head_sha` via the parent's installation and adopt the
+  id (the poller retries the create from the row if it failed), then evaluate. An earlier head's open check is left to conclude on its
   own (fork verdict or timeout): a late-delivered event for an old head must never touch
   the current head's check.
 - **Conclude** — the verdict is the head's own suite. Once the fork reflects the head (below)
