@@ -662,10 +662,13 @@ corresponds to; the check reflects that fork's current results on the PR head.
   `auto_pull.last_synced_sha[head_ref]`: a pull records the commit it applies, and the
   deploy push script now reports `{pushed, sha, branch}` so the push completion hook
   records the commit it pushed the same way (`record_pushed_head`). The row stores
-  `head_ref` for that lookup. Because a pull is recorded when enqueued, the check also
-  waits while that pull job, or any dependency job in the fork (a lockfile-generating
-  deploy hands its CI tests to one), is still queued. A failed pull rolls its state back
-  and the check times out; the commit's deploy check shows why. Needs the hub push script
+  `head_ref` for that lookup. Because a pull is recorded when enqueued and rolled back
+  only after its failure is reported, the check waits until the recorded pull has
+  completed with success and no dependency job in the fork (a lockfile-generating deploy
+  hands its CI tests to one) is still queued. A failed pull ends up rolled back and the
+  check times out; the commit's deploy check shows why. A dependency job that fails after
+  the pull started fails the check outright: the item deployed nothing runnable and
+  queued no test, so an older passing run must not decide. Needs the hub push script
   version that reports the sha (`LATEST_GIT_SYNC_SCRIPT_PATH`).
 - **Drivers** — a per-`ci_test`-job completion hook (low latency) and the git-sync poller
   (the backstop: retries the GitHub create/deliver, times stuck checks out after 30 min,
