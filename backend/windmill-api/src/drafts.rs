@@ -379,20 +379,6 @@ impl DraftBaseVersion {
     }
 }
 
-/// Where the item that used to live at `path` went, for a draft still bound to
-/// the old path. Resolved from the version the draft already carries — every
-/// kind keeps a pointer that outlives a rename:
-///   - flows: `flow_version.path` is rewritten before the old row is deleted;
-///   - apps: `app_version` points at the app's surrogate id, which never moves;
-///   - scripts: the new version prepends the old hash onto `parent_hashes`.
-///
-/// `None` (⇒ save normally) when the draft carries no base version (a genuine
-/// draft-only item), when the lineage is gone (item deleted, or recreated at
-/// the new path by a CLI/git-sync push that leaves no lineage), or when the
-/// caller can't see where it went.
-///
-/// Read under RLS so the answer can never reveal an item the caller has no
-/// access to.
 /// The version this draft forked from, or `None` when it has no lineage to
 /// follow — a kind that keeps none, a malformed payload, or a draft that was
 /// never forked from a deploy. Pure: no queries. This is the escape hatch the
@@ -416,6 +402,22 @@ fn draft_lineage(kind: UserDraftItemKind, value: &str) -> Option<DraftBaseVersio
     has_base.then_some(base)
 }
 
+/// Where the item that used to live at `path` went, for a draft still bound to
+/// the old path. Resolved from the version the draft already carries — every
+/// kind keeps a pointer that outlives a rename:
+///   - flows: `flow_version.path` is rewritten before the old row is deleted;
+///   - apps: `app_version` points at the app's surrogate id, which never moves;
+///   - scripts: the new version prepends the old hash onto `parent_hashes`.
+///
+/// `None` (⇒ save normally) when the draft carries no base version (a genuine
+/// draft-only item), when the lineage is gone (item deleted, or recreated at
+/// the new path by a CLI/git-sync push that leaves no lineage), or when the
+/// caller can't see where it went.
+///
+/// Reads under RLS so the answer can never reveal an item the caller has no
+/// access to. `resolve_moved_to_in` makes no such guarantee on its own — it
+/// inherits whatever scoping the transaction it is handed carries, which is why
+/// every caller passes an RLS-scoped one.
 async fn resolve_moved_to(
     authed: &ApiAuthed,
     user_db: &UserDB,
@@ -737,8 +739,12 @@ async fn update_draft(
         // with none (a draft-only item, a variable, a trigger) keeps the plain
         // single-statement write instead of paying BEGIN/COMMIT for a check that
         // cannot fire.
+        // RLS-scoped, because the re-assert below reads the item tables through
+        // this same connection and must see exactly what the pre-check saw. `draft`
+        // itself carries no policies and grants `windmill_user` full access, so the
+        // upsert is unaffected by the role.
         let mut tx = if draft_lineage(kind, value.0.get()).is_some() {
-            Some(db.begin().await?)
+            Some(user_db.clone().begin(&authed).await?)
         } else {
             None
         };
@@ -781,7 +787,13 @@ async fn update_draft(
             //
             // Run on the connection we already hold: acquiring a second from the
             // same pool while this transaction is open is the two-connection stall.
-            // Safe without the RLS envelope because the write gate is behind us.
+            // That connection is RLS-scoped, and has to be: the write gate cleared
+            // the OLD path, and this asks where the item WENT. On a raw pool
+            // connection this answers from rows the pre-check cannot see, so a
+            // destination in a folder the caller has no permission on would both be
+            // disclosed to them and permanently refuse their save — where the
+            // pre-check's "can't see where it went ⇒ save normally" fallback says it
+            // should land.
             if applied.is_some() && !deployed_still_at(&mut tx, &w_id, kind, path).await? {
                 if let Some((moved_to, moved_by, moved_patch)) =
                     resolve_moved_to_in(&mut tx, &authed.username, &w_id, kind, path, value.0.get())
