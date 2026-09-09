@@ -658,20 +658,20 @@ corresponds to; the check reflects that fork's current results on the PR head.
   `success` once all settle (or "No CI tests" when none ran); `skipped`
   (debounce-superseded) ignored.
 - **Readiness** — the verdict is read only once the fork reflects the head, so it does not
-  matter which webhook GitHub delivers first. The evidence is the fork repo entry's
-  the branch's `auto_pull.last_synced_sha` (a pull records the commit it applies) or
-  `auto_pull.last_pushed_sha` (the deploy push script reports `{pushed, sha, branch}` and
-  the push completion hook records it through `record_pushed_head`). The two stay separate:
-  `last_synced_sha` alone decides whether the next poll pulls, and a push can sit on top of
-  someone else's commit to the branch, which the workspace still has to pull. The row
-  stores `head_ref` for that lookup. Because a pull is recorded when enqueued and rolled back
-  only after its failure is reported, the check waits until the recorded pull has
-  completed with success and no dependency job in the fork (a lockfile-generating deploy
-  hands its CI tests to one) is still queued. A failed pull ends up rolled back and the
-  check times out; the commit's deploy check shows why. A dependency job that fails after
-  the pull started fails the check outright: the item deployed nothing runnable and
-  queued no test, so an older passing run must not decide. Needs the hub push script
-  version that reports the sha (`LATEST_GIT_SYNC_SCRIPT_PATH`).
+  matter which webhook GitHub delivers first. The evidence is a `git_sync_synced_head` row
+  for (fork, branch, sha): the pull completion hook writes one when a pull job succeeds
+  (its marker carries the branch and sha it was enqueued for), and the push completion
+  hook writes one from the deploy push script's `{pushed, sha, branch}` result. This is a
+  sync event log, deliberately apart from `auto_pull.last_synced_sha`: that map decides
+  whether the next poll pulls (a push must never write it, or a commit someone else pushed
+  under ours would be skipped) and it is client-round-tripped settings. The check row
+  stores `head_ref` for the lookup. The check also waits while a dependency job in the
+  fork (a lockfile-generating deploy hands its CI tests to one) is queued, and fails
+  outright if a dependency job failed after the head's pull started: the item deployed
+  nothing runnable and queued no test, so an older passing run must not decide. A commit
+  the fork never comes to reflect times out; its deploy check shows why. Rows are pruned
+  with the checks. Needs the hub push script version that reports the sha
+  (`LATEST_GIT_SYNC_SCRIPT_PATH`).
 - **Drivers** — a per-`ci_test`-job completion hook (low latency) and the git-sync poller
   (the backstop: retries the GitHub create/deliver, times stuck checks out after 30 min,
   prunes old rows; runs after the auto-pull advisory lock is released so its GitHub calls

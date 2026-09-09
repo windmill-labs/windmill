@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM git_sync_synced_head WHERE synced_at < now() - make_interval(secs => $1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "527a4c5c3cbe1a13eed3170d0af7f4f10aa72958553d097b76c265d481c6b77b"
+}

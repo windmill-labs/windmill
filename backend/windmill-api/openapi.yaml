@@ -34778,10 +34778,6 @@ components:
           type: object
           additionalProperties:
             type: string
-        last_pushed_sha:
-          type: object
-          additionalProperties:
-            type: string
         last_pull_status:
           $ref: "#/components/schemas/AutoPullStatus"
       required:

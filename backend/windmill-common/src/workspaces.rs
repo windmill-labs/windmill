@@ -512,11 +512,6 @@ pub struct AutoPullSettings {
     /// Last synced commit sha per tracked git ref (e.g. `refs/heads/main`).
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub last_synced_sha: std::collections::HashMap<String, String>,
-    /// Last commit a deploy push left per branch. Separate from `last_synced_sha`,
-    /// which alone decides whether the next poll pulls: a push can sit on top of a
-    /// commit someone else made to the branch, which the workspace still has to pull.
-    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
-    pub last_pushed_sha: std::collections::HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_pull_status: Option<AutoPullStatus>,
 }
@@ -537,7 +532,6 @@ impl std::fmt::Debug for AutoPullSettings {
             .field("webhook_url", &self.webhook_url)
             .field("webhook_error", &self.webhook_error)
             .field("last_synced_sha", &self.last_synced_sha)
-            .field("last_pushed_sha", &self.last_pushed_sha)
             .field("last_pull_status", &self.last_pull_status)
             .finish()
     }
@@ -567,8 +561,8 @@ impl AutoPullSettings {
     /// A trigger (poll or webhook) is only a hint: we pull when auto-pull is
     /// enabled and the observed head differs from the last sha we pulled for
     /// that ref. Re-observing the same head (a redundant poll) is a no-op. A
-    /// commit our own deploy pushed is not: it is recorded in `last_pushed_sha`,
-    /// not here, so the pull it triggers picks up anything pushed under it.
+    /// commit our own deploy pushed is not: pushes never write here, so the pull
+    /// it triggers picks up anything pushed under it.
     pub fn should_pull(&self, git_ref: &str, head_sha: &str) -> bool {
         self.enabled && self.last_synced_sha.get(git_ref).map(String::as_str) != Some(head_sha)
     }
@@ -2681,7 +2675,6 @@ mod tests {
                 .iter()
                 .map(|(r, s)| (r.to_string(), s.to_string()))
                 .collect(),
-            last_pushed_sha: Default::default(),
             last_pull_status: None,
         }
     }
