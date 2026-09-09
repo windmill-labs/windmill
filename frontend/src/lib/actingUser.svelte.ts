@@ -25,17 +25,18 @@ export function useActingUser(workspace: () => string | undefined) {
 	// A Map, not an object: a workspace may legitimately be named `constructor`, which a plain
 	// object would answer for out of its prototype.
 	const looked = new SvelteMap<string, RoleLookup>()
-	// A lookup that came back empty is remembered only for as long as its workspace is the one
-	// being acted on, so the caller has a settled answer to show without the refusal outliving
-	// the attempt. Leaving that workspace ends the attempt; so does `forgetFailures`.
-	let shown: string | undefined
+	// The workspace this effect last acted on, so arriving at one is distinguishable from the
+	// effect re-running while already there.
+	let asking: string | undefined
 
 	$effect(() => {
 		const ws = workspace()
-		if (shown !== ws) {
-			const left = shown
-			shown = ws
-			if (left && untrack(() => looked.get(left)?.kind) === 'lookup_failed') looked.delete(left)
+		if (asking !== ws) {
+			asking = ws
+			// Dropped on the way *in*, not on the way out: a lookup that fails after the acting
+			// workspace has already moved on has no entry to clear at the moment it is left, so
+			// clearing it there would keep a refusal that no attempt is behind any more.
+			if (ws && untrack(() => looked.get(ws)?.kind) === 'lookup_failed') looked.delete(ws)
 		}
 		if (!ws || ws === navWorkspace.current) return
 		// Any settled answer stops the asking, a failure included — otherwise recording one
@@ -65,10 +66,10 @@ export function useActingUser(workspace: () => string | undefined) {
 		get current(): UserExt | undefined {
 			return userIn(workspace())
 		},
-		/** Drop the lookups that came back empty so they are asked again — the other way an
-		 *  attempt ends. A long-lived editor must call this when it starts a fresh session, or
-		 *  a `whoami` that happened to fail pins its workspace to "unknown user" until the
-		 *  acting workspace changes. */
+		/** Drop the lookups that came back empty so they are asked again. Arriving at a
+		 *  workspace already does this; a long-lived editor must call this too when it starts a
+		 *  fresh session on the workspace it is already on, or a `whoami` that happened to fail
+		 *  pins it to "unknown user" for as long as it stays there. */
 		forgetFailures(): void {
 			for (const [ws, lookup] of looked) {
 				if (lookup.kind === 'lookup_failed') looked.delete(ws)
