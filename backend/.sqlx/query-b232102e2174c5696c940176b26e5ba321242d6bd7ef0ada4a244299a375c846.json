@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT workspace_id, github_workspace_id, head_sha, repo_url, check_run_id\n           FROM git_sync_ci_test_check\n           WHERE NOT concluded OR NOT github_posted",
+  "query": "SELECT workspace_id, github_workspace_id, head_sha, repo_url, repo_resource_path,\n                  check_run_id\n           FROM git_sync_ci_test_check\n           WHERE NOT concluded OR NOT github_posted",
   "describe": {
     "columns": [
       {
@@ -25,6 +25,11 @@
       },
       {
         "ordinal": 4,
+        "name": "repo_resource_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
         "name": "check_run_id",
         "type_info": "Int8"
       }
@@ -37,8 +42,9 @@
       false,
       false,
       false,
+      false,
       true
     ]
   },
-  "hash": "12a974d89a4401f7e574ce6f0ce6030cd3f3a50ff715cd5e400084f43f8a75ed"
+  "hash": "b232102e2174c5696c940176b26e5ba321242d6bd7ef0ada4a244299a375c846"
 }

@@ -1,4 +1,4 @@
--- One "Windmill CI tests" GitHub check run per (fork workspace, PR head commit):
+-- One "Windmill CI tests" GitHub check run per (fork workspace, repository, PR head commit):
 -- the pull_request webhook opens the check in_progress and it is concluded once
 -- the fork's CI tests settle, so the results can gate a GitHub PR.
 CREATE TABLE git_sync_ci_test_check (
@@ -25,7 +25,7 @@ CREATE TABLE git_sync_ci_test_check (
     -- Decoupled from `concluded` so a failed check-run PATCH is retried by the
     -- poller instead of hanging a required check on GitHub.
     github_posted BOOLEAN NOT NULL DEFAULT false,
-    PRIMARY KEY (workspace_id, head_sha)
+    PRIMARY KEY (workspace_id, repo_resource_path, head_sha)
 );
 
 -- Rows still needing action (create retry, conclusion, timeout, delivery retry).
