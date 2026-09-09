@@ -9,7 +9,15 @@ import { preCheckPermissionedAs } from "../src/core/permissioned_as.ts";
 
 /** Non-interactive and without the override flag, the pre-check exits rather
  * than reassigning silently — so a thrown exit is the signal it fired. */
-async function precheck(paths: string[]): Promise<string | undefined> {
+type Shape = "edited" | "added" | "deleted";
+
+function change(path: string, name: Shape = "edited") {
+  return { name, path, before: "summary: x\n", content: "summary: x\n" };
+}
+
+async function precheck(
+  changes: ReturnType<typeof change>[],
+): Promise<string | undefined> {
   const exit = process.exit;
   let code: number | undefined;
   (process as any).exit = (c?: number) => {
@@ -20,13 +28,7 @@ async function precheck(paths: string[]): Promise<string | undefined> {
   const err = console.error;
   console.error = (...a: unknown[]) => void logged.push(a.join(" "));
   try {
-    await preCheckPermissionedAs(
-      paths.map((path) => ({ name: "edited" as const, path, before: "summary: x\n" })),
-      "pusher@corp",
-      false,
-      false,
-      false,
-    );
+    await preCheckPermissionedAs(changes, "pusher@corp", false, false, false);
   } catch (e) {
     if (!String(e).startsWith("Error: exit:")) throw e;
   } finally {
@@ -37,20 +39,46 @@ async function precheck(paths: string[]): Promise<string | undefined> {
 }
 
 test("a raw-app push warns the non-deployer it will take over the run-as user", async () => {
-  const message = await precheck(["f/test/myapp.raw_app/index.tsx"]);
+  const message = await precheck([change("f/test/myapp.raw_app/index.tsx")]);
 
   expect(message).toBeDefined();
   expect(message).toContain("f/test/myapp.raw_app");
   expect(message).toContain("pusher@corp");
 });
 
+// Deleting one file re-pushes the whole app rather than deleting it, so the
+// takeover happens there too.
+test("deleting one of an app's files warns like editing one", async () => {
+  const message = await precheck([
+    change("f/test/myapp.raw_app/gone.tsx", "deleted"),
+  ]);
+
+  expect(message).toContain("f/test/myapp.raw_app");
+});
+
+// The metadata file going with it means the app itself is created or removed —
+// neither takes an owner over.
+test("an app arriving or leaving whole is not a takeover", async () => {
+  const created = await precheck([
+    change("f/test/new.raw_app/raw_app.yaml", "added"),
+    change("f/test/new.raw_app/index.tsx", "added"),
+  ]);
+  const removed = await precheck([
+    change("f/test/old.raw_app/raw_app.yaml", "deleted"),
+    change("f/test/old.raw_app/index.tsx", "deleted"),
+  ]);
+
+  expect(created).toBeUndefined();
+  expect(removed).toBeUndefined();
+});
+
 test("an app is listed once however many of its files changed", async () => {
   const message = await precheck([
-    "f/test/myapp.raw_app/index.tsx",
-    "f/test/myapp.raw_app/raw_app.yaml",
-    "f/test/myapp.raw_app/backend/a.ts",
-    "f/test/low.app/app.yaml",
-    "f/test/low.app/inline.ts",
+    change("f/test/myapp.raw_app/index.tsx"),
+    change("f/test/myapp.raw_app/raw_app.yaml"),
+    change("f/test/myapp.raw_app/backend/a.ts"),
+    change("f/test/low.app/app.yaml"),
+    change("f/test/low.app/inline.ts"),
   ]);
 
   expect(message).toContain("2 item(s)");

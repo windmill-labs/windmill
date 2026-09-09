@@ -3,7 +3,11 @@ import * as log from "./log.ts";
 import { colors } from "@cliffy/ansi/colors";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { getTypeStrFromPath } from "../types.ts";
-import { extractFolderPath } from "../utils/resource_folders.ts";
+import {
+  extractFolderPath,
+  isAppFolderMetadataFile,
+  isRawAppFolderMetadataFile,
+} from "../utils/resource_folders.ts";
 import { parseSyncBehavior } from "./conf.ts";
 
 export interface PermissionedAsContext {
@@ -90,19 +94,38 @@ function contentHasOnBehalfOf(content: string, typeStr: string): boolean {
   return false;
 }
 
-/** The app a changed file belongs to, or undefined when the file is not an
- * app's. Any file in the folder redeploys the app and so rewrites its policy,
- * so the owner changes once however many of the app's files moved — raw apps
- * included: `raw_app.yaml` records no policy, so a push always reassigns. */
-function appOwnerChange(
-  path: string,
-  typeStr: string
-): { path: string; currentOwner: string } | undefined {
+/** The app folder a changed file belongs to, or undefined when the file is not
+ * an app's. Adding, editing or deleting any file in the folder redeploys the
+ * whole app and so rewrites its policy, so the owner changes once however many
+ * of the app's files moved — raw apps included: `raw_app.yaml` records no
+ * policy, so a push always reassigns. */
+function appFolderOf(path: string, typeStr: string): string | undefined {
   if (typeStr !== "app" && typeStr !== "raw_app") return undefined;
-  return {
-    path: extractFolderPath(path, typeStr) ?? path,
-    currentOwner: "(app policy owner)",
-  };
+  return extractFolderPath(path, typeStr) ?? path;
+}
+
+/** App folders whose own metadata file is being added or deleted, which is how a
+ * whole app arrives or goes rather than being redeployed. Neither takes an owner
+ * over: a create has none yet, and a delete leaves none behind. */
+function appsArrivingOrLeaving(changes: Change[]): Set<string> {
+  const folders = new Set<string>();
+  for (const change of changes) {
+    if (change.name === "edited") continue;
+    if (
+      !isAppFolderMetadataFile(change.path) &&
+      !isRawAppFolderMetadataFile(change.path)
+    ) {
+      continue;
+    }
+    let folder: string | undefined;
+    try {
+      folder = appFolderOf(change.path, getTypeStrFromPath(change.path));
+    } catch {
+      continue;
+    }
+    if (folder) folders.add(folder);
+  }
+  return folders;
 }
 
 export async function preCheckPermissionedAs(
@@ -122,12 +145,25 @@ export async function preCheckPermissionedAs(
       wouldChangeItems.push(item);
     }
   };
+  const arrivingOrLeaving = appsArrivingOrLeaving(changes);
+  const addAppOwnerChange = (path: string, typeStr: string) => {
+    const folder = appFolderOf(path, typeStr);
+    if (folder && !arrivingOrLeaving.has(folder)) {
+      addItem({ path: folder, currentOwner: "(app policy owner)" });
+    }
+  };
 
   for (const change of changes) {
     let typeStr: string;
     try {
       typeStr = getTypeStrFromPath(change.path);
     } catch {
+      continue;
+    }
+
+    // Deleting one of an app's files re-pushes the app, policy and all.
+    if (change.name === "deleted") {
+      addAppOwnerChange(change.path, typeStr);
       continue;
     }
 
@@ -152,8 +188,7 @@ export async function preCheckPermissionedAs(
           typeStr === "script" ? "(script owner)" : "(flow owner)";
         wouldChangeItems.push({ path: change.path, currentOwner: label });
       } else {
-        const app = appOwnerChange(change.path, typeStr);
-        if (app) addItem(app);
+        addAppOwnerChange(change.path, typeStr);
       }
       continue;
     }
@@ -197,8 +232,7 @@ export async function preCheckPermissionedAs(
       }
       continue;
     } else if (typeStr === "app" || typeStr === "raw_app") {
-      const app = appOwnerChange(change.path, typeStr);
-      if (app) addItem(app);
+      addAppOwnerChange(change.path, typeStr);
       continue;
     } else if (typeStr === "schedule") {
       const match = beforeContent.match(
