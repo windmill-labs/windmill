@@ -1078,7 +1078,8 @@
 							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
 							membership, the plan tier and quota shown when the execution meter is opened, whether
 							app sandbox isolation is turned on, whether a step's workspace script is edited from
-							the flow editor, and how data tables and their migrations are set up and used, last 30
+							the flow editor, whether the database manager is opened on data or on the schema
+							diagram, and how data tables and their migrations are set up and used, last 30
 							days)</li
 						>
 						<li
@@ -1140,7 +1141,8 @@
 							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
 							membership, the plan tier and quota shown when the execution meter is opened, whether
 							app sandbox isolation is turned on, whether a step's workspace script is edited from
-							the flow editor, and how data tables and their migrations are set up and used, last 30
+							the flow editor, whether the database manager is opened on data or on the schema
+							diagram, and how data tables and their migrations are set up and used, last 30
 							days)</li
 						>
 						<li

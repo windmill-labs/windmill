@@ -332,6 +332,7 @@ pub fn try_expand_internal_db_query(
         // Metadata queries
         "LOAD_TABLE_METADATA" => expand_load_table_metadata(json_str, db_type),
         "FOREIGN_KEYS" => expand_foreign_keys(json_str, db_type).map(ExpandedQuery::sql),
+        "ALL_FOREIGN_KEYS" => expand_all_foreign_keys(db_type).map(ExpandedQuery::sql),
         "PRIMARY_KEY_CONSTRAINT" => {
             expand_primary_key_constraint(json_str, db_type).map(ExpandedQuery::sql)
         }
@@ -2710,6 +2711,47 @@ fn expand_foreign_keys(json_str: &str, db_type: DbType) -> Result<String, String
     Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
 }
 
+fn expand_all_foreign_keys(db_type: DbType) -> Result<String, String> {
+    make_all_foreign_keys_query(db_type)
+}
+
+/// Every foreign key of the database, one row per referencing column.
+///
+/// Read from `pg_constraint` rather than `information_schema`: the latter's
+/// `constraint_column_usage` loses the pairing of a composite key's columns,
+/// which the diagram needs to line a source column up with the column it points
+/// at. `unnest(conkey, confkey)` keeps them zipped in declaration order.
+fn make_all_foreign_keys_query(db_type: DbType) -> Result<String, String> {
+    if db_type != DbType::Postgresql {
+        return Err(format!(
+            "The schema diagram is only supported for PostgreSQL, not {:?}",
+            db_type
+        ));
+    }
+    Ok(String::from(
+        "SELECT
+    con.conname as fk_constraint_name,
+    src_ns.nspname as source_schema,
+    src.relname as source_table,
+    src_att.attname as source_column,
+    tgt_ns.nspname as target_schema,
+    tgt.relname as target_table,
+    tgt_att.attname as target_column,
+    k.ord as ordinal
+FROM pg_catalog.pg_constraint con
+    JOIN pg_catalog.pg_class src ON src.oid = con.conrelid
+    JOIN pg_catalog.pg_namespace src_ns ON src_ns.oid = src.relnamespace
+    JOIN pg_catalog.pg_class tgt ON tgt.oid = con.confrelid
+    JOIN pg_catalog.pg_namespace tgt_ns ON tgt_ns.oid = tgt.relnamespace
+    JOIN LATERAL unnest(con.conkey, con.confkey) WITH ORDINALITY AS k(src_attnum, tgt_attnum, ord) ON true
+    JOIN pg_catalog.pg_attribute src_att ON src_att.attrelid = src.oid AND src_att.attnum = k.src_attnum
+    JOIN pg_catalog.pg_attribute tgt_att ON tgt_att.attrelid = tgt.oid AND tgt_att.attnum = k.tgt_attnum
+WHERE con.contype = 'f'
+    AND src_ns.nspname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY src_ns.nspname, src.relname, con.conname, k.ord;",
+    ))
+}
+
 fn expand_primary_key_constraint(json_str: &str, db_type: DbType) -> Result<String, String> {
     let p: PrimaryKeyConstraintPayload = serde_json::from_str(json_str)
         .map_err(|e| format!("Invalid PRIMARY_KEY_CONSTRAINT payload: {}", e))?;
@@ -4684,6 +4726,26 @@ mod tests {
         let marker = r#"-- WM_INTERNAL_DB_FOREIGN_KEYS {"table":"orders","ducklake":"lake"}"#;
         let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.starts_with("ATTACH 'ducklake://lake' AS dl;USE dl;\n"));
+    }
+
+    // -----------------------------------------------------------------------
+    // ALL_FOREIGN_KEYS
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_expand_all_foreign_keys_postgresql() {
+        let marker = r#"-- WM_INTERNAL_DB_ALL_FOREIGN_KEYS {}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        assert!(sql.contains("con.contype = 'f'"));
+        // Columns of a composite key must stay zipped with the ones they point at.
+        assert!(sql.contains("unnest(con.conkey, con.confkey) WITH ORDINALITY"));
+    }
+
+    #[test]
+    fn test_expand_all_foreign_keys_rejects_non_postgres() {
+        let marker = r#"-- WM_INTERNAL_DB_ALL_FOREIGN_KEYS {}"#;
+        let result = try_expand_internal_db_query(marker, &ScriptLang::Mysql);
+        assert!(result.unwrap().is_err());
     }
 
     // -----------------------------------------------------------------------
