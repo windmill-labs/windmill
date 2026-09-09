@@ -115,6 +115,10 @@
 	// letting the publisher believe the app is open.
 	let guestAccessEnabled: boolean | undefined = $state(undefined)
 	let guestUsage: GuestUsage | undefined = $state(undefined)
+	// Whether the deployment can have guests at all; off, the mode is not on offer. The
+	// backend decides; the hostname stands in until it has answered, the shared cloud
+	// being the only deployment where guests are unavailable.
+	let guestsAvailable = $derived.by(() => guestUsage?.available ?? !isCloudHosted())
 
 	$effect(() => {
 		const ws = opWs
@@ -458,7 +462,7 @@
 			</Alert>
 			<div class="mb-2"></div>
 		{/if}
-		{#if rulesetsLoaded && !canSetGuest && policy.execution_mode != 'guest'}
+		{#if rulesetsLoaded && !canSetGuest && policy.execution_mode != 'guest' && guestsAvailable}
 			<Alert type="warning" title="Restricted by a workspace protection rule" size="xs">
 				Opening this app to guests is restricted to workspace admins and bypass users by a workspace
 				protection rule
@@ -481,8 +485,10 @@
 					<ToggleButton
 						label="Guests"
 						value="guest"
-						disabled={!canSetGuest && policy.execution_mode != 'guest'}
-						tooltip="Anyone your identity provider authenticates who has no Windmill account, plus workspace members. No membership, no seat up to the instance's allowance."
+						disabled={!guestsAvailable || (!canSetGuest && policy.execution_mode != 'guest')}
+						tooltip={!guestsAvailable
+							? 'Not available on Windmill Cloud. Guests require a self-hosted instance or a dedicated Windmill Cloud deployment.'
+							: "Anyone your identity provider authenticates who has no Windmill account, plus workspace members. No membership, no seat up to the instance's allowance."}
 						{item}
 					/>
 					<ToggleButton
@@ -499,7 +505,10 @@
 			{#if policy.execution_mode == 'anonymous'}
 				Anyone holding the secret URL below can open this app without signing in.
 			{:else if policy.execution_mode == 'guest'}
-				{#if guestUsage && !guestUsage.instance_enabled}
+				{#if !guestsAvailable}
+					Guests are not available on Windmill Cloud, so this app still admits members only. They
+					require a self-hosted instance or a dedicated Windmill Cloud deployment.
+				{:else if guestUsage && !guestUsage.instance_enabled}
 					A superadmin has turned guests off for this instance, so this app still admits members
 					only.
 				{:else if guestAccessEnabled === undefined}
@@ -554,7 +563,7 @@
 			{/if}
 		</div>
 
-		{#if embedMode && policy.execution_mode == 'guest' && guestAccessEnabled && guestJwtBase}
+		{#if embedMode && policy.execution_mode == 'guest' && guestAccessEnabled && guestJwtBase && guestsAvailable}
 			<div class="mt-4 border-t pt-3 flex flex-col gap-2">
 				<div class="text-xs font-semibold text-emphasis">
 					Embed for your own authenticated users (guest JWT)
