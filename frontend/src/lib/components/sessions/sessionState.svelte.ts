@@ -456,8 +456,8 @@ export async function putSession(s: Session): Promise<void> {
 	if (s.transient) return
 	// A record removed because its workspace is gone had its files and artifacts GC'd with
 	// it, so writing it back resurrects an empty husk. Callers reach here holding a
-	// reference captured before the delete — the chat-id seeder awaits mid-loop,
-	// find-then-write callers race the re-hydrate.
+	// reference captured before the delete: find-then-write callers race the
+	// re-hydrate, and any writer that awaits between the find and the write.
 	if (deletedSessionIds.has(s.id)) return
 	// Separately, keep a UI action (e.g. unarchive) from persisting into a workspace that
 	// has gone unavailable but not yet reconciled. `userWorkspaces` answers that only for
@@ -758,9 +758,9 @@ function isDiscardableDraft(s: Session): boolean {
 }
 
 // Somewhere empty to put the user, for a URL naming a session this browser
-// doesn't hold. Only `transient` makes "empty" trustworthy: chat seeding and
-// attached-file persistence both key off `!transient` and leave every field
-// below untouched, so a persisted session can hold a conversation regardless.
+// doesn't hold. Only `transient` makes "empty" trustworthy: a persisted session
+// can hold a conversation while every field below stays untouched — its chat and
+// attached files key off `!transient`, not off these.
 export function findEmptyLandingSession(): Session | undefined {
 	return sessionState.sessions.find(
 		(s) =>
