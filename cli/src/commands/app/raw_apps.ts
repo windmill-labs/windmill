@@ -1,6 +1,9 @@
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
-import { mergeConfigWithConfigFile } from "../../core/conf.ts";
+import {
+  mergeConfigWithConfigFile,
+  readEffectiveSyncBehavior,
+} from "../../core/conf.ts";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
@@ -13,10 +16,15 @@ import path from "node:path";
 import { readdir } from "node:fs/promises";
 
 import { GlobalOptions, isSuperset } from "../../types.ts";
+import {
+  buildPermissionedAsContext,
+  type PermissionedAsContext,
+} from "../../core/permissioned_as.ts";
 import { deepEqual, readTextFile } from "../../utils/utils.ts";
 
 import {
   type AppExecutionMode,
+  deployedPolicyBase,
   executionModeFromAppFile,
   markAccessFromPolicy,
   replaceInlineScripts,
@@ -360,6 +368,7 @@ export async function pushRawApp(
   localPath: string,
   message?: string,
   defaultTs: "bun" | "deno" = "bun",
+  permissionedAsContext?: PermissionedAsContext,
 ): Promise<void> {
   if (alreadySynced.includes(localPath)) {
     return;
@@ -376,6 +385,8 @@ export async function pushRawApp(
   } catch {
     //ignore
   }
+
+  const remotePolicy = app?.policy as Policy | undefined;
   markAccessFromPolicy(app);
   // console.log(app);
   if (app) {
@@ -423,12 +434,32 @@ export async function pushRawApp(
   repopulateFields(runnables);
 
   // Create a temporary app object for policy generation
-  const appForPolicy = { ...localApp, runnables };
+  const appForPolicy = {
+    ...localApp,
+    runnables,
+    policy: deployedPolicyBase(remotePolicy, localApp.policy),
+  };
   await generatingPolicy(
     appForPolicy,
     remotePath,
-    executionModeFromAppFile(localApp),
+    executionModeFromAppFile(localApp, remotePolicy),
   );
+
+  // Submitting a policy is how the backend reads a claim on the app's execution
+  // identity; without the flag it rewrites on_behalf_of to whoever ran the push.
+  const preserveFields: { preserve_on_behalf_of?: boolean } = {};
+  if (
+    permissionedAsContext?.userIsAdminOrDeployer &&
+    appForPolicy.policy.on_behalf_of
+  ) {
+    preserveFields.preserve_on_behalf_of = true;
+    log.info(
+      `Preserving ${
+        appForPolicy.policy.on_behalf_of_email ??
+          appForPolicy.policy.on_behalf_of
+      } as permissioned_as for app ${remotePath}`,
+    );
+  }
 
   const files = await collectAppFiles(localPath);
   async function createBundleRaw() {
@@ -483,6 +514,7 @@ export async function pushRawApp(
             summary: localApp.summary,
             policy: appForPolicy.policy,
             deployment_message: message,
+            ...preserveFields,
             // Preserve any user draft at this path (see backend skip_draft_deletion).
             skip_draft_deletion: true,
             ...(localApp.custom_path
@@ -505,6 +537,7 @@ export async function pushRawApp(
           summary: localApp.summary,
           policy: appForPolicy.policy,
           deployment_message: message,
+          ...preserveFields,
           // Preserve any user draft at this path (see backend skip_draft_deletion).
           skip_draft_deletion: true,
           ...(localApp.custom_path
@@ -564,6 +597,10 @@ async function pushRawAppCommand(
     filePath,
     undefined,
     merged.defaultTs,
+    await buildPermissionedAsContext(
+      workspace.workspaceId,
+      await readEffectiveSyncBehavior(opts, workspace),
+    ),
   );
   log.info(colors.bold.underline.green("Raw app pushed"));
 }

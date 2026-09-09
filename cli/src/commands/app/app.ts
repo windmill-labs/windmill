@@ -119,9 +119,14 @@ export function isExecutionModeAnonymous(app: any) {
 export function isExecutionModeGuest(app: any) {
   return app?.["policy"]?.["execution_mode"] == "guest";
 }
-export type AppExecutionMode = "anonymous" | "guest" | "publisher";
+export type AppExecutionMode =
+  | "anonymous"
+  | "guest"
+  | "publisher"
+  | "viewer";
 /** The access mode is the one policy field a tracked app keeps, as `public` (anonymous)
- * or `guests` (guest); the rest of the policy is regenerated on push. */
+ * or `guests` (guest); the rest is carried over from the deployed policy on push
+ * (see {@link deployedPolicyBase}). */
 export function markAccessFromPolicy(app: any) {
   if (isExecutionModeAnonymous(app)) {
     app.public = true;
@@ -129,14 +134,41 @@ export function markAccessFromPolicy(app: any) {
     app.guests = true;
   }
 }
-export function executionModeFromAppFile(app: any): AppExecutionMode {
+export function executionModeFromAppFile(
+  app: any,
+  deployedPolicy?: Policy,
+): AppExecutionMode {
   if (app?.["public"] ?? isExecutionModeAnonymous(app)) {
     return "anonymous";
   }
   if (app?.["guests"] ?? isExecutionModeGuest(app)) {
     return "guest";
   }
+  // `public`/`guests` are the only modes the file records, so "neither" covers
+  // both publisher and viewer: keep the deployed one rather than demoting a
+  // viewer app to publisher on every push.
+  if (deployedPolicy?.execution_mode === "viewer") {
+    return "viewer";
+  }
   return "publisher";
+}
+
+/**
+ * What a push's regenerated policy starts from. The app file states only the
+ * access mode, so regenerating from the local sources alone silently drops every
+ * other policy field the deployed app carries — its run-as identity, sandbox
+ * isolation, SDK scopes. Anything the file does state still wins.
+ *
+ * Legacy `triggerables` are dropped: the backend folds them into
+ * `triggerables_v2` on read, so carrying them over would keep granting runnables
+ * this deploy no longer contains.
+ */
+export function deployedPolicyBase(
+  deployedPolicy: Policy | undefined,
+  localPolicy: Policy | undefined,
+): Policy {
+  const { triggerables: _legacy, ...deployed } = deployedPolicy ?? {};
+  return { ...deployed, ...(localPolicy ?? {}) } as Policy;
 }
 export async function pushApp(
   workspace: string,
@@ -161,12 +193,9 @@ export async function pushApp(
     //ignore
   }
 
-  let remoteOnBehalfOf: string | undefined;
-  let remoteOnBehalfOfEmail: string | undefined;
-  if (app?.policy) {
-    remoteOnBehalfOf = app.policy.on_behalf_of;
-    remoteOnBehalfOfEmail = app.policy.on_behalf_of_email;
-  }
+  const remotePolicy = app?.policy as Policy | undefined;
+  const remoteOnBehalfOf = remotePolicy?.on_behalf_of;
+  const remoteOnBehalfOfEmail = remotePolicy?.on_behalf_of_email;
 
   markAccessFromPolicy(app);
   // console.log(app);
@@ -181,7 +210,11 @@ export async function pushApp(
   const localApp = (await yamlParseFile(path)) as AppFile;
 
   replaceInlineScripts(localApp.value, localPath, true);
-  await generatingPolicy(localApp, remotePath, executionModeFromAppFile(localApp));
+  // Read the mode off the file before the deployed policy is merged in, so
+  // dropping `public` from app.yaml still demotes the app.
+  const executionMode = executionModeFromAppFile(localApp, remotePolicy);
+  localApp.policy = deployedPolicyBase(remotePolicy, localApp.policy);
+  await generatingPolicy(localApp, remotePath, executionMode);
 
   const preserveFields: { preserve_on_behalf_of?: boolean } = {};
   if (permissionedAsContext?.userIsAdminOrDeployer) {
@@ -255,7 +288,7 @@ export async function generatingPolicy(
 ) {
   log.info(colors.gray(`Generating fresh policy for app ${path}...`));
   try {
-    app.policy = await windmillUtils.updatePolicy(app.value, undefined);
+    app.policy = await windmillUtils.updatePolicy(app.value, app.policy);
     app.policy.execution_mode = executionMode;
   } catch (e) {
     log.error(colors.red(`Error generating policy for app ${path}: ${e}`));
@@ -425,14 +458,16 @@ async function push(
   if (isRawAppByName || hasRawAppYaml) {
     const { pushRawApp } = await import("./raw_apps.ts");
     const merged = await mergeConfigWithConfigFile(opts);
-    // Raw-app ownership preservation is not implemented on either push
-    // path: sync push hands pushRawApp no context either.
     await pushRawApp(
       workspace.workspaceId,
       remotePath,
       absoluteFilePath,
       undefined,
       merged.defaultTs,
+      await buildPermissionedAsContext(
+        workspace.workspaceId,
+        await readEffectiveSyncBehavior(opts, workspace),
+      ),
     );
     log.info(colors.bold.underline.green("Raw app pushed"));
   } else {

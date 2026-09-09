@@ -6142,7 +6142,7 @@ export async function push(
                         undefined,
                         opts.plainSecrets ?? false,
                         alreadySynced,
-                        { message: opts.message },
+                        { message: opts.message, permissionedAsContext },
                       );
                     } else {
                       // Flow folder doesn't exist locally — delete on server
@@ -6187,7 +6187,7 @@ export async function push(
                         undefined,
                         opts.plainSecrets ?? false,
                         alreadySynced,
-                        { message: opts.message },
+                        { message: opts.message, permissionedAsContext },
                       );
                     } else {
                       // App folder doesn't exist locally — delete on server
@@ -6233,7 +6233,11 @@ export async function push(
                         undefined,
                         opts.plainSecrets ?? false,
                         alreadySynced,
-                        { message: opts.message, defaultTs: opts.defaultTs },
+                        {
+                          message: opts.message,
+                          defaultTs: opts.defaultTs,
+                          permissionedAsContext,
+                        },
                       );
                     } else {
                       // The entire raw app folder was deleted locally,

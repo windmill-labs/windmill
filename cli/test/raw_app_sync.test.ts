@@ -746,3 +746,80 @@ excludes: []`, "utf-8");
       expect(lowercased).toEqual([]);
     });
 });
+
+test("Raw App: push preserves the deployed policy's run-as, sandbox and execution mode", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      const testWorkspace = {
+        remote: backend.baseUrl,
+        workspaceId: backend.workspace,
+        name: "raw_app_policy_test",
+        token: backend.token
+      };
+      await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
+
+      // syncBehavior v1 is what enables ownership preservation on update.
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - "**"
+excludes: []
+syncBehavior: v1`, "utf-8");
+
+      const appDir = path.join(tempDir, "f", "test", "policy_app.raw_app");
+      await mkdir(path.join(tempDir, "f", "test"), { recursive: true });
+      await createRawAppOnDisk(appDir);
+
+      const pushResult1 = await backend.runCLICommand(
+        ["sync", "push", "--yes"],
+        tempDir, "raw_app_policy_test"
+      );
+      expect(pushResult1.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
+
+      // Stand in for the deploy drawer: give the app a run-as identity that is
+      // not the pushing user, sandbox isolation and a non-default mode. None of
+      // it is recorded in raw_app.yaml, so only the deployed policy carries it.
+      const setPolicy = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/apps/update/f/test/policy_app`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            policy: {
+              on_behalf_of: "u/svc",
+              on_behalf_of_email: "svc@windmill.dev",
+              sandbox: true,
+              execution_mode: "viewer",
+              triggerables_v2: {},
+            },
+            preserve_on_behalf_of: true,
+          }),
+        }
+      );
+      expect(setPolicy.status).toEqual(200);
+
+      // Edit a source file so the app is not up to date and gets redeployed.
+      const appTsxPath = path.join(appDir, "App.tsx");
+      await writeFile(
+        appTsxPath,
+        (await readFileContent(appTsxPath)).replace("hello world", "hello again"),
+        "utf-8"
+      );
+
+      const pushResult2 = await backend.runCLICommand(
+        ["sync", "push", "--yes"],
+        tempDir, "raw_app_policy_test"
+      );
+      expect(pushResult2.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
+
+      const getResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/apps/get/p/f/test/policy_app`
+      );
+      expect(getResp.status).toEqual(200);
+      const policy = (await getResp.json()).policy;
+      expect(policy.on_behalf_of).toEqual("u/svc");
+      expect(policy.on_behalf_of_email).toEqual("svc@windmill.dev");
+      expect(policy.sandbox).toEqual(true);
+      expect(policy.execution_mode).toEqual("viewer");
+    });
+});
