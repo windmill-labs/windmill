@@ -135,6 +135,10 @@ export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 	deploy_workspace_item: AUTHORING_AID,
 	delete_workspace_item: NONE,
 
+	// Ungated, unlike the preview runs below: this executes the DEPLOYED script under
+	// the user's own permissions, which is the one run an operator's token allows.
+	run_script: NONE,
+
 	// ── Preview execution ───────────────────────────────────────────────────
 	test_run_script: RUN_PREVIEW,
 	test_run_flow: RUN_PREVIEW,
