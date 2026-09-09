@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { isInstanceBannerVisible, resolveInstanceBanner } from './instanceBanner'
+import {
+	INSTANCE_BANNER_MESSAGE_MAX_LEN,
+	isInstanceBannerVisible,
+	resolveInstanceBanner
+} from './instanceBanner'
 
 const BANNER = {
 	enabled: true,
@@ -17,6 +21,16 @@ describe('resolveInstanceBanner', () => {
 		}
 		expect(resolveInstanceBanner({ ...BANNER, link: 'https://status.example.com' })?.link).toBe(
 			'https://status.example.com'
+		)
+	})
+
+	it('keeps a message the backend accepted whole', () => {
+		// The backend caps at INSTANCE_BANNER_MESSAGE_MAX_LEN code points (`chars().count()`).
+		// Truncating with `slice` here would count UTF-16 units and halve an all-emoji message
+		// that passed validation, so the two sides must measure the same way.
+		const emoji = '\u{1F6A7}'.repeat(INSTANCE_BANNER_MESSAGE_MAX_LEN)
+		expect([...resolveInstanceBanner({ ...BANNER, message: emoji })!.message]).toHaveLength(
+			INSTANCE_BANNER_MESSAGE_MAX_LEN
 		)
 	})
 

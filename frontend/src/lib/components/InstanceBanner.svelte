@@ -26,9 +26,16 @@
 	// a new announcement shows up again for everyone who dismissed the previous one.
 	const dismissed = useLocalStorageValue<string>('instance_banner_dismissed', '', 'string')
 
+	// The poll, the tab-focus refresh and the post-save refresh all call `load()` and can
+	// overlap. Responses are not ordered, so without this a slow earlier fetch lands last
+	// and puts a retracted announcement back on screen until the next successful poll.
+	let latestLoad = 0
+
 	async function load() {
+		const generation = ++latestLoad
 		try {
-			banner = await fetchInstanceBanner()
+			const next = await fetchInstanceBanner()
+			if (generation === latestLoad) banner = next
 		} catch (e) {
 			// Keep whatever is on screen: a transient failure must not silently retract
 			// an announcement that is still in force.

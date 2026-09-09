@@ -44,6 +44,17 @@ export function bannerString(value: unknown): string {
 	return typeof value === 'string' ? value : ''
 }
 
+/**
+ * Truncate to `max` code points, matching the backend's `chars().count()` cap.
+ *
+ * `String.slice` counts UTF-16 code units, so it would cut a 500-emoji message the backend
+ * accepted in half — and the two sides must agree on what "500 characters" means.
+ */
+function truncateChars(value: string, max: number): string {
+	const chars = [...value]
+	return chars.length > max ? chars.slice(0, max).join('') : value
+}
+
 export function isHttpUrl(value: string): boolean {
 	try {
 		const url = new URL(value)
@@ -72,11 +83,11 @@ export function resolveInstanceBanner(raw: unknown): ResolvedInstanceBanner | un
 	const rawLink = bannerString(banner.link).trim()
 	const link = isHttpUrl(rawLink) ? rawLink : undefined
 	const linkLabel =
-		bannerString(banner.link_label).trim().slice(0, INSTANCE_BANNER_LINK_LABEL_MAX_LEN) ||
+		truncateChars(bannerString(banner.link_label).trim(), INSTANCE_BANNER_LINK_LABEL_MAX_LEN) ||
 		'Learn more'
 
 	return {
-		message: message.slice(0, INSTANCE_BANNER_MESSAGE_MAX_LEN),
+		message: truncateChars(message, INSTANCE_BANNER_MESSAGE_MAX_LEN),
 		severity,
 		dismissible: banner.dismissible !== false,
 		link,
