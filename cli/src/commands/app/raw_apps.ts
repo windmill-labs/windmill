@@ -20,6 +20,7 @@ import { deepEqual, readTextFile } from "../../utils/utils.ts";
 
 import {
   type AppExecutionMode,
+  basePolicy,
   executionModeForPush,
   finalizeDerivedPolicy,
   markAccessFromPolicy,
@@ -446,7 +447,7 @@ export async function pushRawApp(
   // On create the backend applies folder defaults, so there is nothing to preserve.
   const preserveFields = preserveOnBehalfOfFields(
     remotePath,
-    appForPolicy.policy,
+    deployedPolicy,
     permissionedAsContext,
   );
 
@@ -559,7 +560,7 @@ export async function generatingPolicy(
   try {
     app.policy = await windmillUtils.updateRawAppPolicy(
       app.runnables,
-      deployedPolicy,
+      basePolicy(app, deployedPolicy),
     );
     finalizeDerivedPolicy(app.policy, executionMode);
   } catch (e) {

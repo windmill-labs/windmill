@@ -2,8 +2,8 @@
  * `raw_app.yaml` records none of the policy but the access-mode markers, so a
  * push that regenerated the whole policy reset the deploy drawer's settings —
  * run-as identity, sandbox isolation — to the pushing user's. Pin that the
- * deployed policy is carried over, and that the markers still close a deployed
- * open app back down.
+ * deployed policy is carried over, that a first push still starts from what the
+ * file states, and that the markers still close a deployed open app back down.
  */
 
 import { beforeEach, expect, mock, test } from "bun:test";
@@ -11,18 +11,26 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-let updateCalls: any[] = [];
+let calls: any[] = [];
 let deployedPolicy: any;
+/** No app deployed at the path: `getAppByPath` 404s and the push creates one. */
+let deployed = true;
 
 mock.module("../gen/services.gen.ts", () => ({
-  getAppByPath: async () => ({
-    path: "f/test/raw",
-    summary: "raw",
-    value: { files: {}, runnables: {} },
-    policy: deployedPolicy,
-  }),
+  getAppByPath: async () => {
+    if (!deployed) throw new Error("not found");
+    return {
+      path: "f/test/raw",
+      summary: "raw",
+      value: { files: {}, runnables: {} },
+      policy: deployedPolicy,
+    };
+  },
   updateAppRaw: async (a: unknown) => {
-    updateCalls.push(a);
+    calls.push(a);
+  },
+  createAppRaw: async (a: unknown) => {
+    calls.push(a);
   },
 }));
 
@@ -41,7 +49,7 @@ const ADMIN = {
 };
 
 async function push(yamlTail: string, admin = true): Promise<any> {
-  updateCalls = [];
+  calls = [];
   const dir = await mkdtemp(join(tmpdir(), "windmill_raw_push_"));
   await writeFile(
     join(dir, "raw_app.yaml"),
@@ -52,11 +60,12 @@ async function push(yamlTail: string, admin = true): Promise<any> {
   // up to date.
   await writeFile(join(dir, "index.tsx"), "export default 1\n", "utf-8");
   await pushRawApp("w", "f/test/raw", dir, undefined, "bun", admin ? ADMIN : undefined);
-  expect(updateCalls).toHaveLength(1);
-  return updateCalls[0].formData.app;
+  expect(calls).toHaveLength(1);
+  return calls[0].formData.app;
 }
 
 beforeEach(() => {
+  deployed = true;
   deployedPolicy = {
     on_behalf_of: "u/svc",
     on_behalf_of_email: "svc@corp",
@@ -90,4 +99,14 @@ test("a raw-app push without the marker closes an anonymous app back down", asyn
   // Only the caller who may claim it gets the flag; everyone else deploys as
   // themselves, which is what the backend enforces anyway.
   expect((await push("", false)).preserve_on_behalf_of).toBeUndefined();
+});
+
+test("a first raw-app push deploys the policy its file states", async () => {
+  deployed = false;
+  const body = await push("policy:\n  sandbox: true\n  on_behalf_of: u/impostor\n");
+
+  expect(body.policy.sandbox).toBe(true);
+  // A repo doesn't get to pick who an app runs as: only a deployed identity is
+  // ever claimed, so the backend assigns the pushing user's here.
+  expect(body.preserve_on_behalf_of).toBeUndefined();
 });

@@ -204,7 +204,7 @@ export async function pushApp(
   // On create the backend applies folder defaults, so there is nothing to preserve.
   const preserveFields = preserveOnBehalfOfFields(
     remotePath,
-    localApp.policy,
+    deployedPolicy,
     permissionedAsContext
   );
 
@@ -268,7 +268,10 @@ export async function generatingPolicy(
 ) {
   log.info(colors.gray(`Generating fresh policy for app ${path}...`));
   try {
-    app.policy = await windmillUtils.updatePolicy(app.value, deployedPolicy);
+    app.policy = await windmillUtils.updatePolicy(
+      app.value,
+      basePolicy(app, deployedPolicy)
+    );
     finalizeDerivedPolicy(app.policy, executionMode);
   } catch (e) {
     log.error(colors.red(`Error generating policy for app ${path}: ${e}`));
@@ -276,20 +279,33 @@ export async function generatingPolicy(
   }
 }
 
-/** Claim the run-as identity the policy carries over from the deployed app.
- * Without the flag the backend rewrites `on_behalf_of` to whoever is pushing,
- * and it only honors the flag for an admin or a `wm_deployers` member — so a
- * caller who is neither doesn't get to claim it here either. */
+/** What the regenerated policy starts from: the deployed one, so a push keeps
+ * settings the tracked file doesn't record. A first push has no deployed policy,
+ * and then the file is the only thing that could state one. */
+export function basePolicy(
+  localApp: any,
+  deployedPolicy: Policy | undefined
+): Policy | undefined {
+  return deployedPolicy ?? localApp?.policy;
+}
+
+/** Claim the run-as identity the regenerated policy carries over from the
+ * deployed app. Only a deployed identity may be claimed, never one the tracked
+ * file states — a repo doesn't get to pick who an app runs as. Without the flag
+ * the backend rewrites `on_behalf_of` to whoever is pushing, and it only honors
+ * the flag for an admin or a `wm_deployers` member, so a caller who is neither
+ * doesn't get to claim it here either. */
 export function preserveOnBehalfOfFields(
   remotePath: string,
-  policy: Policy | undefined,
+  deployedPolicy: Policy | undefined,
   permissionedAsContext: PermissionedAsContext | undefined
 ): { preserve_on_behalf_of?: boolean } {
-  if (!permissionedAsContext?.userIsAdminOrDeployer || !policy?.on_behalf_of) {
+  const onBehalfOf = deployedPolicy?.on_behalf_of;
+  if (!permissionedAsContext?.userIsAdminOrDeployer || !onBehalfOf) {
     return {};
   }
   log.info(
-    `Preserving ${policy.on_behalf_of_email ?? policy.on_behalf_of} as permissioned_as for app ${remotePath}`
+    `Preserving ${deployedPolicy?.on_behalf_of_email ?? onBehalfOf} as permissioned_as for app ${remotePath}`
   );
   return { preserve_on_behalf_of: true };
 }
