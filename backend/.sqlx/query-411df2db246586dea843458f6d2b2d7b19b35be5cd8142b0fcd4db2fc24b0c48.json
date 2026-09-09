@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT repo_url, check_run_id, github_workspace_id, conclusion,\n                  created_at, concluded, github_posted, head_ref\n           FROM git_sync_ci_test_check\n           WHERE workspace_id = $1 AND head_sha = $2",
+  "query": "SELECT repo_url, repo_resource_path, check_run_id, github_workspace_id, conclusion,\n                  created_at, concluded, github_posted, head_ref\n           FROM git_sync_ci_test_check\n           WHERE workspace_id = $1 AND head_sha = $2",
   "describe": {
     "columns": [
       {
@@ -10,36 +10,41 @@
       },
       {
         "ordinal": 1,
+        "name": "repo_resource_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
         "name": "check_run_id",
         "type_info": "Int8"
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "github_workspace_id",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "conclusion",
         "type_info": "Text"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "concluded",
         "type_info": "Bool"
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "github_posted",
         "type_info": "Bool"
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "head_ref",
         "type_info": "Varchar"
       }
@@ -52,6 +57,7 @@
     },
     "nullable": [
       false,
+      false,
       true,
       false,
       true,
@@ -61,5 +67,5 @@
       false
     ]
   },
-  "hash": "b02d8560b5aadc333a09c7a30a10adaeb01ce8fb014f7fda1031f554de81a3fb"
+  "hash": "411df2db246586dea843458f6d2b2d7b19b35be5cd8142b0fcd4db2fc24b0c48"
 }

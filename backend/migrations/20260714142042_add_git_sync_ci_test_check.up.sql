@@ -13,6 +13,9 @@ CREATE TABLE git_sync_ci_test_check (
     -- received the pull_request webhook (the parent owning the repo hook).
     github_workspace_id VARCHAR(50) NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
     repo_url TEXT NOT NULL,
+    -- The fork's copy of the repository resource: keys the synced-head lookup, since a
+    -- fork syncing two repositories names its branch identically in both.
+    repo_resource_path VARCHAR(255) NOT NULL,
     -- NULL when the GitHub check-run creation failed; the poller retries the create.
     check_run_id BIGINT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

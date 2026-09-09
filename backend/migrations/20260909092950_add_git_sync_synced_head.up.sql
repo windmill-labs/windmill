@@ -5,13 +5,15 @@
 -- which decides whether the next poll pulls and is client-round-tripped settings.
 CREATE TABLE git_sync_synced_head (
     workspace_id VARCHAR(50) NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    -- Repository resource path without its `$res:` prefix.
+    repo_resource_path VARCHAR(255) NOT NULL,
     branch VARCHAR(255) NOT NULL,
     sha VARCHAR(64) NOT NULL,
     -- 'pull' rows name the pull job; 'push' rows the deploy push job.
     source VARCHAR(4) NOT NULL CHECK (source IN ('pull', 'push')),
     job_id UUID,
     synced_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (workspace_id, branch, sha)
+    PRIMARY KEY (workspace_id, repo_resource_path, branch, sha)
 );
 
 GRANT ALL ON git_sync_synced_head TO windmill_user;

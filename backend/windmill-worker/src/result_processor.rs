@@ -1028,6 +1028,7 @@ async fn maybe_reconcile_git_sync_auto_pull(
             if let Err(e) = windmill_git_sync::record_synced_head(
                 db,
                 workspace_id,
+                &m.repo_resource_path,
                 branch,
                 sha,
                 "pull",
@@ -1152,9 +1153,24 @@ async fn maybe_record_git_sync_pushed_head(
     else {
         return;
     };
+    let repo_path = match sqlx::query_scalar!(
+        "SELECT args->>'repo_url_resource_path' FROM v2_job WHERE id = $1",
+        job_id
+    )
+    .fetch_optional(db)
+    .await
+    {
+        Ok(Some(Some(p))) => p,
+        Ok(_) => return,
+        Err(e) => {
+            tracing::error!("git sync push: failed to read job args: {e:#}");
+            return;
+        }
+    };
     if let Err(e) = windmill_git_sync::record_synced_head(
         db,
         workspace_id,
+        &repo_path,
         &branch,
         &sha,
         "push",
@@ -1163,7 +1179,7 @@ async fn maybe_record_git_sync_pushed_head(
     .await
     {
         tracing::warn!(
-            "git sync push: failed to record pushed head {sha} on {branch} for {workspace_id}: {e:#}"
+            "git sync push: failed to record pushed head {sha} on {branch} for {workspace_id}/{repo_path}: {e:#}"
         );
     }
 }
