@@ -1813,8 +1813,12 @@ pub async fn ensure_can_use_datatable_role(
         return Ok(());
     }
     let catalog = crate::datatable_roles::read_role_catalog(db).await?;
-    let Some((role_id, tenants)) =
-        datatable_role_entry(governing.datatable.permissions.as_ref(), &catalog, name, role)?
+    let Some((role_id, tenants)) = datatable_role_entry(
+        governing.datatable.permissions.as_ref(),
+        &catalog,
+        name,
+        role,
+    )?
     else {
         return Ok(());
     };
@@ -2057,14 +2061,54 @@ pub fn strip_datatable_permissions(
     Some(datatable)
 }
 
+/// The data table a `datatable://` reference names, ignoring its query string. For callers that
+/// only need to find the entry; use [`parse_datatable_ref`] wherever the role is acted on.
+pub fn datatable_ref_name(reference: &str) -> &str {
+    reference
+        .split_once('?')
+        .map(|(name, _)| name)
+        .unwrap_or(reference)
+}
+
 /// Split a `datatable://` reference into its name and the role its query string names.
-pub fn parse_datatable_ref(reference: &str) -> (&str, Option<&str>) {
+///
+/// A query string that does not parse is an error rather than an absent role. Falling back would
+/// resolve the reference to the data table's default role, so `?Role=analytics` or a mistyped
+/// `?role=` would quietly connect as something the caller did not ask for — the same trap as a
+/// malformed `-- role` annotation, and `role` is the only parameter a reference takes.
+pub fn parse_datatable_ref(reference: &str) -> Result<(&str, Option<&str>)> {
     let (name, query) = reference.split_once('?').unwrap_or((reference, ""));
-    let role = query
-        .split('&')
-        .find_map(|param| param.strip_prefix("role="))
-        .filter(|role| !role.is_empty());
-    (name, role)
+    let mut role = None;
+    for param in query.split('&').filter(|p| !p.is_empty()) {
+        let (key, value) = param.split_once('=').unwrap_or((param, ""));
+        if !key.eq_ignore_ascii_case("role") {
+            return Err(Error::BadRequest(format!(
+                "Data table reference '{name}' carries an unknown parameter '{key}'. \
+                 The only one it takes is `?role=<name>`."
+            )));
+        }
+        if role.is_some() {
+            return Err(Error::BadRequest(format!(
+                "Data table reference '{name}' names a role more than once."
+            )));
+        }
+        if value.is_empty() || !is_datatable_role_name(value) {
+            return Err(Error::BadRequest(format!(
+                "Data table reference '{name}' has a malformed role '{value}'. Write it as \
+                 `?role=<name>`, where <name> is letters, digits, '_' or '-'."
+            )));
+        }
+        role = Some(value);
+    }
+    Ok((name, role))
+}
+
+fn is_datatable_role_name(role: &str) -> bool {
+    !role.is_empty()
+        && role.len() <= 63
+        && role
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -3261,7 +3305,10 @@ mod tests {
         assert!(can_use_datatable_role(&tenants(&["f/finance"]), &authed));
         assert!(can_use_datatable_role(&tenants(&["*"]), &authed));
         assert!(!can_use_datatable_role(&tenants(&[]), &authed));
-        assert!(!can_use_datatable_role(&tenants(&["u/bob", "g/ops"]), &authed));
+        assert!(!can_use_datatable_role(
+            &tenants(&["u/bob", "g/ops"]),
+            &authed
+        ));
         // A bare name is not a principal: only the three prefixes and the wildcard match.
         assert!(!can_use_datatable_role(&tenants(&["alice"]), &authed));
 
@@ -3273,17 +3320,33 @@ mod tests {
 
     #[test]
     fn a_datatable_ref_splits_off_its_role() {
-        assert_eq!(parse_datatable_ref("sales"), ("sales", None));
+        assert_eq!(parse_datatable_ref("sales").unwrap(), ("sales", None));
         assert_eq!(
-            parse_datatable_ref("sales?role=analytics"),
+            parse_datatable_ref("sales?role=analytics").unwrap(),
             ("sales", Some("analytics"))
         );
+        // The key matches case-insensitively, the way the `-- role` annotation does.
         assert_eq!(
-            parse_datatable_ref("sales?x=1&role=analytics"),
+            parse_datatable_ref("sales?Role=analytics").unwrap(),
             ("sales", Some("analytics"))
         );
-        // An empty role is no role rather than a role named "".
-        assert_eq!(parse_datatable_ref("sales?role="), ("sales", None));
+
+        // A query string that does not parse is refused rather than read as "no role": resolving
+        // it to the data table's default would connect as a login the caller never asked for.
+        for malformed in [
+            "sales?role=",
+            "sales?role=an;alytics",
+            "sales?x=1&role=analytics",
+            "sales?role=a&role=b",
+        ] {
+            assert!(
+                parse_datatable_ref(malformed).is_err(),
+                "silently ignored: {malformed}"
+            );
+        }
+
+        // The name-only helper stays lenient — it is used where the role is never acted on.
+        assert_eq!(datatable_ref_name("sales?role="), "sales");
     }
 
     #[test]

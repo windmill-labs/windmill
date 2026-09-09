@@ -1496,7 +1496,7 @@ pub async fn do_duckdb(
                     probe_blocks.extend(q);
                 } else if let Some(q) =
                     transform_attach_datatable(&query_block, conn, &mut hidden_passwords, job)
-                .await?
+                        .await?
                 {
                     probe_blocks.extend(q);
                 } else {
@@ -1573,7 +1573,7 @@ pub async fn do_duckdb(
                     v.extend(ducklake_query);
                 } else if let Some(datatable_query) =
                     transform_attach_datatable(&query_block, conn, &mut hidden_passwords, job)
-                .await?
+                        .await?
                 {
                     v.extend(datatable_query);
                 } else {
@@ -2609,19 +2609,24 @@ struct AttachedDatatable<'a> {
 
 /// `ATTACH 'datatable[://<name>][?role=<role>]' AS <alias>`. A bare `datatable` names the default
 /// data table, so the role query string has to be accepted with and without an explicit name.
-fn parse_attach_datatable(query: &str) -> Option<AttachedDatatable<'_>> {
+fn parse_attach_datatable(query: &str) -> Result<Option<AttachedDatatable<'_>>> {
     lazy_static::lazy_static! {
         static ref RE: regex::Regex = regex::Regex::new(
             r"(?i)ATTACH\s*'datatable(://[^'?:]+)?(\?[^':]*)?'\s*AS\s+([^ ;]+)"
         ).unwrap();
     }
-    let cap = RE.captures(query)?;
+    let Some(cap) = RE.captures(query) else {
+        return Ok(None);
+    };
     let name = cap.get(1).map(|m| &m.as_str()[3..]).unwrap_or("main");
-    let role = cap
-        .get(2)
-        .and_then(|m| windmill_common::workspaces::parse_datatable_ref(m.as_str()).1);
+    // A query string that does not parse is refused rather than dropped: attaching under the
+    // default role when the statement asked for another one is the failure this guards.
+    let role = match cap.get(2) {
+        Some(m) => windmill_common::workspaces::parse_datatable_ref(m.as_str())?.1,
+        None => None,
+    };
     let alias = cap.get(3).map(|m| m.as_str()).unwrap_or("");
-    Some(AttachedDatatable { name, role, alias })
+    Ok(Some(AttachedDatatable { name, role, alias }))
 }
 
 async fn transform_attach_datatable(
@@ -2630,7 +2635,7 @@ async fn transform_attach_datatable(
     hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
     job: &MiniPulledJob,
 ) -> Result<Option<Vec<String>>> {
-    let Some(attached) = parse_attach_datatable(query) else {
+    let Some(attached) = parse_attach_datatable(query)? else {
         return Ok(None);
     };
 
@@ -2787,16 +2792,26 @@ mod tests {
 
     #[test]
     fn attach_datatable_parses_name_and_role() {
-        let named = parse_attach_datatable("ATTACH 'datatable://sales?role=analytics' AS dt").unwrap();
-        assert_eq!((named.name, named.role, named.alias), ("sales", Some("analytics"), "dt"));
+        let named =
+            parse_attach_datatable("ATTACH 'datatable://sales?role=analytics' AS dt").unwrap();
+        assert_eq!(
+            (named.name, named.role, named.alias),
+            ("sales", Some("analytics"), "dt")
+        );
         // A bare `datatable` is the default one, and still takes a role.
-        let default = parse_attach_datatable("ATTACH 'datatable?role=analytics' AS dt").unwrap();
+        let default = parse_attach_datatable("ATTACH 'datatable?role=analytics' AS dt")
+            .unwrap()
+            .unwrap();
         assert_eq!((default.name, default.role), ("main", Some("analytics")));
-        let no_role = parse_attach_datatable("ATTACH 'datatable://sales' AS dt").unwrap();
+        let no_role = parse_attach_datatable("ATTACH 'datatable://sales' AS dt")
+            .unwrap()
+            .unwrap();
         assert_eq!((no_role.name, no_role.role), ("sales", None));
-        let bare = parse_attach_datatable("ATTACH 'datatable' AS dt").unwrap();
+        let bare = parse_attach_datatable("ATTACH 'datatable' AS dt").unwrap().unwrap();
         assert_eq!((bare.name, bare.role), ("main", None));
-        assert!(parse_attach_datatable("SELECT 1").is_none());
+        assert!(parse_attach_datatable("SELECT 1").unwrap().is_none());
+        // A malformed role is refused rather than attached under the default one.
+        assert!(parse_attach_datatable("ATTACH 'datatable://sales?Role=analytics' AS dt").is_err());
     }
 
     #[test]
