@@ -3,7 +3,6 @@
 	import { classes as alertClasses, icons as alertIcons } from '$lib/components/common/alert/model'
 	import { ExternalLink, X } from 'lucide-svelte'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
-	import { isCloudHosted } from '$lib/cloud'
 	import {
 		fetchInstanceBanner,
 		isInstanceBannerVisible,
@@ -11,14 +10,11 @@
 	} from './instanceBanner'
 	import { instanceSettingsSaved } from './instanceSettings'
 
-	// An announcement is only worth broadcasting while it is current, so on the managed
-	// cloud the banner polls rather than waiting for the next full page load: a session
-	// left open all day is exactly the one that needs to hear about the maintenance
-	// window. Self-hosted instances read it once per page load instead — the same
-	// announcement, without a timer and a request per minute in every open tab for a
-	// value almost every instance leaves unset.
+	// Mounted only on the managed cloud (see the render site in the logged layout), so the
+	// poll costs nothing anywhere else. An announcement is only worth broadcasting while it
+	// is current, hence polling rather than waiting for the next full page load: a session
+	// left open all day is exactly the one that needs to hear about the maintenance window.
 	const POLL_MS = 60_000
-	const pollsForUpdates = isCloudHosted()
 
 	let banner = $state<ResolvedInstanceBanner | undefined>(undefined)
 
@@ -48,7 +44,6 @@
 		// immediately rather than on the next poll or page load.
 		$instanceSettingsSaved
 		load()
-		if (!pollsForUpdates) return
 		const interval = setInterval(() => {
 			if (!document.hidden) load()
 		}, POLL_MS)

@@ -1363,9 +1363,11 @@
 			</div>
 		{/if}
 		<div class="flex flex-col h-full w-full">
-			{#if !menuHidden}
-				<!-- Skipped when the menu is hidden: that is an embed or an OAuth callback,
-				     where an instance-wide announcement would land inside someone else's page. -->
+			{#if isCloudHosted() && !menuHidden}
+				<!-- Announcements are a managed-cloud operations tool, so the component never
+				     mounts elsewhere: no fetch, no poll, no listener on a self-hosted instance.
+				     Also skipped when the menu is hidden — that is an embed or an OAuth
+				     callback, where the announcement would land inside someone else's page. -->
 				<InstanceBanner />
 			{/if}
 			{#if $userStore?.is_service_account}

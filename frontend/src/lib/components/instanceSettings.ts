@@ -245,6 +245,8 @@ export const settings: Record<string, Setting[]> = {
 			key: 'instance_banner',
 			fieldType: 'instance_banner',
 			storage: 'setting',
+			// The banner only renders on the managed cloud, so only offer it there.
+			cloudonly: true,
 			hideInQuickSetup: true,
 			// Gates Save. The card renders the specific message itself, so no `error` here.
 			isValid: (value: any) => instanceBannerFormError(value) == undefined
