@@ -3,7 +3,8 @@ import {
 	formatTokenCount,
 	parseAgentErrorMessages,
 	parseAgentResult,
-	parseAgentStream
+	parseAgentStream,
+	summarizeAgentResult
 } from './aiAgentResult'
 
 const envelope = {
@@ -53,6 +54,28 @@ describe('parseAgentErrorMessages', () => {
 		expect(
 			parseAgentErrorMessages({ error: { name: 'ExecutionErr', message: 'boom' } })
 		).toBeUndefined()
+	})
+})
+
+describe('summarizeAgentResult', () => {
+	it('counts the actions and falls back to the parts when no total is reported', () => {
+		const summary = summarizeAgentResult({
+			output: '',
+			messages: [
+				{ role: 'user' },
+				{ role: 'assistant', agent_action: { type: 'tool_call' } as any },
+				{ role: 'assistant', agent_action: { type: 'mcp_tool_call' } as any },
+				{ role: 'assistant', agent_action: { type: 'web_search' } },
+				{ role: 'assistant', agent_action: { type: 'message' } }
+			],
+			usage: { input_tokens: 8421, output_tokens: 512, cache_read_input_tokens: 6144 }
+		})
+		expect(summary).toEqual({
+			toolCalls: 2,
+			webSearches: 1,
+			tokens: 8933,
+			cachedTokens: 6144
+		})
 	})
 })
 

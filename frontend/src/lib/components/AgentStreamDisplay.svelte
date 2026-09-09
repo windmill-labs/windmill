@@ -1,8 +1,6 @@
 <script lang="ts">
-	import Markdown from 'svelte-exmarkdown'
-	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import { Loader2 } from 'lucide-svelte'
-	import { markdownProse } from './markdownProse'
+	import GfmMarkdown from './GfmMarkdown.svelte'
 	import type { AgentStream } from './aiAgentResult'
 
 	interface Props {
@@ -21,15 +19,15 @@
 			<span class="font-mono truncate">{stream.tool.name}</span>
 		</div>
 	{/if}
+	<!-- Same sanitizing chain as the finished answer: a partial answer is written by
+	     the same model and is no more trusted for arriving in pieces. -->
 	{#if stream.answer !== ''}
-		<div class={markdownProse.sm}>
-			<Markdown md={stream.answer} plugins={[gfmPlugin()]} />
-		</div>
+		<GfmMarkdown md={stream.answer} noPadding />
 	{:else if stream.reasoning !== ''}
 		<!-- Reasoning arrives before the answer, so on its own it means the model is
 		     still thinking rather than that this run has no answer. -->
-		<div class="{markdownProse.xs} text-secondary">
-			<Markdown md={stream.reasoning} plugins={[gfmPlugin()]} />
+		<div class="text-secondary">
+			<GfmMarkdown md={stream.reasoning} prose="xs" noPadding />
 		</div>
 	{/if}
 </div>
