@@ -6,6 +6,7 @@ import { DEFAULT_GROUP_NOTE_COLOR, getNextAvailableColor } from './noteColors'
 import { generateId } from './util'
 import { getContext, setContext } from 'svelte'
 import { completeAndSplitGroup } from './groupDetectionUtils'
+import { dfs } from '../flows/dfs'
 
 /**
  * Utility class for editing flow notes via direct flowStore mutations
@@ -240,6 +241,19 @@ export class NoteEditor {
 				nodeSet.add(id)
 			}
 		}
+
+		// The graph is rebuilt in more than one pass after a module id changes, and one of
+		// those passes has the module under neither its old nor its new id. Pruning against
+		// that pass would drop a live module from every note holding it, so wait for a pass
+		// whose nodes cover every module the notes still reference.
+		const moduleIds = new Set<string>()
+		dfs(this.flowStore.val.value?.modules ?? [], (mod) => {
+			moduleIds.add(mod.id)
+		})
+		const graphMidUpdate = groupNotes.some((note) =>
+			(note.contained_node_ids ?? []).some((id) => !nodeSet.has(id) && moduleIds.has(id))
+		)
+		if (graphMidUpdate) return
 
 		// Step 1: Clean invalid nodes from existing group notes
 		for (const note of groupNotes) {
