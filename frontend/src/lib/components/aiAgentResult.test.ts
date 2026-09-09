@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+	advanceAgentStream,
+	emptyAgentStreamProgress,
 	formatTokenCount,
-	parseAgentErrorMessages,
+	isAgentStream,
 	parseAgentResult,
-	parseAgentStream,
 	summarizeAgentResult
 } from './aiAgentResult'
 
@@ -38,25 +39,6 @@ describe('parseAgentResult', () => {
 	})
 })
 
-describe('parseAgentErrorMessages', () => {
-	it('reads the partial transcript a max-iterations failure carries', () => {
-		const messages = parseAgentErrorMessages({
-			error: {
-				name: 'ExecutionErr',
-				message: 'AI agent reached max iterations (10)',
-				result: { messages: [{ role: 'user', content: 'ask' }] }
-			}
-		})
-		expect(messages).toHaveLength(1)
-	})
-
-	it('ignores an error that carries no transcript', () => {
-		expect(
-			parseAgentErrorMessages({ error: { name: 'ExecutionErr', message: 'boom' } })
-		).toBeUndefined()
-	})
-})
-
 describe('summarizeAgentResult', () => {
 	it('counts the actions and falls back to the parts when no total is reported', () => {
 		const summary = summarizeAgentResult({
@@ -79,37 +61,58 @@ describe('summarizeAgentResult', () => {
 	})
 })
 
-describe('parseAgentStream', () => {
-	const events = [
+describe('agent stream', () => {
+	const lines = [
 		'{"type":"tool_call","call_id":"c1","function_name":"query_metrics"}',
 		'{"type":"tool_result","call_id":"c1","function_name":"query_metrics","result":"{}","success":true}',
 		'{"type":"reasoning_token_delta","content":"checking"}',
 		'{"type":"token_delta","content":"eu-central-1"}',
 		'{"type":"token_delta","content":" is down"}'
-	].join('\n')
+	]
+	const events = lines.join('\n') + '\n'
 
-	it('joins the token deltas into the answer so far', () => {
-		const stream = parseAgentStream(events)
-		expect(stream?.answer).toBe('eu-central-1 is down')
-		expect(stream?.reasoning).toBe('checking')
-		expect(stream?.tool).toEqual({ name: 'query_metrics', running: false, success: true })
+	it('recognises an agent stream from its first line only', () => {
+		expect(isAgentStream(events)).toBe(true)
+		expect(isAgentStream('processing row 1\nprocessing row 2\n')).toBe(false)
+		expect(isAgentStream('{"level":"info","msg":"hello"}\n')).toBe(false)
+		// No newline yet, so the first line may still be half-written.
+		expect(isAgentStream('{"type":"token_delta","content":"a"}')).toBe(false)
 	})
 
-	it('marks a tool still running', () => {
-		expect(
-			parseAgentStream('{"type":"tool_execution","call_id":"c1","function_name":"fetch"}')?.tool
-		).toEqual({ name: 'fetch', running: true, success: undefined })
+	it('folds the token deltas into the answer so far', () => {
+		const { stream } = advanceAgentStream(events, emptyAgentStreamProgress())
+		expect(stream.answer).toBe('eu-central-1 is down')
+		expect(stream.reasoning).toBe('checking')
+		expect(stream.tool).toEqual({ name: 'query_metrics', running: false, success: true })
 	})
 
-	// A poll can cut the last event in half, and any other job may stream something
-	// that is not an agent's events at all.
-	it('survives a truncated trailing line', () => {
-		expect(parseAgentStream(`${events}\n{"type":"token_de`)?.answer).toBe('eu-central-1 is down')
+	// The stream only grows, so each poll must fold in the new lines and re-read
+	// none of the old ones — the reason this is incremental at all.
+	it('resumes where the previous poll stopped', () => {
+		const firstPoll = advanceAgentStream(lines.slice(0, 3).join('\n') + '\n', emptyAgentStreamProgress())
+		const secondPoll = advanceAgentStream(events, firstPoll)
+		expect(secondPoll.consumed).toBe(events.length)
+		expect(secondPoll.stream.answer).toBe('eu-central-1 is down')
+		expect(secondPoll.stream.reasoning).toBe('checking')
 	})
 
-	it('ignores a stream that carries no agent events', () => {
-		expect(parseAgentStream('processing row 1\nprocessing row 2')).toBeUndefined()
-		expect(parseAgentStream('{"level":"info","msg":"hello"}')).toBeUndefined()
+	it('leaves a half-written trailing line for the next poll', () => {
+		const partial = advanceAgentStream(`${events}{"type":"token_de`, emptyAgentStreamProgress())
+		expect(partial.stream.answer).toBe('eu-central-1 is down')
+		const completed = advanceAgentStream(`${events}{"type":"token_delta","content":"!"}\n`, partial)
+		expect(completed.stream.answer).toBe('eu-central-1 is down!')
+	})
+
+	it('marks a tool still running, and a failed one', () => {
+		const started = '{"type":"tool_execution","call_id":"c1","function_name":"fetch"}\n'
+		const running = advanceAgentStream(started, emptyAgentStreamProgress())
+		expect(running.stream.tool).toEqual({ name: 'fetch', running: true, success: undefined })
+		const failed = advanceAgentStream(
+			started +
+				'{"type":"tool_result","call_id":"c1","function_name":"fetch","result":"boom","success":false}\n',
+			running
+		)
+		expect(failed.stream.tool).toEqual({ name: 'fetch', running: false, success: false })
 	})
 })
 

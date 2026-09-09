@@ -52,6 +52,14 @@ function hasRole(message: unknown): boolean {
  * The signature is deliberately closed — no key outside `ENVELOPE_KEYS`, and
  * every message carrying a `role` — so an ordinary result that happens to have
  * an `output` field cannot claim it.
+ *
+ * It stops short of also requiring a recognised `agent_action`, which would rule
+ * out a hand-written script returning this same shape. Not every completed run
+ * is guaranteed to tag a message (a run whose provider returns its answer
+ * through a structured-output tool leaves the final assistant message untagged),
+ * and the two failures are not symmetric: claiming a lookalike costs a viewer
+ * one click on the JSON toggle, while rejecting a real agent hides its answer
+ * with nothing on screen to say why.
  */
 export function parseAgentResult(result: unknown): AgentResult | undefined {
 	if (!isRecord(result)) {
@@ -75,25 +83,6 @@ export function parseAgentResult(result: unknown): AgentResult | undefined {
 		usage: isRecord(result.usage) ? (result.usage as AgentTokenUsage) : undefined,
 		wm_stream: typeof result.wm_stream === 'string' ? result.wm_stream : undefined
 	}
-}
-
-/**
- * A run stopped by `max_iterations` fails, so it returns an error rather than an
- * envelope — but the worker attaches the conversation so far to it. That partial
- * transcript is the whole reason to look at a run that hit the cap.
- */
-export function parseAgentErrorMessages(result: unknown): AgentMessage[] | undefined {
-	if (!isRecord(result) || !isRecord(result.error)) {
-		return undefined
-	}
-	const inner = result.error.result
-	if (!isRecord(inner) || !Array.isArray(inner.messages)) {
-		return undefined
-	}
-	if (inner.messages.length === 0 || !inner.messages.every(hasRole)) {
-		return undefined
-	}
-	return inner.messages as AgentMessage[]
 }
 
 export type AgentResultSummary = {
@@ -141,6 +130,13 @@ export type AgentStream = {
 	tool?: { name: string; running: boolean; success?: boolean }
 }
 
+/** How much of the stream has been folded in, so the next poll starts there. */
+export type AgentStreamProgress = { consumed: number; stream: AgentStream }
+
+export function emptyAgentStreamProgress(): AgentStreamProgress {
+	return { consumed: 0, stream: { answer: '', reasoning: '' } }
+}
+
 const STREAM_EVENT_TYPES = [
 	'token_delta',
 	'reasoning_token_delta',
@@ -150,32 +146,68 @@ const STREAM_EVENT_TYPES = [
 	'tool_result'
 ]
 
+function parseStreamEvent(line: string): Record<string, unknown> | undefined {
+	let event: unknown
+	try {
+		event = JSON.parse(line)
+	} catch {
+		return undefined
+	}
+	if (!isRecord(event) || typeof event.type !== 'string') {
+		return undefined
+	}
+	return STREAM_EVENT_TYPES.includes(event.type) ? event : undefined
+}
+
 /**
- * `result_stream` carries one `StreamingEvent` per line while an agent runs.
- * Returns undefined for a stream that is not an agent's, so any other streaming
- * result keeps being shown verbatim.
+ * Whether `result_stream` is an agent's event stream rather than something a
+ * script printed. Reads only the first complete line, because it runs on every
+ * poll of a running job.
  */
-export function parseAgentStream(raw: string): AgentStream | undefined {
-	let sawEvent = false
-	const stream: AgentStream = { answer: '', reasoning: '' }
-	for (const line of raw.split('\n')) {
+export function isAgentStream(raw: string): boolean {
+	let start = 0
+	while (start < raw.length) {
+		const end = raw.indexOf('\n', start)
+		if (end === -1) {
+			// Only a partial first line so far; wait for the poll that completes it.
+			return false
+		}
+		const line = raw.slice(start, end)
+		if (line.trim() !== '') {
+			return parseStreamEvent(line) !== undefined
+		}
+		start = end + 1
+	}
+	return false
+}
+
+/**
+ * Fold the events that arrived since `previous` into the answer so far.
+ *
+ * Incremental rather than a parse of the whole buffer: the stream only ever
+ * grows, a poll can arrive every 50ms, and a `tool_result` event carries the
+ * tool's entire output — so re-reading everything each time is quadratic in the
+ * number of events with a large constant.
+ */
+export function advanceAgentStream(
+	raw: string,
+	previous: AgentStreamProgress
+): AgentStreamProgress {
+	// A trailing line with no newline yet is still being written, so it stays
+	// unconsumed until the poll that completes it.
+	const complete = raw.lastIndexOf('\n') + 1
+	if (complete <= previous.consumed) {
+		return previous
+	}
+	const stream: AgentStream = { ...previous.stream }
+	for (const line of raw.slice(previous.consumed, complete).split('\n')) {
 		if (line.trim() === '') {
 			continue
 		}
-		let event: unknown
-		try {
-			event = JSON.parse(line)
-		} catch {
-			// A trailing partial line is normal: the poll can cut an event in half.
+		const event = parseStreamEvent(line)
+		if (!event) {
 			continue
 		}
-		if (!isRecord(event) || typeof event.type !== 'string') {
-			continue
-		}
-		if (!STREAM_EVENT_TYPES.includes(event.type)) {
-			continue
-		}
-		sawEvent = true
 		if (event.type === 'token_delta' && typeof event.content === 'string') {
 			stream.answer += event.content
 		} else if (event.type === 'reasoning_token_delta' && typeof event.content === 'string') {
@@ -188,14 +220,18 @@ export function parseAgentStream(raw: string): AgentStream | undefined {
 			}
 		}
 	}
-	return sawEvent ? stream : undefined
+	return { consumed: complete, stream }
 }
 
-/** Token counts run to five and six figures, where the exact digit is noise. */
+/**
+ * Token counts run to five and six figures, where the exact digit is noise. The
+ * millions branch is not decoration: usage accumulates over every loop
+ * iteration, and each one re-sends the whole context.
+ */
 export function formatTokenCount(count: number): string {
 	if (count < 1000) {
 		return String(count)
 	}
-	const thousands = count / 1000
-	return `${thousands < 10 ? thousands.toFixed(1) : Math.round(thousands)}k`
+	const [scaled, unit] = count < 1_000_000 ? [count / 1000, 'k'] : [count / 1_000_000, 'M']
+	return `${scaled < 10 ? scaled.toFixed(1) : Math.round(scaled)}${unit}`
 }

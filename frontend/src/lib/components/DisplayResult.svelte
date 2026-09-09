@@ -57,7 +57,7 @@
 	import type { MarkupTrust } from './apps/markupTrust'
 	import AgentResultDisplay from './AgentResultDisplay.svelte'
 	import AgentStreamDisplay from './AgentStreamDisplay.svelte'
-	import { parseAgentResult, parseAgentStream } from './aiAgentResult'
+	import { isAgentStream, parseAgentResult } from './aiAgentResult'
 
 	const TABLE_MAX_SIZE = 5000000
 	const DISPLAY_MAX_SIZE = 100000
@@ -99,7 +99,10 @@
 	const REPLAY_INERT_KINDS: ResultKind[] = ['s3object', 's3object-list', 'materialized', 'approval']
 	/** Kinds whose markup pulls subresources: DOMPurify stops scripting but keeps
 	 * `<img src>` and SVG `<image href>`, and `map` tiles are requests by
-	 * construction. Kinds absent here carry their bytes as `data:` and reach nothing.
+	 * construction. Kinds absent here carry their bytes as `data:` and reach nothing,
+	 * or render through a component that is itself inert on the public page —
+	 * `aiagent` is the second case, via `GfmMarkdown`, which is why it renders
+	 * markdown yet is not listed while `markdown` still is.
 	 * Inert only on the public page, which promises to issue no requests. */
 	const OFFLINE_INERT_KINDS: ResultKind[] = ['markdown', 'html', 'svg', 'map']
 	let length = $state(1)
@@ -743,15 +746,14 @@
 {/if}
 
 {#if result_stream && result == undefined}
-	{@const agentStream = parseAgentStream(result_stream)}
 	<div class="flex flex-col w-full gap-2">
 		<div class="flex items-center gap-2 text-secondary text-xs">
 			<Loader2 class="animate-spin" size={14} /> Streaming result
 		</div>
-		{#if agentStream}
+		{#if isAgentStream(result_stream)}
 			<!-- An agent streams one JSON event per line, so the raw stream is a wall of
 			     event objects rather than the answer being written. -->
-			<AgentStreamDisplay stream={agentStream} />
+			<AgentStreamDisplay raw={result_stream} streamKey={jobId} />
 		{:else}
 			<ResultStreamDisplay {result_stream} />
 		{/if}
