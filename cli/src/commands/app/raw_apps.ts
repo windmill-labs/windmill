@@ -385,9 +385,8 @@ export async function pushRawApp(
   } catch {
     //ignore
   }
-  // Captured before it is cleared below, which it is so the policy takes no part
-  // in the up-to-date comparison. `raw_app.yaml` records none of it, so anything
-  // the deploy drawer set is only here.
+  // `app.policy` is cleared a few lines down, so capture it first. `raw_app.yaml`
+  // records none of the policy, so anything the deploy drawer set is only here.
   const deployedPolicy: Policy | undefined = app?.policy;
 
   markAccessFromPolicy(app);

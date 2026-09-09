@@ -137,13 +137,20 @@ export function executionModeFromAppFile(app: any): AppExecutionMode {
   if (app?.["guests"] ?? isExecutionModeGuest(app)) {
     return "guest";
   }
+  // `viewer` has no marker of its own — a pull never writes one, since it is not
+  // an open-access mode. Read it where the other modes are read from anyway, so
+  // a file stating it is not deployed as the wider `publisher` (which runs the
+  // runnables as the app's identity rather than each viewer's).
+  if (app?.["policy"]?.["execution_mode"] == "viewer") {
+    return "viewer";
+  }
   return "publisher";
 }
 
-/** The mode this push deploys under. The tracked file records only the two
- * open-access markers, so their absence closes a deployed `anonymous`/`guest`
- * app back down to `publisher`; a deployed mode the file cannot express
- * (`viewer`) is not an access grant the markers revoke, so it carries over. */
+/** The mode this push deploys under. The tracked file normally records only the
+ * two open-access markers, so their absence closes a deployed `anonymous`/`guest`
+ * app back down to `publisher` — while a deployed `viewer` is not an access grant
+ * those markers revoke, so it carries over. */
 export function executionModeForPush(
   localApp: any,
   deployedPolicy: Policy | undefined,
@@ -177,8 +184,8 @@ export async function pushApp(
     //ignore
   }
 
-  // Captured before `markAccessFromPolicy` clears it below, which it does so the
-  // policy takes no part in the up-to-date comparison.
+  // `app.policy` is cleared a few lines down, so capture it first: it is the
+  // base the regenerated policy is built on.
   const deployedPolicy: Policy | undefined = app?.policy;
 
   markAccessFromPolicy(app);
