@@ -12,6 +12,7 @@ use sqlx::{Pool, Postgres};
 use windmill_test_utils::*;
 
 const ADMIN_TOKEN: &str = "SECRET_TOKEN";
+const GUEST_TOKEN: &str = "GUEST_SECRET_TOKEN";
 const APP_PATH: &str = "u/test-user/guest_app";
 
 fn client() -> reqwest::Client {
@@ -95,6 +96,34 @@ async fn the_cloud_admits_no_guest(db: Pool<Postgres>) -> anyhow::Result<()> {
         resp.status(),
         404,
         "a guest app must not advertise entry where guests are unavailable"
+    );
+
+    // And a session issued before the instance became a cloud one stops on its next
+    // request: the door re-reads the switch, so the credential itself is not enough.
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, scopes, workspace_id, expiration)
+         VALUES (encode(sha256($1::bytea), 'hex'), 'GUEST_SECR', $2, 'guest@example.com',
+                 'guest_session', $3, 'test-workspace', now() + interval '8 hours')",
+    )
+    .bind(GUEST_TOKEN.as_bytes())
+    .bind(GUEST_TOKEN)
+    .bind(vec![
+        "guest".to_string(),
+        "users:read".to_string(),
+        format!("apps:read:{APP_PATH}"),
+        format!("apps:run:{APP_PATH}"),
+    ])
+    .execute(&db)
+    .await?;
+    // `whoami` is where an admitted guest resolves as `role: guest`, so a 401 here is
+    // the door refusing the credential rather than a route saying no.
+    let resp = authed(client().get(format!("{ws}/users/whoami")), GUEST_TOKEN)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "a guest session must not authenticate where guests are unavailable"
     );
 
     Ok(())
