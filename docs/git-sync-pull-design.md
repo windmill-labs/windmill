@@ -634,11 +634,14 @@ rather than the deploy push/pull, so it's uniform across how the PR's commit cam
 pulled in). CI tests run as separate async `ci_test` jobs in the **fork workspace** the PR
 corresponds to; the check reflects that fork's current results on the PR head.
 
-- **State** — `git_sync_ci_test_check(workspace_id, head_sha)` (new table). `workspace_id`
-  is the **fork** whose `ci_test` jobs the check reflects; `github_workspace_id` is the
-  **parent** whose GitHub-App installation posts the run (the workspace that received the
-  webhook and owns the repo hook). Plus `repo_url`, `check_run_id` (NULL if the
-  create failed), `created_at`, `concluded`, `conclusion`, `concluded_at`, `github_posted`.
+- **State** — `git_sync_ci_test_check(workspace_id, repo_resource_path, head_sha)` (new
+  table). `workspace_id` is the **fork** whose `ci_test` jobs the check reflects;
+  `repo_resource_path` the repository (a fork can sync several, and two can hold the same
+  commit); `github_workspace_id` is the **parent** whose GitHub-App installation posts the
+  run (the workspace that received the webhook and owns the repo hook). Plus `repo_url`,
+  `head_ref`, `check_run_id` (NULL until the create succeeds: the row is written first so a
+  create that never gets recorded cannot strand an in-progress run), `created_at`,
+  `concluded`, `conclusion`, `concluded_at`, `github_posted`.
   Partial index `(workspace_id) WHERE NOT concluded OR NOT github_posted` (the live set the
   hook + poller scan).
 - **Open** — in the `pull_request` handler (opened/synchronize/reopened, base = tracked):
@@ -661,8 +664,8 @@ corresponds to; the check reflects that fork's current results on the PR head.
   matter which webhook GitHub delivers first. The evidence is `git_sync_synced_head`: the
   pull completion hook writes a row when a pull job succeeds (its marker carries the branch
   and sha it was enqueued for), and the push completion hook writes one from the deploy
-  push script's `{pushed, sha, branch}` result. The check is ready when the branch's newest
-  row names the head, so a branch reset to an older commit waits for its re-pull instead
+  push script's `{pushed, sha, branch}` result. The check is ready when the repository branch's
+  newest row names the head, so a branch reset to an older commit waits for its re-pull instead
   of reading the newer commit's results, and the prune keeps each branch's newest row so a
   PR reopened at an unchanged head stays ready. This is a
   sync event log, deliberately apart from `auto_pull.last_synced_sha`: that map decides
@@ -687,7 +690,9 @@ installation; the timeout stops a hung test job from blocking a required check f
 rows cascade away with either workspace. A plain feature-branch or
 contributor-fork PR resolves to no fork workspace and gets an already-concluded `skipped`
 check (branch protection counts `skipped` as passing, so requiring the check does not block
-those PRs). Known limit (accepted for v1): the fork's status is workspace-wide (all its
+those PRs). A repository pinned to a sync script older than the one that reports pushed
+commits gets an already-concluded `failure` naming the fix, rather than a check that can
+only time out. Known limit (accepted for v1): the fork's status is workspace-wide (all its
 tested items), which for the one-fork-per-PR model equals the PR's scope.
 
 ## 16. Alternatives considered

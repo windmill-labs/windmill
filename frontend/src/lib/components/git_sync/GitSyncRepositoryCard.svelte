@@ -936,7 +936,7 @@
 										options={{
 											right: 'Automatically deploy changes from Git',
 											rightTooltip:
-												'Windmill deploys new commits from the tracked branch into this workspace. Repositories Windmill holds a credential for sync instantly via webhooks with a polling fallback; other token-based repositories are checked about every minute. The webhook also delivers pull request events, which is what posts the diff and Windmill CI tests checks on pull requests.'
+												'Windmill deploys new commits from the tracked branch into this workspace. Repositories Windmill holds a credential for sync instantly via webhooks with a polling fallback; other token-based repositories are checked about every minute. The webhook also delivers pull request events, which is what posts the diff check on pull requests and, for GitHub repositories, the Windmill CI tests check.'
 										}}
 										on:change={(e) => setAutoPullEnabled(e.detail)}
 									>
@@ -951,7 +951,7 @@
 											options={{
 												right: 'Automatically sync forks with git branches',
 												rightTooltip: repo.auto_pull?.enabled
-													? "When a fork's wm-fork/** branch changes in the repository (for example after merging the tracked branch into it), Windmill deploys those commits into the fork workspace. Needed for the Windmill CI tests check on a fork pull request whose commits were pushed outside Windmill. Configured once here, applied to every fork of this workspace."
+													? "When a fork's wm-fork/** branch changes in the repository (for example after merging the tracked branch into it), Windmill deploys those commits into the fork workspace. On GitHub, needed for the Windmill CI tests check on a fork pull request whose commits were pushed outside Windmill. Configured once here, applied to every fork of this workspace."
 													: 'Requires automatic deploy from Git to be enabled above.'
 											}}
 											on:change={(e) => setSyncForks(e.detail)}

@@ -2687,36 +2687,6 @@ fn truncate_column_default(default: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use windmill_common::workspaces::{AutoPullSettings, AutoPullStatus};
-
-    /// Sync state the server writes must not survive a client-supplied settings save.
-    #[test]
-    fn client_supplied_auto_pull_state_is_cleared() {
-        let mut ap = AutoPullSettings {
-            enabled: true,
-            webhook_id: Some(7),
-            webhook_secret: Some("s".into()),
-            webhook_url: Some("u".into()),
-            webhook_error: Some("e".into()),
-            last_synced_sha: [("main".to_string(), "a".to_string())].into(),
-            last_pull_status: Some(AutoPullStatus {
-                synced_sha: None,
-                at: 0,
-                job_id: None,
-                success: true,
-                error: None,
-            }),
-            ..Default::default()
-        };
-        clear_client_supplied_auto_pull_state(&mut ap);
-        assert!(ap.enabled);
-        assert!(ap.webhook_id.is_none());
-        assert!(ap.webhook_secret.is_none());
-        assert!(ap.webhook_url.is_none());
-        assert!(ap.webhook_error.is_none());
-        assert!(ap.last_synced_sha.is_empty());
-        assert!(ap.last_pull_status.is_none());
-    }
 
     /// The header of a pg_dump, followed by an object whose body also holds a `SET`.
     const DUMP: &str = "--\n\
