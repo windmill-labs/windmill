@@ -103,14 +103,21 @@
 			// We don't always put the fix by default for row ordering concerns
 			let transformedCode = code
 			if (doPostgresRowToJsonFix) {
-				transformedCode = statements
-					.map((statement) => {
-						if (READ_OPS.some((op) => statement.trim().toUpperCase().startsWith(op))) {
-							return `SELECT row_to_json(__t__) FROM (${statement}) __t__`
-						}
-						return statement
-					})
-					.join(';')
+				// Rebuilt from the pruned statements, which drops the leading comment block — and
+				// with it the `-- role <name>` annotation that decides which login the query runs
+				// as. Carry it over, or the retry connects as the data table's default role and a
+				// query the first attempt was denied succeeds on the second.
+				const leadingAnnotations = code.match(/^(?:[^\S\n]*\n|[^\S\n]*--[^\n]*\n)*/)?.[0] ?? ''
+				transformedCode =
+					leadingAnnotations +
+					statements
+						.map((statement) => {
+							if (READ_OPS.some((op) => statement.trim().toUpperCase().startsWith(op))) {
+								return `SELECT row_to_json(__t__) FROM (${statement}) __t__`
+							}
+							return statement
+						})
+						.join(';')
 			}
 			const dbArg = getDatabaseArg(input)
 
