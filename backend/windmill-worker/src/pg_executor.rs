@@ -686,7 +686,7 @@ pub async fn do_postgresql(
                 let (db_str, uri_role) = parse_datatable_ref(reference);
                 // The annotation wins: a generated query can carry a `?role=` in the reference it
                 // was handed, but only the script's author writes the leading comment block.
-                let annotated = SqlAnnotations::datatable_role(&query);
+                let annotated = SqlAnnotations::datatable_role(&query)?;
                 let role = annotated.as_deref().or(uri_role);
                 Some(match conn {
                     Connection::Http(client) => {
