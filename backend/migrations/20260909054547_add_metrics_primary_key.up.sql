@@ -1,14 +1,11 @@
--- The seventh table. Why any of them need a key is in
--- 20260909052532_add_missing_primary_keys, which covers the other six.
+-- The seventh table; why any of them need a key is in
+-- 20260909052532_add_missing_primary_keys.
 --
--- It is separate from them because it was two orders of magnitude larger than all
--- six put together (~400 MB / 750k rows on the instance this was measured on) and
--- the ALTER rewrites it under ACCESS EXCLUSIVE. A migration is one transaction and
--- Postgres holds its locks until commit, so alone it locks none of the six while it
--- rewrites, and an instance that struggles with this one keeps their keys on retry.
+-- Kept out of that migration because it was two orders of magnitude larger than all
+-- six together and its ALTER rewrites it under ACCESS EXCLUSIVE: one migration is
+-- one transaction, so alone it holds no lock on them while it rewrites.
 --
--- The surrogate cannot be called `id`: `metrics.id` already exists and holds the
--- metric NAME, repeated once per sample.
+-- The surrogate cannot be called `id` -- `metrics.id` holds the metric NAME.
 
 ALTER TABLE metrics
     ADD COLUMN IF NOT EXISTS row_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY;

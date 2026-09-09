@@ -19,10 +19,15 @@ async fn every_table_is_replicable(db: Pool<Postgres>) -> anyhow::Result<()> {
          JOIN pg_namespace n ON n.oid = c.relnamespace
          WHERE c.relkind IN ('r', 'p')
            AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-           AND NOT EXISTS (
-               SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid AND i.indisprimary
+           AND NOT (
+               -- FULL and USING INDEX replicate on their own.
+               c.relreplident IN ('f', 'i')
+               -- DEFAULT resolves to the primary key, so it needs one to exist.
+               -- NOTHING never replicates, primary key or not.
+               OR (c.relreplident = 'd' AND EXISTS (
+                   SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid AND i.indisprimary
+               ))
            )
-           AND c.relreplident = 'd'
          ORDER BY 1",
     )
     .fetch_all(&db)
@@ -30,8 +35,8 @@ async fn every_table_is_replicable(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     assert!(
         offenders.is_empty(),
-        "these tables have neither a PRIMARY KEY nor an explicit REPLICA IDENTITY, \
-         so logical replication will reject UPDATE and DELETE on them: {}. \
+        "logical replication will reject UPDATE and DELETE on these tables, because \
+         they carry no replica identity it can use: {}. \
          Give each one a primary key -- a natural composite key where every column \
          is NOT NULL, otherwise a surrogate `BIGINT GENERATED ALWAYS AS IDENTITY`.",
         offenders.join(", ")
