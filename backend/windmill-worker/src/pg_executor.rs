@@ -683,7 +683,7 @@ pub async fn do_postgresql(
         match pg_args.get("database").cloned() {
             Some(Value::String(db_str)) if db_str.starts_with("datatable://") => {
                 let reference = db_str.trim_start_matches("datatable://");
-                let (db_str, uri_role) = parse_datatable_ref(reference);
+                let (db_str, uri_role) = parse_datatable_ref(reference)?;
                 // The annotation wins: a generated query can carry a `?role=` in the reference it
                 // was handed, but only the script's author writes the leading comment block.
                 let annotated = SqlAnnotations::datatable_role(&query)?;
