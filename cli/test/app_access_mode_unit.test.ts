@@ -14,7 +14,12 @@ test("the access mode survives the app.yaml round trip", async () => {
   expect(guest.guests).toBe(true);
   expect(guest.public).toBeUndefined();
   expect(executionModeFromAppFile(guest)).toBe("guest");
-  await generatingPolicy(guest, "u/test/app", executionModeFromAppFile(guest));
+  await generatingPolicy(
+    guest,
+    "u/test/app",
+    executionModeFromAppFile(guest),
+    undefined,
+  );
   expect(guest.policy.execution_mode).toBe("guest");
 
   const anonymous: any = { policy: { execution_mode: "anonymous" }, value: {} };

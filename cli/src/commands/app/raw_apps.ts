@@ -1,6 +1,9 @@
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
-import { mergeConfigWithConfigFile } from "../../core/conf.ts";
+import {
+  mergeConfigWithConfigFile,
+  readEffectiveSyncBehavior,
+} from "../../core/conf.ts";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
@@ -17,11 +20,15 @@ import { deepEqual, readTextFile } from "../../utils/utils.ts";
 
 import {
   type AppExecutionMode,
-  executionModeFromAppFile,
+  executionModeForPush,
+  finalizeDerivedPolicy,
   markAccessFromPolicy,
+  preserveOnBehalfOfFields,
   replaceInlineScripts,
   repopulateFields,
 } from "./app.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { buildPermissionedAsContext } from "../../core/permissioned_as.ts";
 import { createBundle, detectFrameworks } from "./bundle.ts";
 import { APP_BACKEND_FOLDER, RECORDINGS_FOLDER } from "./app_metadata.ts";
 import { writeIfChanged } from "../../utils/utils.ts";
@@ -360,6 +367,7 @@ export async function pushRawApp(
   localPath: string,
   message?: string,
   defaultTs: "bun" | "deno" = "bun",
+  permissionedAsContext?: PermissionedAsContext,
 ): Promise<void> {
   if (alreadySynced.includes(localPath)) {
     return;
@@ -376,6 +384,11 @@ export async function pushRawApp(
   } catch {
     //ignore
   }
+  // Captured before it is cleared below, which it is so the policy takes no part
+  // in the up-to-date comparison. `raw_app.yaml` records none of it, so anything
+  // the deploy drawer set is only here.
+  const deployedPolicy: Policy | undefined = app?.policy;
+
   markAccessFromPolicy(app);
   // console.log(app);
   if (app) {
@@ -427,7 +440,14 @@ export async function pushRawApp(
   await generatingPolicy(
     appForPolicy,
     remotePath,
-    executionModeFromAppFile(localApp),
+    executionModeForPush(localApp, deployedPolicy),
+    deployedPolicy,
+  );
+  // On create the backend applies folder defaults, so there is nothing to preserve.
+  const preserveFields = preserveOnBehalfOfFields(
+    remotePath,
+    appForPolicy.policy,
+    permissionedAsContext,
   );
 
   const files = await collectAppFiles(localPath);
@@ -482,6 +502,7 @@ export async function pushRawApp(
             path: remotePath,
             summary: localApp.summary,
             policy: appForPolicy.policy,
+            ...preserveFields,
             deployment_message: message,
             // Preserve any user draft at this path (see backend skip_draft_deletion).
             skip_draft_deletion: true,
@@ -532,14 +553,15 @@ export async function generatingPolicy(
   app: any,
   path: string,
   executionMode: AppExecutionMode,
+  deployedPolicy: Policy | undefined,
 ) {
   log.info(colors.gray(`Generating fresh policy for app ${path}...`));
   try {
     app.policy = await windmillUtils.updateRawAppPolicy(
       app.runnables,
-      app.policy,
+      deployedPolicy,
     );
-    app.policy.execution_mode = executionMode;
+    finalizeDerivedPolicy(app.policy, executionMode);
   } catch (e) {
     log.error(colors.red(`Error generating policy for app ${path}: ${e}`));
     throw e;
@@ -564,6 +586,10 @@ async function pushRawAppCommand(
     filePath,
     undefined,
     merged.defaultTs,
+    await buildPermissionedAsContext(
+      workspace.workspaceId,
+      await readEffectiveSyncBehavior(opts, workspace),
+    ),
   );
   log.info(colors.bold.underline.green("Raw app pushed"));
 }
