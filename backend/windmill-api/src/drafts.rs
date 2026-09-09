@@ -415,9 +415,7 @@ fn draft_lineage(kind: UserDraftItemKind, value: &str) -> Option<DraftBaseVersio
 /// caller can't see where it went.
 ///
 /// Reads under RLS so the answer can never reveal an item the caller has no
-/// access to. `resolve_moved_to_in` makes no such guarantee on its own — it
-/// inherits whatever scoping the transaction it is handed carries, which is why
-/// every caller passes an RLS-scoped one.
+/// access to.
 async fn resolve_moved_to(
     authed: &ApiAuthed,
     user_db: &UserDB,
@@ -429,14 +427,10 @@ async fn resolve_moved_to(
     if draft_lineage(kind, value).is_none() {
         return Ok(None);
     }
-    // RLS is not optional on THIS entry point: it runs before the write gate, so
-    // the envelope is what stops the answer naming an item the caller cannot see.
-    // Cost, stated honestly: `UserDB::begin` is not a bare BEGIN — it issues
-    // BEGIN, `set_session_context`, and `SET LOCAL search_path` when `PG_SCHEMA`
-    // is set, and the commit is another round-trip. So 3-4 round-trips wrap one
-    // indexed existence check, and the lineage query runs only once that check
-    // says the item is gone. `draft_lineage` above is what keeps all of it off
-    // the drafts that have nothing to follow.
+    // `UserDB::begin` is not a bare BEGIN — it also issues `set_session_context`
+    // and, under `PG_SCHEMA`, `SET LOCAL search_path`, so this wraps one indexed
+    // existence check in 3-4 round-trips. The `draft_lineage` check above is what
+    // keeps that off every draft with nothing to follow.
     let mut tx = user_db.clone().begin(authed).await?;
     let moved = resolve_moved_to_in(&mut tx, &authed.username, w_id, kind, path, value).await;
     tx.commit().await?;
