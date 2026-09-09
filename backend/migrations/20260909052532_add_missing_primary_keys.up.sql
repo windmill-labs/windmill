@@ -2,10 +2,9 @@
 -- PostgreSQL reject UPDATE and DELETE on them under logical replication.
 -- `deployment_metadata` and `metrics` are the other two, one migration each after this.
 --
--- The surrogate cannot be swapped for a natural key: every unique index on all five
--- is PARTIAL -- split on `script_hash IS NULL`, or on which of flow/app a dependency
--- row describes -- and a partial index cannot back a primary key. The partial uniques
--- stay; they are what the ON CONFLICT clauses infer.
+-- The surrogate cannot be swapped for a natural key: every unique index on all five is
+-- PARTIAL, split on `script_hash IS NULL`, and a partial index cannot back a primary
+-- key. The partial uniques stay; they are what the ON CONFLICT clauses infer.
 --
 -- Each ALTER rewrites its table under ACCESS EXCLUSIVE and holds it unavailable for
 -- the rewrite. These five share a transaction because each is bounded by what a
