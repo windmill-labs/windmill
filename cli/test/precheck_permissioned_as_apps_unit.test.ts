@@ -101,6 +101,28 @@ test("a Windows path classifies the same as its posix twin", async () => {
   expect(edited).toContain("f/test/myapp.raw_app");
 });
 
+// `collectAppFiles` never sends these, and the sync diff never stops listing
+// them (nothing uploads them, so they stay "added" forever) — so warning on one
+// would gate every push of a scaffolded app on the override flag.
+test("a file the push never sends is not a change to the app", async () => {
+  const artifacts = await precheck([
+    change("f/test/myapp.raw_app/AGENTS.md", "added"),
+    change("f/test/myapp.raw_app/sql_to_apply/a.sql", "added"),
+    change("f/test/myapp.raw_app/node_modules/dep/index.js", "added"),
+    change("f/test/myapp.raw_app/recordings/r.json", "added"),
+    change("f/test/myapp.raw_app/package-lock.json"),
+  ]);
+  // The three channels a push does send through: bundled file, metadata, runnable.
+  const sent = await precheck([change("f/test/myapp.raw_app/index.tsx")]);
+  const meta = await precheck([change("f/test/myapp.raw_app/raw_app.yaml")]);
+  const runnable = await precheck([change("f/test/myapp.raw_app/backend/a.ts")]);
+
+  expect(artifacts).toBeUndefined();
+  expect(sent).toContain("f/test/myapp.raw_app");
+  expect(meta).toContain("f/test/myapp.raw_app");
+  expect(runnable).toContain("f/test/myapp.raw_app");
+});
+
 test("an app is listed once however many of its files changed", async () => {
   const message = await precheck([
     change("f/test/myapp.raw_app/index.tsx"),

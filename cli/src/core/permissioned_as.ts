@@ -8,6 +8,7 @@ import {
   isAppFolderMetadataFile,
   isRawAppFolderMetadataFile,
 } from "../utils/resource_folders.ts";
+import { deploysWithRawApp } from "../utils/app_files.ts";
 import { parseSyncBehavior } from "./conf.ts";
 
 export interface PermissionedAsContext {
@@ -160,13 +161,17 @@ export async function preCheckPermissionedAs(
       continue;
     }
 
-    // An app is redeployed whole by any change to any of its files — added,
-    // edited or deleted alike — so its policy is rewritten regardless of what
-    // the file holds. Settled here, before the content the other kinds parse to
-    // find their owner, which an app has none of to parse.
+    // An app is redeployed whole by any change to any of the files it actually
+    // sends — added, edited or deleted alike — so its policy is rewritten
+    // regardless of what the file holds. Settled here, before the content the
+    // other kinds parse to find their owner, which an app has none of to parse.
     if (isAppTypeStr(typeStr)) {
-      const folder = appFolderOf(toPosix(change.path), typeStr);
-      if (!arrivingOrLeaving.has(folder)) {
+      const path = toPosix(change.path);
+      const folder = appFolderOf(path, typeStr);
+      if (
+        !arrivingOrLeaving.has(folder) &&
+        (typeStr === "app" || deploysWithRawApp(path.slice(folder.length)))
+      ) {
         addItem({ path: folder, currentOwner: "(app policy owner)" });
       }
       continue;

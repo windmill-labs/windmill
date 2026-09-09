@@ -32,6 +32,10 @@ import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 import { buildPermissionedAsContext } from "../../core/permissioned_as.ts";
 import { createBundle, detectFrameworks } from "./bundle.ts";
 import { APP_BACKEND_FOLDER, RECORDINGS_FOLDER } from "./app_metadata.ts";
+import {
+  NEVER_DEPLOYED_DIRS,
+  NEVER_DEPLOYED_FILES,
+} from "../../utils/app_files.ts";
 import { writeIfChanged } from "../../utils/utils.ts";
 import { yamlOptions } from "../sync/sync.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
@@ -324,13 +328,11 @@ async function collectAppFiles(
       const relativePath = basePath + entry.name;
 
       if (entry.isDirectory()) {
-        // Skip the runnables, node_modules, and sql_to_apply subfolders
+        // The backend folder deploys as `value.runnables`, not as a bundled
+        // file; the rest reach the server through no channel at all.
         if (
           entry.name === APP_BACKEND_FOLDER ||
-          entry.name === "node_modules" ||
-          entry.name === "dist" ||
-          entry.name === ".claude" ||
-          entry.name === "sql_to_apply"
+          NEVER_DEPLOYED_DIRS.has(entry.name)
         ) {
           continue;
         }
@@ -342,13 +344,11 @@ async function collectAppFiles(
         }
         await readDirRecursive(fullPath + SEP, relativePath + "/");
       } else if (entry.isFile()) {
-        // Skip generated/metadata files that shouldn't be part of the app
+        // `raw_app.yaml` deploys as the request's metadata rather than as a
+        // bundled file; the rest reach the server through no channel at all.
         if (
           entry.name === "raw_app.yaml" ||
-          entry.name === "package-lock.json" ||
-          entry.name === "DATATABLES.md" ||
-          entry.name === "AGENTS.md" ||
-          entry.name === "wmill.d.ts"
+          NEVER_DEPLOYED_FILES.has(entry.name)
         ) {
           continue;
         }
