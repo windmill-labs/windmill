@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.805.0
+  version: 1.806.0
   title: Windmill API
 
   contact:
@@ -25792,6 +25792,30 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/hub/projects:
+    get:
+      summary: list the hub's published projects
+      description: |
+        Forwards to the configured Hub's public project catalogue and returns its
+        status code and raw response body. Readable by any workspace member: the
+        listing is not workspace-scoped, and it is proxied only because the Hub's
+        listing endpoint sends no CORS header. Refused with 400 when the instance
+        has the Hub disabled, in which case no outbound request is made.
+      operationId: listHubProjects
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+        "400":
+          description: the Hub is disabled on this instance
 
   /w/{workspace}/hub/project:
     get:

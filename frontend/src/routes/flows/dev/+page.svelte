@@ -307,12 +307,7 @@
 			<Splitpanes horizontal class="max-h-screen grow min-h-0">
 				<Pane size={33}>
 					{#if flowStore.val?.value?.modules}
-						<FlowModuleSchemaMap
-							disableAi
-							disableTutorials
-							smallErrorHandler={true}
-							disableStaticInputs
-						/>
+						<FlowModuleSchemaMap disableAi smallErrorHandler={true} disableStaticInputs />
 					{:else}
 						<div class="text-red-400 mt-20">Missing flow modules</div>
 					{/if}

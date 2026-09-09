@@ -9,7 +9,7 @@
  * would pin the mirror), with the two generated modules stubbed so the import
  * works without ./build.sh.
  */
-import { expect, test, describe, mock } from "bun:test";
+import { expect, test, describe, mock, beforeAll, afterAll } from "bun:test";
 
 mock.module("../services.gen", () => ({
   ResourceService: {},
@@ -50,6 +50,19 @@ async function round(completed: Record<string, any>, body: () => Promise<any>): 
     setWorkflowCtx(null);
   }
 }
+
+// These rounds assert the suspend a worker acts on, which is the legacy inline
+// path. The v2 fast path is on by default and checkpoints over HTTP instead, so
+// pin it off rather than depend on `WM_JOB_ID` being absent — another test file
+// in this process sets it.
+const priorFastPath = process.env.WM_WAC_INLINE_FAST_PATH;
+beforeAll(() => {
+  process.env.WM_WAC_INLINE_FAST_PATH = "0";
+});
+afterAll(() => {
+  if (priorFastPath === undefined) delete process.env.WM_WAC_INLINE_FAST_PATH;
+  else process.env.WM_WAC_INLINE_FAST_PATH = priorFastPath;
+});
 
 describe("task retry", () => {
   test("each failure buys a backoff sleep and one more attempt, until attempts run out", async () => {
