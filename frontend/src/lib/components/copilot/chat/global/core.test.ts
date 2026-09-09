@@ -4726,35 +4726,6 @@ describe('global AI tools', () => {
 		)
 	})
 
-	// A `dynselect-` field queues its helper job the moment the form mounts, carrying every
-	// other argument, so a form opened on a literal puts one in a job nobody confirmed.
-	it('opens the form on a reference, never on the proposed literal', async () => {
-		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-			path: 'f/scripts/pw-form',
-			schema: { properties: { token: { type: 'string', password: true } } }
-		} as any)
-		vi.mocked(processSecretArgs).mockImplementationOnce(async () => ({
-			token: '$var:u/ada/secret_arg/minted'
-		}))
-
-		let opened: Record<string, any> | undefined
-		await withCompletedTestJob(() =>
-			callGlobalTool(
-				'run_script',
-				{ path: 'f/scripts/pw-form', args: { token: 'hunter2' } },
-				{
-					...toolCallbacks,
-					requestRunArgs: async (_toolId, form) => {
-						opened = form.args
-						return form.args
-					}
-				}
-			)
-		)
-
-		expect(opened).toEqual({ token: '$var:u/ada/secret_arg/minted' })
-	})
-
 	// The bypass has no form to have shown them either, so the rule holds there too.
 	it('drops an undeclared argument when the posture answers too', async () => {
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({

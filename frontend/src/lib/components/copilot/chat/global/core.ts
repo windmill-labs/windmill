@@ -5571,13 +5571,15 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	const coerced = autoAccepted
 		? undefined
 		: coerceArgsToSchema(normalizeTestRunArgs(spec.proposed), schema)
-	let prepared: Record<string, any>
+	let proposed: Record<string, any>
 	let resetKeys: string[]
 	let undeclaredKeys: string[]
 	if (coerced) {
 		resetKeys = coerced.resetKeys
 		undeclaredKeys = coerced.undeclaredKeys
-		prepared = stripFileArgs(coerced.args, schema as any, strippedKeys)
+		// Left as the model proposed it, minted by the widget the field mounts: a reference put
+		// here instead would be normalised away by the nested form an object secret renders as.
+		proposed = stripFileArgs(coerced.args, schema as any, strippedKeys)
 	} else {
 		// Both rules hold against every caller, not only the ones a form stands in front of:
 		// an undeclared argument has no field anywhere, and a disabled one is nobody's to set.
@@ -5586,24 +5588,20 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		undeclaredKeys = declared.undeclaredKeys
 		const enforced = enforceDisabledDefaults(declared.args, schema)
 		resetKeys = enforced.resetKeys
-		prepared = enforced.args
-	}
-
-	// Before anything mounts, rather than in the widget's stead once it has: a `dynselect-`
-	// field queues its helper job at mount carrying every other argument, so a literal left in
-	// the form reaches a job nobody confirmed. The field would mint the same value regardless.
-	let proposed: Record<string, any>
-	try {
-		proposed = await processSecretArgs(prepared, schema as any, workspace)
-	} catch (e) {
-		const message = `Failed to store the sensitive arguments of "${spec.path}": ${e}`
-		toolCallbacks.setToolStatus(toolId, {
-			content: message,
-			isLoading: false,
-			isStreamingArguments: false,
-			error: message
-		})
-		return message
+		// In the widget's stead: with no form there is no PasswordArgInput to turn a proposed
+		// secret into a reference, and the job's arguments outlive the run.
+		try {
+			proposed = await processSecretArgs(enforced.args, schema as any, workspace)
+		} catch (e) {
+			const message = `Failed to store the sensitive arguments of "${spec.path}": ${e}`
+			toolCallbacks.setToolStatus(toolId, {
+				content: message,
+				isLoading: false,
+				isStreamingArguments: false,
+				error: message
+			})
+			return message
+		}
 	}
 	const form: RunFormDisplay = {
 		path: spec.path,
