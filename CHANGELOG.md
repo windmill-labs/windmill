@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.808.0](https://github.com/windmill-labs/windmill/compare/v1.807.0...v1.808.0) (2026-09-09)
+
+
+### Features
+
+* run and test scripts from the AI chat through an argument form ([#11001](https://github.com/windmill-labs/windmill/issues/11001)) ([a6abf2c](https://github.com/windmill-labs/windmill/commit/a6abf2c8a744e9ee6acf4830cdfbb84f2f95cb36))
+
 ## [1.807.0](https://github.com/windmill-labs/windmill/compare/v1.806.0...v1.807.0) (2026-09-09)
 
 
