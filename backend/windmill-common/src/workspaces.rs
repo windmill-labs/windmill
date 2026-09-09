@@ -512,6 +512,11 @@ pub struct AutoPullSettings {
     /// Last synced commit sha per tracked git ref (e.g. `refs/heads/main`).
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub last_synced_sha: std::collections::HashMap<String, String>,
+    /// Last commit a deploy push left per branch. Separate from `last_synced_sha`,
+    /// which alone decides whether the next poll pulls: a push can sit on top of a
+    /// commit someone else made to the branch, which the workspace still has to pull.
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub last_pushed_sha: std::collections::HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_pull_status: Option<AutoPullStatus>,
 }
@@ -532,6 +537,7 @@ impl std::fmt::Debug for AutoPullSettings {
             .field("webhook_url", &self.webhook_url)
             .field("webhook_error", &self.webhook_error)
             .field("last_synced_sha", &self.last_synced_sha)
+            .field("last_pushed_sha", &self.last_pushed_sha)
             .field("last_pull_status", &self.last_pull_status)
             .finish()
     }
@@ -2674,6 +2680,7 @@ mod tests {
                 .iter()
                 .map(|(r, s)| (r.to_string(), s.to_string()))
                 .collect(),
+            last_pushed_sha: Default::default(),
             last_pull_status: None,
         }
     }

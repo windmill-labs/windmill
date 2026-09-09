@@ -827,6 +827,21 @@ async fn create_flow(
         WebhookMessage::CreateFlow { workspace: w_id.clone(), path: nf.path.clone() },
     );
 
+    // Trigger CI tests for items that reference this flow; awaited for the same reason
+    // as in `update_flow`.
+    if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+        &db,
+        &w_id,
+        &nf.path,
+        "flow",
+        &authed.email,
+        &authed.username,
+    )
+    .await
+    {
+        tracing::error!(%e, "error triggering CI tests after flow creation");
+    }
+
     Ok((StatusCode::CREATED, nf.path.to_string()))
 }
 

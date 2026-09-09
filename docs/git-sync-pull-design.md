@@ -659,10 +659,12 @@ corresponds to; the check reflects that fork's current results on the PR head.
   (debounce-superseded) ignored.
 - **Readiness** — the verdict is read only once the fork reflects the head, so it does not
   matter which webhook GitHub delivers first. The evidence is the fork repo entry's
-  `auto_pull.last_synced_sha[head_ref]`: a pull records the commit it applies, and the
-  deploy push script now reports `{pushed, sha, branch}` so the push completion hook
-  records the commit it pushed the same way (`record_pushed_head`). The row stores
-  `head_ref` for that lookup. Because a pull is recorded when enqueued and rolled back
+  the branch's `auto_pull.last_synced_sha` (a pull records the commit it applies) or
+  `auto_pull.last_pushed_sha` (the deploy push script reports `{pushed, sha, branch}` and
+  the push completion hook records it through `record_pushed_head`). The two stay separate:
+  `last_synced_sha` alone decides whether the next poll pulls, and a push can sit on top of
+  someone else's commit to the branch, which the workspace still has to pull. The row
+  stores `head_ref` for that lookup. Because a pull is recorded when enqueued and rolled back
   only after its failure is reported, the check waits until the recorded pull has
   completed with success and no dependency job in the fork (a lockfile-generating deploy
   hands its CI tests to one) is still queued. A failed pull ends up rolled back and the
@@ -672,7 +674,8 @@ corresponds to; the check reflects that fork's current results on the PR head.
   version that reports the sha (`LATEST_GIT_SYNC_SCRIPT_PATH`).
 - **Drivers** — a per-`ci_test`-job completion hook (low latency) and the git-sync poller
   (the backstop: retries the GitHub create/deliver, times stuck checks out after 30 min,
-  prunes old rows). Both call one idempotent `evaluate_and_conclude`, which claims the
+  prunes old rows; runs after the auto-pull advisory lock is released so its GitHub calls
+  never extend the tick). Both call one idempotent `evaluate_and_conclude`, which claims the
   decision with a guarded `UPDATE ... WHERE NOT concluded RETURNING` (exactly-once) and
   decouples GitHub delivery via `github_posted` so a failed PATCH is retried, not hung.
 
