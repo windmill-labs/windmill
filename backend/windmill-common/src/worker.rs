@@ -1105,16 +1105,27 @@ impl SqlAnnotations {
             if !line.starts_with("--") {
                 break;
             }
-            let mut tokens = line[2..].split_whitespace();
-            if !tokens
-                .next()
-                .is_some_and(|t| t.eq_ignore_ascii_case("role"))
-            {
+            // `role`, `Role`, `role:` and `role:name` all open an attempt; `rolexyz` does not.
+            // The colon is worth accepting rather than skipping past: `-- role: x` is the likelier
+            // spelling, and skipping it is exactly the silent fallback this refuses.
+            let body = line[2..].trim_start();
+            let Some(after) = body
+                .get(..4)
+                .filter(|kw| kw.eq_ignore_ascii_case("role"))
+                .map(|_| &body[4..])
+            else {
+                continue;
+            };
+            let colon = after.starts_with(':');
+            let after = after.strip_prefix(':').unwrap_or(after);
+            if !after.is_empty() && !colon && !after.starts_with(char::is_whitespace) {
                 continue;
             }
+
             // Past this point the line is an attempt to name a role, so a malformed one is an
             // error rather than a miss. Falling through would run the query as the data table's
             // default role — quietly, and under a login the author did not choose.
+            let mut tokens = after.split_whitespace();
             let role = tokens
                 .next()
                 .map(|role| role.strip_suffix(';').unwrap_or(role));
@@ -2731,9 +2742,15 @@ mod tests {
         assert_eq!(role("SELECT 1;\n-- role analytics").unwrap(), None);
         assert_eq!(role("SELECT 1").unwrap(), None);
 
-        // Unambiguous intent is honoured: the keyword matches case-insensitively, and a trailing
-        // semicolon is a habit carried over from SQL rather than a different role.
-        for accepted in ["-- Role operator\nSELECT 1", "-- role operator;\nSELECT 1"] {
+        // Unambiguous intent is honoured: the keyword matches case-insensitively, a trailing
+        // semicolon is a habit carried over from SQL rather than a different role, and the colon
+        // spelling is the one most likely to be typed.
+        for accepted in [
+            "-- Role operator\nSELECT 1",
+            "-- role operator;\nSELECT 1",
+            "-- role: operator\nSELECT 1",
+            "-- role:operator\nSELECT 1",
+        ] {
             assert_eq!(
                 role(accepted).unwrap(),
                 Some("operator".to_string()),
@@ -2747,10 +2764,14 @@ mod tests {
             "-- role operator -- why\nSELECT 1",
             "-- role an;alytics\nSELECT 1",
             "-- role\nSELECT 1",
+            "-- role:\nSELECT 1",
             "-- role based access is handled below\nSELECT 1",
         ] {
             assert!(role(near_miss).is_err(), "silently ignored: {near_miss}");
         }
+
+        // A word that merely starts with the keyword is not an attempt.
+        assert_eq!(role("-- rolebased notes\nSELECT 1").unwrap(), None);
     }
 
     fn matcher(id: &str) -> WorkspaceMatcher {
