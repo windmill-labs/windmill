@@ -25,18 +25,12 @@ export function useActingUser(workspace: () => string | undefined) {
 	// A Map, not an object: a workspace may legitimately be named `constructor`, which a plain
 	// object would answer for out of its prototype.
 	const looked = new SvelteMap<string, RoleLookup>()
-	// The workspace last asked about, so one selection asks once — a failed lookup included,
-	// which `getWorkspaceRole` deliberately does not cache. Pointing back at it re-asks.
-	let asked: string | undefined
-
 	$effect(() => {
 		const ws = workspace()
-		if (!ws || ws === navWorkspace.current) {
-			asked = undefined
-			return
-		}
-		if (ws === asked || looked.get(ws)?.kind === 'resolved') return
-		asked = ws
+		if (!ws || ws === navWorkspace.current) return
+		// Any settled answer stops the asking, a failure included — otherwise recording one
+		// would re-enter this effect and loop.
+		if (looked.has(ws)) return
 		untrack(() => {
 			// Memoized process-wide, so two components pointed at the same workspace share one
 			// request rather than each issuing their own.
@@ -60,6 +54,14 @@ export function useActingUser(workspace: () => string | undefined) {
 			!!ws && (ws === navWorkspace.current ? navUser !== undefined : looked.has(ws)),
 		get current(): UserExt | undefined {
 			return userIn(workspace())
+		},
+		/** Drop the lookups that came back empty so they are asked again. A long-lived editor
+		 *  must call this when it starts a fresh session, or one `whoami` that happened to fail
+		 *  pins its workspace to "unknown user" for as long as the component lives. */
+		forgetFailures(): void {
+			for (const [ws, lookup] of looked) {
+				if (lookup.kind === 'lookup_failed') looked.delete(ws)
+			}
 		}
 	}
 }

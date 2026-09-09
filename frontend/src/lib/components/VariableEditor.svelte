@@ -209,6 +209,7 @@
 		existedInitially = {}
 		extraPerms = {}
 		pathError = ''
+		acting.forgetFailures()
 	}
 
 	export function initNew(): void {

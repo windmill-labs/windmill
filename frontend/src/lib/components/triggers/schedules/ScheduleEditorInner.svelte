@@ -182,6 +182,7 @@
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
+		acting.forgetFailures()
 		try {
 			drawer?.openDrawer()
 			setPageDrawerAnchor(SCHEDULES_PATH, ePath)
@@ -327,6 +328,7 @@
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
+		acting.forgetFailures()
 		try {
 			let s: Schedule | undefined
 			if (schedule_path) {

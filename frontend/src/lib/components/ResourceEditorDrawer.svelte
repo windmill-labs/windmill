@@ -88,6 +88,7 @@
 		// would still be standing when the next drawer session ends and would swallow that one's
 		// anchor clear. Every session starts having to clear its own.
 		keepAnchorOnClose = false
+		historyUser.forgetFailures()
 		resource_type = undefined
 		path = p
 		selected = effectiveWorkspace
@@ -101,6 +102,7 @@
 		nDefaultValues?: Record<string, any>
 	): Promise<void> {
 		keepAnchorOnClose = false
+		historyUser.forgetFailures()
 		path = undefined
 		resource_type = resourceType
 		defaultValues = nDefaultValues
