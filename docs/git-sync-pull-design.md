@@ -639,8 +639,9 @@ corresponds to; the check reflects that fork's current results on the PR head.
   `repo_resource_path` the repository (a fork can sync several, and two can hold the same
   commit); `github_workspace_id` is the **parent** whose GitHub-App installation posts the
   run (the workspace that received the webhook and owns the repo hook). Plus `repo_url`,
-  `head_ref`, `check_run_id` (NULL until the create succeeds: the row is written first so a
-  create that never gets recorded cannot strand an in-progress run), `created_at`,
+  `head_ref`, `check_run_id` (NULL until the create succeeds, and reset to NULL by a re-fired event
+  for the same head: the row is written first so a create that never gets recorded cannot
+  strand an in-progress run, and the poller retries any row without an id), `created_at`,
   `concluded`, `conclusion`, `concluded_at`, `github_posted`.
   Partial index `(workspace_id) WHERE NOT concluded OR NOT github_posted` (the live set the
   hook + poller scan).
@@ -690,9 +691,8 @@ installation; the timeout stops a hung test job from blocking a required check f
 rows cascade away with either workspace. A plain feature-branch or
 contributor-fork PR resolves to no fork workspace and gets an already-concluded `skipped`
 check (branch protection counts `skipped` as passing, so requiring the check does not block
-those PRs). A repository pinned to a sync script older than the one that reports pushed
-commits gets an already-concluded `failure` naming the fix, rather than a check that can
-only time out. Known limit (accepted for v1): the fork's status is workspace-wide (all its
+those PRs). A timeout on a repository pinned to a sync script older than the one that reports
+pushed commits names that as the reason. Known limit (accepted for v1): the fork's status is workspace-wide (all its
 tested items), which for the one-fork-per-PR model equals the PR's scope.
 
 ## 16. Alternatives considered
