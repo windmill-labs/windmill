@@ -2072,21 +2072,20 @@ async fn update_resource(
         },
     );
 
-    // Trigger CI tests for items that reference this resource
+    // Trigger CI tests for items that reference this resource. Awaited so the tests are
+    // queued before the update is acknowledged: the git-sync PR check treats a finished
+    // pull as "the deploy's tests exist".
+    if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+        &db,
+        &w_id,
+        &npath,
+        "resource",
+        &authed.email,
+        &authed.username,
+    )
+    .await
     {
-        let db2 = db.clone();
-        let npath2 = npath.clone();
-        let email2 = authed.email.clone();
-        let username2 = authed.username.clone();
-        tokio::spawn(async move {
-            if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
-                &db2, &w_id, &npath2, "resource", &email2, &username2,
-            )
-            .await
-            {
-                tracing::error!(%e, "error triggering CI tests after resource update");
-            }
-        });
+        tracing::error!(%e, "error triggering CI tests after resource update");
     }
 
     Ok(format!("resource {} updated (npath: {:?})", path, npath))
@@ -2198,22 +2197,19 @@ async fn set_resource_value(
         },
     );
 
-    // Trigger CI tests for items that reference this resource
+    // Trigger CI tests for items that reference this resource. Awaited for the same
+    // reason as in `update_resource`.
+    if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+        &db,
+        &w_id,
+        &path,
+        "resource",
+        &authed.email,
+        &authed.username,
+    )
+    .await
     {
-        let db2 = db.clone();
-        let w_id2 = w_id.to_string();
-        let path2 = path.to_string();
-        let email2 = authed.email.clone();
-        let username2 = authed.username.clone();
-        tokio::spawn(async move {
-            if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
-                &db2, &w_id2, &path2, "resource", &email2, &username2,
-            )
-            .await
-            {
-                tracing::error!(%e, "error triggering CI tests after resource value update");
-            }
-        });
+        tracing::error!(%e, "error triggering CI tests after resource value update");
     }
 
     Ok(())
