@@ -6,7 +6,7 @@ import { DEFAULT_GROUP_NOTE_COLOR, getNextAvailableColor } from './noteColors'
 import { generateId } from './util'
 import { getContext, setContext } from 'svelte'
 import { completeAndSplitGroup } from './groupDetectionUtils'
-import { dfs } from '../flows/dfs'
+import { forEachFlowModule } from '../flows/dfs'
 
 /**
  * Utility class for editing flow notes via direct flowStore mutations
@@ -247,7 +247,7 @@ export class NoteEditor {
 		// that pass would drop a live module from the note holding it, so leave such a note
 		// to a later pass whose nodes cover every module it references.
 		const moduleIds = new Set<string>()
-		dfs(this.flowStore.val.value?.modules ?? [], (mod) => {
+		forEachFlowModule(this.flowStore.val.value?.modules ?? [], (mod) => {
 			moduleIds.add(mod.id)
 		})
 		const settled = (note: FlowNote) =>
