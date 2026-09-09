@@ -791,13 +791,6 @@ async fn update_draft(
             //
             // Run on the connection we already hold: acquiring a second from the
             // same pool while this transaction is open is the two-connection stall.
-            // That connection is RLS-scoped, and has to be: the write gate cleared
-            // the OLD path, and this asks where the item WENT. On a raw pool
-            // connection this answers from rows the pre-check cannot see, so a
-            // destination in a folder the caller has no permission on would both be
-            // disclosed to them and permanently refuse their save — where the
-            // pre-check's "can't see where it went ⇒ save normally" fallback says it
-            // should land.
             if applied.is_some() && !deployed_still_at(&mut tx, &w_id, kind, path).await? {
                 if let Some((moved_to, moved_by, moved_patch)) =
                     resolve_moved_to_in(&mut tx, &authed.username, &w_id, kind, path, value.0.get())

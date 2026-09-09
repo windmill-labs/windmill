@@ -2,9 +2,9 @@
 --
 -- Models a script that has already been moved out of a folder the saver can
 -- reach (`mvrls_visible`, where test-user-2 is a writer) and into one they have
--- no permission on (`mvrls_secret`). A script move archives the row in place and
--- creates a new one carrying the old hash in `parent_hashes`, so this is exactly
--- the state `update_path` leaves behind.
+-- no permission on (`mvrls_secret`). A script move goes through `create_script`,
+-- which archives the row in place and inserts a successor carrying the old hash
+-- in `parent_hashes` — the state reproduced here.
 
 INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by)
 VALUES ('test-workspace', 'mvrls_visible', 'Visible', '{"u/test-user"}',
