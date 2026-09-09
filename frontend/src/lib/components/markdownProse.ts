@@ -9,8 +9,9 @@
  * - 'doc': same rhythm and body size as 'sm', with a taller heading ramp
  *   (lg/base/sm) and semibold headings for document-like surfaces (artifacts)
  *
- * Every preset keeps h1/h2/h3 at three distinct sizes: pinned to the body size
- * they render as plain bold text and `#`/`##`/`###` stop meaning anything.
+ * h1 and h2 step above the body size in every preset, so `#` and `##` read as
+ * headings rather than bold body text. Below that the tight 'xs' and 'sm' scales
+ * run out of room, and h3 down differentiates by weight and colour alone.
  */
 
 // Kept as literal template parts: Tailwind's scanner reads class names verbatim

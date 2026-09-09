@@ -244,19 +244,18 @@ export class NoteEditor {
 
 		// The graph is rebuilt in more than one pass after a module id changes, and one of
 		// those passes has the module under neither its old nor its new id. Pruning against
-		// that pass would drop a live module from every note holding it, so wait for a pass
-		// whose nodes cover every module the notes still reference.
+		// that pass would drop a live module from the note holding it, so leave such a note
+		// to a later pass whose nodes cover every module it references.
 		const moduleIds = new Set<string>()
 		dfs(this.flowStore.val.value?.modules ?? [], (mod) => {
 			moduleIds.add(mod.id)
 		})
-		const graphMidUpdate = groupNotes.some((note) =>
-			(note.contained_node_ids ?? []).some((id) => !nodeSet.has(id) && moduleIds.has(id))
-		)
-		if (graphMidUpdate) return
+		const settled = (note: FlowNote) =>
+			(note.contained_node_ids ?? []).every((id) => nodeSet.has(id) || !moduleIds.has(id))
 
 		// Step 1: Clean invalid nodes from existing group notes
 		for (const note of groupNotes) {
+			if (!settled(note)) continue
 			const originalIds = note.contained_node_ids || []
 			const validIds = originalIds.filter((id) => nodeSet.has(id))
 
@@ -270,6 +269,7 @@ export class NoteEditor {
 		const splitGroups: FlowNote[] = []
 
 		for (const note of groupNotes) {
+			if (!settled(note)) continue
 			const originalNodes = note.contained_node_ids || []
 			if (originalNodes.length === 0) continue
 
