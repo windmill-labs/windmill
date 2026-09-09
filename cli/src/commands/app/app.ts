@@ -145,10 +145,6 @@ function statedExecutionMode(app: any): AppExecutionMode | undefined {
   return mode === "viewer" || mode === "publisher" ? mode : undefined;
 }
 
-export function executionModeFromAppFile(app: any): AppExecutionMode {
-  return statedExecutionMode(app) ?? "publisher";
-}
-
 /** The mode this push deploys under. A file that states one is authoritative, in
  * both directions. Otherwise the two open-access markers are all it says, so
  * their absence closes a deployed `anonymous`/`guest` app back down to
@@ -330,13 +326,14 @@ export function preserveOnBehalfOfFields(
   return { preserve_on_behalf_of: true };
 }
 
-/** The policy is written wholesale by the deploy, but only its triggerables and
- * access mode are derivable from the tracked files: everything else (run-as
- * identity, sandbox isolation, S3 rules) is carried over from the deployed
- * policy, or a push would silently reset it. The legacy `triggerables` still
- * grant execution — the backend folds them into `triggerables_v2` at run time —
- * so they are dropped rather than carried, otherwise a deployed app would keep
- * being able to run runnables this push removed. */
+/** The policy is written wholesale by the deploy, so the fields it does not
+ * derive from the tracked sources have to survive the trip. The policy builder
+ * has already recomputed what it can — the triggerables on both paths, plus the
+ * S3 rules on the low-code one, which `updateRawAppPolicy` has no equivalent of
+ * and so carries over. This sets the two left: the access mode, and the legacy
+ * `triggerables`, which still grant execution (the backend folds them into
+ * `triggerables_v2` at run time) and so are dropped rather than carried, or a
+ * deployed app would keep being able to run runnables this push removed. */
 export function finalizeDerivedPolicy(
   policy: Policy,
   executionMode: AppExecutionMode

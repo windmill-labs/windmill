@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import {
   executionModeForPush,
-  executionModeFromAppFile,
   generatingPolicy,
   markAccessFromPolicy,
 } from "../src/commands/app/app.ts";
@@ -14,11 +13,11 @@ test("the access mode survives the app.yaml round trip", async () => {
   guest.policy = undefined;
   expect(guest.guests).toBe(true);
   expect(guest.public).toBeUndefined();
-  expect(executionModeFromAppFile(guest)).toBe("guest");
+  expect(executionModeForPush(guest, undefined)).toBe("guest");
   await generatingPolicy(
     guest,
     "u/test/app",
-    executionModeFromAppFile(guest),
+    executionModeForPush(guest, undefined),
     undefined,
   );
   expect(guest.policy.execution_mode).toBe("guest");
@@ -27,10 +26,10 @@ test("the access mode survives the app.yaml round trip", async () => {
   markAccessFromPolicy(anonymous);
   anonymous.policy = undefined;
   expect(anonymous.public).toBe(true);
-  expect(executionModeFromAppFile(anonymous)).toBe("anonymous");
+  expect(executionModeForPush(anonymous, undefined)).toBe("anonymous");
 
-  expect(executionModeFromAppFile({ policy: { execution_mode: "publisher" } })).toBe("publisher");
-  expect(executionModeFromAppFile({})).toBe("publisher");
+  expect(executionModeForPush({ policy: { execution_mode: "publisher" } }, undefined)).toBe("publisher");
+  expect(executionModeForPush({}, undefined)).toBe("publisher");
 });
 
 // `viewer` is the narrowest mode — each runnable runs as the viewer, not as the
