@@ -19,6 +19,7 @@
 		Braces,
 		Highlighter,
 		ArrowDownFromLine,
+		Bot,
 		Database,
 		Loader2
 	} from 'lucide-svelte'
@@ -54,6 +55,9 @@
 	import DOMPurify from 'dompurify'
 	import MarkupApprovalGate from './MarkupApprovalGate.svelte'
 	import type { MarkupTrust } from './apps/markupTrust'
+	import AgentResultDisplay from './AgentResultDisplay.svelte'
+	import AgentStreamDisplay from './AgentStreamDisplay.svelte'
+	import { parseAgentResult, parseAgentStream } from './aiAgentResult'
 
 	const TABLE_MAX_SIZE = 5000000
 	const DISPLAY_MAX_SIZE = 100000
@@ -85,6 +89,7 @@
 		| 'map'
 		| 'nondisplayable'
 		| 'pdf'
+		| 'aiagent'
 		| undefined
 	let resultKind: ResultKind = $state()
 	/** Kinds whose renderer leaves the page: S3/ducklake previews fetch the file or
@@ -96,7 +101,7 @@
 	 * `<img src>` and SVG `<image href>`, and `map` tiles are requests by
 	 * construction. Kinds absent here carry their bytes as `data:` and reach nothing.
 	 * Inert only on the public page, which promises to issue no requests. */
-	const OFFLINE_INERT_KINDS: ResultKind[] = ['markdown', 'html', 'svg', 'map']
+	const OFFLINE_INERT_KINDS: ResultKind[] = ['markdown', 'html', 'svg', 'map', 'aiagent']
 	let length = $state(1)
 
 	let hasBigInt = $state(false)
@@ -291,6 +296,17 @@
 					largeObject = false
 					is_render_all = false
 					return 'materialized'
+				}
+
+				// Classified before the size caps below: an agent's answer stays small
+				// however long its conversation grows, so a run with a big transcript
+				// must not fall back to the JSON tree that hides the answer inside it.
+				// `largeObject` is still set honestly, so switching to JSON gets the
+				// same too-big handling as any other oversized result.
+				if (parseAgentResult(result)) {
+					is_render_all = false
+					largeObject = roughSizeOfObject(result) > DISPLAY_MAX_SIZE
+					return 'aiagent'
 				}
 
 				is_render_all =
@@ -727,11 +743,18 @@
 {/if}
 
 {#if result_stream && result == undefined}
+	{@const agentStream = parseAgentStream(result_stream)}
 	<div class="flex flex-col w-full gap-2">
 		<div class="flex items-center gap-2 text-secondary text-xs">
 			<Loader2 class="animate-spin" size={14} /> Streaming result
 		</div>
-		<ResultStreamDisplay {result_stream} />
+		{#if agentStream}
+			<!-- An agent streams one JSON event per line, so the raw stream is a wall of
+			     event objects rather than the answer being written. -->
+			<AgentStreamDisplay stream={agentStream} />
+		{:else}
+			<ResultStreamDisplay {result_stream} />
+		{/if}
 	</div>
 {:else if is_render_all}
 	<div class="flex flex-col w-full gap-2">
@@ -793,6 +816,8 @@
 							{#snippet children({ item })}
 								{#if ['table-col', 'table-row', 'table-row-object'].includes(resultKind ?? '')}
 									<ToggleButton size="sm" value="table" label="Table" icon={Table2} {item} />
+								{:else if resultKind === 'aiagent'}
+									<ToggleButton size="sm" value="pretty" label="Answer" icon={Bot} {item} />
 								{:else}
 									<ToggleButton size="sm" value="pretty" label="Pretty" icon={Highlighter} {item} />
 								{/if}
@@ -1229,6 +1254,27 @@
 							{/each}
 						</div>
 					</div>
+				{:else if !forceJson && resultKind === 'aiagent'}
+					{@const agentResult = parseAgentResult(result)}
+					{#if agentResult}
+						<AgentResultDisplay result={agentResult}>
+							{#snippet structuredOutput(output)}
+								<DisplayResult
+									noControls
+									hideAsJson
+									result={output}
+									{markupTrust}
+									{filename}
+									{disableExpand}
+									{jobId}
+									{nodeId}
+									{workspaceId}
+									{appPath}
+									growVertical
+								/>
+							{/snippet}
+						</AgentResultDisplay>
+					{/if}
 				{:else if !forceJson && resultKind === 'markdown'}
 					<div class={markdownProse.sm}>
 						<Markdown md={result?.md ?? result?.markdown} />
