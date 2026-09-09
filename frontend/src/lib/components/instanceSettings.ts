@@ -1,5 +1,6 @@
 import type { ButtonType } from './common/button/model'
 import { z } from 'zod'
+import { instanceBannerFormError } from './instanceBanner'
 import { writable } from 'svelte/store'
 
 /**
@@ -68,6 +69,7 @@ export interface Setting {
 		| 'webhook_base_url'
 		| 'ws_connectivity'
 		| 'retention_overrides'
+		| 'instance_banner'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -235,6 +237,19 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'license_key',
 			placeholder: 'only for EE',
 			storage: 'setting'
+		},
+		{
+			label: 'Announcement banner',
+			description:
+				'Message shown above every page of the instance, for maintenance windows and incidents.',
+			key: 'instance_banner',
+			fieldType: 'instance_banner',
+			storage: 'setting',
+			// The banner only renders on the managed cloud, so only offer it there.
+			cloudonly: true,
+			hideInQuickSetup: true,
+			// Gates Save. The card renders the specific message itself, so no `error` here.
+			isValid: (value: any) => instanceBannerFormError(value) == undefined
 		},
 		{
 			label: 'Non-prod instance',

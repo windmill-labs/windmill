@@ -59,11 +59,11 @@ use windmill_common::{
         CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
         DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         GITHUB_APP_WEBHOOK_BASE_URL_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
-        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
-        RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RUFF_CONFIG_SETTING,
-        WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
-        WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
-        WS_BASE_URL_SETTING,
+        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, INSTANCE_BANNER_SETTING,
+        MAX_RETENTION_OVERRIDE_WORKSPACES, RETENTION_PERIOD_SECS_OVERRIDES_SETTING,
+        RUFF_CONFIG_SETTING, WORKSPACE_FAIRNESS_DURATION_SECS_SETTING,
+        WORKSPACE_FAIRNESS_ENABLED_SETTING, WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING,
+        WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING, WS_BASE_URL_SETTING,
     },
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
@@ -1177,6 +1177,18 @@ async fn run_setting_pre_write_hook(
                 }
             }
         }
+        INSTANCE_BANNER_SETTING => {
+            match value {
+                // Clearing (delete row) is handled by the caller; allow it through.
+                serde_json::Value::Null => {}
+                serde_json::Value::String(s) if s.trim().is_empty() => {}
+                v => {
+                    windmill_common::global_settings::validate_instance_banner(v).map_err(|e| {
+                        error::Error::BadRequest(format!("{INSTANCE_BANNER_SETTING}: {e}"))
+                    })?;
+                }
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -1317,6 +1329,7 @@ pub async fn get_global_setting(
         && key != APP_WORKSPACED_ROUTE_SETTING
         && key != HTTP_ROUTE_WORKSPACED_ROUTE_SETTING
         && key != WS_BASE_URL_SETTING
+        && key != INSTANCE_BANNER_SETTING
     {
         require_super_admin(&db, &authed).await?;
     }

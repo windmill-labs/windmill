@@ -537,10 +537,10 @@ describe('findEmptyLandingSession — where an unresolvable session link lands',
 		}
 	})
 
-	it('passes over a persisted session, onto which chat seeding can graft a conversation', () => {
+	it('passes over a persisted session, which may hold a conversation', () => {
 		const restore = withTwoFamilies('forkA')
-		// ensureChatIdsSeeded assigns untagged legacy chats to `!transient` sessions
-		// and initRuntime loads them, without touching a field checked here.
+		// Persisted means touched: its chat can hold a conversation initRuntime
+		// reloads, without touching a field checked here.
 		const abandoned = session({
 			id: 'landing-abandoned',
 			name: 'session-910',
