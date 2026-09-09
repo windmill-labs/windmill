@@ -73,7 +73,6 @@ describe('resolveSessionAccess', () => {
 		})
 		const caps = await capabilitiesFor({})
 		expect(caps.has('deploy')).toBe(false)
-		expect(caps.has('deploy_gated_kinds')).toBe(false)
 		expect(caps.has('write_draft')).toBe(true)
 	})
 

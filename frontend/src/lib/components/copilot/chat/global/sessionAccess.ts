@@ -66,10 +66,8 @@ export async function resolveSessionAccess(workspace: string): Promise<SessionAc
 		capabilities.add('run_preview')
 	}
 
-	// `checkDeployPermission` is the whole gate for the gated kinds. Its refusals are
-	// per-workspace, but every one of them — operator included — is enforced server-side
-	// only where `check_deploy_rules` or the item handler runs, so none of them reaches a
-	// schedule or a trigger. Hence one capability, covering the gated kinds alone.
+	// Delegated whole to the shared preflight rather than re-derived here, so the
+	// session answers deploy exactly as the deploy panel does.
 	if ((await checkDeployPermission(workspace, me)).ok) {
 		capabilities.add('deploy')
 	}
