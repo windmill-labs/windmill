@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE git_sync_ci_test_check\n            SET concluded = true, conclusion = $3, concluded_at = now()\n          WHERE workspace_id = $1 AND repo_resource_path = $4 AND head_sha = $2 AND NOT concluded\n        RETURNING check_run_id, github_workspace_id, repo_url",
+  "query": "UPDATE git_sync_ci_test_check\n            SET concluded = true, conclusion = $3, concluded_at = now()\n          WHERE workspace_id = $1 AND repo_resource_path = $4 AND head_sha = $2 AND NOT concluded\n        RETURNING check_run_id, poster_workspace_id, repo_url",
   "describe": {
     "columns": [
       {
@@ -10,7 +10,7 @@
       },
       {
         "ordinal": 1,
-        "name": "github_workspace_id",
+        "name": "poster_workspace_id",
         "type_info": "Varchar"
       },
       {
@@ -33,5 +33,5 @@
       false
     ]
   },
-  "hash": "1624f687b766df424b1fa37ad271dc3d86734a9005c08842e591f0457ae3362c"
+  "hash": "89a7f413f6f37aeb7e777faeebb0c4e1612928737a5fb2b4ff1336d8827f788b"
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT repo_url, check_run_id, github_workspace_id, conclusion,\n                  created_at, concluded, github_posted, head_ref\n           FROM git_sync_ci_test_check\n           WHERE workspace_id = $1 AND repo_resource_path = $3 AND head_sha = $2",
+  "query": "SELECT repo_url, check_run_id, poster_workspace_id, conclusion,\n                  created_at, concluded, github_posted, head_ref\n           FROM git_sync_ci_test_check\n           WHERE workspace_id = $1 AND repo_resource_path = $3 AND head_sha = $2",
   "describe": {
     "columns": [
       {
@@ -15,7 +15,7 @@
       },
       {
         "ordinal": 2,
-        "name": "github_workspace_id",
+        "name": "poster_workspace_id",
         "type_info": "Varchar"
       },
       {
@@ -62,5 +62,5 @@
       false
     ]
   },
-  "hash": "e8d0522a31765e09e0d0a051417cd8103b1769ca9ea8501141d5313a2f913e3e"
+  "hash": "f6a2a8fbc22c69fd5da86626372f84d0ec7b6cb9375e30b10415605cba9b2fcb"
 }

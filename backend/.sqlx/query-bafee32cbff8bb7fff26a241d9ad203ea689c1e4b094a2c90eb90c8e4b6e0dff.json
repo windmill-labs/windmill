@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT EXISTS (\n               SELECT 1 FROM git_sync_ci_test_check\n               WHERE github_workspace_id = $1 AND repo_resource_path = $2 AND head_sha = $3\n           ) as \"exists!\"",
+  "query": "SELECT EXISTS (\n               SELECT 1 FROM git_sync_ci_test_check\n               WHERE poster_workspace_id = $1 AND repo_resource_path = $2 AND head_sha = $3\n           ) as \"exists!\"",
   "describe": {
     "columns": [
       {
@@ -20,5 +20,5 @@
       null
     ]
   },
-  "hash": "4b8158717a4c88b5764100656ce0b34b83fc239a6740ef91cc9a942e45615e50"
+  "hash": "bafee32cbff8bb7fff26a241d9ad203ea689c1e4b094a2c90eb90c8e4b6e0dff"
 }

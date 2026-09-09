@@ -637,7 +637,7 @@ corresponds to; the check reflects that fork's current results on the PR head.
 - **State** — `git_sync_ci_test_check(workspace_id, repo_resource_path, head_sha)` (new
   table). `workspace_id` is the **fork** whose `ci_test` jobs the check reflects;
   `repo_resource_path` the repository (a fork can sync several, and two can hold the same
-  commit); `github_workspace_id` is the **parent** whose GitHub-App installation posts the
+  commit); `poster_workspace_id` is the **parent** whose GitHub-App installation posts the
   run (the workspace that received the webhook and owns the repo hook). Plus `repo_url`,
   `head_ref`, `check_run_id` (NULL until the create succeeds, and reset to NULL by a re-fired event
   for the same head: the row is written first so a create that never gets recorded cannot
