@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.806.0](https://github.com/windmill-labs/windmill/compare/v1.805.0...v1.806.0) (2026-09-08)
+
+
+### Features
+
+* bring gitlab repositories to parity for git sync ([#10938](https://github.com/windmill-labs/windmill/issues/10938)) ([9444049](https://github.com/windmill-labs/windmill/commit/9444049d6013c77a5f25f01a736eb5cd741fb3e6))
+* draw a dbt column trace, across projects and the pipeline boundary ([#11014](https://github.com/windmill-labs/windmill/issues/11014)) ([33f9828](https://github.com/windmill-labs/windmill/commit/33f9828c3ed15fe63fccedc1550584f15c0490ab))
+* durable dbt state per environment, and `--defer` onto it ([#10975](https://github.com/windmill-labs/windmill/issues/10975)) ([621fac5](https://github.com/windmill-labs/windmill/commit/621fac55abcd1859e8c8c06e5f4412e61bb85d59))
+* ingest dbt column lineage and real column schemas from the engine's parquet index ([#10977](https://github.com/windmill-labs/windmill/issues/10977)) ([0139467](https://github.com/windmill-labs/windmill/commit/0139467b01b82e4b3d474ca3f205358fa607d19a))
+* let a worker group override the dependency cache object store ([#11019](https://github.com/windmill-labs/windmill/issues/11019)) ([de98adf](https://github.com/windmill-labs/windmill/commit/de98adf055835ab7c4d6305e7d5d3bdab915876b))
+* **nativets:** bound fetch on a peer that never answers ([#11026](https://github.com/windmill-labs/windmill/issues/11026)) ([785277e](https://github.com/windmill-labs/windmill/commit/785277e0bb2ea77b71a89dd4d389d439dfcf9e03))
+* recognize `// volume:` mounts in PHP scripts ([#11018](https://github.com/windmill-labs/windmill/issues/11018)) ([f081fb1](https://github.com/windmill-labs/windmill/commit/f081fb10705cadf99e99dfa786d1cc2ebf0447db))
+* report a WAC task failure the workflow body never awaited ([#11017](https://github.com/windmill-labs/windmill/issues/11017)) ([3e3a41d](https://github.com/windmill-labs/windmill/commit/3e3a41d418d4ee3fe060bd3acf3324f311d89c8a))
+* retry a workflow-as-code task from its task options ([#11013](https://github.com/windmill-labs/windmill/issues/11013)) ([d3f305d](https://github.com/windmill-labs/windmill/commit/d3f305db982b7c5dc49babf9bec8b62adcd2557d))
+
+
+### Bug Fixes
+
+* chain redeploys onto a retired path's version history ([#11029](https://github.com/windmill-labs/windmill/issues/11029)) ([0b37226](https://github.com/windmill-labs/windmill/commit/0b372260787edb7e9627ad4fb6637ad5f1024e0a))
+* make the native trigger disable/enable toggle actually save ([#11024](https://github.com/windmill-labs/windmill/issues/11024)) ([448fce9](https://github.com/windmill-labs/windmill/commit/448fce93f743d5b2ef2a2d4496eb2ec238594a0a))
+* offload php signature parsing from async workers ([#11027](https://github.com/windmill-labs/windmill/issues/11027)) ([2cb02e3](https://github.com/windmill-labs/windmill/commit/2cb02e3b3398db49f16377dd79dde2dd6fb5cc02))
+* reduce php parser stack use in debug workers ([#11025](https://github.com/windmill-labs/windmill/issues/11025)) ([2ae8509](https://github.com/windmill-labs/windmill/commit/2ae8509b14f112c9ef5b71321e8fd52596a16c10))
+
+
+### Performance Improvements
+
+* reduce shared worker debug polling frames ([#11028](https://github.com/windmill-labs/windmill/issues/11028)) ([946756a](https://github.com/windmill-labs/windmill/commit/946756ae83deb4e7a93111edddbd4d98c596d5a9))
+
 ## [1.805.0](https://github.com/windmill-labs/windmill/compare/v1.804.0...v1.805.0) (2026-09-07)
 
 

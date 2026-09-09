@@ -250,23 +250,37 @@ pub async fn get_full_hub_script_by_path(
     let version = path_iterator
         .next()
         .ok_or_else(|| Error::internal_err(format!("expected hub path to have version number")))?;
+    // A cache entry that cannot be read or parsed counts as a miss rather than an error:
+    // a truncated write leaves a file that exists but deserializes to nothing, and refetching
+    // it is always preferable to failing the job push it was read for.
     let cache_path = format!("{}/{version}", *HUB_CACHE_DIR);
-    let script;
-    if tokio::fs::metadata(&cache_path).await.is_err() {
-        script = get_full_hub_script_by_path_inner(path, http_client, db).await?;
-        if let Err(e) = crate::worker::write_file(
-            &HUB_CACHE_DIR,
-            &version,
-            &serde_json::to_string(&script).map_err(to_anyhow)?,
-        ) {
-            tracing::error!("failed to write hub script {path} to cache: {e}");
-        } else {
-            tracing::info!("wrote hub script {path} to cache");
+    let cached = match tokio::fs::read_to_string(&cache_path).await {
+        Ok(content) => serde_json::from_str::<HubScript>(&content)
+            .inspect_err(|e| {
+                tracing::error!("hub script cache at {cache_path} is unparseable, refetching: {e}")
+            })
+            .ok(),
+        Err(e) => {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                tracing::error!("hub script cache at {cache_path} is unreadable, refetching: {e}");
+            }
+            None
         }
-    } else {
-        let cache_content = tokio::fs::read_to_string(cache_path).await?;
-        script = serde_json::from_str(&cache_content).unwrap();
+    };
+    if let Some(script) = cached {
         tracing::info!("read hub script {path} from cache");
+        return Ok(script);
+    }
+
+    let script = get_full_hub_script_by_path_inner(path, http_client, db).await?;
+    if let Err(e) = crate::worker::write_file(
+        &HUB_CACHE_DIR,
+        &version,
+        &serde_json::to_string(&script).map_err(to_anyhow)?,
+    ) {
+        tracing::error!("failed to write hub script {path} to cache: {e}");
+    } else {
+        tracing::info!("wrote hub script {path} to cache");
     }
     Ok(script)
 }
