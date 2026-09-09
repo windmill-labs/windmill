@@ -437,17 +437,21 @@ export async function pushRawApp(
 
   // Create a temporary app object for policy generation
   const appForPolicy = { ...localApp, runnables };
-  await generatingPolicy(
-    appForPolicy,
-    remotePath,
-    executionModeForPush(localApp, deployedPolicy),
-    deployedPolicy,
-  );
   // On create the backend applies folder defaults, so there is nothing to preserve.
   const preserveFields = preserveOnBehalfOfFields(
     remotePath,
     deployedPolicy,
     permissionedAsContext,
+  );
+  await generatingPolicy(
+    appForPolicy,
+    remotePath,
+    executionModeForPush(localApp, deployedPolicy),
+    basePolicy(
+      localApp,
+      deployedPolicy,
+      !!preserveFields.preserve_on_behalf_of,
+    ),
   );
 
   const files = await collectAppFiles(localPath);
@@ -553,14 +557,11 @@ export async function generatingPolicy(
   app: any,
   path: string,
   executionMode: AppExecutionMode,
-  deployedPolicy: Policy | undefined,
+  base: Policy | undefined,
 ) {
   log.info(colors.gray(`Generating fresh policy for app ${path}...`));
   try {
-    app.policy = await windmillUtils.updateRawAppPolicy(
-      app.runnables,
-      basePolicy(app, deployedPolicy),
-    );
+    app.policy = await windmillUtils.updateRawAppPolicy(app.runnables, base);
     finalizeDerivedPolicy(app.policy, executionMode);
   } catch (e) {
     log.error(colors.red(`Error generating policy for app ${path}: ${e}`));

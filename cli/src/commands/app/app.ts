@@ -201,18 +201,17 @@ export async function pushApp(
   const localApp = (await yamlParseFile(path)) as AppFile;
 
   replaceInlineScripts(localApp.value, localPath, true);
-  await generatingPolicy(
-    localApp,
-    remotePath,
-    executionModeForPush(localApp, deployedPolicy),
-    deployedPolicy
-  );
-
   // On create the backend applies folder defaults, so there is nothing to preserve.
   const preserveFields = preserveOnBehalfOfFields(
     remotePath,
     deployedPolicy,
     permissionedAsContext
+  );
+  await generatingPolicy(
+    localApp,
+    remotePath,
+    executionModeForPush(localApp, deployedPolicy),
+    basePolicy(localApp, deployedPolicy, !!preserveFields.preserve_on_behalf_of)
   );
 
   // extra_perms goes through /acls/* — strip from the body so a perms-only
@@ -271,14 +270,11 @@ export async function generatingPolicy(
   app: any,
   path: string,
   executionMode: AppExecutionMode,
-  deployedPolicy: Policy | undefined
+  base: Policy | undefined
 ) {
   log.info(colors.gray(`Generating fresh policy for app ${path}...`));
   try {
-    app.policy = await windmillUtils.updatePolicy(
-      app.value,
-      basePolicy(app, deployedPolicy)
-    );
+    app.policy = await windmillUtils.updatePolicy(app.value, base);
     finalizeDerivedPolicy(app.policy, executionMode);
   } catch (e) {
     log.error(colors.red(`Error generating policy for app ${path}: ${e}`));
@@ -286,22 +282,23 @@ export async function generatingPolicy(
   }
 }
 
-/** What the regenerated policy starts from: the deployed one, so a push keeps
+/** What the regenerated policy starts from: the deployed policy, so a push keeps
  * settings the tracked file doesn't record. A first push has no deployed policy,
- * and then the file is the only thing that could state one — minus the run
- * identity, which is never the repo's to name. The backend rewrites an
- * unclaimed `on_behalf_of` to the pusher, but `wmill` is regularly pointed at
- * older servers, so never put one on the wire that no deploy vouched for. */
+ * and then the file is what states one.
+ *
+ * The run identity comes along only when `claimsOnBehalfOf` says this push is
+ * entitled to it — never from the file, and never from a pusher who may not
+ * preserve one. The backend rewrites an unclaimed `on_behalf_of` to the pusher,
+ * but `wmill` is regularly pointed at older servers, so the only identity that
+ * goes on the wire is one this push is allowed to deploy under. */
 export function basePolicy(
   localApp: any,
-  deployedPolicy: Policy | undefined
+  deployedPolicy: Policy | undefined,
+  claimsOnBehalfOf: boolean
 ): Policy | undefined {
-  if (deployedPolicy) {
-    return deployedPolicy;
-  }
-  const stated = localApp?.policy as Policy | undefined;
-  if (!stated) {
-    return undefined;
+  const stated = deployedPolicy ?? (localApp?.policy as Policy | undefined);
+  if (!stated || claimsOnBehalfOf) {
+    return stated;
   }
   const base: Policy = { ...stated };
   delete base.on_behalf_of;

@@ -96,9 +96,18 @@ test("a raw-app push without the marker closes an anonymous app back down", asyn
   const body = await push("");
 
   expect(body.policy.execution_mode).toBe("publisher");
-  // Only the caller who may claim it gets the flag; everyone else deploys as
-  // themselves, which is what the backend enforces anyway.
-  expect((await push("", false)).preserve_on_behalf_of).toBeUndefined();
+});
+
+test("a push that may not claim the deployed identity doesn't send it", async () => {
+  const body = await push("", false);
+
+  expect(body.preserve_on_behalf_of).toBeUndefined();
+  // Not just the flag: the identity itself stays off the wire, so no server can
+  // deploy this push under it.
+  expect(body.policy.on_behalf_of).toBeUndefined();
+  expect(body.policy.on_behalf_of_email).toBeUndefined();
+  // Everything the pusher is entitled to carry over still comes along.
+  expect(body.policy.sandbox).toBe(true);
 });
 
 test("a first raw-app push deploys the policy its file states", async () => {
