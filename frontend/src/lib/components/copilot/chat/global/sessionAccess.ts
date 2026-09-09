@@ -42,10 +42,14 @@ export function hasCapabilities(
 }
 
 export async function resolveSessionAccess(workspace: string): Promise<SessionAccess> {
-	let me: User
+	let me: User | undefined
 	try {
 		me = await UserService.whoami({ workspace })
-	} catch {
+	} catch {}
+	// Checked rather than trusted: a body that arrives malformed resolves without
+	// throwing, and reading a capability off it would surface as a TypeError thrown
+	// out of the send rather than as the fail-open this whole path promises.
+	if (!me) {
 		return fullSessionAccess(workspace)
 	}
 

@@ -83,4 +83,10 @@ describe('resolveSessionAccess', () => {
 		expect(access.capabilities.has('write_draft')).toBe(true)
 		expect(access.capabilities.has('deploy')).toBe(true)
 	})
+
+	it('fails open on a body that resolves without a role, rather than throwing', async () => {
+		whoami.mockResolvedValueOnce(undefined)
+		const access = await resolveSessionAccess('ws')
+		expect(access.capabilities.has('write_draft')).toBe(true)
+	})
 })
