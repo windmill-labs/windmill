@@ -72,9 +72,8 @@
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
 	const chatHost = getChatViewHost()
-	// Two session-only surfaces the seam deliberately doesn't carry: the skill and MCP
-	// menus take an AIChatManager, and the run form lives in the session's preview panel.
-	// Both render only under GLOBAL, which a non-copilot host never sets.
+	// The skill and MCP menus take an AIChatManager itself, which the seam deliberately
+	// doesn't carry. They render only under GLOBAL, which a non-copilot host never sets.
 	const aiChatManager = getAiChatManager()
 
 	// The user spent their one-time free Windmill AI grant: there is no model left to send
@@ -254,10 +253,10 @@
 			// row alone stops the turn — wherever it is mounted, since the preview panel holds the
 			// form outside `panelEl`. Matched by call: two chats can be loading at once, and one's
 			// row must not answer for the other.
-			if (aiChatManager.hasPendingRunForm) {
+			if (chatHost.hasPendingRunForm) {
 				const row = active?.closest('[data-run-form-actions]')
 				const toolCallId = row?.getAttribute('data-run-form-actions')
-				if (!toolCallId || !aiChatManager.isRunFormPending(toolCallId)) return
+				if (!toolCallId || !chatHost.isRunFormPending(toolCallId)) return
 			} else if (!focusOnChat) return
 			e.preventDefault()
 			// Immediate form: other chat panels' identical listeners must not
@@ -788,10 +787,10 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					{/snippet}
 				</Popover>
 				<Button
-					title={aiChatManager.runHeldElsewhere
+					title={chatHost.runHeldElsewhere
 						? 'Wait for the turn in the other tab to start a new chat'
 						: 'New chat'}
-					disabled={aiChatManager.runHeldElsewhere}
+					disabled={chatHost.runHeldElsewhere}
 					on:click={() => {
 						saveAndClear()
 					}}

@@ -776,6 +776,11 @@
 		if (pendingImages > 0 || pendingFiles > 0 || pendingBlobs > 0 || ingestionHolds > 0) {
 			return
 		}
+		// A host whose consumer needs a message of its own refuses an attachment-only
+		// turn. Returning before `take()` keeps the chips where the user put them.
+		if (chatHost.requiresMessageText && draft.text.trim() === '') {
+			return
+		}
 		// Read before `take()` empties the draft the id derives from, and only take
 		// once the answer is delivered — an undelivered one would leave the user
 		// with neither their text nor a resumed turn.
@@ -1080,12 +1085,17 @@
 	     already sends it), so the button stays enabled there for pointer/touch
 	     parity — mirrors the sendRequest guard. Custom onSendRequest consumers
 	     (inline ⌘K) and editor copilots need content. -->
+	{@const needsText = chatHost.requiresMessageText && draft.text.trim() === ''}
+	<!-- The wording is about the attachment, so it earns its place only once there is one:
+	     an empty composer is the idle state, not a refusal. -->
+	{@const needsTextForAttachment = needsText && !emptyDraft}
 	{@const sendDisabled =
 		disabled ||
 		pendingImages > 0 ||
 		pendingFiles > 0 ||
 		pendingBlobs > 0 ||
 		ingestionHolds > 0 ||
+		needsText ||
 		(emptyDraft &&
 			(onSendRequest !== undefined ||
 				chatHost.mode !== AIMode.GLOBAL ||
@@ -1094,7 +1104,11 @@
 		variant="subtle"
 		unifiedSize="md"
 		iconOnly
-		title={isLoading ? 'Stop' : 'Send'}
+		title={isLoading
+			? 'Stop'
+			: needsTextForAttachment
+				? 'Write a message to send with the attachment'
+				: 'Send'}
 		startIcon={{ icon: isLoading ? Square : ArrowUp }}
 		disabled={!isLoading && sendDisabled}
 		on:click={() => {

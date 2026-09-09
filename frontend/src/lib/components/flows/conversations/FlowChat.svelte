@@ -16,7 +16,6 @@
 		useStreaming?: boolean
 		deploymentInProgress?: boolean
 		path: string
-		hideSidebar?: boolean
 		inputSchema?: Record<string, any>
 		/** The flow's modules, used to find which inputs an AI agent step reads directly. */
 		flowModules?: FlowModule[]
@@ -34,7 +33,6 @@
 		deploymentInProgress = false,
 		useStreaming = false,
 		path,
-		hideSidebar = false,
 		inputSchema = undefined,
 		flowModules = undefined,
 		wideLayout = false,
@@ -47,6 +45,10 @@
 	const manager = createFlowChatManager()
 	manager.operatingWorkspace = () => flowEditorContext?.opWorkspace?.()
 	manager.conversationKind = conversationKind
+	// The editor is the only surface with both kinds in play, and it is the one that opens
+	// on test chats. A deployed flow lists what its users started, with no way to ask for
+	// anything else.
+	manager.canFilterConversationKind = conversationKind !== 'deployed'
 
 	// Initialize manager when component mounts
 	$effect(() => {
@@ -92,9 +94,7 @@
      top border alone, dividing the chat from whatever header sits above it. The column's
      max width and side padding come from AIChatDisplay itself. -->
 <div class="flex overflow-hidden flex-1 {boxed ? 'border rounded-md' : 'border-t'}">
-	{#if !hideSidebar}
-		<FlowConversationsSidebar {manager} />
-	{/if}
+	<FlowConversationsSidebar {manager} />
 	<!-- pb-3 on the chat alone, not on the row: the transcript and composer stop short of
 	     the panel edge the way the session chat does, while the sidebar and the border
 	     dividing it from the chat still reach the bottom. -->

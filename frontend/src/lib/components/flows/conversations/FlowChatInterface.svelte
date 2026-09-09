@@ -126,6 +126,24 @@
 	let inputValues = $state<Record<string, any>>(loadInputsFromStorage() ?? {})
 	let modalDraft = $state<Record<string, any>>({})
 
+	/** What the flow's own form would open on. */
+	function schemaDefaults(schema: Record<string, any> | undefined): Record<string, any> {
+		const properties: Record<string, any> = schema?.properties ?? {}
+		return Object.fromEntries(
+			Object.entries(properties)
+				.filter(([, property]) => property?.default !== undefined)
+				.map(([name, property]) => [name, property.default])
+		)
+	}
+
+	// Derived rather than seeded into `inputValues`: the schema arrives with the flow, which
+	// on the deployed page is after this mounts, and only what the reader actually chose
+	// belongs in storage. A stored value wins over the default, including a deliberate empty.
+	const effectiveInputs = $derived({
+		...schemaDefaults(additionalInputsSchema),
+		...inputValues
+	})
+
 	function getStorageKey(): string {
 		return `${STORAGE_KEY_PREFIX}${path}`
 	}
@@ -160,21 +178,26 @@
 	}
 
 	function openInputsModal() {
-		modalDraft = { ...(loadInputsFromStorage() ?? inputValues) }
+		modalDraft = { ...effectiveInputs, ...(loadInputsFromStorage() ?? inputValues) }
 		showInputsModal = true
 	}
 
 	const chatHost = new FlowChatViewHost(manager, {
-		additionalInputs: () => (additionalInputsSchema ? { ...inputValues } : undefined),
+		additionalInputs: () => (additionalInputsSchema ? { ...effectiveInputs } : undefined),
 		attachmentsTarget: () => attachmentsTarget,
 		workspace: () => chatWorkspace,
-		canAttach: () => s3StorageConfigured
+		canAttach: () => s3StorageConfigured,
+		inputsShownInComposer: () => agentModelWiringInputs(modelWiring)
 	})
 	setChatViewHost(chatHost)
 
-	// A message typed mid-run is held by the host; send it once the run settles.
+	// A message held mid-run goes out once the run settles. Attachments count as a
+	// message of their own, so a queue with files and no text still has to flush.
+	const hasQueuedTurn = $derived(
+		!!chatHost.queuedMessage || chatHost.queuedImages.length > 0 || chatHost.queuedBlobs.length > 0
+	)
 	$effect(() => {
-		if (!chatHost.loading && chatHost.queuedMessage) {
+		if (!chatHost.loading && hasQueuedTurn) {
 			chatHost.flushQueuedMessage()
 		}
 	})
@@ -182,7 +205,7 @@
 	const modalMissingRequired = $derived.by(() => {
 		if (!modalSchema?.required?.length) return false
 		return modalSchema.required.some((field: string) =>
-			isEmptyAgentChatInputValue(inputValues[field])
+			isEmptyAgentChatInputValue(effectiveInputs[field])
 		)
 	})
 </script>
@@ -234,7 +257,7 @@
 	{#if modelWiring}
 		<FlowChatModelSettings
 			wiring={modelWiring}
-			values={inputValues}
+			values={effectiveInputs}
 			setValue={setInputValue}
 			workspace={chatWorkspace}
 		/>

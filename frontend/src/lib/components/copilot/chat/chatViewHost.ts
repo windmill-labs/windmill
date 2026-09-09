@@ -99,6 +99,10 @@ export interface ChatViewHost {
 	) => void | Promise<void>
 	handleUserQuestionAnswer: (toolId: string, choices: string[]) => boolean
 	handleToolConfirmation: (toolId: string, confirmed: boolean) => void
+	/** A tool is waiting on a run form the user is filling in. Escape belongs to that form
+	 * then, not to the turn — see AIChatDisplay's window handler. */
+	readonly hasPendingRunForm: boolean
+	isRunFormPending: (toolCallId: string) => boolean
 
 	// Copilot-only surfaces. Left undefined/false by hosts that have no LLM loop
 	// of their own; the chrome they drive hides itself.
@@ -112,6 +116,10 @@ export interface ChatViewHost {
 	/** The `+` menu's file entry and drag-and-drop onto the panel. Attachments ride
 	 * one message; where they go afterwards is the host's business (see sendRequest). */
 	supportsMessageAttachments: boolean
+	/** The turn needs text: attachments alone cannot be sent. True where the consumer
+	 * requires a message of its own — an AI agent step refuses a run with neither a
+	 * `user_message` nor manual memory. */
+	requiresMessageText: boolean
 	/** The `+` menu's folder entries, backed by `attachedFiles`. A linked folder is a
 	 * live handle on the user's disk, so only a host reading files in the browser has one. */
 	supportsLinkedFolders: boolean

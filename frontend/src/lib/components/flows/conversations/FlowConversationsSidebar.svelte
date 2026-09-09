@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { tick } from 'svelte'
 	import {
 		MessageCircle,
 		Pen,
@@ -36,10 +38,15 @@
 	// row's own label, so a second one would have nowhere to go.
 	let renamingId = $state<string | undefined>(undefined)
 	let renameDraft = $state('')
+	let renameInput = $state<TextInput | undefined>(undefined)
 
-	function startRename(conversation: FlowConversation) {
+	async function startRename(conversation: FlowConversation) {
 		renamingId = conversation.id
 		renameDraft = getConversationTitle(conversation)
+		// The field replaces the row, so it exists only after this render.
+		await tick()
+		renameInput?.focus()
+		renameInput?.select()
 	}
 
 	async function commitRename() {
@@ -122,39 +129,41 @@
 				>
 					<div transition:fade={{ duration: 100 }}> New chat </div>
 				</Button>
-				<Popover placement="bottom-start" closeButton={false}>
-					{#snippet trigger()}
-						<!-- Icon-only next to the wider New chat: which kind is listed is named in
-						     the title and by the group inside. -->
-						<Button
-							nonCaptureEvent
-							unifiedSize="md"
-							variant="subtle"
-							startIcon={{ icon: Filter }}
-							title="Filter conversations · {KIND_LABELS[manager.conversationKind]}"
-							iconOnly
-						/>
-					{/snippet}
-					{#snippet content()}
-						<div class="p-3">
-							<ToggleButtonGroup
-								selected={manager.conversationKind}
-								onSelected={(kind) => manager.setConversationKind(kind as ConversationKind)}
-								noWFull
-							>
-								{#snippet children({ item })}
-									<ToggleButton size="sm" value="test" label={KIND_LABELS.test} {item} />
-									<ToggleButton size="sm" value="deployed" label={KIND_LABELS.deployed} {item} />
-									<ToggleButton size="sm" value="all" label={KIND_LABELS.all} {item} />
-								{/snippet}
-							</ToggleButtonGroup>
-							<p class="text-2xs text-tertiary mt-1.5 max-w-[190px]">
-								Test chats are the ones run from the flow editor's test panel, kept apart from the
-								conversations the deployed flow's users started.
-							</p>
-						</div>
-					{/snippet}
-				</Popover>
+				{#if manager.canFilterConversationKind}
+					<Popover placement="bottom-start" closeButton={false}>
+						{#snippet trigger()}
+							<!-- Icon-only next to the wider New chat: which kind is listed is named in
+							     the title and by the group inside. -->
+							<Button
+								nonCaptureEvent
+								unifiedSize="md"
+								variant="subtle"
+								startIcon={{ icon: Filter }}
+								title="Filter conversations · {KIND_LABELS[manager.conversationKind]}"
+								iconOnly
+							/>
+						{/snippet}
+						{#snippet content()}
+							<div class="p-3">
+								<ToggleButtonGroup
+									selected={manager.conversationKind}
+									onSelected={(kind) => manager.setConversationKind(kind as ConversationKind)}
+									noWFull
+								>
+									{#snippet children({ item })}
+										<ToggleButton size="sm" value="test" label={KIND_LABELS.test} {item} />
+										<ToggleButton size="sm" value="deployed" label={KIND_LABELS.deployed} {item} />
+										<ToggleButton size="sm" value="all" label={KIND_LABELS.all} {item} />
+									{/snippet}
+								</ToggleButtonGroup>
+								<p class="text-2xs text-tertiary mt-1.5 max-w-[190px]">
+									Test chats are the ones run from the flow editor's test panel, kept apart from the
+									conversations the deployed flow's users started.
+								</p>
+							</div>
+						{/snippet}
+					</Popover>
+				{/if}
 			</div>
 		</div>
 	</div>
@@ -199,38 +208,47 @@
 			{#snippet customRow({ item: conversation, hover })}
 				{#if manager.isSidebarExpanded}
 					<div class={twMerge('w-full pb-1')} transition:fade={{ duration: 100, delay: 30 }}>
-						<Button
-							unifiedSize="md"
-							variant="subtle"
-							onClick={() => manager.selectConversation(conversation.id, conversation.isDraft)}
-							selected={manager.selectedConversationId === conversation.id}
-							btnClasses="transition-all duration-150 group"
-						>
-							{#if conversation.is_test}
-								<!-- The list holds both kinds under the "All" filter, so a test chat has to
-								     be readable as one at a glance. -->
-								<FlaskConical size={12} class="shrink-0 mr-1 text-tertiary" />
-							{/if}
-							{#if renamingId === conversation.id}
-								<!-- svelte-ignore a11y_autofocus -->
-								<input
-									class="flex-1 min-w-0 !text-xs !p-0 !h-auto !bg-transparent !border-0 !ring-0 focus:!ring-0"
-									autofocus
+						{#if renamingId === conversation.id}
+							<!-- While renaming, the field replaces the row rather than sitting inside its
+							     button: a text input nested in a button is a nested interactive control,
+							     and every keystroke would have to be kept from reaching the row. -->
+							<div class="flex flex-row items-center gap-1 h-8 px-2 rounded-md bg-surface-selected">
+								{#if conversation.is_test}
+									<FlaskConical size={12} class="shrink-0 text-tertiary" />
+								{/if}
+								<TextInput
+									bind:this={renameInput}
 									bind:value={renameDraft}
-									onclick={(e) => e.stopPropagation()}
-									onblur={commitRename}
-									onkeydown={(e) => {
-										e.stopPropagation()
-										if (e.key === 'Enter') {
-											e.preventDefault()
-											commitRename()
-										} else if (e.key === 'Escape') {
-											e.preventDefault()
-											renamingId = undefined
+									class="min-w-0 flex-1"
+									size="sm"
+									inputProps={{
+										'aria-label': 'Chat name',
+										onblur: commitRename,
+										onkeydown: (e: KeyboardEvent) => {
+											if (e.key === 'Enter') {
+												e.preventDefault()
+												commitRename()
+											} else if (e.key === 'Escape') {
+												e.preventDefault()
+												renamingId = undefined
+											}
 										}
 									}}
 								/>
-							{:else}
+							</div>
+						{:else}
+							<Button
+								unifiedSize="md"
+								variant="subtle"
+								onClick={() => manager.selectConversation(conversation.id, conversation.isDraft)}
+								selected={manager.selectedConversationId === conversation.id}
+								btnClasses="transition-all duration-150 group"
+							>
+								{#if conversation.is_test}
+									<!-- The list holds both kinds under the "All" filter, so a test chat has to
+									     be readable as one at a glance. -->
+									<FlaskConical size={12} class="shrink-0 mr-1 text-tertiary" />
+								{/if}
 								<span class="flex-1 text-left truncate">
 									{getConversationTitle(conversation)}
 								</span>
@@ -245,8 +263,8 @@
 								>
 									<DropdownV2 items={() => rowActions(conversation)} size="xs" />
 								</div>
-							{/if}
-						</Button>
+							</Button>
+						{/if}
 					</div>
 				{/if}
 			{/snippet}

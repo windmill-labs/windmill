@@ -66,13 +66,17 @@ const EMPTY: MessageInputs = { images: [], contextElements: [] }
  */
 export function argsToMessageInputs(
 	workspace: string,
-	args: Record<string, any> | undefined
+	args: Record<string, any> | undefined,
+	shownElsewhere: ReadonlySet<string> = new Set()
 ): MessageInputs {
 	if (!args) return EMPTY
 	const images: AttachedImage[] = []
 	const contextElements: ContextElement[] = []
 	for (const [name, value] of Object.entries(args)) {
 		if (name === 'user_message') continue
+		// An input the composer has its own control for — the model button's provider fields —
+		// is already on screen, and repeating it under every message is noise.
+		if (shownElsewhere.has(name)) continue
 		const files = s3Refs(value)
 		if (files.length > 0) {
 			for (const ref of files) {
@@ -115,9 +119,13 @@ export function attachmentsToMessageInputs(
 
 /** The run arguments behind the transcript's user rows. One fetch per turn while mounted. */
 export class MessageInputsStore extends JobBackedStore<MessageInputs> {
-	constructor(workspace: () => string | undefined) {
+	constructor(workspace: () => string | undefined, shownElsewhere: () => ReadonlySet<string>) {
 		super(workspace, EMPTY, async (ws, jobId) =>
-			argsToMessageInputs(ws, (await JobService.getJobArgs({ workspace: ws, id: jobId })) as any)
+			argsToMessageInputs(
+				ws,
+				(await JobService.getJobArgs({ workspace: ws, id: jobId })) as any,
+				shownElsewhere()
+			)
 		)
 	}
 }

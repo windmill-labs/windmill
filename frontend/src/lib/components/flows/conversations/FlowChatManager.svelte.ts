@@ -16,12 +16,7 @@ import {
 	prefersInstantReveal,
 	TypewriterReveal
 } from '$lib/components/copilot/chat/typewriterReveal'
-import {
-	appendRevealed,
-	applyStreamEvent,
-	emptyTurnState,
-	type TurnState
-} from './turnTranscript'
+import { appendRevealed, applyStreamEvent, emptyTurnState, type TurnState } from './turnTranscript'
 
 export interface ChatMessage extends FlowConversationMessage {
 	loading?: boolean
@@ -108,6 +103,12 @@ export class FlowChatManager {
 	 * so nobody's trial runs are mixed into them.
 	 */
 	conversationKind = $state<ConversationKind>('deployed')
+	/**
+	 * Whether the sidebar offers the kind filter. Only the editor does: a deployed flow has
+	 * no test chats of its own to show, and offering to list someone's trial runs there
+	 * would put editor scratch in front of the flow's users.
+	 */
+	canFilterConversationKind = $state(false)
 	selectedConversationId = $state<string | undefined>(undefined)
 	conversationListComponent = $state<InfiniteList | undefined>(undefined)
 
@@ -260,31 +261,45 @@ export class FlowChatManager {
 		await this.refreshConversations()
 	}
 
+	// A name typed on a chat that has not run yet, kept until its first turn creates the row
+	// server-side: that insert titles the conversation from the message, and the refresh
+	// which follows would otherwise replace the typed name with it.
+	#draftTitle: { id: string; title: string } | undefined = undefined
+
+	/** Write a title to the server and to the row the list holds. */
+	async #writeConversationTitle(conversationId: string, title: string) {
+		try {
+			await FlowConversationsService.updateFlowConversation({
+				workspace: this.#workspace()!,
+				conversationId,
+				requestBody: { title }
+			})
+			this.conversations = this.conversations.map((c) =>
+				c.id === conversationId ? { ...c, title } : c
+			)
+			return true
+		} catch (error) {
+			console.error('Failed to rename conversation:', error)
+			sendUserToast('Failed to rename conversation', true)
+			return false
+		}
+	}
+
 	/** Rename a chat. The list holds the row, so it is patched rather than reloaded. */
 	async renameConversation(conversationId: string, title: string) {
 		const trimmed = title.trim()
 		const current = this.conversations.find((c) => c.id === conversationId)
 		if (!current || trimmed === '' || trimmed === current.title) return
 		// A chat that has never run is local to this list; there is nothing to rename yet.
+		// The name is held instead, and written once the first turn creates the row.
 		if (current.isDraft) {
+			this.#draftTitle = { id: conversationId, title: trimmed }
 			this.conversations = this.conversations.map((c) =>
 				c.id === conversationId ? { ...c, title: trimmed } : c
 			)
 			return
 		}
-		try {
-			await FlowConversationsService.updateFlowConversation({
-				workspace: this.#workspace()!,
-				conversationId,
-				requestBody: { title: trimmed }
-			})
-			this.conversations = this.conversations.map((c) =>
-				c.id === conversationId ? { ...c, title: trimmed } : c
-			)
-		} catch (error) {
-			console.error('Failed to rename conversation:', error)
-			sendUserToast('Failed to rename conversation', true)
-		}
+		await this.#writeConversationTitle(conversationId, trimmed)
 	}
 
 	async refreshConversations() {
@@ -531,8 +546,16 @@ export class FlowChatManager {
 	}
 
 	// Message sending
-	async sendMessage(additionalInputs?: Record<string, any>) {
-		if (!this.inputMessage.trim() || this.isLoading) return
+	/**
+	 * Send `inputMessage` as a turn. `onUserRow` is called with the id of the row added
+	 * for it, which is the only moment that id is knowable: the caller needs it to hang
+	 * what the composer sent — attachments, other inputs — on a row that has no job yet.
+	 *
+	 * An empty message is allowed here: a turn can carry attachments alone, and only the
+	 * caller knows whether it does.
+	 */
+	async sendMessage(additionalInputs?: Record<string, any>, onUserRow?: (rowId: string) => void) {
+		if (this.isLoading) return
 
 		const isNewConversation = this.messages.length === 0
 
@@ -564,6 +587,7 @@ export class FlowChatManager {
 		}
 
 		this.messages = [...this.messages, userMessage]
+		onUserRow?.(userMessage.id)
 		const messageContent = this.inputMessage.trim()
 		this.inputMessage = ''
 		this.isLoading = true
@@ -594,6 +618,18 @@ export class FlowChatManager {
 		} finally {
 			if (!this.#useStreaming) {
 				this.isLoading = false
+			}
+		}
+
+		// The row now exists, titled from the message by the server. A name typed while it
+		// was a draft has to be written over that — unconditionally, not through
+		// renameConversation: on the streaming path this runs before any refresh, so the
+		// local row still carries the typed name and an equality check would skip the write.
+		// Cleared only once it lands, so a failed run keeps the name for the next attempt.
+		if (this.#draftTitle?.id === currentConversationId) {
+			const { title } = this.#draftTitle
+			if (await this.#writeConversationTitle(currentConversationId, title)) {
+				this.#draftTitle = undefined
 			}
 		}
 

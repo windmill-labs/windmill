@@ -21,6 +21,9 @@ import {
 	type MessageInputs
 } from './messageInputContext.svelte'
 
+/** A row that needs no job behind it. */
+const EMPTY_TOOL_CALL: ToolCallDetails = {}
+
 /** What an AI agent step reads out of `user_attachments`. */
 type S3Attachment = { s3: string; filename?: string }
 
@@ -35,6 +38,9 @@ export type FlowChatViewHostOptions = {
 	workspace?: () => string | undefined
 	/** Off when the workspace has no object storage — there is nowhere to upload to. */
 	canAttach?: () => boolean
+	/** Flow inputs the composer renders a control of its own for, so a message does not
+	 * repeat them as context chips. */
+	inputsShownInComposer?: () => string[]
 }
 
 /**
@@ -88,7 +94,10 @@ function toDisplayMessage(
 				parameters: parseToolPayload(message.tool_arguments),
 				result: parseToolPayload(message.tool_result)
 			}
-			const fromJob = toolCalls.get(message.job_id)
+			// A row that stored its own call — an MCP tool, or one still streaming — has
+			// nothing to learn from a job, and opening a conversation asks for one per row.
+			const carriesItsOwnCall = streamed.parameters !== undefined || streamed.result !== undefined
+			const fromJob = carriesItsOwnCall ? EMPTY_TOOL_CALL : toolCalls.get(message.job_id)
 			const toolName = streamed.toolName ?? fromJob.toolName
 			const parameters = streamed.parameters ?? fromJob.parameters
 			const result = failed ? undefined : (streamed.result ?? fromJob.result)
@@ -160,25 +169,22 @@ export class FlowChatViewHost implements ChatViewHost {
 		() => new Set(this.#manager.messages.map((m) => m.step_name).filter(Boolean)).size > 1
 	)
 
-	// What the turn in flight was sent with, until its own row carries a job id.
-	#pendingInputs = $state<MessageInputs | undefined>(undefined)
+	// What a turn was sent with, by the id of the row the composer added for it. A row
+	// added here never gains a job id — the poller drops user rows from its response — so
+	// these stay the only record of that turn's attachments until the conversation is
+	// reloaded from the server and every row comes back with its run.
+	#sentInputs = $state<Record<string, MessageInputs>>({})
 
-	#messageInputs = new MessageInputsStore(() => this.#options.workspace?.())
+	#messageInputs = new MessageInputsStore(
+		() => this.#options.workspace?.(),
+		() => new Set(this.#options.inputsShownInComposer?.() ?? [])
+	)
 	#toolCalls = new ToolCallStore(() => this.#options.workspace?.())
 
 	displayMessages = $derived.by(() => {
 		let userIndex = 0
 		const showStepNames = this.#showStepNames
 		const messages = this.#manager.messages
-		// Only the newest user row can be the one the composer just added: every earlier
-		// row without a job id predates the column and has no inputs to show.
-		let lastUserIndex = -1
-		for (let i = messages.length - 1; i >= 0; i--) {
-			if (messages[i].message_type === 'user') {
-				lastUserIndex = i
-				break
-			}
-		}
 		return messages.map((message, i) =>
 			toDisplayMessage(
 				message,
@@ -187,12 +193,16 @@ export class FlowChatViewHost implements ChatViewHost {
 				this.#messageInputs,
 				this.#toolCalls,
 				message.message_type === 'user' && turnFailed(messages, i),
-				i === lastUserIndex ? this.#pendingInputs : undefined
+				this.#sentInputs[message.id]
 			)
 		)
 	})
 
-	/** Resend the message at this transcript position, with the inputs it ran with. */
+	/**
+	 * Send the message at this transcript position again. Its text only: the turn runs with
+	 * the composer's current inputs and no attachments, since a failed turn's uploads are
+	 * not held anywhere the composer can reach.
+	 */
 	retryRequest = (messageIndex: number) => {
 		const message = this.#manager.messages[messageIndex]
 		if (!message || message.message_type !== 'user' || this.loading) return
@@ -235,21 +245,20 @@ export class FlowChatViewHost implements ChatViewHost {
 	#uploading = $state(false)
 
 	sendRequest = async (options: ChatSendRequestOptions = {}) => {
-		const text = options.instructions?.trim()
-		// The conversation's message is the flow's `user_message`, which the manager
-		// requires; an attachment-only turn has nothing to send.
-		if (!text) return false
-
+		const text = options.instructions?.trim() ?? ''
 		const args = { ...(this.#options.additionalInputs?.() ?? {}) }
 		const target = this.#options.attachmentsTarget?.()
 		const attachments = [...(options.images ?? []), ...(options.blobs ?? [])]
-		this.#pendingInputs = undefined
+		// The composer refuses an attachment-only send (requiresMessageText), so this is
+		// the same rule at the other end: nothing runs without a message.
+		if (!text) return false
+		let sentInputs: MessageInputs | undefined
 		if (target && attachments.length > 0) {
 			this.#uploading = true
 			try {
 				const uploaded = await this.#uploadAttachments(attachments)
 				args[target.name] = target.multiple ? uploaded : uploaded[0]
-				this.#pendingInputs = attachmentsToMessageInputs(options.images ?? [], options.blobs ?? [])
+				sentInputs = attachmentsToMessageInputs(options.images ?? [], options.blobs ?? [])
 			} catch (e) {
 				sendUserToast(
 					`Could not upload the attachments: ${e instanceof Error ? e.message : String(e)}`,
@@ -264,7 +273,17 @@ export class FlowChatViewHost implements ChatViewHost {
 		this.#manager.inputMessage = text
 		this.#options.onSent?.()
 		await this.#manager.sendMessage(
-			Object.keys(args).length > 0 || this.#options.additionalInputs?.() ? args : undefined
+			Object.keys(args).length > 0 || this.#options.additionalInputs?.() ? args : undefined,
+			(rowId) => {
+				if (!sentInputs) return
+				// Drop entries for rows the transcript no longer holds — a conversation
+				// switch replaces them all — so this cannot grow past the open chat.
+				const live = new Set(this.#manager.messages.map((m) => m.id))
+				const kept = Object.fromEntries(
+					Object.entries(this.#sentInputs).filter(([id]) => live.has(id))
+				)
+				this.#sentInputs = { ...kept, [rowId]: sentInputs }
+			}
 		)
 		return true
 	}
@@ -347,8 +366,10 @@ export class FlowChatViewHost implements ChatViewHost {
 	}
 	/** Send whatever was typed during the run. Called once the run settles. */
 	flushQueuedMessage = () => {
+		// Same rule as sendRequest, read before the queue is drained: a turn with no message
+		// cannot run, and taking the queue for it would drop the attachments on the floor.
+		if (!this.queuedMessage.trim()) return
 		const { text, images, blobs } = this.#takeQueue()
-		if (!text) return
 		void this.sendRequest({ instructions: text, images, blobs })
 	}
 	setComposerStaged = () => {}
@@ -359,11 +380,17 @@ export class FlowChatViewHost implements ChatViewHost {
 	restartGeneration = () => {}
 	handleUserQuestionAnswer = () => false
 	handleToolConfirmation = () => {}
+	// A flow's tools take their arguments from the model, never from a form the reader fills.
+	hasPendingRunForm = false
+	isRunFormPending = () => false
 
 	mode = undefined
 	isSessionChat = false
 	supportsModelSettings = false
 	supportsMessageEditing = false
+	// The turn is a flow run, and an AI agent step refuses one with neither a
+	// `user_message` nor manual memory (ai_executor.rs) — so files alone cannot be sent.
+	requiresMessageText = true
 	// Attachments go to object storage for the worker to read, so a linked folder —
 	// a live handle on the user's own disk — has no meaning here.
 	get supportsMessageAttachments() {
