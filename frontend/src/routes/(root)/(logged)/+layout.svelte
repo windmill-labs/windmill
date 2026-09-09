@@ -32,6 +32,7 @@
 		type UserExt,
 		defaultScripts,
 		hubBaseUrlStore,
+		hubBaseUrlKnown,
 		wsBaseUrlStore,
 		disableHubStore,
 		usedTriggerKinds,
@@ -60,7 +61,6 @@
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
-	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 	import { PanelLeftClose, PanelLeftOpen, Home, Play, Search, WandSparkles } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
 	import { confirmPendingLoginMethod } from '$lib/lastLoginMethod'
@@ -468,7 +468,6 @@
 
 	function onLoad() {
 		loadFavorites()
-		syncTutorialsTodos()
 		loadHubBaseUrl()
 		loadWsBaseUrl()
 		loadDisableHub()
@@ -476,10 +475,18 @@
 	}
 
 	async function loadHubBaseUrl() {
-		$hubBaseUrlStore =
-			((await SettingService.getGlobal({ key: 'hub_accessible_url' })) as string) ||
-			((await SettingService.getGlobal({ key: 'hub_base_url' })) as string) ||
-			DEFAULT_HUB_BASE_URL
+		// A read that throws leaves the store on its seeded default, which names the public hub
+		// — so the flag, not the value, is what says the instance has answered. An instance that
+		// simply has no setting still answers: the chain falls through to the default.
+		try {
+			$hubBaseUrlStore =
+				((await SettingService.getGlobal({ key: 'hub_accessible_url' })) as string) ||
+				((await SettingService.getGlobal({ key: 'hub_base_url' })) as string) ||
+				DEFAULT_HUB_BASE_URL
+			$hubBaseUrlKnown = true
+		} catch (error) {
+			console.error('Could not read the hub URL:', error)
+		}
 	}
 
 	async function loadWsBaseUrl() {
@@ -1107,7 +1114,7 @@
 					<div
 						id="sidebar"
 						class={classNames(
-							'flex flex-col fixed inset-y-0 z-40 ',
+							'wm-sidebar-in flex flex-col fixed inset-y-0 z-40 ',
 							sidebarTransitionClass,
 							devOnly ? '!hidden' : ''
 						)}
@@ -1441,3 +1448,31 @@
 		<CreateWorkspaceInner isFork inModal onFinish={() => (globalForkModal.val = undefined)} />
 	{/if}
 </Modal2>
+
+<style>
+	/* The rail sliding in from the edge it lives on. This layout mounts when the app is entered —
+	   signup, the workspace picker and onboarding all sit outside it — so the animation plays on
+	   arrival, and on a hard reload of any page under it, but never on a navigation within the
+	   app. Paired with the home page's own fade, it reads as the workspace coming forward from
+	   behind whatever was on top of it. */
+	@keyframes wm-sidebar-in {
+		from {
+			opacity: 0;
+			transform: translateX(-12px);
+		}
+		to {
+			opacity: 1;
+			transform: none;
+		}
+	}
+
+	:global(#sidebar.wm-sidebar-in) {
+		animation: wm-sidebar-in 500ms ease-out both;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		:global(#sidebar.wm-sidebar-in) {
+			animation: none;
+		}
+	}
+</style>
