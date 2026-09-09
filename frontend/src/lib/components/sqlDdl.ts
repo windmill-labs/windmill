@@ -278,6 +278,12 @@ export function joinSqlStatements(statements: string[], backslashEscapes = true)
  * DDL statements share a run so they can become one migration instead of one
  * prompt each; a non-DDL statement ends the run, since anything after it may
  * depend on it and the surviving statements must keep their relative order.
+ *
+ * A run is deliberately not proven safe to run in one transaction — Postgres refuses
+ * to use an enum value in the same transaction that `ALTER TYPE` added it, and there
+ * are other such pairs. Grouping them anyway is the accepted trade: the body is shown
+ * in the migration editor before it runs, and a failed run is reverted with the
+ * database's own error, so splitting it by hand is a visible one-step fix.
  */
 export function splitSqlRuns(code: string, backslashEscapes = true): SqlRun[] {
 	const runs: SqlRun[] = []
