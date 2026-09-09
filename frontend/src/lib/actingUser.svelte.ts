@@ -1,49 +1,63 @@
 import { untrack } from 'svelte'
 import { fromStore } from 'svelte/store'
+import { SvelteMap } from 'svelte/reactivity'
 import { userStore, workspaceStore, type UserExt } from '$lib/stores'
-import { getUserExt } from '$lib/user'
+import { getWorkspaceRole, type RoleLookup } from '$lib/user'
 
 /**
  * The user acting in a workspace that is not necessarily the one the top nav points at — an AI
  * session or a workspace-specific variant acts on a workspace the nav deliberately is not on.
  *
- * `$userStore` is loaded for the navigation workspace and answers only for that one, so it is
- * returned as-is there and costs no request. Any other workspace is asked once and cached under
- * its own id; keying the cache by workspace is what makes a superseded lookup harmless, since a
- * late answer can only ever land under the question it was asked.
- *
- * An unresolved user is `undefined`, and must never fall back to the navigation user, whose
+ * `$userStore` answers for the navigation workspace at no cost; every other workspace is looked
+ * up. An unresolved user is `undefined` and must never fall back to the navigation user, whose
  * rights belong to another workspace — `canWrite`/`isOwner` refuse for an unknown user, which is
- * the only safe answer. Callers that must not show that refusal as a denial ask `resolved` first.
+ * the only safe answer. A caller that must not render that refusal as a denial asks `resolved`
+ * first.
  */
 export function useActingUser(workspace: () => string | undefined) {
 	const navWorkspace = fromStore(workspaceStore)
-	const navUser = fromStore(userStore)
-	// A failed lookup is cached as `undefined` under its key, so it refuses rather than
-	// retrying on every read.
-	let others: Record<string, UserExt | undefined> = $state({})
+	const navUserStore = fromStore(userStore)
+	// `switchWorkspace` moves the navigation workspace before the layout refetches the user, so
+	// the navigation user answers only once they are that workspace's.
+	const navUser = $derived(
+		navUserStore.current?.workspace_id === navWorkspace.current ? navUserStore.current : undefined
+	)
+	// A Map, not an object: a workspace may legitimately be named `constructor`, which a plain
+	// object would answer for out of its prototype.
+	const looked = new SvelteMap<string, RoleLookup>()
+	// The workspace last asked about, so one selection asks once — a failed lookup included,
+	// which `getWorkspaceRole` deliberately does not cache. Pointing back at it re-asks.
+	let asked: string | undefined
 
 	$effect(() => {
 		const ws = workspace()
-		if (!ws || ws === navWorkspace.current) return
-		if (ws in others) return
+		if (!ws || ws === navWorkspace.current) {
+			asked = undefined
+			return
+		}
+		if (ws === asked || looked.get(ws)?.kind === 'resolved') return
+		asked = ws
 		untrack(() => {
-			getUserExt(ws).then((u) => (others[ws] = u))
+			// Memoized process-wide, so two components pointed at the same workspace share one
+			// request rather than each issuing their own.
+			getWorkspaceRole(ws).then((lookup) => looked.set(ws, lookup))
 		})
 	})
 
 	function userIn(ws: string | undefined): UserExt | undefined {
 		if (!ws) return undefined
-		return ws === navWorkspace.current ? navUser.current : others[ws]
+		if (ws === navWorkspace.current) return navUser
+		const lookup = looked.get(ws)
+		return lookup?.kind === 'resolved' ? lookup.user : undefined
 	}
 
 	return {
 		/** The acting user in `ws`, or `undefined` when it is not known. Only workspaces this
 		 *  hook has been pointed at are looked up; the rest read as unknown. */
 		in: userIn,
-		/** Whether `ws` has an answer at all — a resolved user, or a lookup that failed. */
+		/** Whether `ws` has an answer at all — a user, or a lookup that came back without one. */
 		resolved: (ws: string | undefined): boolean =>
-			!!ws && (ws === navWorkspace.current || ws in others),
+			!!ws && (ws === navWorkspace.current ? navUser !== undefined : looked.has(ws)),
 		get current(): UserExt | undefined {
 			return userIn(workspace())
 		}
