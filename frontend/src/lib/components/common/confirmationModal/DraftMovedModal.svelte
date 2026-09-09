@@ -48,7 +48,17 @@
 		return { ...(value as Record<string, unknown>), ...patch }
 	}
 
-	let carryError = $state<{ title: string; detail: string } | undefined>(undefined)
+	// Tagged with the destination it was raised for, because this component is
+	// mounted for the editor's lifetime rather than per prompt: an untagged error
+	// would still be rendered when the next move verdict opens the modal. Tagging
+	// also survives the A→B→C case, where we deliberately re-point the verdict and
+	// then raise an error about the new destination.
+	let carryError = $state<{ title: string; detail: string; forMovedTo: string } | undefined>(
+		undefined
+	)
+	const shownError = $derived(
+		carryError && carryError.forMovedTo === moveHandle.move?.movedTo ? carryError : undefined
+	)
 
 	async function continueThere() {
 		const move = moveHandle.move
@@ -67,16 +77,25 @@
 				// so; the draft is still in this editor, so the user can retry.
 				const failed = UserDraftDbSyncer.getState(target).failureMessage
 				const movedAgain = UserDraftDbSyncer.getMove(target).move
-				if (failed || movedAgain) {
-					carryError = movedAgain
-						? {
-								title: 'It moved again',
-								detail: `It is now at ${movedAgain.movedTo}. Your edits are still in this editor — retry to follow it.`
-							}
-						: {
-								title: 'Could not save at the new path',
-								detail: `${failed} Your edits are still in this editor.`
-							}
+				if (movedAgain) {
+					// It moved again while we were carrying (A→B→C). Re-point this
+					// editor's own move record at C so the modal now offers C and a
+					// retry makes progress — without this the retry would keep
+					// overwriting at B, be refused again, and loop with no way out.
+					UserDraftDbSyncer.recordMove(query, movedAgain)
+					carryError = {
+						title: 'It moved again while saving',
+						detail: `It is now at ${movedAgain.movedTo}. Your edits are still in this editor — continue to follow it there.`,
+						forMovedTo: movedAgain.movedTo
+					}
+					return
+				}
+				if (failed) {
+					carryError = {
+						title: 'Could not save at the new path',
+						detail: `${failed.replace(/\.?$/, '.')} Your edits are still in this editor.`,
+						forMovedTo: move.movedTo
+					}
 					return
 				}
 			}
@@ -107,8 +126,8 @@
 					Continuing takes your current edits to the new path, replacing any draft already there.
 					Staying here leaves them unsaved.
 				</p>
-				{#if carryError}
-					<Alert type="error" size="xs" title={carryError.title}>{carryError.detail}</Alert>
+				{#if shownError}
+					<Alert type="error" size="xs" title={shownError.title}>{shownError.detail}</Alert>
 				{/if}
 			</div>
 		</div>

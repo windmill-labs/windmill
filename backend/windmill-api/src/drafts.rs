@@ -393,6 +393,29 @@ impl DraftBaseVersion {
 ///
 /// Read under RLS so the answer can never reveal an item the caller has no
 /// access to.
+/// The version this draft forked from, or `None` when it has no lineage to
+/// follow — a kind that keeps none, a malformed payload, or a draft that was
+/// never forked from a deploy. Pure: no queries. This is the escape hatch the
+/// autosave path is built around, so every caller that is about to spend a
+/// round-trip on move detection should consult it first.
+fn draft_lineage(kind: UserDraftItemKind, value: &str) -> Option<DraftBaseVersion> {
+    use UserDraftItemKind::*;
+    if !matches!(kind, Script | Flow | App | RawApp) {
+        return None;
+    }
+    let base = serde_json::from_str::<DraftBaseVersion>(value).ok()?;
+    let has_base = match kind {
+        Script => base
+            .parent_hash
+            .as_deref()
+            .and_then(|h| windmill_common::scripts::to_i64(h).ok())
+            .is_some(),
+        Flow => base.version_id.is_some(),
+        _ => base.parent_version.is_some(),
+    };
+    has_base.then_some(base)
+}
+
 async fn resolve_moved_to(
     authed: &ApiAuthed,
     user_db: &UserDB,
@@ -401,38 +424,45 @@ async fn resolve_moved_to(
     path: &str,
     value: &str,
 ) -> Result<Option<(String, Option<String>, serde_json::Value)>> {
-    use UserDraftItemKind::*;
-    if !matches!(kind, Script | Flow | App | RawApp) {
+    if draft_lineage(kind, value).is_none() {
         return Ok(None);
     }
-    // A malformed or version-less draft is simply a draft with no lineage. This
-    // is also the autosave hot path's escape hatch: no base version, no query.
-    let Ok(base) = serde_json::from_str::<DraftBaseVersion>(value) else {
+    // RLS is not optional on THIS entry point: it runs before the write gate, so
+    // the envelope is what stops the answer naming an item the caller cannot see.
+    // Cost, stated honestly: `UserDB::begin` is not a bare BEGIN — it issues
+    // BEGIN, `set_session_context`, and `SET LOCAL search_path` when `PG_SCHEMA`
+    // is set, and the commit is another round-trip. So 3-4 round-trips wrap one
+    // indexed existence check, and the lineage query runs only once that check
+    // says the item is gone. `draft_lineage` above is what keeps all of it off
+    // the drafts that have nothing to follow.
+    let mut tx = user_db.clone().begin(authed).await?;
+    let moved = resolve_moved_to_in(&mut tx, &authed.username, w_id, kind, path, value).await;
+    tx.commit().await?;
+    moved
+}
+
+/// The body of `resolve_moved_to`, on a caller-supplied transaction. Split out
+/// so the post-write re-assert can reuse the connection it already holds rather
+/// than acquiring a second one from the same pool while holding an open
+/// transaction — that pattern stalls under pool pressure. Callers that have not
+/// passed the write gate must hand it an RLS-scoped transaction.
+async fn resolve_moved_to_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    saver_username: &str,
+    w_id: &str,
+    kind: UserDraftItemKind,
+    path: &str,
+    value: &str,
+) -> Result<Option<(String, Option<String>, serde_json::Value)>> {
+    use UserDraftItemKind::*;
+    let Some(base) = draft_lineage(kind, value) else {
         return Ok(None);
     };
     let script_hash = base
         .parent_hash
         .as_deref()
         .and_then(|h| windmill_common::scripts::to_i64(h).ok());
-    let has_base = match kind {
-        Script => script_hash.is_some(),
-        Flow => base.version_id.is_some(),
-        _ => base.parent_version.is_some(),
-    };
-    if !has_base {
-        return Ok(None);
-    }
 
-    // Cost, stated honestly: `UserDB::begin` is not a bare BEGIN — it issues
-    // BEGIN, optionally SET LOCAL search_path, and set_session_context, and the
-    // commit is another round-trip. So an autosave that reaches here spends ~4 on
-    // the RLS envelope around one indexed existence check, and the lineage query
-    // only runs once that check says the item is gone. The escape hatch above is
-    // what keeps this off most saves: a draft with no base version never gets
-    // here at all. RLS is not optional here — this runs before the write gate, so
-    // the transaction is what stops the answer naming an item the caller can't
-    // see.
-    let mut tx = user_db.clone().begin(authed).await?;
     let moved = match kind {
         Script => {
             // An archived row keeps sitting at the old path, so a plain
@@ -443,7 +473,7 @@ async fn resolve_moved_to(
                 w_id,
                 path,
             )
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await?;
             if still_here {
                 None
@@ -460,7 +490,7 @@ async fn resolve_moved_to(
                     w_id,
                     script_hash,
                 )
-                .fetch_optional(&mut *tx)
+                .fetch_optional(&mut **tx)
                 .await?
                 // Hex text, the way the API serializes a hash and the way a
                 // script draft stores `parent_hash`.
@@ -479,7 +509,7 @@ async fn resolve_moved_to(
                 w_id,
                 path,
             )
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await?;
             if still_here {
                 None
@@ -492,7 +522,7 @@ async fn resolve_moved_to(
                     w_id,
                     base.version_id,
                 )
-                .fetch_optional(&mut *tx)
+                .fetch_optional(&mut **tx)
                 .await?
                 .map(|r| (r.path, Some(r.edited_by), json!(r.head)))
             }
@@ -503,7 +533,7 @@ async fn resolve_moved_to(
                 w_id,
                 path,
             )
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await?;
             if still_here {
                 None
@@ -525,14 +555,13 @@ async fn resolve_moved_to(
                     w_id,
                     base.parent_version,
                 )
-                .fetch_optional(&mut *tx)
+                .fetch_optional(&mut **tx)
                 .await?
                 .map(|r| (r.path, Some(r.head_by), json!(r.head)))
             }
         }
         _ => None,
     };
-    tx.commit().await?;
 
     // Same path back ⇒ nothing moved (a stale read, or a path reused).
     let moved = moved.filter(|(new_path, _, _)| new_path != path);
@@ -560,7 +589,7 @@ async fn resolve_moved_to(
     // passive carry in `move_drafts_for_path`.
     let repoint_path = base.typed_path(kind) == Some(path);
     Ok(moved.map(|(new_path, new_by, head)| {
-        let moved_by_me = new_by.as_deref() == Some(authed.username.as_str());
+        let moved_by_me = new_by.as_deref() == Some(saver_username);
         let mut patch = serde_json::Map::new();
         if repoint_path {
             patch.insert(kind.typed_path_field().to_string(), json!(&new_path));
@@ -582,7 +611,14 @@ async fn resolve_moved_to(
 }
 
 /// Is the item still deployed at `path`? One indexed existence check, used to
-/// close the window between the `moved` pre-check and the write that follows it.
+/// NARROW — not close — the window between the `moved` pre-check and the write
+/// that follows it. A residual remains: the deploy that moves an item calls
+/// `move_drafts_for_path` inside its own transaction and then does more work
+/// before committing, so a first save with no prior row at the old path can read
+/// the pre-move snapshot under READ COMMITTED, take no lock, and commit a stray
+/// row. That row is bounded — the editor's next autosave hits the pre-check and
+/// is told the item moved. A save that DOES have a row there serialises behind
+/// the mover's own UPDATE on that tuple and detects the move correctly.
 /// Runs on the write's own connection, after the caller has passed the write
 /// gate, so it needs no RLS envelope.
 ///
@@ -638,6 +674,16 @@ async fn update_draft(
     // — they keep the write gate.
     let is_own_discard = req.value.is_none() && !req.legacy;
 
+    // Rejected before the moved branch below, not with the rest of the write gate
+    // after it. An operator can never save a draft, so a `moved` answer is no use
+    // to them — and letting them past would hand a read-only role the unindexed
+    // `parent_hashes` lineage scan, repeatable with any fabricated base version.
+    if !is_own_discard && authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "operators cannot save drafts".to_string(),
+        ));
+    }
+
     // An editor left open across someone else's move is still bound to the old
     // path and would re-plant its draft there. Refuse and answer with where the
     // item went; the carried draft is already waiting at the new path.
@@ -686,12 +732,22 @@ async fn update_draft(
         // when the row is newer than `last_sync`, RETURNING yields nothing.
         // `created_at` defaults to `now()` but the migration overrides it ($8)
         // so a migrated draft keeps its original age instead of jumping to top.
-        // Written inside a transaction so the re-assert below can undo it. The
-        // `moved` pre-check above committed its own transaction, so a rename can
-        // land between it and this INSERT — and this INSERT would then recreate
-        // the draft at a path the item has left, which is the exact phantom the
-        // pre-check exists to prevent.
-        let mut tx = db.begin().await?;
+        // The re-assert below needs a transaction to be able to undo the write,
+        // but only a draft with lineage can ever be told it moved — so a draft
+        // with none (a draft-only item, a variable, a trigger) keeps the plain
+        // single-statement write instead of paying BEGIN/COMMIT for a check that
+        // cannot fire.
+        let mut tx = if draft_lineage(kind, value.0.get()).is_some() {
+            Some(db.begin().await?)
+        } else {
+            None
+        };
+        // One owned connection for the no-transaction case, so the executor below
+        // borrows from a binding that outlives the call.
+        let mut plain = match tx {
+            Some(_) => None,
+            None => Some(db.acquire().await?),
+        };
         let applied = sqlx::query_scalar!(
             r#"INSERT INTO draft (workspace_id, email, path, typ, value, created_at)
                VALUES ($1, $2, $3, $4, $5::text::json, COALESCE($8::timestamptz, now()))
@@ -710,32 +766,42 @@ async fn update_draft(
             req.force,
             req.created_at,
         )
-        .fetch_optional(&mut *tx)
+        .fetch_optional(match (tx.as_mut(), plain.as_mut()) {
+            (Some(tx), _) => &mut **tx as &mut sqlx::PgConnection,
+            (None, Some(conn)) => &mut **conn,
+            (None, None) => unreachable!("exactly one of tx/plain is set"),
+        })
         .await?;
-        // Cheap on the path that matters: one indexed existence check when the
-        // write landed. Only when it says the item is gone do we pay for the
-        // lineage lookup — and that answer is what distinguishes a move (roll
-        // back, report it) from a delete or a never-deployed draft-only item
-        // (both legitimate saves, which `resolve_moved_to` answers `None` for,
-        // the second without issuing a query at all).
-        if applied.is_some() && !deployed_still_at(&mut tx, &w_id, kind, path).await? {
-            if let Some((moved_to, moved_by, moved_patch)) =
-                resolve_moved_to(&authed, &user_db, &w_id, kind, path, value.0.get()).await?
-            {
-                tx.rollback().await?;
-                let now = sqlx::query_scalar!(r#"SELECT now() as "now!""#)
-                    .fetch_one(&db)
-                    .await?;
-                return Ok(Json(SaveDraftResponse {
-                    status: SaveDraftStatus::Moved,
-                    current_timestamp: now,
-                    moved_to: Some(moved_to),
-                    moved_by,
-                    moved_patch: Some(moved_patch),
-                }));
+        if let Some(mut tx) = tx {
+            // Cheap on the path that matters: one indexed existence check when the
+            // write landed. Only when it says the item is gone do we pay for the
+            // lineage lookup — and that answer is what distinguishes a move (roll
+            // back, report it) from a delete or a never-deployed draft-only item
+            // (both legitimate saves, which resolve to `None`).
+            //
+            // Run on the connection we already hold: acquiring a second from the
+            // same pool while this transaction is open is the two-connection stall.
+            // Safe without the RLS envelope because the write gate is behind us.
+            if applied.is_some() && !deployed_still_at(&mut tx, &w_id, kind, path).await? {
+                if let Some((moved_to, moved_by, moved_patch)) =
+                    resolve_moved_to_in(&mut tx, &authed.username, &w_id, kind, path, value.0.get())
+                        .await?
+                {
+                    tx.rollback().await?;
+                    let now = sqlx::query_scalar!(r#"SELECT now() as "now!""#)
+                        .fetch_one(&db)
+                        .await?;
+                    return Ok(Json(SaveDraftResponse {
+                        status: SaveDraftStatus::Moved,
+                        current_timestamp: now,
+                        moved_to: Some(moved_to),
+                        moved_by,
+                        moved_patch: Some(moved_patch),
+                    }));
+                }
             }
+            tx.commit().await?;
         }
-        tx.commit().await?;
         applied
     } else {
         // Delete, same conflict rule in the WHERE clause. Returns NULL when

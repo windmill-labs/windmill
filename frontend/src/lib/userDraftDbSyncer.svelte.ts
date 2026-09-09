@@ -663,6 +663,13 @@ export const UserDraftDbSyncer = {
 		moves.delete(draftKey(query.workspace, query.itemKind, query.path))
 	},
 
+	/** Re-point a key's move verdict, for an item that moved again while its
+	 * carry was in flight (A→B→C). Without this the prompt keeps naming B, and
+	 * every retry is refused for the same reason. */
+	recordMove(query: UserDraftLastSyncQuery, move: DraftMovedInfo): void {
+		moves.set(draftKey(query.workspace, query.itemKind, query.path), move)
+	},
+
 	/**
 	 * Force-save: bypass the `last_sync` check and overwrite the server row
 	 * (conflict modal's "Overwrite the remote"). Resolves once the key's save
