@@ -658,10 +658,13 @@ corresponds to; the check reflects that fork's current results on the PR head.
   `success` once all settle (or "No CI tests" when none ran); `skipped`
   (debounce-superseded) ignored.
 - **Readiness** — the verdict is read only once the fork reflects the head, so it does not
-  matter which webhook GitHub delivers first. The evidence is a `git_sync_synced_head` row
-  for (fork, branch, sha): the pull completion hook writes one when a pull job succeeds
-  (its marker carries the branch and sha it was enqueued for), and the push completion
-  hook writes one from the deploy push script's `{pushed, sha, branch}` result. This is a
+  matter which webhook GitHub delivers first. The evidence is `git_sync_synced_head`: the
+  pull completion hook writes a row when a pull job succeeds (its marker carries the branch
+  and sha it was enqueued for), and the push completion hook writes one from the deploy
+  push script's `{pushed, sha, branch}` result. The check is ready when the branch's newest
+  row names the head, so a branch reset to an older commit waits for its re-pull instead
+  of reading the newer commit's results, and the prune keeps each branch's newest row so a
+  PR reopened at an unchanged head stays ready. This is a
   sync event log, deliberately apart from `auto_pull.last_synced_sha`: that map decides
   whether the next poll pulls (a push must never write it, or a commit someone else pushed
   under ours would be skipped) and it is client-round-tripped settings. The check row
@@ -669,8 +672,7 @@ corresponds to; the check reflects that fork's current results on the PR head.
   fork (a lockfile-generating deploy hands its CI tests to one) is queued, and fails
   outright if a dependency job failed after the head's pull started: the item deployed
   nothing runnable and queued no test, so an older passing run must not decide. A commit
-  the fork never comes to reflect times out; its deploy check shows why. Rows are pruned
-  with the checks. Needs the hub push script version that reports the sha
+  the fork never comes to reflect times out; its deploy check shows why. Needs the hub push script version that reports the sha
   (`LATEST_GIT_SYNC_SCRIPT_PATH`).
 - **Drivers** — a per-`ci_test`-job completion hook (low latency) and the git-sync poller
   (the backstop: retries the GitHub create/deliver, times stuck checks out after 30 min,
