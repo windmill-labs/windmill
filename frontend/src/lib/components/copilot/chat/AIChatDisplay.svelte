@@ -566,7 +566,7 @@
 	})
 
 	const yoloBypassedTools = $derived.by(() => {
-		return aiChatManager.tools
+		return aiChatManager.shippedTools
 			.filter((tool) => tool.requiresConfirmation === true || tool.bypassedByAutoAccept === true)
 			.map((tool) => ({
 				name: tool.def.function.name,
