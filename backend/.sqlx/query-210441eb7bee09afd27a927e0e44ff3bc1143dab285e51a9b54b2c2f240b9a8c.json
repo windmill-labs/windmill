@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dbt_column_edge (workspace_id, script_path, script_hash, job_id,\n                                      parent_unique_id, parent_column, child_unique_id,\n                                      child_column, lineage_kind)\n         VALUES ($1, $2, $3, '00000000-0000-0000-0000-000000000000',\n                 'model.p.raw_orders', 'id', 'model.p.orders', 'order_id', 'copy'),\n                ($1, $2, $3, '00000000-0000-0000-0000-000000000000',\n                 'model.p.raw_orders', 'status', 'model.p.orders', 'order_id', 'scan')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "210441eb7bee09afd27a927e0e44ff3bc1143dab285e51a9b54b2c2f240b9a8c"
+}

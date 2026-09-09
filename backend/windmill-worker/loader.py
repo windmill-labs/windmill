@@ -69,7 +69,11 @@ class WindmillFinder(MetaPathFinder):
                         r = response.read().decode("utf-8")
                         if r == "WINDMILL_IS_FOLDER":
                             return ModuleSpec(name, WindmillLoader(name))
-                        with open(fullpath, "w+") as f:
+                        # Python parses .py as UTF-8 regardless of locale, so the
+                        # file has to be written as UTF-8. Without this the ANSI
+                        # code page on a Windows worker re-encodes every
+                        # non-ASCII literal and the import dies on a SyntaxError.
+                        with open(fullpath, "w+", encoding="utf-8") as f:
                             f.write(r)
                         return spec_from_file_location(name, fullpath)
                 except urllib.error.HTTPError as e:

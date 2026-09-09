@@ -1,0 +1,1 @@
+ALTER TABLE native_trigger ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT true;

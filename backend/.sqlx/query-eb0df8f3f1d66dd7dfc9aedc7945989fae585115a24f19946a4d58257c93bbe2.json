@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT n.script_path AS \"script_path!\", n.script_hash, n.job_id AS \"job_id!\"\n                 FROM dbt_node n\n                WHERE n.workspace_id = $1 AND n.asset_path = ANY($2)\n                  -- The run's snapshot, or the deployed graph when that job stored\n                  -- none -- a build pins only if it wrote one.\n                  AND n.job_id = CASE WHEN $5::uuid IS NOT NULL AND EXISTS (\n                                        SELECT 1 FROM dbt_graph_snapshot g\n                                         WHERE g.workspace_id = $1 AND g.job_id = $5)\n                                      THEN $5::uuid\n                                      ELSE '00000000-0000-0000-0000-000000000000'::uuid END\n                  -- The gate, re-decided for every project the walk reaches. That\n                  -- is what resolving owners in a loop is for: being entitled to\n                  -- one project is not being entitled to the one that declares a\n                  -- relation it hands over.\n                  AND ( $6\n                        OR n.script_path = ANY($7)\n                        OR EXISTS ( SELECT 1 FROM unnest($8::text[]) AS pfx\n                                     WHERE n.script_path = pfx\n                                        OR left(n.script_path, length(pfx) + 1) = pfx || '/' ) )\n                  AND CASE\n                        -- Pinned: which version comes from a job this caller was\n                        -- already granted, so `script` does not decide THAT -- but\n                        -- it still decides whether the project may be read, the\n                        -- same second gate `script_visible` is on the graph. Being\n                        -- entitled to a run is not being entitled to the SQL\n                        -- behind it, and column lineage is that SQL's shape. A\n                        -- version-less row is exempt because it is an editor\n                        -- buffer, which has no `script` row to ask and reaches\n                        -- this only through the parse job that wrote it.\n                        --\n                        -- One project answers, so a pinned trace never crosses\n                        -- into another: neither does the graph it annotates.\n                        WHEN $4::text IS NOT NULL\n                          THEN n.script_path = $4 AND n.script_hash IS NOT DISTINCT FROM $3::bigint\n                               AND ($3::bigint IS NULL OR EXISTS (\n                                     SELECT 1 FROM script sc\n                                      WHERE sc.workspace_id = $1 AND sc.path = n.script_path\n                                        AND sc.hash = $3))\n                        -- A named version: the deployed one an editor is drawing.\n                        -- `script` is read under RLS, so this is the visibility\n                        -- check as well as the existence one. A hash names one\n                        -- script row, so this arm answers for one project too —\n                        -- and deliberately: a pin says which stored graph is on\n                        -- screen, and another project's live graph is not it.\n                        WHEN $3::bigint IS NOT NULL\n                          THEN n.script_hash = $3 AND EXISTS (\n                                 SELECT 1 FROM script sc\n                                  WHERE sc.workspace_id = $1 AND sc.path = n.script_path\n                                    AND sc.hash = $3)\n                        -- Otherwise the version deployed now: an older one's rows\n                        -- outlive it in `dbt_node` until the sweep, and describe a\n                        -- project that is no longer what runs. `language` narrows\n                        -- it the way the graph's own resolution does, so a path\n                        -- that has since become a script of another kind draws and\n                        -- explains the same version rather than disagreeing. Read\n                        -- under RLS, so a project the caller cannot see resolves\n                        -- to NULL and matches nothing.\n                        ELSE n.script_hash = (\n                               SELECT sc.hash FROM script sc\n                                WHERE sc.workspace_id = $1 AND sc.path = n.script_path\n                                  AND sc.language = 'dbt'\n                                  AND sc.deleted = false AND sc.archived = false\n                                ORDER BY sc.created_at DESC LIMIT 1)\n                      END",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "script_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "script_hash",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "job_id!",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray",
+        "Int8",
+        "Text",
+        "Uuid",
+        "Bool",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "eb0df8f3f1d66dd7dfc9aedc7945989fae585115a24f19946a4d58257c93bbe2"
+}

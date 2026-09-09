@@ -7,7 +7,7 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import AssetNode from './AssetNode.svelte'
 	import type { FlowGraphAssetContext } from '$lib/components/flows/types'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { assetEq } from '$lib/components/assets/lib'
 	import { getNodeColorClasses } from '../../util'
 
@@ -24,15 +24,17 @@
 		data.overflowedAssets.some((asset) => assetEq(flowGraphAssetsCtx?.val.selectedAsset, asset))
 	)
 
-	let wasOpenedBecauseOfExternalSelected = false
+	// Open while a sibling asset node is hovered and one of the hidden assets is the same asset.
+	let openedByHover = $state(false)
 	$effect(() => {
-		if (includesSelected && !isOpen) {
-			isOpen = true
-			wasOpenedBecauseOfExternalSelected = true
-		}
-		if (wasOpenedBecauseOfExternalSelected && !includesSelected) {
+		if (includesSelected) {
+			if (!untrack(() => isOpen)) {
+				isOpen = true
+				openedByHover = true
+			}
+		} else if (untrack(() => openedByHover)) {
 			isOpen = false
-			wasOpenedBecauseOfExternalSelected = false
+			openedByHover = false
 		}
 	})
 	const colors = $derived(getNodeColorClasses(undefined, includesSelected))
@@ -41,9 +43,17 @@
 <NodeWrapper nodeId={id}>
 	{#snippet children({ darkMode })}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<!-- A hover-opened popover must stay passive. It is rendered in place, so it can
+		     land on top of the hovered asset node: taking the pointer there ends that hover,
+		     which closes the popover and re-opens it as soon as the cursor is back on the
+		     node. Moving focus into it would likewise steal focus from wherever the user is. -->
 		<Popover
 			portal={null}
 			usePointerDownOutside
+			disableFocusTrap
+			openFocus={null}
+			closeFocus={null}
+			contentClasses={openedByHover ? 'pointer-events-none' : ''}
 			bind:isOpen
 			class={twMerge(
 				'!w-full text-2xs font-normal h-6 pr-0.5 flex justify-center items-center rounded-md text-primary drop-shadow-base',
@@ -55,21 +65,17 @@
 			placement="top"
 		>
 			{#snippet trigger()}
-					
-					+{data.overflowedAssets.length}
-				
-					{/snippet}
+				+{data.overflowedAssets.length}
+			{/snippet}
 			{#snippet content()}
-					
-					<ul>
-						{#each data.overflowedAssets as asset}
-							<li class="w-48">
-								<AssetNode data={{ asset, displayedAccessType: data.displayedAccessType }} />
-							</li>
-						{/each}
-					</ul>
-				
-					{/snippet}
+				<ul>
+					{#each data.overflowedAssets as asset}
+						<li class="w-48">
+							<AssetNode data={{ asset, displayedAccessType: data.displayedAccessType }} />
+						</li>
+					{/each}
+				</ul>
+			{/snippet}
 		</Popover>
 	{/snippet}
 </NodeWrapper>

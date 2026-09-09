@@ -12,10 +12,10 @@ use windmill_api_auth::{
 };
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
-use windmill_dep_map::lock_hash::record_lock_hashes_for_workspace;
 use windmill_common::usernames::{get_instance_username_or_create_pending, VALID_USERNAME};
 use windmill_common::webhook::WebhookShared;
 use windmill_common::{BASE_URL, DB};
+use windmill_dep_map::lock_hash::record_lock_hashes_for_workspace;
 
 use axum::{
     extract::{Extension, Path, Query},
@@ -151,6 +151,9 @@ pub fn workspaced_service() -> Router {
         )
         .route("/edit_deploy_ui_config", post(edit_deploy_ui_config))
         .route("/edit_default_app", post(edit_default_app))
+        .route("/edit_guest_access", post(edit_guest_access))
+        .route("/edit_guest_jwt_key", post(edit_guest_jwt_key))
+        .route("/guest_usage", get(get_guest_usage))
         .route("/default_app", get(get_default_app))
         .route(
             "/default_scripts",
@@ -317,6 +320,17 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_app_execution_limit_per_minute: Option<i32>,
     pub error_handler_fallback_to_instance_alerts: bool,
+    /// Whether this workspace admits guest sessions (`ExecutionMode::Guest`). An app's
+    /// own `execution_mode: guest` is inert while this is off.
+    pub guest_access_enabled: bool,
+    /// The key a guest JWT is verified against: a PEM public key, or a JWKS URL, at most
+    /// one (a DB CHECK enforces it). Public material, not a secret, so it is admin-
+    /// readable here. `None`/`None` falls back to the instance issuer (`JWT_EXT_JWKS_URL`)
+    /// off cloud, or accepts no JWT guest if none is set; `guest_access_enabled` is the switch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guest_jwt_public_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guest_jwt_jwks_url: Option<String>,
 }
 
 /// Subset of `WorkspaceSettings` that is safe to return to any workspace
@@ -339,6 +353,9 @@ pub struct WorkspacePublicSettings {
     pub teams_team_guid: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mute_critical_alerts: Option<bool>,
+    /// Not sensitive, and the app editor needs it to say whether the guest rung is
+    /// live -- an app can be set to `guest` while the workspace has guests off.
+    pub guest_access_enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deploy_ui: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1073,7 +1090,10 @@ async fn get_settings(
             error_handler,
             success_handler,
             public_app_execution_limit_per_minute,
-            error_handler_fallback_to_instance_alerts
+            error_handler_fallback_to_instance_alerts,
+            guest_access_enabled,
+            guest_jwt_public_key,
+            guest_jwt_jwks_url
         FROM
             workspace_settings
         WHERE
@@ -1112,6 +1132,7 @@ async fn get_public_settings(
             teams_team_name,
             teams_team_guid,
             mute_critical_alerts,
+            guest_access_enabled,
             deploy_ui,
             large_file_storage,
             datatable
@@ -1130,6 +1151,18 @@ async fn get_public_settings(
     tx.commit().await?;
 
     Ok(Json(settings))
+}
+
+/// The instance's standing against the guest allowance: counts only, no emails, so any
+/// member may read it. Instance-wide, since a licence is per instance and one email is
+/// one guest however many workspaces it opens; the settings card and the editor's
+/// Guests rung show it so nobody discovers the cap from a visitor's complaint.
+async fn get_guest_usage(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(_w_id): Path<String>,
+) -> JsonResult<windmill_common::workspaces::GuestUsage> {
+    Ok(Json(windmill_common::workspaces::guest_usage(&db).await?))
 }
 
 #[derive(Deserialize)]
@@ -3491,6 +3524,9 @@ async fn edit_datatable_config(
     // Migrations opt-in is owned by the enable/disable endpoints, not this config
     // form: preserve each existing data table's flag, and default brand-new data
     // tables to enabled.
+    // Counted here rather than after the write because this is where a rename is
+    // still distinguishable from a creation; emitted once the commit lands.
+    let mut created_substrates: Vec<&'static str> = Vec::new();
     for (name, dt) in new_config.settings.datatables.iter_mut() {
         let lookup = rename_src
             .get(name.as_str())
@@ -3498,7 +3534,15 @@ async fn edit_datatable_config(
             .unwrap_or(name.as_str());
         dt.migrations_enabled = match old_datatables.get(lookup) {
             Some(old) => old.migrations_enabled,
-            None => Some(true),
+            None => {
+                // Keyed by how the substrate is serialized into `workspace_settings`,
+                // so these line up with the `datatable_configured` adoption counts.
+                created_substrates.push(match dt.database.resource_type {
+                    DataTableCatalogResourceType::Instance => "instance",
+                    DataTableCatalogResourceType::Postgresql => "postgresql",
+                });
+                Some(true)
+            }
         };
     }
 
@@ -3555,6 +3599,10 @@ async fn edit_datatable_config(
         .await?;
 
     tx.commit().await?;
+
+    for substrate in created_substrates {
+        windmill_common::feature_usage::log_feature_usage("datatable", "created", substrate);
+    }
 
     crate::datatable_migrations::record_datatable_cascade_deployments(
         &authed,
@@ -3938,6 +3986,7 @@ async fn edit_git_sync_config(
                 clear_client_supplied_auto_pull_state(ap);
             }
             repo.open_pr_error = None;
+            repo.credential = None;
         }
         reject_parent_only_git_sync_settings_on_fork(
             &db,
@@ -4038,6 +4087,7 @@ async fn edit_git_sync_config(
                     continue;
                 };
                 repo.open_pr_error = old.open_pr_error.clone();
+                repo.credential = old.credential.clone();
                 if let (Some(new_ap), Some(old_ap)) =
                     (repo.auto_pull.as_mut(), old.auto_pull.as_ref())
                 {
@@ -4083,6 +4133,7 @@ async fn edit_git_sync_config(
             .flatten()
             .and_then(|v| serde_json::from_value(v).ok());
             let removed_webhooks: Vec<(String, i64)> = existing
+                .as_ref()
                 .map(|e| {
                     e.repositories
                         .iter()
@@ -4116,6 +4167,19 @@ async fn edit_git_sync_config(
             // `sync_repo_webhook` writes back the webhook fields it changes itself:
             // the remote hook and the record of it have to move together, so
             // persisting them out here would let one land without the other.
+            // Before the webhook reconcile, which decides whether this repo can have
+            // one from the credential this records. Also puts a short-lived or
+            // under-scoped token in front of the operator while they are still on the
+            // settings page, rather than when it expires.
+            if let Err(e) = windmill_common::git_sync_ee::refresh_git_credential_status(
+                &db,
+                &w_id,
+                &repo.git_repo_resource_path,
+            )
+            .await
+            {
+                tracing::warn!("git credential check error: {}", e);
+            }
             if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await
             {
                 tracing::warn!("git auto-pull: webhook sync error: {}", e);
@@ -4169,6 +4233,7 @@ async fn edit_git_sync_repository(
         clear_client_supplied_auto_pull_state(ap);
     }
     new_config.repository.open_pr_error = None;
+    new_config.repository.credential = None;
     reject_parent_only_git_sync_settings_on_fork(
         &db,
         &w_id,
@@ -4293,6 +4358,7 @@ async fn edit_git_sync_repository(
         // from the UI cannot revert what the poller/webhook layer wrote.
         let mut updated = new_config.repository;
         updated.open_pr_error = existing_repo.open_pr_error.clone();
+        updated.credential = existing_repo.credential.clone();
         match (updated.auto_pull.as_mut(), existing_repo.auto_pull.as_ref()) {
             (Some(new_ap), Some(old_ap)) => {
                 new_ap.last_synced_sha = old_ap.last_synced_sha.clone();
@@ -4350,6 +4416,15 @@ async fn edit_git_sync_repository(
         .iter_mut()
         .find(|r| r.git_repo_resource_path == new_config.git_repo_resource_path)
     {
+        if let Err(e) = windmill_common::git_sync_ee::refresh_git_credential_status(
+            &db,
+            &w_id,
+            &repo.git_repo_resource_path,
+        )
+        .await
+        {
+            tracing::warn!("git credential check error: {}", e);
+        }
         if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await {
             tracing::warn!("git auto-pull: webhook sync error: {}", e);
         }
@@ -4489,6 +4564,10 @@ async fn delete_git_sync_repository(
         }
     }
 
+    // The stored credential is deliberately left alone: it belongs to the git
+    // repository resource, which this endpoint does not delete, and the resource
+    // still authenticates with it for connection tests and commit lookups.
+
     // Trigger git sync for repository deletion
     handle_deployment_metadata(
         &authed.email,
@@ -4593,6 +4672,118 @@ async fn edit_default_app(
         "Setting a workspace default app is only available on Windmill Enterprise Edition"
             .to_string(),
     ));
+}
+
+#[derive(Deserialize)]
+struct EditGuestAccess {
+    guest_access_enabled: bool,
+}
+
+/// Turn guest sessions on or off for this workspace. Off by default, and off is
+/// authoritative and immediate: the switch is re-read where a guest session is
+/// minted (`guest_app_admits`) and at the auth door on every guest request, so an app
+/// whose policy already says `guest` — pushed by git-sync, say — closes to guests on
+/// the next request, sessions already issued included.
+async fn edit_guest_access(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(EditGuestAccess { guest_access_enabled }): Json<EditGuestAccess>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    if guest_access_enabled {
+        windmill_common::workspaces::require_guest_support()?;
+    }
+
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "UPDATE workspace_settings SET guest_access_enabled = $1 WHERE workspace_id = $2",
+        guest_access_enabled,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_guest_access",
+        ActionKind::Update,
+        &w_id,
+        Some(&guest_access_enabled.to_string()),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!(
+        "Guest access set to {guest_access_enabled} for workspace {w_id}"
+    ))
+}
+
+#[derive(Deserialize)]
+struct EditGuestJwtKey {
+    /// A PEM public key (RS or ES family), or a JWKS URL, at most one. Both empty clears the
+    /// workspace key; verification then falls back to the instance issuer (`JWT_EXT_JWKS_URL`)
+    /// off cloud, or refuses the JWT if none is set. The off-switch is `guest_access_enabled`.
+    public_key: Option<String>,
+    jwks_url: Option<String>,
+}
+
+/// Configure the key a guest JWT (`jwt_guest_`) is verified against for this workspace.
+/// Workspace-admin gated, like the guest switch: guests are free up to the instance
+/// allowance on any plan, so configuring their key needs no licence. The key is
+/// validated before it is stored so a typo is refused here, not silently on every guest
+/// later: a PEM must parse as an RS/ES public key (HS* has no PEM form and is
+/// unreachable), and a JWKS URL must be fetchable and hold at least one usable signing key.
+async fn edit_guest_jwt_key(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(EditGuestJwtKey { public_key, jwks_url }): Json<EditGuestJwtKey>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    let public_key = public_key.filter(|s| !s.trim().is_empty());
+    let jwks_url = jwks_url.filter(|s| !s.trim().is_empty());
+    if public_key.is_some() && jwks_url.is_some() {
+        return Err(Error::BadRequest(
+            "Set a PEM public key or a JWKS URL, not both".to_string(),
+        ));
+    }
+    // Clearing stays allowed wherever guests are: a key nobody can use is still worth
+    // removing.
+    if public_key.is_some() || jwks_url.is_some() {
+        windmill_common::workspaces::require_guest_support()?;
+    }
+    if let Some(pem) = public_key.as_deref() {
+        windmill_common::guest_jwt::decoding_key_from_pem(pem)?;
+    }
+    if let Some(url) = jwks_url.as_deref() {
+        windmill_common::guest_jwt::fetch_jwks(url).await?;
+    }
+
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "UPDATE workspace_settings SET guest_jwt_public_key = $1, guest_jwt_jwks_url = $2 WHERE workspace_id = $3",
+        public_key,
+        jwks_url,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_guest_jwt_key",
+        ActionKind::Update,
+        &w_id,
+        None,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!("Guest JWT key updated for workspace {w_id}"))
 }
 
 async fn edit_default_scripts(
@@ -6154,9 +6345,10 @@ async fn update_workspace_settings(
             // Auto-pull and fork PRs are parent-owned and must not be inherited:
             // the fork would otherwise carry the parent's webhook id (turning off
             // auto-pull on the fork would delete the parent's webhook). A fork
-            // still inherits the push-direction config and the installation.
-            // Repo → fork sync is driven by the parent's webhook/poller
-            // (`sync_forks`), which routes the fork's `wm-fork/**` branch into it.
+            // still inherits the push-direction config, the installation, and the
+            // recorded credential status, which describes the repository rather
+            // than belonging to either workspace and would otherwise leave the
+            // fork unqualified for managed features until its first check.
             r.auto_pull = None;
             r.fork_open_prs = false;
             r.open_pr_error = None;
@@ -6475,7 +6667,7 @@ async fn clone_scripts(
 }
 
 /// The parsed dbt graph a deployed script carries: its models, their SQL and
-/// tests, and the `ref()` lineage between them.
+/// tests, and the `ref()` and column-level lineage between them.
 ///
 /// Keyed on (workspace_id, script_path, script_hash), and the fork keeps every
 /// script's hash, so each row moves across as itself.
@@ -6493,11 +6685,11 @@ async fn clone_dbt_graph(
         "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,
             resource_type, name, asset_path, materialized, materialize_strategy, unique_key,
             tags, description, test_kind, test_column, test_args, severity, attached_node,
-            columns, freshness, raw_code, original_file_path, ingested_at)
+            columns, column_schema, freshness, raw_code, original_file_path, ingested_at)
          SELECT $2, script_path, script_hash, job_id, unique_id,
             resource_type, name, asset_path, materialized, materialize_strategy, unique_key,
             tags, description, test_kind, test_column, test_args, severity, attached_node,
-            columns, freshness, raw_code, original_file_path, ingested_at
+            columns, column_schema, freshness, raw_code, original_file_path, ingested_at
          FROM dbt_node
          WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
         source_workspace_id,
@@ -6511,6 +6703,24 @@ async fn clone_dbt_graph(
          SELECT $2, script_path, script_hash, job_id, parent_unique_id, child_unique_id,
             ingested_at
          FROM dbt_edge
+         WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
+        source_workspace_id,
+        target_workspace_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    // Column lineage travels with the rest of the graph, and it has to: the
+    // snapshot's digest covers it, so a fork missing these rows recomputes the
+    // digest the source stored, matches, and stores nothing — leaving the
+    // lineage gone until someone redeploys, which is the failure this whole
+    // function exists to prevent.
+    sqlx::query!(
+        "INSERT INTO dbt_column_edge (workspace_id, script_path, script_hash, job_id,
+            parent_unique_id, parent_column, child_unique_id, child_column, lineage_kind,
+            ingested_at)
+         SELECT $2, script_path, script_hash, job_id, parent_unique_id, parent_column,
+            child_unique_id, child_column, lineage_kind, ingested_at
+         FROM dbt_column_edge
          WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
         source_workspace_id,
         target_workspace_id
@@ -11106,6 +11316,7 @@ async fn load_workspace_authed(
             token_prefix: base_authed.token_prefix.clone(),
             read_only: base_authed.read_only,
             job_id: base_authed.job_id,
+            credential_expiry: base_authed.credential_expiry,
         });
     };
 
@@ -11138,6 +11349,7 @@ async fn load_workspace_authed(
         token_prefix: base_authed.token_prefix.clone(),
         read_only: base_authed.read_only,
         job_id: base_authed.job_id,
+        credential_expiry: base_authed.credential_expiry,
     })
 }
 

@@ -1,19 +1,28 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { ResourceService, WorkspaceService, type Resource, type ResourceType } from '$lib/gen'
+	import {
+		GitSyncService,
+		ResourceService,
+		WorkspaceService,
+		type Resource,
+		type ResourceType
+	} from '$lib/gen'
 	import { canWrite } from '$lib/utils'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
 	import ResourceForm from './ResourceForm.svelte'
+	import ReplaceGitCredential from './git_sync/ReplaceGitCredential.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { resource } from 'runed'
 	import { getUserExt } from '$lib/user'
 	import type { UserExt } from '$lib/stores'
 	import { UserDraft, draftValuesEqual, type UserDraftHandle } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import { onUserInput } from '$lib/userDraftEditGate'
 
 	interface Props {
 		canSave?: boolean
@@ -24,6 +33,9 @@
 		defaultValues?: Record<string, any> | undefined
 		workspace?: string | undefined
 		selected?: string | undefined
+		/** Show the value as JSON rather than as the resource type's form. Bindable so a caller can
+		 *  choose the view a given resource opens on, and the in-form toggle still works. */
+		viewJsonSchema?: boolean
 		/** Notifies the parent drawer whether a local draft for the selected
 		 * workspace diverges from the deployed baseline, so it can show the
 		 * "unsaved changes" banner below its header. */
@@ -43,6 +55,7 @@
 		defaultValues = undefined,
 		workspace = undefined,
 		selected: selectedProp = $bindable(),
+		viewJsonSchema = $bindable(),
 		onDraftStateChange,
 		onCanWriteChange
 	}: Props = $props()
@@ -104,9 +117,57 @@
 		workspaceSpecs.push({ ws, defaultValue })
 	}
 
+	// Gated per workspace until the user puts something into that workspace's
+	// form (see `onUserInput`): the autosave stays suspended and the deployed
+	// baseline absorbs whatever the form settles on. A workspace opened ON a
+	// saved draft keeps its baseline — that divergence is the user's own.
+	let userEdited: Record<string, boolean> = $state({})
+	let openedOnDraft: Record<string, boolean> = $state({})
+	const suspendedWorkspaces = new Set<string>()
+
+	function setGated(ws: string, gated: boolean): void {
+		if (!initialPath) return
+		if (gated === suspendedWorkspaces.has(ws)) return
+		if (gated) {
+			UserDraft.stopSync('resource', initialPath, { workspace: ws })
+			suspendedWorkspaces.add(ws)
+		} else {
+			UserDraft.restartSync('resource', initialPath, { workspace: ws })
+			suspendedWorkspaces.delete(ws)
+		}
+	}
+
+	// Nothing counts until this workspace's form is on screen, and while the
+	// schema is still arriving a precursor alone does not: it would open the gate
+	// just in time for the schema's materialized values to POST. `Path`, the
+	// labels and the description render above that skeleton and stay editable
+	// throughout, so a real value event still counts and keeps the edit.
+	onUserInput((kind) => {
+		if (!selected || !(selected in states)) return
+		if (kind === 'precursor' && loadingSchema) return
+		userEdited[selected] = true
+	})
+
+	$effect(() => {
+		const wss = Object.keys(states)
+		const edited = { ...userEdited }
+		const onDraft = { ...openedOnDraft }
+		untrack(() => {
+			// A workspace opened on a saved draft is never suspended — there is no
+			// phantom to prevent, and a write made while suspended is dropped for
+			// good. Without `onDraft` here this effect re-suspends it the moment its
+			// handle appears, undoing the decision made when it was opened.
+			for (const ws of wss) setGated(ws, !edited[ws] && !onDraft[ws])
+		})
+	})
+
+	// `stopSync` must be paired or the key stays unsynced for the session.
+	onDestroy(() => {
+		for (const ws of [...suspendedWorkspaces]) setGated(ws, false)
+	})
+
 	let isValid = $state(true)
 	let jsonError = $state('')
-	let viewJsonSchema = $state(false)
 	let perWsValid: Record<string, boolean> = $state({})
 
 	const deployToResource = resource(
@@ -140,6 +201,40 @@
 	let loadingSchema = $derived(resourceTypeResource.loading)
 
 	let current = $derived(selected ? states[selected]?.draft : undefined)
+	// The saved URL, not the draft's: a credential is bound to the repository it
+	// is issued for, so binding one to an edit that has not landed yet would tie
+	// it to something the resource does not point at.
+	let deployedUrl = $derived(
+		selected ? ((fetchedResources[selected]?.value as any)?.url as string | undefined) : undefined
+	)
+	// The deployed path, for the same reason as the deployed URL: the server
+	// answers about what is stored, and an unsaved rename names nothing yet.
+	let deployedPath = $derived(selected ? (initialStates[selected]?.path ?? initialPath) : undefined)
+	// Asked of the server rather than read off the resource: the resource is
+	// client-editable, exported and copied into forks, so nothing written on it
+	// stays true. Re-asked when the saved URL moves, since that is a different
+	// repository. The answer is for admins, who are the only ones who could act
+	// on it, so nobody else asks.
+	const credentialOrigin = resource(
+		[
+			() => selected,
+			() => deployedPath,
+			() => deployedUrl,
+			() => resource_type,
+			() => (selected ? (perWsUser[selected] ?? $userStore)?.is_admin : undefined)
+		],
+		async ([ws, path, _url, type, admin]) =>
+			ws && path && type === 'git_repository' && admin
+				? await GitSyncService.getCredentialOrigin({ workspace: ws, path }).catch(() => undefined)
+				: undefined
+	)
+	// Only a credential this workspace holds is its to replace: a fork borrows
+	// its ancestor's, and storing a replacement here would split it in two.
+	let holdsCredential = $derived(credentialOrigin.current?.origin === 'held')
+	// Only an unsaved *URL* blocks replacing the token, not any unsaved change:
+	// opening the drawer materialises schema defaults (`folder: ""`), so a whole-
+	// resource dirty check would disable it the moment the drawer opens.
+	let urlDirty = $derived(!!deployedUrl && current?.args?.url !== deployedUrl)
 	let resourceToEdit: Resource | undefined = $derived(
 		selected ? fetchedResources[selected] : undefined
 	)
@@ -242,6 +337,13 @@
 				}
 				// Open with the saved draft if present, else the deployed.
 				const s: ResourceState = savedDraftState ?? deployedState
+				openedOnDraft[ws] = !!savedDraftState
+				// Gate BEFORE the handle is acquired: `stopSync` queues on a
+				// not-yet-live entry, and the form can settle before the effect
+				// above gets a chance to run. Only worth doing when no draft exists
+				// yet — where one does, there is no phantom to prevent and
+				// suspending could only drop a write.
+				if (!savedDraftState) setGated(ws, true)
 				ensureHandle(ws, s)
 				initialStates[ws] = structuredClone(deployedState)
 				// Draft-only paths (`no_deployed`) have no row — saving must
@@ -253,6 +355,47 @@
 					resource_type = r.resource_type
 				}
 			})
+		})
+	})
+
+	/** The schema can only ever write `args`. `path`, `labels`, `description` and
+	 * `wsSpecific` are beyond its reach, so a difference in one of those is the
+	 * user's — whatever event did or didn't reach the gate. Removing a label runs
+	 * a click handler and emits nothing native, and would otherwise be absorbed. */
+	function differsOutsideArgs(a: ResourceState, b: ResourceState | undefined): boolean {
+		return !!b && !draftValuesEqual({ ...a, args: null }, { ...b, args: null })
+	}
+
+	// Absorb the form's settling writes into the deployed baseline while the
+	// selected workspace is gated, so they show up neither as the "unsaved
+	// changes" banner nor, once `discardIf` reads the baseline, as a draft.
+	// Only the selected workspace has a form rendered against it.
+	$effect(() => {
+		const ws = selected
+		if (!ws || !initialPath) return
+		if (userEdited[ws] || openedOnDraft[ws]) return
+		// `$state.snapshot` deep-reads, so nested `args` mutations re-run this.
+		const settled = states[ws]?.draft
+			? ($state.snapshot(states[ws].draft) as ResourceState)
+			: undefined
+		untrack(() => {
+			if (!settled) return
+			if (differsOutsideArgs(settled, initialStates[ws])) {
+				// An edit, not settling. This runs AFTER the write landed, and a write
+				// made while suspended is swallowed for good (the mirror advances its
+				// baseline either way), so un-suspend and push the value here rather
+				// than leaving it to whichever effect happens to run next.
+				userEdited[ws] = true
+				setGated(ws, false)
+				void UserDraftDbSyncer.save({
+					workspace: ws,
+					itemKind: 'resource',
+					path: initialPath,
+					value: settled
+				})
+				return
+			}
+			if (!draftValuesEqual(settled, initialStates[ws])) initialStates[ws] = settled
 		})
 	})
 
@@ -289,6 +432,13 @@
 	}
 	export function discardLocalDraft(): void {
 		if (!selected) return
+		// Back to the deployed value with nothing of the user's left in it, so
+		// the gate closes again — otherwise the form settles on the schema's
+		// values a second time and the discarded draft comes straight back.
+		// `discard` POSTs the delete itself, so suspending first is safe.
+		openedOnDraft[selected] = false
+		userEdited[selected] = false
+		setGated(selected, true)
 		UserDraft.discard('resource', initialPath ?? '', initialStates[selected], {
 			workspace: selected
 		})
@@ -386,6 +536,25 @@
 			</Alert>
 		{/if}
 
+		{#if holdsCredential && selected}
+			<Alert type="info" title="Windmill holds this repository's access token">
+				<div class="flex flex-col items-start gap-2">
+					<div>
+						The URL carries no credential. Windmill stores the token and renews it before it
+						expires.
+						{#if urlDirty}
+							Save your URL change to replace the token.
+						{/if}
+					</div>
+					<ReplaceGitCredential
+						workspace={selected}
+						repoUrl={deployedUrl ?? ''}
+						disabled={urlDirty || !deployedUrl}
+					/>
+				</div>
+			</Alert>
+		{/if}
+
 		{#if current}
 			{#key current}
 				<ResourceForm
@@ -395,7 +564,7 @@
 					bind:args={current.args}
 					bind:wsSpecific={current.wsSpecific}
 					bind:isValid
-					bind:viewJsonSchema
+					bind:viewJsonSchema={() => viewJsonSchema ?? false, (v) => (viewJsonSchema = v)}
 					bind:jsonError
 					{initialPath}
 					{hidePath}

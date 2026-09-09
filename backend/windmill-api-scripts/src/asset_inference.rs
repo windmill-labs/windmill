@@ -78,20 +78,26 @@ fn comment_prefix(lang: &ScriptLang) -> Option<&'static str> {
         | ScriptLang::Bun
         | ScriptLang::Bunnative
         | ScriptLang::Nativets
-        | ScriptLang::Go => Some("//"),
+        | ScriptLang::Go
+        | ScriptLang::Php => Some("//"),
         _ => None,
     }
 }
 
 /// Mirror of the frontend `parseVolumeAnnotations` (infer.ts): `<prefix>
 /// volume: <path>` lines in the leading comment block, each an `rw` volume
-/// asset. Scanning stops at the first non-comment line (blank lines are
-/// skipped), exactly like the frontend.
+/// asset. Scanning stops at the first non-comment line; blank lines and PHP's
+/// opening tag line are skipped whole (the tag may carry code, so an annotation
+/// must sit on its own line below it), exactly like the frontend.
 fn parse_volume_annotations(content: &str, prefix: &str) -> Vec<AssetWithAltAccessType> {
     let mut volumes = Vec::new();
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.is_empty() {
+        if trimmed.is_empty()
+            || trimmed
+                .get(..5)
+                .is_some_and(|p| p.eq_ignore_ascii_case("<?php"))
+        {
             continue;
         }
         let Some(after) = trimmed.strip_prefix(prefix) else {
@@ -257,5 +263,14 @@ mod tests {
         assert_eq!(vols.len(), 1);
         assert_eq!(vols[0].path, "my_vol");
         assert_eq!(vols[0].access_type, Some(AssetUsageAccessType::RW));
+    }
+
+    #[test]
+    fn php_volume_annotations_survive_the_open_tag() {
+        let content = "<?php\n\n// volume: my_vol\nfunction main() {}\n";
+        let got = effective_script_assets(&ScriptLang::Php, content, None).unwrap();
+        let vols: Vec<_> = got.iter().filter(|a| a.kind == AssetKind::Volume).collect();
+        assert_eq!(vols.len(), 1);
+        assert_eq!(vols[0].path, "my_vol");
     }
 }

@@ -14,7 +14,7 @@ use windmill_common::{
 };
 use windmill_queue::MiniPulledJob;
 
-use windmill_parser::Typ;
+use windmill_parser::{MainArgSignature, Typ};
 use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
@@ -39,6 +39,43 @@ lazy_static::lazy_static! {
 }
 
 const COMPOSER_LOCK_SPLIT: &str = "\nLOCK\n";
+
+static PHP_PARSER_SLOT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+
+pub(crate) async fn parse_php_signature(
+    code: &str,
+    main_override: Option<String>,
+) -> Result<MainArgSignature> {
+    parse_php_signature_with_slot(code, main_override, &PHP_PARSER_SLOT).await
+}
+
+async fn parse_php_signature_with_slot(
+    code: &str,
+    main_override: Option<String>,
+    slot: &'static tokio::sync::Semaphore,
+) -> Result<MainArgSignature> {
+    let acquire = slot.acquire();
+    tokio::pin!(acquire);
+    // Retain the acquisition across the warning to preserve its FIFO queue position.
+    let permit = tokio::select! {
+        permit = &mut acquire => permit,
+        _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+            tracing::warn!("Waiting over a second for PHP signature parser capacity");
+            acquire.await
+        }
+    }
+    .map_err(to_anyhow)?;
+    let code = code.to_owned();
+    tokio::task::spawn_blocking(move || {
+        // Parsing walks the entire AST. Keep its stack off async workers and retain
+        // the process-wide CPU limit even if the awaiting job is cancelled.
+        let _permit = permit;
+        windmill_parser_php::parse_php_signature(&code, main_override)
+    })
+    .await
+    .map_err(|e| error::Error::internal_err(format!("PHP signature parsing task failed: {e}")))?
+    .map_err(Into::into)
+}
 
 pub fn parse_php_imports(code: &str) -> anyhow::Result<Option<String>> {
     let find_requirements = code
@@ -333,11 +370,9 @@ pub async fn handle_php_job(
     let main_override = job.script_entrypoint_override.as_deref();
 
     let write_wrapper_f = async {
-        let args = windmill_parser_php::parse_php_signature(
-            inner_content,
-            main_override.map(ToString::to_string),
-        )?
-        .args;
+        let args = parse_php_signature(inner_content, main_override.map(ToString::to_string))
+            .await?
+            .args;
 
         let args_to_include = args
             .iter()
@@ -490,4 +525,52 @@ try {{
     )
     .await?;
     read_result(job_dir, None).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_php_signature_with_slot;
+
+    #[test]
+    fn cancelled_parse_retains_slot_until_blocking_work_finishes() {
+        static SLOT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .max_blocking_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let blocker = runtime.spawn_blocking(move || {
+            started_tx.send(()).unwrap();
+            let _ = release_rx.recv();
+        });
+
+        runtime.block_on(async {
+            started_rx.await.unwrap();
+            let parse = tokio::spawn(parse_php_signature_with_slot(
+                "<?php function main() {}",
+                None,
+                &SLOT,
+            ));
+            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                while SLOT.available_permits() != 0 {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+
+            parse.abort();
+            assert!(parse.await.unwrap_err().is_cancelled());
+            assert!(SLOT.try_acquire().is_err());
+
+            release_tx.send(()).unwrap();
+            blocker.await.unwrap();
+            let _permit = tokio::time::timeout(std::time::Duration::from_secs(5), SLOT.acquire())
+                .await
+                .unwrap()
+                .unwrap();
+        });
+    }
 }

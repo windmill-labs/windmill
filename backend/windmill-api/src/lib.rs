@@ -378,6 +378,7 @@ async fn inject_agent_authed(
                 token_prefix: None,
                 read_only: false,
                 job_id: None,
+                credential_expiry: None,
             },
             job_id: None,
         });
@@ -953,6 +954,15 @@ pub async fn run_server(
                     #[cfg(feature = "enterprise")]
                     {
                         git_sync_oss::global_service()
+                    }
+
+                    #[cfg(not(feature = "enterprise"))]
+                    Router::new()
+                })
+                .nest("/w/{workspace_id}/git_sync", {
+                    #[cfg(feature = "enterprise")]
+                    {
+                        git_sync_oss::workspaced_git_sync_service()
                     }
 
                     #[cfg(not(feature = "enterprise"))]

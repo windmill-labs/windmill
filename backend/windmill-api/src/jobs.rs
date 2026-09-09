@@ -139,6 +139,7 @@ pub fn workspaced_service() -> Router {
         .route("/run_progress/{id}", get(get_run_progress))
         .route("/run_assets/{id}", get(list_run_assets))
         .route("/dbt_graph/{id}", get(get_dbt_run_graph))
+        .route("/dbt_column_lineage/{id}", get(get_dbt_run_column_lineage))
         .route("/dbt_resumable/{id}", get(get_dbt_resumable))
         .route(
             "/dbt_resumable_script/p/{*script_path}",
@@ -891,21 +892,27 @@ struct AssetProgress {
     error: Option<String>,
 }
 
-/// The asset graph as one run saw it. Pinning to a job needs the full job-read
-/// contract, so it lives on `require_job_read_access` here rather than as a
-/// parameter on `/assets/graph`. See docs/dbt-runtime.md.
-async fn get_dbt_run_graph(
-    authed: ApiAuthed,
-    OptViewToken(view_token): OptViewToken,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, job_id)): Path<(String, Uuid)>,
-    Query(q): Query<windmill_api_assets::GraphQuery>,
-) -> error::JsonResult<windmill_api_assets::AssetGraphResponse> {
+/// Which project version a dbt view pins to for this job, once the caller has
+/// been shown to be entitled to it.
+///
+/// `Ok(None)` is "answer unpinned", not a refusal: a job that stored no graph of
+/// its own — and one that has aged out of retention — is served the deployed
+/// version rather than an error, so a run page keeps drawing after the run is
+/// gone. Pinning needs the full job-read contract, which is why it lives on
+/// `require_job_read_access` here rather than as a parameter on `/assets/*`.
+/// See docs/dbt-runtime.md.
+async fn dbt_pinned_run(
+    authed: &ApiAuthed,
+    db: &DB,
+    user_db: &UserDB,
+    w_id: &str,
+    job_id: Uuid,
+    view_token: Option<&str>,
+) -> error::Result<Option<windmill_api_assets::PinnedRun>> {
     // The scope domain comes from the URL segment, so `/jobs` asks a scoped token
     // for `jobs:read` alone while the body returned is asset data. Both are
     // required: the job gate below reaches this run, this reaches assets at all.
-    check_scopes(&authed, || "assets:read".to_string())?;
+    check_scopes(authed, || "assets:read".to_string())?;
     let job = sqlx::query!(
         r#"SELECT created_by, runnable_path,
                 CASE WHEN kind = 'script' THEN runnable_id END AS script_hash,
@@ -918,40 +925,68 @@ async fn get_dbt_run_graph(
                            AND g.script_hash IS NULL) AS "editor_graph!"
            FROM v2_job WHERE id = $1 AND workspace_id = $2"#,
         job_id,
-        &w_id
+        w_id
     )
-    .fetch_optional(&db)
+    .fetch_optional(db)
     .await?;
-    // No such job: answer the unpinned graph rather than 404, so a run page whose
-    // job has aged out of retention still draws the deployed version instead of
-    // an error. Reachable only with `assets:read`, which is exactly what
-    // `/assets/graph` would have cost for the same answer.
+    // Unpinned rather than 404 for a job that is gone. Reachable only with
+    // `assets:read`, which is exactly what the unpinned route would have cost
+    // for the same answer.
     let Some(job) = job else {
-        return windmill_api_assets::asset_graph_for(&authed, &w_id, user_db, db, q, None).await;
+        return Ok(None);
     };
     require_job_read_access(
-        &db,
-        &user_db,
-        &authed,
-        &w_id,
+        db,
+        user_db,
+        authed,
+        w_id,
         &job_id,
         &job.created_by,
-        view_token.as_deref(),
+        view_token,
     )
     .await?;
     // A preview or flow job names no deployed version, so there is usually no
     // graph to pin to and the workspace one answers. The exception is a job that
     // parsed one itself, which is what the dbt editor's refresh is: its graph
     // belongs to that job alone and nothing else can reach it.
-    let pinned = job
+    Ok(job
         .runnable_path
         .filter(|_| job.script_hash.is_some() || job.editor_graph)
         .map(|path| windmill_api_assets::PinnedRun {
             job_id,
             script_path: path,
             script_hash: job.script_hash,
-        });
+        }))
+}
+
+/// The asset graph as one run saw it.
+async fn get_dbt_run_graph(
+    authed: ApiAuthed,
+    OptViewToken(view_token): OptViewToken,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+    Query(q): Query<windmill_api_assets::GraphQuery>,
+) -> error::JsonResult<windmill_api_assets::AssetGraphResponse> {
+    let pinned =
+        dbt_pinned_run(&authed, &db, &user_db, &w_id, job_id, view_token.as_deref()).await?;
     windmill_api_assets::asset_graph_for(&authed, &w_id, user_db, db, q, pinned).await
+}
+
+/// The column lineage a set of relations sits in as one run saw it — the same
+/// pin as `get_dbt_run_graph`, for the trace drawn beside a node of that graph.
+async fn get_dbt_run_column_lineage(
+    authed: ApiAuthed,
+    OptViewToken(view_token): OptViewToken,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+    Query(pairs): Query<Vec<(String, String)>>,
+) -> error::JsonResult<windmill_api_assets::ColumnLineageResponse> {
+    let q = windmill_api_assets::ColumnLineageQuery::from_query_pairs(pairs)?;
+    let pinned =
+        dbt_pinned_run(&authed, &db, &user_db, &w_id, job_id, view_token.as_deref()).await?;
+    windmill_api_assets::dbt_column_lineage_for(&authed, &w_id, user_db, q, pinned).await
 }
 
 /// Whether a `dbt retry` submitted by this caller would resume THIS run.
@@ -1594,7 +1629,11 @@ pub(crate) async fn require_job_read_access(
     // this token, and letting it reach any job merely visible to the viewer would
     // expose unrelated runs' results/logs. Stop at the launched-by-viewer grant.
     // NotFound (not PermissionDenied) so the untrusted app can't probe job existence.
-    if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
+    // A guest stops here too: it has no membership behind it, so a share token whose
+    // audience is the workspace's members must not read for it either.
+    if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref())
+        || windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref())
+    {
         return Err(Error::NotFound(format!("Job {job_id} not found")));
     }
 
@@ -6472,7 +6511,7 @@ pub async fn run_flow_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: RawWebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let (args, trigger_metadata) = get_args_and_trigger_metadata(
+    let (args, trigger_metadata) = match get_args_and_trigger_metadata(
         &db,
         &authed,
         RunnableId::from_flow_path(flow_path.to_path()),
@@ -6480,7 +6519,15 @@ pub async fn run_flow_by_path(
         &w_id,
         args,
     )
-    .await?;
+    .await?
+    {
+        WebhookRun::Run(args, trigger_metadata) => (args, trigger_metadata),
+        // 200 rather than an error: services drop a webhook that keeps failing, and disabling a
+        // trigger in Windmill must not cost it its registration.
+        WebhookRun::TriggerDisabled => {
+            return Ok((StatusCode::OK, NATIVE_TRIGGER_DISABLED_MSG.to_string()))
+        }
+    };
 
     let (uuid, _, _, _) = push_flow_job_by_path_into_queue(
         authed,
@@ -6905,7 +6952,7 @@ pub async fn run_script_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: RawWebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let (args, trigger_metadata) = get_args_and_trigger_metadata(
+    let (args, trigger_metadata) = match get_args_and_trigger_metadata(
         &db,
         &authed,
         RunnableId::from_script_path(script_path.to_path()),
@@ -6913,7 +6960,13 @@ pub async fn run_script_by_path(
         &w_id,
         args,
     )
-    .await?;
+    .await?
+    {
+        WebhookRun::Run(args, trigger_metadata) => (args, trigger_metadata),
+        WebhookRun::TriggerDisabled => {
+            return Ok((StatusCode::OK, NATIVE_TRIGGER_DISABLED_MSG.to_string()))
+        }
+    };
 
     let (uuid, _, _) = push_script_job_by_path_into_queue(
         authed,
@@ -6931,6 +6984,16 @@ pub async fn run_script_by_path(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
+/// What a webhook delivery resolved to: the arguments to run with, or nothing to run.
+pub enum WebhookRun {
+    Run(PushArgsOwned, Option<TriggerMetadata>),
+    /// The native trigger this delivery belongs to is disabled.
+    TriggerDisabled,
+}
+
+const NATIVE_TRIGGER_DISABLED_MSG: &str =
+    "This trigger is disabled in Windmill, so no job was created";
+
 #[allow(unused)]
 pub async fn get_args_and_trigger_metadata(
     db: &DB,
@@ -6939,14 +7002,21 @@ pub async fn get_args_and_trigger_metadata(
     run_query: &RunJobQuery,
     w_id: &str,
     args: RawWebhookArgs,
-) -> error::Result<(PushArgsOwned, Option<TriggerMetadata>)> {
+) -> error::Result<WebhookRun> {
     use windmill_common::triggers::TriggerMetadata;
 
     // Build trigger metadata if this is a native trigger request
     #[cfg(feature = "native_trigger")]
     let (trigger_metadata, native_args) = if let Some(service_name_str) = &run_query.service_name {
-        use crate::native_triggers::{prepare_native_trigger_args, ServiceName};
+        use crate::native_triggers::{
+            native_trigger_is_enabled, prepare_native_trigger_args, ServiceName,
+        };
         let service_name = ServiceName::try_from(service_name_str.to_owned())?;
+        if let Some(external_id) = run_query.trigger_external_id.as_deref() {
+            if !native_trigger_is_enabled(db, w_id, service_name, external_id).await? {
+                return Ok(WebhookRun::TriggerDisabled);
+            }
+        }
         let metadata = Some(TriggerMetadata::new(
             run_query.trigger_external_id.clone(),
             service_name.as_job_trigger_kind(),
@@ -6982,7 +7052,7 @@ pub async fn get_args_and_trigger_metadata(
         .await?
     };
 
-    Ok((args, trigger_metadata))
+    Ok(WebhookRun::Run(args, trigger_metadata))
 }
 
 #[derive(Deserialize)]
@@ -11712,6 +11782,7 @@ mod approval_view_gate_tests {
             token_prefix: None,
             read_only: false,
             job_id: None,
+            credential_expiry: None,
         }
     }
 

@@ -38,7 +38,6 @@ import {
 import {
 	commitSessionWorkspace,
 	deleteSession as deleteSessionState,
-	ensureChatIdsSeeded,
 	getEffectiveWorkspaceId,
 	materializeTransient,
 	sessionState,
@@ -927,7 +926,6 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	// Restore linked files persisted for this session (live handles re-grant on send;
 	// snapshots restore directly). Non-transient sessions persist immediately.
 	await manager.attachedFiles.restore(session.id, !session.transient)
-	await ensureChatIdsSeeded(manager.historyManager)
 
 	// Keep the session record's chatId following the manager's active chat: a
 	// "/clear" rotation or a history switch would otherwise leave it pointing at

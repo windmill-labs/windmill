@@ -78,6 +78,11 @@ pub struct ApiAuthed {
     /// member can point at a superadmin, so it must never be trusted as a global
     /// superadmin (`require_super_admin`), GHSA-hfh4-cx4h-3fcr.
     pub job_id: Option<uuid::Uuid>,
+    /// When this credential itself expires, if it carries its own expiry rather than a
+    /// token row. Set for a guest JWT (its `exp`): a token minted from it is capped at
+    /// this, since the JWT's expiry is a guest's only revocation and there is no row to
+    /// look the limit up in. `None` for every credential whose limit lives in `token`.
+    pub credential_expiry: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl ApiAuthed {
@@ -165,6 +170,7 @@ impl From<Authed> for ApiAuthed {
             token_prefix: value.token_prefix,
             read_only: false,
             job_id: None,
+            credential_expiry: None,
         }
     }
 }
@@ -1074,6 +1080,7 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 token_prefix: authed.token_prefix,
                 read_only: false,
                 job_id: None,
+                credential_expiry: None,
             };
 
             API_AUTHED_CACHE.insert(

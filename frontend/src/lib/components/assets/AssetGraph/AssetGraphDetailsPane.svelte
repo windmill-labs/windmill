@@ -36,7 +36,8 @@
 		type ColumnLineage,
 		type PipelineAnnotations
 	} from './parsePipelineAnnotations'
-	import ColumnLineageTrace from './ColumnLineageTrace.svelte'
+	import ColumnTraceSection from './ColumnTraceSection.svelte'
+	import DbtColumnList from './DbtColumnList.svelte'
 	import { extractDraftMacros } from './resolveGraph'
 	import { assetColumnNodes, type ColumnLineageGraph } from './columnLineageGraph'
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
@@ -156,6 +157,15 @@
 		// resolved graph). Drives the transitive column-lineage trace shown for a
 		// selected materialized asset.
 		selectionColumnGraph?: ColumnLineageGraph
+		/** That graph still being fetched — a dbt relation's lineage is a request
+		 *  of its own, so it arrives after the selection does. */
+		selectionColumnLoading?: boolean
+		/** The lineage reaches past what the graph holds: the API cut it at the
+		 *  part nearest the selection. */
+		selectionColumnTruncated?: boolean
+		/** That trace could not be fetched. Distinguished from an empty one: a
+		 *  project without the analysis pass draws nothing either. */
+		selectionColumnFailed?: boolean
 		/** dbt provenance of the selected relation, when a dbt project
 		 *  materializes it — carries the model's own SQL. */
 		selectionDbt?: DbtAssetProvenance
@@ -289,6 +299,9 @@
 		onScriptRemoved,
 		selectionProducers = [],
 		selectionColumnGraph,
+		selectionColumnLoading = false,
+		selectionColumnTruncated = false,
+		selectionColumnFailed = false,
 		selectionDbt,
 		schemaCanEvolve = true,
 		selectionForkMaterialization = undefined,
@@ -445,6 +458,19 @@
 		const scripts = selectionProducers.filter((p) => p.kind === 'script')
 		return scripts.length === 1 ? `${scripts[0].path}__dbt/${file}` : file
 	})
+
+	// The two things a dbt relation can show besides its SQL, and what decides
+	// whether the panel opens at all for one that has none: the columns the model
+	// produces, and the trace they sit in. A share-link viewer gets neither —
+	// both are gated on reading the project, like the SQL.
+	let selectionDbtHasColumns = $derived(
+		!!selectionDbt?.column_schema?.length || Object.keys(selectionDbt?.columns ?? {}).length > 0
+	)
+	let selectionColumnNodes = $derived(
+		selection?.kind === 'asset' && selectionColumnGraph
+			? assetColumnNodes(selectionColumnGraph, selection.asset_kind, selection.path)
+			: []
+	)
 
 	// Bound from ScriptEditor — populated by inferAssets on every code
 	// change. Forwarded to the page so the canvas can re-derive write
@@ -1221,22 +1247,21 @@
 												</span>
 											</div>
 										{/if}
-										{#if selectionColumnGraph && assetColumnNodes(selectionColumnGraph, selection.asset_kind, selection.path).length > 0}
-											<div class="border-b shrink-0">
-												<ColumnLineageTrace
-													graph={selectionColumnGraph}
-													assetKind={selection.asset_kind}
-													assetPath={selection.path}
-													targetLabel={selection.path}
-												/>
-											</div>
-										{/if}
+										<ColumnTraceSection
+											graph={selectionColumnGraph}
+											assetKind={selection.asset_kind}
+											assetPath={selection.path}
+											targetLabel={selection.path}
+											loading={selectionColumnLoading}
+											truncated={selectionColumnTruncated}
+											failed={selectionColumnFailed}
+										/>
 										<div class="flex-1 min-h-0">
 											<DucklakeAssetPanel path={selection.path} {workspace} {schemaCanEvolve} />
 										</div>
 									</div>
 								{/key}
-							{:else if selectionDbt?.raw_code}
+							{:else if selectionDbt && (selectionDbt.raw_code || selectionDbtHasColumns || selectionColumnNodes.length > 0 || selectionColumnLoading || selectionColumnFailed)}
 								<!-- The transform behind the node. Read-only on purpose: dbt
 								     development is a local loop (`dbt run --select`, `dbt test`
 								     against a dev target), and a browser textarea over one file
@@ -1249,11 +1274,33 @@
 										<DbtIcon width={11} height={11} />
 										<span class="font-mono truncate">{dbtBundlePath ?? selectionDbt.unique_id}</span
 										>
-										<span class="ml-auto shrink-0 opacity-70">read-only · edit locally</span>
+										{#if selectionDbt.raw_code}
+											<span class="ml-auto shrink-0 opacity-70">read-only · edit locally</span>
+										{/if}
 									</div>
-									<div class="flex-1 min-h-0 overflow-auto">
-										<HighlightCode language="sql" code={selectionDbt.raw_code} />
-									</div>
+									<!-- Above the SQL rather than beside it: the columns are what
+									     the SQL below produces, so reading them in that order is
+									     the model's own shape. Same trace component the ducklake
+									     assets use — the graph is one graph across both. -->
+									{#if selectionDbtHasColumns}
+										<div class="border-b shrink-0 overflow-auto max-h-48 px-3 py-1.5">
+											<DbtColumnList dbt={selectionDbt} />
+										</div>
+									{/if}
+									<ColumnTraceSection
+										graph={selectionColumnGraph}
+										assetKind={selection.asset_kind}
+										assetPath={selection.path}
+										targetLabel={selectionDbt.unique_id}
+										loading={selectionColumnLoading}
+										truncated={selectionColumnTruncated}
+										failed={selectionColumnFailed}
+									/>
+									{#if selectionDbt.raw_code}
+										<div class="flex-1 min-h-0 overflow-auto">
+											<HighlightCode language="sql" code={selectionDbt.raw_code} />
+										</div>
+									{/if}
 								</div>
 							{:else}
 								<div class="p-3 text-xs text-secondary">
