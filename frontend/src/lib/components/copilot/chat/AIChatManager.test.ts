@@ -287,6 +287,45 @@ describe('AIChatManager run form', () => {
 		expect(manager.displayMessages[0].runForm?.canceled).toBe(true)
 	})
 
+	// A run writes what it ran onto the card; a cancelled one never gets there, so without
+	// this its Inputs tab still names the proposal the card was published on — a secret the
+	// mounted field had already replaced with a reference.
+	it('settles a cancelled card on what the form held, not on the proposal', async () => {
+		const manager = new AIChatManager()
+		const schema = {
+			properties: { token: { password: true }, spare: { password: true }, note: {} }
+		}
+		const runForm = {
+			path: 'f/a/b',
+			schema,
+			args: { token: 'hunter2', spare: 'untouched', note: 'hello' }
+		}
+		manager.displayMessages = [
+			{
+				role: 'tool',
+				tool_call_id: 'call_r',
+				content: '',
+				isLoading: true,
+				parameters: { ...runForm.args },
+				runForm
+			}
+		]
+
+		void manager.requestRunArgs('call_r', runForm)
+		const draft = manager.runFormDraft('call_r', runForm)
+		draft.args.token = '$var:u/admin/secret_arg/AbC'
+		draft.args.note = 'goodbye'
+
+		manager.handleRunFormCancel('call_r')
+
+		expect(manager.displayMessages[0].parameters).toEqual({
+			token: '$var:u/admin/secret_arg/AbC',
+			// Never minted, so still the secret itself.
+			spare: '<hidden>',
+			note: 'goodbye'
+		})
+	})
+
 	// The tool reads the deployed schema before it asks for arguments. A stop during that
 	// read drains the callbacks and settles the card, so a waiter installed afterwards was
 	// one no rendered form could resolve: the turn stayed loading until a second stop.

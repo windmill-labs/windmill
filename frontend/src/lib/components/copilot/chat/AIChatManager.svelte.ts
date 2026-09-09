@@ -60,6 +60,7 @@ import {
 	buildSummaryMessageContent
 } from './compactionPrompt'
 import { dfs } from '$lib/components/flows/previousResults'
+import { redactFileArgs, redactSecretArgs } from '$lib/components/job_args'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { createLongHash } from '$lib/editorLangUtils'
 import type { AIProvider, UserDraftItemKind } from '$lib/gen'
@@ -1914,8 +1915,9 @@ export class AIChatManager {
 		if (opts?.autoAccepted) {
 			return Promise.resolve(form.args)
 		}
-		// Seeded from the caller's copy, before the card renders: the args on `displayMessages`
-		// are redacted, so a draft built from those would open the form on `<hidden>`.
+		// Seeded from the caller's copy, before the card renders: the file arguments on
+		// `displayMessages` are redacted, so a draft built from those would open the form on
+		// the marker rather than on the bytes the model proposed.
 		const entry = this.#runFormEntry(toolId, form)
 		return new Promise((resolve) => {
 			this.#runForms.set(toolId, { ...entry, resolve })
@@ -2015,10 +2017,18 @@ export class AIChatManager {
 		// Cancelled, so no run follows it into that tab (a submitted one is handed over by
 		// registerJob instead) — take the tab with it rather than leaving a dead form open.
 		if (submitted === undefined) this.closeRunForm?.(toolId)
-		// Only the flag: the card's `parameters` already records what ran, and a second copy
-		// of the arguments in the transcript is one more place a file argument's base64
-		// lands in IndexedDB.
-		this.#patchRunForm(toolId, submitted ? { submitted: true } : { canceled: true }, card)
+		// A cancelled form never reaches the write a run makes, so `parameters` would keep the
+		// proposal the card was published on — naming a secret the field had already replaced
+		// with a reference. A reference stands here, anything still literal does not.
+		const cancelledArgs =
+			submitted === undefined && entry
+				? redactFileArgs(redactSecretArgs(entry.draft.args, entry.draft.schema), entry.draft.schema)
+				: undefined
+		this.#patchRunForm(
+			toolId,
+			submitted ? { submitted: true } : { canceled: true },
+			cancelledArgs ? (runForm) => ({ ...card?.(runForm), parameters: cancelledArgs }) : card
+		)
 		entry?.resolve?.(submitted)
 	}
 
