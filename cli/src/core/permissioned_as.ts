@@ -130,7 +130,7 @@ export async function preCheckPermissionedAs(
         const label =
           typeStr === "script" ? "(script owner)" : "(flow owner)";
         wouldChangeItems.push({ path: change.path, currentOwner: label });
-      } else if (typeStr === "app") {
+      } else if (typeStr === "app" || typeStr === "raw_app") {
         wouldChangeItems.push({
           path: change.path,
           currentOwner: "(app policy owner)",
@@ -177,7 +177,7 @@ export async function preCheckPermissionedAs(
         }
       }
       continue;
-    } else if (typeStr === "app") {
+    } else if (typeStr === "app" || typeStr === "raw_app") {
       wouldChangeItems.push({
         path: change.path,
         currentOwner: "(app policy owner)",

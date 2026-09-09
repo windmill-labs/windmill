@@ -144,31 +144,59 @@ export function executionModeFromAppFile(
   if (app?.["guests"] ?? isExecutionModeGuest(app)) {
     return "guest";
   }
-  // `public`/`guests` are the only modes the file records, so "neither" covers
-  // both publisher and viewer: keep the deployed one rather than demoting a
-  // viewer app to publisher on every push.
-  if (deployedPolicy?.execution_mode === "viewer") {
+  // A pull records the mode as `public`/`guests` and nothing else, so a file
+  // saying neither may still be a viewer app: honour an explicit `viewer`, and
+  // otherwise keep the deployed mode rather than demoting one on every push. A
+  // file stating `publisher` does not demote a deployed viewer — that block is
+  // vestigial (only older pulls wrote it), and viewer is the stricter of the
+  // two, running each viewer's own identity instead of the publisher's.
+  if (
+    app?.["policy"]?.["execution_mode"] === "viewer" ||
+    deployedPolicy?.execution_mode === "viewer"
+  ) {
     return "viewer";
   }
   return "publisher";
 }
 
+/** The policy fields a deploy derives from the app it is deploying. Carrying one
+ * over from either side would leave a grant keyed to sources this deploy just
+ * replaced: legacy `triggerables` are folded into `triggerables_v2` on read, and
+ * `s3_inputs` / `allowed_s3_keys` are what the backend enforces S3 access
+ * against. A low-code deploy recomputes these; a raw one produces none of them.
+ * `triggerables_v2` is not listed because both deploys overwrite it outright. */
+const DERIVED_POLICY_FIELDS = [
+  "triggerables",
+  "s3_inputs",
+  "allowed_s3_keys",
+] as const;
+
 /**
  * What a push's regenerated policy starts from. The app file states only the
  * access mode, so regenerating from the local sources alone silently drops every
- * other policy field the deployed app carries — its run-as identity, sandbox
- * isolation, SDK scopes. Anything the file does state still wins.
+ * other policy field the deployed app carries — its sandbox isolation, SDK
+ * scopes. Anything else the file does state still wins.
  *
- * Legacy `triggerables` are dropped: the backend folds them into
- * `triggerables_v2` on read, so carrying them over would keep granting runnables
- * this deploy no longer contains.
+ * The run-as identity is never taken from the file: the deployed policy owns it,
+ * and a push claims a different one only through `preserve_on_behalf_of`. Older
+ * pulls wrote the whole policy into the app file, so repos still carry
+ * `on_behalf_of` keys — a stale one, or an explicit `null`, would otherwise
+ * re-permission the app from checked-in content.
  */
 export function deployedPolicyBase(
   deployedPolicy: Policy | undefined,
   localPolicy: Policy | undefined,
 ): Policy {
-  const { triggerables: _legacy, ...deployed } = deployedPolicy ?? {};
-  return { ...deployed, ...(localPolicy ?? {}) } as Policy;
+  const {
+    on_behalf_of: _obo,
+    on_behalf_of_email: _oboEmail,
+    ...local
+  } = localPolicy ?? {};
+  const base: Record<string, any> = { ...(deployedPolicy ?? {}), ...local };
+  for (const field of DERIVED_POLICY_FIELDS) {
+    delete base[field];
+  }
+  return base as Policy;
 }
 export async function pushApp(
   workspace: string,

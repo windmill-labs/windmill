@@ -447,16 +447,14 @@ export async function pushRawApp(
 
   // Submitting a policy is how the backend reads a claim on the app's execution
   // identity; without the flag it rewrites on_behalf_of to whoever ran the push.
+  // Only ever claims the deployed identity — on create the backend applies the
+  // folder default instead, as on the low-code path.
   const preserveFields: { preserve_on_behalf_of?: boolean } = {};
-  if (
-    permissionedAsContext?.userIsAdminOrDeployer &&
-    appForPolicy.policy.on_behalf_of
-  ) {
+  if (permissionedAsContext?.userIsAdminOrDeployer && remotePolicy?.on_behalf_of) {
     preserveFields.preserve_on_behalf_of = true;
     log.info(
       `Preserving ${
-        appForPolicy.policy.on_behalf_of_email ??
-          appForPolicy.policy.on_behalf_of
+        remotePolicy.on_behalf_of_email ?? remotePolicy.on_behalf_of
       } as permissioned_as for app ${remotePath}`,
     );
   }
@@ -537,7 +535,6 @@ export async function pushRawApp(
           summary: localApp.summary,
           policy: appForPolicy.policy,
           deployment_message: message,
-          ...preserveFields,
           // Preserve any user draft at this path (see backend skip_draft_deletion).
           skip_draft_deletion: true,
           ...(localApp.custom_path

@@ -812,14 +812,39 @@ syncBehavior: v1`, "utf-8");
       expect(pushResult2.code).toEqual(0);
       await waitForDeploymentJobs(backend);
 
-      const getResp = await backend.apiRequest!(
-        `/api/w/${backend.workspace}/apps/get/p/f/test/policy_app`
-      );
-      expect(getResp.status).toEqual(200);
-      const policy = (await getResp.json()).policy;
+      async function readPolicy() {
+        const resp = await backend.apiRequest!(
+          `/api/w/${backend.workspace}/apps/get/p/f/test/policy_app`
+        );
+        expect(resp.status).toEqual(200);
+        return (await resp.json()).policy;
+      }
+      const policy = await readPolicy();
       expect(policy.on_behalf_of).toEqual("u/svc");
       expect(policy.on_behalf_of_email).toEqual("svc@windmill.dev");
       expect(policy.sandbox).toEqual(true);
       expect(policy.execution_mode).toEqual("viewer");
+
+      // The carry-over must not make the access mode sticky in the widening
+      // direction: `public: true` promotes, and dropping it demotes again.
+      const yamlPath = path.join(appDir, "raw_app.yaml");
+      const baseYaml = await readFileContent(yamlPath);
+      await writeFile(yamlPath, `${baseYaml}public: true\n`, "utf-8");
+      expect((await backend.runCLICommand(
+        ["sync", "push", "--yes"], tempDir, "raw_app_policy_test"
+      )).code).toEqual(0);
+      await waitForDeploymentJobs(backend);
+      expect(await readPolicy()).toMatchObject({ execution_mode: "anonymous" });
+
+      await writeFile(yamlPath, baseYaml, "utf-8");
+      expect((await backend.runCLICommand(
+        ["sync", "push", "--yes"], tempDir, "raw_app_policy_test"
+      )).code).toEqual(0);
+      await waitForDeploymentJobs(backend);
+      expect(await readPolicy()).toMatchObject({
+        execution_mode: "publisher",
+        sandbox: true,
+        on_behalf_of: "u/svc",
+      });
     });
 });
