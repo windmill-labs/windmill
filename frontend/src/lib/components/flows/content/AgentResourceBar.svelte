@@ -437,11 +437,14 @@
 		const local = overridingFlowLocalInputs(inputTransforms)
 		// `memory` is the step's, but an agent saved back when it was part of the brain still carries
 		// one that the worker honours while the step holds none. Forking is where that ends, so it
-		// comes across as the step's own rather than being dropped with the link.
-		const legacyMemory: Record<string, InputTransform> =
-			cfg.memory != undefined && !local.memory
-				? { memory: { type: 'static', value: cfg.memory } as InputTransform }
-				: {}
+		// comes across as the step's own rather than being dropped with the link — without the
+		// `memory_id`, so that saving mints one per step (`cleanInputs`) instead of leaving every
+		// flow that forked this agent answering from a single shared conversation.
+		const legacyMemory: Record<string, InputTransform> = {}
+		if (cfg.memory != undefined && !local.memory) {
+			const { memory_id: _minted, ...rest } = cfg.memory as Record<string, unknown>
+			legacyMemory.memory = { type: 'static', value: rest } as InputTransform
+		}
 		const forkedInputs = { ...agentConfigToInputTransforms(cfg), ...legacyMemory, ...local }
 		const forkedTools = cfg.tools ?? []
 		inputTransforms = forkedInputs

@@ -120,7 +120,7 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		group: 'tools',
 		label: 'Enabled tools',
 		tooltip:
-			'Narrows the tools above to the ones named here, so a run only carries what it needs. Set it to an expression to decide per run. An MCP server named here enables all of its tools.',
+			'Narrows the tools above to the ones named here, so a run only carries what it needs. Leave it empty for no tools at all, or set it to an expression to decide per run. An MCP server named here enables every tool it exposes; an expression can name one of them on its own, as mcp_<server>_<tool>.',
 		defaultHint: 'Default: all of them'
 	},
 	{

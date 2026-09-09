@@ -83,6 +83,9 @@ export function flowLocalInputs(
 function transformIsSet(transform: InputTransform | undefined): boolean {
 	if (!transform) return false
 	const t = transform as any
+	// Same reading of "set" as `agentFieldIsSet`: an emptied expression is a field being written,
+	// not one holding a value.
+	if (t.type === 'javascript') return Boolean(t.expr)
 	if (t.type !== 'static') return true
 	return t.value !== undefined && t.value !== null
 }
@@ -161,7 +164,7 @@ export function inputTransformsToAgentConfig(
 
 /**
  * Reduce the AI agent schema to only the flow-local inputs. Used when a step is linked to a saved
- * agent: the brain fields come from the resource, so only user_message/user_attachments stay editable.
+ * agent: the brain fields come from the resource, so only `AGENT_FLOW_LOCAL_KEYS` stay editable.
  */
 export function flowLocalAgentSchema(schema: any): any {
 	if (!schema?.properties) {
@@ -203,18 +206,28 @@ export function transformValuedBrainKeys(args: Record<string, any> | undefined):
 	})
 }
 
-/** Flatten a saved agent's brain config into human-readable label/value rows for a read-only
- * display on a linked step. Only set fields are returned, in the canonical brain-key order. */
+/**
+ * Flatten a saved agent's brain config into human-readable label/value rows for a read-only display
+ * on a linked step. Only set fields are returned, in the canonical brain-key order.
+ *
+ * `memory` is listed after them although it is no longer a brain field, because an agent saved
+ * while it was one still carries a config the worker honours. Nothing writes one any more, so the
+ * row only ever appears on such an agent — and where it does, the step's own Memory field would
+ * otherwise be the only thing on screen saying anything about memory, while reading "off".
+ */
 export function summarizeAgentBrain(
 	config: AIAgentConfig | undefined
 ): { label: string; value: string }[] {
 	const rows: { label: string; value: string }[] = []
-	for (const key of AGENT_BRAIN_KEYS) {
+	for (const key of [...AGENT_BRAIN_KEYS, 'memory']) {
 		const v = (config as any)?.[key]
 		if (v === undefined || v === null || v === '') continue
 		let value: string
 		if (key === 'provider') {
 			value = [v.kind, v.model].filter(Boolean).join(' · ') || 'configured'
+		} else if (key === 'memory') {
+			// Memory configs are serialized with a `kind` tag (serde tag = "kind").
+			value = typeof v === 'object' ? (v.kind ?? 'configured') : String(v)
 		} else if (key === 'output_schema') {
 			value = 'configured'
 		} else if (typeof v === 'boolean') {

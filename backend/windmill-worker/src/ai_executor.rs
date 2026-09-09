@@ -4,7 +4,7 @@ use crate::ai::utils::{
     filter_schema_by_input_transforms, find_unique_tool_name, get_flow_context,
     get_flow_job_runnable_and_raw_flow, get_step_name_from_flow, load_mcp_tools,
     parse_raw_script_schema, update_flow_status_module_with_actions,
-    update_flow_status_module_with_actions_success,
+    update_flow_status_module_with_actions_success, MCP_TOOL_NAME_PREFIX,
 };
 use crate::memory_oss::{read_from_memory, write_to_memory};
 use crate::worker_flow::{get_previous_job_result, get_transform_context};
@@ -246,13 +246,52 @@ fn overlay_tool_inputs(
     }
 }
 
+/// Write a linked step's own inputs over the brain its agent supplied.
+///
+/// Called only after the resource has been interpolated: these values are caller-controlled and
+/// `build_args_map` has already resolved them, so passing them through it again would expand
+/// contextual values — `$WM_TOKEN` in a user message would reach the model provider.
+///
+/// `user_message`/`user_attachments` are the step's whatever it holds, blank included. The two
+/// below them are only an override when the step actually holds a value: an unfilled field arrives
+/// as null, and writing that through would drop the `memory` of an agent saved back when memory was
+/// part of the brain, ending the conversations it holds without saying so.
+fn overlay_flow_local_args(
+    brain: &mut serde_json::Map<String, serde_json::Value>,
+    local_args: &HashMap<String, Box<RawValue>>,
+) {
+    for key in ["user_message", "user_attachments"] {
+        if let Some(v) = local_args.get(key) {
+            brain.insert(
+                key.to_string(),
+                serde_json::from_str(v.get()).unwrap_or(serde_json::Value::Null),
+            );
+        }
+    }
+    for key in ["memory", "enabled_tools"] {
+        let Some(v) = local_args
+            .get(key)
+            .and_then(|v| serde_json::from_str::<serde_json::Value>(v.get()).ok())
+            .filter(|v| !v.is_null())
+        else {
+            continue;
+        };
+        brain.insert(key.to_string(), v);
+    }
+}
+
 /// The roster a run advertises, given the tool names it enabled, plus the resource paths of the
 /// MCP entries it named outright — those enable every tool of that server, which only
 /// `load_mcp_tools` can enumerate.
 ///
 /// `None` advertises the whole roster, which is what every agent written before the field existed
-/// relies on; an empty list advertises nothing. MCP entries always survive this stage: they
-/// advertise `mcp_<server>_<tool>` names that do not exist until the server has answered.
+/// relies on; an empty list advertises nothing.
+///
+/// An MCP entry the run did not name survives only while some enabled name could still turn out to
+/// be one of its tools, i.e. carries the `mcp_` prefix every one of them is advertised under. A
+/// server nothing can match is dropped here rather than after `load_mcp_tools`: resolving one reads
+/// its resource, refreshes its token and opens a client, each of which can fail the whole run — a
+/// run that switched that server off must not be brought down by it.
 fn narrow_roster(
     tools: Vec<AgentTool>,
     enabled_tools: Option<&[String]>,
@@ -260,6 +299,7 @@ fn narrow_roster(
     let Some(enabled) = enabled_tools else {
         return (tools, HashSet::new());
     };
+    let names_a_server_tool = enabled.iter().any(|n| n.starts_with(MCP_TOOL_NAME_PREFIX));
     let mut enabled_mcp_paths = HashSet::new();
     let tools = tools
         .into_iter()
@@ -274,7 +314,7 @@ fn narrow_roster(
                         enabled_mcp_paths
                             .insert(mcp.resource_path.trim_start_matches("$res:").to_string());
                     }
-                    true
+                    named || names_a_server_tool
                 }
                 _ => named,
             }
@@ -283,15 +323,57 @@ fn narrow_roster(
     (tools, enabled_mcp_paths)
 }
 
-/// Names in `enabled_tools` that name nothing on the agent. The list is an input transform, so it
-/// can be computed per run; a name that has since been renamed away must not fail the step, but it
-/// would otherwise silently narrow the agent, so the caller logs what it dropped.
-fn unmatched_enabled_tools(enabled_tools: &[String], advertised: &[&str]) -> Vec<String> {
-    enabled_tools
+/// Whether a tool an MCP server exposes is advertised: the run named it directly, or named the
+/// server entry it came from.
+///
+/// The two sides of that second test are different types — a roster entry's `resource_path` and the
+/// `McpToolSource` the loader builds — so they are matched on the string both strip to
+/// (`ai/utils.rs`). Getting that wrong advertises nothing and says nothing, which is why it is
+/// pinned by a test rather than left inline.
+fn mcp_tool_enabled(tool: &Tool, enabled: &[String], enabled_mcp_paths: &HashSet<String>) -> bool {
+    let Some(source) = &tool.mcp_source else {
+        // A Windmill tool, already settled by `narrow_roster`.
+        return true;
+    };
+    enabled.iter().any(|n| n == &tool.def.function.name)
+        || enabled_mcp_paths.contains(&source.resource_path)
+}
+
+/// How many unmatched names are worth naming in the log. The list is an input transform, so its
+/// length is the flow author's to choose; the log line exists to point at a typo, and the count
+/// carries the rest.
+const MAX_LOGGED_UNMATCHED_TOOLS: usize = 20;
+
+/// The log line for names in `enabled_tools` that name nothing on the agent, if any. The list can
+/// be computed per run, so a name that has since been renamed away must not fail the step — but it
+/// would otherwise silently narrow the agent, so the run says what it dropped.
+fn unmatched_enabled_tools_message(
+    enabled_tools: &[String],
+    advertised: &[&str],
+) -> Option<String> {
+    let unmatched: Vec<&str> = enabled_tools
         .iter()
-        .filter(|name| !advertised.contains(&name.as_str()))
+        .map(|name| name.as_str())
+        .filter(|name| !advertised.contains(name))
+        .collect();
+    if unmatched.is_empty() {
+        return None;
+    }
+    let shown = unmatched
+        .iter()
+        .take(MAX_LOGGED_UNMATCHED_TOOLS)
         .cloned()
-        .collect()
+        .collect::<Vec<_>>()
+        .join(", ");
+    let rest = unmatched.len().saturating_sub(MAX_LOGGED_UNMATCHED_TOOLS);
+    let suffix = if rest > 0 {
+        format!(" and {rest} more")
+    } else {
+        String::new()
+    };
+    Some(format!(
+        "--- ENABLED TOOLS: {shown}{suffix} named no tool of this agent and had no effect ---\n"
+    ))
 }
 
 pub async fn handle_ai_agent_job(
@@ -429,9 +511,10 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
-    // A linked step takes its brain and tools from the resource and keeps only the flow-local
-    // inputs (user_message/user_attachments) of its own; both stay rigid, so the one thing it may
-    // bind to this flow is the tools' inputs, overlaid from `tool_inputs` below.
+    // A linked step takes its brain and tools from the resource and keeps only its own flow-local
+    // inputs. The brain and the roster stay rigid; what the step binds to this flow is the message
+    // it asks, which of those tools this use may call, the conversation it is part of, and the
+    // tools' own inputs — the last overlaid from `tool_inputs` below.
     let (args, tools): (AIAgentArgs, Vec<AgentTool>) = if let Some(agent_ref) = agent.as_deref() {
         let agent_path = agent_ref
             .trim_start_matches("$res:")
@@ -482,30 +565,7 @@ pub async fn handle_ai_agent_job(
                 )))
             }
         };
-        // Only after interpolating the resource: these are caller-controlled and already resolved by
-        // build_args_map, so passing them through it again would expand contextual values —
-        // `$WM_TOKEN` in a user message would reach the model provider.
-        for key in ["user_message", "user_attachments"] {
-            if let Some(v) = local_args.get(key) {
-                brain.insert(
-                    key.to_string(),
-                    serde_json::from_str(v.get()).unwrap_or(serde_json::Value::Null),
-                );
-            }
-        }
-        // Flow-local like the two above, but only when the step actually holds a value: an unset
-        // field arrives as null, and writing that through would drop the `memory` of an agent saved
-        // back when memory was part of the brain, silently ending the conversations it holds.
-        for key in ["memory", "enabled_tools"] {
-            let Some(v) = local_args
-                .get(key)
-                .and_then(|v| serde_json::from_str::<serde_json::Value>(v.get()).ok())
-                .filter(|v| !v.is_null())
-            else {
-                continue;
-            };
-            brain.insert(key.to_string(), v);
-        }
+        overlay_flow_local_args(&mut brain, &local_args);
         let args = serde_json::from_value::<AIAgentArgs>(serde_json::Value::Object(brain))
             .map_err(|e| {
                 Error::internal_err(format!(
@@ -758,15 +818,8 @@ pub async fn handle_ai_agent_job(
     };
 
     if let Some(enabled) = enabled_tools {
-        // The other half of the narrowing above: an MCP tool is advertised when the run names it
-        // directly, or names the server entry it came from.
-        tools.retain(|t| match &t.mcp_source {
-            Some(source) => {
-                enabled.iter().any(|n| n == &t.def.function.name)
-                    || enabled_mcp_paths.contains(&source.resource_path)
-            }
-            None => true,
-        });
+        // The other half of the narrowing above, now that the servers kept by it have answered.
+        tools.retain(|t| mcp_tool_enabled(t, enabled, &enabled_mcp_paths));
         let mut matchable: Vec<&str> = roster_names.iter().map(|s| s.as_str()).collect();
         matchable.extend(
             tools
@@ -783,18 +836,8 @@ pub async fn handle_ai_agent_job(
                 "tools"
             },
         );
-        let unmatched = unmatched_enabled_tools(enabled, &matchable);
-        if !unmatched.is_empty() {
-            append_logs(
-                &job.id,
-                &job.workspace_id,
-                format!(
-                    "--- ENABLED TOOLS: {} named no tool of this agent and was ignored ---\n",
-                    unmatched.join(", ")
-                ),
-                conn,
-            )
-            .await;
+        if let Some(message) = unmatched_enabled_tools_message(enabled, &matchable) {
+            append_logs(&job.id, &job.workspace_id, message, conn).await;
         }
     }
 
@@ -2001,24 +2044,112 @@ mod tests {
         assert_eq!(names(&all), ["get_user", "send_email", "github"]);
         assert!(paths.is_empty());
 
-        // An empty list is a list: it advertises nothing, bar the deferred MCP entry.
+        // An empty list is a list: nothing is advertised, and no server is resolved to find that
+        // out — one that is down must not fail a run that switched it off.
         let (none, paths) = narrow_roster(roster(), Some(&[]));
-        assert_eq!(names(&none), ["github"]);
+        assert!(names(&none).is_empty());
         assert!(paths.is_empty());
 
         let enabled = ["get_user".to_string(), "renamed_away".to_string()];
         let (kept, paths) = narrow_roster(roster(), Some(&enabled));
-        assert_eq!(names(&kept), ["get_user", "github"]);
-        // Named nothing, so the MCP entry only survives to be settled against its own tool names.
+        assert_eq!(names(&kept), ["get_user"]);
         assert!(paths.is_empty());
         assert_eq!(
-            unmatched_enabled_tools(&enabled, &["get_user", "send_email", "github"]),
-            ["renamed_away"]
+            unmatched_enabled_tools_message(&enabled, &["get_user", "send_email", "github"])
+                .unwrap(),
+            "--- ENABLED TOOLS: renamed_away named no tool of this agent and had no effect ---\n"
         );
 
         // Naming the entry enables every tool of that server, keyed by the path load_mcp_tools uses.
-        let (_, paths) = narrow_roster(roster(), Some(&["github".to_string()]));
+        let (kept, paths) = narrow_roster(roster(), Some(&["github".to_string()]));
+        assert_eq!(names(&kept), ["github"]);
         assert_eq!(paths.into_iter().collect::<Vec<_>>(), ["u/test/gh"]);
+
+        // A name that could only be one of a server's own tools keeps every server in, since which
+        // one it belongs to is not knowable until they answer.
+        let (kept, paths) = narrow_roster(roster(), Some(&["mcp_github_create_issue".to_string()]));
+        assert_eq!(names(&kept), ["github"]);
+        assert!(paths.is_empty());
+    }
+
+    /// The two sides of the server-entry match are different types, and getting it wrong advertises
+    /// nothing and says nothing.
+    #[test]
+    fn mcp_tools_match_their_own_name_or_their_server_entry() {
+        fn mcp_tool(name: &str, resource_path: &str) -> Tool {
+            Tool {
+                def: ToolDef {
+                    r#type: "function".to_string(),
+                    function: ToolDefFunction {
+                        name: name.to_string(),
+                        description: None,
+                        parameters: to_raw_value(&serde_json::json!({})),
+                    },
+                },
+                module: None,
+                mcp_source: Some(McpToolSource {
+                    name: "github".to_string(),
+                    tool_name: name.to_string(),
+                    resource_path: resource_path.to_string(),
+                }),
+            }
+        }
+        let create = mcp_tool("mcp_github_create_issue", "u/test/gh");
+        let list = mcp_tool("mcp_github_list_issues", "u/test/gh");
+
+        // Named directly: that tool only.
+        let enabled = ["mcp_github_create_issue".to_string()];
+        assert!(mcp_tool_enabled(&create, &enabled, &HashSet::new()));
+        assert!(!mcp_tool_enabled(&list, &enabled, &HashSet::new()));
+
+        // The server entry named instead: everything it exposes, whatever the names turned out to be.
+        let paths = HashSet::from(["u/test/gh".to_string()]);
+        assert!(mcp_tool_enabled(&create, &[], &paths));
+        assert!(mcp_tool_enabled(&list, &[], &paths));
+        assert!(!mcp_tool_enabled(
+            &mcp_tool("mcp_gitlab_list_issues", "u/test/gl"),
+            &[],
+            &paths
+        ));
+    }
+
+    /// The rule the whole back-compat story rests on: an unfilled step field arrives as null, and
+    /// writing it through would end the conversations a legacy agent's own `memory` holds.
+    #[test]
+    fn flow_local_args_override_the_agent_only_when_set() {
+        fn raw(json: &str) -> Box<RawValue> {
+            RawValue::from_string(json.to_string()).unwrap()
+        }
+        let mut brain = serde_json::Map::new();
+        brain.insert("system_prompt".to_string(), serde_json::json!("from agent"));
+        brain.insert("memory".to_string(), serde_json::json!({ "kind": "auto" }));
+
+        let local_args = HashMap::from([
+            (
+                "user_message".to_string(),
+                raw("\"ask the flow's question\""),
+            ),
+            ("memory".to_string(), raw("null")),
+            ("enabled_tools".to_string(), raw("null")),
+        ]);
+        overlay_flow_local_args(&mut brain, &local_args);
+
+        assert_eq!(
+            brain["user_message"],
+            serde_json::json!("ask the flow's question")
+        );
+        assert_eq!(brain["system_prompt"], serde_json::json!("from agent"));
+        // Unfilled, so the agent's own is what runs.
+        assert_eq!(brain["memory"], serde_json::json!({ "kind": "auto" }));
+        assert!(!brain.contains_key("enabled_tools"));
+
+        let local_args = HashMap::from([
+            ("memory".to_string(), raw("{\"kind\":\"off\"}")),
+            ("enabled_tools".to_string(), raw("[\"get_user\"]")),
+        ]);
+        overlay_flow_local_args(&mut brain, &local_args);
+        assert_eq!(brain["memory"], serde_json::json!({ "kind": "off" }));
+        assert_eq!(brain["enabled_tools"], serde_json::json!(["get_user"]));
     }
 
     #[test]
