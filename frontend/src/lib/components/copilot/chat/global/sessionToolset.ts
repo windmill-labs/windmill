@@ -139,6 +139,9 @@ export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 	test_run_script: RUN_PREVIEW,
 	test_run_flow: RUN_PREVIEW,
 	test_run_step: RUN_PREVIEW,
+	// Reaches apps.rs `execute_component` rather than jobs.rs, but that handler
+	// refuses operators too once `force_viewer_static_fields` marks it a preview.
+	test_run_app_runnable: RUN_PREVIEW,
 
 	// ── Pipeline editor ─────────────────────────────────────────────────────
 	get_pipeline_graph: NONE,
