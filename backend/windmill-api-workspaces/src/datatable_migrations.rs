@@ -30,6 +30,7 @@ use windmill_api_auth::{require_super_admin, ApiAuthed};
 use windmill_api_jobs::run_wait_result_internal;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
+use windmill_common::datatable_roles::ADMIN_DATATABLE_ROLE;
 use windmill_common::db::UserDB;
 use windmill_common::error::{pg_error_message, Error, JsonResult, Result};
 use windmill_common::jobs::{JobPayload, RawCode};
@@ -38,7 +39,6 @@ use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, Debounci
 use windmill_common::scripts::ScriptLang;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::worker::to_raw_value;
-use windmill_common::datatable_roles::ADMIN_DATATABLE_ROLE;
 use windmill_common::worker::SqlAnnotations;
 use windmill_common::workspaces::{
     ensure_can_use_datatable_role, ensure_datatable_admin_access,
@@ -112,7 +112,7 @@ async fn ensure_migration_role_allowed(
 ) -> Result<()> {
     let context = format!("Migration {timestamp} ({name})");
     let access = DatatableAccess::Authed(authed.to_authed_ref());
-    match SqlAnnotations::datatable_role(sql) {
+    match SqlAnnotations::datatable_role(sql)? {
         Some(role) => {
             ensure_can_use_datatable_role(db, w_id, datatable_name, Some(&role), &access, &context)
                 .await
