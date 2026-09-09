@@ -10,9 +10,9 @@
 	import { Bot, ChevronDown, ChevronUp, Save, Unlink, Pencil } from 'lucide-svelte'
 	import {
 		AGENT_BRAIN_KEYS,
-		AGENT_FLOW_LOCAL_KEYS,
 		agentConfigToInputTransforms,
 		flowLocalInputs,
+		overridingFlowLocalInputs,
 		inputTransformsToAgentConfig,
 		nonStaticBrainKeys,
 		summarizeAgentBrain,
@@ -431,14 +431,18 @@
 			return false
 		}
 		const cfg = (draft?.args ?? response.value ?? {}) as AIAgentConfig
-		// Preserve the flow-local inputs already wired in the step.
-		const local: Record<string, InputTransform> = {}
-		for (const key of AGENT_FLOW_LOCAL_KEYS) {
-			if (inputTransforms?.[key]) {
-				local[key] = inputTransforms[key]
-			}
-		}
-		const forkedInputs = { ...agentConfigToInputTransforms(cfg), ...local }
+		// Preserve the flow-local inputs already wired in the step. Only the ones it actually holds a
+		// value for: an unfilled field is seeded as a placeholder transform, which would otherwise
+		// read as an override and shadow what the agent supplies below.
+		const local = overridingFlowLocalInputs(inputTransforms)
+		// `memory` is the step's, but an agent saved back when it was part of the brain still carries
+		// one that the worker honours while the step holds none. Forking is where that ends, so it
+		// comes across as the step's own rather than being dropped with the link.
+		const legacyMemory: Record<string, InputTransform> =
+			cfg.memory != undefined && !local.memory
+				? { memory: { type: 'static', value: cfg.memory } as InputTransform }
+				: {}
+		const forkedInputs = { ...agentConfigToInputTransforms(cfg), ...legacyMemory, ...local }
 		const forkedTools = cfg.tools ?? []
 		inputTransforms = forkedInputs
 		for (const tool of forkedTools) {

@@ -1060,6 +1060,14 @@ components:
                 Array of file references (images or PDFs) for the AI agent.
                 Format: Array<{ bucket: string, key: string }> - S3 object references
                 Example: [{ bucket: 'my-bucket', key: 'documents/report.pdf' }]
+            enabled_tools:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                Array of strings naming the tools the agent may call this run, out of the ones
+                configured in `tools`. Every tool when unset, none when empty.
+                An MCP server named here enables all of the tools it exposes.
+                Example: ['get_user', 'send_email']
             max_completion_tokens:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'

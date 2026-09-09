@@ -69,6 +69,39 @@ describe('inlineAgentDraft', () => {
 			user_message: { type: 'static', value: 'hi' }
 		})
 	})
+
+	// Every step carries a placeholder transform for each field its form has not filled in. It reads
+	// as an override unless it is recognised as unset, which would run a preview without the memory
+	// an agent saved before memory moved onto the step still carries — and a deployed run with it.
+	it('lets an unfilled flow-local field inherit from the draft', () => {
+		const inlined = inlineAgentDraft(
+			linkedStep({
+				user_message: { type: 'static', value: 'hi' },
+				memory: { type: 'static', value: undefined }
+			}),
+			{ memory: { kind: 'auto', context_length: 20 } } as any
+		)
+
+		expect(inlined.input_transforms?.memory).toEqual({
+			type: 'static',
+			value: { kind: 'auto', context_length: 20 }
+		})
+	})
+
+	it('lets a filled flow-local field override the draft', () => {
+		const inlined = inlineAgentDraft(
+			linkedStep({
+				user_message: { type: 'static', value: 'hi' },
+				memory: { type: 'static', value: { kind: 'off' } }
+			}),
+			{ memory: { kind: 'auto', context_length: 20 } } as any
+		)
+
+		expect(inlined.input_transforms?.memory).toEqual({
+			type: 'static',
+			value: { kind: 'off' }
+		})
+	})
 })
 
 describe('inlineAgentDrafts', () => {

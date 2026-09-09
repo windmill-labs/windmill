@@ -1232,7 +1232,12 @@
 														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 														workspace={opWs}
 														visibilityKey={`${$pathStore}:${linkedToolsModuleId}`}
-														tools={flowModule.value.tools ?? []}
+														tools={agentLinked
+															? getLinkedAgentTools(
+																	linkedToolsScope(opWs, $pathStore),
+																	linkedToolsModuleId
+																)
+															: (flowModule.value.tools ?? [])}
 														onSelectTool={noToolNavigation
 															? undefined
 															: (toolId) => selectionManager.selectId(toolId, { openPanel: true })}

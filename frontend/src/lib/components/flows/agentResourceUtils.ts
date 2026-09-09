@@ -2,21 +2,33 @@ import { deepEqual } from 'fast-equals'
 import type { InputTransform } from '$lib/gen'
 import { AGENT_FIELDS } from './agentFormFields'
 
-// The brain fields stored flat in an `ai_agent` resource value. The flow-local inputs
-// (user_message/user_attachments) are intentionally excluded — they are supplied per-flow.
+// The brain fields stored flat in an `ai_agent` resource value. The flow-local keys below are
+// intentionally excluded — they are supplied per-flow.
 export const AGENT_BRAIN_KEYS = [
 	'provider',
 	'output_type',
 	'system_prompt',
 	'streaming',
-	'memory',
 	'output_schema',
 	'max_completion_tokens',
 	'temperature',
 	'max_iterations'
 ] as const
 
-export const AGENT_FLOW_LOCAL_KEYS = ['user_message', 'user_attachments'] as const
+/**
+ * The inputs a step supplies for itself, whether or not it is linked to a saved agent.
+ *
+ * `memory` is one of them because conversation history belongs to the flow having the
+ * conversation, not to an agent reused across flows: it is identified by a `memory_id` minted per
+ * step on flow save, and two flows linking one agent must not answer from each other's history.
+ * `enabled_tools` likewise narrows one use of an agent, leaving the roster it narrows alone.
+ */
+export const AGENT_FLOW_LOCAL_KEYS = [
+	'user_message',
+	'user_attachments',
+	'memory',
+	'enabled_tools'
+] as const
 
 export type AgentTool = Record<string, any>
 
@@ -64,6 +76,37 @@ export function flowLocalInputs(
 }
 
 /**
+ * Whether a transform holds something a run would use. A field the form has not been filled in for
+ * is seeded as `{"type":"static"}` — and comes back from the API with an explicit null — which a
+ * run cannot tell from an absent key.
+ */
+function transformIsSet(transform: InputTransform | undefined): boolean {
+	if (!transform) return false
+	const t = transform as any
+	if (t.type !== 'static') return true
+	return t.value !== undefined && t.value !== null
+}
+
+/**
+ * `flowLocalInputs`, minus the fields the step is holding a placeholder for. Use it wherever the
+ * step's inputs are laid over a value the agent supplied: an unfilled field must not shadow what it
+ * inherits, which is the rule the worker follows too (`ai_executor.rs` writes the step's `memory`
+ * over the resource's only when it is not null).
+ */
+export function overridingFlowLocalInputs(
+	inputTransforms: Record<string, InputTransform> | undefined
+): Record<string, InputTransform> {
+	const out: Record<string, InputTransform> = {}
+	for (const key of AGENT_FLOW_LOCAL_KEYS) {
+		const transform = inputTransforms?.[key]
+		if (transformIsSet(transform)) {
+			out[key] = transform!
+		}
+	}
+	return out
+}
+
+/**
  * The host-flow overrides to store on a linked step for one tool: the subset of the tool's edited
  * input_transforms that diverges from the resource tool's own transforms. Storing only the diff (not
  * the full merged map) keeps unchanged inputs inheriting from the resource, makes merely opening a
@@ -87,6 +130,8 @@ export interface AIAgentConfig {
 	output_type?: string
 	system_prompt?: string
 	streaming?: boolean
+	/** Only on an agent saved while memory was still a brain field. Nothing writes it any more, and
+	 *  the worker honours it only while the step using it sets no memory of its own. */
 	memory?: unknown
 	output_schema?: unknown
 	max_completion_tokens?: number
@@ -170,9 +215,6 @@ export function summarizeAgentBrain(
 		let value: string
 		if (key === 'provider') {
 			value = [v.kind, v.model].filter(Boolean).join(' · ') || 'configured'
-		} else if (key === 'memory') {
-			// Memory configs are serialized with a `kind` tag (serde tag = "kind").
-			value = typeof v === 'object' ? (v.kind ?? v.type ?? 'configured') : String(v)
 		} else if (key === 'output_schema') {
 			value = 'configured'
 		} else if (typeof v === 'boolean') {

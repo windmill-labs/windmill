@@ -151,6 +151,16 @@ export const AI_AGENT_SCHEMA: Schema = {
 				resourceType: 's3object'
 			}
 		},
+		// The step's own roster fills `items.enum` in, so the static editor offers the tools this
+		// agent actually has (`AiAgentStepInputs`).
+		// Shown for image output as the roster it narrows is, even though neither is used there.
+		enabled_tools: {
+			type: 'array',
+			description: 'The tools the agent may call, by name. All of them when unset.',
+			items: {
+				type: 'string'
+			}
+		},
 		max_completion_tokens: {
 			type: 'number',
 			description: 'The most tokens the answer may use.'
@@ -178,6 +188,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 		'memory',
 		'output_schema',
 		'user_attachments',
+		'enabled_tools',
 		'max_completion_tokens',
 		'temperature',
 		'max_iterations'
@@ -291,7 +302,10 @@ export async function loadSchemaFromModule(
 				}
 				return accu
 			}, {}),
-			schema: AI_AGENT_SCHEMA
+			// A copy per step, never the shared constant: the form writes back into the property it
+			// renders (`InputTransformForm` binds `schema.properties[argName]`), and the tool names
+			// one step offers would otherwise become every step's.
+			schema: structuredClone(AI_AGENT_SCHEMA)
 		}
 	}
 

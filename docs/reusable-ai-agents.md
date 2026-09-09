@@ -2,7 +2,7 @@
 
 An AI agent flow step can be saved as a **reusable agent** — a resource of the built-in
 `ai_agent` resource type that bundles the agent's brain (provider/model, system prompt,
-temperature, output schema, memory…) and its tool set. Other flows can link to the same
+temperature, output schema…) and its tool set. Other flows can link to the same
 agent, and edits to the agent propagate to every linked step.
 
 The `ai_agent` resource type is defined in the hub (windmill-integrations) and synced into
@@ -16,8 +16,14 @@ every workspace via the standard cached-resource-type sync, like other built-in 
 - The brain config and tools are resolved at runtime from the resource
   (`windmill-worker/src/ai_executor.rs`): the brain is interpolated, so a nested provider `$res:`
   credential resolves automatically.
-- The step keeps only the flow-local inputs (`user_message`, `user_attachments`) in its own
-  `input_transforms`; the brain and tools stay in the resource (read-only in the step).
+- The step keeps only the flow-local inputs (`user_message`, `user_attachments`, `memory`,
+  `enabled_tools`) in its own `input_transforms`; the brain and tools stay in the resource
+  (read-only in the step). `memory` is one of them because a conversation belongs to the flow
+  having it, not to an agent reused across flows: it is identified by a `memory_id` minted per
+  step on flow save, so two flows linking one agent cannot answer from each other's history.
+  `enabled_tools` names the tools of the roster this step may call, narrowing one use of a shared
+  agent without touching the agent. An agent saved before `memory` moved still carries one, which
+  the worker honours while the step sets none; unlinking such an agent copies it onto the step.
 - The agent carries its tools' default input bindings verbatim as authored (static, AI-filled,
   or flow expressions), so saving round-trips losslessly. Each host flow overrides what it
   needs: `tool_inputs` stores per-tool overrides (a diff from the resource tool's own

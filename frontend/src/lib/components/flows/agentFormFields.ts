@@ -116,6 +116,14 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		virtual: true
 	},
 	{
+		key: 'enabled_tools',
+		group: 'tools',
+		label: 'Enabled tools',
+		tooltip:
+			'Narrows the tools above to the ones named here, so a run only carries what it needs. Set it to an expression to decide per run. An MCP server named here enables all of its tools.',
+		defaultHint: 'Default: all of them'
+	},
+	{
 		key: 'max_iterations',
 		group: 'tools',
 		label: 'Max iterations',

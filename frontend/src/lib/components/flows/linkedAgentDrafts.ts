@@ -10,7 +10,7 @@ import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { canWrite } from '$lib/utils'
 import type { UserExt } from '$lib/stores'
 import { dfs } from './dfs'
-import { flowLocalInputs, type AIAgentConfig } from './agentResourceUtils'
+import { overridingFlowLocalInputs, type AIAgentConfig } from './agentResourceUtils'
 import type { AgentResourceState } from './agentDraft.svelte'
 import type { AgentTool } from './agentToolUtils'
 
@@ -188,7 +188,7 @@ export function inlineAgentDraft(value: AiAgentValue, args: AIAgentConfig): AiAg
 		tools: (args.tools ?? []) as AgentTool[],
 		input_transforms: {
 			...agentArgsToTransforms(args),
-			...flowLocalInputs(value.input_transforms as Record<string, InputTransform>)
+			...overridingFlowLocalInputs(value.input_transforms as Record<string, InputTransform>)
 		}
 	} as AiAgentValue
 }

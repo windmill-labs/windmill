@@ -19,6 +19,7 @@
 
 <script lang="ts">
 	import type { Schema } from '$lib/common'
+	import { deepEqual } from 'fast-equals'
 	import { type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue, type DynamicInput as DynamicInputTypes } from '$lib/utils'
@@ -152,6 +153,21 @@
 	let fieldAiEnabled = $derived(enableAi && !staticOnly && !noJavascript)
 
 	let schemaProperties = $derived((schema?.properties ?? {}) as Record<string, any>)
+
+	// Offer the agent's own tools as the choices for `enabled_tools`, rather than asking for names
+	// to be typed. Written into the schema because that is where `InputTransformForm` reads a
+	// field's shape from; `flowInfers` hands every step its own copy, so this stays this step's.
+	// A linked step gets the resource's roster here, which is the one it narrows.
+	$effect(() => {
+		const names = tools.map((tool) => tool.summary).filter((name): name is string => !!name)
+		const properties = schemaProperties
+		untrack(() => {
+			const property = properties['enabled_tools']
+			if (property && !deepEqual(property.items?.enum, names)) {
+				property.items = { ...(property.items ?? { type: 'string' }), enum: names }
+			}
+		})
+	})
 
 	let scopedFields = $derived(
 		AGENT_FIELDS.filter(
