@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT test_script_path, tested_item_path, tested_item_kind\n         FROM ci_test_reference WHERE workspace_id = $1",
+  "query": "SELECT test_script_path, tested_item_path, tested_item_kind FROM ci_test_reference WHERE workspace_id = $1 ORDER BY test_script_path, tested_item_kind, tested_item_path",
   "describe": {
     "columns": [
       {
@@ -30,5 +30,5 @@
       false
     ]
   },
-  "hash": "b823f23e7b1b1e12e96217af6f873f2ae6d3e240da0d1bc2d19d6f89f4949034"
+  "hash": "8509f1b3294fb1673f73b893dae3afe7a293342230b33c79a76e6648b8247937"
 }

@@ -589,22 +589,6 @@ pub async fn handle_dependency_job(
             // hash whose content cache has not caught up.
             windmill_common::invalidate_deployed_script_hash_cache(w_id, script_path);
 
-            // Trigger CI tests for items that reference this script. Awaited, and
-            // before the deploy push is enqueued: the git-sync PR check treats a
-            // finished pull or push as "the deploy's tests exist".
-            if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
-                db,
-                w_id,
-                script_path,
-                "script",
-                &job.permissioned_as_email,
-                &job.created_by,
-            )
-            .await
-            {
-                tracing::error!(%e, "error triggering CI tests after script lock generation");
-            }
-
             if let Err(e) = handle_deployment_metadata(
                 &job.permissioned_as_email,
                 &job.created_by,
@@ -644,6 +628,33 @@ pub async fn handle_dependency_job(
                 &job.permissioned_as,
             )
             .await?;
+
+            // Trigger CI tests for items that reference this script
+            tracing::debug!(
+                "CI test trigger: checking for tests referencing script {}",
+                script_path
+            );
+            {
+                let db2 = db.clone();
+                let w_id2 = w_id.to_string();
+                let script_path2 = script_path.to_string();
+                let email2 = job.permissioned_as_email.clone();
+                let username2 = job.created_by.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+                        &db2,
+                        &w_id2,
+                        &script_path2,
+                        "script",
+                        &email2,
+                        &username2,
+                    )
+                    .await
+                    {
+                        tracing::error!(%e, "error triggering CI tests after script lock generation");
+                    }
+                });
+            }
 
             if let Err(e) = maybe_queue_binary_prebuild(db, job, deployed_hash, &content).await {
                 tracing::error!(%e, "error queueing the auto-build binary job for {script_path}");

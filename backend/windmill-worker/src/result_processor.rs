@@ -1824,8 +1824,7 @@ pub async fn process_completed_job(
             .as_ref()
             .is_some_and(|k| k.is(windmill_common::jobs::JobTriggerKind::CiTest))
         {
-            windmill_common::git_sync_ee::evaluate_and_conclude_ci_test_checks(db, &workspace_id)
-                .await;
+            windmill_git_sync::evaluate_and_conclude_ci_test_checks(db, &workspace_id).await;
         }
 
         // Asset-trigger fan-out: best-effort, never propagates errors.
@@ -1946,11 +1945,7 @@ pub async fn process_completed_job(
             .as_ref()
             .is_some_and(|k| k.is(windmill_common::jobs::JobTriggerKind::CiTest))
         {
-            windmill_common::git_sync_ee::evaluate_and_conclude_ci_test_checks(
-                db,
-                &job.workspace_id,
-            )
-            .await;
+            windmill_git_sync::evaluate_and_conclude_ci_test_checks(db, &job.workspace_id).await;
         }
         if job.is_flow_step() {
             if let Some(parent_job) = job.parent_job {

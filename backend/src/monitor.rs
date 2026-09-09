@@ -4699,7 +4699,7 @@ pub async fn poll_git_auto_pull(db: &Pool<Postgres>) {
     // delivery, conclude checks whose tests settled, time out stuck ones, prune old
     // rows. Runs outside the advisory lock: its writes are guarded (claimed conclude,
     // greatest-id upsert), and its GitHub calls must not extend the auto-pull tick.
-    windmill_common::git_sync_ee::sweep_ci_test_checks(db).await;
+    windmill_git_sync::sweep_ci_test_checks(db).await;
 }
 
 #[cfg(feature = "private")]

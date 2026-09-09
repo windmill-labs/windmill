@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM git_sync_ci_test_check\n         WHERE concluded AND github_posted\n           AND concluded_at < now() - make_interval(secs => $1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8d5a245c5f6674d72fe0d4bc1ff1f19ffb6f1ab81649944809bafe3f89acd9e8"
+}

@@ -15682,6 +15682,7 @@ dependencies = [
  "tracing",
  "uuid",
  "windmill-common",
+ "windmill-dep-map",
  "windmill-queue",
 ]
 

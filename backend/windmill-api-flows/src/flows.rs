@@ -827,19 +827,27 @@ async fn create_flow(
         WebhookMessage::CreateFlow { workspace: w_id.clone(), path: nf.path.clone() },
     );
 
-    // Trigger CI tests for items that reference this flow; awaited for the same reason
-    // as in `update_flow`.
-    if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
-        &db,
-        &w_id,
-        &nf.path,
-        "flow",
-        &authed.email,
-        &authed.username,
-    )
-    .await
+    // Trigger CI tests for items that reference this flow
     {
-        tracing::error!(%e, "error triggering CI tests after flow creation");
+        let db2 = db.clone();
+        let w_id2 = w_id.clone();
+        let flow_path2 = nf.path.clone();
+        let email2 = authed.email.clone();
+        let username2 = authed.username.clone();
+        tokio::spawn(async move {
+            if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+                &db2,
+                &w_id2,
+                &flow_path2,
+                "flow",
+                &email2,
+                &username2,
+            )
+            .await
+            {
+                tracing::error!(%e, "error triggering CI tests after flow creation");
+            }
+        });
     }
 
     Ok((StatusCode::CREATED, nf.path.to_string()))
@@ -1559,20 +1567,27 @@ async fn update_flow(
 
     reregister_moved_native_triggers(&db, &authed, &w_id, moved_native_triggers);
 
-    // Trigger CI tests for items that reference this flow. Awaited so the tests are
-    // queued before the deploy is acknowledged: the git-sync PR check treats a
-    // finished pull as "the deploy's tests exist".
-    if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
-        &db,
-        &w_id,
-        &nf.path,
-        "flow",
-        &authed.email,
-        &authed.username,
-    )
-    .await
+    // Trigger CI tests for items that reference this flow
     {
-        tracing::error!(%e, "error triggering CI tests after flow deploy");
+        let db2 = db.clone();
+        let w_id2 = w_id.clone();
+        let flow_path2 = nf.path.clone();
+        let email2 = authed.email.clone();
+        let username2 = authed.username.clone();
+        tokio::spawn(async move {
+            if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+                &db2,
+                &w_id2,
+                &flow_path2,
+                "flow",
+                &email2,
+                &username2,
+            )
+            .await
+            {
+                tracing::error!(%e, "error triggering CI tests after flow deploy");
+            }
+        });
     }
 
     Ok(nf.path.to_string())

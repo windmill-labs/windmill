@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT job_id, ci_test_job_ids, tests_dispatched_at\n           FROM git_sync_synced_head\n           WHERE workspace_id = $1 AND repo_resource_path = $2 AND branch = $3 AND sha = $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "ci_test_job_ids",
+        "type_info": "UuidArray"
+      },
+      {
+        "ordinal": 2,
+        "name": "tests_dispatched_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "00034075a8815276b31c0bc571c926d5049ae968c541fb890706a5128c5c2847"
+}

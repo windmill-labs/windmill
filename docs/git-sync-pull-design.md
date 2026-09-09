@@ -652,36 +652,38 @@ corresponds to; the check reflects that fork's current results on the PR head.
   create failure), then evaluate. An earlier head's open check is left to conclude on its
   own (fork verdict or timeout): a late-delivered event for an old head must never touch
   the current head's check.
-- **Conclude** — verdict from the fork's **current** CI test status: the newest `ci_test`
-  job per `(trigger, runnable_path)` (tested item × test script) in a recent window. The
-  job's `trigger` is the concrete tested item, so wildcard/multi-target tests are covered
-  without expanding `ci_test_reference`, and no file-path→item reconstruction is needed;
-  a job counts only while its test script still exists and still references its tested
-  item (wildcards included), so a deleted, archived or de-annotated test's last run, or a
-  target the test dropped, stops deciding the verdict. Fail-fast on any failed/canceled;
-  `success` once all settle (or "No CI tests" when none ran); a head that previously failed
-  passes again only on runs newer than the event that reopened it, since the runs behind
-  the failure can expire out of the lookback while a passing one has not; `skipped`
-  (debounce-superseded) ignored.
-- **Readiness** — the verdict is read only once the fork reflects the head, so it does not
-  matter which webhook GitHub delivers first. The evidence is `git_sync_synced_head`: the
-  pull completion hook writes a row when a pull job succeeds (its marker carries the branch
-  and sha it was enqueued for), and the push completion hook writes one from the deploy
-  push script's `{pushed, sha, branch}` result. The check is ready when the repository branch's
-  newest row names the head, so a branch reset to an older commit waits for its re-pull instead
-  of reading the newer commit's results, and the prune keeps each branch's newest row so a
-  PR reopened at an unchanged head stays ready. This is a
-  sync event log, deliberately apart from `auto_pull.last_synced_sha`: that map decides
-  whether the next poll pulls (a push must never write it, or a commit someone else pushed
-  under ours would be skipped) and it is client-round-tripped settings. The check row
-  stores `head_ref` for the lookup. The check also waits while a dependency job in the
-  fork (a lockfile-generating deploy hands its CI tests to one) or a pull of the repository
-  branch is queued (a deploy push lands on whatever the remote held when it cloned, so a
-  commit pushed there from outside is in the workspace only once its pull ran), and fails
-  outright if a dependency job failed after the head's pull started: the item deployed
-  nothing runnable and queued no test, so an older passing run must not decide. A commit
-  the fork never comes to reflect times out; its deploy check shows why. Needs the hub push script version that reports the sha
-  (`LATEST_GIT_SYNC_SCRIPT_PATH`).
+- **Conclude** — the verdict is the head's own suite. Once the fork reflects the head (below)
+  and its dependency jobs settled, every CI test the fork declares is dispatched once, one
+  run per `ci_test_reference` row the way a deploy of that item would (`trigger_all_ci_tests`,
+  under the identity of the sync job that brought the head in), and the job ids are recorded
+  on the synced-head row (`ci_test_job_ids`; `tests_dispatched_at` claims the dispatch so the
+  per-job hook and the poller queue it once). The verdict is exactly those runs: fail-fast on
+  any failed/canceled; `success` once all settle ("No CI tests" when the fork declares none);
+  `skipped` (debounce-superseded) ignored. Nothing older, newer or workspace-wide stands in
+  for a head's runs, so a re-fired event reads the same runs and gets the same answer, a
+  test-only change is run because the suite runs on every head, and a deploy in flight in
+  the fork cannot feed another head's check. Runs purged by job retention reset the row so
+  the head is re-tested.
+- **Readiness** — the suite is dispatched only once the fork reflects the head, so it does
+  not matter which webhook GitHub delivers first. The evidence is `git_sync_synced_head`: the
+  pull completion hook writes a row when a pull job succeeds (the pull script reports the
+  commit its clone checked out; the enqueue-time marker is the fallback), and the push
+  completion hook writes one from the deploy push script's `{pushed, sha, branch, rebased}`
+  result (a rebased push sits on unpulled commits and is not recorded). The head is ready
+  when the repository branch's newest row names it, so a branch reset to an older commit
+  waits for its re-pull; the prune keeps each repository branch's newest row so a PR reopened
+  at an unchanged head stays ready. This is a sync event log, deliberately apart from
+  `auto_pull.last_synced_sha`: that map decides whether the next poll pulls (a push must
+  never write it, or a commit someone else pushed under ours would be skipped) and it is
+  client-round-tripped settings. The check row stores `head_ref` for the lookup. Dispatch
+  also waits while a dependency job in the fork or a pull of the repository branch is queued
+  (a deploy push lands on whatever the remote held when it cloned, so a commit pushed there
+  from outside is in the workspace only once its pull ran), and the check fails outright if
+  a dependency job failed after the head's pull started (the item deployed nothing
+  runnable). A commit the fork never comes to reflect times out; a timeout on a repository
+  pinned to a sync script older than the one that reports pushed commits names that as the
+  reason. Needs the hub script versions that report the sha (`LATEST_GIT_SYNC_SCRIPT_PATH`,
+  `GIT_SYNC_PULL_SCRIPT_PATH`).
 - **Drivers** — a per-`ci_test`-job completion hook (low latency) and the git-sync poller
   (the backstop: retries the GitHub create/deliver, times stuck checks out after 30 min,
   prunes old rows; runs after the auto-pull advisory lock is released so its GitHub calls

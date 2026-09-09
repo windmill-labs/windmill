@@ -116,7 +116,7 @@ gcp_trigger: gcp_resource_path(char), topic_id(char), subscription_id(char), del
 git_sync_ci_test_check: workspace_id(char), head_sha(char), head_ref(char), github_workspace_id(char), repo_url(text), repo_resource_path(char), check_run_id(bigint), created_at(timestamptz), concluded(bool), conclusion(text), concluded_at(timestamptz), github_posted(bool)
   FK: (workspace_id) -> workspace(id)
   FK: (github_workspace_id) -> workspace(id)
-git_sync_synced_head: workspace_id(char), repo_resource_path(char), branch(char), sha(char), source(char), job_id(uuid), synced_at(timestamptz)
+git_sync_synced_head: workspace_id(char), repo_resource_path(char), branch(char), sha(char), source(char), job_id(uuid), synced_at(timestamptz), tests_dispatched_at(timestamptz), ci_test_job_ids(uuid[])
   FK: (workspace_id) -> workspace(id)
 global_settings: name(char), value(jsonb), updated_at(ts)
 guest_activity: email(char), workspace_id(char), day(date), last_seen_at(timestamptz), jwt_entry(bool)

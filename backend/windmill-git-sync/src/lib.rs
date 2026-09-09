@@ -14,10 +14,12 @@ pub mod git_sync_oss;
 
 #[cfg(feature = "private")]
 pub use git_sync_ee::{
-    enqueue_git_pull_dry_run, enqueue_git_pull_job, handle_deployment_metadata,
+    enqueue_git_pull_dry_run, enqueue_git_pull_job, ensure_ci_test_check_for_pr,
+    evaluate_and_conclude_ci_test_checks, handle_deployment_metadata,
     handle_deployment_metadata_batch, handle_fork_branch_creation, persist_auto_pull_state,
-    reconcile_and_enqueue_pull, reconcile_fork_branch_pull, record_auto_pull_failure,
-    record_synced_head, tally_deployed_object_changes,
+    post_ci_test_check_not_applicable, reconcile_and_enqueue_pull, reconcile_fork_branch_pull,
+    record_auto_pull_failure, record_synced_head, resolve_pr_head_workspace,
+    sweep_ci_test_checks, tally_deployed_object_changes,
 };
 
 #[cfg(not(feature = "private"))]
