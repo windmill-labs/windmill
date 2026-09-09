@@ -446,8 +446,10 @@ async fn resolve_moved_to(
 /// The body of `resolve_moved_to`, on a caller-supplied transaction. Split out
 /// so the post-write re-assert can reuse the connection it already holds rather
 /// than acquiring a second one from the same pool while holding an open
-/// transaction — that pattern stalls under pool pressure. Callers that have not
-/// passed the write gate must hand it an RLS-scoped transaction.
+/// transaction — that pattern stalls under pool pressure. The transaction it is
+/// handed must be RLS-scoped: it reports a path and a username the caller may
+/// have no access to, and passing the write gate at the old path says nothing
+/// about what the caller may see at the new one.
 async fn resolve_moved_to_in(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     saver_username: &str,
@@ -621,8 +623,10 @@ async fn resolve_moved_to_in(
 /// row. That row is bounded — the editor's next autosave hits the pre-check and
 /// is told the item moved. A save that DOES have a row there serialises behind
 /// the mover's own UPDATE on that tuple and detects the move correctly.
-/// Runs on the write's own connection, after the caller has passed the write
-/// gate, so it needs no RLS envelope.
+/// Runs on the write's own RLS-scoped connection. An item hidden by RLS reads as
+/// `false` here, which asks `resolve_moved_to_in`, which answers `None`, so the
+/// save lands — the same outcome as the `true` this would return if the row were
+/// visible and unmoved.
 ///
 /// `false` covers three different situations — moved, deleted, and a genuinely
 /// draft-only item that never had a deployed row — so it is only ever a cue to
