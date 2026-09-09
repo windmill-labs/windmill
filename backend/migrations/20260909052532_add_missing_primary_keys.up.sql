@@ -1,23 +1,20 @@
--- These six had neither a PRIMARY KEY nor an explicit REPLICA IDENTITY, which makes
--- PostgreSQL reject UPDATE and DELETE on them under logical replication. `metrics`
--- is the seventh and lands one migration later.
+-- These five had neither a PRIMARY KEY nor an explicit REPLICA IDENTITY, which makes
+-- PostgreSQL reject UPDATE and DELETE on them under logical replication.
+-- `deployment_metadata` and `metrics` are the other two, one migration each after this.
 --
--- The surrogate cannot be swapped for a natural key: every unique index on all six
--- is PARTIAL -- split on `script_hash IS NULL`, or on which of script/flow/app a
--- deployment row describes -- and a partial index cannot back a primary key. The
--- partial uniques stay; they are what the ON CONFLICT clauses infer.
+-- The surrogate cannot be swapped for a natural key: every unique index on all five
+-- is PARTIAL -- split on `script_hash IS NULL`, or on which of flow/app a dependency
+-- row describes -- and a partial index cannot back a primary key. The partial uniques
+-- stay; they are what the ON CONFLICT clauses infer.
 --
 -- Each ALTER rewrites its table under ACCESS EXCLUSIVE and holds it unavailable for
--- the rewrite. These six share a transaction because they were together under 50 MB
--- where this was measured; `metrics` was two orders of magnitude larger and is kept
--- out, since Postgres holds a transaction's locks until it commits.
+-- the rewrite. These five share a transaction because each is bounded by what a
+-- workspace holds rather than by how long it has run, so none can grow into the one
+-- that locks the rest; a transaction holds all its locks until it commits.
 --
 -- An instance that cannot afford that lock at startup can set REPLICA IDENTITY FULL
 -- on these tables instead, which unblocks replication by itself, and run these
 -- idempotent ALTERs in a maintenance window first.
-
-ALTER TABLE deployment_metadata
-    ADD COLUMN IF NOT EXISTS id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY;
 
 ALTER TABLE workspace_runnable_dependencies
     ADD COLUMN IF NOT EXISTS id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY;
