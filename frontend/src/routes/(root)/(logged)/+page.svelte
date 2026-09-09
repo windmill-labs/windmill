@@ -5,22 +5,12 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from '$lib/components/home/FlowIcon.svelte'
-	import CreateActionsMenu from '$lib/components/home/CreateActionsMenu.svelte'
 	import { getScriptByPath } from '$lib/scripts'
 	import type { HubItem } from '$lib/components/flows/pickers/model'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import PickHubFlow from '$lib/components/flows/pickers/PickHubFlow.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import HomeConnectDrawer from '$lib/components/home/HomeConnectDrawer.svelte'
-	import {
-		ExternalLink,
-		GitFork,
-		Globe2,
-		Loader2,
-		Code,
-		LayoutDashboard,
-		PlugZap
-	} from 'lucide-svelte'
+	import { ExternalLink, GitFork, Globe2, Loader2, Code, LayoutDashboard } from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
 	import { base } from '$lib/base'
 
@@ -28,20 +18,24 @@
 	import PickHubApp from '$lib/components/flows/pickers/PickHubApp.svelte'
 	import { writable } from 'svelte/store'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
-	import { HOME_SHOW_HUB } from '$lib/consts'
 	import { setQuery } from '$lib/navigation'
 	import { page } from '$app/state'
 	import { goto, replaceState } from '$app/navigation'
 	import ForkWorkspaceBanner from '$lib/components/ForkWorkspaceBanner.svelte'
 	import WorkspaceDraftsBanner from '$lib/components/WorkspaceDraftsBanner.svelte'
-	import WorkspaceTutorials from '$lib/components/WorkspaceTutorials.svelte'
-	import { onMount, setContext } from 'svelte'
-	import { tutorialsToDo } from '$lib/stores'
-	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
-	import TutorialBanner from '$lib/components/home/TutorialBanner.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { z } from 'zod'
+	import HomeAIChat from '$lib/components/home/HomeAIChat.svelte'
+	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
+	import { onMount, untrack } from 'svelte'
+	import OperatorTour from '$lib/components/tutorials/OperatorTour.svelte'
+	import {
+		hasSeenOperatorTour,
+		TOUR_PARAM,
+		TOUR_PARAM_VALUE,
+		TOUR_START_DELAY_MS
+	} from '$lib/components/tutorials/operatorTour'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -96,39 +90,41 @@
 		appViewer?.openDrawer?.()
 	}
 
-	let workspaceTutorials: WorkspaceTutorials | undefined = $state(undefined)
-	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)
-
-	// Provide workspaceTutorials to child components via a reactive wrapper
-	let workspaceTutorialsContext = $derived(workspaceTutorials)
-	setContext('workspaceTutorials', {
-		get value() {
-			return workspaceTutorialsContext
-		}
-	})
-
 	let showCreateButtons = $state(false)
 
-	onMount(() => {
-		// Check if there's a tutorial parameter in the URL
-		const tutorialParam = page.url.searchParams.get('tutorial')
-		if (tutorialParam === 'workspace-onboarding') {
-			// Small delay to ensure page is fully loaded
-			setTimeout(() => {
-				workspaceTutorials?.runTutorialById('workspace-onboarding')
-			}, 500)
-		} else if (tutorialParam === 'workspace-onboarding-operator') {
-			// Small delay to ensure page is fully loaded
-			setTimeout(() => {
-				workspaceTutorials?.runTutorialById('workspace-onboarding-operator')
-			}, 500)
-		} else if (!$ignoredTutorials.includes(8) && $tutorialsToDo.includes(8)) {
-			// Check if user hasn't completed or ignored the workspace onboarding tutorial
-			// Small delay to ensure page is fully loaded
-			setTimeout(() => {
-				workspaceTutorials?.runTutorialById('workspace-onboarding')
-			}, 500)
-		}
+	let operatorTour: OperatorTour | undefined = $state(undefined)
+
+	// Delayed so the tabs the first steps point at exist. `runTutorial` refuses while a tour is
+	// already running, which is the guard that matters — the tour ends by telling the operator
+	// to start it again from the menu, so a start has to be possible for the life of the page.
+	function startTour() {
+		setTimeout(() => operatorTour?.runTutorial(), TOUR_START_DELAY_MS)
+	}
+
+	// The sidebar entry asks by URL parameter so it works from any page an operator can be on.
+	// Read reactively rather than on mount: arriving from the menu while already on the home
+	// page is a parameter change, not a new page.
+	$effect(() => {
+		if (page.url.searchParams.get(TOUR_PARAM) !== TOUR_PARAM_VALUE) return
+		const user = $userStore
+		if (!user) return
+		untrack(() => {
+			const url = new URL(page.url)
+			url.searchParams.delete(TOUR_PARAM)
+			replaceState(url, page.state)
+			// Gated here too: the parameter is part of a URL anyone can type, and the tour
+			// describes a home page that only operators see.
+			if (user.operator) startTour()
+		})
+	})
+
+	onMount(async () => {
+		// Operators get the tour once, and only when they have not been through it: they cannot
+		// create anything, so the home page is the whole product to them and it is worth naming
+		// its three tabs. Anyone who can build gets nothing — they have the create button.
+		if (!$userStore?.operator || page.url.searchParams.has(TOUR_PARAM)) return
+		if (await hasSeenOperatorTour()) return
+		startTour()
 	})
 </script>
 
@@ -267,56 +263,27 @@
 </Drawer>
 
 <div
-	class="flex flex-col w-full h-full overflow-y-auto items-center"
+	class="wm-page-in flex flex-col w-full h-full overflow-y-auto items-center"
 	style="scrollbar-gutter: stable both-edges;"
 >
 	<ForkWorkspaceBanner />
 	<WorkspaceDraftsBanner />
-	<div class="max-w-7xl px-4 sm:px-8 md:px-8 h-fit w-full">
-		{#if $workspaceStore == 'admins'}
-			<div class="my-4"></div>
+	<div class="max-w-7xl px-4 sm:px-8 md:px-8 h-fit w-full mb-6">
+		<!-- HomeAIChat carries both the AI composer and the AI-independent CLI/MCP connect row,
+		     so it shows whenever the sessions beta is on; the composer itself is gated on operator
+		     status and on the workspace inside the component, which owns its own vertical spacing
+		     because the hero and the bare connect row want different amounts of it. -->
+		{#if isGlobalAiEnabled()}
+			<HomeAIChat />
+		{/if}
 
+		{#if $workspaceStore == 'admins'}
 			<Alert title="Admins workspace">
 				The Admins workspace is for admins only and contains scripts whose purpose is to manage your
 				Windmill instance, such as keeping resource types up to date.
 			</Alert>
+			<div class="my-4"></div>
 		{/if}
-		<div class="flex flex-row flex-wrap justify-between items-center gap-3 pb-2 my-4 mr-2 min-h-16">
-			<h1 class="text-2xl font-semibold text-emphasis whitespace-nowrap leading-6 tracking-tight">
-				Home
-			</h1>
-			<div class="ml-auto flex flex-row gap-2 items-center">
-				{#if !$userStore?.operator && HOME_SHOW_HUB}
-					<Button
-						variant="default"
-						unifiedSize="md"
-						startIcon={{ icon: Globe2 }}
-						endIcon={{ icon: ExternalLink }}
-						href={$hubBaseUrlStore}
-						target="_blank"
-						btnClasses="whitespace-nowrap"
-					>
-						Hub
-					</Button>
-				{/if}
-				<Button
-					variant="default"
-					unifiedSize="md"
-					startIcon={{ icon: PlugZap }}
-					btnClasses="whitespace-nowrap"
-					onClick={() => homeConnectDrawer?.openDrawer?.()}
-				>
-					CLI / MCP
-				</Button>
-				{#if !$userStore?.operator && showCreateButtons}
-					<div class="ml-2">
-						<CreateActionsMenu />
-					</div>
-				{/if}
-			</div>
-		</div>
-
-		<TutorialBanner />
 
 		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
 
@@ -396,9 +363,35 @@
 	</div>
 
 	{#if tab == 'workspace'}
-		<ItemsList bind:filter={getFilter, setFilter} bind:subtab showEditButtons={showCreateButtons} />
+		<ItemsList bind:subtab showEditButtons={showCreateButtons} />
 	{/if}
 </div>
 
-<WorkspaceTutorials bind:this={workspaceTutorials} />
-<HomeConnectDrawer bind:this={homeConnectDrawer} />
+{#if $userStore?.operator}
+	<OperatorTour bind:this={operatorTour} />
+{/if}
+
+<style>
+	/* The page's content arriving, rather than being there. The layout has already painted the
+	   sidebar and the surface behind it, so only what is new to this route fades. It plays on
+	   every arrival at Home, not just the one off a workspace hand-over — that is the arrival it
+	   is for, and a soft one costs nothing on the others. */
+	@keyframes wm-page-in {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
+	}
+
+	.wm-page-in {
+		animation: wm-page-in 500ms ease-out both;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.wm-page-in {
+			animation: none;
+		}
+	}
+</style>

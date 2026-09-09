@@ -632,6 +632,28 @@ pub enum JobPayload {
     },
 }
 
+impl JobPayload {
+    /// Whether the payload itself declares a dedicated worker, in which case `push` replaces
+    /// whatever tag it is handed and the caller's tag never reaches the queue.
+    ///
+    /// This reads what the payload carries, not what `push` will conclude: a `SingleStepFlow`
+    /// loads the flag from the script row at push time and reports `false` here. That only
+    /// matters to a caller reasoning about the tag, and for those the answer is the same either
+    /// way, since `push` replaces the tag in exactly the case this misses.
+    pub fn is_dedicated_worker(&self) -> bool {
+        let dedicated_worker = match self {
+            JobPayload::ScriptHash { dedicated_worker, .. }
+            | JobPayload::FlowScript { dedicated_worker, .. }
+            | JobPayload::Dependencies { dedicated_worker, .. }
+            | JobPayload::FlowDependencies { dedicated_worker, .. }
+            | JobPayload::Flow { dedicated_worker, .. } => dedicated_worker,
+            JobPayload::Code(raw) => &raw.dedicated_worker,
+            _ => &None,
+        };
+        dedicated_worker.is_some_and(|x| x)
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct SkipHandler {
     pub path: String,

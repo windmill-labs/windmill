@@ -94,6 +94,21 @@ pub async fn load_indexer_config(db: &DB) -> error::Result<TantivyIndexerSetting
     })
 }
 
+/// How far back the service log index reaches, in seconds.
+///
+/// [`crate::service_log_retention_secs`] is the ceiling: past it a line's `log_file` row is
+/// deleted and can no longer be indexed. `max_index_time_window_secs` of `0` means "do not
+/// shrink below that ceiling", not "unbounded" — both sites that trim and populate the index
+/// derive the window here so the two cannot disagree about it.
+pub fn service_log_index_window_secs(max_index_time_window_secs: i64) -> i64 {
+    let retention = crate::service_log_retention_secs();
+    if max_index_time_window_secs > 0 {
+        std::cmp::min(max_index_time_window_secs, retention)
+    } else {
+        retention
+    }
+}
+
 pub fn get_env_var(env_var: &str) -> Option<u64> {
     match std::env::var(env_var).map(|x| x.parse()) {
         Ok(Ok(i)) => Some(i),
@@ -135,4 +150,61 @@ pub fn get_indexer_rates_from_env() -> TantivyIndexerSettings {
     }
 
     settings
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // One test rather than several: both halves share the process-wide retention, and the
+    // setter half writes it, which parallel tests would race.
+    #[test]
+    fn retention_rejects_unusable_values_and_the_index_window_clamps_to_it() {
+        use crate::{
+            service_log_retention_secs, set_service_log_retention_secs,
+            DEFAULT_SERVICE_LOG_RETENTION_SECS,
+        };
+
+        // See `set_service_log_retention_secs` for why the two unusable directions land apart:
+        // too large keeps the intent by capping, non-positive cannot and falls back.
+        let rejected: Vec<i64> = [0, -1, i64::MIN]
+            .iter()
+            .map(|v| {
+                set_service_log_retention_secs(*v);
+                service_log_retention_secs()
+            })
+            .collect();
+        let capped: Vec<i64> = [i64::MAX, 60 * 60 * 24 * 365 * 101]
+            .iter()
+            .map(|v| {
+                set_service_log_retention_secs(*v);
+                service_log_retention_secs()
+            })
+            .collect();
+
+        set_service_log_retention_secs(60 * 60 * 24 * 3);
+        let retention = service_log_retention_secs();
+        let windows = [
+            // `0` disables the extra shrinking rather than lifting the ceiling — the trap that
+            // makes an unset setting look unbounded.
+            service_log_index_window_secs(0),
+            // Retention is the ceiling: the index cannot reach lines whose `log_file` row is gone.
+            service_log_index_window_secs(retention * 2),
+            service_log_index_window_secs(60),
+        ];
+        set_service_log_retention_secs(DEFAULT_SERVICE_LOG_RETENTION_SECS);
+
+        assert_eq!(
+            rejected,
+            vec![DEFAULT_SERVICE_LOG_RETENTION_SECS; 3],
+            "a value that would expire everything must fall back to the default"
+        );
+        assert_eq!(
+            capped,
+            vec![60 * 60 * 24 * 365 * 100; 2],
+            "an oversized value must cap, not shorten retention to the default"
+        );
+        assert_eq!(retention, 60 * 60 * 24 * 3);
+        assert_eq!(windows, [retention, retention, 60]);
+    }
 }

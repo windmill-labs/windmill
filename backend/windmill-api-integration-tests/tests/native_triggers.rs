@@ -18,15 +18,16 @@ use windmill_common::{
     variables::{build_crypt, encrypt},
 };
 use windmill_native_triggers::{
-    classify_read_failure, decrypt_oauth_data, delete_native_trigger,
-    delete_workspace_integration, get_workspace_integration,
+    classify_read_failure, decrypt_oauth_data, delete_native_trigger, delete_workspace_integration,
+    get_workspace_integration,
     github::GitHub,
     google::{parse_stop_channel_params, should_renew_channel},
-    http_error_status, list_native_triggers, map_external_error,
+    grant_refused, http_error_status, list_native_triggers, map_external_error,
+    native_trigger_is_enabled,
     nextcloud::NextCloud,
-    grant_refused, require_native_integration_use, store_native_trigger,
-    store_workspace_integration, External, ExternalReadFailure, HttpRequestError,
-    NativeTriggerConfig, OAuthConfig, ServiceName,
+    require_native_integration_use, set_native_trigger_enabled, store_native_trigger,
+    store_workspace_integration, update_native_trigger, External, ExternalReadFailure,
+    HttpRequestError, NativeTriggerConfig, OAuthConfig, ServiceName,
 };
 
 // ============================================================================
@@ -63,6 +64,7 @@ fn test_authed() -> ApiAuthed {
         token_prefix: None,
         read_only: false,
         job_id: None,
+        credential_expiry: None,
     }
 }
 
@@ -455,6 +457,7 @@ async fn test_delete_integration_full_cascade(db: Pool<Postgres>) -> anyhow::Res
         &trigger_config,
         json!({"triggerType": "drive"}),
         None,
+        true,
     )
     .await?;
 
@@ -545,6 +548,7 @@ async fn test_cleanup_preserves_triggers(db: Pool<Postgres>) -> anyhow::Result<(
         &trigger_config,
         json!({"triggerType": "drive"}),
         None,
+        true,
     )
     .await?;
 
@@ -602,6 +606,7 @@ async fn test_rename_moves_native_trigger(db: Pool<Postgres>) -> anyhow::Result<
         },
         json!({"event": "OCP\\Files\\Events\\Node\\NodeCreatedEvent"}),
         None,
+        true,
     )
     .await?;
     // An unrelated trigger already sitting on the target path must not be reported as moved.
@@ -618,6 +623,7 @@ async fn test_rename_moves_native_trigger(db: Pool<Postgres>) -> anyhow::Result<
         },
         json!({"event": "OCP\\Files\\Events\\Node\\NodeCreatedEvent"}),
         None,
+        true,
     )
     .await?;
 
@@ -783,7 +789,10 @@ fn test_refresh_failures_blame_only_the_grant_they_refuse() {
     let ok = Some(StatusCode::OK);
     assert!(grant_refused(ok, r#"{"error":"bad_refresh_token"}"#));
     assert!(grant_refused(ok, r#"{"error":"invalid_grant"}"#));
-    assert!(!grant_refused(ok, r#"{"access_token":"t","token_type":"bearer"}"#));
+    assert!(!grant_refused(
+        ok,
+        r#"{"access_token":"t","token_type":"bearer"}"#
+    ));
 }
 
 /// A service that is busy or broken has not refused anything, and callers react differently to
@@ -825,7 +834,9 @@ fn test_transient_service_failures_are_not_refusals() {
         body: r#"{"message":"Must have admin rights to Repository."}"#.to_string(),
     });
     assert!(
-        map_external_error(refused).to_string().contains("admin rights"),
+        map_external_error(refused)
+            .to_string()
+            .contains("admin rights"),
         "a real 403 keeps its guidance"
     );
 }
@@ -848,4 +859,116 @@ fn test_only_service_failures_degrade_the_read() {
         matches!(map_external_error(internal), Error::InternalErrLoc { .. }),
         "a non-provider error must pass through unmapped"
     );
+}
+
+/// The pause switch a webhook delivery is gated on. A trigger arrives enabled, survives an
+/// unrelated edit, and an unknown one reads as enabled so a delivery Windmill cannot place is
+/// never silently dropped.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_native_trigger_enabled_toggle(db: Pool<Postgres>) -> anyhow::Result<()> {
+    insert_test_script(&db, "f/test/handler").await?;
+    let config = NativeTriggerConfig {
+        script_path: "f/test/handler".to_string(),
+        is_flow: false,
+        webhook_token: "abcdefghij1234567890".to_string(),
+    };
+    store_native_trigger(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        "ext-1",
+        &config,
+        json!({"event": "OCA\\Files\\Event\\LoadAdditionalScriptsEvent"}),
+        None,
+        true,
+    )
+    .await?;
+
+    assert!(
+        native_trigger_is_enabled(&db, "test-workspace", ServiceName::Nextcloud, "ext-1").await?,
+        "a new trigger fires"
+    );
+
+    assert!(
+        set_native_trigger_enabled(
+            &db,
+            "test-workspace",
+            ServiceName::Nextcloud,
+            "ext-1",
+            false
+        )
+        .await?
+    );
+    assert!(
+        !native_trigger_is_enabled(&db, "test-workspace", ServiceName::Nextcloud, "ext-1").await?
+    );
+
+    // Saving a configuration must not resume a trigger someone paused.
+    update_native_trigger(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        "ext-1",
+        &config,
+        None,
+        Some("edited"),
+    )
+    .await?;
+    assert!(
+        !native_trigger_is_enabled(&db, "test-workspace", ServiceName::Nextcloud, "ext-1").await?,
+        "an edit leaves the pause in place"
+    );
+
+    // A recreate registers a fresh trigger and must be able to come up already paused, in one
+    // write, rather than being enabled for as long as it takes a second call to arrive.
+    store_native_trigger(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        "ext-2",
+        &config,
+        json!({}),
+        None,
+        false,
+    )
+    .await?;
+    assert!(
+        !native_trigger_is_enabled(&db, "test-workspace", ServiceName::Nextcloud, "ext-2").await?
+    );
+
+    // The conflict branch is a re-registration of a trigger that already exists, so it carries no
+    // opinion about the pause.
+    store_native_trigger(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        "ext-2",
+        &config,
+        json!({}),
+        None,
+        true,
+    )
+    .await?;
+    assert!(
+        !native_trigger_is_enabled(&db, "test-workspace", ServiceName::Nextcloud, "ext-2").await?,
+        "re-registering leaves the pause in place"
+    );
+
+    assert!(
+        !set_native_trigger_enabled(
+            &db,
+            "test-workspace",
+            ServiceName::Nextcloud,
+            "unknown",
+            true
+        )
+        .await?,
+        "nothing to toggle"
+    );
+    assert!(
+        native_trigger_is_enabled(&db, "test-workspace", ServiceName::Nextcloud, "unknown").await?,
+        "a trigger Windmill has no row for is not treated as paused"
+    );
+
+    Ok(())
 }

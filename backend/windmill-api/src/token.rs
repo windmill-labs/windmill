@@ -99,7 +99,6 @@ fn build_standard_scope_domains() -> Vec<ScopeDomain> {
         ("configs", "Configs", "Configuration management", false),
         ("oauth", "OAuth", "OAuth management", false),
         ("ai", "AI", "AI feature management", false),
-        ("ai_skills", "AI Skills", "AI skill management", false),
         (
             "ai_evals",
             "AI Evals",

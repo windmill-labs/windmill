@@ -1,7 +1,7 @@
 use super::{anthropic_model_rejects_sampling_params, REASONING_OFF_SENTINEL};
 use crate::{
     ai_google::parse_data_url,
-    ai_providers::{AIPlatform, AIProvider},
+    ai_providers::{AIPlatform, AIProvider, DISABLE_ANTHROPIC_PROMPT_CACHING},
     image_handler::prepare_messages_for_api,
     proxy::{
         add_user_to_body, common_outbound_headers, credential_header, ProxyBuildArgs, ProxyRequest,
@@ -632,15 +632,13 @@ impl AnthropicQueryBuilder {
             }
         }
 
+        let caching = !*DISABLE_ANTHROPIC_PROMPT_CACHING;
+
         let system = collect_system_prompt(&prepared_messages, args.system_prompt).map(|text| {
             vec![AnthropicSystemContent {
                 r#type: "text".to_string(),
                 text,
-                cache_control: if self.is_vertex() {
-                    None
-                } else {
-                    Some(CacheControl::ephemeral())
-                },
+                cache_control: caching.then(CacheControl::ephemeral),
             }]
         });
 
@@ -665,7 +663,7 @@ impl AnthropicQueryBuilder {
         let max_tokens = Some(args.max_tokens.unwrap_or(64000));
 
         // Apply cache_control on the last custom tool
-        if !self.is_vertex() {
+        if caching {
             if let Some(ref mut tools_vec) = tools_option {
                 if let Some(AnthropicTool::Custom(ref mut custom)) = tools_vec.last_mut() {
                     custom.cache_control = Some(CacheControl::ephemeral());
@@ -674,7 +672,7 @@ impl AnthropicQueryBuilder {
         }
 
         // Apply cache_control on the last content block of the last message
-        if !self.is_vertex() {
+        if caching {
             if let Some(last_msg) = anthropic_messages.last_mut() {
                 if let Some(last_block) = last_msg.content.last_mut() {
                     match last_block {
@@ -882,10 +880,15 @@ mod tests {
         }
     }
 
-    async fn build_text_body(messages: &[OpenAIMessage], system_prompt: Option<&str>) -> String {
+    async fn build_text_body_on(
+        platform: AIPlatform,
+        messages: &[OpenAIMessage],
+        system_prompt: Option<&str>,
+        tools: Option<&[ToolDef]>,
+    ) -> String {
         let args = BuildRequestArgs {
             messages,
-            tools: None,
+            tools,
             model: "claude-sonnet-4",
             temperature: None,
             reasoning_effort: None,
@@ -899,10 +902,14 @@ mod tests {
             prompt_cache_key: None,
         };
 
-        AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::Standard)
+        AnthropicQueryBuilder::new(AIProvider::Anthropic, platform)
             .build_request(&args, &authed_client(), "test-workspace")
             .await
             .unwrap()
+    }
+
+    async fn build_text_body(messages: &[OpenAIMessage], system_prompt: Option<&str>) -> String {
+        build_text_body_on(AIPlatform::Standard, messages, system_prompt, None).await
     }
 
     /// The worker prepends the system prompt as a system message *and* passes it as
@@ -944,6 +951,35 @@ mod tests {
         let request: serde_json::Value = serde_json::from_str(&body).unwrap();
 
         assert!(request.get("system").is_none());
+    }
+
+    /// Vertex serves the same Messages API and honours `cache_control` breakpoints, so
+    /// its requests must carry the same three the standard platform gets.
+    #[tokio::test]
+    async fn sets_cache_breakpoints_on_every_platform() {
+        let messages = vec![message("system", SYSTEM_PROMPT), message("user", "hi")];
+        let tools = vec![ToolDef {
+            r#type: "function".to_string(),
+            function: ToolDefFunction {
+                name: "get_weather".to_string(),
+                description: None,
+                parameters: RawValue::from_string("{}".to_string()).unwrap(),
+            },
+        }];
+        let ephemeral = serde_json::json!({ "type": "ephemeral" });
+
+        for platform in [AIPlatform::Standard, AIPlatform::GoogleVertexAi] {
+            let body =
+                build_text_body_on(platform, &messages, Some(SYSTEM_PROMPT), Some(&tools)).await;
+            let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+            assert_eq!(request["system"][0]["cache_control"], ephemeral);
+            let sent_tools = request["tools"].as_array().unwrap();
+            assert_eq!(sent_tools.last().unwrap()["cache_control"], ephemeral);
+            let sent = request["messages"].as_array().unwrap();
+            let content = sent.last().unwrap()["content"].as_array().unwrap();
+            assert_eq!(content.last().unwrap()["cache_control"], ephemeral);
+        }
     }
 
     fn has_header(headers: &[(String, String)], name: &str, value: &str) -> bool {

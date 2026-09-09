@@ -468,6 +468,9 @@ async fn sign_debug_request(
 
     // Parse the language
     let script_lang: ScriptLang = request.language.parse().unwrap_or(ScriptLang::Bun);
+    // Taken from the parsed language, not the request's string: the telemetry key vocabulary has
+    // to stay the closed set of languages rather than whatever a caller sent.
+    let lang_key = script_lang.as_str();
 
     // Hash the code (we don't include full code in JWT to keep it small)
     let mut hasher = Sha256::new();
@@ -577,6 +580,8 @@ async fn sign_debug_request(
     .await?;
 
     tx.commit().await?;
+
+    windmill_common::feature_usage::log_feature_usage("debugger", "session", lang_key);
 
     Ok(Json(SignedDebugPayload {
         token,

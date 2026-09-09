@@ -26,6 +26,10 @@
 		 * and clicks "outside" the child would otherwise propagate
 		 * here and close the underlying modal. */
 		closeOnOutsideClick?: boolean
+		/** Close on Escape. Default true. Every open modal listens on the
+		 * window, so a stacked pair would both close on one press; set it
+		 * false on the underlying modal while its child is up. */
+		closeOnEscape?: boolean
 		/** Wider side padding and a lighter title, for a dialog whose body is a form rather
 		 *  than a list. Opt-in: every other Modal2 keeps the padding and heading it had. */
 		formStyling?: boolean
@@ -46,6 +50,7 @@
 		fixedHeight = 'md',
 		contentClasses = '',
 		closeOnOutsideClick = true,
+		closeOnEscape = true,
 		formStyling = false,
 		headerLeft,
 		headerRight,
@@ -80,7 +85,7 @@
 	}
 
 	function handleKeyDown(event: KeyboardEvent) {
-		if (!isOpen) return
+		if (!isOpen || !closeOnEscape) return
 		if (event.key === 'Escape') {
 			event.preventDefault()
 			event.stopPropagation()

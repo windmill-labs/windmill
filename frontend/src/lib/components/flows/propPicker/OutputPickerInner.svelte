@@ -31,6 +31,7 @@
 	import { base } from '$lib/base'
 	import { fade } from 'svelte/transition'
 	import type { FlowEditorContext, OutputViewerJob } from '../types'
+	import { NEVER_TESTED_THIS_FAR } from '../models'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 
 	interface Props {
@@ -192,7 +193,7 @@
 		} else if (selectedJob && 'result' in selectedJob) {
 			// Pin the job
 			let mockValue: any = structuredClone($state.snapshot(selectedJob.result))
-			if (selectedJob.result === 'never tested this far') {
+			if (selectedJob.result === NEVER_TESTED_THIS_FAR) {
 				mockValue = { example: 'value' }
 			}
 			const newMock = {
@@ -222,21 +223,23 @@
 		if (testJob && (testJob.result_stream || testJob.type === 'QueuedJob' || !moduleId)) {
 			return testJob
 		}
-		if (
-			!flowStateStore ||
-			!moduleId ||
-			flowStateStore.val[moduleId]?.previewResult === 'never tested this far'
-		) {
+		// A module with no state yet has no result either. Building the job below from a missing
+		// entry mints a completed-and-failed job with no id, which shows as a red badge on a step
+		// that never ran; and `selectJob` only ever moves off a job it has selected, so it stays
+		// once the state arrives.
+		const moduleState = moduleId ? flowStateStore?.val[moduleId] : undefined
+		if (!moduleState || moduleState.previewResult === NEVER_TESTED_THIS_FAR) {
 			return
 		}
+		const { previewJobId, previewResult, previewSuccess, previewLogs } = moduleState
 		// Use flowStateStore as source of truth — it's updated by both individual step tests
 		// (ModuleTest.jobDone) and flow tests (FlowStatusViewerInner.onJobsLoadedInner)
 		return {
-			id: flowStateStore.val[moduleId]?.previewJobId ?? '',
-			result: flowStateStore.val[moduleId]?.previewResult,
+			id: previewJobId ?? '',
+			result: previewResult,
 			type: 'CompletedJob' as const,
-			success: flowStateStore.val[moduleId]?.previewSuccess ?? undefined,
-			logs: flowStateStore.val[moduleId]?.previewLogs
+			success: previewSuccess ?? undefined,
+			logs: previewLogs
 		} as Job & { result_stream?: string } & { preview?: boolean }
 	}
 

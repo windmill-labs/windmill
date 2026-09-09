@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.798.1"
+version = "1.808.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -88,7 +88,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.798.1"
+version = "1.808.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -108,6 +108,10 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 debug = false
 
+# The expression parser's fallback call chain exhausts worker stacks without optimization.
+[profile.dev.package.php-parser-rs]
+opt-level = 1
+
 [profile.release]
 lto = "thin"
 debug = "line-tables-only"
@@ -115,7 +119,7 @@ strip = "none"
 
 [features]
 default = []
-private = ["windmill-api/private", "windmill-api-agent-workers?/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-dep-map/private", "windmill-object-store/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-operator?/private", "windmill-queue/private", "windmill-worker/private", "windmill-test-utils/private"]
+private = ["windmill-api/private", "windmill-api-agent-workers?/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-dep-map/private", "windmill-object-store/private", "windmill-git-sync/private", "windmill-indexer?/private", "windmill-operator?/private", "windmill-queue/private", "windmill-worker/private", "windmill-test-utils/private"]
 agent_worker_server = ["windmill-api/agent_worker_server", "dep:windmill-api-agent-workers", "windmill-test-utils/agent_worker_server"]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-api-agent-workers?/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise", "windmill-object-store/enterprise", "license"]
 local_reports = ["windmill-common/local_reports"]
@@ -131,6 +135,10 @@ quickjs = ["windmill-worker/quickjs", "windmill-api/quickjs"]
 openidconnect = ["windmill-api/openidconnect", "windmill-common/openidconnect", "windmill-object-store/openidconnect"]
 cloud = ["windmill-queue/cloud", "windmill-worker/cloud", "windmill-common/cloud", "windmill-api/cloud"]
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
+# `tantivy` must stay the only feature that enables windmill-indexer: it is the only one that
+# also gives it `enterprise` + `parquet`, and its EE sources gate nearly everything on that
+# pair, so a bare windmill-indexer is a crate of dead code that `-D warnings` rejects. Any
+# other feature wanting one of its features has to use the optional `windmill-indexer?/` form.
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet", "windmill-common/tantivy", "enterprise", "parquet"]
 sqlx = ["windmill-worker/sqlx"]
 deno_core = ["windmill-worker/deno_core", "dep:windmill-runtime-nativets", "windmill-test-utils/deno_core"]
@@ -347,6 +355,8 @@ windmill-trigger-sqs.workspace = true
 windmill-trigger-gcp.workspace = true
 windmill-trigger-azure.workspace = true
 windmill-api-auth.workspace = true
+tower-cookies.workspace = true
+windmill-api-users.workspace = true
 axum.workspace = true
 serde.workspace = true
 windmill-api-client.workspace = true
@@ -361,6 +371,7 @@ aws-config.workspace = true
 aws-credential-types.workspace = true
 hmac.workspace = true
 hex.workspace = true
+jsonwebtoken = { workspace = true }
 
 
 [workspace.dependencies]
@@ -477,7 +488,10 @@ rust-embed = { version = "^6", features = ["interpolate-folder-path"] }
 mime_guess = "^2"
 hex = "^0"
 sql-builder = "^3"
-argon2 = "^0"
+# Minor-pinned rather than the `^0` used elsewhere in this file: argon2's 0.x
+# minors are API-breaking (0.6 moved `SaltString` into `phc`, put `rand_core`
+# behind a feature and changed `hash_password`), so a float breaks the build.
+argon2 = "0.6"
 quick_cache = "^0"
 rand = "=0.9.0"
 rand_core = { version = "^0", features = ["std"] }
@@ -590,6 +604,8 @@ const_format = { version = "0.2.35", features = ["rust_1_64", "rust_1_51"] }
 const-str = "0.5"
 constant_time_eq = "0.3.1"
 rsa = "^0"
+spki = { version = "0.7", features = ["pem"] }
+pkcs1 = "0.7"
 aes-gcm = "0.10.3"
 async_zip = { version = "0.0.17", features = ["tokio", "tokio-fs", "deflate", "chrono"] }
 once_cell = "1.17.1"
@@ -653,6 +669,12 @@ process-wrap = { version = "8.2.1", features = ["tokio1"] }
 systemstat = "0.2.4"
 
 datafusion = "47.0.0"
+# The row API only: a dbt engine's parquet index is six string columns, so this
+# needs no arrow and no writer. `parquet` is already in the tree with `arrow` for
+# every shipped edition (`oss_core`), and cargo unifies the features there; this
+# set is what a build WITHOUT object storage compiles. ZSTD is what the engine
+# writes today, snap what parquet writers most often default to.
+parquet = { version = "55.2.0", default-features = false, features = ["snap", "zstd"] }
 object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7", features = ["aws", "azure", "gcp"] }
 openidconnect = { version = "4.0.0-rc.1" }
 aws-config = "^1"
@@ -697,7 +719,7 @@ tikv-jemalloc-ctl = { version = "^0.5" }
 triomphe = "^0"
 pin-project-lite = "^0"
 
-tantivy = { git="https://github.com/windmill-labs/tantivy", rev="6ae7c70bc603b8e69e27f3240e08bd00a93fb12c" }
+tantivy = { git="https://github.com/windmill-labs/tantivy", rev="ea3b818c7b93db0c2b5db4f5e7ffef38f339060a" }
 
 backon = "1.3.0"
 

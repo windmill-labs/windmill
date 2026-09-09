@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE workspace_settings\n        SET git_credentials = (\n            SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)\n            FROM jsonb_array_elements(git_credentials) AS elem\n            WHERE elem->>'repo_identity' IS DISTINCT FROM $2\n        ) || jsonb_build_array($3::jsonb)\n        WHERE workspace_id = $1\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9c0ebee945eee03d667a4f38d18a4d446b8ea00cf51e02138a06c245ab33252e"
+}

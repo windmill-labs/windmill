@@ -31,8 +31,8 @@ use windmill_common::{
         self, TriggerHistoryEvent, TriggerOperation, TriggerSource, SCHEDULE_TRIGGER_KIND,
     },
     user_drafts::{
-        delete_all_drafts_for_path, fetch_draft_only_list_rows, overlay_or_draft_only,
-        UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+        delete_all_drafts_for_path, delete_draft_only_for_path, fetch_draft_only_list_rows,
+        overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
     },
     utils::{
         escape_ilike_pattern, not_found_if_none, paginate, Pagination, ScheduleType, StripPath,
@@ -1331,6 +1331,18 @@ async fn delete_schedule(
     .flatten();
 
     if exists.is_none() {
+        drop(tx);
+        if delete_draft_only_for_path(
+            &db,
+            &w_id,
+            UserDraftItemKind::TriggerSchedule,
+            path,
+            &authed.email,
+        )
+        .await?
+        {
+            return Ok(format!("Draft-only schedule {} deleted", path));
+        }
         return Err(windmill_common::error::Error::NotFound(format!(
             "Schedule {} not found",
             path

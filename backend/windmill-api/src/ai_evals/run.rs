@@ -707,6 +707,17 @@ pub async fn run_experiment(
             .await?;
         return Err(e);
     }
+    // Which state of the agent was measured is the whole key vocabulary: it is what separates
+    // running what is deployed from measuring edits or an older version.
+    windmill_common::feature_usage::log_feature_usage(
+        "ai_agent_eval",
+        "run",
+        match subject.kind {
+            EvalSubjectKind::Agent => "agent",
+            EvalSubjectKind::AgentDraft => "agent_draft",
+            EvalSubjectKind::AgentVersion => "agent_version",
+        },
+    );
     Ok(experiment_id.to_string())
 }
 

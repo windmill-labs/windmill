@@ -245,7 +245,9 @@ async fn fetch_other_drafts_users(
     // row: fall back to their instance-derived username (`password.username`), or
     // their email when derivation is disabled. Else a real teammate's draft renders
     // as a phantom "Legacy draft". The genuine NULL-email legacy row keeps
-    // `username = None` (no `usr`/`password` match and `d.email` is NULL).
+    // `username = None` (no `usr`/`password` match and `d.email` is NULL), which is
+    // why an owner that resolves to no name at all — an external JWT's subject has
+    // neither row — is dropped instead: `None` is taken to mean "legacy" downstream.
     let rows = sqlx::query_as!(
         OtherDraftUser,
         r#"SELECT COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END) as "username?",
@@ -261,6 +263,7 @@ async fn fetch_other_drafts_users(
              AND d.path = $2
              AND d.typ = $3
              AND (d.email IS NULL OR d.email <> $4)
+             AND (d.email IS NULL OR u.username IS NOT NULL OR p.email IS NOT NULL)
            ORDER BY d.email NULLS LAST"#,
         w_id,
         path,
@@ -398,6 +401,45 @@ pub async fn fetch_draft_only_list_rows(
     Ok(rows)
 }
 
+/// Delete the caller's OWN draft at a path with no deployed row, for the DELETE
+/// route of a kind whose list synthesizes such rows via
+/// `fetch_draft_only_list_rows`. The `NOT EXISTS` leaves a deployed row's draft
+/// alone, so a route may call this on its not-found branch whatever the reason
+/// for the miss. `Ok(false)` means nothing matched: the caller reports its own error.
+///
+/// Takes no permission check and callers must not add one: an email-scoped row
+/// belongs to the caller, who can always discard it, as `update_draft`'s
+/// own-discard does. Legacy (`email IS NULL`) rows are owned by nobody and keep
+/// their write gate, so discarding one stays on the `update_draft` route.
+pub async fn delete_draft_only_for_path(
+    db: &DB,
+    w_id: &str,
+    kind: UserDraftItemKind,
+    path: &str,
+    email: &str,
+) -> Result<bool> {
+    let Some(table) = kind.deployed_table() else {
+        return Ok(false);
+    };
+    // `table` is from the closed `deployed_table()` enum, never user input.
+    let sql = format!(
+        "DELETE FROM draft \
+         WHERE workspace_id = $1 AND typ = $2::text::DRAFT_KIND AND path = $3 \
+           AND email = $4 \
+           AND NOT EXISTS (SELECT 1 FROM {table} t \
+             WHERE t.workspace_id = draft.workspace_id AND t.path = draft.path)"
+    );
+    let deleted = sqlx::query(&sql)
+        .bind(w_id)
+        .bind(kind.as_str())
+        .bind(path)
+        .bind(email)
+        .execute(db)
+        .await?
+        .rows_affected();
+    Ok(deleted > 0)
+}
+
 /// The get-by-path draft choreography, shared by every entity's "get by path"
 /// route. Given the deployed entity as an `Option` (caller maps its own "not
 /// found" to `None`):
@@ -424,6 +466,67 @@ pub async fn overlay_or_draft_only<T: serde::Serialize + Send + 'static>(
             .ok_or_else(not_found),
         None => Err(not_found()),
     }
+}
+
+/// Delete the drafts an address owns, across every workspace.
+///
+/// `draft.email` carries no foreign key to `password`: a draft's owner is any principal the
+/// instance authenticates, and an external JWT's subject never has a `password` row. Deleting an
+/// account is therefore what has to delete its drafts — a delete path that skips this leaves them
+/// behind forever, addressed to someone who no longer exists. Call it in the same transaction as
+/// the account removal.
+///
+/// No authorization of its own: it acts instance-wide on whatever address it is handed, so the
+/// caller must already have authorized removing that account (superadmin, the account's own
+/// holder, or SCIM).
+pub async fn delete_drafts_of_email<'c>(
+    executor: impl sqlx::PgExecutor<'c>,
+    email: &str,
+) -> Result<()> {
+    sqlx::query!("DELETE FROM draft WHERE email = $1", email)
+        .execute(executor)
+        .await?;
+    Ok(())
+}
+
+/// Move the drafts an address owns onto its new address, for the same reason
+/// [`delete_drafts_of_email`] exists: no foreign key follows the rename, so drafts left behind are
+/// stranded on an address that no longer authenticates. Same authorization contract, for a rename.
+///
+/// The two addresses may each already hold a draft of the same item, since the destination can
+/// belong to a principal with no account and so is not covered by the caller's "address is free"
+/// check. `draft_pkey_with_user` admits only one, so the moving account's wins — which is also why
+/// a rename onto the same address returns early: every row would collide with itself and be
+/// cleared. Callers need not compare first (an IdP re-sending an unchanged `userName` does not).
+pub async fn rename_drafts_of_email(
+    conn: &mut sqlx::PgConnection,
+    old_email: &str,
+    new_email: &str,
+) -> Result<()> {
+    if old_email == new_email {
+        return Ok(());
+    }
+    sqlx::query!(
+        "DELETE FROM draft dest
+         WHERE dest.email = $1
+           AND EXISTS (SELECT 1 FROM draft src
+                       WHERE src.email = $2
+                         AND src.workspace_id = dest.workspace_id
+                         AND src.path = dest.path
+                         AND src.typ = dest.typ)",
+        new_email,
+        old_email
+    )
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query!(
+        "UPDATE draft SET email = $1 WHERE email = $2",
+        new_email,
+        old_email
+    )
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
 }
 
 /// Delete EVERY user's draft (and the legacy NULL-email row) at a path+kind.

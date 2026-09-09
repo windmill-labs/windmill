@@ -4580,6 +4580,22 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 # decoded back before the caller sees it: a \`\`datetime\`\` comes back as a
 # string, a tuple as a list.
 # 
+# \`\`retry\`\` re-dispatches the task after a failure, inside \`\`@workflow\`\` only.
+# Every attempt is a step of its own (\`\`call_api\`\`, \`\`call_api#2\`\`, ...) and
+# the wait between two of them is a durable sleep, so a retrying task holds no
+# worker while it backs off. Keys: \`\`attempts\`\` (retries after the first
+# failure, a whole number from 0 to 100), \`\`delay\`\` (seconds before the first
+# retry, sub-second delays dropped), \`\`multiplier\`\` (applied to the delay
+# after each attempt, 1 keeps it constant), \`\`max_delay\`\` (ceiling in
+# seconds). \`\`attempts\`\` is required, and an out-of-range or unknown key is
+# rejected where the policy is written.
+# 
+# A workflow sleeps once per round, so tasks backing off in the same fan-out
+# wait one after another rather than together: the delay before a fan-out
+# retries is the sum of every backoff pending in it, not the longest one, and
+# it grows with both the width of the fan-out and \`\`attempts\`\`. Retries with
+# no \`\`delay\`\` all go out in a single round.
+# 
 # Usage::
 # 
 #     @task
@@ -4587,9 +4603,14 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 # 
 #     @task(path="f/external_script", timeout=600, tag="gpu")
 #     async def run_external(x: int): ...
-def task(_func = None, path: Optional[str] = None, tag: Optional[str] = None, timeout: Optional[int] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+# 
+#     @task(retry={"attempts": 3, "delay": 30, "multiplier": 2})
+#     async def call_api(payload: dict): ...
+def task(_func = None, path: Optional[str] = None, tag: Optional[str] = None, timeout: Optional[int] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Create a task that dispatches to a separate Windmill script.
+# 
+# \`\`retry\`\` takes the same policy as :func:\`task\`.
 # 
 # Usage::
 # 
@@ -4598,9 +4619,11 @@ def task(_func = None, path: Optional[str] = None, tag: Optional[str] = None, ti
 #     @workflow
 #     async def main():
 #         data = await extract(url="https://...")
-def task_script(path: str, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+def task_script(path: str, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Create a task that dispatches to a separate Windmill flow.
+# 
+# \`\`retry\`\` takes the same policy as :func:\`task\`.
 # 
 # Usage::
 # 
@@ -4609,7 +4632,7 @@ def task_script(path: str, timeout: Optional[int] = None, tag: Optional[str] = N
 #     @workflow
 #     async def main():
 #         result = await pipeline(input=data)
-def task_flow(path: str, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+def task_flow(path: str, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Decorator marking an async function as a workflow-as-code entry point.
 # 
@@ -5115,6 +5138,8 @@ This is about **programmatic execution** (\`wmill flow preview -d '<args>'\`), w
 If the user hasn't already told you to run/test the flow, offer it as a one-sentence next step (e.g. "Want me to run \`wmill flow preview\` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the flow in their original request, skip the offer and just execute \`wmill flow preview <path> -d '<args>'\` directly — pick plausible args from the flow's input schema.
+
+An input typed as a resource (\`format: resource-<type>\` in the schema) takes the bare string \`"$res:<path>"\` as its whole value — \`-d '{"db": "$res:f/databases/postgres_prod"}'\`, not \`{"db": {"$res": "..."}}\` and not a plain path. Same for a variable, with \`"$var:<path>"\`. See the \`resources\` skill.
 
 \`wmill flow preview\` is safe to run yourself (it does not deploy). \`wmill generate-metadata\` does not deploy either (it only writes local lock/hash files) but re-resolves deps — offer it and run on agreement, unless the project's \`AGENTS.md\` opts into automatic metadata. After running it, check the regenerated \`.lock\` diff and tell the user which inline-script dependency versions changed, so they can catch an unwanted bump before deploying. Only \`wmill sync push\` deploys; run it only when the user explicitly asks.
 
@@ -6188,6 +6213,41 @@ Reference other resources:
 }
 \`\`\`
 
+## Passing a Resource or Variable as a Run Argument
+
+A script or flow argument typed as a resource (schema \`format: resource-<type>\`) is passed as
+the **bare string** \`$res:<path>\` — the whole argument value. Same for a variable, with
+\`$var:<path>\`. This applies everywhere job arguments are supplied: \`wmill script run/preview\`,
+\`wmill flow run/preview\`, the \`runScriptByPath\` / \`runFlowByPath\` API, a schedule's \`args\`, a
+trigger's configured static args.
+
+\`\`\`json
+{
+  "db": "$res:f/databases/postgres_prod",
+  "api_token": "$var:g/all/api_token"
+}
+\`\`\`
+
+The reference is resolved when the job runs, under the job's run-as identity — the caller for an
+ordinary run, but the configured principal for a schedule, a trigger, or a runnable set to run on
+behalf of someone else. The run fails if that identity cannot read the referenced resource or
+variable.
+
+**Never wrap it in an object.** The resolver only rewrites a JSON value that *is* a string
+starting with \`$res:\` / \`$var:\`; keys are never inspected. These are all wrong and are passed
+through to the script unchanged:
+
+\`\`\`json
+{ "db": { "$res": "f/databases/postgres_prod" } }
+{ "db": { "resource": "f/databases/postgres_prod" } }
+{ "db": "f/databases/postgres_prod" }
+\`\`\`
+
+The string may sit anywhere a string can — a top-level argument, a nested object field
+(\`{ "gh_auth": { "token": "$var:g/all/gh_token" } }\`), or an array element (array elements are
+walked only while nested at most two levels deep, and only for arrays of at most 1000 items).
+The prefix must be on the string itself.
+
 ## Common Resource Types
 
 ### PostgreSQL
@@ -6620,6 +6680,34 @@ A caught failure reads the same whether it came from a task or from a \`step()\`
 Import: \`import { workflow, task, taskScript, taskFlow, step, sleep, waitForApproval, getApprovalUrls, getResumeUrls, parallel } from "windmill-client"\`
 
 \`\`\`typescript
+/**
+ * Re-dispatch policy for a failed task.
+ *
+ * Every attempt is a step of its own (\`fetch\`, \`fetch#2\`, \`fetch#3\`), and the
+ * wait between two of them is a durable sleep, so a retrying task holds no
+ * worker while it backs off.
+ *
+ * A workflow sleeps once per round, so tasks backing off in the same fan-out
+ * wait one after another rather than together: the delay before a fan-out
+ * retries is the sum of every backoff pending in it, not the longest one, and
+ * it grows with both the width of the fan-out and \`attempts\`. Retries with no
+ * \`delay\` all go out in a single round.
+ */
+export interface TaskRetry {
+  /** Attempts after the first failure: \`2\` runs the task at most 3 times.
+  *  A whole number from 0 to 100; anything else is rejected where the policy
+  *  is written. */
+  attempts: number;
+  /** Seconds to wait before the first retry. Default 0, retry immediately.
+  *  Sub-second delays are dropped — a durable sleep resolves to the second. */
+  delay?: number;
+  /** Applied to the delay after each attempt: 1 (the default) keeps it
+  *  constant, 2 doubles it. */
+  multiplier?: number;
+  /** Ceiling for the delay in seconds, for a \`multiplier\` above 1. */
+  max_delay?: number;
+}
+
 export interface TaskOptions {
   timeout?: number;
   tag?: string;
@@ -6628,6 +6716,7 @@ export interface TaskOptions {
   concurrency_limit?: number;
   concurrency_key?: string;
   concurrency_time_window_s?: number;
+  retry?: TaskRetry;
 }
 
 /**
@@ -6645,9 +6734,11 @@ export async function getResumeUrls(approver?: string, flowLevel?: boolean): Pro
  * @example
  * const extract_data = task(async (url: string) => { ... });
  * const run_external = task("f/external_script", async (x: number) => { ... });
+ * const call_api = task(fetchOrders, { retry: { attempts: 3, delay: 30, multiplier: 2 } });
  *
  * Inside a \`workflow()\`, calling a task dispatches it as a step.
- * Outside a workflow, the function body executes directly.
+ * Outside a workflow, the function body executes directly and
+ * {@link TaskOptions} — retry included — does not apply.
  *
  * A task runs as its own job, so its result is always encoded as JSON and
  * decoded back before the caller sees it: a \`Date\` comes back as a string, a
@@ -6791,6 +6882,22 @@ def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
 # decoded back before the caller sees it: a \`\`datetime\`\` comes back as a
 # string, a tuple as a list.
 #
+# \`\`retry\`\` re-dispatches the task after a failure, inside \`\`@workflow\`\` only.
+# Every attempt is a step of its own (\`\`call_api\`\`, \`\`call_api#2\`\`, ...) and
+# the wait between two of them is a durable sleep, so a retrying task holds no
+# worker while it backs off. Keys: \`\`attempts\`\` (retries after the first
+# failure, a whole number from 0 to 100), \`\`delay\`\` (seconds before the first
+# retry, sub-second delays dropped), \`\`multiplier\`\` (applied to the delay
+# after each attempt, 1 keeps it constant), \`\`max_delay\`\` (ceiling in
+# seconds). \`\`attempts\`\` is required, and an out-of-range or unknown key is
+# rejected where the policy is written.
+#
+# A workflow sleeps once per round, so tasks backing off in the same fan-out
+# wait one after another rather than together: the delay before a fan-out
+# retries is the sum of every backoff pending in it, not the longest one, and
+# it grows with both the width of the fan-out and \`\`attempts\`\`. Retries with
+# no \`\`delay\`\` all go out in a single round.
+#
 # Usage::
 #
 #     @task
@@ -6798,9 +6905,14 @@ def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
 #
 #     @task(path="f/external_script", timeout=600, tag="gpu")
 #     async def run_external(x: int): ...
-def task(_func = None, *, path: Optional[str] = None, tag: Optional[str] = None, timeout: Optional[int] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+#
+#     @task(retry={"attempts": 3, "delay": 30, "multiplier": 2})
+#     async def call_api(payload: dict): ...
+def task(_func = None, *, path: Optional[str] = None, tag: Optional[str] = None, timeout: Optional[int] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Create a task that dispatches to a separate Windmill script.
+#
+# \`\`retry\`\` takes the same policy as :func:\`task\`.
 #
 # Usage::
 #
@@ -6809,9 +6921,11 @@ def task(_func = None, *, path: Optional[str] = None, tag: Optional[str] = None,
 #     @workflow
 #     async def main():
 #         data = await extract(url="https://...")
-def task_script(path: str, *, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+def task_script(path: str, *, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Create a task that dispatches to a separate Windmill flow.
+#
+# \`\`retry\`\` takes the same policy as :func:\`task\`.
 #
 # Usage::
 #
@@ -6820,7 +6934,7 @@ def task_script(path: str, *, timeout: Optional[int] = None, tag: Optional[str] 
 #     @workflow
 #     async def main():
 #         result = await pipeline(input=data)
-def task_flow(path: str, *, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+def task_flow(path: str, *, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Decorator marking an async function as a workflow-as-code entry point.
 #
@@ -7074,11 +7188,11 @@ flow related commands
 - \`flow push <file_path:string> <remote_path:string>\` - push a local flow spec. This overrides any remote versions.
   - \`--message <message:string>\` - Deployment message
 - \`flow run <path:string>\` - run a flow by path.
-  - \`-d --data <data:string>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - \`-d --data <data:string>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - \`-s --silent\` - Do not ouput anything other then the final output. Useful for scripting.
   - \`--tag <tag:string>\` - Override the worker tag the run is dispatched to (e.g. to route it to dev workers instead of the flow's default tag).
 - \`flow preview <flow_path:string>\` - preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default. Pass --step <id> to run only one module in isolation (resolves nested steps inside branchone/branchall/forloopflow/whileloopflow plus the special preprocessor/failure modules; supported step types: rawscript, script, flow).
-  - \`-d --data <data:string>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - \`-d --data <data:string>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - \`-s --silent\` - Do not output anything other then the final output. Useful for scripting.
   - \`--remote\` - Use deployed workspace scripts for PathScript steps instead of local files.
   - \`--step <step_id:string>\` - Run only the named step instead of the whole flow. Honors --data as the step's args and --remote / local-PathScript resolution the same way the full-flow preview does.
@@ -7474,11 +7588,11 @@ script related commands
   - \`--json\` - Output as JSON (for piping to jq)
 - \`script show <path:file>\` - show a script's content (alias for get)
 - \`script run <path:file>\` - run a script by path
-  - \`-d --data <data:file>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - \`-d --data <data:file>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - \`-s --silent\` - Do not output anything other then the final output. Useful for scripting.
   - \`--tag <tag:string>\` - Override the worker tag the run is dispatched to (e.g. to route it to dev workers instead of the script's default tag).
 - \`script preview <path:file>\` - preview a local script without deploying it. Supports both regular and codebase scripts.
-  - \`-d --data <data:file>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - \`-d --data <data:file>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - \`-s --silent\` - Do not output anything other than the final output. Useful for scripting.
   - \`--tag <tag:string>\` - Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the script's default tag).
 - \`script new <path:file> <language:string>\` - create a new script
@@ -7519,6 +7633,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - \`--include-groups\` - Include syncing groups
   - \`--include-settings\` - Include syncing workspace settings
   - \`--include-key\` - Include workspace encryption key
+  - \`--keep-deleted\` - Do not delete local files for items that no longer exist on the remote workspace. Only adds and updates.
   - \`--skip-branch-validation\` - Skip git branch validation and prompts
   - \`--json-output\` - Output results in JSON format
   - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Overrides wmill.yaml includes
@@ -7550,6 +7665,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - \`--include-settings\` - Include syncing workspace settings
   - \`--include-key\` - Include workspace encryption key
   - \`--skip-reencrypt-on-key-change\` - When the pushed encryption key differs from the remote, do NOT re-encrypt existing remote secrets. Only safe if they are already encrypted with the new key (e.g. workspace/instance migration). Default is to re-encrypt.
+  - \`--keep-deleted\` - Do not delete remote items that no longer exist locally. Only adds and updates.
   - \`--skip-branch-validation\` - Skip git branch validation and prompts
   - \`--json-output\` - Output results in JSON format
   - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)
@@ -7935,7 +8051,9 @@ properties:
           at once (1-65535)
   error_handler_path:
     type: string
-    description: Path to a script or flow to run when the triggered job fails
+    description: Path to a script to run when the triggered job fails. A bare path,
+      without the script/ or flow/ prefix a schedule error handler takes; it cannot
+      be a flow.
   error_handler_args:
     type: object
     description: The arguments to pass to the script or flow
@@ -8385,7 +8503,9 @@ properties:
       as JSON
   error_handler_path:
     type: string
-    description: Path to a script or flow to run when the triggered job fails
+    description: Path to a script to run when the triggered job fails. A bare path,
+      without the script/ or flow/ prefix a schedule error handler takes; it cannot
+      be a flow.
   error_handler_args:
     type: object
     description: The arguments to pass to the script or flow
@@ -8552,7 +8672,9 @@ properties:
       endpoint.
   error_handler_path:
     type: string
-    description: Path to a script or flow to run when the triggered job fails
+    description: Path to a script to run when the triggered job fails. A bare path,
+      without the script/ or flow/ prefix a schedule error handler takes; it cannot
+      be a flow.
   error_handler_args:
     type: object
     description: The arguments to pass to the script or flow
@@ -8676,7 +8798,9 @@ properties:
     - v5
   error_handler_path:
     type: string
-    description: Path to a script or flow to run when the triggered job fails
+    description: Path to a script to run when the triggered job fails. A bare path,
+      without the script/ or flow/ prefix a schedule error handler takes; it cannot
+      be a flow.
   error_handler_args:
     type: object
     description: The arguments to pass to the script or flow
@@ -8772,7 +8896,9 @@ properties:
     description: Array of NATS subjects to subscribe to
   error_handler_path:
     type: string
-    description: Path to a script or flow to run when the triggered job fails
+    description: Path to a script to run when the triggered job fails. A bare path,
+      without the script/ or flow/ prefix a schedule error handler takes; it cannot
+      be a flow.
   error_handler_args:
     type: object
     description: The arguments to pass to the script or flow
@@ -8862,7 +8988,9 @@ properties:
     description: Name of the PostgreSQL logical replication slot to use
   error_handler_path:
     type: string
-    description: Path to a script or flow to run when the triggered job fails
+    description: Path to a script to run when the triggered job fails. A bare path,
+      without the script/ or flow/ prefix a schedule error handler takes; it cannot
+      be a flow.
   error_handler_args:
     type: object
     description: The arguments to pass to the script or flow
@@ -9109,7 +9237,9 @@ properties:
     description: Array of SQS message attribute names to include with each message
   error_handler_path:
     type: string
-    description: Path to a script or flow to run when the triggered job fails
+    description: Path to a script to run when the triggered job fails. A bare path,
+      without the script/ or flow/ prefix a schedule error handler takes; it cannot
+      be a flow.
   error_handler_args:
     type: object
     description: The arguments to pass to the script or flow
@@ -9308,7 +9438,9 @@ properties:
           The extracted value replaces {{state}} in the heartbeat message.
   error_handler_path:
     type: string
-    description: Path to a script or flow to run when the triggered job fails
+    description: Path to a script to run when the triggered job fails. A bare path,
+      without the script/ or flow/ prefix a schedule error handler takes; it cannot
+      be a flow.
   error_handler_args:
     type: object
     description: The arguments to pass to the script or flow

@@ -7,6 +7,7 @@ import {
   validatePath,
 } from "../../core/context.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { buildPermissionedAsContext } from "../../core/permissioned_as.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 import { writeFile, stat, mkdir } from "node:fs/promises";
 import { Buffer } from "node:buffer";
@@ -58,6 +59,7 @@ import {
   SyncOptions,
   mergeConfigWithConfigFile,
   readConfigFile,
+  readEffectiveSyncBehavior,
 } from "../../core/conf.ts";
 import { SyncCodebase, listSyncCodebases } from "../../utils/codebase.ts";
 import { pollJobWithQueueLogging } from "../../utils/job_polling.ts";
@@ -231,7 +233,11 @@ async function push(opts: PushOptions, filePath: string) {
     opts.message,
     opts,
     await getRawWorkspaceDependencies(true),
-    codebases
+    codebases,
+    await buildPermissionedAsContext(
+      workspace.workspaceId,
+      await readEffectiveSyncBehavior(opts, workspace)
+    )
   );
   log.info(colors.bold.underline.green(`Script ${filePath} pushed`));
 }
@@ -747,14 +753,10 @@ export async function handleFile(
     // create_script (which would bump the script hash) and instead route
     // through /acls/* via applyExtraPermsDiff.
     //
-    // No refetch is needed:
-    //  - folder perms are additive at auth time, never merged onto item rows;
-    //  - the body sent to create_script doesn't carry extra_perms, so a fresh
-    //    deploy of an existing path inherits the previous version's perms
-    //    unchanged. The diff against `remote` (captured before the deploy)
-    //    therefore matches what `wmill acl remove` would do — and the granular
-    //    ACL endpoint updates every matching row, so the inheritance on the
-    //    new version doesn't leave ghost entries.
+    // No refetch is needed: folder perms are additive at auth time and never merged
+    // onto item rows, and each branch above leaves the new version's perms where the
+    // diff expects them — the update branch names a parent, which carries them over,
+    // while the create branch has no `remote` to diff against and sends the whole set.
     await applyExtraPermsDiff(
       workspaceId,
       "script",
@@ -2213,7 +2215,7 @@ const command = new Command()
   .arguments("<path:file>")
   .option(
     "-d --data <data:file>",
-    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-."
+    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path."
   )
   .option(
     "-s --silent",
@@ -2231,7 +2233,7 @@ const command = new Command()
   .arguments("<path:file>")
   .option(
     "-d --data <data:file>",
-    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-."
+    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path."
   )
   .option(
     "-s --silent",

@@ -2,7 +2,7 @@
 	import { createBubbler, preventDefault } from 'svelte/legacy'
 
 	const bubble = createBubbler()
-	import { IndexSearchService, ServiceLogsService } from '$lib/gen'
+	import { IndexSearchService, ServiceLogsService, type LogSearchHit } from '$lib/gen'
 
 	import TimeframeSelect, {
 		serviceLogsTimeframes,
@@ -253,38 +253,49 @@
 		try {
 			let res = ''
 			log.split('\n').forEach((line) => {
+				// A file can hold both formats: the ones written before the layer
+				// switched to JSON, and panics or subprocess output that was never
+				// JSON to begin with. Those lines pass through as they are rather
+				// than being dropped, which would render the file blank.
+				let obj: any = undefined
 				if (line.startsWith('{') && line.endsWith('}')) {
-					let obj = JSON.parse(line)
-					if (typeof obj == 'object') {
-						let nl = ''
-						if (obj['timestamp']) {
-							nl += obj['timestamp'] + ' '
-						}
-						if (obj['level']) {
-							let lvl = obj['level']
-							if (lvl == 'ERROR') {
-								nl += '\x1b[31mERROR\x1b[0m '
-							} else if (lvl == 'INFO') {
-								nl += '\x1b[32mINFO\x1b[0m '
-							} else {
-								nl += obj['level'] + ' '
-							}
-						}
-						if (obj['message']) {
-							nl += obj['message'] + ' '
-						}
-						delete obj['timestamp']
-						delete obj['level']
-						delete obj['message']
-						Object.keys(obj).forEach((key) => {
-							nl +=
-								key +
-								'=' +
-								(typeof obj[key] == 'object' ? JSON.stringify(obj[key]) : obj[key]) +
-								' '
-						})
-						res += nl + '\n'
+					try {
+						obj = JSON.parse(line)
+					} catch {
+						obj = undefined
 					}
+				}
+				if (obj === null || typeof obj !== 'object') {
+					res += line + '\n'
+				} else {
+					let nl = ''
+					if (obj['timestamp']) {
+						nl += obj['timestamp'] + ' '
+					}
+					if (obj['level']) {
+						let lvl = obj['level']
+						if (lvl == 'ERROR') {
+							nl += '\x1b[31mERROR\x1b[0m '
+						} else if (lvl == 'INFO') {
+							nl += '\x1b[32mINFO\x1b[0m '
+						} else {
+							nl += obj['level'] + ' '
+						}
+					}
+					if (obj['message']) {
+						nl += obj['message'] + ' '
+					}
+					delete obj['timestamp']
+					delete obj['level']
+					delete obj['message']
+					Object.keys(obj).forEach((key) => {
+						nl +=
+							key +
+							'=' +
+							(typeof obj[key] == 'object' ? JSON.stringify(obj[key]) : obj[key]) +
+							' '
+					})
+					res += nl + '\n'
 				}
 			})
 
@@ -292,6 +303,23 @@
 		} catch (e) {
 			return log
 		}
+	}
+
+	// A hit is one log line with its fields already separated, so rendering it is
+	// formatting rather than parsing — there is no JSON to prettify and no
+	// snippet to highlight.
+	function renderHit(hit: LogSearchHit): string {
+		const level =
+			hit.level === 'ERROR'
+				? '\x1b[31mERROR\x1b[0m'
+				: hit.level === 'WARN'
+					? '\x1b[33mWARN\x1b[0m'
+					: hit.level === 'INFO'
+						? '\x1b[32mINFO\x1b[0m'
+						: hit.level
+		return [hit.ts, level, hit.message, hit.target ? `target=${hit.target}` : '']
+			.filter(Boolean)
+			.join(' ')
 	}
 
 	let logs: any = $state()
@@ -399,7 +427,9 @@
 	) {
 		const res = await ServiceLogsService.getLogFile({ path: `${hostname}/${path}` })
 
-		content = processLogWithJsonFmt(ansi_up.ansi_to_html(res), jsonFmt)
+		// Prettify first: it emits its own ANSI for the level, which converting
+		// beforehand would leave in the output as literal escapes.
+		content = ansi_up.ansi_to_html(processLogWithJsonFmt(res, jsonFmt))
 		hitLineNumber = lineNumber
 		logDrawerOpen = true
 
@@ -687,23 +717,19 @@
 						</div>
 					{:else if logs != undefined}
 						<div class="flex flex-col min-w-full w-fit">
-							{#each logs.hits as { snippet_fragment, snippet_highlighted, document }}
+							<!-- Keyed: LogSnippetViewer renders its html once at creation, so an
+										 index-reused instance would keep the previous search's line. -->
+							{#each logs.hits ?? [] as hit, i (`${i}:${hit.file_path}:${hit.line_no}`)}
 								<LogSnippetViewer
-									content={snippet_fragment || document.logs[0]}
-									highlighted={snippet_highlighted}
-									onClick={() => {
-										let logLineNumber = document.line_number[0]
-										let logFile = document.file_name[0]
-										let host = document.host[0]
-										let jsonFmt = document.json_fmt[0]
-										seeLogContext(logLineNumber, logFile, host, jsonFmt)
-									}}
+									content={renderHit(hit)}
+									highlighted={[]}
+									onClick={() => seeLogContext(hit.line_no, hit.file_path, hit.host, true)}
 								/>
 							{/each}
-							{#if logs.hits.length === 0}
+							{#if (logs.hits ?? []).length === 0}
 								<div class="text-center py-20 text-bold text-xl text-primary"> No logs </div>
 							{/if}
-							{#if logs.hits.length === 1000}
+							{#if (logs.hits ?? []).length === 1000}
 								<div class="pl-6 py-6 text-sm text-secondary">
 									Older matches were truncated from this search, try refining your filters to get
 									more precise results.

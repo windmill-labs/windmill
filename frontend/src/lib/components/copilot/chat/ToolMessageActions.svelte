@@ -28,7 +28,10 @@
 	import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
 	import AmqpIcon from '$lib/components/icons/AmqpIcon.svelte'
 	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
-	import { runToolDisplayAction } from './createdResourceActions.svelte'
+	import {
+		hasToolDisplayActionHandler,
+		runToolDisplayAction
+	} from './createdResourceActions.svelte'
 	import type { CreatedResourceTriggerKind, ToolDisplayAction } from './shared'
 
 	interface Props {
@@ -122,17 +125,21 @@
 					<div class="truncate text-xs font-semibold text-primary">{card.title}</div>
 					<div class="truncate text-2xs text-secondary">{card.subtitle}</div>
 				</div>
-				<Button
-					size="xs"
-					variant="default"
-					title={action.label}
-					loading={runningActionId === action.id}
-					disabled={runningActionId !== undefined && runningActionId !== action.id}
-					startIcon={{ icon: card.buttonIcon }}
-					onClick={() => handleAction(action)}
-				>
-					Open
-				</Button>
+				<!-- open_created_resource is serviced solely by the docked chat's drawers, so
+				     elsewhere the card stands alone as a record of what the tool created. -->
+				{#if hasToolDisplayActionHandler(action.type)}
+					<Button
+						unifiedSize="sm"
+						variant="default"
+						title={action.label}
+						loading={runningActionId === action.id}
+						disabled={runningActionId !== undefined && runningActionId !== action.id}
+						startIcon={{ icon: card.buttonIcon }}
+						onClick={() => handleAction(action)}
+					>
+						Open
+					</Button>
+				{/if}
 			</div>
 		{/each}
 	</div>

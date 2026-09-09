@@ -23,9 +23,13 @@
 		project: ImportProjectSummary
 		/** Where the project is coming from, shown next to the author. */
 		hubHost?: string
+		/** The project's prose, when the caller has it. Falls back to the one-line summary. */
+		description?: string
+		/** Off where what the import will create is already spelled out below the card. */
+		showCounts?: boolean
 	}
 
-	let { project, hubHost = 'hub.windmill.dev' }: Props = $props()
+	let { project, hubHost = 'hub.windmill.dev', description, showCounts = true }: Props = $props()
 
 	// Protocol-relative on purpose: the same hub is https in production and plain
 	// http when it's a local dev instance, and this way the link follows whichever
@@ -83,7 +87,7 @@
 						class="shrink-0 text-tertiary opacity-0 transition group-hover:opacity-100"
 					/>
 				</a>
-				<p class="mt-0.5 line-clamp-2 text-xs text-secondary">{project.summary}</p>
+				<p class="mt-0.5 line-clamp-4 text-xs text-secondary">{description || project.summary}</p>
 				<p class="mt-1 text-xs text-tertiary">
 					by <span class="font-medium text-secondary">{project.author}</span>
 					· <span class="font-mono">{project.slug}</span>
@@ -91,9 +95,11 @@
 
 				<!-- What the import will create, aligned under the title rather than in a
 			     band of its own: the counts belong to the project above them. -->
-				<div class="mt-3">
-					<ProjectContentBadges counts={project.counts} />
-				</div>
+				{#if showCounts}
+					<div class="mt-3">
+						<ProjectContentBadges counts={project.counts} />
+					</div>
+				{/if}
 			</div>
 
 			<!-- The integrations, minus whichever one is already standing in as the logo. -->

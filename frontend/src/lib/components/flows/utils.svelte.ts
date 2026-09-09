@@ -12,10 +12,12 @@ import {
 } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { cleanExpr, emptySchema } from '$lib/utils'
+import { unescapeTemplateBackticks } from '$lib/utils/templateLiteral'
 import { get } from 'svelte/store'
 import type { FlowModuleState } from './flowState'
 import { type PickableProperties, dfs } from './previousResults'
 import { forEachFlowModule } from './dfs'
+import { withAgentDrafts } from './linkedAgentDrafts'
 import { NEVER_TESTED_THIS_FAR } from './models'
 import { sendUserToast } from '$lib/toast'
 import type { ExtendedOpenFlow } from './types'
@@ -186,6 +188,12 @@ export function jobsToResults(jobs: Job[]) {
 	})
 }
 
+/**
+ * Run the flow the editor currently holds. A step linked to a saved agent runs that agent's
+ * unsaved draft when there is one (`withAgentDrafts`), so testing exercises what the agent editor
+ * is showing rather than the deployed resource — the same rule the agent editor's own test pane
+ * follows. The value passed in is left alone; only what goes to the server is substituted.
+ */
 export async function runFlowPreview(
 	args: Record<string, any>,
 	flow: OpenFlow & { tag?: string },
@@ -197,14 +205,15 @@ export async function runFlowPreview(
 	// editor; falls back to the navigation workspace for full-page previews.
 	workspace?: string
 ) {
-	const newFlow = flow
+	const ws = workspace ?? get(workspaceStore) ?? ''
+	const value = await withAgentDrafts(flow.value, ws)
 	return await JobService.runFlowPreview({
-		workspace: workspace ?? get(workspaceStore) ?? '',
+		workspace: ws,
 		requestBody: {
 			args,
-			value: newFlow.value,
+			value,
 			path: path,
-			tag: newFlow.tag,
+			tag: flow.tag,
 			restarted_from: restartedFrom,
 			temp_script_refs: tempScriptRefs
 		},
@@ -219,7 +228,7 @@ export function codeToStaticTemplate(code?: string): string | undefined {
 	if (lines.length == 1) {
 		const line = lines[0].trim()
 		if (line[0] == '`' && line.charAt(line.length - 1) == '`') {
-			return line.slice(1, line.length - 1).replaceAll('\\`', '`')
+			return unescapeTemplateBackticks(line.slice(1, line.length - 1))
 		} else {
 			return `\$\{${line}\}`
 		}

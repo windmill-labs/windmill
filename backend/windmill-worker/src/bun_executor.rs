@@ -1256,6 +1256,7 @@ pub async fn prebundle_bun_script(
     token: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     temp_script_refs: &Option<HashMap<String, String>>,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> Result<()> {
     let (local_path, remote_path) = compute_bundle_local_and_remote_path(
         inner_content,
@@ -1264,6 +1265,7 @@ pub async fn prebundle_bun_script(
         db,
         w_id,
         temp_script_refs,
+        modules,
     )
     .await;
     if exists_in_cache(&local_path, &remote_path).await {
@@ -1442,6 +1444,7 @@ pub async fn compute_bundle_local_and_remote_path(
     db: Option<&DB>,
     w_id: &str,
     temp_script_refs: &Option<HashMap<String, String>>,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> (String, String) {
     let mut input_src = format!("{inner_content}{lock}",);
 
@@ -1470,7 +1473,10 @@ pub async fn compute_bundle_local_and_remote_path(
 
     let ws_suffix = crate::workspace_registry_cache_suffix(w_id).await;
     input_src.push_str(&ws_suffix);
-    let hash = windmill_common::utils::calculate_hash(&input_src);
+
+    // The loader resolves relative imports against the module files in the job dir, so
+    // their content is inlined into the bundle this name covers.
+    let hash = crate::worker::artifact_cache_name(input_src, modules);
     let local_path = format!("{}/{hash}", *BUN_BUNDLE_CACHE_DIR);
 
     #[cfg(windows)]
@@ -1569,6 +1575,7 @@ pub async fn handle_bun_job(
                     Some(db),
                     &job.workspace_id,
                     &temp_script_refs,
+                    modules.as_ref(),
                 )
                 .await
             }
@@ -1892,8 +1899,12 @@ pub async fn handle_bun_job(
 
         // Kept comment-free — this string is written out per job.
         // `_takePendingStepFailure` / `_takePendingSuspend` hand back what the body
-        // caught and swallowed; honour them instead of reporting a `complete` (see
-        // `_pendingStepFailure` in client.ts). Optional: npm clients may predate them.
+        // caught and swallowed; honour them instead of reporting a bare `complete`
+        // (see client.ts). Optional: npm clients may predate them.
+        // `_warnUnobservedTaskFailures` reports what the body never awaited, and so
+        // belongs only on the paths that end the round for good. A round that
+        // dispatches, sleeps, checkpoints or waits for approval replays later and
+        // re-registers the same failures from the checkpoint — keep those quiet.
         let wrapper_content = if is_wac_v2 {
             format!(
                 r#"
@@ -1951,6 +1962,7 @@ async function run() {{
         if (trailing.length > 0) {{
             return {{ type: "dispatch", mode: trailing.length > 1 ? "parallel" : "sequential", steps: trailing }};
         }}
+        ctx._warnUnobservedTaskFailures?.();
         return {{ type: "complete", result: result ?? null }};
     }} catch (e) {{
         setWorkflowCtx(null);
@@ -1970,6 +1982,7 @@ async function run() {{
             }}
             return {{ type: "dispatch", mode: dispatch.mode ?? "sequential", steps: dispatch.steps ?? [] }};
         }}
+        ctx._warnUnobservedTaskFailures?.();
         const failed = ctx._takePendingStepFailure?.();
         if (failed) {{
             throw failed.error;
@@ -2565,7 +2578,8 @@ try {{
 
     // WAC v2 post-execution: parse output and handle dispatch/suspend
     if is_wac_v2 {
-        return handle_wac_v2_output(result, job, conn, modules, new_args.as_ref()).await;
+        return handle_wac_v2_output(result, job, conn, canceled_by, modules, new_args.as_ref())
+            .await;
     }
 
     Ok(result)
@@ -2595,11 +2609,13 @@ pub async fn handle_wac_v2_output(
     result: Box<RawValue>,
     job: &MiniPulledJob,
     conn: &Connection,
+    canceled_by: &mut Option<CanceledBy>,
     modules: &Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
     preprocessed_args: Option<&HashMap<String, Box<RawValue>>>,
 ) -> error::Result<Box<RawValue>> {
     use crate::wac_executor::{
-        load_checkpoint, parse_wac_output, update_checkpoint_for_dispatch, WacOutput,
+        load_checkpoint, parse_wac_output, update_checkpoint_for_dispatch,
+        wac_cancelled_mid_segment, WacOutput, WacPark,
     };
     use serde_json::Value;
     use windmill_common::get_latest_flow_version_info_for_path;
@@ -2812,6 +2828,7 @@ pub async fn handle_wac_v2_output(
 
             // Step 1: Save checkpoint, suspend parent, and seed child checkpoints
             // in a single transaction — all BEFORE children become visible.
+            let segment_ms;
             {
                 let mut tx = db.begin().await?;
 
@@ -2864,24 +2881,24 @@ pub async fn handle_wac_v2_output(
                     })?;
                 }
 
-                // Suspend parent before children become visible.
-                // Keep running = true so the normal pull query ignores it.
-                // The suspended pull query picks it up when suspend reaches 0
-                // (it checks: suspend_until IS NOT NULL AND suspend <= 0).
-                let suspend_count = num_steps as i32;
-                sqlx::query!(
-                    "UPDATE v2_job_queue SET suspend = $2, suspend_until = now() + interval '14 day' WHERE id = $1",
-                    job.id,
-                    suspend_count,
+                // Suspend parent before children become visible, so a child that
+                // completes immediately finds a parked parent to decrement.
+                match crate::wac_executor::suspend_wac_parent(
+                    &mut tx,
+                    &job.id,
+                    &job.workspace_id,
+                    num_steps as i32,
+                    14.0 * 24.0 * 3600.0,
                 )
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| {
-                    error::Error::internal_err(format!(
-                        "Failed to suspend WAC parent job {}: {e}",
-                        job.id
-                    ))
-                })?;
+                .await?
+                {
+                    WacPark::Parked(ms) => segment_ms = ms,
+                    // Returning here drops `tx`, unwriting the checkpoint and the timeline
+                    // entries, so no child is ever pushed against a parent that never parked.
+                    WacPark::Cancelled(cancel) => {
+                        return Err(wac_cancelled_mid_segment(cancel, canceled_by))
+                    }
+                }
 
                 tx.commit().await?;
             }
@@ -2962,9 +2979,8 @@ pub async fn handle_wac_v2_output(
                                     version: flow_info.version,
                                     labels: flow_info.labels.clone(),
                                 };
-                                let on_behalf_of = flow_info
-                                    .on_behalf_of(&job.workspace_id, db)
-                                    .await?;
+                                let on_behalf_of =
+                                    flow_info.on_behalf_of(&job.workspace_id, db).await?;
                                 let step_args: HashMap<String, Box<RawValue>> = step
                                     .args
                                     .iter()
@@ -3161,10 +3177,17 @@ pub async fn handle_wac_v2_output(
                 .execute(db)
                 .await;
 
-                // Unsuspend parent so the error propagates instead of a 14-day hang
+                // Unsuspend parent so the error propagates instead of a 14-day hang.
+                // Unlike the other suspend exits this one completes the job for real, so
+                // it needs its segment start back — the in-memory copy is what the pull
+                // stamped, before the suspend cleared the column.
                 let _ = sqlx::query!(
-                    "UPDATE v2_job_queue SET suspend = 0, suspend_until = NULL WHERE id = $1",
+                    "UPDATE v2_job_queue
+                     SET suspend = 0, suspend_until = NULL,
+                         started_at = coalesce(started_at, $2, now())
+                     WHERE id = $1",
                     job.id,
+                    job.started_at,
                 )
                 .execute(db)
                 .await;
@@ -3177,6 +3200,7 @@ pub async fn handle_wac_v2_output(
                 "WAC v2 parent job suspended"
             );
 
+            crate::wac_executor::end_wac_segment(conn, job, segment_ms);
             Err(error::Error::WacSuspended(format!(
                 "WAC v2 job {} suspended waiting for {} child job(s)",
                 job.id, num_steps
@@ -3355,15 +3379,23 @@ pub async fn handle_wac_v2_output(
             }
 
             // Suspend parent with suspend=1 (waiting for 1 approval event)
-            sqlx::query!(
-                "UPDATE v2_job_queue SET suspend = 1, suspend_until = now() + make_interval(secs => $2) WHERE id = $1",
-                job.id,
+            let segment_ms = match crate::wac_executor::suspend_wac_parent(
+                &mut tx,
+                &job.id,
+                &job.workspace_id,
+                1,
                 timeout_secs,
             )
-            .execute(&mut *tx)
-            .await?;
+            .await?
+            {
+                WacPark::Parked(ms) => ms,
+                WacPark::Cancelled(cancel) => {
+                    return Err(wac_cancelled_mid_segment(cancel, canceled_by))
+                }
+            };
 
             tx.commit().await?;
+            crate::wac_executor::end_wac_segment(conn, job, segment_ms);
 
             tracing::info!(
                 job_id = %job.id,
@@ -3447,18 +3479,25 @@ pub async fn handle_wac_v2_output(
                 })?;
             }
 
-            // Suspend parent — it will auto-resume when suspend_until passes.
             // Use suspend=1 (not 0) so the suspended pull query only picks it up
             // when `suspend_until <= now()`, not via `suspend <= 0`.
-            sqlx::query!(
-                "UPDATE v2_job_queue SET suspend = 1, suspend_until = now() + make_interval(secs => $2) WHERE id = $1",
-                job.id,
+            let segment_ms = match crate::wac_executor::suspend_wac_parent(
+                &mut tx,
+                &job.id,
+                &job.workspace_id,
+                1,
                 sleep_secs,
             )
-            .execute(&mut *tx)
-            .await?;
+            .await?
+            {
+                WacPark::Parked(ms) => ms,
+                WacPark::Cancelled(cancel) => {
+                    return Err(wac_cancelled_mid_segment(cancel, canceled_by))
+                }
+            };
 
             tx.commit().await?;
+            crate::wac_executor::end_wac_segment(conn, job, segment_ms);
 
             tracing::info!(
                 job_id = %job.id,
@@ -3508,19 +3547,25 @@ pub async fn handle_wac_v2_output(
             // Reset running=false so the job is immediately eligible for pickup.
             // Unlike dispatch (which sets suspend>0), inline checkpoints don't suspend —
             // the job should be re-run right away to continue past the cached step.
-            sqlx::query!(
-                "UPDATE v2_job_queue SET running = false, started_at = null WHERE id = $1",
+            // `prev` holds the pre-update row: RETURNING would see the cleared column.
+            let segment_ms = sqlx::query_scalar!(
+                "WITH prev AS (SELECT started_at FROM v2_job_queue WHERE id = $1)
+                 UPDATE v2_job_queue q SET running = false, started_at = null
+                 FROM prev WHERE q.id = $1
+                 RETURNING (extract(epoch FROM now() - prev.started_at) * 1000)::bigint",
                 job.id,
             )
-            .execute(&mut *tx)
+            .fetch_optional(&mut *tx)
             .await
             .map_err(|e| {
                 error::Error::internal_err(format!(
                     "Failed to reset running state for inline checkpoint: {e}"
                 ))
-            })?;
+            })?
+            .flatten();
 
             tx.commit().await?;
+            crate::wac_executor::end_wac_segment(conn, job, segment_ms);
 
             Err(error::Error::WacSuspended(format!(
                 "WAC v2 job {} inline checkpoint for step {}",
@@ -4381,5 +4426,50 @@ export function main(x: number) { return x; }"#;
         assert!(wrapper.contains(r#"line.startsWith("execd:")"#));
         assert!(wrapper.contains(r#"line.startsWith("exec_preprocess:")"#));
         assert!(wrapper.contains(r#"line.startsWith("exec:")"#));
+    }
+
+    /// The bundle cache is global and content-keyed, so a key that ignores the inline
+    /// modules hands one workspace's bundle — attacker helper code and all — to the next
+    /// job whose main content and lockfile happen to match.
+    #[tokio::test]
+    async fn bundle_cache_key_separates_inline_module_content() {
+        use windmill_common::scripts::ScriptModule;
+
+        async fn key_for(modules: Option<&HashMap<String, ScriptModule>>) -> String {
+            compute_bundle_local_and_remote_path(
+                "import { h } from './helper.ts';\nexport async function main() { return h(); }",
+                "{}\n//bun.lock\n<empty>",
+                "u/alice/script",
+                None,
+                "w1",
+                &None,
+                modules,
+            )
+            .await
+            .1
+        }
+        fn modules(content: &str) -> HashMap<String, ScriptModule> {
+            HashMap::from([(
+                "helper.ts".to_string(),
+                ScriptModule {
+                    content: content.to_string(),
+                    language: ScriptLang::Bun,
+                    lock: None,
+                },
+            )])
+        }
+
+        let attacker = key_for(Some(&modules("export const h = () => 'attacker'"))).await;
+        let victim = key_for(Some(&modules("export const h = () => 'victim'"))).await;
+        assert_ne!(attacker, victim);
+        assert_eq!(
+            attacker,
+            key_for(Some(&modules("export const h = () => 'attacker'"))).await,
+            "same modules must still share a cache slot"
+        );
+
+        // An absent map and an empty one are the same script, so they share a slot.
+        assert_eq!(key_for(None).await, key_for(Some(&HashMap::new())).await);
+        assert_ne!(key_for(None).await, attacker);
     }
 }

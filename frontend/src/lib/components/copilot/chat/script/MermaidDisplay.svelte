@@ -165,7 +165,7 @@
 
 	<Modal bind:open={expanded} title="Diagram" kind="X" fillHeight class="sm:max-w-none w-[92vw]">
 		{#snippet settings()}
-			<div class="flex flex-row gap-1 mr-8">
+			<div class="flex flex-row gap-1">
 				<Button
 					onclick={() => zoomBy(1 / 1.3)}
 					color="light"

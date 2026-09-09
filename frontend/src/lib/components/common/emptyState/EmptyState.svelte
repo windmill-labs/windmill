@@ -10,6 +10,16 @@
 			label: string
 			icon?: any
 			onClick: () => void
+			/**
+			 * `default` unless the surface has no other live call to action. Accent is for the case
+			 * where this button is the only thing to press — a form whose submit is disabled until
+			 * this is done, say — so it is not competing with one.
+			 */
+			variant?: 'default' | 'accent'
+			/** Same write lock the surface's other controls take. An empty state is still a live
+			 *  control: without this it stays clickable while a request that has already read the
+			 *  empty list is in flight, and whatever it adds is discarded when that request lands. */
+			disabled?: boolean
 			aiId?: string
 			aiDescription?: string
 		}
@@ -32,11 +42,13 @@
 		{/if}
 	</div>
 	{#if action}
-		<!-- `default`, not `accent`: the page header already carries the accent CTA for
-			 this same action, and one accent per view is the rule. -->
+		<!-- `default` by default: the page header usually carries the accent CTA for this same
+			 action, and one accent per view is the rule. A caller whose other CTA is disabled until
+			 this is done opts into `accent`. -->
 		<Button
 			unifiedSize="md"
-			variant="default"
+			variant={action.variant ?? 'default'}
+			disabled={action.disabled}
 			startIcon={action.icon ? { icon: action.icon } : undefined}
 			onClick={action.onClick}
 			aiId={action.aiId}

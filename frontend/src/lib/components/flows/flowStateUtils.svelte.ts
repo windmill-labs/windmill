@@ -22,6 +22,19 @@ import { findNextAvailablePath } from '$lib/path'
 import type { ExtendedOpenFlow } from './types'
 import { emptySchema, type StateStore } from '$lib/utils'
 import { loadStoredConfig } from '../aiProviderStorage'
+import { copilotInfo } from '$lib/aiStore'
+import { stepSettingDefaults } from './flowStepSettings'
+import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
+import {
+	agentToolToFlowModule,
+	createAiAgentTool,
+	createMcpTool,
+	createWebsearchTool,
+	newFlowModuleAgentTool,
+	SPECIAL_TOOL_KINDS,
+	type AgentTool,
+	type SpecialToolKind
+} from './agentToolUtils'
 
 export async function loadFlowModuleState(
 	flowModule: FlowModule,
@@ -190,7 +203,7 @@ export async function createAiAgent(
 	const providerValue = storedConfig ?? { kind: 'openai', resource: '', model: '' }
 
 	// A step linked to a saved agent reads its brain and tools from the resource, so it carries only
-	// the flow-local inputs: seeding `provider`/`output_type` would leave transforms it never reads.
+	// the flow-local inputs: seeding `provider` would leave a transform it never reads.
 	const aiAgentFlowModules: FlowModule = {
 		id,
 		value: {
@@ -201,8 +214,7 @@ export async function createAiAgent(
 				...(agentPath
 					? {}
 					: {
-							provider: { type: 'static', value: providerValue },
-							output_type: { type: 'static', value: 'text' }
+							provider: { type: 'static', value: providerValue }
 						}),
 				user_message: { type: 'static', value: undefined }
 			}
@@ -441,4 +453,158 @@ export async function insertNewFailureModule(
 	flowStore.val.value.failure_module = module
 
 	flowStateStore.val[module.id] = state
+}
+
+/** Create a new FlowModule without inserting it into any array. */
+export async function createNewModule(
+	flowStore: StateStore<OpenFlow>,
+	flowStateStore: StateStore<FlowState>,
+	kind: InsertKind,
+	wsScript?: { path: string; summary: string; hash: string | undefined },
+	wsFlow?: { path: string; summary: string },
+	inlineScript?: InlineScript,
+	agentPath?: string,
+	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	workspace?: string,
+	disableAi?: boolean
+): Promise<FlowModule> {
+	let module = emptyModule(flowStateStore.val, flowStore.val, kind == 'flow')
+	let state = emptyFlowModuleState()
+	flowStateStore.val[module.id] = state
+	if (wsFlow) {
+		;[module, state] = await pickFlow(wsFlow.path, wsFlow.summary, module.id, workspace)
+	} else if (wsScript) {
+		;[module, state] = await pickScript(
+			wsScript.path,
+			wsScript.summary,
+			module.id,
+			wsScript.hash,
+			kind,
+			workspace
+		)
+	} else if (kind == 'forloop') {
+		;[module, state] = await createLoop(module.id, !disableAi && get(copilotInfo).enabled)
+	} else if (kind == 'whileloop') {
+		;[module, state] = await createWhileLoop(module.id)
+	} else if (kind == 'branchone') {
+		;[module, state] = await createBranches(module.id)
+	} else if (kind == 'branchall') {
+		;[module, state] = await createBranchAll(module.id)
+	} else if (kind == 'aiagent') {
+		;[module, state] = await createAiAgent(module.id, agentPath)
+	} else if (inlineScript) {
+		const { language, kind, subkind, summary } = inlineScript
+		;[module, state] = await createInlineScriptModule(language, kind, subkind, module.id, summary)
+		flowStateStore.val[module.id] = state
+		if (kind == 'trigger') {
+			module.summary = 'Trigger'
+		} else if (kind == 'approval') {
+			module.summary = 'Approval'
+		}
+	}
+	flowStateStore.val[module.id] = state
+
+	if (kind == 'approval') {
+		module.suspend = stepSettingDefaults('suspend')
+	} else if (kind == 'trigger') {
+		module.stop_after_if = stepSettingDefaults('early-stop', 'trigger')
+	} else if (kind == 'end') {
+		module.summary = 'Terminate flow'
+		module.stop_after_if = stepSettingDefaults('early-stop', 'end')
+	}
+
+	return module
+}
+
+/** Create a module and splice it into `modules`, as a step or as one of an agent's tools. */
+export async function insertNewModuleAtIndex(
+	flowStore: StateStore<OpenFlow>,
+	flowStateStore: StateStore<FlowState>,
+	modules: FlowModule[] | AgentTool[],
+	index: number,
+	kind: InsertKind,
+	wsScript?: { path: string; summary: string; hash: string | undefined },
+	wsFlow?: { path: string; summary: string },
+	inlineScript?: InlineScript,
+	toolKind?: SpecialToolKind | 'flowmoduleTool',
+	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	workspace?: string,
+	disableAi?: boolean
+): Promise<FlowModule[] | AgentTool[]> {
+	const module = await createNewModule(
+		flowStore,
+		flowStateStore,
+		kind,
+		wsScript,
+		wsFlow,
+		inlineScript,
+		undefined,
+		workspace,
+		disableAi
+	)
+
+	if (!modules) return [module]
+
+	if (toolKind === 'mcpTool') {
+		// Create MCP AgentTool
+		const mcpTool = createMcpTool(module.id)
+		;(modules as AgentTool[]).splice(index, 0, mcpTool)
+		return modules as AgentTool[]
+	} else if (toolKind === 'websearchTool') {
+		// Create Websearch AgentTool
+		const websearchTool = createWebsearchTool(module.id)
+		;(modules as AgentTool[]).splice(index, 0, websearchTool)
+		return modules as AgentTool[]
+	} else if (toolKind === 'aiAgentTool') {
+		// Create AI Agent tool (nested agent)
+		const aiAgentTool = createAiAgentTool(module.id)
+		flowStateStore.val[module.id] = await loadFlowModuleState(
+			agentToolToFlowModule(aiAgentTool),
+			workspace
+		)
+		;(modules as AgentTool[]).splice(index, 0, aiAgentTool)
+		return modules as AgentTool[]
+	} else if (toolKind === 'flowmoduleTool') {
+		const agentTool = newFlowModuleAgentTool(module)
+		;(modules as AgentTool[]).splice(index, 0, agentTool)
+		return modules as AgentTool[]
+	} else {
+		// Standard FlowModule insertion
+		modules.splice(index, 0, module)
+		return modules
+	}
+}
+
+/**
+ * Add one tool to an agent's `tools`, from the picker's detail, and return its id. Shared by the
+ * flow graph and the agent editor, which hold the same tools in different stores.
+ */
+export async function insertAgentTool(
+	flowStore: StateStore<OpenFlow>,
+	flowStateStore: StateStore<FlowState>,
+	agentValue: { tools?: AgentTool[] },
+	detail: { kind: string; script?: any; flow?: any; inlineScript?: any },
+	workspace?: string,
+	disableAi?: boolean
+): Promise<string | undefined> {
+	// `tools` is optional, so a module authored without it starts undefined here and would
+	// silently swallow its first tool.
+	agentValue.tools ??= []
+	const tools = agentValue.tools
+	await insertNewModuleAtIndex(
+		flowStore,
+		flowStateStore,
+		tools,
+		tools.length,
+		detail.kind as InsertKind,
+		detail.script,
+		detail.flow ? { path: detail.flow.path, summary: detail.flow.summary } : undefined,
+		detail.inlineScript,
+		(SPECIAL_TOOL_KINDS as readonly string[]).includes(detail.kind)
+			? (detail.kind as SpecialToolKind)
+			: 'flowmoduleTool',
+		workspace,
+		disableAi
+	)
+	return tools[tools.length - 1]?.id
 }

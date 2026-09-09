@@ -81,6 +81,11 @@
 		size?: ButtonType.UnifiedSize
 		unifiedHeight?: boolean
 		underlyingInputEl?: UnderlyingInputElT
+		/**
+		 * Passed to the `autosize` action on the `textarea` variant. Chiefly `minHeight: 0`, for a
+		 * field that hugs one line instead of reserving the action's 30px floor.
+		 */
+		autosizeParams?: import('$lib/autosize').AutosizeParams
 	}
 
 	export function focus() {
@@ -108,7 +113,8 @@
 		error,
 		size = 'md',
 		unifiedHeight = true,
-		underlyingInputEl: _underlyingInputEl
+		underlyingInputEl: _underlyingInputEl,
+		autosizeParams
 	}: Props<UnderlyingInputElT> = $props()
 
 	let underlyingInputEl = $derived(_underlyingInputEl ?? ('input' as const))
@@ -152,7 +158,7 @@
 		onpointerdown={(e) => e.stopImmediatePropagation()}
 		bind:this={inputEl}
 		bind:value
-		use:autosize
+		use:autosize={autosizeParams}
 	></textarea>
 {:else if underlyingInputEl === 'input'}
 	<input

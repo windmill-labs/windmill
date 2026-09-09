@@ -950,6 +950,51 @@ pub async fn workspace_registry_cache_suffix(w_id: &str) -> String {
     }
 }
 
+/// The name a build artifact is cached under, derived from `base` — the runnable's own
+/// cache-key input — and its inline modules.
+///
+/// `write_module_files` puts module content in the job dir where the build inlines it into
+/// the artifact, so a name without it serves one runnable's modules to another whose main
+/// content and lockfile match — across workspaces, the cache being global.
+///
+/// Only the path and content may name the artifact, because they are all the build reads.
+/// `ScriptModule::lock` especially must stay out: deploy regenerates it *after* the parent
+/// has prebuilt, so naming it would strand every prebuilt artifact.
+pub(crate) fn artifact_cache_name(
+    base: String,
+    modules: Option<&std::collections::HashMap<String, ScriptModule>>,
+) -> String {
+    let Some(modules) = modules.filter(|m| !m.is_empty()) else {
+        // Byte-identical to the name a module-free runnable had before modules entered this,
+        // so its cached artifacts stay reachable. A pre-fix multi-file runnable also stored
+        // here, so one of those stays reachable too — accepted over invalidating every cache,
+        // and once this ships nothing can be stored here with module content in it again.
+        return windmill_common::utils::calculate_hash(&base);
+    };
+    let mut entries: Vec<(&String, &ScriptModule)> = modules.iter().collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+    // `base` ends in caller-supplied bytes (a preview brings its own lockfile), so it is
+    // sealed to a fixed width before the module block is appended — raw, a crafted lockfile
+    // could spell out another runnable's block and reach its slot.
+    let mut keyed = format!(
+        "{}:modules:{}",
+        windmill_common::utils::calculate_hash(&base),
+        entries.len()
+    );
+    for (path, module) in entries {
+        // Both length-prefixed, else `{"a": "bc"}` and `{"ab": "c"}` encode alike.
+        keyed.push_str(&format!(
+            ":{}:{path}:{}:{}",
+            path.len(),
+            module.content.len(),
+            module.content,
+        ));
+    }
+    // Its own namespace: `calculate_hash` emits hex, so however a module-free runnable
+    // crafts its content and lockfile it can never land on a module-bearing name.
+    format!("mod-{}", windmill_common::utils::calculate_hash(&keyed))
+}
+
 pub fn is_sandboxing_enabled() -> bool {
     if !*DISABLE_NSJAIL {
         return true;
@@ -3532,7 +3577,13 @@ pub async fn run_worker(
                     job.kind,
                     JobKind::Script | JobKind::Preview | JobKind::FlowScript
                 ) {
-                    if !dedicated_workers.is_empty() {
+                    // A job carrying a pre-run error never runs its code: it only has to be
+                    // pulled so `handle_queued_job` can fail it. Both hand-off paths below
+                    // dispatch by path and return before that check, so a job sent down them
+                    // would run with whatever arguments survived the failure.
+                    let fails_before_running = job.pre_run_error.is_some();
+
+                    if !dedicated_workers.is_empty() && !fails_before_running {
                         let dedicated_worker_tx = job.runnable_path.as_ref().and_then(|path| {
                             // For flow steps inside branches/loops, runnable_path includes
                             // nesting segments (e.g. f/flow/branchone-0/a) but the dedicated
@@ -3577,7 +3628,7 @@ pub async fn run_worker(
                         NextJob::Http(_) => None,
                     };
 
-                    if let Some(flow_runners) = flow_runners {
+                    if let Some(flow_runners) = flow_runners.filter(|_| !fails_before_running) {
                         let key_o = job.flow_step_id.as_ref().map(|x| x.to_string());
                         if let Some(key) = key_o {
                             if let Some(flow_runner_tx) = flow_runners.runners.get(&key) {
@@ -3816,7 +3867,8 @@ pub async fn run_worker(
                     let job_result = windmill_common::log_context::with_log_context(
                         log_ctx,
                         async {
-                            let result = handle_queued_job(
+                            // Keep large job-phase futures boxed to limit debug polling frames.
+                            let result = Box::pin(handle_queued_job(
                                 arc_job.clone(),
                                 raw_code,
                                 raw_lock,
@@ -3837,7 +3889,7 @@ pub async fn run_worker(
                                 flow_runners,
                                 #[cfg(feature = "benchmark")]
                                 &mut bench,
-                            )
+                            ))
                             .await;
                             record_job_span_status(&result);
                             result
@@ -5108,7 +5160,7 @@ async fn try_validate_schema(
                             code,
                             language,
                             job.script_entrypoint_override.clone(),
-                        )? {
+                        ).await? {
                             Ok(Some(schema_validator_from_main_arg_sig(&sig)))
                         } else {
                             Err(anyhow!("Job was expected to validate the arguments schema, but no schema was provided and couldn't be inferred from the script for language `{language:?}`. Try removing schema validation for this job").into())
@@ -5453,7 +5505,9 @@ async fn handle_code_execution_job(
         None => job,
     };
 
-    // For preview jobs, extract modules from args._MODULES if not already set
+    // Any job kind, not just previews: whatever is here is what gets written to the job dir
+    // and built in, so the agent-worker server precomputing a cache name has to resolve
+    // modules the same way (`windmill-api-agent-workers`, `get_code_and_lock`).
     let modules = modules_from_data.clone().or_else(|| {
         job.args.as_ref().and_then(|args| {
             args.get("_MODULES").and_then(|raw| {
@@ -5474,7 +5528,7 @@ async fn handle_code_execution_job(
     .await?;
 
     let language = language.clone();
-    run_language_executor(
+    let result = Box::pin(run_language_executor(
         job,
         conn,
         client,
@@ -5499,8 +5553,111 @@ async fn handle_code_execution_job(
         &modules,
         false,
         in_pipeline,
-    )
-    .await
+    ))
+    .await;
+    record_declared_warehouse_write(job, conn, code, &result).await;
+    result
+}
+
+/// Record the outcome of a `// materialize manual dbt://<warehouse>/<schema>/<name>`
+/// declaration, the way the DuckDB executor records a DuckLake target.
+///
+/// Nothing generates warehouse DDL, so the script issues its own write and this
+/// is the only thing that turns it into a `materialized_partition` row — the
+/// relation's last writer on the run page and the graph. Language-agnostic on
+/// purpose — the DuckLake write engine is DuckDB's, this declaration is anyone's
+/// — except dbt's own, which is refused at deploy.
+///
+/// Best-effort, and it can be: the cascade fans out from the deploy-time `asset`
+/// rows, not from this one, so a lost row costs the relation its last writer and
+/// nothing else. It must not fail a job whose write already landed.
+///
+/// Shares the reach of every other runtime pipeline annotation, which is this
+/// function's caller: a job handed to a dedicated worker or a flow runner never
+/// passes through it, so — exactly as `// partitioned` is not resolved there —
+/// such a run performs its write and records no row.
+async fn record_declared_warehouse_write(
+    job: &MiniPulledJob,
+    conn: &Connection,
+    code: &str,
+    result: &error::Result<Box<RawValue>>,
+) {
+    use windmill_common::materialization::{
+        MaterializationStatus, RecordMaterializationRequest, UNPARTITIONED,
+    };
+    // A DEPLOYED script only. The annotation is a deploy-time contract — `manual`,
+    // a three-segment relation, a configured warehouse — checked in
+    // `create_script_internal`, which also required write access to the path. A
+    // preview, hub or inline-flow body reaches this function without any of that,
+    // so honouring it there would let `jobs:run` alone restamp any relation's last
+    // writer from a script that never touched it.
+    if job.kind != JobKind::Script {
+        return;
+    }
+    // Cheap guard: the annotation scan is skipped for the overwhelming majority
+    // of jobs, which carry no `materialize` line at all.
+    if !code.contains("materialize") {
+        return;
+    }
+    let Some(m) = windmill_parser::asset_parser::parse_pipeline_annotations(code)
+        .materialize
+        .filter(|m| m.target_kind == windmill_parser::asset_parser::AssetKind::Dbt)
+    else {
+        return;
+    };
+    // The slice this run wrote, resolved once upstream (`resolve_partition_for_job`)
+    // and carried in the args the cascade reads too, so a partitioned producer
+    // records the same identity everything else propagates.
+    let partition = job
+        .args
+        .as_ref()
+        .and_then(|a| a.0.get(windmill_common::partition::PARTITION_ARG))
+        .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
+        .unwrap_or_else(|| UNPARTITIONED.to_string());
+    let (status, error) = match result {
+        Ok(_) => (MaterializationStatus::Materialized, None),
+        Err(e) => (MaterializationStatus::Failed, Some(e.to_string())),
+    };
+    let recorded = match conn {
+        Connection::Sql(db) => windmill_common::materialization::record_materialization(
+            db,
+            &job.workspace_id,
+            windmill_common::assets::AssetKind::Dbt,
+            &m.target_path,
+            &partition,
+            status,
+            None,
+            None,
+            Some(job.id),
+            error.as_deref(),
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("{e:#}")),
+        Connection::Http(client) => {
+            crate::agent_workers::record_materialization_from_agent_http(
+                client,
+                &job.workspace_id,
+                &RecordMaterializationRequest {
+                    asset_kind: windmill_common::assets::AssetKind::Dbt,
+                    asset_path: m.target_path.clone(),
+                    partition,
+                    status,
+                    snapshot_id: None,
+                    row_count: None,
+                    job_id: Some(job.id),
+                    error,
+                    schema: None,
+                },
+            )
+            .await
+        }
+    };
+    if let Err(e) = recorded {
+        tracing::warn!(
+            "recording the materialization of dbt://{} failed: {e:#}",
+            m.target_path
+        );
+    }
 }
 
 /// True when `path` contains only `Normal`/`CurDir` components, i.e. it cannot
@@ -5646,9 +5803,104 @@ mod write_module_files_tests {
     use super::*;
     use std::collections::HashMap;
     use windmill_common::scripts::ScriptLang;
+    use windmill_common::utils::calculate_hash;
 
     fn module(content: &str) -> ScriptModule {
         ScriptModule { content: content.to_string(), language: ScriptLang::Python3, lock: None }
+    }
+
+    /// Every language's artifact cache name funnels module content through this, so an
+    /// ambiguous encoding puts two different runnables back on one name.
+    #[test]
+    fn artifact_name_cannot_be_re_cut_into_another_module_map() {
+        fn name(entries: &[(&str, &str)]) -> String {
+            let map: HashMap<String, ScriptModule> = entries
+                .iter()
+                .map(|(p, c)| (p.to_string(), module(c)))
+                .collect();
+            artifact_cache_name("base".to_string(), Some(&map))
+        }
+
+        // Naive `path + content` concatenation renders both of these as "abc".
+        assert_ne!(name(&[("a", "bc")]), name(&[("ab", "c")]));
+        // Splitting one module into two must not read back as the joined one.
+        assert_ne!(name(&[("a", "b"), ("c", "d")]), name(&[("ac", "bd")]));
+        // Iteration order of the map must not move the name.
+        assert_eq!(
+            name(&[("a", "1"), ("b", "2")]),
+            name(&[("b", "2"), ("a", "1")])
+        );
+    }
+
+    /// A module-free runnable must keep the exact name it had before modules entered the
+    /// derivation, or upgrading strands every artifact already in the cache.
+    #[test]
+    fn artifact_name_is_unchanged_without_modules() {
+        assert_eq!(
+            artifact_cache_name("code+lock".to_string(), None),
+            calculate_hash("code+lock")
+        );
+        assert_eq!(
+            artifact_cache_name("code+lock".to_string(), Some(&HashMap::new())),
+            calculate_hash("code+lock")
+        );
+    }
+
+    /// A preview brings its own source and lockfile, so a module-free runnable picks its
+    /// whole `base`. Module-bearing names live in their own namespace precisely so that no
+    /// crafted `base` can be made to land on one.
+    #[test]
+    fn a_module_free_runnable_cannot_forge_a_module_bearing_name() {
+        let modules = HashMap::from([("h.ts".to_string(), module("evil"))]);
+        let victim = artifact_cache_name("code+lock".to_string(), Some(&modules));
+
+        // `calculate_hash` emits hex, so the namespace is unreachable however `base` is
+        // chosen — including by feeding it the victim's own name.
+        assert!(victim.starts_with("mod-"));
+        assert_ne!(artifact_cache_name(victim.clone(), None), victim);
+        assert!(!artifact_cache_name("anything".to_string(), None).starts_with("mod-"));
+    }
+
+    /// The `mod-` namespace separates module-free from module-bearing, and nothing separates
+    /// two module-bearing runnables — only the seal does. Unsealed, `base` is variable-width,
+    /// so the split between it and the module block is ambiguous and a preview (which brings
+    /// its own source *and* lockfile) can absorb part of another runnable's block.
+    #[test]
+    fn a_module_bearing_runnable_cannot_absorb_another_ones_block() {
+        let victim = artifact_cache_name(
+            "V".to_string(),
+            Some(&HashMap::from([(
+                "h.ts".to_string(),
+                module(":modules:1:1:a:1:b"),
+            )])),
+        );
+        // Byte-identical to the victim's without the seal: the forger's `base` spells out the
+        // victim's leading block, leaving its own single module to supply the tail.
+        let forged = artifact_cache_name(
+            "V:modules:1:4:h.ts:18:".to_string(),
+            Some(&HashMap::from([("a".to_string(), module("b"))])),
+        );
+
+        assert_ne!(victim, forged);
+    }
+
+    /// Deploy fills a module's lock in after the parent has prebuilt, so a name that moved
+    /// with it would leave every prebuilt artifact unreachable by the runs it was built for.
+    #[test]
+    fn artifact_name_ignores_the_lock_deploy_fills_in_later() {
+        let prebuild = artifact_cache_name(
+            "base".to_string(),
+            Some(&HashMap::from([("h.ts".to_string(), module("x"))])),
+        );
+
+        let mut locked = module("x");
+        locked.lock = Some("{}\n//bun.lock\n<empty>".to_string());
+        let after_deploy = artifact_cache_name(
+            "base".to_string(),
+            Some(&HashMap::from([("h.ts".to_string(), locked)])),
+        );
+
+        assert_eq!(prebuild, after_deploy);
     }
 
     #[test]
@@ -6161,7 +6413,8 @@ mount {{
             | ScriptLang::Bun
             | ScriptLang::Bunnative
             | ScriptLang::Nativets
-            | ScriptLang::Go => "//",
+            | ScriptLang::Go
+            | ScriptLang::Php => "//",
             _ => "",
         };
         let raw_mounts = windmill_worker_volumes::parse_volume_annotations(&code, comment_prefix);
@@ -6214,7 +6467,7 @@ mount {{
         .await;
 
         if let Connection::Sql(db) = conn {
-            volume_setup = crate::volume_oss::setup_volumes_sql_worker(
+            volume_setup = Box::pin(crate::volume_oss::setup_volumes_sql_worker(
                 &volume_mounts,
                 db,
                 &job.workspace_id,
@@ -6227,10 +6480,10 @@ mount {{
                 language,
                 &mut envs,
                 &mut shared_mount,
-            )
+            ))
             .await?;
         } else if let Connection::Http(http) = conn {
-            volume_setup = crate::volume_oss::setup_volumes_http_worker(
+            volume_setup = Box::pin(crate::volume_oss::setup_volumes_http_worker(
                 &volume_mounts,
                 http,
                 &job.workspace_id,
@@ -6243,7 +6496,7 @@ mount {{
                 language,
                 &mut envs,
                 &mut shared_mount,
-            )
+            ))
             .await?;
         }
     }
@@ -6380,6 +6633,7 @@ mount {{
                 envs,
                 occupancy_metrics,
                 maybe_lock,
+                modules.as_ref(),
             ))
             .await
         }
@@ -6509,6 +6763,7 @@ mount {{
                     worker_name,
                     envs,
                     occupancy_metrics,
+                    modules.as_ref(),
                 ))
                 .await
             }
@@ -6567,6 +6822,7 @@ mount {{
                 worker_name,
                 envs,
                 occupancy_metrics,
+                modules.as_ref(),
             ))
             .await
         }
@@ -6631,6 +6887,7 @@ mount {{
                     worker_name,
                     envs,
                     occupancy_metrics,
+                    modules: modules.as_ref(),
                 }))
                 .await
             }
@@ -6735,7 +6992,7 @@ mount {{
 
         if let Some(ref vol_client) = volume_setup.client {
             if let Connection::Sql(db) = conn {
-                crate::volume_oss::sync_volumes_sql_worker(
+                Box::pin(crate::volume_oss::sync_volumes_sql_worker(
                     &volume_setup.states,
                     &volume_setup.writable,
                     vol_client,
@@ -6745,13 +7002,13 @@ mount {{
                     worker_name,
                     conn,
                     result.is_ok(),
-                )
+                ))
                 .await;
             }
         }
 
         if let Connection::Http(http) = conn {
-            crate::volume_oss::sync_volumes_http_worker(
+            Box::pin(crate::volume_oss::sync_volumes_http_worker(
                 &volume_setup.states,
                 &volume_setup.writable,
                 http,
@@ -6760,7 +7017,7 @@ mount {{
                 worker_name,
                 conn,
                 result.is_ok(),
-            )
+            ))
             .await;
         }
 
@@ -6795,7 +7052,7 @@ mount {{
     result
 }
 
-pub fn parse_sig_of_lang(
+pub async fn parse_sig_of_lang(
     code: &str,
     language: Option<&ScriptLang>,
     main_override: Option<String>,
@@ -6830,10 +7087,9 @@ pub fn parse_sig_of_lang(
             ScriptLang::DuckDb => Some(windmill_parser_sql::parse_duckdb_sig(code)?),
             ScriptLang::OracleDB => Some(windmill_parser_sql::parse_oracledb_sig(code)?),
             #[cfg(feature = "php")]
-            ScriptLang::Php => Some(windmill_parser_php::parse_php_signature(
-                code,
-                main_override,
-            )?),
+            ScriptLang::Php => {
+                Some(crate::php_executor::parse_php_signature(code, main_override).await?)
+            }
             #[cfg(not(feature = "php"))]
             ScriptLang::Php => None,
             #[cfg(feature = "rust")]

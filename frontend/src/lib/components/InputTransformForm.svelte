@@ -30,6 +30,7 @@
 	import type { InputTransform } from '$lib/gen'
 	import TemplateEditor from './TemplateEditor.svelte'
 	import { setInputCat as computeInputCat, isCodeInjection } from '$lib/utils'
+	import { escapeTemplateBackticks } from '$lib/utils/templateLiteral'
 	import { FunctionSquare, InfoIcon } from 'lucide-svelte'
 	import { getResourceTypes } from './resourceTypesStore'
 	import type { FlowCopilotContext } from './copilot/flow'
@@ -52,6 +53,13 @@
 		label?: string
 		/** Replaces the label header, so a setting's own toggle can name the field. */
 		header?: Snippet
+		/** Renders after the label: a button to unset the field, a badge. */
+		labelExtra?: Snippet
+		/** Drop the schema's description paragraph, for a form that carries it in a tooltip. */
+		hideDescription?: boolean
+		/** Keep the connect and transform controls out of the way until the row is reached, unless
+		 *  the field already holds something the controls are needed to read. */
+		subtleControls?: boolean
 		/** The kind this field always holds, for a value that doesn't carry a `type` of its
 		 *  own — a flow predicate is stored as a bare `{ expr }`. */
 		argType?: InputTransform['type']
@@ -75,6 +83,14 @@
 		/** Hide the static/expression switch, for a field that only ever holds one kind.
 		 *  The connect button and the AI helper stay. */
 		noDynamicToggle?: boolean
+		/** Hide the connect button, for a surface with nothing to connect to. Distinct from
+		 *  `noDynamicToggle`, which a field forced to an expression also sets. */
+		noConnect?: boolean
+		/** Drop the expression option, and every affordance that writes one: an expression reaching
+		 *  such a field is stored and deployed like any other, whichever control put it there. The
+		 *  rest of the switch stays, so a field can still be AI-filled or static. A field already
+		 *  holding an expression keeps the option, or it could not be switched off it. */
+		noJavascript?: boolean
 		/** Replaces the default StepInputGen, for a field with its own AI helper. That
 		 *  helper drives `suggestion` (its ghost text) and `aiOnKeyUp` (Tab to accept),
 		 *  which the built-in one reaches through `stepInputGen` instead. */
@@ -103,6 +119,9 @@
 		argName = $bindable(),
 		label = undefined,
 		header = undefined,
+		labelExtra = undefined,
+		hideDescription = false,
+		subtleControls = false,
 		argType = undefined,
 		collapsed = false,
 		animateAppear = false,
@@ -117,6 +136,8 @@
 		variableEditor = undefined,
 		itemPicker = undefined,
 		noDynamicToggle = false,
+		noConnect = false,
+		noJavascript = false,
 		aiGen = undefined,
 		suggestion = $bindable(),
 		focused = $bindable(),
@@ -181,6 +202,11 @@
 	let fieldAllowsAi = $derived(
 		allowedAiTransforms === undefined || allowedAiTransforms.includes(argName)
 	)
+
+	// A `${}` field is static text that interpolates JavaScript, so it is only on offer where
+	// expressions are. Elsewhere the same field is plain static: labelled `static`, edited in the
+	// ordinary input, with no `${...}` hint promising an escape hatch that isn't there.
+	let staticTemplateOffered = $derived(isStaticTemplate(inputCat) && !noJavascript)
 
 	// `argType` wins over whatever the value carries: a predicate has no `type` field, so
 	// inferring would land it on the static input instead of the expression editor.
@@ -249,11 +275,15 @@
 			return
 		}
 
-		if (isCodeInjection(rawValue)) {
+		// `${...}` becomes a JavaScript transform, so it is only read as one where such a transform
+		// can be stored — the same condition `staticTemplateOffered` renders under. Elsewhere the
+		// text stays what was typed, rather than turning into code the store then drops or, worse,
+		// keeps pointing at a flow context this value will never be evaluated in.
+		if (isCodeInjection(rawValue) && !noJavascript) {
 			arg.expr = getDefaultExpr(
 				argName,
 				previousModuleId,
-				`\`${rawValue.toString().replaceAll('`', '\\`')}\``
+				`\`${escapeTemplateBackticks(rawValue.toString())}\``
 			)
 			arg.type = 'javascript'
 			propertyType = 'static'
@@ -272,7 +302,12 @@
 
 	let codeInjectionDetected = $state(false)
 
-	function checkCodeInjection(rawValue: string) {
+	// A static value is whatever JSON the field holds, so it need not be a string, and the caller
+	// runs inside an effect: throwing here would take the whole form down rather than one field.
+	function checkCodeInjection(rawValue: unknown): { word: string; value: string }[] | undefined {
+		if (typeof rawValue !== 'string') {
+			return undefined
+		}
 		if (!arg || !rawValue || rawValue.length < 3 || !dynamicTemplateRegexPairs) {
 			return undefined
 		}
@@ -306,6 +341,7 @@
 			isStaticTemplate(inputCat) &&
 			propertyType == 'static' &&
 			!noDynamicToggle &&
+			!noJavascript &&
 			codeInjectionDetected
 		) {
 			setJavaScriptExpr(arg.value)
@@ -560,8 +596,16 @@
 		untrack(() => handleFieldVisibility(schema, arg, otherArgs))
 	})
 	let connecting = $derived($propPickerConfig?.propName == argName)
+	let fieldDescription = $derived(
+		hideDescription ? undefined : schema?.properties?.[argName]?.description
+	)
+	// Fading the controls away is only safe while the row itself says what it holds. An expression
+	// or an AI-filled value is only legible from the toggle, so those keep it on screen.
+	let controlsPinned = $derived(connecting || propertyType !== 'static' || Boolean(suggestion))
+	// Its picker builds an expression, so it goes with the expression option.
 	let shouldShowS3ArrayHelper = $derived(
 		inputCat === 'list' &&
+			!noJavascript &&
 			['s3object', 's3_object'].includes(schema?.properties?.[argName]?.items?.resourceType)
 	)
 
@@ -599,7 +643,9 @@
 						type={schema.properties?.[argName]?.type}
 					/>
 
-					{#if isStaticTemplate(inputCat)}
+					{@render labelExtra?.()}
+
+					{#if staticTemplateOffered}
 						<div>
 							<span
 								class="border text-gray-400 dark:text-gray-500 text-2xs font-medium mr-2 px-1 !py-[1px] rounded ml-2.5 {propertyType ==
@@ -615,13 +661,17 @@
 			</div>
 			<!-- Nothing to connect to or switch while collapsed: there is no value yet. -->
 			<div
-				class="flex flex-row items-end gap-x-2 z-10 absolute right-0 bottom-0 group-hover:bg-surface transition-colors {collapsed
-					? 'hidden'
-					: ''}"
+				class={twMerge(
+					'flex flex-row items-end gap-x-2 z-10 absolute right-0 bottom-0 group-hover:bg-surface transition-colors',
+					collapsed ? 'hidden' : '',
+					subtleControls && !controlsPinned
+						? 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity'
+						: ''
+				)}
 			>
 				{#if aiGen}
 					{@render aiGen()}
-				{:else if enableAi}
+				{:else if enableAi && !noJavascript}
 					<StepInputGen
 						bind:this={stepInputGen}
 						{focused}
@@ -638,7 +688,7 @@
 					/>
 				{/if}
 
-				{#if propPickerWrapperContext}
+				{#if propPickerWrapperContext && !noConnect}
 					<FlowPlugConnect
 						wrapperClasses={twMerge(
 							'group-hover:opacity-100 transition-opacity',
@@ -687,7 +737,7 @@
 											argName,
 											previousModuleId,
 											staticTemplate
-												? `\`${arg?.value?.toString().replaceAll('`', '\\`') ?? ''}\``
+												? `\`${escapeTemplateBackticks(arg?.value?.toString() ?? '')}\``
 												: arg.value
 													? '(' + JSON.stringify(arg?.value, null, 4) + ')'
 													: ''
@@ -703,6 +753,11 @@
 										if (arg) {
 											arg.value = codeToStaticTemplate(arg.expr)
 											arg.expr = undefined
+											// Stated here, as the other branches state it. `setPropertyType`
+											// only writes a type when the text is an interpolation, so leaving
+											// it to that call means a field switched off `ai` keeps carrying
+											// `ai` and reads straight back as it on the next render.
+											arg.type = 'static'
 										}
 										setPropertyType(arg?.value)
 									} else if (inputCat == 'list' || inputCat == 'object') {
@@ -726,22 +781,33 @@
 											arg.expr = undefined
 										}
 									}
+									// On a field the agent can fill, "static with no value" is itself the
+									// AI state (see `getPropertyType`), so leaving the value unset reads
+									// this choice straight back as AI and the field can never be typed
+									// into. An empty value of the field's own kind is what makes "I will
+									// supply this one" representable.
+									if (fieldAllowsAi && arg && arg.value === undefined) {
+										arg.value = isStaticTemplate(inputCat) ? '' : null
+									}
 									propertyType = 'static'
 								}
 							}}
 						>
 							{#snippet children({ item })}
 								{#if fieldAllowsAi}
+									<!-- `h-full`, as its siblings have: the group is a row shorter than a `sm`
+									     button, and without it this one stands proud of the others. -->
 									<ToggleButton
-										small
+										size="sm"
 										label="AI"
 										value="ai"
 										tooltip="Let the AI agent fill this field dynamically"
 										{item}
+										class="h-full text-xs"
 									/>
 								{/if}
 
-								{#if isStaticTemplate(inputCat)}
+								{#if staticTemplateOffered}
 									<ToggleButton
 										size="sm"
 										tooltip={`Write text or surround javascript with \`\$\{\` and \`\}\`. Use \`results\` to connect to another node\'s output.`}
@@ -760,7 +826,9 @@
 									/>
 								{/if}
 
-								{#if codeInjectionDetected && propertyType == 'static'}
+								{#if noJavascript && propertyType !== 'javascript'}
+									<!-- nothing: the expression option is not offered here -->
+								{:else if codeInjectionDetected && propertyType == 'static'}
 									<Button
 										size="xs2"
 										color="light"
@@ -846,19 +914,19 @@
 										This field will be filled by the AI agent dynamically
 									</span>
 								</div>
-								{#if argName && schema?.properties?.[argName]?.description}
+								{#if fieldDescription}
 									<div class="text-xs italic py-1 text-hint">
 										<pre class="font-main whitespace-normal">
-										{schema.properties[argName].description}
+										{fieldDescription}
 									</pre>
 									</div>
 								{/if}
-							{:else if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
+							{:else if staticTemplateOffered && propertyType == 'static' && !noDynamicToggle}
 								<div class="flex flex-col gap-1">
-									{#if argName && schema?.properties?.[argName]?.description}
+									{#if fieldDescription}
 										<div class="text-xs text-secondary">
 											<pre class="font-main whitespace-normal">
-										{schema.properties[argName].description}
+										{fieldDescription}
 										</pre>
 										</div>
 									{/if}
@@ -867,6 +935,8 @@
 										<TemplateEditor
 											bind:this={monacoTemplate}
 											{extraLib}
+											minRows={schema?.properties?.[argName]?.minRows}
+											placeholder={schema?.properties?.[argName]?.placeholder}
 											on:focus={onFocus}
 											on:blur={() => {
 												focused = false
@@ -897,7 +967,13 @@
 									}}
 									label={argName}
 									bind:editor={monaco}
-									bind:description={schema.properties[argName].description}
+									bind:description={
+										() => fieldDescription,
+										(v) => {
+											const property = schema.properties?.[argName]
+											if (!hideDescription && property) property.description = v
+										}
+									}
 									bind:value={arg.value}
 									type={schema.properties[argName].type}
 									oneOf={schema.properties[argName].oneOf}
@@ -994,11 +1070,9 @@
 									/>
 								{/if}
 
-								{#if argName && schema?.properties?.[argName]?.description}
+								{#if fieldDescription}
 									<div class="text-xs italic py-1 text-secondary">
-										<pre class="font-main whitespace-normal"
-											>{schema.properties[argName].description}</pre
-										>
+										<pre class="font-main whitespace-normal">{fieldDescription}</pre>
 									</div>
 								{/if}
 

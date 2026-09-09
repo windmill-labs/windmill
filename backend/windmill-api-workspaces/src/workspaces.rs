@@ -15,6 +15,7 @@ use windmill_common::email_oss::send_email_if_possible;
 use windmill_common::usernames::{get_instance_username_or_create_pending, VALID_USERNAME};
 use windmill_common::webhook::WebhookShared;
 use windmill_common::{BASE_URL, DB};
+use windmill_dep_map::lock_hash::record_lock_hashes_for_workspace;
 
 use axum::{
     extract::{Extension, Path, Query},
@@ -117,6 +118,7 @@ pub fn workspaced_service() -> Router {
             get(get_secondary_storage_names),
         )
         .route("/is_premium", get(is_premium))
+        .route("/billable_seats", get(get_billable_seats))
         .route("/edit_error_handler", post(edit_error_handler))
         .route("/edit_success_handler", post(edit_success_handler))
         .route(
@@ -149,6 +151,9 @@ pub fn workspaced_service() -> Router {
         )
         .route("/edit_deploy_ui_config", post(edit_deploy_ui_config))
         .route("/edit_default_app", post(edit_default_app))
+        .route("/edit_guest_access", post(edit_guest_access))
+        .route("/edit_guest_jwt_key", post(edit_guest_jwt_key))
+        .route("/guest_usage", get(get_guest_usage))
         .route("/default_app", get(get_default_app))
         .route(
             "/default_scripts",
@@ -315,6 +320,17 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_app_execution_limit_per_minute: Option<i32>,
     pub error_handler_fallback_to_instance_alerts: bool,
+    /// Whether this workspace admits guest sessions (`ExecutionMode::Guest`). An app's
+    /// own `execution_mode: guest` is inert while this is off.
+    pub guest_access_enabled: bool,
+    /// The key a guest JWT is verified against: a PEM public key, or a JWKS URL, at most
+    /// one (a DB CHECK enforces it). Public material, not a secret, so it is admin-
+    /// readable here. `None`/`None` falls back to the instance issuer (`JWT_EXT_JWKS_URL`)
+    /// off cloud, or accepts no JWT guest if none is set; `guest_access_enabled` is the switch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guest_jwt_public_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guest_jwt_jwks_url: Option<String>,
 }
 
 /// Subset of `WorkspaceSettings` that is safe to return to any workspace
@@ -337,6 +353,9 @@ pub struct WorkspacePublicSettings {
     pub teams_team_guid: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mute_critical_alerts: Option<bool>,
+    /// Not sensitive, and the app editor needs it to say whether the guest rung is
+    /// live -- an app can be set to `guest` while the workspace has guests off.
+    pub guest_access_enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deploy_ui: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -686,6 +705,48 @@ async fn is_premium(
     Ok(Json(premium))
 }
 
+#[derive(Serialize)]
+struct BillableSeatsResponse {
+    /// Both omitted when the seats counted are another workspace's: a fork member need not be a
+    /// member of the billing root, so the root's headcount is not theirs to read. The total is,
+    /// since it is the divisor of the quota their own executions draw on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    developers: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    operators: Option<i64>,
+    seats: i64,
+}
+
+async fn get_billable_seats(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<BillableSeatsResponse> {
+    // Readable by any workspace member, like `is_premium`: this is what the sidebar usage meter
+    // divides by, and that meter is shown to non-admin developers too.
+    //
+    // On cloud a fork draws its plan, quota and bill from the root, so the seats its usage is
+    // measured against are the root's. Resolved here rather than by the caller: a fork member need
+    // not be a member of that root, and so cannot count its seats from the member list. Off cloud
+    // a fork is not billed through a root at all, so the workspace answers for itself.
+    #[cfg(feature = "cloud")]
+    let billing_w_id = if *CLOUD_HOSTED {
+        windmill_common::workspaces::get_billing_workspace_id(&db, &w_id).await?
+    } else {
+        w_id.clone()
+    };
+    #[cfg(not(feature = "cloud"))]
+    let billing_w_id = w_id.clone();
+
+    let counted = windmill_common::workspaces::billable_seats(&db, &billing_w_id).await?;
+    let own = billing_w_id == w_id;
+    Ok(Json(BillableSeatsResponse {
+        developers: own.then_some(counted.developers),
+        operators: own.then_some(counted.operators),
+        seats: counted.seats,
+    }))
+}
+
 async fn exists_workspace(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -1029,7 +1090,10 @@ async fn get_settings(
             error_handler,
             success_handler,
             public_app_execution_limit_per_minute,
-            error_handler_fallback_to_instance_alerts
+            error_handler_fallback_to_instance_alerts,
+            guest_access_enabled,
+            guest_jwt_public_key,
+            guest_jwt_jwks_url
         FROM
             workspace_settings
         WHERE
@@ -1068,6 +1132,7 @@ async fn get_public_settings(
             teams_team_name,
             teams_team_guid,
             mute_critical_alerts,
+            guest_access_enabled,
             deploy_ui,
             large_file_storage,
             datatable
@@ -1086,6 +1151,18 @@ async fn get_public_settings(
     tx.commit().await?;
 
     Ok(Json(settings))
+}
+
+/// The instance's standing against the guest allowance: counts only, no emails, so any
+/// member may read it. Instance-wide, since a licence is per instance and one email is
+/// one guest however many workspaces it opens; the settings card and the editor's
+/// Guests rung show it so nobody discovers the cap from a visitor's complaint.
+async fn get_guest_usage(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(_w_id): Path<String>,
+) -> JsonResult<windmill_common::workspaces::GuestUsage> {
+    Ok(Json(windmill_common::workspaces::guest_usage(&db).await?))
 }
 
 #[derive(Deserialize)]
@@ -2611,6 +2688,66 @@ fn truncate_column_default(default: String) -> String {
 mod tests {
     use super::*;
 
+    /// The header of a pg_dump, followed by an object whose body also holds a `SET`.
+    const DUMP: &str = "--\n\
+        -- PostgreSQL database dump\n\
+        --\n\
+        \n\
+        \\restrict aBcD\n\
+        \n\
+        SET statement_timeout = 0;\n\
+        SET transaction_timeout = 0;\n\
+        SET client_encoding = 'UTF8';\n\
+        SELECT pg_catalog.set_config('search_path', '', false);\n\
+        \n\
+        SET default_table_access_method = heap;\n\
+        \n\
+        CREATE FUNCTION public.f() RETURNS void LANGUAGE plpgsql AS $$\n\
+        BEGIN\n\
+        SET transaction_timeout = 0;\n\
+        END;\n\
+        $$;\n";
+
+    #[test]
+    fn replayable_dump_keeps_everything_but_meta_commands_and_session_timeouts() {
+        let replayable = strip_unreplayable_dump_lines(DUMP);
+
+        assert!(!replayable.contains("\\restrict"));
+        assert!(!replayable.contains("SET statement_timeout"));
+        assert!(!replayable.contains("SET transaction_timeout = 0;\nSET client_encoding"));
+        assert!(replayable.contains("SET client_encoding = 'UTF8';"));
+        assert!(replayable.contains("SET default_table_access_method = heap;"));
+        // Past the preamble the dump is an object's own text: left exactly as it is.
+        assert!(replayable.contains("BEGIN\nSET transaction_timeout = 0;\nEND;"));
+    }
+
+    #[tokio::test]
+    async fn dump_preamble_only_drops_settings_the_server_lacks() {
+        let dump_file = DumpFile::new().unwrap();
+        tokio::fs::write(&dump_file.path, DUMP).await.unwrap();
+        let supported = [
+            "statement_timeout",
+            "client_encoding",
+            "default_table_access_method",
+        ]
+        .map(String::from)
+        .into_iter()
+        .collect();
+
+        comment_out_unsupported_settings(&dump_file, &supported)
+            .await
+            .unwrap();
+
+        let patched = tokio::fs::read_to_string(&dump_file.path).await.unwrap();
+        // Rewriting the header must not shift the rest of the dump.
+        assert_eq!(patched.len(), DUMP.len());
+        assert!(patched.contains("--  transaction_timeout = 0;"));
+        assert!(patched.contains("SET statement_timeout = 0;"));
+        assert!(patched.contains("SET default_table_access_method = heap;"));
+        // The `SET` inside the function body is past the preamble: never touched.
+        assert!(patched.contains("BEGIN\nSET transaction_timeout = 0;\nEND;"));
+    }
+
     #[test]
     fn compact_column_type_truncates_multibyte_defaults_safely() {
         let default = "é".repeat(31);
@@ -2713,6 +2850,35 @@ pub(crate) async fn resolve_pg_source_checked(
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))
 }
 
+/// Whether the data table `name` is backed by the Windmill instance's own PostgreSQL
+/// rather than a user resource.
+pub(crate) async fn is_instance_datatable(db: &DB, w_id: &str, name: &str) -> Result<bool> {
+    let config = sqlx::query_scalar!(
+        "SELECT datatable->'datatables'->$2 FROM workspace_settings WHERE workspace_id = $1",
+        w_id,
+        name
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    Ok(config
+        .and_then(|v| {
+            v.get("database")
+                .and_then(|d| d.get("resource_type"))
+                .and_then(|r| r.as_str())
+                .map(|s| s == "instance")
+        })
+        .unwrap_or(false))
+}
+
+/// Same, for the `datatable://<name>` / `$res:<path>` form the import endpoints take.
+async fn is_instance_datatable_source(db: &DB, w_id: &str, source: &str) -> Result<bool> {
+    match source.strip_prefix("datatable://") {
+        Some(name) => is_instance_datatable(db, w_id, name).await,
+        None => Ok(false),
+    }
+}
+
 /// A temporary file for pg_dump output that is automatically deleted when dropped.
 pub(crate) struct DumpFile {
     pub(crate) path: std::path::PathBuf,
@@ -2760,12 +2926,21 @@ impl Drop for DumpFile {
     }
 }
 
+#[derive(Default)]
+pub(crate) struct PgDumpOptions<'a> {
+    pub(crate) schema_only: bool,
+    pub(crate) exclude_tables: &'a [&'a str],
+    /// Leave out `ALTER ... OWNER TO`.
+    pub(crate) no_owner: bool,
+    /// Leave out `GRANT`, `REVOKE` and `ALTER DEFAULT PRIVILEGES`.
+    pub(crate) no_acl: bool,
+}
+
 /// Run pg_dump against a PgDatabase, writing output to a temp file on disk.
 /// Returns a DumpFile handle; the file is deleted when the handle is dropped.
 pub(crate) async fn pg_dump_database(
     pg_db: &PgDatabase,
-    schema_only: bool,
-    exclude_tables: &[&str],
+    opts: PgDumpOptions<'_>,
 ) -> Result<DumpFile> {
     let dump_file = DumpFile::new()?;
 
@@ -2776,10 +2951,16 @@ pub(crate) async fn pg_dump_database(
 
     let mut cmd = tokio::process::Command::new("pg_dump");
     cmd.arg("--format=plain").arg("--file").arg(&dump_file.path);
-    if schema_only {
+    if opts.schema_only {
         cmd.arg("--schema-only");
     }
-    for table in exclude_tables {
+    if opts.no_owner {
+        cmd.arg("--no-owner");
+    }
+    if opts.no_acl {
+        cmd.arg("--no-privileges");
+    }
+    for table in opts.exclude_tables {
         cmd.arg(format!("--exclude-table={table}"));
     }
     cmd.arg("--host")
@@ -2811,37 +2992,179 @@ pub(crate) async fn pg_dump_database(
     Ok(dump_file)
 }
 
-/// Import a pg_dump file into a target database using psql.
-async fn pg_import_dump(target_db: &PgDatabase, dump_file: &DumpFile) -> Result<()> {
-    let host = &target_db.host;
-    let port = target_db.port.unwrap_or(5432).to_string();
-    let user = target_db.login_name();
-    let dbname = &target_db.dbname;
+/// Whether `line` still belongs to the preamble pg_dump emits before the first
+/// dumped object: comments, blank lines, psql meta-commands and the session `SET`s.
+fn is_dump_preamble_line(line: &[u8]) -> bool {
+    let line = line.trim_ascii_start();
+    line.is_empty()
+        || line.starts_with(b"--")
+        || line.starts_with(b"\\")
+        || line.starts_with(b"SET ")
+        || line.starts_with(b"SELECT pg_catalog.set_config(")
+}
 
+/// The GUCs pg_dump's preamble sets only to keep the dumping session out of the way.
+/// They are also the ones that come and go across versions (`transaction_timeout` is
+/// PG 17+), so they are what a dump replayed on an older server trips over first.
+const DUMP_SESSION_TIMEOUTS: [&str; 4] = [
+    "statement_timeout",
+    "lock_timeout",
+    "idle_in_transaction_session_timeout",
+    "transaction_timeout",
+];
+
+/// Turn a dump into SQL that can be replayed on another database: drop pg_dump's psql
+/// meta-commands (`\restrict` / `\unrestrict`, not valid SQL) and the session timeouts
+/// its preamble sets, which the replaying server may not have as GUCs at all. Only the
+/// preamble is filtered, so an object's body keeps whatever it holds.
+pub(crate) fn strip_unreplayable_dump_lines(dump: &str) -> String {
+    let mut in_preamble = true;
+    dump.lines()
+        .filter(|line| {
+            in_preamble = in_preamble && is_dump_preamble_line(line.as_bytes());
+            if line.trim_start().starts_with('\\') {
+                return false;
+            }
+            !(in_preamble
+                && preamble_setting_name(line.as_bytes())
+                    .is_some_and(|name| DUMP_SESSION_TIMEOUTS.contains(&name)))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The GUC a preamble `SET <name> = ...;` line assigns, if the line is one.
+fn preamble_setting_name(line: &[u8]) -> Option<&str> {
+    let name = line.strip_prefix(b"SET ")?.split(|c| *c == b' ').next()?;
+    std::str::from_utf8(name).ok()
+}
+
+/// The preamble Windmill's postgres client writes can set GUCs an older server does not
+/// have — harmless session tuning, but one failing statement aborts a restore that stops
+/// on the first error. Comment those out in place, three bytes each, so the data
+/// section's offsets stay put.
+async fn comment_out_unsupported_settings(
+    dump_file: &DumpFile,
+    supported_settings: &HashSet<String>,
+) -> Result<()> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+    let file = tokio::fs::File::open(&dump_file.path)
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to open dump file: {}", e)))?;
+    let mut reader = tokio::io::BufReader::new(file);
+
+    let mut preamble: Vec<u8> = Vec::new();
+    let mut patched = false;
+    loop {
+        let start = preamble.len();
+        let read = reader
+            .read_until(b'\n', &mut preamble)
+            .await
+            .map_err(|e| Error::internal_err(format!("Failed to read dump file: {}", e)))?;
+        if read == 0 {
+            break;
+        }
+        let line = &preamble[start..];
+        if !is_dump_preamble_line(line) {
+            preamble.truncate(start);
+            break;
+        }
+        if preamble_setting_name(line).is_some_and(|name| !supported_settings.contains(name)) {
+            preamble[start..start + 3].copy_from_slice(b"-- ");
+            patched = true;
+        }
+    }
+    if !patched {
+        return Ok(());
+    }
+
+    let mut file = tokio::fs::OpenOptions::new()
+        .write(true)
+        .open(&dump_file.path)
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to open dump file: {}", e)))?;
+    file.write_all(&preamble)
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to rewrite dump preamble: {}", e)))?;
+    file.flush()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to rewrite dump preamble: {}", e)))?;
+    Ok(())
+}
+
+/// A psql invocation against `pg_db`, carrying the connection settings the CLI reads
+/// from the environment.
+fn psql_command(pg_db: &PgDatabase) -> tokio::process::Command {
     let mut cmd = tokio::process::Command::new("psql");
     cmd.arg("--host")
-        .arg(host)
+        .arg(&pg_db.host)
         .arg("--port")
-        .arg(&port)
+        .arg(pg_db.port.unwrap_or(5432).to_string())
         .arg("--username")
-        .arg(user)
+        .arg(pg_db.login_name())
         .arg("--dbname")
-        .arg(dbname)
+        .arg(&pg_db.dbname)
         .arg("--no-psqlrc")
-        .arg("--file")
-        .arg(&dump_file.path)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
-    if let Some(ref password) = target_db.password {
+    if let Some(ref password) = pg_db.password {
         cmd.env("PGPASSWORD", password);
     }
-
-    if let Some(ref sslmode) = target_db.sslmode {
+    if let Some(ref sslmode) = pg_db.sslmode {
         cmd.env("PGSSLMODE", sslmode);
     }
+    cmd
+}
 
-    let output = cmd
+/// GUC names the server backing `pg_db` knows about.
+///
+/// Asked through psql rather than a tokio-postgres connection so the lookup reaches
+/// exactly the servers the restore itself can: libpq negotiates TLS for `sslmode=prefer`
+/// and an unset mode, where `PgDatabase::connect` would hand a TLS-only server a
+/// plaintext socket and fail before the import ever starts.
+async fn server_setting_names(pg_db: &PgDatabase) -> Result<HashSet<String>> {
+    let output = psql_command(pg_db)
+        .arg("--tuples-only")
+        .arg("--no-align")
+        .arg("--command")
+        .arg("SELECT name FROM pg_settings")
+        .output()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to execute psql: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(Error::internal_err(format!(
+            "Failed to list the settings of the target server: {}",
+            stderr
+        )));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .collect())
+}
+
+/// Import a pg_dump file into a target database using psql.
+///
+/// Left to its defaults psql reports a failed statement, carries on and still exits 0,
+/// so a dump that breaks partway through imports partially and reads as a success.
+/// ON_ERROR_STOP surfaces the failure and --single-transaction makes the restore
+/// all-or-nothing, leaving the target as it was and the import retryable.
+async fn pg_import_dump(target_db: &PgDatabase, dump_file: &DumpFile) -> Result<()> {
+    let supported_settings = server_setting_names(target_db).await?;
+    comment_out_unsupported_settings(dump_file, &supported_settings).await?;
+
+    let output = psql_command(target_db)
+        .arg("--set")
+        .arg("ON_ERROR_STOP=1")
+        .arg("--single-transaction")
+        .arg("--file")
+        .arg(&dump_file.path)
         .output()
         .await
         .map_err(|e| Error::internal_err(format!("Failed to execute psql: {}", e)))?;
@@ -2886,29 +3209,7 @@ async fn create_pg_database(
         }
     }
 
-    // Determine if this is an instance or resource-backed datatable
-    let is_instance_datatable = if let Some(dt_name) = req.source.strip_prefix("datatable://") {
-        let config = sqlx::query_scalar!(
-            "SELECT datatable->'datatables'->$2 FROM workspace_settings WHERE workspace_id = $1",
-            &w_id,
-            dt_name
-        )
-        .fetch_optional(&db)
-        .await?
-        .flatten();
-        config
-            .and_then(|v| {
-                v.get("database")
-                    .and_then(|d| d.get("resource_type"))
-                    .and_then(|r| r.as_str())
-                    .map(|s| s == "instance")
-            })
-            .unwrap_or(false)
-    } else {
-        false
-    };
-
-    if is_instance_datatable {
+    if is_instance_datatable_source(&db, &w_id, &req.source).await? {
         windmill_common::create_custom_instance_database(&db, &req.target_dbname, "datatable")
             .await?;
     } else {
@@ -3006,7 +3307,18 @@ async fn import_pg_database(
     }
     windmill_common::validate_dbname(&target_pg.dbname)?;
 
-    let dump_file = pg_dump_database(&source_pg, schema_only, &[]).await?;
+    // Ownership never replays: the restore runs as the target's own connection user, and
+    // what it creates it owns. Grants do, except around an instance data table — Windmill
+    // plants `custom_instance_user` grants in one, which nothing else can replay. Elsewhere
+    // the ACLs are user intent (`REVOKE ... FROM PUBLIC`) and dropping them widens access.
+    let no_acl = is_instance_datatable_source(&db, &w_id, &req.target).await?
+        || is_instance_datatable_source(&db, &w_id, &req.source).await?;
+
+    let dump_file = pg_dump_database(
+        &source_pg,
+        PgDumpOptions { schema_only, no_owner: true, no_acl, ..Default::default() },
+    )
+    .await?;
     pg_import_dump(&target_pg, &dump_file).await?;
 
     Ok(format!(
@@ -3028,7 +3340,11 @@ async fn export_pg_schema(
     Json(req): Json<ExportPgSchemaRequest>,
 ) -> Result<String> {
     let pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
-    let dump_file = pg_dump_database(&pg, true, &[]).await?;
+    let dump_file = pg_dump_database(
+        &pg,
+        PgDumpOptions { schema_only: true, ..Default::default() },
+    )
+    .await?;
     tokio::fs::read_to_string(&dump_file.path)
         .await
         .map_err(|e| Error::internal_err(format!("Failed to read dump file: {}", e)))
@@ -3208,6 +3524,9 @@ async fn edit_datatable_config(
     // Migrations opt-in is owned by the enable/disable endpoints, not this config
     // form: preserve each existing data table's flag, and default brand-new data
     // tables to enabled.
+    // Counted here rather than after the write because this is where a rename is
+    // still distinguishable from a creation; emitted once the commit lands.
+    let mut created_substrates: Vec<&'static str> = Vec::new();
     for (name, dt) in new_config.settings.datatables.iter_mut() {
         let lookup = rename_src
             .get(name.as_str())
@@ -3215,7 +3534,15 @@ async fn edit_datatable_config(
             .unwrap_or(name.as_str());
         dt.migrations_enabled = match old_datatables.get(lookup) {
             Some(old) => old.migrations_enabled,
-            None => Some(true),
+            None => {
+                // Keyed by how the substrate is serialized into `workspace_settings`,
+                // so these line up with the `datatable_configured` adoption counts.
+                created_substrates.push(match dt.database.resource_type {
+                    DataTableCatalogResourceType::Instance => "instance",
+                    DataTableCatalogResourceType::Postgresql => "postgresql",
+                });
+                Some(true)
+            }
         };
     }
 
@@ -3272,6 +3599,10 @@ async fn edit_datatable_config(
         .await?;
 
     tx.commit().await?;
+
+    for substrate in created_substrates {
+        windmill_common::feature_usage::log_feature_usage("datatable", "created", substrate);
+    }
 
     crate::datatable_migrations::record_datatable_cascade_deployments(
         &authed,
@@ -3655,6 +3986,7 @@ async fn edit_git_sync_config(
                 clear_client_supplied_auto_pull_state(ap);
             }
             repo.open_pr_error = None;
+            repo.credential = None;
         }
         reject_parent_only_git_sync_settings_on_fork(
             &db,
@@ -3755,6 +4087,7 @@ async fn edit_git_sync_config(
                     continue;
                 };
                 repo.open_pr_error = old.open_pr_error.clone();
+                repo.credential = old.credential.clone();
                 if let (Some(new_ap), Some(old_ap)) =
                     (repo.auto_pull.as_mut(), old.auto_pull.as_ref())
                 {
@@ -3800,6 +4133,7 @@ async fn edit_git_sync_config(
             .flatten()
             .and_then(|v| serde_json::from_value(v).ok());
             let removed_webhooks: Vec<(String, i64)> = existing
+                .as_ref()
                 .map(|e| {
                     e.repositories
                         .iter()
@@ -3833,6 +4167,19 @@ async fn edit_git_sync_config(
             // `sync_repo_webhook` writes back the webhook fields it changes itself:
             // the remote hook and the record of it have to move together, so
             // persisting them out here would let one land without the other.
+            // Before the webhook reconcile, which decides whether this repo can have
+            // one from the credential this records. Also puts a short-lived or
+            // under-scoped token in front of the operator while they are still on the
+            // settings page, rather than when it expires.
+            if let Err(e) = windmill_common::git_sync_ee::refresh_git_credential_status(
+                &db,
+                &w_id,
+                &repo.git_repo_resource_path,
+            )
+            .await
+            {
+                tracing::warn!("git credential check error: {}", e);
+            }
             if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await
             {
                 tracing::warn!("git auto-pull: webhook sync error: {}", e);
@@ -3886,6 +4233,7 @@ async fn edit_git_sync_repository(
         clear_client_supplied_auto_pull_state(ap);
     }
     new_config.repository.open_pr_error = None;
+    new_config.repository.credential = None;
     reject_parent_only_git_sync_settings_on_fork(
         &db,
         &w_id,
@@ -4010,6 +4358,7 @@ async fn edit_git_sync_repository(
         // from the UI cannot revert what the poller/webhook layer wrote.
         let mut updated = new_config.repository;
         updated.open_pr_error = existing_repo.open_pr_error.clone();
+        updated.credential = existing_repo.credential.clone();
         match (updated.auto_pull.as_mut(), existing_repo.auto_pull.as_ref()) {
             (Some(new_ap), Some(old_ap)) => {
                 new_ap.last_synced_sha = old_ap.last_synced_sha.clone();
@@ -4067,6 +4416,15 @@ async fn edit_git_sync_repository(
         .iter_mut()
         .find(|r| r.git_repo_resource_path == new_config.git_repo_resource_path)
     {
+        if let Err(e) = windmill_common::git_sync_ee::refresh_git_credential_status(
+            &db,
+            &w_id,
+            &repo.git_repo_resource_path,
+        )
+        .await
+        {
+            tracing::warn!("git credential check error: {}", e);
+        }
         if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await {
             tracing::warn!("git auto-pull: webhook sync error: {}", e);
         }
@@ -4206,6 +4564,10 @@ async fn delete_git_sync_repository(
         }
     }
 
+    // The stored credential is deliberately left alone: it belongs to the git
+    // repository resource, which this endpoint does not delete, and the resource
+    // still authenticates with it for connection tests and commit lookups.
+
     // Trigger git sync for repository deletion
     handle_deployment_metadata(
         &authed.email,
@@ -4310,6 +4672,118 @@ async fn edit_default_app(
         "Setting a workspace default app is only available on Windmill Enterprise Edition"
             .to_string(),
     ));
+}
+
+#[derive(Deserialize)]
+struct EditGuestAccess {
+    guest_access_enabled: bool,
+}
+
+/// Turn guest sessions on or off for this workspace. Off by default, and off is
+/// authoritative and immediate: the switch is re-read where a guest session is
+/// minted (`guest_app_admits`) and at the auth door on every guest request, so an app
+/// whose policy already says `guest` — pushed by git-sync, say — closes to guests on
+/// the next request, sessions already issued included.
+async fn edit_guest_access(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(EditGuestAccess { guest_access_enabled }): Json<EditGuestAccess>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    if guest_access_enabled {
+        windmill_common::workspaces::require_guest_support()?;
+    }
+
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "UPDATE workspace_settings SET guest_access_enabled = $1 WHERE workspace_id = $2",
+        guest_access_enabled,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_guest_access",
+        ActionKind::Update,
+        &w_id,
+        Some(&guest_access_enabled.to_string()),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!(
+        "Guest access set to {guest_access_enabled} for workspace {w_id}"
+    ))
+}
+
+#[derive(Deserialize)]
+struct EditGuestJwtKey {
+    /// A PEM public key (RS or ES family), or a JWKS URL, at most one. Both empty clears the
+    /// workspace key; verification then falls back to the instance issuer (`JWT_EXT_JWKS_URL`)
+    /// off cloud, or refuses the JWT if none is set. The off-switch is `guest_access_enabled`.
+    public_key: Option<String>,
+    jwks_url: Option<String>,
+}
+
+/// Configure the key a guest JWT (`jwt_guest_`) is verified against for this workspace.
+/// Workspace-admin gated, like the guest switch: guests are free up to the instance
+/// allowance on any plan, so configuring their key needs no licence. The key is
+/// validated before it is stored so a typo is refused here, not silently on every guest
+/// later: a PEM must parse as an RS/ES public key (HS* has no PEM form and is
+/// unreachable), and a JWKS URL must be fetchable and hold at least one usable signing key.
+async fn edit_guest_jwt_key(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(EditGuestJwtKey { public_key, jwks_url }): Json<EditGuestJwtKey>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    let public_key = public_key.filter(|s| !s.trim().is_empty());
+    let jwks_url = jwks_url.filter(|s| !s.trim().is_empty());
+    if public_key.is_some() && jwks_url.is_some() {
+        return Err(Error::BadRequest(
+            "Set a PEM public key or a JWKS URL, not both".to_string(),
+        ));
+    }
+    // Clearing stays allowed wherever guests are: a key nobody can use is still worth
+    // removing.
+    if public_key.is_some() || jwks_url.is_some() {
+        windmill_common::workspaces::require_guest_support()?;
+    }
+    if let Some(pem) = public_key.as_deref() {
+        windmill_common::guest_jwt::decoding_key_from_pem(pem)?;
+    }
+    if let Some(url) = jwks_url.as_deref() {
+        windmill_common::guest_jwt::fetch_jwks(url).await?;
+    }
+
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "UPDATE workspace_settings SET guest_jwt_public_key = $1, guest_jwt_jwks_url = $2 WHERE workspace_id = $3",
+        public_key,
+        jwks_url,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_guest_jwt_key",
+        ActionKind::Update,
+        &w_id,
+        None,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!("Guest JWT key updated for workspace {w_id}"))
 }
 
 async fn edit_default_scripts(
@@ -5517,9 +5991,8 @@ async fn clone_workspace_data(
     // Clone the forker's own per-user drafts (plus the legacy NULL-email
     // workspace draft, if any) so they keep their pending edits in the
     // fork. Other users' drafts are intentionally NOT cloned — they don't
-    // own a `usr` row in the fork (see `clone_workspace_full`) so their
-    // drafts would dangle and the home-page `draft_users` aggregate would
-    // surface them as duplicate legacy entries.
+    // own a `usr` row in the fork (see `clone_workspace_full`), so those
+    // drafts would belong to someone the fork holds no membership for.
     clone_drafts(tx, source_workspace_id, target_workspace_id, &authed.email).await?;
 
     // Clone workspace runnable dependencies and dependency map
@@ -5872,9 +6345,10 @@ async fn update_workspace_settings(
             // Auto-pull and fork PRs are parent-owned and must not be inherited:
             // the fork would otherwise carry the parent's webhook id (turning off
             // auto-pull on the fork would delete the parent's webhook). A fork
-            // still inherits the push-direction config and the installation.
-            // Repo → fork sync is driven by the parent's webhook/poller
-            // (`sync_forks`), which routes the fork's `wm-fork/**` branch into it.
+            // still inherits the push-direction config, the installation, and the
+            // recorded credential status, which describes the repository rather
+            // than belonging to either workspace and would otherwise leave the
+            // fork unqualified for managed features until its first check.
             r.auto_pull = None;
             r.fork_open_prs = false;
             r.open_pr_error = None;
@@ -6193,7 +6667,7 @@ async fn clone_scripts(
 }
 
 /// The parsed dbt graph a deployed script carries: its models, their SQL and
-/// tests, and the `ref()` lineage between them.
+/// tests, and the `ref()` and column-level lineage between them.
 ///
 /// Keyed on (workspace_id, script_path, script_hash), and the fork keeps every
 /// script's hash, so each row moves across as itself.
@@ -6211,11 +6685,11 @@ async fn clone_dbt_graph(
         "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,
             resource_type, name, asset_path, materialized, materialize_strategy, unique_key,
             tags, description, test_kind, test_column, test_args, severity, attached_node,
-            columns, freshness, raw_code, original_file_path, ingested_at)
+            columns, column_schema, freshness, raw_code, original_file_path, ingested_at)
          SELECT $2, script_path, script_hash, job_id, unique_id,
             resource_type, name, asset_path, materialized, materialize_strategy, unique_key,
             tags, description, test_kind, test_column, test_args, severity, attached_node,
-            columns, freshness, raw_code, original_file_path, ingested_at
+            columns, column_schema, freshness, raw_code, original_file_path, ingested_at
          FROM dbt_node
          WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
         source_workspace_id,
@@ -6229,6 +6703,24 @@ async fn clone_dbt_graph(
          SELECT $2, script_path, script_hash, job_id, parent_unique_id, child_unique_id,
             ingested_at
          FROM dbt_edge
+         WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
+        source_workspace_id,
+        target_workspace_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    // Column lineage travels with the rest of the graph, and it has to: the
+    // snapshot's digest covers it, so a fork missing these rows recomputes the
+    // digest the source stored, matches, and stores nothing — leaving the
+    // lineage gone until someone redeploys, which is the failure this whole
+    // function exists to prevent.
+    sqlx::query!(
+        "INSERT INTO dbt_column_edge (workspace_id, script_path, script_hash, job_id,
+            parent_unique_id, parent_column, child_unique_id, child_column, lineage_kind,
+            ingested_at)
+         SELECT $2, script_path, script_hash, job_id, parent_unique_id, parent_column,
+            child_unique_id, child_column, lineage_kind, ingested_at
+         FROM dbt_column_edge
          WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
         source_workspace_id,
         target_workspace_id
@@ -6858,7 +7350,16 @@ async fn clone_workspace_runnable_dependencies(
     .execute(&mut **tx)
     .await?;
 
-    // Clone dependency_map to preserve import relationships
+    // Recorded so the clone's own relocks have something to match; with no row they record NULL
+    // and nothing in it ever skips. Hashed from the locks the clone holds rather than copied from
+    // the source's rows, which are only as current as the last write to them: one left stale by a
+    // supplied lock deployed before this was recorded names a lock the clone no longer has, and an
+    // importer that resolved against the real one would then skip a relock it needed.
+    record_lock_hashes_for_workspace(tx, target_workspace_id).await?;
+
+    // Deliberately without `imported_lockfile_hash`: it records what an importer resolved against
+    // when it was last locked, which nothing here can establish for the version the clone got.
+    // Left NULL, every importer relocks once and re-anchors both sides to what the clone holds.
     sqlx::query!(
         "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id)
          SELECT $1, importer_path, importer_kind, imported_path, importer_node_id
@@ -7133,6 +7634,76 @@ async fn enforce_cloud_fork_count(db: &DB, root: &str, incoming: i64) -> Result<
 async fn enforce_cloud_fork_cap(db: &DB, parent_workspace_id: &str) -> Result<()> {
     let root = require_cloud_fork_premium(db, parent_workspace_id).await?;
     enforce_cloud_fork_count(db, &root, 1).await
+}
+
+/// Cloud: refuse to attach a workspace that already has a paid plan of its own.
+///
+/// Once attached it draws the root's plan and meters its usage there, so a subscription of its own
+/// bills a second time for one plan. Only an attach can reach this state: a fork is created as a
+/// fresh workspace and never had a plan to keep.
+///
+/// Asked only of a candidate joining this family, never of one already under the same root: that
+/// one is already in the double-billed state, where the settings page surfaces the leftover
+/// subscription and the portal that cancels it, and refusing there would block re-designating a
+/// renamed dev workspace over a billing problem the attach did not cause.
+#[cfg(feature = "cloud")]
+async fn reject_attach_of_subscribed_workspace(db: &DB, dev_w_id: &str) -> Result<()> {
+    let plan = sqlx::query_scalar!(
+        "SELECT plan FROM workspace_settings WHERE workspace_id = $1",
+        dev_w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    // Any plan, not just `'team'`: the column is written by the subscription webhook, and a plan
+    // value it does not write yet would otherwise walk straight past this. An enterprise
+    // arrangement is deliberately not covered — it sets `premium` without a plan and has no
+    // self-serve portal, so refusing there would be a dead end rather than something to act on.
+    if plan.is_some() {
+        return Err(Error::BadRequest(format!(
+            "Workspace {dev_w_id} is on a paid plan of its own. A dev or fork workspace runs on its parent's plan and is never invoiced separately, so cancel that subscription from its own billing settings before attaching it."
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(all(test, feature = "cloud"))]
+mod attach_billing_guard_tests {
+    use super::reject_attach_of_subscribed_workspace;
+    use sqlx::{Pool, Postgres};
+
+    async fn workspace_on_plan(db: &Pool<Postgres>, id: &str, plan: Option<&str>) {
+        sqlx::query("INSERT INTO workspace (id, name, owner) VALUES ($1, $1, 'test-user')")
+            .bind(id)
+            .execute(db)
+            .await
+            .expect("insert workspace");
+        sqlx::query("INSERT INTO workspace_settings (workspace_id, plan) VALUES ($1, $2)")
+            .bind(id)
+            .bind(plan)
+            .execute(db)
+            .await
+            .expect("insert workspace_settings");
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn refuses_a_candidate_that_still_pays_for_itself(db: Pool<Postgres>) {
+        workspace_on_plan(&db, "subscribed", Some("team")).await;
+        workspace_on_plan(&db, "cancelled", None).await;
+
+        let err = reject_attach_of_subscribed_workspace(&db, "subscribed")
+            .await
+            .expect_err("a workspace on a paid plan of its own must not be attachable");
+        assert!(err.to_string().contains("paid plan of its own"), "{err}");
+
+        // Cancelling clears `plan` but keeps `customer_id`, so the plan column is what decides.
+        reject_attach_of_subscribed_workspace(&db, "cancelled")
+            .await
+            .expect("a workspace with no plan is attachable");
+        reject_attach_of_subscribed_workspace(&db, "no-settings-row")
+            .await
+            .expect("a workspace with no settings row is attachable");
+    }
 }
 
 /// General guardrail (all builds): reject creating a fork/dev under `parent` when it would nest deeper
@@ -7675,6 +8246,17 @@ async fn attach_dev_workspace(
         return Err(Error::PermissionDenied(format!(
             "Attaching workspace '{dev_w_id}' as a dev requires being an admin of it (or a superadmin)"
         )));
+    }
+
+    // Deliberately below the admin-of-candidate check, unlike the cap enforcement above: the
+    // refusal names the candidate's plan, so running it earlier would tell any admin of any
+    // premium workspace whether an arbitrary workspace id is on a team plan.
+    #[cfg(feature = "cloud")]
+    if *CLOUD_HOSTED {
+        let root = windmill_common::workspaces::get_billing_workspace_id(&db, &prod_w_id).await?;
+        if windmill_common::workspaces::get_billing_workspace_id(&db, &dev_w_id).await? != root {
+            reject_attach_of_subscribed_workspace(&db, &dev_w_id).await?;
+        }
     }
 
     let mut tx = db.begin().await?;
@@ -10734,6 +11316,7 @@ async fn load_workspace_authed(
             token_prefix: base_authed.token_prefix.clone(),
             read_only: base_authed.read_only,
             job_id: base_authed.job_id,
+            credential_expiry: base_authed.credential_expiry,
         });
     };
 
@@ -10766,6 +11349,7 @@ async fn load_workspace_authed(
         token_prefix: base_authed.token_prefix.clone(),
         read_only: base_authed.read_only,
         job_id: base_authed.job_id,
+        credential_expiry: base_authed.credential_expiry,
     })
 }
 

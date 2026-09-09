@@ -50,9 +50,9 @@ use windmill_common::{
     error::{self, Error, JsonResult, Result},
     get_database_url,
     user_drafts::{
-        delete_all_drafts_for_path, delete_own_draft_for_path, fetch_draft_only,
-        fetch_draft_only_list_rows, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay,
-        WithDraftQuery,
+        delete_all_drafts_for_path, delete_draft_only_for_path, delete_own_draft_for_path,
+        fetch_draft_only, fetch_draft_only_list_rows, maybe_overlay_draft, UserDraftItemKind,
+        WithDraftOverlay, WithDraftQuery,
     },
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
@@ -89,6 +89,9 @@ pub fn workspaced_service() -> Router {
         .route("/git_commit_hash/{*path}", get(get_git_commit_hash))
         .route("/type/list", get(list_resource_types))
         .route("/type/listnames", get(list_resource_types_names))
+        .route("/type/resource_counts", get(list_resource_counts_by_type))
+        .route("/type/hub/info", get(list_hub_resource_type_info))
+        .route("/type/hub/pick/{name}", post(pick_hub_resource_type))
         .route("/type/get/{name}", get(get_resource_type))
         .route("/type/exists/{name}", get(exists_resource_type))
         .route("/type/update/{name}", post(update_resource_type))
@@ -130,6 +133,15 @@ pub struct EditResourceType {
     pub schema: Option<serde_json::Value>,
     pub description: Option<String>,
     pub is_fileset: Option<bool>,
+    /// Doubly optional so an edit can distinguish the two things a plain
+    /// `Option` conflates: an absent field leaves the extension alone, while an
+    /// explicit `null` clears it. A hub pull relies on both — a type that stops
+    /// being a file type has to stop being one locally too.
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option"
+    )]
+    pub format_extension: Option<Option<String>>,
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -1303,6 +1315,17 @@ async fn delete_resource(
     let path = path.to_path();
 
     check_scopes(&authed, || format!("resources:write:{}", path))?;
+
+    // Ahead of the deploy rules: nothing is deployed at a draft-only path, so
+    // gating this discard on them would strand the row in a protected workspace.
+    // Ahead of the transaction too — the not-found branch other kinds hang this
+    // off is the `not_found_if_none` below, past the linked-variable cascade.
+    if delete_draft_only_for_path(&db, &w_id, UserDraftItemKind::Resource, path, &authed.email)
+        .await?
+    {
+        return Ok(format!("draft-only resource {} deleted", path));
+    }
+
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -1314,6 +1337,7 @@ async fn delete_resource(
     {
         return Err(Error::PermissionDenied(msg));
     }
+
     let mut tx = user_db.begin(&authed).await?;
 
     // Capture resource data for trashbin before deleting
@@ -2560,6 +2584,352 @@ async fn list_resource_types_names(
     Ok(Json(rows))
 }
 
+#[derive(Serialize)]
+struct ResourceTypeCount {
+    resource_type: String,
+    count: i64,
+}
+
+/// How many resources of each type this workspace holds — how popular a type is *here*,
+/// which is what the pickers rank on below the hub's own pick counts.
+async fn list_resource_counts_by_type(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<ResourceTypeCount>> {
+    // A count per type is aggregate, so there is no path to narrow it by: a token scoped
+    // to individual resources gets nothing rather than a total spanning paths it cannot
+    // read. Callers treat the refusal as "no local signal".
+    check_scopes(&authed, || "resources:read".to_string())?;
+    let mut tx = user_db.begin(&authed).await?;
+    let rows = sqlx::query!(
+        "SELECT resource_type, count(*) as \"count!\" FROM resource WHERE workspace_id = $1 GROUP BY resource_type",
+        &w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| ResourceTypeCount { resource_type: r.resource_type, count: r.count })
+            .collect(),
+    ))
+}
+
+/// A hub read, remembered with the hub it came from: `hub_base_url` is a live instance
+/// setting, so a cache ignoring it would keep serving the previous hub's answers.
+struct HubCached<T> {
+    hub_base_url: String,
+    fetched_at: std::time::Instant,
+    value: T,
+}
+
+/// The index changes only when a resource type is published to the hub; picks move slowly
+/// and only reorder a list. Both are read on every drawer open, hence caching at all.
+const HUB_RT_INDEX_TTL: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+const HUB_RT_PICKS_TTL: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
+/// How long a *failed* index read is remembered. Short, and deliberately not the hour a
+/// success is good for: this read is on the path of every picker open, so an unreachable
+/// hub must not cost an outbound timeout each time, while one blip must not silence pick
+/// reporting for an hour.
+const HUB_RT_INDEX_FAILURE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+static HUB_RT_INDEX: LazyLock<
+    std::sync::RwLock<Option<HubCached<Option<HashMap<String, HubResourceType>>>>>,
+> = LazyLock::new(|| std::sync::RwLock::new(None));
+static HUB_RT_PICKS: LazyLock<std::sync::RwLock<Option<HubCached<Vec<HubResourceTypePicks>>>>> =
+    LazyLock::new(|| std::sync::RwLock::new(None));
+
+fn hub_cache_get<T: Clone>(
+    cache: &std::sync::RwLock<Option<HubCached<T>>>,
+    hub_base_url: &str,
+    ttl: std::time::Duration,
+) -> Option<T> {
+    let guard = cache.read().ok()?;
+    let entry = guard.as_ref()?;
+    (entry.hub_base_url == hub_base_url && entry.fetched_at.elapsed() < ttl)
+        .then(|| entry.value.clone())
+}
+
+fn hub_cache_put<T>(cache: &std::sync::RwLock<Option<HubCached<T>>>, hub_base_url: &str, value: T) {
+    if let Ok(mut guard) = cache.write() {
+        *guard = Some(HubCached {
+            hub_base_url: hub_base_url.to_string(),
+            fetched_at: std::time::Instant::now(),
+            value,
+        });
+    }
+}
+
+#[derive(Deserialize)]
+struct HubResourceTypeEntry {
+    id: i64,
+    name: String,
+    /// Optional so a hub that does not send it costs only the mapping. Required, it would
+    /// fail the whole parse and take pick reporting — which needs just the id — with it.
+    #[serde(default)]
+    app: Option<String>,
+}
+
+#[derive(Clone)]
+struct HubResourceType {
+    id: i64,
+    /// The integration the type belongs to. Usually the type's own name, but not always:
+    /// `discord_webhook` and `discord_bot_configuration` are both `discord`, and only the
+    /// hub knows that. Without it a workspace holding a `discord_webhook` resource looks
+    /// like one that has never touched Discord.
+    app: String,
+}
+
+/// Reads the index cache, choosing the TTL by what is stored: a failure expires far sooner
+/// than a success. `None` is a miss, `Some(None)` a remembered failure.
+fn hub_index_cached(hub_base_url: &str) -> Option<Option<HashMap<String, HubResourceType>>> {
+    let guard = HUB_RT_INDEX.read().ok()?;
+    let entry = guard.as_ref()?;
+    if entry.hub_base_url != hub_base_url {
+        return None;
+    }
+    let ttl = if entry.value.is_some() {
+        HUB_RT_INDEX_TTL
+    } else {
+        HUB_RT_INDEX_FAILURE_TTL
+    };
+    (entry.fetched_at.elapsed() < ttl).then(|| entry.value.clone())
+}
+
+/// What the hub knows about every published resource type, keyed by the name Windmill
+/// addresses it by. `None` when the hub cannot be reached or does not answer with a list.
+async fn hub_resource_types(
+    db: &DB,
+    hub_base_url: &str,
+) -> Option<HashMap<String, HubResourceType>> {
+    if let Some(cached) = hub_index_cached(hub_base_url) {
+        return cached;
+    }
+    let index = async {
+        let response = windmill_common::utils::http_get_from_hub(
+            &windmill_common::utils::HTTP_CLIENT,
+            &format!("{hub_base_url}/resource_types/list"),
+            false,
+            None,
+            Some(db),
+        )
+        .await
+        .ok()?;
+        if !response.status().is_success() {
+            return None;
+        }
+        // Only the id and the app are kept. That listing carries every type's schema —
+        // around a megabyte — and neither reporting a pick nor grouping types by
+        // integration needs it.
+        Some(
+            response
+                .json::<Vec<HubResourceTypeEntry>>()
+                .await
+                .ok()?
+                .into_iter()
+                .map(|rt| {
+                    let app = rt.app.unwrap_or_else(|| rt.name.clone());
+                    (rt.name, HubResourceType { id: rt.id, app })
+                })
+                .collect::<HashMap<String, HubResourceType>>(),
+        )
+    }
+    .await;
+
+    hub_cache_put(&HUB_RT_INDEX, hub_base_url, index.clone());
+    index
+}
+
+#[derive(Serialize)]
+struct PickHubResourceTypeResult {
+    success: bool,
+}
+
+/// Tells the hub a resource type was taken into a workspace, which is the counter its
+/// `/resource_types/picked` ranking reads.
+///
+/// Never fails the caller: a hub predating the route, an unreachable one, and a type that
+/// is local-only all mean the same thing — not counted — and the request that reaches here
+/// has already saved the user's resource.
+///
+/// POST, and scoped as a write, because it changes state on the hub under the instance's
+/// own credentials. The sibling `/type/*` routes are metadata reads that a `resources:run`
+/// app-embed token may make, and both the method and this check keep such a token — which
+/// is untrusted app JavaScript — from driving hub counters through us.
+async fn pick_hub_resource_type(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((_w_id, name)): Path<(String, String)>,
+) -> JsonResult<PickHubResourceTypeResult> {
+    check_scopes(&authed, || "resources:write".to_string())?;
+    let hub_base_url = (**windmill_common::HUB_BASE_URL.load()).clone();
+    let success = async {
+        let id = hub_resource_types(&db, &hub_base_url).await?.get(&name)?.id;
+        let response = windmill_common::utils::http_get_from_hub(
+            &windmill_common::utils::HTTP_CLIENT,
+            &format!("{hub_base_url}/resource_types/{id}/pick"),
+            false,
+            None,
+            Some(&db),
+        )
+        .await
+        .ok()?;
+        Some(response.status().is_success())
+    }
+    .await
+    .unwrap_or(false);
+
+    if !success {
+        tracing::debug!("hub did not record a pick for resource type {name}");
+    }
+    Ok(Json(PickHubResourceTypeResult { success }))
+}
+
+#[derive(Deserialize, Clone)]
+struct HubResourceTypePicks {
+    name: String,
+    /// The hub counts picks in a bigint, which its driver serialises as a string.
+    #[serde(deserialize_with = "windmill_common::more_serde::maybe_number")]
+    picks: i64,
+}
+
+#[derive(Deserialize)]
+struct HubPickedResourceTypes {
+    resource_types: Vec<HubResourceTypePicks>,
+}
+
+#[cfg(test)]
+mod hub_picks_tests {
+    use super::*;
+
+    /// Two properties of the index cache that a later edit could quietly drop: it is keyed on
+    /// the hub it came from, and a failure is forgotten long before a success is.
+    #[test]
+    fn the_index_cache_is_keyed_on_the_hub_and_forgets_failures_sooner() {
+        let index = || {
+            Some(HashMap::from([(
+                "slack".to_string(),
+                HubResourceType { id: 1, app: "slack".to_string() },
+            )]))
+        };
+
+        hub_cache_put(&HUB_RT_INDEX, "https://hub.example", index());
+        assert!(hub_index_cached("https://hub.example").is_some_and(|v| v.is_some()));
+        // Switching hubs must miss rather than serve the previous hub's mapping.
+        assert!(hub_index_cached("https://other.example").is_none());
+
+        // A remembered failure reads as a hit (so the hub is not re-attempted) carrying
+        // nothing, and only until the shorter of the two TTLs.
+        hub_cache_put(&HUB_RT_INDEX, "https://hub.example", None);
+        assert!(hub_index_cached("https://hub.example").is_some_and(|v| v.is_none()));
+        assert!(HUB_RT_INDEX_FAILURE_TTL < HUB_RT_INDEX_TTL);
+
+        if let Ok(mut guard) = HUB_RT_INDEX.write() {
+            *guard = None;
+        }
+    }
+
+    /// The hub counts picks in a bigint, which postgres.js serialises as a string. Typing
+    /// the field as a plain i64 fails the whole response, and the ranking silently empties.
+    #[test]
+    fn picks_decode_from_a_string_or_a_number() {
+        let parsed: HubPickedResourceTypes = serde_json::from_str(
+            r#"{"resource_types":[{"name":"slack","picks":"42"},{"name":"github","picks":7}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            parsed
+                .resource_types
+                .iter()
+                .map(|rt| (rt.name.as_str(), rt.picks))
+                .collect::<Vec<_>>(),
+            vec![("slack", 42), ("github", 7)]
+        );
+    }
+}
+
+/// One hub resource type as the pickers need it.
+#[derive(Serialize)]
+struct HubResourceTypeInfo {
+    name: String,
+    /// The integration it belongs to, so a caller can total a workspace's resources per
+    /// integration rather than per type.
+    app: String,
+    picks: i64,
+}
+
+/// What the hub knows about its resource types: which integration each belongs to, and how
+/// often each has been picked.
+///
+/// Empty rather than an error when the hub answers neither read, so the pickers treat an
+/// older or private hub as "no hub signal" and fall back to what the workspace itself uses.
+/// The two reads degrade independently: a hub that lists types but has no `picked` route
+/// still supplies the type-to-integration mapping, which is what decides whether a
+/// workspace's resources are recognised as belonging to an integration at all.
+async fn list_hub_resource_type_info(
+    Extension(db): Extension<DB>,
+) -> JsonResult<Vec<HubResourceTypeInfo>> {
+    let hub_base_url = (**windmill_common::HUB_BASE_URL.load()).clone();
+    let picks = match hub_cache_get(&HUB_RT_PICKS, &hub_base_url, HUB_RT_PICKS_TTL) {
+        Some(picks) => picks,
+        None => {
+            let fetched = async {
+                let response = windmill_common::utils::http_get_from_hub(
+                    &windmill_common::utils::HTTP_CLIENT,
+                    &format!("{hub_base_url}/resource_types/picked"),
+                    false,
+                    Some(vec![("limit", "200".to_string())]),
+                    Some(&db),
+                )
+                .await
+                .ok()?;
+                if !response.status().is_success() {
+                    return None;
+                }
+                Some(
+                    response
+                        .json::<HubPickedResourceTypes>()
+                        .await
+                        .ok()?
+                        .resource_types,
+                )
+            }
+            .await
+            .unwrap_or_default();
+            hub_cache_put(&HUB_RT_PICKS, &hub_base_url, fetched.clone());
+            fetched
+        }
+    };
+
+    let mut picks_by_name: HashMap<String, i64> =
+        picks.into_iter().map(|rt| (rt.name, rt.picks)).collect();
+    let index = hub_resource_types(&db, &hub_base_url)
+        .await
+        .unwrap_or_default();
+
+    let mut info: Vec<HubResourceTypeInfo> = index
+        .into_iter()
+        .map(|(name, rt)| HubResourceTypeInfo {
+            picks: picks_by_name.remove(&name).unwrap_or(0),
+            name,
+            app: rt.app,
+        })
+        .collect();
+    // What the index did not account for is a type the picks read knows and the listing does
+    // not — which is what a hub answering only the second read looks like. Its own name is
+    // the same guess a caller makes for any type the mapping misses.
+    info.extend(
+        picks_by_name
+            .into_iter()
+            .map(|(name, picks)| HubResourceTypeInfo { app: name.clone(), name, picks }),
+    );
+
+    Ok(Json(info))
+}
+
 async fn get_resource_type(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -2803,9 +3173,41 @@ async fn update_resource_type(
     if let Some(is_fileset) = ns.is_fileset {
         sqlb.set("is_fileset", if is_fileset { "TRUE" } else { "FALSE" });
     }
+    if let Some(format_extension) = ns.format_extension.clone() {
+        match format_extension {
+            Some(ext) => sqlb.set_str("format_extension", ext),
+            None => sqlb.set("format_extension", "NULL"),
+        };
+    }
     sqlb.set_str("edited_at", "now()");
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
+
+    // Creation refuses the pair outright, so an edit must too — otherwise the same
+    // impossible type (a set of files that is also one file) is reachable by setting
+    // either half on an existing row. Whichever half the request omits is read from
+    // the row being edited, inside this transaction and with the row locked: read
+    // outside it, two concurrent edits each supplying one half would both pass.
+    let current = sqlx::query!(
+        "SELECT is_fileset, format_extension FROM resource_type
+         WHERE name = $1 AND workspace_id = $2 FOR UPDATE",
+        &name,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let effective_is_fileset = ns
+        .is_fileset
+        .unwrap_or_else(|| current.as_ref().map(|c| c.is_fileset).unwrap_or(false));
+    let effective_format_extension = match &ns.format_extension {
+        Some(value) => value.clone(),
+        None => current.and_then(|c| c.format_extension),
+    };
+    if effective_is_fileset && effective_format_extension.is_some() {
+        return Err(Error::BadRequest(
+            "A fileset resource type cannot have a format_extension".to_string(),
+        ));
+    }
 
     sqlx::query(&sql).execute(&mut *tx).await?;
     audit_log(
@@ -3227,6 +3629,16 @@ async fn get_git_commit_hash(
     })?;
     git_resource.url =
         resolve_azure_devops_url(&db_with_opt_authed, &w_id, &git_resource.url, false).await?;
+    // A credential is stored under the repository it was issued for, so a
+    // resource repointed elsewhere finds none. Which credential can be attached
+    // is bounded by that; who may use it is bounded here, on the same terms as
+    // the installation credential above.
+    let plain_url = git_resource.url.clone();
+    git_resource.url =
+        windmill_common::git_sync_oss::with_stored_credential(&db, &w_id, git_resource.url).await?;
+    if git_resource.url != plain_url {
+        require_admin(authed.is_admin, &authed.username)?;
+    }
 
     let identities: Vec<String> = query
         .git_ssh_identity
@@ -3905,6 +4317,10 @@ pub async fn get_git_repo_head_for_autopull(
     }
     git_resource.url =
         resolve_azure_devops_url(&git_sync_system_dba(db), w_id, &git_resource.url, true).await?;
+    // A repo whose credential Windmill holds carries none in its URL, so the
+    // poller has to attach it here or every probe would be unauthenticated.
+    git_resource.url =
+        windmill_common::git_sync_oss::with_stored_credential(db, w_id, git_resource.url).await?;
 
     if let Some(branch) = git_resource.branch.as_deref().filter(|s| !s.is_empty()) {
         let branch = branch.to_string();
@@ -4011,6 +4427,11 @@ pub async fn get_git_repo_fork_heads_for_autopull(
         ));
     }
     git_resource.url = resolve_azure_devops_url(&dba, w_id, &git_resource.url, true).await?;
+    // Same reason as the head probe above: a repository whose credential Windmill
+    // holds carries none in its URL, and listing the fork branches is the half of
+    // polling that would otherwise go out unauthenticated.
+    git_resource.url =
+        windmill_common::git_sync_oss::with_stored_credential(db, w_id, git_resource.url).await?;
     validate_git_url(&git_resource.url).await?;
     validate_git_ref(base_branch)?;
 

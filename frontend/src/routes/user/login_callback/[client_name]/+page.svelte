@@ -32,7 +32,7 @@
 		if (error) {
 			sendUserToast(`Error trying to login with ${clientName} ${error}`, true)
 			if (closeUponLogin) {
-				goto('/user/close')
+				closeUponLoginError(`Error trying to login with ${clientName} ${error}`)
 				return
 			}
 			await logoutWithRedirect(rd ?? undefined)
@@ -49,7 +49,7 @@
 					return
 				}
 				if (closeUponLogin) {
-					goto('/user/close')
+					closeUponLoginError(e.body ?? e.message)
 					return
 				}
 				await logoutWithRedirect(rd ?? undefined)
@@ -148,7 +148,16 @@
 	applyDarkModeVariant()
 
 	function closeUponLoginSuccess() {
-		const message = { type: 'success' }
+		relayToOpener({ type: 'success' })
+	}
+
+	/** The popup is the only window that saw the server's answer, and it closes: a
+	 * refusal that stayed here would leave the page that opened it with nothing to show. */
+	function closeUponLoginError(error: string) {
+		relayToOpener({ type: 'error', error: typeof error === 'string' ? error : String(error) })
+	}
+
+	function relayToOpener(message: { type: 'success' } | { type: 'error'; error: string }) {
 		if (window.opener) {
 			window.opener.postMessage(message, '*')
 		} else {

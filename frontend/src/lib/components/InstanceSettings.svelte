@@ -14,6 +14,7 @@
 
 	import { sleep } from '$lib/utils'
 	import { enterpriseLicense } from '$lib/stores'
+	import { isCloudHosted } from '$lib/cloud'
 
 	import { createEventDispatcher } from 'svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
@@ -100,7 +101,8 @@
 		otel: {},
 		indexer_settings: {},
 		critical_error_channels: [],
-		github_enterprise_app: {}
+		github_enterprise_app: {},
+		instance_banner: {}
 	}
 
 	function applyFormDefaults(vals: Record<string, any>): void {
@@ -524,6 +526,10 @@
 		for (const category of settingsKeys) {
 			const categorySettings = getSettingsForCategory(category)
 			result[category] = categorySettings.some((s) => {
+				// A field the build never renders must not be able to block Save: off-cloud its
+				// value is unreachable, so an invalid one (from config sync, say) would leave the
+				// category permanently unsaveable with nothing on screen to fix.
+				if (s.cloudonly && !isCloudHosted()) return false
 				if (s.isValid && !s.isValid(currentValues?.[s.key])) return true
 				if (s.validate) {
 					const errors = s.validate(currentValues?.[s.key])
@@ -1059,7 +1065,10 @@
 						<li>instance base URL</li>
 						<li>login type usage (login type, count)</li>
 						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
-						<li>user usage (author count, operator count)</li>
+						<li
+							>user usage (author count, operator count, the distinct guests of the last 30 days,
+							the seats they add past the free allowance, and the workspaces that allow guests)</li
+						>
 						<li>superadmin email addresses</li>
 						<li>development instance status</li>
 					</ul>
@@ -1069,13 +1078,21 @@
 						<li>git sync repo count (sync vs promotion mode)</li>
 						<li
 							>feature usage (counts of which product features are used, including AI provider and
-							model identifiers, the names of public hub scripts used, the plan tier and quota
-							shown when the execution meter is opened, and whether a pre-approved trial offer was
-							opened, last 30 days)</li
+							model identifiers, the names of public hub scripts used, the languages debug sessions
+							are started for, whether AI chat skills are turned on or off and how often one is
+							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
+							membership, the plan tier and quota shown when the execution meter is opened, whether
+							app sandbox isolation is turned on, whether a step's workspace script is edited from
+							the flow editor, how data tables and their migrations are set up and used, how often
+							an empty workspace home is seen, how often the home page’s create menu and hub-project
+							picker are opened and from which entry point, the name of any public hub project
+							imported from the home page and how far that import got, and whether a pre-approved
+							trial offer was opened, last 30 days)</li
 						>
 						<li
-							>feature adoption (counts of which flow, script, trigger and worker features your
-							deployed items use)</li
+							>feature adoption (counts of which flow, script, trigger, worker and data table
+							features your deployed items use, including how many apps run sandboxed, how many data
+							tables exist per database kind, how many use migrations, and what references them)</li
 						>
 						<li
 							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
@@ -1118,17 +1135,28 @@
 						<li>job usage (language, total duration, count)</li>
 						<li>login type usage (login type, count)</li>
 						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
-						<li>user usage (author count, operator count)</li>
+						<li
+							>user usage (author count, operator count, the distinct guests of the last 30 days,
+							the seats they add past the free allowance, and the workspaces that allow guests)</li
+						>
 						<li>development instance status</li>
 						<li
 							>feature usage (counts of which product features are used, including AI provider and
-							model identifiers, the names of public hub scripts used, the plan tier and quota
-							shown when the execution meter is opened, and whether a pre-approved trial offer was
-							opened, last 30 days)</li
+							model identifiers, the names of public hub scripts used, the languages debug sessions
+							are started for, whether AI chat skills are turned on or off and how often one is
+							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
+							membership, the plan tier and quota shown when the execution meter is opened, whether
+							app sandbox isolation is turned on, whether a step's workspace script is edited from
+							the flow editor, how data tables and their migrations are set up and used, how often
+							an empty workspace home is seen, how often the home page’s create menu and hub-project
+							picker are opened and from which entry point, the name of any public hub project
+							imported from the home page and how far that import got, and whether a pre-approved
+							trial offer was opened, last 30 days)</li
 						>
 						<li
-							>feature adoption (counts of which flow, script, trigger and worker features your
-							deployed items use)</li
+							>feature adoption (counts of which flow, script, trigger, worker and data table
+							features your deployed items use, including how many apps run sandboxed, how many data
+							tables exist per database kind, how many use migrations, and what references them)</li
 						>
 						<li
 							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
@@ -1143,6 +1171,31 @@
 				description="Configure default timeouts and retention policies for job execution."
 				link="https://www.windmill.dev/docs/advanced/instance_settings#jobs"
 			/>
+		{:else if category == 'Service logs'}
+			<SettingsPageHeader
+				title="Service logs"
+				description="The logs of the Windmill processes themselves — servers, workers and the indexer. Job logs are covered by the job retention period under Jobs."
+			/>
+			{#if !$values['object_store_cache_config']}
+				<div class="pb-4">
+					<Alert type="info" title="Log files stay on local disk" size="xs">
+						Instance object storage is not configured, so every server and worker keeps its log
+						files on its own disk. This page lists what each host wrote, but can only open the files
+						belonging to the replica serving the request — another host's are listed and not
+						readable — and a host's files go with it when it is replaced. Retention below still
+						governs the entries in the database and the files on disk.
+					</Alert>
+				</div>
+			{:else if !$enterpriseLicense}
+				<div class="pb-4">
+					<Alert type="info" title="Raw log files accumulate without the indexer" size="xs">
+						Log files are uploaded to instance object storage, and the indexer that would ingest
+						them into the columnar store and delete each one afterwards is an enterprise feature.
+						Retention below expires the database entries and the local files; the uploaded copies
+						are only removed when <b>Delete logs from s3 periodically</b> is on under Object Storage.
+					</Alert>
+				</div>
+			{/if}
 		{:else if category == 'Object Storage'}
 			<SettingsPageHeader
 				title="Object Storage"
