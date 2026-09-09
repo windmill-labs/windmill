@@ -2792,8 +2792,9 @@ mod tests {
 
     #[test]
     fn attach_datatable_parses_name_and_role() {
-        let named =
-            parse_attach_datatable("ATTACH 'datatable://sales?role=analytics' AS dt").unwrap();
+        let named = parse_attach_datatable("ATTACH 'datatable://sales?role=analytics' AS dt")
+            .unwrap()
+            .unwrap();
         assert_eq!(
             (named.name, named.role, named.alias),
             ("sales", Some("analytics"), "dt")
@@ -2807,11 +2808,30 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!((no_role.name, no_role.role), ("sales", None));
-        let bare = parse_attach_datatable("ATTACH 'datatable' AS dt").unwrap().unwrap();
+        let bare = parse_attach_datatable("ATTACH 'datatable' AS dt")
+            .unwrap()
+            .unwrap();
         assert_eq!((bare.name, bare.role), ("main", None));
         assert!(parse_attach_datatable("SELECT 1").unwrap().is_none());
-        // A malformed role is refused rather than attached under the default one.
-        assert!(parse_attach_datatable("ATTACH 'datatable://sales?Role=analytics' AS dt").is_err());
+
+        // The key matches case-insensitively, as the `-- role` annotation does.
+        let cased = parse_attach_datatable("ATTACH 'datatable://sales?Role=analytics' AS dt")
+            .unwrap()
+            .unwrap();
+        assert_eq!(cased.role, Some("analytics"));
+
+        // A query string that does not parse is refused rather than attached under the default
+        // role: the statement asked for a specific one.
+        for malformed in [
+            "ATTACH 'datatable://sales?role=' AS dt",
+            "ATTACH 'datatable://sales?role=an;alytics' AS dt",
+            "ATTACH 'datatable://sales?x=1&role=analytics' AS dt",
+        ] {
+            assert!(
+                parse_attach_datatable(malformed).is_err(),
+                "silently ignored: {malformed}"
+            );
+        }
     }
 
     #[test]
