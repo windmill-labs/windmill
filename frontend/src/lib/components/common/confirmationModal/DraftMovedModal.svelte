@@ -14,6 +14,7 @@
 	import { UserDraftDbSyncer, type UserDraftLastSyncQuery } from '$lib/userDraftDbSyncer.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { FolderInput } from 'lucide-svelte'
 
 	type Props = {
@@ -47,19 +48,37 @@
 		return { ...(value as Record<string, unknown>), ...patch }
 	}
 
+	let carryError = $state<{ title: string; detail: string } | undefined>(undefined)
+
 	async function continueThere() {
 		const move = moveHandle.move
 		if (!move) return
 		busy = true
+		carryError = undefined
 		try {
 			const local = getLocalDraft()
 			if (local != undefined) {
-				await UserDraftDbSyncer.overwrite({
-					workspace: query.workspace,
-					itemKind: query.itemKind,
-					path: move.movedTo,
-					value: repointed(local, move.patch)
-				})
+				const target = { workspace: query.workspace, itemKind: query.itemKind, path: move.movedTo }
+				await UserDraftDbSyncer.overwrite({ ...target, value: repointed(local, move.patch) })
+				// `overwrite` resolves whether or not the write landed — a network
+				// failure and a second move both park state instead of throwing. Leaving
+				// here regardless would drop the editor's edits on the floor and, for an
+				// A→B→C move, land on a B that no longer holds the item. Stay put and say
+				// so; the draft is still in this editor, so the user can retry.
+				const failed = UserDraftDbSyncer.getState(target).failureMessage
+				const movedAgain = UserDraftDbSyncer.getMove(target).move
+				if (failed || movedAgain) {
+					carryError = movedAgain
+						? {
+								title: 'It moved again',
+								detail: `It is now at ${movedAgain.movedTo}. Your edits are still in this editor — retry to follow it.`
+							}
+						: {
+								title: 'Could not save at the new path',
+								detail: `${failed} Your edits are still in this editor.`
+							}
+					return
+				}
 			}
 			UserDraftDbSyncer.clearMove(query)
 			const seg = EDITOR_SEGMENT[query.itemKind]
@@ -88,6 +107,9 @@
 					Continuing takes your current edits to the new path, replacing any draft already there.
 					Staying here leaves them unsaved.
 				</p>
+				{#if carryError}
+					<Alert type="error" size="xs" title={carryError.title}>{carryError.detail}</Alert>
+				{/if}
 			</div>
 		</div>
 

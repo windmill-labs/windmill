@@ -21,7 +21,7 @@ use windmill_common::{
     scripts::ScriptHash,
     user_drafts::{DraftUserRef, UserDraftItemKind, ENCRYPTED_DRAFT_PREFIX},
     users::resolve_username_to_email,
-    utils::strip_json_nul,
+    utils::{check_proper_path, strip_json_nul},
     variables::{build_crypt, encrypt},
 };
 
@@ -423,8 +423,15 @@ async fn resolve_moved_to(
         return Ok(None);
     }
 
-    // One round-trip per save: "is it still here" and "where did it go" answered
-    // together, so a normal autosave costs a single indexed lookup.
+    // Cost, stated honestly: `UserDB::begin` is not a bare BEGIN — it issues
+    // BEGIN, optionally SET LOCAL search_path, and set_session_context, and the
+    // commit is another round-trip. So an autosave that reaches here spends ~4 on
+    // the RLS envelope around one indexed existence check, and the lineage query
+    // only runs once that check says the item is gone. The escape hatch above is
+    // what keeps this off most saves: a draft with no base version never gets
+    // here at all. RLS is not optional here — this runs before the write gate, so
+    // the transaction is what stops the answer naming an item the caller can't
+    // see.
     let mut tx = user_db.clone().begin(authed).await?;
     let moved = match kind {
         Script => {
@@ -574,6 +581,41 @@ async fn resolve_moved_to(
     }))
 }
 
+/// Is the item still deployed at `path`? One indexed existence check, used to
+/// close the window between the `moved` pre-check and the write that follows it.
+/// Runs on the write's own connection, after the caller has passed the write
+/// gate, so it needs no RLS envelope.
+///
+/// `false` covers three different situations — moved, deleted, and a genuinely
+/// draft-only item that never had a deployed row — so it is only ever a cue to
+/// ask `resolve_moved_to`, never a verdict on its own.
+async fn deployed_still_at(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    kind: UserDraftItemKind,
+    path: &str,
+) -> Result<bool> {
+    let Some(table) = kind.deployed_table() else {
+        return Ok(false);
+    };
+    // A script move archives its parent in place, so the row stays at the old
+    // path and a bare existence check would report "still here" for every script
+    // move. `table` comes from the closed `deployed_table()` enum, never input.
+    let archived_filter = if table == "script" {
+        " AND NOT archived AND NOT deleted"
+    } else {
+        ""
+    };
+    let q = format!(
+        "SELECT EXISTS(SELECT 1 FROM {table} WHERE workspace_id = $1 AND path = $2{archived_filter})"
+    );
+    Ok(sqlx::query_scalar::<_, bool>(&q)
+        .bind(w_id)
+        .bind(path)
+        .fetch_one(&mut **tx)
+        .await?)
+}
+
 /// Apply the current user's draft at (workspace, kind, path): non-null `value`
 /// upserts, `null` (or omitted) deletes. Either way, when the existing row is
 /// newer than `last_sync` (and `force` is false) the op is skipped and the
@@ -595,13 +637,17 @@ async fn update_draft(
     // touch the caller's own row. Legacy (NULL-email) rows aren't owned by anyone
     // — they keep the write gate.
     let is_own_discard = req.value.is_none() && !req.legacy;
-    if !is_own_discard {
-        require_can_write_path(&authed, &db, &user_db, &w_id, kind, path).await?;
-    }
 
     // An editor left open across someone else's move is still bound to the old
     // path and would re-plant its draft there. Refuse and answer with where the
     // item went; the carried draft is already waiting at the new path.
+    //
+    // Answered BEFORE the write gate, and deliberately: that gate resolves against
+    // the OLD path, where a move has left no deployed row, so a collaborator whose
+    // write access came from the item's own `extra_perms` would be told
+    // "unauthorized" for an item they still have permission on — and never learn
+    // where it went. Nothing is written on this branch, and `resolve_moved_to`
+    // reads under RLS, so it can only name an item the caller can already see.
     if let Some(value) = &req.value {
         if let Some((moved_to, moved_by, moved_patch)) =
             resolve_moved_to(&authed, &user_db, &w_id, kind, path, value.0.get()).await?
@@ -617,6 +663,11 @@ async fn update_draft(
                 moved_patch: Some(moved_patch),
             }));
         }
+    }
+
+    // Everything past here writes, so the gate applies from here on.
+    if !is_own_discard {
+        require_can_write_path(&authed, &db, &user_db, &w_id, kind, path).await?;
     }
 
     let applied_at = if let Some(value) = &req.value {
@@ -635,7 +686,13 @@ async fn update_draft(
         // when the row is newer than `last_sync`, RETURNING yields nothing.
         // `created_at` defaults to `now()` but the migration overrides it ($8)
         // so a migrated draft keeps its original age instead of jumping to top.
-        sqlx::query_scalar!(
+        // Written inside a transaction so the re-assert below can undo it. The
+        // `moved` pre-check above committed its own transaction, so a rename can
+        // land between it and this INSERT — and this INSERT would then recreate
+        // the draft at a path the item has left, which is the exact phantom the
+        // pre-check exists to prevent.
+        let mut tx = db.begin().await?;
+        let applied = sqlx::query_scalar!(
             r#"INSERT INTO draft (workspace_id, email, path, typ, value, created_at)
                VALUES ($1, $2, $3, $4, $5::text::json, COALESCE($8::timestamptz, now()))
                ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL
@@ -653,8 +710,33 @@ async fn update_draft(
             req.force,
             req.created_at,
         )
-        .fetch_optional(&db)
-        .await?
+        .fetch_optional(&mut *tx)
+        .await?;
+        // Cheap on the path that matters: one indexed existence check when the
+        // write landed. Only when it says the item is gone do we pay for the
+        // lineage lookup — and that answer is what distinguishes a move (roll
+        // back, report it) from a delete or a never-deployed draft-only item
+        // (both legitimate saves, which `resolve_moved_to` answers `None` for,
+        // the second without issuing a query at all).
+        if applied.is_some() && !deployed_still_at(&mut tx, &w_id, kind, path).await? {
+            if let Some((moved_to, moved_by, moved_patch)) =
+                resolve_moved_to(&authed, &user_db, &w_id, kind, path, value.0.get()).await?
+            {
+                tx.rollback().await?;
+                let now = sqlx::query_scalar!(r#"SELECT now() as "now!""#)
+                    .fetch_one(&db)
+                    .await?;
+                return Ok(Json(SaveDraftResponse {
+                    status: SaveDraftStatus::Moved,
+                    current_timestamp: now,
+                    moved_to: Some(moved_to),
+                    moved_by,
+                    moved_patch: Some(moved_patch),
+                }));
+            }
+        }
+        tx.commit().await?;
+        applied
     } else {
         // Delete, same conflict rule in the WHERE clause. Returns NULL when
         // the row was too new (conflict) OR already absent (idempotent) —
@@ -777,6 +859,11 @@ async fn move_draft(
             "moving a {kind:?} draft is not supported — only scripts, flows and apps"
         )));
     }
+    // Validate before authorizing: `require_can_write_path` is not a format check
+    // (an admin returns immediately, and a user returns early inside their own
+    // namespace), so without this a malformed destination is stored as-is, and an
+    // over-long or NUL-bearing one reaches Postgres as a raw server error.
+    check_proper_path(new_path)?;
     // A summary-only edit is a legitimate use of this endpoint: the drawer edits
     // both fields, and for a draft-only script the path it posts back is the row
     // path unchanged (`list_scripts` only reports `draft_path` when it differs).

@@ -108,6 +108,11 @@
 	let discardReverts = $derived(pendingItems.filter((i) => !i.draftOnly))
 
 	function open(action: BulkAction) {
+		// Gate on the LIVE selection, not `items`. That holds the last non-empty
+		// copy so the bar doesn't blink to zero while it flies out, and the bar stays
+		// clickable for the whole 200ms outro — so without this a click landing in
+		// that window would open a dialog acting on rows the user just deselected.
+		if (selection.items.length === 0) return
 		if (targets(action).length === 0) return
 		pending = action
 		outcomes = undefined
