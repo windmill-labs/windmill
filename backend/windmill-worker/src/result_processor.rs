@@ -987,12 +987,16 @@ mod git_sync_check_tests {
 /// record the commit as a head the workspace reflects; on failure, roll the
 /// optimistic `last_synced_sha` advance back to the pre-pull value so the commit
 /// is retried instead of being silently treated as synced, and record the failure.
+/// The recorded commit is the one the pull script reports having checked out
+/// (`{sha, branch}` in its result): the branch can move between the observation
+/// the marker holds and the clone. A result without it falls back to the marker.
 #[cfg(all(feature = "enterprise", feature = "private"))]
 async fn maybe_reconcile_git_sync_auto_pull(
     db: &DB,
     job_id: &uuid::Uuid,
     workspace_id: &str,
     success: bool,
+    result: &str,
 ) {
     let marker: Option<serde_json::Value> = match sqlx::query_scalar!(
         "SELECT args->'__git_sync_auto_pull' FROM v2_job WHERE id = $1",
@@ -1024,7 +1028,21 @@ async fn maybe_reconcile_git_sync_auto_pull(
     if success {
         // The optimistic synced state is already correct; record that the workspace
         // now reflects the commit, which the PR CI-test check waits for.
-        if let (Some(branch), Some(sha)) = (m.branch.as_deref(), m.head_sha.as_deref()) {
+        #[derive(serde::Deserialize)]
+        struct PullResult {
+            sha: Option<String>,
+            branch: Option<String>,
+        }
+        let applied = serde_json::from_str::<PullResult>(result).ok();
+        let branch = applied
+            .as_ref()
+            .and_then(|r| r.branch.as_deref())
+            .or(m.branch.as_deref());
+        let sha = applied
+            .as_ref()
+            .and_then(|r| r.sha.as_deref())
+            .or(m.head_sha.as_deref());
+        if let (Some(branch), Some(sha)) = (branch, sha) {
             if let Err(e) = windmill_git_sync::record_synced_head(
                 db,
                 workspace_id,
@@ -1147,12 +1165,23 @@ async fn maybe_record_git_sync_pushed_head(
         pushed: bool,
         sha: Option<String>,
         branch: Option<String>,
+        #[serde(default)]
+        rebased: bool,
     }
-    let Ok(PushResult { pushed: true, sha: Some(sha), branch: Some(branch) }) =
+    let Ok(PushResult { pushed: true, sha: Some(sha), branch: Some(branch), rebased }) =
         serde_json::from_str::<PushResult>(result)
     else {
         return;
     };
+    // A push that had to rebase sits on commits this workspace has not pulled, so the
+    // pushed head is not something it reflects yet; the pull those commits trigger
+    // records the head once they are in.
+    if rebased {
+        tracing::info!(
+            "git sync push: {sha} on {branch} was rebased onto unpulled commits; not recording it as synced for {workspace_id}"
+        );
+        return;
+    }
     let repo_path = match sqlx::query_scalar!(
         "SELECT args->>'repo_url_resource_path' FROM v2_job WHERE id = $1",
         job_id
@@ -1782,7 +1811,8 @@ pub async fn process_completed_job(
         #[cfg(all(feature = "enterprise", feature = "private"))]
         if job.kind == JobKind::DeploymentCallback {
             maybe_post_git_sync_check(db, &job_id, &workspace_id, true, result.get()).await;
-            maybe_reconcile_git_sync_auto_pull(db, &job_id, &workspace_id, true).await;
+            maybe_reconcile_git_sync_auto_pull(db, &job_id, &workspace_id, true, result.get())
+                .await;
             maybe_record_git_sync_pushed_head(db, &job_id, &workspace_id, result.get()).await;
             maybe_open_git_sync_deploy_pr(db, &job_id, &workspace_id, result.get()).await;
         }
@@ -1907,7 +1937,7 @@ pub async fn process_completed_job(
         #[cfg(all(feature = "enterprise", feature = "private"))]
         if job.kind == JobKind::DeploymentCallback {
             maybe_post_git_sync_check(db, &job.id, &job.workspace_id, false, result.get()).await;
-            maybe_reconcile_git_sync_auto_pull(db, &job.id, &job.workspace_id, false).await;
+            maybe_reconcile_git_sync_auto_pull(db, &job.id, &job.workspace_id, false, "").await;
         }
         // WIN-2051: a failed CI test job also settles its check — advance it now.
         #[cfg(all(feature = "enterprise", feature = "private"))]
