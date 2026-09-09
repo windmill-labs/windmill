@@ -1088,9 +1088,15 @@ impl SqlAnnotations {
     ///
     /// Hand-written rather than derived because the value matters, not just the presence, and
     /// because the executor needs it before it knows the connection is a data table at all. Like
-    /// every annotation it lives in the leading comment block and must be the whole line, so prose
-    /// such as `-- role based access is handled below` never matches.
-    pub fn datatable_role(code: &str) -> Option<String> {
+    /// every annotation it lives in the leading comment block.
+    ///
+    /// A leading comment whose first word is `role` is an annotation *attempt*, and a malformed
+    /// one is an error. The alternative — ignoring what does not parse — resolves the query to the
+    /// data table's default role instead, so a typo silently runs it under a login the author did
+    /// not choose, which is the opposite of what naming a role is for. Only callers that already
+    /// know the target is a `datatable://` reference ever run this, so ordinary SQL keeps its
+    /// comments.
+    pub fn datatable_role(code: &str) -> error::Result<Option<String>> {
         for line in code.lines() {
             let line = line.trim();
             if line.is_empty() {
@@ -1100,18 +1106,41 @@ impl SqlAnnotations {
                 break;
             }
             let mut tokens = line[2..].split_whitespace();
-            if tokens.next() == Some("role") {
-                if let Some(role) = tokens.next() {
-                    let is_role_name = role
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
-                    if is_role_name && tokens.next().is_none() {
-                        return Some(role.to_string());
-                    }
+            if !tokens
+                .next()
+                .is_some_and(|t| t.eq_ignore_ascii_case("role"))
+            {
+                continue;
+            }
+            // Past this point the line is an attempt to name a role, so a malformed one is an
+            // error rather than a miss. Falling through would run the query as the data table's
+            // default role — quietly, and under a login the author did not choose.
+            let role = tokens
+                .next()
+                .map(|role| role.strip_suffix(';').unwrap_or(role));
+            let rest = tokens.next();
+            match (role, rest) {
+                (Some(role), None)
+                    if !role.is_empty()
+                        && role.len() <= 63
+                        && role
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') =>
+                {
+                    return Ok(Some(role.to_string()));
+                }
+                _ => {
+                    return Err(error::Error::BadRequest(format!(
+                        "Malformed data table role annotation: `{line}`. Write it as \
+                         `-- role <name>` on a line of its own, where <name> is letters, digits, \
+                         '_' or '-'. A comment in the leading block that starts with the word \
+                         'role' is read as this annotation; move it below the first statement if \
+                         it is prose."
+                    )));
                 }
             }
         }
-        None
+        Ok(None)
     }
 }
 
@@ -2652,27 +2681,40 @@ mod tests {
 
     #[test]
     fn datatable_role_is_read_from_the_leading_comment_block() {
+        let role = |code| SqlAnnotations::datatable_role(code);
         assert_eq!(
-            SqlAnnotations::datatable_role("-- role analytics\nSELECT 1"),
+            role("-- role analytics\nSELECT 1").unwrap(),
             Some("analytics".to_string())
         );
         // Blank lines and other annotations before it are fine.
         assert_eq!(
-            SqlAnnotations::datatable_role("\n-- prepare\n-- role read_only\nSELECT 1"),
+            role("\n-- prepare\n-- role read_only\nSELECT 1").unwrap(),
             Some("read_only".to_string())
         );
-        // Prose that merely starts with the word, and anything past the first statement, is not an
-        // annotation — otherwise a comment could silently change which login a query runs as.
-        assert_eq!(
-            SqlAnnotations::datatable_role("-- role based access is handled below\nSELECT 1"),
-            None
-        );
-        assert_eq!(
-            SqlAnnotations::datatable_role("SELECT 1;\n-- role analytics"),
-            None
-        );
-        assert_eq!(SqlAnnotations::datatable_role("-- role an;alytics"), None);
-        assert_eq!(SqlAnnotations::datatable_role("SELECT 1"), None);
+        // Past the first statement it is an ordinary comment, not an annotation.
+        assert_eq!(role("SELECT 1;\n-- role analytics").unwrap(), None);
+        assert_eq!(role("SELECT 1").unwrap(), None);
+
+        // Unambiguous intent is honoured: the keyword matches case-insensitively, and a trailing
+        // semicolon is a habit carried over from SQL rather than a different role.
+        for accepted in ["-- Role operator\nSELECT 1", "-- role operator;\nSELECT 1"] {
+            assert_eq!(
+                role(accepted).unwrap(),
+                Some("operator".to_string()),
+                "not honoured: {accepted}"
+            );
+        }
+
+        // Anything else opening with the word is refused rather than resolved to the default role:
+        // the whole point of naming one is to not run as something else.
+        for near_miss in [
+            "-- role operator -- why\nSELECT 1",
+            "-- role an;alytics\nSELECT 1",
+            "-- role\nSELECT 1",
+            "-- role based access is handled below\nSELECT 1",
+        ] {
+            assert!(role(near_miss).is_err(), "silently ignored: {near_miss}");
+        }
     }
 
     fn matcher(id: &str) -> WorkspaceMatcher {
