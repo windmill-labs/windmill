@@ -220,10 +220,7 @@ export class NoteEditor {
 	/**
 	 * Clean up group notes using DAG path completion
 	 */
-	cleanupGroupNotes(
-		flowNodes: { id: string; parentIds?: string[] }[],
-		collapsedModuleIds?: Set<string>
-	): void {
+	cleanupGroupNotes(flowNodes: { id: string; parentIds?: string[] }[]): void {
 		if (!this.isAvailable()) {
 			return
 		}
@@ -233,31 +230,23 @@ export class NoteEditor {
 		if (groupNotes.length === 0) return
 
 		let hasChanges = false
-		const nodeSet = new Set(flowNodes.map((n) => n.id))
+		const renderedIds = new Set(flowNodes.map((n) => n.id))
 
-		// Include collapsed module IDs as valid — they are hidden but still exist
-		if (collapsedModuleIds) {
-			for (const id of collapsedModuleIds) {
-				nodeSet.add(id)
-			}
-		}
-
-		// The graph is rebuilt in more than one pass after a module id changes, and one of
-		// those passes has the module under neither its old nor its new id. Pruning against
-		// that pass would drop a live module from the note holding it, so leave such a note
-		// to a later pass whose nodes cover every module it references.
+		// A note's members are module ids, and the flow's own modules are what say whether one
+		// still exists. The rendered nodes are a view of them: a live module is absent from it
+		// while its group is collapsed, and again in the pass after its id changed, so pruning
+		// against the render alone deletes steps out of notes that are perfectly valid.
 		const moduleIds = new Set<string>()
 		forEachFlowModule(this.flowStore.val.value?.modules ?? [], (mod) => {
 			moduleIds.add(mod.id)
 		})
-		const settled = (note: FlowNote) =>
-			(note.contained_node_ids ?? []).every((id) => nodeSet.has(id) || !moduleIds.has(id))
 
 		// Step 1: Clean invalid nodes from existing group notes
 		for (const note of groupNotes) {
-			if (!settled(note)) continue
 			const originalIds = note.contained_node_ids || []
-			const validIds = originalIds.filter((id) => nodeSet.has(id))
+			// Path completion below can add ids that exist only in the graph (group
+			// boundaries), so a rendered node counts as valid alongside a live module.
+			const validIds = originalIds.filter((id) => moduleIds.has(id) || renderedIds.has(id))
 
 			if (validIds.length !== originalIds.length) {
 				note.contained_node_ids = validIds
@@ -269,13 +258,12 @@ export class NoteEditor {
 		const splitGroups: FlowNote[] = []
 
 		for (const note of groupNotes) {
-			if (!settled(note)) continue
 			const originalNodes = note.contained_node_ids || []
 			if (originalNodes.length === 0) continue
 
-			// Skip path completion for notes that reference collapsed modules,
-			// since the DAG is incomplete when groups are collapsed
-			if (collapsedModuleIds && originalNodes.some((id) => collapsedModuleIds.has(id))) {
+			// Path completion walks the rendered edges, so it can only place members it can
+			// see; one it cannot would come back as unreachable and be dropped from the note.
+			if (originalNodes.some((id) => !renderedIds.has(id))) {
 				continue
 			}
 

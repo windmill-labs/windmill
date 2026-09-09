@@ -41,9 +41,9 @@ function containedIds(flowStore: StateStore<ExtendedOpenFlow>): string[] | undef
 }
 
 describe('cleanupGroupNotes', () => {
-	it('keeps a module that the graph has not rendered yet', () => {
-		// A module id change rebuilds the graph in several passes, one of which has the
-		// module under neither its old nor its new id.
+	it('keeps a module the graph has not rendered', () => {
+		// Both the pass after a module id changed and a collapsed group leave a live module
+		// out of the rendered nodes.
 		const flowStore = makeFlowStore(['renamed', 'b'], ['renamed', 'b'])
 		new NoteEditor(flowStore).cleanupGroupNotes([{ id: 'b' }])
 
