@@ -101,7 +101,7 @@
 	 * `<img src>` and SVG `<image href>`, and `map` tiles are requests by
 	 * construction. Kinds absent here carry their bytes as `data:` and reach nothing.
 	 * Inert only on the public page, which promises to issue no requests. */
-	const OFFLINE_INERT_KINDS: ResultKind[] = ['markdown', 'html', 'svg', 'map', 'aiagent']
+	const OFFLINE_INERT_KINDS: ResultKind[] = ['markdown', 'html', 'svg', 'map']
 	let length = $state(1)
 
 	let hasBigInt = $state(false)

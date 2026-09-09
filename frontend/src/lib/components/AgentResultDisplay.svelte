@@ -1,10 +1,8 @@
 <script lang="ts">
-	import Markdown from 'svelte-exmarkdown'
-	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import { Bot } from 'lucide-svelte'
 	import type { Snippet } from 'svelte'
 	import { Badge } from '$lib/components/common'
-	import { markdownProse } from './markdownProse'
+	import GfmMarkdown from './GfmMarkdown.svelte'
 	import { formatTokenCount, summarizeAgentResult, type AgentResult } from './aiAgentResult'
 
 	interface Props {
@@ -52,9 +50,11 @@
 		{#if textOutput === ''}
 			<span class="text-tertiary text-xs">The agent returned no answer</span>
 		{:else}
-			<div class={markdownProse.sm}>
-				<Markdown md={textOutput} plugins={[gfmPlugin()]} />
-			</div>
+			<!-- A model writes this answer, and what it writes is steerable by whatever
+			     reached its context — a user message, a tool's output. So it is
+			     untrusted input and goes through the shared sanitizing chain, which is
+			     also what makes it inert on the public replay page. -->
+			<GfmMarkdown md={textOutput} noPadding />
 		{/if}
 	{:else}
 		{@render structuredOutput(result.output)}
