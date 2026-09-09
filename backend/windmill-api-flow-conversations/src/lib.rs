@@ -15,7 +15,7 @@ use windmill_common::{
     db::{UserDB, DB},
     error::{JsonResult, Result},
     flow_conversations::MessageType,
-    utils::{not_found_if_none, paginate, Pagination},
+    utils::{not_found_if_none, paginate, truncate_with_ellipsis, Pagination},
 };
 
 pub fn workspaced_service() -> Router {
@@ -193,13 +193,18 @@ async fn update_conversation(
     Path((w_id, conversation_id)): Path<(String, Uuid)>,
     Json(update): Json<UpdateConversation>,
 ) -> Result<String> {
+    // The column is VARCHAR(255) and the helper appends an ellipsis to what it cuts, so the
+    // bound it takes is three short of the column's. A longer title would otherwise reach
+    // Postgres as a 22001 and come back a 500.
+    let title = truncate_with_ellipsis(update.title.trim(), 252);
+
     let mut tx = user_db.clone().begin(&authed).await?;
 
     let updated = sqlx::query_scalar!(
         "UPDATE flow_conversation SET title = $1, updated_at = updated_at
          WHERE id = $2 AND workspace_id = $3
          RETURNING id",
-        update.title.trim(),
+        title,
         conversation_id,
         &w_id
     )

@@ -823,8 +823,6 @@ pub enum OpenAIResponsesSSEEvent {
 /// OpenAI Responses API SSE Parser for streaming responses
 pub struct OpenAIResponsesSSEParser {
     pub accumulated_content: String,
-    /// The thinking streamed before the answer, kept so it can be stored with it.
-    pub accumulated_reasoning: String,
     pub accumulated_tool_calls: HashMap<String, OpenAIToolCall>,
     /// Maps item_id -> (name, call_id) for function calls
     tool_call_metadata: HashMap<String, (String, String)>,
@@ -844,7 +842,6 @@ impl OpenAIResponsesSSEParser {
     pub fn new(stream_event_processor: Box<dyn StreamEventSink>) -> Self {
         Self {
             accumulated_content: String::new(),
-            accumulated_reasoning: String::new(),
             accumulated_tool_calls: HashMap::new(),
             tool_call_metadata: HashMap::new(),
             tool_call_arguments: HashMap::new(),
