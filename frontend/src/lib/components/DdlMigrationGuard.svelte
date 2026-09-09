@@ -3,7 +3,7 @@
 	import Modal2 from './common/modal/Modal2.svelte'
 	import NewDataTableMigrationModal from './workspaceSettings/NewDataTableMigrationModal.svelte'
 	import DataTableMigrationsButton from './workspaceSettings/DataTableMigrationsButton.svelte'
-	import { splitSqlRuns } from './sqlDdl'
+	import { joinSqlStatements, splitSqlRuns } from './sqlDdl'
 	import { logDdlGuardChoice } from './workspaceSettings/datatableTelemetry'
 	import { CornerDownLeft } from 'lucide-svelte'
 
@@ -23,13 +23,9 @@
 	// toast action after a migration is created here.
 	let migrationsModal = $state<DataTableMigrationsButton | undefined>(undefined)
 
-	// splitSqlStatements drops the `;` it splits on, so re-add one per statement:
-	// the block is shown as-is in the prompt and becomes the migration body, where
-	// every statement inside the BEGIN; ... END; frame must be terminated.
-	function toSqlBlock(statements: string[]): string {
-		return statements.map((s) => `${s};`).join('\n')
-	}
-	let promptSql = $derived(toSqlBlock(promptStatements))
+	// The block is shown as-is in the prompt and becomes the migration body, where
+	// every statement inside the BEGIN; ... END; frame must be `;`-terminated.
+	let promptSql = $derived(joinSqlStatements(promptStatements))
 
 	function finishPrompt(choice: Choice) {
 		const r = resolvePrompt
@@ -118,7 +114,7 @@
 				}
 				// migrate: only strip the statements once a migration is actually
 				// created; if the modal was cancelled, loop back to the prompt.
-				const created = await openMigrationModal(toSqlBlock(run.statements))
+				const created = await openMigrationModal(joinSqlStatements(run.statements))
 				if (created) {
 					logDdlGuardChoice('migrated')
 					break
@@ -126,7 +122,7 @@
 			}
 		}
 
-		return { proceed: true, code: kept.join(';\n'), ranMigration: migrationRan }
+		return { proceed: true, code: joinSqlStatements(kept), ranMigration: migrationRan }
 	}
 </script>
 

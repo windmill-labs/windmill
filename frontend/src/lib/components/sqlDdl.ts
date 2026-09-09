@@ -262,6 +262,18 @@ export function isDdlStatement(statement: string): boolean {
 export type SqlRun = { isDdl: boolean; statements: string[] }
 
 /**
+ * Join statements into one runnable block, `;`-terminating each. `splitSqlStatements`
+ * drops the `;` it splits on and keeps a statement's trailing comment, so a statement
+ * ending in a `--` comment would swallow a terminator appended on the same line and
+ * run into the next statement; that one gets its terminator on its own line.
+ */
+export function joinSqlStatements(statements: string[], backslashEscapes = true): string {
+	return statements
+		.map((s) => (endsWithUnterminatedStatement(`${s};`, backslashEscapes) ? `${s}\n;` : `${s};`))
+		.join('\n')
+}
+
+/**
  * Split a script into alternating runs of DDL and non-DDL statements. Adjacent
  * DDL statements share a run so they can become one migration instead of one
  * prompt each; a non-DDL statement ends the run, since anything after it may

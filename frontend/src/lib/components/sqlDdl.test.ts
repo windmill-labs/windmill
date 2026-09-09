@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
 	endsWithUnterminatedStatement,
+	joinSqlStatements,
 	splitSqlRuns,
 	splitSqlStatements,
 	stripSqlComments
@@ -90,5 +91,18 @@ describe('splitSqlRuns', () => {
 		expect(splitSqlRuns('-- add it\nCREATE TABLE a (id int);')).toEqual([
 			{ isDdl: true, statements: ['-- add it\nCREATE TABLE a (id int)'] }
 		])
+	})
+})
+
+describe('joinSqlStatements', () => {
+	it('keeps a terminator out of a statement-trailing line comment', () => {
+		expect(joinSqlStatements(['CREATE TABLE a (id int)', 'ALTER TABLE a ADD b int'])).toBe(
+			'CREATE TABLE a (id int);\nALTER TABLE a ADD b int;'
+		)
+		// A `;` appended after the comment would be commented out, gluing this
+		// statement onto the next one.
+		expect(joinSqlStatements(['CREATE TABLE a (id int) -- new', 'ALTER TABLE a ADD b int'])).toBe(
+			'CREATE TABLE a (id int) -- new\n;\nALTER TABLE a ADD b int;'
+		)
 	})
 })
