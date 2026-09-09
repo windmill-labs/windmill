@@ -6,7 +6,7 @@
  * file states, and that the markers still close a deployed open app back down.
  */
 
-import { beforeEach, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, expect, mock, test } from "bun:test";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,7 +16,14 @@ let deployedPolicy: any;
 /** No app deployed at the path: `getAppByPath` 404s and the push creates one. */
 let deployed = true;
 
+// `mock.module` replaces the module for the whole process, so both are handed
+// back at the end — `raw_app_svelte_plugin_unit.test.ts` drives the real
+// `createBundle`, and would silently bundle nothing under the stub.
+const realServices = await import("../gen/services.gen.ts");
+const realBundle = await import("../src/commands/app/bundle.ts");
+
 mock.module("../gen/services.gen.ts", () => ({
+  ...realServices,
   getAppByPath: async () => {
     if (!deployed) throw new Error("not found");
     return {
@@ -34,11 +41,15 @@ mock.module("../gen/services.gen.ts", () => ({
   },
 }));
 
-const realBundle = await import("../src/commands/app/bundle.ts");
 mock.module("../src/commands/app/bundle.ts", () => ({
   ...realBundle,
   createBundle: async () => ({ js: "", css: "" }),
 }));
+
+afterAll(() => {
+  mock.module("../gen/services.gen.ts", () => realServices);
+  mock.module("../src/commands/app/bundle.ts", () => realBundle);
+});
 
 const { pushRawApp } = await import("../src/commands/app/raw_apps.ts");
 

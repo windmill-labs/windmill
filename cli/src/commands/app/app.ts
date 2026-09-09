@@ -130,33 +130,36 @@ export function markAccessFromPolicy(app: any) {
     app.guests = true;
   }
 }
-export function executionModeFromAppFile(app: any): AppExecutionMode {
+/** The mode the tracked file states, or `undefined` when it states none — the
+ * normal case, since a pull writes only the two open-access markers. `viewer`
+ * and `publisher` have no marker of their own, so a file can only name them
+ * through a policy block it was hand-written with. */
+function statedExecutionMode(app: any): AppExecutionMode | undefined {
   if (app?.["public"] ?? isExecutionModeAnonymous(app)) {
     return "anonymous";
   }
   if (app?.["guests"] ?? isExecutionModeGuest(app)) {
     return "guest";
   }
-  // `viewer` has no marker of its own — a pull never writes one, since it is not
-  // an open-access mode. Read it where the other modes are read from anyway, so
-  // a file stating it is not deployed as the wider `publisher` (which runs the
-  // runnables as the app's identity rather than each viewer's).
-  if (app?.["policy"]?.["execution_mode"] == "viewer") {
-    return "viewer";
-  }
-  return "publisher";
+  const mode = app?.["policy"]?.["execution_mode"];
+  return mode === "viewer" || mode === "publisher" ? mode : undefined;
 }
 
-/** The mode this push deploys under. The tracked file normally records only the
- * two open-access markers, so their absence closes a deployed `anonymous`/`guest`
- * app back down to `publisher` — while a deployed `viewer` is not an access grant
- * those markers revoke, so it carries over. */
+export function executionModeFromAppFile(app: any): AppExecutionMode {
+  return statedExecutionMode(app) ?? "publisher";
+}
+
+/** The mode this push deploys under. A file that states one is authoritative, in
+ * both directions. Otherwise the two open-access markers are all it says, so
+ * their absence closes a deployed `anonymous`/`guest` app back down to
+ * `publisher` — while a deployed `viewer` is not a grant those markers revoke,
+ * so it carries over rather than widening to `publisher`. */
 export function executionModeForPush(
   localApp: any,
   deployedPolicy: Policy | undefined,
 ): AppExecutionMode {
-  const stated = executionModeFromAppFile(localApp);
-  if (stated !== "publisher") {
+  const stated = statedExecutionMode(localApp);
+  if (stated) {
     return stated;
   }
   return deployedPolicy?.execution_mode === "viewer" ? "viewer" : "publisher";

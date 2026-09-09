@@ -44,4 +44,9 @@ test("viewer is never widened to publisher by a push", () => {
   // The open-access markers still win, in either direction.
   expect(executionModeForPush({ public: true }, { execution_mode: "viewer" })).toBe("anonymous");
   expect(executionModeForPush({}, { execution_mode: "anonymous" })).toBe("publisher");
+  // A stated mode is authoritative both ways: the carry-over is for a file that
+  // says nothing, so it must not pin a deployed app to `viewer` forever.
+  expect(
+    executionModeForPush({ policy: { execution_mode: "publisher" } }, { execution_mode: "viewer" })
+  ).toBe("publisher");
 });
