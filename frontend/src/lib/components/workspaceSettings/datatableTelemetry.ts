@@ -28,13 +28,14 @@ export type DdlGuardChoice =
 	| 'run_anyway'
 	/** The DDL became a migration definition. */
 	| 'migrated'
-	/** The statement was abandoned, so nothing ran. */
+	/** The statements were abandoned, so nothing ran. */
 	| 'cancelled'
 
 /**
- * Counted once per prompt that reaches a terminal choice. Picking "create a migration" and then
- * dismissing the modal loops back to the prompt instead, and is deliberately not counted: it is
- * the same statement still undecided, not a fourth outcome.
+ * Counted once per prompt that reaches a terminal choice — a prompt covers a whole run of
+ * adjacent DDL statements, not one statement. Picking "create a migration" and then dismissing
+ * the modal loops back to the prompt instead, and is deliberately not counted: it is the same
+ * run still undecided, not a fourth outcome.
  */
 export function logDdlGuardChoice(choice: DdlGuardChoice): void {
 	logFeatureUsage('datatable', 'ddl_guard', { key: choice })
