@@ -100,7 +100,8 @@
 		otel: {},
 		indexer_settings: {},
 		critical_error_channels: [],
-		github_enterprise_app: {}
+		github_enterprise_app: {},
+		instance_banner: {}
 	}
 
 	function applyFormDefaults(vals: Record<string, any>): void {

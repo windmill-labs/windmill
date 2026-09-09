@@ -76,6 +76,7 @@
 	import { migrateUserDraftsToDb } from '$lib/userDraftDbMigration'
 	import { pruneMeaninglessDrafts } from '$lib/userDraftPrune'
 	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
+	import InstanceBanner from '$lib/components/InstanceBanner.svelte'
 	import { onDestroy, setContext, untrack } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
@@ -1362,6 +1363,11 @@
 			</div>
 		{/if}
 		<div class="flex flex-col h-full w-full">
+			{#if !menuHidden}
+				<!-- Skipped when the menu is hidden: that is an embed or an OAuth callback,
+				     where an instance-wide announcement would land inside someone else's page. -->
+				<InstanceBanner />
+			{/if}
 			{#if $userStore?.is_service_account}
 				<div
 					class="bg-yellow-100 dark:bg-yellow-900/50 border-b border-yellow-300 dark:border-yellow-700 px-4 py-2 text-sm text-yellow-800 dark:text-yellow-200 flex items-center justify-center gap-4 shrink-0"

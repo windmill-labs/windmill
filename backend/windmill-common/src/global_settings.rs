@@ -125,6 +125,65 @@ pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
 /// `base_url` when unset; set it when the browser-facing URL is not reachable
 /// from GitHub and a separate ingress fronts the API for inbound webhooks.
 pub const GITHUB_APP_WEBHOOK_BASE_URL_SETTING: &str = "github_app_webhook_base_url";
+/// Instance-wide announcement rendered above every page of the app (maintenance
+/// windows, incidents). Readable by any authenticated user, unlike most settings:
+/// the banner exists to be shown to everyone, so it must never hold anything the
+/// whole instance may not see.
+pub const INSTANCE_BANNER_SETTING: &str = "instance_banner";
+
+/// Ceiling on the banner message. The banner is a one-or-two-line strip above every
+/// page, so anything longer is a layout accident rather than an announcement.
+pub const INSTANCE_BANNER_MESSAGE_MAX_LEN: usize = 500;
+
+/// Validate an [`INSTANCE_BANNER_SETTING`] value.
+///
+/// The banner is the one setting rendered to every user of the instance, so its
+/// shape is checked at the boundary rather than trusted from the writer: a value
+/// that reaches the browser malformed either shows nothing (and the admin believes
+/// the announcement is out) or breaks the layout for everyone at once.
+///
+/// The link is restricted to http(s) so a stored `javascript:`/`data:` URL can
+/// never become the href of an anchor every user sees.
+pub fn validate_instance_banner(value: &serde_json::Value) -> Result<(), String> {
+    let obj = value
+        .as_object()
+        .ok_or_else(|| "must be a JSON object".to_string())?;
+
+    let message = obj.get("message").and_then(|v| v.as_str()).unwrap_or("");
+    if message.chars().count() > INSTANCE_BANNER_MESSAGE_MAX_LEN {
+        return Err(format!(
+            "message must be at most {INSTANCE_BANNER_MESSAGE_MAX_LEN} characters"
+        ));
+    }
+    if obj
+        .get("enabled")
+        .is_some_and(|v| v.as_bool() == Some(true))
+        && message.trim().is_empty()
+    {
+        return Err("message is required when the banner is enabled".to_string());
+    }
+
+    if let Some(severity) = obj.get("severity").and_then(|v| v.as_str()) {
+        if !matches!(severity, "info" | "warning" | "error") {
+            return Err("severity must be one of info, warning, error".to_string());
+        }
+    }
+
+    if let Some(link) = obj.get("link").and_then(|v| v.as_str()) {
+        if !link.trim().is_empty() {
+            let url = url::Url::parse(link.trim())
+                .map_err(|e| format!("link must be an absolute http(s) URL: {e}"))?;
+            if !matches!(url.scheme(), "http" | "https") {
+                return Err("link must use the http or https scheme".to_string());
+            }
+            if !url.has_host() {
+                return Err("link must include a host".to_string());
+            }
+        }
+    }
+
+    Ok(())
+}
 
 /// Validate a [`GITHUB_APP_WEBHOOK_BASE_URL_SETTING`] value.
 ///
@@ -588,6 +647,30 @@ mod tests {
                 "'{bad}' leaked its credential into: {err}"
             );
         }
+    }
+
+    #[test]
+    fn instance_banner_rejects_a_link_that_is_not_http() {
+        // The link becomes the href of an anchor shown to every user of the instance,
+        // so a non-http(s) scheme must not survive a write.
+        for link in [
+            "javascript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "vbscript:msgbox(1)",
+            "not-a-url",
+            "https://",
+        ] {
+            let banner = serde_json::json!({ "enabled": true, "message": "down", "link": link });
+            assert!(
+                validate_instance_banner(&banner).is_err(),
+                "link '{link}' should be rejected"
+            );
+        }
+        let ok = serde_json::json!({
+            "enabled": true, "message": "down", "severity": "warning",
+            "link": "https://status.example.com", "dismissible": false
+        });
+        assert!(validate_instance_banner(&ok).is_ok());
     }
 
     #[test]

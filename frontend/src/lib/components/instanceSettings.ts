@@ -68,6 +68,7 @@ export interface Setting {
 		| 'webhook_base_url'
 		| 'ws_connectivity'
 		| 'retention_overrides'
+		| 'instance_banner'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -235,6 +236,15 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'license_key',
 			placeholder: 'only for EE',
 			storage: 'setting'
+		},
+		{
+			label: 'Announcement banner',
+			description:
+				'Message shown above every page of the instance, for maintenance windows and incidents.',
+			key: 'instance_banner',
+			fieldType: 'instance_banner',
+			storage: 'setting',
+			hideInQuickSetup: true
 		},
 		{
 			label: 'Non-prod instance',
