@@ -13,6 +13,7 @@
  *    them would show confidently wrong details, so an aiagent job is ignored.
  */
 import { JobService } from '$lib/gen'
+import { JobBackedStore } from './jobBackedStore.svelte'
 
 export type ToolCallDetails = {
 	toolName?: string
@@ -43,37 +44,11 @@ export function jobToToolCallDetails(job: any): ToolCallDetails {
 	}
 }
 
-/** Per-conversation cache of tool jobs by id. One fetch per tool row while mounted. */
-export class ToolCallStore {
-	#workspace: () => string | undefined
-	#byJob = $state<Record<string, ToolCallDetails>>({})
-	#inFlight = new Set<string>()
-
+/** The tool jobs behind the transcript's tool rows. One fetch per row while mounted. */
+export class ToolCallStore extends JobBackedStore<ToolCallDetails> {
 	constructor(workspace: () => string | undefined) {
-		this.#workspace = workspace
-	}
-
-	/** The call behind a tool row, fetching on first ask. Empty until the job lands. */
-	get(jobId: string | null | undefined): ToolCallDetails {
-		if (!jobId) return EMPTY
-		const cached = this.#byJob[jobId]
-		if (cached) return cached
-		void this.#load(jobId)
-		return EMPTY
-	}
-
-	async #load(jobId: string) {
-		const workspace = this.#workspace()
-		if (!workspace || this.#inFlight.has(jobId)) return
-		this.#inFlight.add(jobId)
-		try {
-			const job = await JobService.getJob({ workspace, id: jobId, noLogs: true })
-			this.#byJob = { ...this.#byJob, [jobId]: jobToToolCallDetails(job) }
-		} catch {
-			// A purged job, or one this user cannot read: the row keeps its summary.
-			this.#byJob = { ...this.#byJob, [jobId]: EMPTY }
-		} finally {
-			this.#inFlight.delete(jobId)
-		}
+		super(workspace, EMPTY, async (ws, jobId) =>
+			jobToToolCallDetails(await JobService.getJob({ workspace: ws, id: jobId, noLogs: true }))
+		)
 	}
 }

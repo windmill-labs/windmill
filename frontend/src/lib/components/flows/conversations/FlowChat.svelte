@@ -22,6 +22,9 @@
 		flowModules?: FlowModule[]
 		/** Wider centered column, for the full-page chat. */
 		wideLayout?: boolean
+		/** Draw the chat as its own panel. On a page that gives it a region of its own,
+		 * rather than a pane already bounded by the editor's own frame. */
+		boxed?: boolean
 		/** Which chats the sidebar lists before the reader filters it themselves. */
 		conversationKind?: ConversationKind
 	}
@@ -35,6 +38,7 @@
 		inputSchema = undefined,
 		flowModules = undefined,
 		wideLayout = false,
+		boxed = false,
 		conversationKind = 'deployed'
 	}: Props = $props()
 
@@ -84,9 +88,10 @@
 	})
 </script>
 
-<!-- border-t: the line the chat starts at, dividing it from whatever header sits above.
-     The column's max width and side padding come from AIChatDisplay itself. -->
-<div class="flex overflow-hidden flex-1 border-t">
+<!-- Boxed: its own panel, corners clipped so the sidebar's edge follows them. Otherwise a
+     top border alone, dividing the chat from whatever header sits above it. The column's
+     max width and side padding come from AIChatDisplay itself. -->
+<div class="flex overflow-hidden flex-1 {boxed ? 'border rounded-md' : 'border-t'}">
 	{#if !hideSidebar}
 		<FlowConversationsSidebar {manager} />
 	{/if}

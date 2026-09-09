@@ -10,6 +10,7 @@
  * turn simply shows no inputs, which is honest — the arguments are gone.
  */
 import { JobService } from '$lib/gen'
+import { JobBackedStore } from './jobBackedStore.svelte'
 import { base } from '$lib/base'
 import {
 	createAttachedFileContextElement,
@@ -112,40 +113,11 @@ export function attachmentsToMessageInputs(
 	return images.length > 0 || contextElements.length > 0 ? { images, contextElements } : EMPTY
 }
 
-/**
- * Per-conversation cache of run arguments by job id. One fetch per turn, kept only
- * for as long as the chat is mounted.
- */
-export class MessageInputsStore {
-	#workspace: () => string | undefined
-	#byJob = $state<Record<string, MessageInputs>>({})
-	#inFlight = new Set<string>()
-
+/** The run arguments behind the transcript's user rows. One fetch per turn while mounted. */
+export class MessageInputsStore extends JobBackedStore<MessageInputs> {
 	constructor(workspace: () => string | undefined) {
-		this.#workspace = workspace
-	}
-
-	/** What the turn ran with, fetching on first ask. Empty until the args land. */
-	get(jobId: string | null | undefined): MessageInputs {
-		if (!jobId) return EMPTY
-		const cached = this.#byJob[jobId]
-		if (cached) return cached
-		void this.#load(jobId)
-		return EMPTY
-	}
-
-	async #load(jobId: string) {
-		const workspace = this.#workspace()
-		if (!workspace || this.#inFlight.has(jobId)) return
-		this.#inFlight.add(jobId)
-		try {
-			const args = await JobService.getJobArgs({ workspace, id: jobId })
-			this.#byJob = { ...this.#byJob, [jobId]: argsToMessageInputs(workspace, args as any) }
-		} catch {
-			// A purged job, or one this user cannot read: the turn shows no inputs.
-			this.#byJob = { ...this.#byJob, [jobId]: EMPTY }
-		} finally {
-			this.#inFlight.delete(jobId)
-		}
+		super(workspace, EMPTY, async (ws, jobId) =>
+			argsToMessageInputs(ws, (await JobService.getJobArgs({ workspace: ws, id: jobId })) as any)
+		)
 	}
 }

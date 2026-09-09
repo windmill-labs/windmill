@@ -243,11 +243,13 @@
 
 <!-- The transcript scroller fills its flex row, which needs a height to resolve
      against. Not every host gives one (the editor's Test-flow panel stacks the
-     chat above the job result in an auto-height column), so once there are
-     messages to scroll, claim one. -->
+     chat above the job result in an auto-height column), so claim one: enough to
+     scroll in once there are messages, and before that enough for the empty-state
+     prompt and the composer, which otherwise crowd the panel they collapse it to. -->
 <div
 	class="flex flex-col h-full flex-1 min-w-0"
 	class:min-h-96={chatHost.displayMessages.length > 0}
+	class:min-h-64={chatHost.displayMessages.length === 0}
 >
 	<AIChatDisplay
 		messages={chatHost.displayMessages}

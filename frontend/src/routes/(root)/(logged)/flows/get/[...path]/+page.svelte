@@ -663,12 +663,11 @@
 						{/if}
 
 						{#if !emptyString(flow?.description)}
-							<div class="p-4 rounded-md bg-surface-secondary">
-								<GfmMarkdown
-									md={defaultIfEmptyString(flow?.description, 'No description')}
-									noPadding
-								/>
-							</div>
+							<GfmMarkdown
+								md={defaultIfEmptyString(flow?.description, 'No description')}
+								noPadding
+								prose="sm"
+							/>
 							<div class="h-4"></div>
 						{/if}
 
@@ -707,6 +706,7 @@
 								inputSchema={flow?.schema}
 								flowModules={flow?.value?.modules}
 								wideLayout
+								boxed
 							/>
 						{:else}
 							{@const hasSchema =

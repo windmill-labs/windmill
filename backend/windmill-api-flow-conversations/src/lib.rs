@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, Query},
-    routing::{delete, get},
+    routing::{delete, get, post},
     Extension, Json, Router,
 };
 use chrono::{DateTime, Utc};
@@ -22,6 +22,7 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_conversations))
         .route("/delete/{conversation_id}", delete(delete_conversation))
+        .route("/update/{conversation_id}", post(update_conversation))
         .route("/{conversation_id}/messages", get(list_messages))
 }
 
@@ -177,6 +178,39 @@ async fn delete_conversation(
     }
 
     Ok(format!("Conversation {} deleted", conversation_id))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateConversation {
+    /// The chat's name. Set from the first message when the chat is created, and left
+    /// alone afterwards, so a typed one stays typed.
+    pub title: String,
+}
+
+async fn update_conversation(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, conversation_id)): Path<(String, Uuid)>,
+    Json(update): Json<UpdateConversation>,
+) -> Result<String> {
+    let mut tx = user_db.clone().begin(&authed).await?;
+
+    let updated = sqlx::query_scalar!(
+        "UPDATE flow_conversation SET title = $1, updated_at = updated_at
+         WHERE id = $2 AND workspace_id = $3
+         RETURNING id",
+        update.title.trim(),
+        conversation_id,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    not_found_if_none(updated, "Conversation", conversation_id.to_string())?;
+
+    tx.commit().await?;
+
+    Ok(format!("Conversation {} updated", conversation_id))
 }
 
 async fn list_messages(

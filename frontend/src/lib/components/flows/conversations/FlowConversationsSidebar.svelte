@@ -2,12 +2,15 @@
 	import { Button } from '$lib/components/common'
 	import {
 		MessageCircle,
+		Pen,
 		Plus,
 		Trash2,
 		PanelLeftClose,
 		PanelLeftOpen,
 		FlaskConical
 	} from 'lucide-svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import type { Item } from '$lib/utils'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -16,7 +19,11 @@
 	import CountBadge from '$lib/components/common/badge/CountBadge.svelte'
 	import InfiniteList from '$lib/components/InfiniteList.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { FlowChatManager, type ConversationKind } from './FlowChatManager.svelte'
+	import {
+		FlowChatManager,
+		type ConversationKind,
+		type ConversationWithDraft
+	} from './FlowChatManager.svelte'
 	import { fade } from 'svelte/transition'
 
 	interface Props {
@@ -24,6 +31,44 @@
 	}
 
 	let { manager }: Props = $props()
+
+	// The chat being renamed, and the text typed so far. One at a time: the input is the
+	// row's own label, so a second one would have nowhere to go.
+	let renamingId = $state<string | undefined>(undefined)
+	let renameDraft = $state('')
+
+	function startRename(conversation: FlowConversation) {
+		renamingId = conversation.id
+		renameDraft = getConversationTitle(conversation)
+	}
+
+	async function commitRename() {
+		const id = renamingId
+		renamingId = undefined
+		if (id) await manager.renameConversation(id, renameDraft)
+	}
+
+	function deleteConversation(conversation: ConversationWithDraft) {
+		if (conversation.isDraft) {
+			// The draft is the first row and exists only here; there is nothing to delete.
+			manager.conversations = [...manager.conversations.slice(1)]
+		} else {
+			manager.conversationListComponent?.deleteItem(conversation.id)
+		}
+	}
+
+	function rowActions(conversation: ConversationWithDraft): Item[] {
+		return [
+			{ displayName: 'Rename', icon: Pen, action: () => startRename(conversation) },
+			{
+				displayName: 'Delete',
+				icon: Trash2,
+				type: 'delete',
+				disabled: manager.deletingConversationId === conversation.id,
+				action: () => deleteConversation(conversation)
+			}
+		]
+	}
 
 	const KIND_LABELS: Record<ConversationKind, string> = {
 		test: 'Test',
@@ -166,32 +211,41 @@
 								     be readable as one at a glance. -->
 								<FlaskConical size={12} class="shrink-0 mr-1 text-tertiary" />
 							{/if}
-							<span class="flex-1 text-left truncate">
-								{getConversationTitle(conversation)}
-							</span>
-							<Button
-								wrapperClasses={twMerge(
-									'ml-2 transition-all duration-100  opacity-0 group-hover:opacity-100',
-									manager.deletingConversationId === conversation.id ? 'opacity-100' : ' '
-								)}
-								disabled={manager.deletingConversationId === conversation.id}
-								onClick={(e) => {
-									e?.stopPropagation()
-									if (conversation.isDraft) {
-										// just remove first conversation as it is the draft
-										manager.conversations = [...manager.conversations.slice(1)]
-									} else {
-										manager.conversationListComponent?.deleteItem(conversation.id)
-									}
-								}}
-								title="Delete conversation"
-								destructive
-								unifiedSize="xs"
-								variant="subtle"
-								loading={manager.deletingConversationId === conversation.id}
-								iconOnly
-								startIcon={{ icon: Trash2 }}
-							/>
+							{#if renamingId === conversation.id}
+								<!-- svelte-ignore a11y_autofocus -->
+								<input
+									class="flex-1 min-w-0 !text-xs !p-0 !h-auto !bg-transparent !border-0 !ring-0 focus:!ring-0"
+									autofocus
+									bind:value={renameDraft}
+									onclick={(e) => e.stopPropagation()}
+									onblur={commitRename}
+									onkeydown={(e) => {
+										e.stopPropagation()
+										if (e.key === 'Enter') {
+											e.preventDefault()
+											commitRename()
+										} else if (e.key === 'Escape') {
+											e.preventDefault()
+											renamingId = undefined
+										}
+									}}
+								/>
+							{:else}
+								<span class="flex-1 text-left truncate">
+									{getConversationTitle(conversation)}
+								</span>
+								<!-- svelte-ignore a11y_click_events_have_key_events -->
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<div
+									class={twMerge(
+										'ml-2 transition-all duration-100 opacity-0 group-hover:opacity-100',
+										manager.deletingConversationId === conversation.id ? 'opacity-100' : ''
+									)}
+									onclick={(e) => e.stopPropagation()}
+								>
+									<DropdownV2 items={() => rowActions(conversation)} size="xs" />
+								</div>
+							{/if}
 						</Button>
 					</div>
 				{/if}

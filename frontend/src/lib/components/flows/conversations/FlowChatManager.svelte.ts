@@ -10,12 +10,18 @@ import { tick } from 'svelte'
 import InfiniteList from '$lib/components/InfiniteList.svelte'
 import { workspaceStore, userStore } from '$lib/stores'
 import { get } from 'svelte/store'
-import { parseStreamEvents, toolSummary } from '$lib/components/chat/utils'
+import { parseStreamEvents } from '$lib/components/chat/utils'
 import { randomUUID } from '$lib/utils/uuid'
 import {
 	prefersInstantReveal,
 	TypewriterReveal
 } from '$lib/components/copilot/chat/typewriterReveal'
+import {
+	appendRevealed,
+	applyStreamEvent,
+	emptyTurnState,
+	type TurnState
+} from './turnTranscript'
 
 export interface ChatMessage extends FlowConversationMessage {
 	loading?: boolean
@@ -59,59 +65,36 @@ export class FlowChatManager {
 	/** The model is reasoning: true from the first thinking token until the answer starts. */
 	isReasoningActive = $state(false)
 
-	// The row the stream is currently writing into, and the text revealed so far. Fields
-	// rather than locals of the stream handler: the typewriter reveals on animation
+	// What the turn has written so far — which row is open, and the text in it. Held here
+	// rather than in the stream handler's locals: the typewriter reveals on animation
 	// frames, long after the chunk that delivered the text was applied.
-	#streamConversationId = ''
-	#streamAssistantId = ''
-	#streamContent = ''
+	#turn: TurnState = emptyTurnState('')
+
+	/** Row ids are temp- prefixed: the sweep after a run keeps only what the server stored. */
+	#newRowId = () => 'temp-' + randomUUID()
 
 	// The worker's events reach us in bursts — the provider batches tokens, and the SSE
 	// endpoint ships whatever accumulated — so display is paced separately from arrival,
 	// exactly as the session chat does it. Answer and thinking pace independently.
 	#replyReveal = new TypewriterReveal({
-		onReveal: (chunk) => {
-			this.#streamContent += chunk
-			this.#upsertStreamedAssistantRow()
-		},
+		onReveal: (chunk) => this.#reveal('answer', chunk),
 		instant: prefersInstantReveal()
 	})
 	#reasoningReveal = new TypewriterReveal({
-		onReveal: (chunk) => {
-			this.currentReasoning += chunk
-			this.#upsertStreamedAssistantRow()
-		},
+		onReveal: (chunk) => this.#reveal('reasoning', chunk),
 		instant: prefersInstantReveal()
 	})
 
-	/** Create or update the row holding the turn's answer and the thinking before it. */
-	#upsertStreamedAssistantRow() {
-		const reasoning = this.currentReasoning === '' ? undefined : this.currentReasoning
-		if (this.#streamContent === '' && reasoning === undefined) return
-		if (this.#streamAssistantId === '') {
-			this.#streamAssistantId = 'temp-' + randomUUID()
-			this.messages = [
-				...this.messages,
-				{
-					id: this.#streamAssistantId,
-					content: this.#streamContent,
-					created_at: new Date().toISOString(),
-					created_seq: 0,
-					message_type: 'assistant',
-					conversation_id: this.#streamConversationId,
-					job_id: '',
-					loading: false,
-					streaming: true,
-					reasoning
-				}
-			]
-		} else {
-			this.messages = this.messages.map((msg) =>
-				msg.id === this.#streamAssistantId
-					? { ...msg, content: this.#streamContent, reasoning }
-					: msg
-			)
-		}
+	#reveal(kind: 'answer' | 'reasoning', chunk: string) {
+		const step = appendRevealed(
+			{ rows: this.messages, state: this.#turn },
+			kind,
+			chunk,
+			this.#newRowId
+		)
+		this.messages = step.rows
+		this.#turn = step.state
+		if (kind === 'reasoning') this.currentReasoning = step.state.reasoning
 	}
 
 	/** Reveal everything buffered now, so the row is whole before the turn moves on. */
@@ -172,8 +155,7 @@ export class FlowChatManager {
 	cleanup() {
 		this.#replyReveal.reset()
 		this.#reasoningReveal.reset()
-		this.#streamAssistantId = ''
-		this.#streamContent = ''
+		this.#turn = emptyTurnState('')
 		this.currentReasoning = ''
 		this.isReasoningActive = false
 		if (this.currentEventSource) {
@@ -276,6 +258,33 @@ export class FlowChatManager {
 		if (this.conversationKind === kind) return
 		this.conversationKind = kind
 		await this.refreshConversations()
+	}
+
+	/** Rename a chat. The list holds the row, so it is patched rather than reloaded. */
+	async renameConversation(conversationId: string, title: string) {
+		const trimmed = title.trim()
+		const current = this.conversations.find((c) => c.id === conversationId)
+		if (!current || trimmed === '' || trimmed === current.title) return
+		// A chat that has never run is local to this list; there is nothing to rename yet.
+		if (current.isDraft) {
+			this.conversations = this.conversations.map((c) =>
+				c.id === conversationId ? { ...c, title: trimmed } : c
+			)
+			return
+		}
+		try {
+			await FlowConversationsService.updateFlowConversation({
+				workspace: this.#workspace()!,
+				conversationId,
+				requestBody: { title: trimmed }
+			})
+			this.conversations = this.conversations.map((c) =>
+				c.id === conversationId ? { ...c, title: trimmed } : c
+			)
+		} catch (error) {
+			console.error('Failed to rename conversation:', error)
+			sendUserToast('Failed to rename conversation', true)
+		}
 	}
 
 	async refreshConversations() {
@@ -592,47 +601,6 @@ export class FlowChatManager {
 		this.focusInput()
 	}
 
-	/** Temp tool rows by the call id the stream gives them, so four events edit one row. */
-	#toolMessageIds = new Map<string, string>()
-
-	/** The assistant text stops growing once something else takes over the transcript. */
-	#settleStreamingMessage() {
-		this.messages = this.messages.map((msg) => (msg.streaming ? { ...msg, streaming: false } : msg))
-	}
-
-	/**
-	 * Create or update the row for one tool call. A call arrives as up to four events
-	 * (call, arguments, execution, result), each carrying a little more, and they must land
-	 * on the same row rather than stacking up as separate cards.
-	 */
-	#upsertToolMessage(conversationId: string, callId: string, patch: Partial<ChatMessage>) {
-		const existingId = this.#toolMessageIds.get(callId)
-		if (existingId) {
-			this.messages = this.messages.map((msg) =>
-				msg.id === existingId ? { ...msg, ...patch } : msg
-			)
-			return
-		}
-		const id = 'temp-' + randomUUID()
-		this.#toolMessageIds.set(callId, id)
-		this.messages = [
-			...this.messages,
-			{
-				id,
-				content: '',
-				created_at: new Date().toISOString(),
-				created_seq: 0,
-				message_type: 'tool',
-				conversation_id: conversationId,
-				job_id: '',
-				loading: false,
-				streaming: false,
-				success: true,
-				...patch
-			}
-		]
-	}
-
 	private async handleStreamingMessage(
 		messageContent: string,
 		currentConversationId: string,
@@ -644,13 +612,8 @@ export class FlowChatManager {
 			this.currentEventSource.close()
 		}
 
-		// Rows from the previous turn are settled and must not be edited by this one.
-		this.#toolMessageIds.clear()
-
 		// Track stream state for this message
-		this.#streamConversationId = currentConversationId
-		this.#streamAssistantId = ''
-		this.#streamContent = ''
+		this.#turn = emptyTurnState(currentConversationId)
 		this.#replyReveal.reset()
 		this.#reasoningReveal.reset()
 		let isCompleted = false
@@ -730,40 +693,27 @@ export class FlowChatManager {
 							// One chunk can carry several events, so each is applied in turn: a
 							// chunk holding a call and its result must produce both.
 							for (const event of parseStreamEvents(data.new_result_stream)) {
-								if (event.kind === 'tool_call' || event.kind === 'tool_execution') {
-									// Whatever is still buffered belongs to the row before the tool —
-									// thinking that led straight to the call included, which is why this
-									// runs before the reset below.
-									this.#flushReveals()
-									this.currentReasoning = ''
-									this.isReasoningActive = false
-									// The assistant text so far is finished; the tool row follows it.
-									this.#settleStreamingMessage()
-									this.#streamAssistantId = ''
-									this.#streamContent = ''
-									this.#upsertToolMessage(currentConversationId, event.callId, {
-										tool_name: event.name,
-										content: `Running ${event.name}`,
-										loading: true
-									})
-								} else if (event.kind === 'tool_arguments') {
-									this.#upsertToolMessage(currentConversationId, event.callId, {
-										tool_name: event.name,
-										tool_arguments: event.arguments
-									})
-								} else if (event.kind === 'tool_result') {
-									this.#upsertToolMessage(currentConversationId, event.callId, {
-										tool_name: event.name,
-										tool_result: event.result,
-										content: toolSummary(event.name, event.success),
-										success: event.success,
-										loading: false
-									})
-								} else if (event.kind === 'reasoning') {
+								if (event.kind === 'reasoning') {
 									this.isReasoningActive = true
 									this.#reasoningReveal.push(event.content)
 								} else if (event.kind === 'token') {
 									this.#replyReveal.push(event.content)
+								} else {
+									// Whatever the pacing still holds belongs to the row before the tool —
+									// thinking that led straight to the call included — so it is revealed
+									// before the event that closes that row.
+									if (event.kind === 'tool_call' || event.kind === 'tool_execution') {
+										this.#flushReveals()
+										this.currentReasoning = ''
+										this.isReasoningActive = false
+									}
+									const step = applyStreamEvent(
+										{ rows: this.messages, state: this.#turn },
+										event,
+										this.#newRowId
+									)
+									this.messages = step.rows
+									this.#turn = step.state
 								}
 							}
 						}
