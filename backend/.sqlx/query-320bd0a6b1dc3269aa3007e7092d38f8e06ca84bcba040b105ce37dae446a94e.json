@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO git_sync_ci_test_check\n            (workspace_id, github_workspace_id, head_sha, head_ref, repo_url,\n             repo_resource_path, check_run_id,\n             created_at, concluded, conclusion, concluded_at, github_posted)\n         VALUES ($1, $2, $3, $4, $5, $6, NULL, now(), false, NULL, NULL, false)\n         ON CONFLICT (workspace_id, repo_resource_path, head_sha) DO UPDATE SET\n            github_workspace_id = EXCLUDED.github_workspace_id,\n            head_ref = EXCLUDED.head_ref,\n            repo_url = EXCLUDED.repo_url,\n            check_run_id = NULL,\n            created_at = now(),\n            concluded = false,\n            concluded_at = NULL,\n            github_posted = false",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "320bd0a6b1dc3269aa3007e7092d38f8e06ca84bcba040b105ce37dae446a94e"
+}

@@ -659,7 +659,8 @@ corresponds to; the check reflects that fork's current results on the PR head.
   a job counts only while its test script still exists and still references its tested
   item (wildcards included), so a deleted, archived or de-annotated test's last run, or a
   target the test dropped, stops deciding the verdict. Fail-fast on any failed/canceled;
-  `success` once all settle (or "No CI tests" when none ran); `skipped`
+  `success` once all settle (or "No CI tests" when none ran, unless the head previously
+  failed and its runs have since expired: the failure then stands); `skipped`
   (debounce-superseded) ignored.
 - **Readiness** — the verdict is read only once the fork reflects the head, so it does not
   matter which webhook GitHub delivers first. The evidence is `git_sync_synced_head`: the
@@ -673,7 +674,9 @@ corresponds to; the check reflects that fork's current results on the PR head.
   whether the next poll pulls (a push must never write it, or a commit someone else pushed
   under ours would be skipped) and it is client-round-tripped settings. The check row
   stores `head_ref` for the lookup. The check also waits while a dependency job in the
-  fork (a lockfile-generating deploy hands its CI tests to one) is queued, and fails
+  fork (a lockfile-generating deploy hands its CI tests to one) or a pull of the repository
+  branch is queued (a deploy push lands on whatever the remote held when it cloned, so a
+  commit pushed there from outside is in the workspace only once its pull ran), and fails
   outright if a dependency job failed after the head's pull started: the item deployed
   nothing runnable and queued no test, so an older passing run must not decide. A commit
   the fork never comes to reflect times out; its deploy check shows why. Needs the hub push script version that reports the sha
