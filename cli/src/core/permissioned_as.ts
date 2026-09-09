@@ -94,14 +94,21 @@ function contentHasOnBehalfOf(content: string, typeStr: string): boolean {
   return false;
 }
 
-/** The app folder a changed file belongs to, or undefined when the file is not
- * an app's. Adding, editing or deleting any file in the folder redeploys the
- * whole app and so rewrites its policy, so the owner changes once however many
- * of the app's files moved — raw apps included: `raw_app.yaml` records no
- * policy, so a push always reassigns. */
-function appFolderOf(path: string, typeStr: string): string | undefined {
-  if (typeStr !== "app" && typeStr !== "raw_app") return undefined;
+type AppTypeStr = "app" | "raw_app";
+
+function isAppTypeStr(typeStr: string): typeStr is AppTypeStr {
+  return typeStr === "app" || typeStr === "raw_app";
+}
+
+/** The app folder a file belongs to. `isAppFolderMetadataFile` and its raw twin
+ * match a literal `/`, unlike `extractFolderPath` — so normalize before either,
+ * or a Windows path takes a different branch from the same file on Linux. */
+function appFolderOf(path: string, typeStr: AppTypeStr): string {
   return extractFolderPath(path, typeStr) ?? path;
+}
+
+function toPosix(path: string): string {
+  return path.replaceAll("\\", "/");
 }
 
 /** App folders whose own metadata file is being added or deleted, which is how a
@@ -111,19 +118,17 @@ function appsArrivingOrLeaving(changes: Change[]): Set<string> {
   const folders = new Set<string>();
   for (const change of changes) {
     if (change.name === "edited") continue;
-    if (
-      !isAppFolderMetadataFile(change.path) &&
-      !isRawAppFolderMetadataFile(change.path)
-    ) {
+    const path = toPosix(change.path);
+    if (!isAppFolderMetadataFile(path) && !isRawAppFolderMetadataFile(path)) {
       continue;
     }
-    let folder: string | undefined;
+    let typeStr: string;
     try {
-      folder = appFolderOf(change.path, getTypeStrFromPath(change.path));
+      typeStr = getTypeStrFromPath(path);
     } catch {
       continue;
     }
-    if (folder) folders.add(folder);
+    if (isAppTypeStr(typeStr)) folders.add(appFolderOf(path, typeStr));
   }
   return folders;
 }
@@ -146,12 +151,6 @@ export async function preCheckPermissionedAs(
     }
   };
   const arrivingOrLeaving = appsArrivingOrLeaving(changes);
-  const addAppOwnerChange = (path: string, typeStr: string) => {
-    const folder = appFolderOf(path, typeStr);
-    if (folder && !arrivingOrLeaving.has(folder)) {
-      addItem({ path: folder, currentOwner: "(app policy owner)" });
-    }
-  };
 
   for (const change of changes) {
     let typeStr: string;
@@ -161,9 +160,15 @@ export async function preCheckPermissionedAs(
       continue;
     }
 
-    // Deleting one of an app's files re-pushes the app, policy and all.
-    if (change.name === "deleted") {
-      addAppOwnerChange(change.path, typeStr);
+    // An app is redeployed whole by any change to any of its files — added,
+    // edited or deleted alike — so its policy is rewritten regardless of what
+    // the file holds. Settled here, before the content the other kinds parse to
+    // find their owner, which an app has none of to parse.
+    if (isAppTypeStr(typeStr)) {
+      const folder = appFolderOf(toPosix(change.path), typeStr);
+      if (!arrivingOrLeaving.has(folder)) {
+        addItem({ path: folder, currentOwner: "(app policy owner)" });
+      }
       continue;
     }
 
@@ -187,8 +192,6 @@ export async function preCheckPermissionedAs(
         const label =
           typeStr === "script" ? "(script owner)" : "(flow owner)";
         wouldChangeItems.push({ path: change.path, currentOwner: label });
-      } else {
-        addAppOwnerChange(change.path, typeStr);
       }
       continue;
     }
@@ -230,9 +233,6 @@ export async function preCheckPermissionedAs(
           });
         }
       }
-      continue;
-    } else if (typeStr === "app" || typeStr === "raw_app") {
-      addAppOwnerChange(change.path, typeStr);
       continue;
     } else if (typeStr === "schedule") {
       const match = beforeContent.match(

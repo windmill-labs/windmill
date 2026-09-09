@@ -72,6 +72,35 @@ test("an app arriving or leaving whole is not a takeover", async () => {
   expect(removed).toBeUndefined();
 });
 
+// An app carries no owner in its files, so nothing about it depends on their
+// content — an empty one redeploys it exactly like any other.
+test("an empty file still counts as a change to the app", async () => {
+  const added = await precheck([
+    { name: "added", path: "f/test/myapp.raw_app/blank.ts", content: "" },
+  ]);
+  const edited = await precheck([
+    { name: "edited", path: "f/test/myapp.raw_app/blank.ts", before: "" },
+  ]);
+
+  expect(added).toContain("f/test/myapp.raw_app");
+  expect(edited).toContain("f/test/myapp.raw_app");
+});
+
+// `extractFolderPath` normalizes separators but the metadata predicates match a
+// literal `/`, so a Windows path must not take a different branch.
+test("a Windows path classifies the same as its posix twin", async () => {
+  const created = await precheck([
+    change("f\\test\\new.raw_app\\raw_app.yaml", "added"),
+    change("f\\test\\new.raw_app\\index.tsx", "added"),
+  ]);
+  const edited = await precheck([
+    change("f\\test\\myapp.raw_app\\index.tsx"),
+  ]);
+
+  expect(created).toBeUndefined();
+  expect(edited).toContain("f/test/myapp.raw_app");
+});
+
 test("an app is listed once however many of its files changed", async () => {
   const message = await precheck([
     change("f/test/myapp.raw_app/index.tsx"),
