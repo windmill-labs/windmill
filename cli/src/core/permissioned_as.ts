@@ -3,6 +3,7 @@ import * as log from "./log.ts";
 import { colors } from "@cliffy/ansi/colors";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { getTypeStrFromPath } from "../types.ts";
+import { extractFolderPath } from "../utils/resource_folders.ts";
 import { parseSyncBehavior } from "./conf.ts";
 
 export interface PermissionedAsContext {
@@ -89,6 +90,21 @@ function contentHasOnBehalfOf(content: string, typeStr: string): boolean {
   return false;
 }
 
+/** The app a changed file belongs to, or undefined when the file is not an
+ * app's. Any file in the folder redeploys the app and so rewrites its policy,
+ * so the owner changes once however many of the app's files moved — raw apps
+ * included: `raw_app.yaml` records no policy, so a push always reassigns. */
+function appOwnerChange(
+  path: string,
+  typeStr: string
+): { path: string; currentOwner: string } | undefined {
+  if (typeStr !== "app" && typeStr !== "raw_app") return undefined;
+  return {
+    path: extractFolderPath(path, typeStr) ?? path,
+    currentOwner: "(app policy owner)",
+  };
+}
+
 export async function preCheckPermissionedAs(
   changes: Change[],
   userEmail: string,
@@ -101,6 +117,11 @@ export async function preCheckPermissionedAs(
   if (userIsAdminOrDeployer) return;
 
   const wouldChangeItems: { path: string; currentOwner: string }[] = [];
+  const addItem = (item: { path: string; currentOwner: string }) => {
+    if (!wouldChangeItems.some((i) => i.path === item.path)) {
+      wouldChangeItems.push(item);
+    }
+  };
 
   for (const change of changes) {
     let typeStr: string;
@@ -130,11 +151,9 @@ export async function preCheckPermissionedAs(
         const label =
           typeStr === "script" ? "(script owner)" : "(flow owner)";
         wouldChangeItems.push({ path: change.path, currentOwner: label });
-      } else if (typeStr === "app") {
-        wouldChangeItems.push({
-          path: change.path,
-          currentOwner: "(app policy owner)",
-        });
+      } else {
+        const app = appOwnerChange(change.path, typeStr);
+        if (app) addItem(app);
       }
       continue;
     }
@@ -177,11 +196,9 @@ export async function preCheckPermissionedAs(
         }
       }
       continue;
-    } else if (typeStr === "app") {
-      wouldChangeItems.push({
-        path: change.path,
-        currentOwner: "(app policy owner)",
-      });
+    } else if (typeStr === "app" || typeStr === "raw_app") {
+      const app = appOwnerChange(change.path, typeStr);
+      if (app) addItem(app);
       continue;
     } else if (typeStr === "schedule") {
       const match = beforeContent.match(
