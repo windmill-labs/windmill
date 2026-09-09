@@ -55,7 +55,6 @@
 	interface Props {
 		loading: boolean
 		disableStaticInputs?: boolean
-		disableTutorials?: boolean
 		disableAi?: boolean
 		disableSettings?: boolean
 		disabledFlowInputs?: boolean
@@ -99,7 +98,6 @@
 	let {
 		loading,
 		disableStaticInputs = false,
-		disableTutorials = false,
 		disableAi = false,
 		disableSettings = false,
 		disabledFlowInputs = false,
@@ -391,7 +389,6 @@
 						bind:this={flowModuleSchemaMap}
 						controlsPosition={compactGraphOverlay ? 'bottom' : 'top'}
 						{disableStaticInputs}
-						{disableTutorials}
 						{disableAi}
 						{disableSettings}
 						{smallErrorHandler}
