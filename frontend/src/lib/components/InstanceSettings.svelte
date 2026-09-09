@@ -14,6 +14,7 @@
 
 	import { sleep } from '$lib/utils'
 	import { enterpriseLicense } from '$lib/stores'
+	import { isCloudHosted } from '$lib/cloud'
 
 	import { createEventDispatcher } from 'svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
@@ -100,7 +101,8 @@
 		otel: {},
 		indexer_settings: {},
 		critical_error_channels: [],
-		github_enterprise_app: {}
+		github_enterprise_app: {},
+		instance_banner: {}
 	}
 
 	function applyFormDefaults(vals: Record<string, any>): void {
@@ -524,6 +526,10 @@
 		for (const category of settingsKeys) {
 			const categorySettings = getSettingsForCategory(category)
 			result[category] = categorySettings.some((s) => {
+				// A field the build never renders must not be able to block Save: off-cloud its
+				// value is unreachable, so an invalid one (from config sync, say) would leave the
+				// category permanently unsaveable with nothing on screen to fix.
+				if (s.cloudonly && !isCloudHosted()) return false
 				if (s.isValid && !s.isValid(currentValues?.[s.key])) return true
 				if (s.validate) {
 					const errors = s.validate(currentValues?.[s.key])

@@ -855,7 +855,8 @@
 			...aiToolNodesResult.toolNodes
 		]
 
-		// Collect module IDs hidden inside collapsed groups so note cleanup preserves them
+		// Module IDs hidden inside collapsed groups: a note whose members are all in here has
+		// nothing on screen to wrap, so it is skipped.
 		const collapsedModuleIds = new Set<string>()
 		for (const n of finalNodes) {
 			if (n.type === 'collapsedGroup') {

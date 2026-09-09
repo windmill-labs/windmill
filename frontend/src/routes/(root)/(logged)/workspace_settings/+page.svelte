@@ -204,6 +204,9 @@
 		pem: guestJwtKeyType === 'pem' ? guestJwtPublicKey.trim() : '',
 		jwks: guestJwtKeyType === 'jwks' ? guestJwtJwksUrl.trim() : ''
 	})
+	// Whether the deployment can have guests at all; off, the card offers no switch to
+	// turn on. The backend decides; the hostname stands in until it has answered.
+	let guestsAvailable = $derived.by(() => guestUsage?.available ?? !isCloudHosted())
 	let initialPublicAppRateLimitPerMinute: number | undefined = $state(undefined)
 
 	let hasInstanceAiConfig = $state(false)
@@ -569,6 +572,20 @@
 		initialGuestJwtPublicKey = effectiveGuestJwt.pem
 		initialGuestJwtJwksUrl = effectiveGuestJwt.jwks
 		sendUserToast('Guest JWT key updated')
+	}
+
+	// Removing a key stays allowed where guests are unavailable, and the rest of the card
+	// is hidden there, so this is the only way left to drop one stored earlier.
+	async function clearGuestJwtKey(): Promise<void> {
+		await WorkspaceService.editGuestJwtKey({
+			workspace: $workspaceStore!,
+			requestBody: { public_key: undefined, jwks_url: undefined }
+		})
+		guestJwtPublicKey = ''
+		guestJwtJwksUrl = ''
+		initialGuestJwtPublicKey = ''
+		initialGuestJwtJwksUrl = ''
+		sendUserToast('Guest JWT key cleared')
 	}
 
 	async function editGuestAccess(): Promise<void> {
@@ -2231,77 +2248,92 @@ export async function main(
 								description="Let anyone your identity provider authenticates, or a JWT your own backend signs (configured below), open the apps set to Guests without a Windmill account. They join no workspace, see nothing else, and take no seat. Off by default. Turning it off stops guests immediately, even for apps already set to Guests."
 								class="mt-6"
 							>
-								<Toggle
-									bind:checked={guestAccessEnabled}
-									options={{ right: 'Allow guests to open apps set to Guests' }}
-								/>
-								{#if guestUsage && !guestUsage.instance_enabled}
-									<span class="text-hint text-2xs">
-										A superadmin has turned guests off for this instance, so this switch has no
-										effect until they are allowed again.
-									</span>
-								{:else if guestUsage}
-									<span class="text-hint text-2xs">
-										{guestUsage.guest_count} of {guestUsage.free_allowance} free guests used across this
-										instance in the last {guestUsage.window_days} days.
-										{#if guestUsage.metered}
-											Beyond that, every four guests count as one seat{guestUsage.guest_seats > 0
-												? ` (${guestUsage.guest_seats} now)`
-												: ''}.
-										{:else}
-											Beyond that, new guests are refused until the count drops; an Enterprise
-											license meters them instead.
-										{/if}
-									</span>
-								{/if}
-								<div class="mt-4 flex flex-col gap-2 border-t pt-4">
-									<div class="text-xs font-semibold text-emphasis">
-										Guest JWT verification key
-									</div>
-									<div class="text-2xs text-hint">
-										A guest can also enter through a JWT your own backend mints and signs, with no
-										identity-provider round-trip, for iframe embedding. The token must carry
-										<code>email</code>, <code>workspace_id</code>, <code>app_path</code> and
-										<code>exp</code> (lifetime capped at 24h); it opens only the app named by
-										<code>app_path</code>. Accepted algorithms: RS256/384/512, PS256/384/512,
-										ES256/384. Symmetric algorithms (HS*) are refused. Configure one key, a PEM
-										public key or a JWKS URL (which must be https). Point it at an issuer you
-										control: any token that key signs carrying these claims is accepted, so a shared
-										multi-tenant issuer is not a good fit.
-									</div>
-									<ToggleButtonGroup bind:selected={guestJwtKeyType}>
-										{#snippet children({ item })}
-											<ToggleButton {item} value="pem" label="PEM public key" />
-											<ToggleButton {item} value="jwks" label="JWKS URL" />
-										{/snippet}
-									</ToggleButtonGroup>
-									{#if guestJwtKeyType === 'pem'}
-										<TextInput
-											underlyingInputEl="textarea"
-											class="font-mono text-xs"
-											autosizeParams={{ minHeight: 128 }}
-											inputProps={{
-												placeholder: '-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----'
-											}}
-											bind:value={guestJwtPublicKey}
-										/>
-									{:else}
-										<TextInput
-											inputProps={{
-												placeholder: 'https://issuer.example.com/.well-known/jwks.json'
-											}}
-											bind:value={guestJwtJwksUrl}
-										/>
+								{#if !guestsAvailable}
+									<Alert type="info" title="Not available on Windmill Cloud" size="xs">
+										Guests require a self-hosted instance or a dedicated Windmill Cloud deployment.
+									</Alert>
+									{#if initialGuestJwtPublicKey || initialGuestJwtJwksUrl}
+										<div class="mt-3 flex flex-row items-center gap-3">
+											<span class="text-hint text-2xs">
+												A guest JWT verification key is stored for this workspace and cannot be
+												used.
+											</span>
+											<Button unifiedSize="xs" variant="default" onclick={clearGuestJwtKey}>
+												Clear stored key
+											</Button>
+										</div>
 									{/if}
-									{#if !isCloudHosted()}
+								{:else}
+									<Toggle
+										bind:checked={guestAccessEnabled}
+										options={{ right: 'Allow guests to open apps set to Guests' }}
+									/>
+									{#if guestUsage && !guestUsage.instance_enabled}
+										<span class="text-hint text-2xs">
+											A superadmin has turned guests off for this instance, so this switch has no
+											effect until they are allowed again.
+										</span>
+									{:else if guestUsage}
+										<span class="text-hint text-2xs">
+											{guestUsage.guest_count} of {guestUsage.free_allowance} free guests used across
+											this instance in the last {guestUsage.window_days} days.
+											{#if guestUsage.metered}
+												Beyond that, every four guests count as one seat{guestUsage.guest_seats > 0
+													? ` (${guestUsage.guest_seats} now)`
+													: ''}.
+											{:else}
+												Beyond that, new guests are refused until the count drops; an Enterprise
+												license meters them instead.
+											{/if}
+										</span>
+									{/if}
+									<div class="mt-4 flex flex-col gap-2 border-t pt-4">
+										<div class="text-xs font-semibold text-emphasis">
+											Guest JWT verification key
+										</div>
+										<div class="text-2xs text-hint">
+											A guest can also enter through a JWT your own backend mints and signs, with no
+											identity-provider round-trip, for iframe embedding. The token must carry
+											<code>email</code>, <code>workspace_id</code>, <code>app_path</code> and
+											<code>exp</code> (lifetime capped at 24h); it opens only the app named by
+											<code>app_path</code>. Accepted algorithms: RS256/384/512, PS256/384/512,
+											ES256/384. Symmetric algorithms (HS*) are refused. Configure one key, a PEM
+											public key or a JWKS URL (which must be https). Point it at an issuer you
+											control: any token that key signs carrying these claims is accepted, so a
+											shared multi-tenant issuer is not a good fit.
+										</div>
+										<ToggleButtonGroup bind:selected={guestJwtKeyType}>
+											{#snippet children({ item })}
+												<ToggleButton {item} value="pem" label="PEM public key" />
+												<ToggleButton {item} value="jwks" label="JWKS URL" />
+											{/snippet}
+										</ToggleButtonGroup>
+										{#if guestJwtKeyType === 'pem'}
+											<TextInput
+												underlyingInputEl="textarea"
+												class="font-mono text-xs"
+												autosizeParams={{ minHeight: 128 }}
+												inputProps={{
+													placeholder: '-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----'
+												}}
+												bind:value={guestJwtPublicKey}
+											/>
+										{:else}
+											<TextInput
+												inputProps={{
+													placeholder: 'https://issuer.example.com/.well-known/jwks.json'
+												}}
+												bind:value={guestJwtJwksUrl}
+											/>
+										{/if}
 										<div class="text-2xs text-hint">
 											Leave empty to fall back to the instance's configured JWT issuer (<code
 												>JWT_EXT_JWKS_URL</code
 											>), if one is set. Set a key here to trust a different issuer for this
 											workspace.
 										</div>
-									{/if}
-								</div>
+									</div>
+								{/if}
 							</SettingCard>
 
 							<SettingsFooter

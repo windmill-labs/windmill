@@ -864,8 +864,12 @@ pub async fn guest_count_in_window<'c, E: sqlx::Executor<'c, Database = sqlx::Po
 /// The instance's standing against the guest allowance, as every surface reports it.
 #[derive(Clone, Debug, Serialize)]
 pub struct GuestUsage {
+    /// Whether this deployment can admit guests at all ([`instance_supports_guests`]).
+    /// Off, every other field is moot and no switch below can turn guests on.
+    pub available: bool,
     /// The superadmin switch (`GUEST_ACCESS_DISABLED_SETTING`), which every workspace
-    /// switch sits under.
+    /// switch sits under. Reported as stored, so a superadmin sees what they set even
+    /// where `available` overrules it.
     pub instance_enabled: bool,
     /// Distinct guest emails over the trailing `window_days`.
     pub guest_count: i64,
@@ -878,9 +882,33 @@ pub struct GuestUsage {
     pub guest_seats: i64,
 }
 
-/// SQL for "the instance admits guests": the superadmin switch, absent meaning on. The
-/// setting is read as text before the cast so `true` and `"true"` both count.
-fn instance_admits_guests_sql() -> String {
+/// What a caller is told when it asks for guests on a deployment that cannot have them.
+pub const GUESTS_UNAVAILABLE_MESSAGE: &str =
+    "Guest access is not available on Windmill Cloud. It requires a self-hosted instance \
+     or a dedicated Windmill Cloud deployment.";
+
+/// Whether guests can exist on this deployment at all. They cannot on the shared cloud:
+/// a guest is an identity Windmill itself never vouched for, admitted on the say-so of
+/// whoever runs the instance, which is not a call a multi-tenant deployment can make for
+/// its tenants. Folded into every guest gate below, so a workspace switch or an app
+/// policy left saying `guest` is inert rather than honored.
+pub fn instance_supports_guests() -> bool {
+    !*crate::worker::CLOUD_HOSTED
+}
+
+/// [`instance_supports_guests`] as an error, for the writes that would otherwise store a
+/// setting that can never take effect.
+pub fn require_guest_support() -> Result<()> {
+    if instance_supports_guests() {
+        Ok(())
+    } else {
+        Err(Error::BadRequest(GUESTS_UNAVAILABLE_MESSAGE.to_string()))
+    }
+}
+
+/// SQL for the superadmin switch alone, absent meaning on. The setting is read as text
+/// before the cast so `true` and `"true"` both count.
+fn instance_switch_sql() -> String {
     format!(
         "NOT COALESCE((SELECT (value #>> '{{}}')::boolean FROM global_settings \
          WHERE name = '{}'), false)",
@@ -888,9 +916,18 @@ fn instance_admits_guests_sql() -> String {
     )
 }
 
+/// SQL for "the instance admits guests": the superadmin switch, under
+/// [`instance_supports_guests`].
+fn instance_admits_guests_sql() -> String {
+    if !instance_supports_guests() {
+        return "false".to_string();
+    }
+    instance_switch_sql()
+}
+
 pub async fn guest_usage(db: &crate::DB) -> Result<GuestUsage> {
-    let instance_admits = instance_admits_guests_sql();
-    let instance_enabled: bool = sqlx::query_scalar(&format!("SELECT {instance_admits}"))
+    let instance_switch = instance_switch_sql();
+    let instance_enabled: bool = sqlx::query_scalar(&format!("SELECT {instance_switch}"))
         .fetch_one(db)
         .await
         .map_err(|e| Error::internal_err(format!("reading the instance guest switch: {e:#}")))?;
@@ -902,6 +939,7 @@ pub async fn guest_usage(db: &crate::DB) -> Result<GuestUsage> {
         0
     };
     Ok(GuestUsage {
+        available: instance_supports_guests(),
         instance_enabled,
         guest_count,
         window_days: GUEST_WINDOW_DAYS,
