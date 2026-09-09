@@ -10,7 +10,7 @@
 		INSTANCE_BANNER_LINK_LABEL_MAX_LEN,
 		INSTANCE_BANNER_MESSAGE_MAX_LEN,
 		INSTANCE_BANNER_SETTING,
-		isHttpUrl,
+		instanceBannerFormError,
 		resolveInstanceBanner,
 		type InstanceBanner,
 		type InstanceBannerSeverity
@@ -43,10 +43,7 @@
 	// Runs the resolver the banner itself uses, so this shows what the instance gets —
 	// including the "nothing is shown" cases (disabled, or an empty message).
 	let preview = $derived(resolveInstanceBanner(banner))
-	let link = $derived(bannerString(banner.link).trim())
-	let linkError = $derived(
-		link !== '' && !isHttpUrl(link) ? 'Link must be an absolute http(s) URL' : undefined
-	)
+	let linkError = $derived(instanceBannerFormError(banner))
 </script>
 
 <div class="flex flex-col gap-3">

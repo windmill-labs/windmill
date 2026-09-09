@@ -97,6 +97,19 @@ export function resolveInstanceBanner(raw: unknown): ResolvedInstanceBanner | un
 }
 
 /**
+ * The reason the banner form cannot be saved, or `undefined` when it can.
+ *
+ * Shared with the setting's `isValid` so the Save button and the inline message agree: the
+ * backend refuses a bad link, and a category save fires its settings concurrently, so a Save
+ * that got this far would persist the other Core settings and fail only the banner.
+ */
+export function instanceBannerFormError(value: unknown): string | undefined {
+	if (!value || typeof value !== 'object') return undefined
+	const link = bannerString((value as InstanceBanner).link).trim()
+	return link !== '' && !isHttpUrl(link) ? 'Link must be an absolute http(s) URL' : undefined
+}
+
+/**
  * Whether a viewer holding `dismissedFingerprint` should see this announcement.
  *
  * A non-dismissible announcement ignores stored dismissals entirely: an admin escalating an
