@@ -1079,10 +1079,12 @@ export class DbtPathCollisionError extends UnresolvableScriptContentFileError {}
  * guard on one of them leaves the other silently overwriting.
  */
 export async function collidingDbtProject(
-  basePath: string
+  basePath: string,
+  baseDir?: string
 ): Promise<string | undefined> {
   const project = basePath + "__dbt/dbt_project.yml";
-  return (await stat(project).then(() => true).catch(() => false))
+  const onDisk = baseDir ? path.join(baseDir, project) : project;
+  return (await stat(onDisk).then(() => true).catch(() => false))
     ? project
     : undefined;
 }
@@ -1143,7 +1145,14 @@ async function readScriptContent(filePath: string): Promise<string> {
   }
 }
 
-export async function findContentFile(filePath: string) {
+/**
+ * The script file `filePath`'s metadata belongs to. `baseDir`, when given, is
+ * where the disk lookups happen, leaving `filePath` classified as written: the
+ * layout helpers below match their suffixes ANYWHERE in a path, so a caller
+ * that prefixed a checkout named `repo__mod` would have it read as the module.
+ */
+export async function findContentFile(filePath: string, baseDir?: string) {
+  const onDisk = (p: string) => (baseDir ? path.join(baseDir, p) : p);
   // Folder layout: __mod/script.yaml -> __mod/script.ts
   const isModuleFolderMeta = isModuleEntryMetadata(filePath);
   const toCandidate = (ext: string) =>
@@ -1167,7 +1176,7 @@ export async function findContentFile(filePath: string) {
   const validCandidates = (
     await Promise.all(
       candidates.map((x) => {
-        return stat(x)
+        return stat(onDisk(x))
           .catch(() => undefined)
           .then((x) => x?.isFile())
           .then((e) => {
@@ -1187,6 +1196,7 @@ export async function findContentFile(filePath: string) {
   const dbtCandidate = toCandidate("__dbt/" + DBT_DESCRIPTOR_NAME);
   const dbtProject = await collidingDbtProject(
     dbtCandidate.slice(0, -("__dbt/" + DBT_DESCRIPTOR_NAME).length),
+    baseDir,
   );
   const nonDbtCandidates = validCandidates.filter((c) => c !== dbtCandidate);
   if (dbtProject && nonDbtCandidates.length > 0) {
