@@ -6517,6 +6517,52 @@ paths:
         "404":
           description: no offer for this account
 
+  /users/onboarding_profile:
+    post:
+      summary: record the invite context an account's onboarding tailors itself from (require superadmin, cloud only)
+      operationId: setOnboardingProfile
+      tags:
+        - user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - profile
+              properties:
+                email:
+                  type: string
+                profile:
+                  type: object
+                  description: free-form context from the invite; today `touch_point` (answers onboarding's source question) and `company`
+      responses:
+        "200":
+          description: profile recorded
+          content:
+            text/plain:
+              schema:
+                type: string
+    get:
+      summary: the invite context recorded for the signed-in account, if any (cloud only)
+      operationId: getOnboardingProfile
+      tags:
+        - user
+      responses:
+        "200":
+          description: the profile, or null when none was recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profile:
+                    type: object
+                    nullable: true
+                    additionalProperties: true
+
   /users/tokens/delete/{token_prefix}:
     delete:
       summary: delete token

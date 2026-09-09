@@ -146,6 +146,10 @@ pub fn global_service() -> Router {
             post(set_cloud_trial_offer).get(get_cloud_trial_offer),
         )
         .route("/cloud_trial_offer/go", get(go_cloud_trial_offer))
+        .route(
+            "/onboarding_profile",
+            post(set_onboarding_profile).get(get_onboarding_profile),
+        )
         .route("/usage", get(get_usage))
         .route("/all_runnables", get(get_all_runnables))
         .route("/refresh_token", get(refresh_token))
@@ -3329,6 +3333,77 @@ pub struct CloudTrialOfferUpdate {
     pub consumed: bool,
 }
 
+#[derive(Deserialize)]
+pub struct OnboardingProfileUpdate {
+    pub email: String,
+    pub profile: serde_json::Value,
+}
+
+#[derive(Serialize)]
+pub struct OnboardingProfile {
+    pub profile: Option<serde_json::Value>,
+}
+
+/// Context the invite carried about this account's owner, written at provisioning.
+/// Onboarding tailors itself from it (today: `touch_point` answers the source question
+/// so it is never asked); everything degrades to the plain flow when absent.
+async fn set_onboarding_profile(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
+    Json(body): Json<OnboardingProfileUpdate>,
+) -> Result<String> {
+    if !*CLOUD_HOSTED {
+        return Err(Error::NotFound("cloud only".to_string()));
+    }
+    require_super_admin(&db, &authed).await?;
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
+    if !body.profile.is_object() {
+        return Err(Error::BadRequest(
+            "profile must be a JSON object".to_string(),
+        ));
+    }
+    let email = body.email.to_lowercase();
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "INSERT INTO cloud_onboarding_profile (email, profile, created_by) VALUES ($1, $2, $3)
+         ON CONFLICT (email) DO UPDATE SET profile = EXCLUDED.profile",
+        &email,
+        body.profile,
+        &authed.email
+    )
+    .execute(&mut *tx)
+    .await?;
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.onboarding_profile.set",
+        ActionKind::Update,
+        "global",
+        Some(&email),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(format!("onboarding profile for {email} recorded"))
+}
+
+async fn get_onboarding_profile(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<OnboardingProfile> {
+    if !*CLOUD_HOSTED {
+        return Ok(Json(OnboardingProfile { profile: None }));
+    }
+    let profile = sqlx::query_scalar!(
+        "SELECT profile FROM cloud_onboarding_profile WHERE email = $1",
+        &authed.email
+    )
+    .fetch_optional(&db)
+    .await?;
+    Ok(Json(OnboardingProfile { profile }))
+}
+
 #[derive(Serialize)]
 pub struct CloudTrialOffer {
     pub offered: bool,
@@ -3388,7 +3463,11 @@ async fn set_cloud_trial_offer(
     tx.commit().await?;
     Ok(format!(
         "cloud trial offer for {email} {}",
-        if body.consumed { "consumed" } else { "recorded" }
+        if body.consumed {
+            "consumed"
+        } else {
+            "recorded"
+        }
     ))
 }
 
@@ -3409,17 +3488,16 @@ async fn get_cloud_trial_offer(
     if !*CLOUD_HOSTED {
         return Ok(Json(CloudTrialOffer { offered: false }));
     }
-    Ok(Json(CloudTrialOffer { offered: offered(&db, &authed.email).await? }))
+    Ok(Json(CloudTrialOffer {
+        offered: offered(&db, &authed.email).await?,
+    }))
 }
 
 /// The one click that turns a cloud account's pre-approved offer into a trial: the portal
 /// is asked for a login that starts it, and the browser is handed over. The portal is the
 /// authority on whether the offer still stands; its refusal spends the offer here so the
 /// sidebar stops advertising it.
-async fn go_cloud_trial_offer(
-    Extension(db): Extension<DB>,
-    authed: ApiAuthed,
-) -> Result<Response> {
+async fn go_cloud_trial_offer(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<Response> {
     if !*CLOUD_HOSTED || !offered(&db, &authed.email).await? {
         return Err(Error::NotFound(
             "no pre-approved trial offer for this account".to_string(),
