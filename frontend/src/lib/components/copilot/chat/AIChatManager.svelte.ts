@@ -1293,9 +1293,16 @@ export class AIChatManager {
 			typeof this.systemMessage.content === 'string'
 				? this.systemMessage.content.length / tokenPerCharacter
 				: 0
+		// The same set the request carries: registered MCP tools are appended by the
+		// config getter, and their remote schemas are the largest definitions in the
+		// list — leaving them out overstates the tail budget compaction may keep.
+		const sentTools = [
+			...this.tools,
+			...(this.mode === AIMode.GLOBAL ? loadedMcpTools(this.mcpOwnerId) : [])
+		]
 		const toolTokens =
-			this.tools.length > 0
-				? JSON.stringify(this.tools.map((t) => t.def)).length / tokenPerCharacter
+			sentTools.length > 0
+				? JSON.stringify(sentTools.map((t) => t.def)).length / tokenPerCharacter
 				: 0
 		return systemTokens + toolTokens
 	}

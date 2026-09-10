@@ -235,6 +235,9 @@ fn is_valid_json_schema_type(t: &str) -> bool {
 ///   untyped fields) so the node validates as "any type"
 /// - Removing `default: null` when the type doesn't include `null`
 /// - Adding `type: "object"` to property-bearing schemas that have no type
+/// - De-duplicating `required` at every depth, and dropping non-string entries
+///   (`required` is `uniqueItems`, and a repeat makes a strict client drop the
+///   whole tool rather than report an error)
 pub fn make_schema_compatible(schema: &mut Value) {
     let Value::Object(obj) = schema else { return };
 
