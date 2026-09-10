@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { ResourceService, type GetMcpToolsResponse } from '$lib/gen'
-import { createToolDef, normalizeToolParameterSchema, type Tool } from '../shared'
+import { createToolDef, type Tool } from '../shared'
+import { normalizeToolParameterSchema } from '../toolSchema'
 import { enabledMcpPaths } from '$lib/components/mcp/enabledServers'
 
 /**
@@ -28,6 +29,11 @@ const MAX_DESCRIPTION_CHARS = 200
 const MAX_LOADED_TOOLS = 25
 // Both providers cap tool names; OpenAI's 64 is the lower of the two.
 const MAX_TOOL_NAME_CHARS = 64
+// A registered schema is server-controlled text that rides in every request for the
+// rest of the conversation, so it is bounded like every other payload a server
+// controls. Past this, the tool is left unregistered and the model reaches it through
+// `call_mcp_*` instead — the schema still arrives, but only when a call fails.
+const MAX_TOOL_SCHEMA_CHARS = 8_000
 const MAX_RESULT_CHARS = 20_000
 // A server writes its own error text, and every enabled server can contribute
 // one, so search results are capped the same way call results are.
@@ -567,11 +573,17 @@ function evictLoadedTools() {
  * Each tool carries its own `readOnlyHint`, so the confirmation gate is per tool
  * and the read/write wrappers' "you used the wrong one" failure cannot arise.
  */
-export function registerMcpTools(server: McpServer, tools: McpToolDef[]): string[] {
+export function registerMcpTools(server: McpServer, tools: McpToolDef[]): (string | undefined)[] {
 	const names = tools.map((tool) => {
 		const key = `${server.path}::${tool.name}`
 		const name = registeredToolName(server.path, tool.name)
 		const readOnly = isReadOnly(tool)
+		const parameters = safeInputSchema(tool.inputSchema)
+		if (JSON.stringify(parameters).length > MAX_TOOL_SCHEMA_CHARS) {
+			// Left to the wrapper rather than truncated: half a schema would be worse
+			// than none, since the model cannot tell which half it is missing.
+			return undefined
+		}
 		// Set without deleting first: re-registering refreshes the schema in place,
 		// and Map.set keeps an existing key's position, so the emitted tool list — and
 		// the cache breakpoint on its last entry — does not move.
@@ -581,7 +593,7 @@ export function registerMcpTools(server: McpServer, tools: McpToolDef[]): string
 				function: {
 					name,
 					description: `${tool.description ?? tool.name}\n(MCP server ${server.path})`,
-					parameters: safeInputSchema(tool.inputSchema)
+					parameters
 				}
 			},
 			showDetails: true,
@@ -685,7 +697,12 @@ export function createMcpTools(servers: McpServer[]): Tool<{}>[] {
 				}
 				for (const { server, tools } of perServerMatches.values()) {
 					const registered = registerMcpTools(server, tools)
-					tools.forEach((tool, i) => callNames.set(tool, registered[i]))
+					// A tool whose schema was too large to register has no `call` name, and
+					// the summary then advertises the wrapper for it instead.
+					tools.forEach((tool, i) => {
+						const name = registered[i]
+						if (name !== undefined) callNames.set(tool, name)
+					})
 				}
 				const result = boundedSearch({
 					matches: top.map((s) => summarizeTool(s.server, s.tool, callNames.get(s.tool))),

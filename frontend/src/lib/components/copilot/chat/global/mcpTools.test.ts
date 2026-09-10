@@ -7,24 +7,15 @@ const { getMcpToolsMock, callMcpToolMock, listResourceMock, session } = vi.hoist
 	session: { email: 'first@windmill.dev' }
 }))
 
+// `../shared` is stubbed because it reaches the chat's stores. The schema normalizer
+// that sanitizes a remote `inputSchema` on its way into a provider request is
+// deliberately NOT here — it lives in `../toolSchema`, a leaf module with no such
+// imports, so these tests exercise the real one rather than a copy that could drift.
 vi.mock('../shared', () => ({
 	createToolDef: (_schema: unknown, name: string, description: string) => ({
 		type: 'function',
 		function: { name, description, parameters: {} }
-	}),
-	// Mirrors the real normalizer closely enough to keep assertions about what
-	// reaches a provider honest: it strips empty/null `format`, recursively.
-	normalizeToolParameterSchema: function strip(schema: any): void {
-		if (!schema || typeof schema !== 'object') return
-		if (schema.format === null || schema.format === '') delete schema.format
-		for (const child of Object.values(schema.properties ?? {})) strip(child)
-		if (Array.isArray(schema.items)) schema.items.forEach(strip)
-		else strip(schema.items)
-		for (const kw of ['allOf', 'anyOf', 'oneOf']) {
-			if (Array.isArray(schema[kw])) schema[kw].forEach(strip)
-		}
-		if (typeof schema.additionalProperties === 'object') strip(schema.additionalProperties)
-	}
+	})
 }))
 
 vi.mock('$lib/gen', () => ({
@@ -220,6 +211,23 @@ describe('loaded remote tools', () => {
 		expect(params.required).toEqual(['a'])
 		expect(params.$schema).toBeUndefined()
 		expect(params.properties.a.format).toBeUndefined()
+	})
+
+	// A registered schema rides in every request for the rest of the conversation, so
+	// an outsized one is left to the wrapper — where it costs a tool result once —
+	// rather than truncated into something the model cannot tell is incomplete.
+	it('does not register a tool whose schema is too large to carry', () => {
+		const huge = {
+			name: 'huge',
+			description: 'x',
+			inputSchema: {
+				type: 'object',
+				properties: { a: { type: 'string', description: 'x'.repeat(9000) } }
+			}
+		} as any
+
+		expect(registerMcpTools(server, [huge])).toEqual([undefined])
+		expect(loadedMcpTools()).toEqual([])
 	})
 
 	it('falls back to an empty object schema when the remote sends no usable one', () => {

@@ -261,6 +261,19 @@ pub fn make_schema_compatible(schema: &mut Value) {
         obj.insert("type".to_string(), Value::String("string".to_string()));
     }
 
+    // 2c. `required` is `uniqueItems` at every subschema, not just the root, so a
+    // repeat nested inside a property makes a strict validator reject the whole tool
+    // just as a root-level one does -- and the tool then vanishes from the client's
+    // list rather than failing loudly. `transform_property_keys` covers only the root,
+    // where it also has to follow key renames.
+    if let Some(Value::Array(required)) = obj.get_mut("required") {
+        let mut seen = HashSet::new();
+        required.retain(|name| match name.as_str() {
+            Some(name) => seen.insert(name.to_string()),
+            None => false,
+        });
+    }
+
     // 3. Fix contradictory type: if `properties` is present, type must be "object"
     if obj.contains_key("properties") {
         match obj.get("type").and_then(|v| v.as_str()) {
@@ -849,6 +862,28 @@ mod tests {
         assert!(node["items"].get("resourceType").is_none());
         let desc = node["items"]["description"].as_str().unwrap();
         assert!(desc.contains("$res:f/platform/aws_dev"));
+    }
+
+    #[test]
+    fn dedupes_required_at_every_depth() {
+        // A repeat anywhere makes a strict validator reject the whole tool, and the
+        // root-level pass in `transform_property_keys` never sees a nested one.
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "user": {
+                    "type": "object",
+                    "properties": { "id": { "type": "string" } },
+                    "required": ["id", "id"]
+                }
+            },
+            "required": ["user", "user"]
+        });
+
+        make_schema_compatible(&mut schema);
+
+        assert_eq!(schema["required"], json!(["user"]));
+        assert_eq!(schema["properties"]["user"]["required"], json!(["id"]));
     }
 
     #[test]

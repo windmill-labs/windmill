@@ -7,6 +7,7 @@ import type { UserDraftItemKind } from '$lib/gen'
 // The gate's two refusals, from a module that holds prose and one size limit: under the
 // shallow-import rule below, the rest of plan mode is not reachable from here.
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
+import { normalizeToolParameterSchema } from './toolSchema'
 // Import-free leaf, so it satisfies the shallow-import rule below.
 import {
 	openItemPreviewAction,
@@ -1394,52 +1395,6 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 		return JSON.stringify(results)
 	}
 })
-
-/**
- * Recursively normalizes JSON Schema quirks that specific providers reject.
- */
-export function normalizeToolParameterSchema(schema: Record<string, any> | undefined): void {
-	if (!schema || typeof schema !== 'object') {
-		return
-	}
-
-	// Remove format if it's null or empty string
-	if (schema.format === null || schema.format === '') {
-		delete schema.format
-	}
-
-	// Recurse into properties
-	if (schema.properties && typeof schema.properties === 'object') {
-		for (const key of Object.keys(schema.properties)) {
-			normalizeToolParameterSchema(schema.properties[key])
-		}
-	}
-
-	// Recurse into items (for arrays)
-	if (schema.items) {
-		if (Array.isArray(schema.items)) {
-			for (const item of schema.items) {
-				normalizeToolParameterSchema(item)
-			}
-		} else {
-			normalizeToolParameterSchema(schema.items)
-		}
-	}
-
-	// Recurse into additionalProperties if it's an object schema
-	if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
-		normalizeToolParameterSchema(schema.additionalProperties)
-	}
-
-	// Recurse into allOf, anyOf, oneOf
-	for (const key of ['allOf', 'anyOf', 'oneOf']) {
-		if (Array.isArray(schema[key])) {
-			for (const subSchema of schema[key]) {
-				normalizeToolParameterSchema(subSchema)
-			}
-		}
-	}
-}
 
 export async function buildSchemaForTool(
 	toolDef: ChatCompletionFunctionTool,
