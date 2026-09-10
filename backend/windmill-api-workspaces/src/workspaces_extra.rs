@@ -1265,6 +1265,17 @@ pub(crate) async fn delete_workspace(
         None,
     )
     .await?;
+    // Each fork pointing here keeps the replication stream it opened while this workspace
+    // governed it. Bounced in this transaction, so a listener that reconnects finds its pointer
+    // dangling instead of streaming on.
+    crate::datatable_permissions::restart_streams_named(
+        &mut *tx,
+        stranded_pointers
+            .iter()
+            .map(|r| (r.workspace_id.clone(), r.datatable.clone()))
+            .collect(),
+    )
+    .await?;
     tx.commit().await?;
 
     // Physical ducklake-namespace cleanup, post-commit, from the pre-read snapshot: fork
