@@ -212,9 +212,6 @@
 	// An account entered through an invite link that still has no credentials of its own;
 	// the entry (and the sidebar banner it echoes) disappears once it does.
 	let pendingSetup = $derived(accountSetup.pending)
-	$effect(() => {
-		accountSetup.refresh()
-	})
 
 	const items = $derived<Item[]>([
 		{
@@ -234,14 +231,12 @@
 				? `${$userStore?.email} (superadmin, not a member)`
 				: ($userStore?.email ?? 'User'),
 			icon: $userStore?.is_admin || $userStore?.non_member ? Crown : User,
-			extra: pendingSetup ? setupPing : undefined,
 			submenuItems: [
 				...(pendingSetup
 					? [
 							{
 								displayName: 'Finish account setup',
 								icon: KeyRound,
-								iconColor: '#3b82f6',
 								// The dropdown closes on this click; the modal opens once it is gone so its own
 								// buttons don't compete with the menu's outside-click handling.
 								action: () => setTimeout(() => (accountSetup.open = true), 50)
@@ -291,16 +286,6 @@
 	{#if numUnacknowledgedCriticalAlerts > 0}
 		<SideBarNotification notificationCount={numUnacknowledgedCriticalAlerts} />
 	{/if}
-{/snippet}
-
-<!-- Same shape as the changelog ping below: the account still has no credentials of
-     its own, and the only way to notice is this. -->
-{#snippet setupPing()}
-	<span class="ml-auto flex h-2 w-2 shrink-0" title="Finish account setup">
-		<span class="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-blue-400 opacity-75"
-		></span>
-		<span class="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
-	</span>
 {/snippet}
 
 {#snippet helpPing()}
@@ -395,22 +380,16 @@
 				Settings
 				<ChevronDown size={14} class="ml-auto flex-shrink-0 text-tertiary" />
 			{/if}
-			{#if pendingSetup || hasNewChangelogs}
+			{#if hasNewChangelogs}
 				<span
 					class="flex h-2 w-2 absolute {isCollapsed
 						? 'top-0.5 right-0.5'
 						: 'right-7 top-1/2 -translate-y-1/2'}"
 				>
 					<span
-						class="animate-ping absolute inline-flex h-full w-full rounded-full {pendingSetup
-							? 'bg-blue-400'
-							: 'bg-frost-400'} opacity-75"
+						class="animate-ping absolute inline-flex h-full w-full rounded-full bg-frost-400 opacity-75"
 					></span>
-					<span
-						class="relative inline-flex rounded-full h-2 w-2 {pendingSetup
-							? 'bg-blue-500'
-							: 'bg-frost-500'}"
-					></span>
+					<span class="relative inline-flex rounded-full h-2 w-2 bg-frost-500"></span>
 				</span>
 			{/if}
 		</span>

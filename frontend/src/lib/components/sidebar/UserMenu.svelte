@@ -31,9 +31,6 @@
 
 	// An account entered through an invite link that still has no credentials of its own.
 	let pendingSetup = $derived(accountSetup.pending)
-	$effect(() => {
-		accountSetup.refresh()
-	})
 
 	const itemClass = twMerge(
 		'text-secondary text-left font-normal text-xs ',
@@ -85,10 +82,7 @@
 					class={itemClass}
 					{item}
 				>
-					<span class="relative">
-						<KeyRound size={16} />
-						<span class="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-blue-500"></span>
-					</span>
+					<KeyRound size={16} />
 					Finish account setup
 				</MenuItem>
 			{/if}

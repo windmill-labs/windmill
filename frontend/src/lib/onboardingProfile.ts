@@ -54,6 +54,9 @@ function strList(v: unknown, max: number): string[] | undefined {
 export function parseOnboardingProfile(raw: unknown): OnboardingProfile | null {
 	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
 	const r = raw as Record<string, unknown>
+	// Labels are what the home page keys its tags by, so two prompts sharing one would
+	// break its list: the first wins.
+	const seen = new Set<string>()
 	const prompts = Array.isArray(r.starter_prompts)
 		? r.starter_prompts
 				.map((p) => {
@@ -62,7 +65,7 @@ export function parseOnboardingProfile(raw: unknown): OnboardingProfile | null {
 					const prompt = str((p as Record<string, unknown>).prompt, MAX_PROMPT)
 					return label && prompt ? { label, prompt } : undefined
 				})
-				.filter((p): p is StarterPrompt => !!p)
+				.filter((p): p is StarterPrompt => !!p && !seen.has(p.label) && !!seen.add(p.label))
 				.slice(0, MAX_LIST)
 		: []
 	const profile: OnboardingProfile = {

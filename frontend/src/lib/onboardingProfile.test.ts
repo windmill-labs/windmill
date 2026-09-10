@@ -13,7 +13,8 @@ describe('parseOnboardingProfile', () => {
 				hub_projects: ['uptime-monitor', 42, ''],
 				starter_prompts: [
 					{ label: 'Sync', prompt: 'Sync HubSpot to Postgres' },
-					{ label: 'no prompt' }
+					{ label: 'no prompt' },
+					{ label: 'Sync', prompt: 'a second prompt under the same label' }
 				],
 				tools: ['HubSpot']
 			})

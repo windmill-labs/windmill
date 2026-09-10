@@ -29,7 +29,24 @@
 		const rd = rawRd?.startsWith('http') && !isValidLogoutRedirect(rawRd) ? null : rawRd
 		const closeUponLogin =
 			getCookie('close') == 'true' || localStorage.getItem('closeUponLogin') == 'true'
+		// "Finish account setup" sent a signed-in account with no credentials of its own to a
+		// provider. Whatever went wrong on the way back — the consent screen cancelled, an
+		// address mismatch, an unverified address, a domain rule — that session is the only
+		// way into the account, so it must survive: report and go home rather than log out.
+		// Read before the backend call, which clears the cookie whether or not it adopts.
+		const finishingSetup = !!getCookie('finish_setup')
+		function backToSetup(message: string) {
+			document.cookie = 'finish_setup=; path=/; max-age=0; SameSite=Lax'
+			sendUserToast(message, true)
+			goto('/')
+		}
 		if (error) {
+			if (finishingSetup) {
+				backToSetup(
+					`Signing in with ${clientName} did not go through (${error}). Your account is unchanged.`
+				)
+				return
+			}
 			sendUserToast(`Error trying to login with ${clientName} ${error}`, true)
 			if (closeUponLogin) {
 				closeUponLoginError(`Error trying to login with ${clientName} ${error}`)
@@ -40,12 +57,9 @@
 			try {
 				await UserService.loginWithOauth({ requestBody: { code, state }, clientName })
 			} catch (e) {
-				// "Finish account setup" with a provider that asserts another address: the
-				// backend refused and the existing session is intact, so stay signed in.
 				const message = String(e?.body ?? e?.message ?? '')
-				if (message.includes('finish_setup_mismatch')) {
-					sendUserToast(message.replace(/^.*finish_setup_mismatch:\s*/, ''), true)
-					goto('/')
+				if (finishingSetup) {
+					backToSetup(message.replace(/^.*finish_setup_mismatch:\s*/, ''))
 					return
 				}
 				if (closeUponLogin) {

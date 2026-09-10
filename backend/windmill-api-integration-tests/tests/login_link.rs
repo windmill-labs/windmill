@@ -143,3 +143,50 @@ async fn login_link_mint_can_require_a_login_type(db: Pool<Postgres>) -> anyhow:
     assert_eq!(resp.status(), 201);
     Ok(())
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn cloud_trial_offer_go_refuses_a_job_token(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api");
+
+    // The redirect is a signed-in portal login for the account, so the job-token check
+    // must come before every other gate: a script holding `$WM_TOKEN` is refused outright,
+    // where a browser session reaches the next check (off cloud, "no offer").
+    let job_id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, kind, tag, args)
+         VALUES ($1, 'test-workspace', 'test-user-2', 'u/test-user-2', 'script', 'deno', '{}'::jsonb)",
+    )
+    .bind(job_id)
+    .execute(&db)
+    .await?;
+    let job_token = windmill_common::auth::create_token_for_owner(
+        &db,
+        "test-workspace",
+        "u/test-user-2",
+        "job",
+        600,
+        "test2@windmill.dev",
+        &job_id,
+        None,
+        None,
+    )
+    .await?;
+
+    let go = |token: String| {
+        client()
+            .get(format!("{base}/users/cloud_trial_offer/go"))
+            .header("Authorization", format!("Bearer {token}"))
+            .send()
+    };
+    let resp = go(job_token).await?;
+    assert_eq!(resp.status(), 403);
+    assert!(resp.text().await?.contains("job token"));
+
+    let resp = go("SECRET_TOKEN_2".to_string()).await?;
+    assert_eq!(resp.status(), 404);
+    Ok(())
+}

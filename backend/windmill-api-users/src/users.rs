@@ -3498,6 +3498,15 @@ async fn get_cloud_trial_offer(
 /// authority on whether the offer still stands; its refusal spends the offer here so the
 /// sidebar stops advertising it.
 async fn go_cloud_trial_offer(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<Response> {
+    // The redirect carries a signed-in portal login for this account: a credential for
+    // another system. A script running as the offered user holds their identity through
+    // `$WM_TOKEN`, so a job token must not be able to fetch it (`redirect: manual`) and
+    // hand it to whoever wrote the script. Only a browser session goes.
+    if authed.job_id.is_some() {
+        return Err(Error::NotAuthorized(
+            "This endpoint cannot be called with a job token ($WM_TOKEN).".to_string(),
+        ));
+    }
     if !*CLOUD_HOSTED || !offered(&db, &authed.email).await? {
         return Err(Error::NotFound(
             "no pre-approved trial offer for this account".to_string(),
