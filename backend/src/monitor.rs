@@ -109,6 +109,10 @@ use windmill_common::{
         APP_WORKSPACED_ROUTE_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE,
         HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
     },
+    queue_metrics::{
+        QueueSample, QUEUE_COUNT_PREFIX, QUEUE_DELAY_PREFIX, QUEUE_DELAY_SAME_HEAD_SECS,
+        QUEUE_METRIC_HEARTBEAT_SECS, QUEUE_METRIC_STALE_SECS,
+    },
 };
 #[cfg(feature = "parquet")]
 use windmill_object_store::reload_object_store_setting;
@@ -5110,31 +5114,20 @@ async fn vacuuming_tables(db: &Pool<Postgres>) -> error::Result<()> {
 /// value moves on every monitor round still writes at most one row per interval. Also how
 /// often each server samples the queue when no Prometheus or OTel gauge needs it sooner.
 const QUEUE_METRIC_MIN_INTERVAL_SECS: f64 = 25.0;
-/// A backlogged tag whose value has not moved is re-sampled only this often. The queue metrics
-/// drawer (`QueueMetricsDrawerInner.svelte`, which must be changed with it) treats a series
-/// silent for longer as drained. That is how a tag whose drop to zero was never recorded
-/// (no server was up when it drained) stops being drawn as backlogged. A longer heartbeat
-/// writes fewer rows but keeps such a stale line up for longer.
-const QUEUE_METRIC_HEARTBEAT_SECS: f64 = 5.0 * 60.0;
-/// How far back the last-sample lookup reaches. Must exceed the real spacing of heartbeats,
-/// which land up to a monitor tick and a sampling slot late, so a tag that is still believed
-/// backlogged is always found and can be given its closing zero.
-const QUEUE_METRIC_LOOKBACK_SECS: f64 = 3.0 * QUEUE_METRIC_HEARTBEAT_SECS;
-/// Queue delay climbs on its own for as long as a tag stays backlogged, so an exact-value
-/// comparison would never dedup it. Only a move the chart would actually render is stored.
+/// A held delay hovers while the head keeps changing, so an exact-value comparison would rarely
+/// dedup it. Only a move the chart would actually render is stored.
 const QUEUE_DELAY_TOLERANCE: f64 = 0.1;
 
-const QUEUE_COUNT_PREFIX: &str = "queue_count_";
-const QUEUE_DELAY_PREFIX: &str = "queue_delay_";
-
-/// Append the queue metrics the drawer at `GET /workers/queue_metrics` charts, skipping any
-/// sample that repeats what is already stored.
+/// Append the queue metrics the drawer at `GET /workers/queue_metrics_series` charts, skipping
+/// any sample that repeats what is already stored.
 ///
 /// Only tags with a backlog appear in `queue_stats`, and an arbitrary `?tag=` nobody serves
 /// stays backlogged forever, so writing every round would repeat the same pair of rows for
-/// the whole 14-day retention. Each metric is written when its value moves, once per
+/// the whole 14-day retention. Each metric is written when the value it draws moves, once per
 /// heartbeat while it holds, and once more (as a zero) when the tag drains. Gaps therefore
-/// mean "unchanged since the last row", which is what the chart interpolates.
+/// mean "unchanged since the last row", which is what the chart interpolates. A delay whose
+/// head job stays put is stored as that job's wait start, which the chart draws climbing, so it
+/// never moves away from what is stored either.
 async fn save_queue_metrics(
     db: &Pool<Postgres>,
     queue_stats: &std::collections::HashMap<String, windmill_common::queue::QueueStat>,
@@ -5150,11 +5143,12 @@ async fn save_queue_metrics(
         .collect::<Vec<_>>();
 
     // Last stored sample of every metric that either has a backlog now or was written
-    // recently enough to still be believed backlogged. Bounding the lookup by the window keeps
-    // it cheap at any `metrics` size; a per-id `ORDER BY created_at DESC LIMIT 1` does not,
-    // since the planner may serve it from `metrics_sort_idx` and walk the whole table.
+    // recently enough to still be believed backlogged. Bounding the lookup by the stale window
+    // keeps it cheap at any `metrics` size; a per-id `ORDER BY created_at DESC LIMIT 1` does
+    // not, since the planner may serve it from `metrics_sort_idx` and walk the whole table.
     let last_samples = match sqlx::query!(
         "SELECT COALESCE(c.id, r.id) AS \"id!\", r.value AS \"value?\",
+            EXTRACT(EPOCH FROM r.created_at)::double precision AS \"at?\",
             EXTRACT(EPOCH FROM now() - r.created_at)::double precision AS \"age?\"
         FROM unnest($1::text[]) AS c(id)
         FULL JOIN (
@@ -5164,7 +5158,7 @@ async fn save_queue_metrics(
             ORDER BY id, created_at DESC
         ) r ON r.id = c.id",
         &sampled_ids[..],
-        QUEUE_METRIC_LOOKBACK_SECS,
+        QUEUE_METRIC_STALE_SECS,
     )
     .fetch_all(db)
     .await
@@ -5178,6 +5172,8 @@ async fn save_queue_metrics(
 
     let mut ids = vec![];
     let mut values = vec![];
+    // The wait start of the head of each held delay, whose value the INSERT computes.
+    let mut held_heads: Vec<Option<f64>> = vec![];
     for row in last_samples {
         let Some((prefix, tag)) = [QUEUE_COUNT_PREFIX, QUEUE_DELAY_PREFIX]
             .into_iter()
@@ -5185,8 +5181,14 @@ async fn save_queue_metrics(
         else {
             continue;
         };
-        // A stored value that is not a number cannot be compared, so the next reading is kept.
-        let last = row.value.as_ref().and_then(|v| v.as_f64()).zip(row.age);
+        // A stored value that cannot be read cannot be compared, so the next reading is kept.
+        let last = row
+            .value
+            .as_ref()
+            .and_then(QueueSample::parse)
+            .zip(row.at)
+            .zip(row.age)
+            .map(|((sample, at), age)| (sample, at, age));
         let stat = queue_stats.get(tag);
         let current = stat.map(|stat| {
             if prefix == QUEUE_COUNT_PREFIX {
@@ -5196,23 +5198,42 @@ async fn save_queue_metrics(
             }
         });
 
-        if should_store(prefix, last, current) {
-            values.push(match (stat, prefix) {
-                (None, _) => serde_json::json!(0),
-                (Some(stat), QUEUE_COUNT_PREFIX) => serde_json::json!(stat.count),
-                (Some(stat), _) => serde_json::json!(stat.delay),
-            });
+        let next_delay = stat
+            .filter(|_| prefix == QUEUE_DELAY_PREFIX)
+            .map(|stat| delay_sample(last.map(|(sample, at, _)| sample.head_since(at)), stat));
+        let drawn_now = last.map(|(sample, at, age)| (sample.value_at(at + age), age));
+        let redraws = last
+            .zip(next_delay)
+            .is_some_and(|((sample, ..), next)| redraws(sample, next));
+        if should_store(prefix, drawn_now, current, redraws) {
+            let (value, held_head) = match (stat, next_delay) {
+                (None, _) => (serde_json::json!(0), None),
+                (Some(stat), None) => (serde_json::json!(stat.count), None),
+                (Some(stat), Some(QueueSample::Held(_))) => {
+                    (serde_json::Value::Null, Some(stat.head_since))
+                }
+                (Some(_), Some(climbing)) => (climbing.to_json(), None),
+            };
             ids.push(row.id);
+            values.push(value);
+            held_heads.push(held_head);
         }
     }
 
     if ids.is_empty() {
         return;
     }
+    // A held delay is computed from this statement's `now()`, the row's `created_at` too, so
+    // `created_at - value` is exactly its head's wait start. That is how the next sample tells
+    // whether the same job is still at the head, within `QUEUE_DELAY_SAME_HEAD_SECS`, which the
+    // time between reading the queue and this INSERT could otherwise exceed on a busy database.
     if let Err(e) = sqlx::query!(
-        "INSERT INTO metrics (id, value) SELECT * FROM unnest($1::text[], $2::jsonb[])",
+        "INSERT INTO metrics (id, value)
+        SELECT id, COALESCE(to_jsonb(EXTRACT(EPOCH FROM now())::double precision - held_head), value)
+        FROM unnest($1::text[], $2::jsonb[], $3::double precision[]) AS u(id, value, held_head)",
         &ids[..],
         &values[..],
+        &held_heads[..] as &[Option<f64>],
     )
     .execute(db)
     .await
@@ -5221,10 +5242,38 @@ async fn save_queue_metrics(
     }
 }
 
+/// What to store for a delay reading, given when the head job of the last stored sample started
+/// waiting. The same job still at the head keeps the delay climbing from its wait start, which
+/// the chart draws exactly. A head that changed means a moving queue, whose delay hovers and is
+/// held; so is a first sample, which cannot tell yet and must not draw a climb that never was.
+fn delay_sample(
+    last_head_since: Option<f64>,
+    stat: &windmill_common::queue::QueueStat,
+) -> QueueSample {
+    match last_head_since {
+        Some(since) if (since - stat.head_since).abs() < QUEUE_DELAY_SAME_HEAD_SECS => {
+            QueueSample::Climbing { since: stat.head_since }
+        }
+        _ => QueueSample::Held(stat.delay),
+    }
+}
+
+/// Whether the next delay sample is drawn differently from the last one even at the same value:
+/// a climb whose head left would otherwise go on climbing from the old head, and a held delay
+/// whose head stayed would stay flat while the wait grows.
+fn redraws(last: QueueSample, next: QueueSample) -> bool {
+    matches!(last, QueueSample::Climbing { .. }) != matches!(next, QueueSample::Climbing { .. })
+}
+
 /// Whether a reading deserves a row of its own, given the last one stored for that metric:
-/// its value and how many seconds ago it was written. `current` is `None` once the tag has
-/// no backlog left.
-fn should_store(prefix: &str, last: Option<(f64, f64)>, current: Option<f64>) -> bool {
+/// the value it draws now and how many seconds ago it was written. `current` is `None` once
+/// the tag has no backlog left; `redraws` is set when the reading must be drawn differently.
+fn should_store(
+    prefix: &str,
+    last: Option<(f64, f64)>,
+    current: Option<f64>,
+    redraws: bool,
+) -> bool {
     let Some((last_value, age)) = last else {
         // Nothing comparable within the lookback window: a tag that just backed up needs a
         // first sample, one that was already gone needs nothing.
@@ -5239,11 +5288,12 @@ fn should_store(prefix: &str, last: Option<(f64, f64)>, current: Option<f64>) ->
         return true;
     }
     age >= QUEUE_METRIC_MIN_INTERVAL_SECS
-        && if prefix == QUEUE_COUNT_PREFIX {
-            last_value != current
-        } else {
-            (current - last_value).abs() > last_value.abs() * QUEUE_DELAY_TOLERANCE
-        }
+        && (redraws
+            || if prefix == QUEUE_COUNT_PREFIX {
+                last_value != current
+            } else {
+                (current - last_value).abs() > last_value.abs() * QUEUE_DELAY_TOLERANCE
+            })
 }
 
 #[cfg(test)]
@@ -5255,36 +5305,33 @@ mod queue_metric_sampling {
     #[test]
     fn a_holding_backlog_writes_only_on_the_heartbeat() {
         let held = Some((3.0, RECENT));
-        assert!(!should_store(QUEUE_COUNT_PREFIX, held, Some(3.0)));
-        assert!(should_store(
-            QUEUE_COUNT_PREFIX,
-            Some((3.0, QUEUE_METRIC_HEARTBEAT_SECS)),
-            Some(3.0)
-        ));
-        // Delay climbs on its own, so only a move past the tolerance counts as a change.
-        assert!(!should_store(
-            QUEUE_DELAY_PREFIX,
-            Some((100.0, RECENT)),
-            Some(105.0)
-        ));
-        assert!(should_store(
-            QUEUE_DELAY_PREFIX,
-            Some((100.0, RECENT)),
-            Some(120.0)
-        ));
+        assert!(!should_store(QUEUE_COUNT_PREFIX, held, Some(3.0), false));
+        let due = Some((3.0, QUEUE_METRIC_HEARTBEAT_SECS));
+        assert!(should_store(QUEUE_COUNT_PREFIX, due, Some(3.0), false));
+        // A held delay hovers, so only a move past the tolerance counts as a change.
+        let delay = Some((100.0, RECENT));
+        assert!(!should_store(QUEUE_DELAY_PREFIX, delay, Some(105.0), false));
+        assert!(should_store(QUEUE_DELAY_PREFIX, delay, Some(120.0), false));
     }
 
     #[test]
     fn a_drained_tag_writes_one_zero_then_stops() {
-        assert!(should_store(QUEUE_COUNT_PREFIX, Some((3.0, RECENT)), None));
-        assert!(!should_store(QUEUE_COUNT_PREFIX, Some((0.0, RECENT)), None));
-        // Including once the heartbeat is due: a tag that is gone stays silent.
+        assert!(should_store(
+            QUEUE_COUNT_PREFIX,
+            Some((3.0, RECENT)),
+            None,
+            false
+        ));
         assert!(!should_store(
             QUEUE_COUNT_PREFIX,
-            Some((0.0, QUEUE_METRIC_LOOKBACK_SECS)),
-            None
+            Some((0.0, RECENT)),
+            None,
+            false
         ));
-        assert!(!should_store(QUEUE_COUNT_PREFIX, None, None));
+        // Including once the heartbeat is due: a tag that is gone stays silent.
+        let gone = Some((0.0, QUEUE_METRIC_STALE_SECS));
+        assert!(!should_store(QUEUE_COUNT_PREFIX, gone, None, false));
+        assert!(!should_store(QUEUE_COUNT_PREFIX, None, None, false));
     }
 
     #[test]
@@ -5292,15 +5339,64 @@ mod queue_metric_sampling {
         assert!(!should_store(
             QUEUE_COUNT_PREFIX,
             Some((3.0, 1.0)),
-            Some(9.0)
+            Some(9.0),
+            false
         ));
         assert!(should_store(
             QUEUE_COUNT_PREFIX,
             Some((3.0, RECENT)),
-            Some(9.0)
+            Some(9.0),
+            false
         ));
         // A tag that has just backed up is recorded at once.
-        assert!(should_store(QUEUE_COUNT_PREFIX, None, Some(9.0)));
+        assert!(should_store(QUEUE_COUNT_PREFIX, None, Some(9.0), false));
+    }
+
+    #[test]
+    fn a_delay_climbs_while_the_same_job_stays_at_the_head() {
+        let stat = windmill_common::queue::QueueStat { count: 3, delay: 330.0, head_since: 1000.0 };
+        // A held sample written at 1320 saw the same head: it switches to climbing at once,
+        // although the delay has not moved past the tolerance yet.
+        let first = QueueSample::Held(320.0);
+        let climbing = delay_sample(Some(first.head_since(1320.0)), &stat);
+        assert_eq!(climbing, QueueSample::Climbing { since: 1000.0 });
+        assert!(redraws(first, climbing));
+        let drawn = Some((first.value_at(1330.0), RECENT));
+        assert!(should_store(
+            QUEUE_DELAY_PREFIX,
+            drawn,
+            Some(stat.delay),
+            true
+        ));
+        // Stored climbing, it draws the delay exactly: nothing more until the heartbeat.
+        let drawn = Some((climbing.value_at(1600.0), RECENT));
+        assert!(!should_store(QUEUE_DELAY_PREFIX, drawn, Some(600.0), false));
+        assert_eq!(delay_sample(None, &stat), QueueSample::Held(330.0));
+    }
+
+    #[test]
+    fn a_climb_whose_head_left_is_held_even_within_the_tolerance() {
+        // The head waiting since 0 left at 3600 for one queued at 100: 3500s is within 10% of
+        // the 3600s the climb draws, but kept, the climb would go on from the old head.
+        let moved =
+            windmill_common::queue::QueueStat { count: 2, delay: 3500.0, head_since: 100.0 };
+        let climbing = QueueSample::Climbing { since: 0.0 };
+        let next = delay_sample(Some(climbing.head_since(3000.0)), &moved);
+        assert_eq!(next, QueueSample::Held(3500.0));
+        assert!(redraws(climbing, next));
+        let drawn = Some((climbing.value_at(3600.0), RECENT));
+        assert!(!should_store(
+            QUEUE_DELAY_PREFIX,
+            drawn,
+            Some(moved.delay),
+            false
+        ));
+        assert!(should_store(
+            QUEUE_DELAY_PREFIX,
+            drawn,
+            Some(moved.delay),
+            true
+        ));
     }
 }
 
