@@ -20,7 +20,7 @@
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
-	import ApprovalRequestSkin from '$lib/components/approvals/ApprovalRequestSkin.svelte'
+	import MinimalApprovalSkin from '$lib/components/approvals/MinimalApprovalSkin.svelte'
 	import { page } from '$app/state'
 
 	$workspaceStore = page.params.workspace
@@ -164,12 +164,12 @@
 		return url
 	})
 	let isWac = $derived(!!(job as any)?.workflow_as_code_status)
-	let skin = $derived(approvalInfo?.skin ?? 'default')
+	let skin = $derived(approvalInfo?.skin ?? 'detailed')
 	// Left blank until the approval info names the skin, so neither skin flashes the other's title.
 	let title = $derived(
 		!approvalInfo && !error
 			? ''
-			: skin === 'approval'
+			: skin === 'minimal'
 				? 'Approval request'
 				: `Approval for resuming of ${isWac ? 'workflow' : 'flow'}`
 	)
@@ -244,8 +244,8 @@
 				<p class="text-sm">{error}</p>
 			{/if}
 		</div>
-	{:else if approvalInfo && skin === 'approval'}
-		<ApprovalRequestSkin
+	{:else if approvalInfo && skin === 'minimal'}
+		<MinimalApprovalSkin
 			{approvalInfo}
 			{job}
 			{completed}

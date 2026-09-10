@@ -11921,7 +11921,7 @@ mod approval_view_gate_tests {
     #[test]
     fn approval_skin_is_the_last_approval_step_passed() {
         let flow: FlowValue = serde_json::from_value(serde_json::json!({ "modules": [
-            { "id": "a", "value": { "type": "identity" }, "suspend": { "skin": "approval" } },
+            { "id": "a", "value": { "type": "identity" }, "suspend": { "skin": "minimal" } },
             { "id": "b", "value": { "type": "identity" }, "suspend": {} },
             { "id": "c", "value": { "type": "identity" } }
         ]}))
@@ -11947,8 +11947,8 @@ mod approval_view_gate_tests {
         let ran = ("Success", false);
         let skipped = ("Success", true);
         // Awaiting a's approval: b, itself an approval step, already holds `WaitingForEvents`.
-        assert_eq!(skin_at(1, [ran, waiting, pending]), ApprovalSkin::Approval);
-        assert_eq!(skin_at(2, [ran, ran, waiting]), ApprovalSkin::Default);
-        assert_eq!(skin_at(3, [ran, skipped, ran]), ApprovalSkin::Approval);
+        assert_eq!(skin_at(1, [ran, waiting, pending]), ApprovalSkin::Minimal);
+        assert_eq!(skin_at(2, [ran, ran, waiting]), ApprovalSkin::Detailed);
+        assert_eq!(skin_at(3, [ran, skipped, ran]), ApprovalSkin::Minimal);
     }
 }

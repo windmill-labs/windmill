@@ -546,12 +546,12 @@ pub struct Suspend {
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ApprovalSkin {
-    Approval,
-    /// A skin this server does not know renders as the default one rather than failing to
+    Minimal,
+    /// A skin this server does not know renders as the detailed one rather than failing to
     /// deserialize the whole flow, so a flow authored against a newer version still runs.
     #[default]
     #[serde(other)]
-    Default,
+    Detailed,
 }
 
 fn false_or_empty(v: &Option<bool>) -> bool {
@@ -1380,7 +1380,7 @@ mod tests {
     }
 
     #[test]
-    fn suspend_skin_unknown_value_falls_back_to_default() {
+    fn suspend_skin_unknown_value_falls_back_to_detailed() {
         let skin_of = |skin: &str| {
             let val: FlowValue = serde_json::from_value(json!({
                 "modules": [{
@@ -1392,8 +1392,8 @@ mod tests {
             .unwrap();
             val.modules[0].suspend.as_ref().unwrap().skin
         };
-        assert_eq!(skin_of("approval"), Some(ApprovalSkin::Approval));
-        assert_eq!(skin_of("not_a_skin_yet"), Some(ApprovalSkin::Default));
+        assert_eq!(skin_of("minimal"), Some(ApprovalSkin::Minimal));
+        assert_eq!(skin_of("not_a_skin_yet"), Some(ApprovalSkin::Detailed));
     }
 
     #[test]

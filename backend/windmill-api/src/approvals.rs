@@ -232,7 +232,7 @@ pub async fn get_approval_form_details(
     };
 
     let message_str = match skin {
-        ApprovalSkin::Default => {
+        ApprovalSkin::Detailed => {
             let args_str = args.map_or("None".to_string(), |a| {
                 serde_json::from_str::<serde_json::Value>(a.get())
                     .ok()
@@ -264,7 +264,7 @@ pub async fn get_approval_form_details(
             }
             message_str
         }
-        ApprovalSkin::Approval => format!(
+        ApprovalSkin::Minimal => format!(
             "{}\n\n{}: {created_by}",
             message.unwrap_or("Your approval is requested."),
             bold_format.replace("{}", "Requested by"),
@@ -277,7 +277,7 @@ pub async fn get_approval_form_details(
 }
 
 /// The skin of the approval step `flow_step_id` of the flow running `job_id`. Falls back to
-/// the default skin when the step cannot be resolved, so a message is still sent.
+/// the detailed skin when the step cannot be resolved, so a message is still sent.
 /// Reads through the unrestricted pool without an authorization check of its own: only the
 /// skin, which is not sensitive, leaves this function.
 pub(crate) async fn get_approval_step_skin(

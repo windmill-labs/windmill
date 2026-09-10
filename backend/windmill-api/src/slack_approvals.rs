@@ -490,8 +490,8 @@ async fn transform_schemas(
     tracing::debug!("Resume urls: {:#?}", urls);
 
     let link_label = match skin {
-        ApprovalSkin::Default => "Flow suspension details",
-        ApprovalSkin::Approval => "View in Windmill",
+        ApprovalSkin::Detailed => "Flow suspension details",
+        ApprovalSkin::Minimal => "View in Windmill",
     };
     let mut blocks = vec![serde_json::json!({
         "type": "section",
@@ -999,11 +999,11 @@ fn channel_message_payload(
         button_value["message"] = serde_json::json!(message);
     }
     let (text, section, button_label) = match skin {
-        ApprovalSkin::Default => {
+        ApprovalSkin::Detailed => {
             let text = "A flow has been suspended. Please approve or reject the flow.";
             (text, text.to_string(), "View")
         }
-        ApprovalSkin::Approval => {
+        ApprovalSkin::Minimal => {
             let mut section = "*Approval requested*".to_string();
             if let Some(message) = &message {
                 section.push('\n');
@@ -1042,23 +1042,30 @@ fn channel_message_payload(
     })
 }
 
-/// `message`, shortened so that `button_value` carrying it stays within Slack's limit.
+/// The longest prefix of `message` that keeps `button_value` carrying it within Slack's limit.
 fn message_fitting_button_value(button_value: &serde_json::Value, message: &str) -> String {
     let mut with_message = button_value.clone();
-    let mut max_chars = message.chars().count();
-    loop {
+    let mut fits = |max_chars: usize| {
         let fitted = truncate_with_ellipsis(message, max_chars);
         with_message["message"] = serde_json::json!(fitted);
-        let overflow = with_message
-            .to_string()
-            .chars()
-            .count()
-            .saturating_sub(SLACK_BUTTON_VALUE_MAX_CHARS);
-        if overflow == 0 || max_chars == 0 {
-            return fitted;
-        }
-        max_chars = max_chars.saturating_sub(overflow);
+        (with_message.to_string().chars().count() <= SLACK_BUTTON_VALUE_MAX_CHARS).then_some(fitted)
+    };
+    if let Some(whole) = fits(usize::MAX) {
+        return whole;
     }
+    // Searched on the serialized length, which escaping makes longer than the raw prefix, and
+    // which grows with every character kept.
+    let (mut shortest, mut longest) =
+        (0, message.chars().count().min(SLACK_BUTTON_VALUE_MAX_CHARS));
+    while shortest < longest {
+        let mid = (shortest + longest + 1) / 2;
+        if fits(mid).is_some() {
+            shortest = mid;
+        } else {
+            longest = mid - 1;
+        }
+    }
+    fits(shortest).unwrap_or_else(|| truncate_with_ellipsis(message, 0))
 }
 
 async fn get_modal_blocks(
@@ -1156,8 +1163,8 @@ fn construct_payload(
     skin: ApprovalSkin,
 ) -> serde_json::Value {
     let (title, resume_label, cancel_label) = match skin {
-        ApprovalSkin::Default => ("Workflow Suspended", "Resume Workflow", "Cancel Workflow"),
-        ApprovalSkin::Approval => ("Approval request", "Approve", "Reject"),
+        ApprovalSkin::Detailed => ("Workflow Suspended", "Resume Workflow", "Cancel Workflow"),
+        ApprovalSkin::Minimal => ("Approval request", "Approve", "Reject"),
     };
     let mut view = serde_json::json!({
         "type": "modal",
@@ -1264,10 +1271,10 @@ async fn update_original_slack_message(
     skin: ApprovalSkin,
 ) -> Result<(), Error> {
     let message = match (skin, action == "resume") {
-        (ApprovalSkin::Default, true) => "\n\n*Workflow has been resumed!* :white_check_mark:",
-        (ApprovalSkin::Default, false) => "\n\n*Workflow has been canceled!* :x:",
-        (ApprovalSkin::Approval, true) => "*Approved* :white_check_mark:",
-        (ApprovalSkin::Approval, false) => "*Rejected* :x:",
+        (ApprovalSkin::Detailed, true) => "\n\n*Workflow has been resumed!* :white_check_mark:",
+        (ApprovalSkin::Detailed, false) => "\n\n*Workflow has been canceled!* :x:",
+        (ApprovalSkin::Minimal, true) => "*Approved* :white_check_mark:",
+        (ApprovalSkin::Minimal, false) => "*Rejected* :x:",
     };
 
     let final_blocks = vec![serde_json::json!({
@@ -1327,23 +1334,33 @@ mod tests {
             "flow_step_id": "a",
             "signature": "f".repeat(64),
         });
-        let message = "Expense \"offsite\" line\n".repeat(1000);
-        for skin in [ApprovalSkin::Default, ApprovalSkin::Approval] {
-            let payload = channel_message_payload("C1", skin, Some(&message), button_value.clone());
+        let carried = |skin, message: &str| {
+            let payload = channel_message_payload("C1", skin, Some(message), button_value.clone());
             let button = payload["blocks"][1]["elements"][0]["value"]
                 .as_str()
-                .unwrap();
+                .unwrap()
+                .to_string();
             assert!(button.chars().count() <= SLACK_BUTTON_VALUE_MAX_CHARS);
-            let carried: ModalActionValue = serde_json::from_str(button).unwrap();
-            let carried = carried.message.unwrap();
-            assert!(message.starts_with(carried.trim_end_matches("...")));
             let section = payload["blocks"][0]["text"]["text"].as_str().unwrap();
             assert!(section.chars().count() <= 3000);
+            serde_json::from_str::<ModalActionValue>(&button)
+                .unwrap()
+                .message
+                .unwrap()
+        };
+        // Quotes and newlines each cost two characters once escaped into the button value.
+        let message = "Expense \"offsite\" line\n".repeat(1000);
+        for skin in [ApprovalSkin::Detailed, ApprovalSkin::Minimal] {
+            let kept = carried(skin, &message);
+            let kept = kept.strip_suffix("...").unwrap();
+            assert!(message.starts_with(kept));
+            assert!(kept.chars().count() > 1_000);
+            assert_eq!(carried(skin, "Short message"), "Short message");
         }
     }
 
     #[test]
-    fn approval_skin_survives_the_modal_round_trip() {
+    fn minimal_skin_survives_the_modal_round_trip() {
         let container = Container { message_ts: "1".to_string(), channel_id: "C1".to_string() };
         let payload = construct_payload(
             serde_json::json!([]),
@@ -1355,13 +1372,13 @@ mod tests {
             None,
             None,
             "signature",
-            ApprovalSkin::Approval,
+            ApprovalSkin::Minimal,
         );
         let view = &payload["view"];
         assert_eq!(view["submit"]["text"], "Approve");
         assert_eq!(view["close"]["text"], "Reject");
         let metadata: PrivateMetadata =
             serde_json::from_str(view["private_metadata"].as_str().unwrap()).unwrap();
-        assert_eq!(metadata.skin, ApprovalSkin::Approval);
+        assert_eq!(metadata.skin, ApprovalSkin::Minimal);
     }
 }

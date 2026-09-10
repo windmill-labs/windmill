@@ -3561,7 +3561,7 @@ async def wait_for_approval(
     form: dict | None = None,
     self_approval: bool = True,
     key: str | None = None,
-    skin: Literal["default", "approval"] | None = None,
+    skin: Literal["detailed", "minimal"] | None = None,
 ) -> dict:
     """Suspend the workflow and wait for an external approval.
 
@@ -3576,8 +3576,8 @@ async def wait_for_approval(
         form: Optional form schema for the approval page.
         self_approval: Whether the user who triggered the flow can approve it (default True).
         key: Optional checkpoint key naming this approval step.
-        skin: ``"approval"`` shows approvers a focused request (form and approve/reject)
-            instead of the default page with the workflow's details.
+        skin: ``"minimal"`` shows approvers only the request (form and approve/reject)
+            instead of the detailed page with the workflow's details.
 
     Example::
 

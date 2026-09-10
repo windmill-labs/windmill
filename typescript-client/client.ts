@@ -1962,7 +1962,7 @@ export class WorkflowCtx {
     form?: object;
     selfApproval?: boolean;
     key?: string;
-    skin?: "default" | "approval";
+    skin?: "detailed" | "minimal";
   }): PromiseLike<{ value: any; approver: string; approved: boolean }> {
     this._rethrowSwallowed();
     if (options?.key !== undefined) assertUsableStepKey(options.key, "waitForApproval key");
@@ -2461,8 +2461,8 @@ export function workflow<T>(fn: (...args: any[]) => Promise<T>) {
  * resume exactly this approval — route them through your own channel. Without a
  * key the steps are named `approval`, `approval_2`, ...
  *
- * `skin: "approval"` shows approvers a focused request (form and approve/reject)
- * instead of the default page with the workflow's details.
+ * `skin: "minimal"` shows approvers only the request (form and approve/reject)
+ * instead of the detailed page with the workflow's details.
  *
  * @example
  * const urls = await step("urls", () => getApprovalUrls("manager"));
@@ -2474,7 +2474,7 @@ export function waitForApproval(options?: {
   form?: object;
   selfApproval?: boolean;
   key?: string;
-  skin?: "default" | "approval";
+  skin?: "detailed" | "minimal";
 }): PromiseLike<{ value: any; approver: string; approved: boolean }> {
   const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
   if (!ctx) {

@@ -16886,7 +16886,7 @@ paths:
                     description: whether to hide the cancel button in the UI
                   skin:
                     type: string
-                    enum: [default, approval]
+                    enum: [detailed, minimal]
                     description: how the approval page presents the request
                   approvers:
                     type: array

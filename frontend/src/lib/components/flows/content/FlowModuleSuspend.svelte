@@ -89,7 +89,7 @@
 
 	function setSkin(skin: ApprovalSkin) {
 		if (!flowModule.suspend) return
-		flowModule.suspend.skin = skin === 'default' ? undefined : skin
+		flowModule.suspend.skin = skin === 'detailed' ? undefined : skin
 		logFeatureUsage('flow_step', 'approval_skin', { key: skin })
 	}
 </script>
@@ -148,22 +148,22 @@
 					<Label label="Approval page skin">
 						<ToggleButtonGroup
 							noWFull
-							selected={flowModule.suspend?.skin ?? 'default'}
+							selected={flowModule.suspend?.skin ?? 'detailed'}
 							disabled={!flowModule.suspend}
 							onSelected={setSkin}
 						>
 							{#snippet children({ item })}
 								<ToggleButton
-									value="default"
-									label="Default"
-									tooltip="Flow details: arguments, graph and approvers"
+									value="detailed"
+									label="Detailed"
+									tooltip="The request plus the flow's details: arguments, graph and approvers"
 									{item}
 									small
 								/>
 								<ToggleButton
-									value="approval"
-									label="Approval"
-									tooltip="Focused request: step description, form and approve/reject buttons"
+									value="minimal"
+									label="Minimal"
+									tooltip="Only the request: step description, form and approve/reject buttons"
 									{item}
 									small
 								/>
