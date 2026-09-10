@@ -36,8 +36,7 @@
 	import SideBarNotification from './SideBarNotification.svelte'
 	import { markChangelogsOpened, readRecentChangelogs } from './changelogs'
 	import { USER_SETTINGS_HASH, SUPERADMIN_SETTINGS_HASH } from './settings'
-	import FinishAccountSetup from './FinishAccountSetup.svelte'
-	import { UserService } from '$lib/gen'
+	import { accountSetup } from './accountSetup.svelte'
 	import { EXECUTIONS_HINT } from './executionsHint'
 	import {
 		userWorkspaces,
@@ -210,20 +209,11 @@
 			: [])
 	])
 
-	// `login_type` is global (whoami), not on the workspace user store. Only the value
-	// pending_oauth matters here: an account entered through invite links that still has
-	// no credentials of its own; the entry disappears with it.
-	let pendingSetup = $state(false)
-	let setupOpen = $state(false)
-	async function refreshLoginType() {
-		try {
-			pendingSetup = (await UserService.globalWhoami()).login_type === 'pending_oauth'
-		} catch {
-			pendingSetup = false
-		}
-	}
+	// An account entered through an invite link that still has no credentials of its own;
+	// the entry (and the sidebar banner it echoes) disappears once it does.
+	let pendingSetup = $derived(accountSetup.pending)
 	$effect(() => {
-		refreshLoginType()
+		accountSetup.refresh()
 	})
 
 	const items = $derived<Item[]>([
@@ -254,7 +244,7 @@
 								iconColor: '#3b82f6',
 								// The dropdown closes on this click; the modal opens once it is gone so its own
 								// buttons don't compete with the menu's outside-click handling.
-								action: () => setTimeout(() => (setupOpen = true), 50)
+								action: () => setTimeout(() => (accountSetup.open = true), 50)
 							}
 						]
 					: []),
@@ -307,8 +297,7 @@
      its own, and the only way to notice is this. -->
 {#snippet setupPing()}
 	<span class="ml-auto flex h-2 w-2 shrink-0" title="Finish account setup">
-		<span
-			class="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-blue-400 opacity-75"
+		<span class="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-blue-400 opacity-75"
 		></span>
 		<span class="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
 	</span>
@@ -448,7 +437,3 @@
 <DeleteForkedWorkspaceModal bind:this={deleteForkModal} />
 
 <DarkModeObserver bind:darkMode />
-
-{#if pendingSetup}
-	<FinishAccountSetup bind:open={setupOpen} email={$userStore?.email ?? ''} onDone={refreshLoginType} />
-{/if}

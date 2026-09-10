@@ -18,6 +18,9 @@
 	import SettingsMenu from '$lib/components/sidebar/SettingsMenu.svelte'
 	import SidebarUsage from '$lib/components/sidebar/SidebarUsage.svelte'
 	import SidebarScrollArea from '$lib/components/sidebar/SidebarScrollArea.svelte'
+	import AccountSetupBanner from '$lib/components/sidebar/AccountSetupBanner.svelte'
+	import FinishAccountSetup from '$lib/components/sidebar/FinishAccountSetup.svelte'
+	import { accountSetup } from '$lib/components/sidebar/accountSetup.svelte'
 	import { SIDEBAR_BG, SIDEBAR_BG_DARK } from '$lib/components/sidebar/sidebarChrome'
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
 	import ForkConflictModal from '$lib/components/ForkConflictModal.svelte'
@@ -869,6 +872,12 @@
 		// and does not match the store's structural type.
 		globalS3FilePickerExplorer.val = globalS3FilePicker as any
 	})
+
+	// Whether the account still has to set a password or connect a sign-in decides the
+	// banner above the nav and the modal below; asked once per page, shared by every reader.
+	$effect(() => {
+		if ($userStore) accountSetup.refresh()
+	})
 </script>
 
 <svelte:window bind:innerWidth />
@@ -902,6 +911,17 @@
 	/>
 {/snippet}
 
+<!-- Pinned above the scrolling nav, in both rails: an account with no credentials of its
+     own needs to see this wherever it is on the page, and however far the rail has
+     scrolled. Only in navigation mode — the session rail has no Home to sit over. -->
+{#snippet accountSetupBanner(collapsed: boolean)}
+	{#if accountSetup.pending}
+		<div class="px-2 pb-1">
+			<AccountSetupBanner isCollapsed={collapsed} />
+		</div>
+	{/if}
+{/snippet}
+
 <!-- Windmill brand mark anchoring the sidebar bottom (the header slot is taken
      by the workspace picker). -->
 {#snippet brandMark(collapsed: boolean)}
@@ -929,6 +949,13 @@
 {/snippet}
 
 <UserSettings bind:this={userSettings} showMcpMode={true} />
+{#if accountSetup.pending}
+	<FinishAccountSetup
+		bind:open={accountSetup.open}
+		email={$userStore?.email ?? ''}
+		onDone={() => accountSetup.refresh()}
+	/>
+{/if}
 <DraftMigrationErrorModal />
 {#if page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login" loading={true}></CenteredModal>
@@ -1045,6 +1072,7 @@
 										</div>
 										{@render settingsMenu(false)}
 									{:else}
+										{@render accountSetupBanner(false)}
 										<!-- Navigation mode: Home → Settings scroll as ONE block with an
 										     overflow fade hint (same treatment as the desktop rail). -->
 										<SidebarScrollArea color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
@@ -1176,6 +1204,7 @@
 								</div>
 								{@render settingsMenu(isCollapsed)}
 							{:else}
+								{@render accountSetupBanner(isCollapsed)}
 								<!-- Navigation mode: Home → Settings scroll as ONE block with an
 								     overflow fade hint. The three sections (Home/Runs + Favorites +
 								     Search / workspace items / instance settings) are spaced by the
