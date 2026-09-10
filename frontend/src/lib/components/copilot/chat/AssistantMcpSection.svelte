@@ -482,7 +482,7 @@ switch that decides whether this chat carries its tools.
 						{#snippet subtitle()}{server.description}{/snippet}
 						{#snippet trailing()}
 							<Toggle
-								size="sm"
+								size="xs"
 								disabled={forkPending}
 								checked={server.enabled}
 								on:change={async (e) => await toggle(server.path, e.detail)}

@@ -81,10 +81,10 @@ export class SkillsMenu {
 		}
 		const row = this.#row(path)
 		if (row) row.enabled = enabled
-		// Whether people select skills at all. Never the skill itself: a path is
+		// Whether people turn skills off at all. Never the skill itself: a path is
 		// workspace-authored text.
 		logFeatureUsage('ai_session', 'skill_toggle', { key: enabled ? 'on' : 'off', workspace: ws })
-		// The prompt lists exactly the enabled skills, so it has to be rebuilt
+		// The prompt lists exactly the skills that are on, so it has to be rebuilt
 		// before the next message rather than on the next mode change.
 		await this.#manager.refreshGlobalSkills(ws)
 	}

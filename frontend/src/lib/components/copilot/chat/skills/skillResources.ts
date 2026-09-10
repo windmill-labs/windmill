@@ -54,10 +54,7 @@ export type SkillListing = { skills: SkillResource[]; truncated: boolean }
  * the account the workspace is being browsed as. Ownership is mostly implicit in
  * the path (`u/<me>/…`, a folder the user owns), which is why this goes through
  * the shared `canWrite` rather than reading `extra_perms` alone. */
-export async function listSkillResources(
-	workspace: string,
-	user?: UserExt
-): Promise<SkillListing> {
+export async function listSkillResources(workspace: string, user?: UserExt): Promise<SkillListing> {
 	if (!workspace) return { skills: [], truncated: false }
 	const rows: SkillResource[] = []
 	for (let page = 1; page <= MAX_SKILLS_PAGES; page++) {
