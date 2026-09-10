@@ -27,6 +27,8 @@
 	let { message }: Props = $props()
 
 	const runForm = $derived(message.runForm!)
+	// A card recorded before flows had a form is a script, which is what it always was.
+	const runnableKind = $derived(runForm.runnableKind ?? 'script')
 	// The loop is parked on the form and nothing has run yet: the card is the form.
 	const pending = $derived(isActiveRunForm(message))
 
@@ -103,8 +105,8 @@
 	)
 	const cancelReason = $derived(
 		ran
-			? 'This run was cancelled while the script was running.'
-			: 'This run was cancelled before the script started.'
+			? `This run was cancelled while the ${runnableKind} was running.`
+			: `This run was cancelled before the ${runnableKind} started.`
 	)
 	// Streaming opens the tab early: the result is already arriving, and one that appeared
 	// only at the end would hide the thing the user is waiting to read.
@@ -296,7 +298,7 @@
      tab it already opened. The row's only control, as on every other tool call. -->
 {#snippet previewChip()}
 	<ToolPreviewCard
-		card={{ kind: 'script', path: runForm.path }}
+		card={{ kind: runnableKind, path: runForm.path }}
 		title={previewTitle}
 		onOpen={openPreview}
 		kindIcon={false}
@@ -518,7 +520,7 @@
 					unifiedSize="sm"
 					destructive
 					startIcon={{ icon: TimerOff }}
-					title="Cancel the script"
+					title={`Cancel the ${runnableKind}`}
 					onClick={() => aiChatManager.cancelJob(chatJob.jobId)}
 				>
 					Cancel

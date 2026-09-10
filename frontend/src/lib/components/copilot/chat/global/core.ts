@@ -927,7 +927,7 @@ const testRunFlowSchema = z.object({
 const testRunFlowToolDef = createToolDef(
 	testRunFlowSchema,
 	'test_run_flow',
-	'Execute a preview-style test run of a flow by path, preferring draft content when it exists.',
+	'Execute a preview-style test run of a flow by path, preferring draft content when it exists. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call.',
 	{ strict: false }
 )
 
@@ -1346,7 +1346,7 @@ ${pipelineBullet}
 			: ' Pass items ("<kind>:<path>" entries naming the items you changed) so the review is scoped to them — omitting items preselects every pending change in the workspace'
 	}, or mode ("draft" or "fork") to force which comparison is shown. Prefer offering this review page over calling deploy_workspace_item directly when several items changed.
 - For a Windmill operation no other tool covers (workers, queue state, a run's args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
-- Default to test_run_script, test_run_flow, or test_run_step for any run request, an existing script included; they prefer drafts and need no deployment. Use run_script only when the user names the deployed version ("the deployed X", "in production", "for real") — a bare "run X" is not that. For run_script, read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema, and fill in every one you can infer. runFlowByPath from the API catalog runs a deployed flow without a form: only for a flow the user asked to run deployed.
+- Default to test_run_script, test_run_flow, or test_run_step for any run request, an existing script included; they prefer drafts and need no deployment. Use run_script only when the user names the deployed version ("the deployed X", "in production", "for real") — a bare "run X" is not that. For run_script, read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema, and fill in every one you can infer. test_run_script, run_script and test_run_flow all show the user an argument form prefilled with what you sent, so fill in every argument you can infer rather than asking for it in chat. runFlowByPath from the API catalog is the exception — it runs a deployed flow with no form at all: only for a flow the user asked to run deployed.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
@@ -3694,7 +3694,9 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = testRunFlowSchema.parse(ctx.args)
 			return testRunFlowByPath(parsed, ctx)
 		},
-		requiresConfirmation: true,
+		// No requiresConfirmation, for the reason test_run_script carries.
+		bypassedByAutoAccept: true,
+		streamingLabel: 'Preparing the test form...',
 		confirmationMessage: (args) => `Run a test of ${pathLeaf(args?.path, 'the flow')}`,
 		queuedLabel: (args) => `Test ${args?.path ?? 'the flow'}`,
 		showDetails: true,
@@ -5492,8 +5494,8 @@ async function testRunScriptByPath(
 /** The "do not call again" half is load-bearing: without it the model re-proposes the
  * call, which re-opens the form the user just dismissed, and Stop becomes their only
  * way out. */
-const runFormCancelled = (toolName: string) =>
-	`The user cancelled the run form. The script did NOT run. Do not call ${toolName} again unless the user asks for it.`
+const runFormCancelled = (toolName: string, noun: string) =>
+	`The user cancelled the run form. The ${noun} did NOT run. Do not call ${toolName} again unless the user asks for it.`
 
 /** The model only needs to see what the user changed, and nothing bounds an object or
  * array argument the form let them paste into. */
@@ -5541,7 +5543,7 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		spec.autoAcceptable && toolCallbacks.shouldAutoAcceptToolConfirmations?.(spec.toolName)
 	)
 	if (!toolCallbacks.requestRunArgs && !postureAnswers) {
-		return 'This chat cannot show a run form, so a script cannot be run from here.'
+		return `This chat cannot show a run form, so a ${spec.contextName} cannot be run from here.`
 	}
 
 	// processToolCall gates plan mode once, before the schema fetch, and this form is its own
@@ -5607,6 +5609,7 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		path: spec.path,
 		summary: spec.summary || undefined,
 		kind: spec.kind,
+		runnableKind: spec.contextName,
 		schema: autoAccepted ? undefined : schema,
 		code: autoAccepted ? undefined : spec.code,
 		lang: autoAccepted ? undefined : spec.lang,
@@ -5644,7 +5647,7 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 			error: 'Cancelled by user',
 			declinedByUser: true
 		})
-		return runFormCancelled(spec.toolName)
+		return runFormCancelled(spec.toolName, spec.contextName)
 	}
 
 	const blockedBeforeRun = blockedByPlanMode()
@@ -5773,60 +5776,56 @@ async function testRunFlowByPath(
 	args: z.infer<typeof testRunFlowSchema>,
 	ctx: WriteDraftCtx
 ): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
-	const testArgs = normalizeTestRunArgs(args.args)
+	const { workspace } = ctx
+	// The schema must be in hand before the form is built, and which of the two ways below runs
+	// the job is only settled at Run. The value rides along from the same read so the fields and
+	// the previewed flow are one version, as a script test run previews the content it loaded;
+	// an editor-run ignores it. With an editor open on this path, this reads its in-memory cell.
+	const flow = await loadFlowDraftValue(args.path, workspace)
+	const schema = (flow.flow.schema as Record<string, any> | null | undefined) ?? {}
 	const testActiveFlow = activeFlowTestFromCtx(ctx, args.path)
 
-	if (testActiveFlow) {
-		return executeTestRun({
-			jobStarter: async () => {
-				const jobId = await testActiveFlow(testArgs)
+	return runThroughForm(
+		{
+			path: args.path,
+			schema,
+			summary: flow.summary,
+			kind: 'test',
+			// A flow's dynamic-option pickers are one script stored on the schema itself, which is
+			// where the editor's own test form reads them from (FlowPreviewContent).
+			code: schema['x-windmill-dyn-select-code'],
+			lang: schema['x-windmill-dyn-select-lang'],
+			// Never "deployed": a test run previews the draft, so a line sending the model to the
+			// deployed schema would name the wrong version.
+			schemaNoun: 'flow',
+			toolName: 'test_run_flow',
+			proposed: args.args,
+			startMessage: `Starting flow test run for "${args.path}"...`,
+			contextName: 'flow',
+			// Its own loop, as a script test run is: the model is told to test and iterate, so the
+			// posture answers the form rather than parking the loop on a card.
+			autoAcceptable: true,
+			background: args.background,
+			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
+			startJob: async (submitted) => {
+				// The open editor runs its own in-memory flow, and shows the run in its graph — so
+				// the form collects the arguments and the editor still executes them.
+				const jobId = await testActiveFlow?.(submitted)
 				if (jobId) {
 					return jobId
 				}
-
-				const flow = await loadFlowDraftValue(args.path, workspace)
 				return JobService.runFlowPreview({
 					workspace,
 					requestBody: {
 						path: args.path,
 						value: flowDraftValueForPreview(flow.flow),
-						args: testArgs
+						args: submitted
 					}
 				})
-			},
-			workspace,
-			toolCallbacks,
-			toolId,
-			startMessage: `Starting flow test run for "${args.path}"...`,
-			contextName: 'flow',
-			background: args.background,
-			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
-			label: args.path
-		})
-	}
-
-	const flow = await loadFlowDraftValue(args.path, workspace)
-
-	return executeTestRun({
-		jobStarter: () =>
-			JobService.runFlowPreview({
-				workspace,
-				requestBody: {
-					path: args.path,
-					value: flowDraftValueForPreview(flow.flow),
-					args: testArgs
-				}
-			}),
-		workspace,
-		toolCallbacks,
-		toolId,
-		startMessage: `Starting flow test run for "${args.path}"...`,
-		contextName: 'flow',
-		background: args.background,
-		detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
-		label: args.path
-	})
+			}
+		},
+		ctx
+	)
 }
 
 async function testRunFlowStepByPath(
