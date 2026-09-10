@@ -223,7 +223,8 @@ pub struct DatatableAclInfo {
     /// The roles a change may name: `admin`, then every role of the instance catalog. Only for a
     /// caller who may change anything, as the catalog is in the permissions drawer.
     pub roles: Vec<String>,
-    /// Whether this caller may plan and apply changes.
+    /// Whether this caller may plan and apply changes: they administer the data table, on an
+    /// edition that has the planner.
     pub editable: bool,
     /// Whether the server is Postgres 17 or later, which added the `MAINTAIN` table privilege.
     pub supports_maintain: bool,
@@ -574,9 +575,10 @@ async fn get_datatable_acl(
     ensure_reaches_datatable(&db, &w_id, &datatable_name, &authed).await?;
     let governing = resolve_governing_datatable(&db, &w_id, &datatable_name).await?;
     ensure_instance(&governing)?;
-    let editable = ensure_governs_datatable(&db, &authed, &w_id, &governing)
-        .await
-        .is_ok();
+    let editable = crate::datatable_acl_oss::ensure_acl_planner().is_ok()
+        && ensure_governs_datatable(&db, &authed, &w_id, &governing)
+            .await
+            .is_ok();
     let roles = if editable {
         role_names(&read_role_catalog(&db).await?)
     } else {

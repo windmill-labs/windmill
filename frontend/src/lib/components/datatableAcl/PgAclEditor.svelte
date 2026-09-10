@@ -113,7 +113,8 @@
 	<div class="flex flex-col gap-4">
 		{#if !info.editable}
 			<span class="text-xs text-secondary">
-				Read only: access is changed by the admins of the workspace that governs this data table.
+				Read only: access is changed by the admins of the workspace that governs this data table, on
+				Windmill Enterprise Edition.
 			</span>
 		{/if}
 
