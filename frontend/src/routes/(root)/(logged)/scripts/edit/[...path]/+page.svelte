@@ -69,9 +69,10 @@
 	// Page-level draft orchestration: autosave handle (re-keyed on nav via
 	// `draftPath`), live-editor-draft registry, `recordRemoteSync`, removal.
 	// `draftSync.draft` stays a stable lvalue for `bind:script`.
-	/** Deployed script this load (with `parent_hash` grafted to match the
-	 * unedited draft seed), the baseline the autosave `discardIf` compares
-	 * against. `undefined` for draft-only paths so they never self-destruct. */
+	/** Deployed script this load (with the same `parent_hash` the draft seed
+	 * carries, so an unedited draft compares equal), the baseline the autosave
+	 * `discardIf` compares against. `undefined` for draft-only paths so they
+	 * never self-destruct. */
 	let deployedBaseline = $state<EditableScript | undefined>(undefined)
 
 	const draftSync = usePageDraftSync<EditableScript>({
@@ -106,10 +107,8 @@
 	 *  (our draft is behind the latest deploy). Cleared between loads to re-fire. */
 	let draftSavedAt = $state<string | undefined>(undefined)
 	let deployedAt = $state<string | undefined>(undefined)
-	/** The hash the draft is pinned to, and the deployed head — the script
-	 *  equivalent of the flow/app version pair. Read off the loaded draft, which
-	 *  the load below re-pins to the head, so this is the head the draft was last
-	 *  loaded against rather than the point it originally forked from. */
+	/** The hash the draft forked from, and the deployed head — the script
+	 *  equivalent of the flow/app version pair. Behind ⇔ the two differ. */
 	let draftBaseHash = $state<string | undefined>(undefined)
 	let deployedHeadHash = $state<string | undefined>(undefined)
 
@@ -340,7 +339,11 @@
 				? { ...deployedScript, ...draftFromBackend }
 				: (deployedScript as EditableScript)
 			savedScript = structuredClone($state.snapshot(effectiveScript))
-			const parentHash = topHash ?? backendScript.hash
+			// The draft's base is the version it forked from and only the user moves
+			// it (by discarding or rebasing). Seeding it from the head here would let
+			// the next autosave persist the head as the base, so a draft behind the
+			// deploy reads as up to date after one open.
+			const parentHash = topHash ?? draftFromBackend?.parent_hash ?? backendScript.hash
 			// Baseline for the autosave `discardIf`: the deployed script with the
 			// same `parent_hash` graft the seed below applies, so the unedited draft
 			// compares equal. `undefined` when there's no deployed row.
@@ -363,7 +366,7 @@
 				const loadedValue = {
 					...deployedScript,
 					...(pendingLoad.value as object),
-					parent_hash: parentHash
+					parent_hash: (pendingLoad.value as { parent_hash?: string })?.parent_hash ?? parentHash
 				} as EditableScript
 				if (hasOwnDraft) {
 					OtherUserDraftLoad.beginOverlay({
