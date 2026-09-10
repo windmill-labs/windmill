@@ -75,10 +75,10 @@
 
 	// The sampler only records a queue metric when its value moves, plus a heartbeat while a
 	// tag stays backlogged and a closing zero once it drains, so a gap means "unchanged". A
-	// series silent for longer than the heartbeat allows never got its closing zero (no server
-	// was up when the tag drained), so it reads as zero from there on.
+	// series silent well past the heartbeat (which lands a monitor tick or so late) never got
+	// its closing zero, because no server was up when the tag drained: it reads as zero from there.
 	const HEARTBEAT_MS = 5 * 60 * 1000 // QUEUE_METRIC_HEARTBEAT_SECS in backend/src/monitor.rs
-	const STALE_AFTER_MS = 2 * HEARTBEAT_MS
+	const STALE_AFTER_MS = 3 * HEARTBEAT_MS
 	// Hold each value until the next point. `'after'` starts a value at the previous point
 	// instead, which draws a whole backlog at the height of the zero that closes it.
 	const STEPPED = 'before' as const

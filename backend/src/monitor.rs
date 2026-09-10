@@ -5116,9 +5116,10 @@ const QUEUE_METRIC_MIN_INTERVAL_SECS: f64 = 25.0;
 /// (no server was up when it drained) stops being drawn as backlogged. A longer heartbeat
 /// writes fewer rows but keeps such a stale line up for longer.
 const QUEUE_METRIC_HEARTBEAT_SECS: f64 = 5.0 * 60.0;
-/// How far back the last-sample lookup reaches. Must exceed the heartbeat, so a tag that is
-/// still believed backlogged is always found and can be given its closing zero.
-const QUEUE_METRIC_LOOKBACK_SECS: f64 = 2.0 * QUEUE_METRIC_HEARTBEAT_SECS;
+/// How far back the last-sample lookup reaches. Must exceed the real spacing of heartbeats,
+/// which land up to a monitor tick and a sampling slot late, so a tag that is still believed
+/// backlogged is always found and can be given its closing zero.
+const QUEUE_METRIC_LOOKBACK_SECS: f64 = 3.0 * QUEUE_METRIC_HEARTBEAT_SECS;
 /// Queue delay climbs on its own for as long as a tag stays backlogged, so an exact-value
 /// comparison would never dedup it. Only a move the chart would actually render is stored.
 const QUEUE_DELAY_TOLERANCE: f64 = 0.1;
@@ -5305,7 +5306,8 @@ mod queue_metric_sampling {
 
 /// When this server last sampled the queue into `metrics`, in Unix milliseconds. It only paces
 /// how often the queue is scanned for that; whether a sample earns a row is decided from what
-/// is already stored, so servers sampling at the same moment still agree.
+/// is already stored. Servers sampling in the same instant can each write it, and the duplicate
+/// draws the same.
 static LAST_QUEUE_SAMPLE_MS: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
 
 pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
@@ -5324,6 +5326,63 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
         >= (QUEUE_METRIC_MIN_INTERVAL_SECS * 1000.0) as i64;
     if !(metrics_enabled || otel_enabled || save_metrics) {
         return;
+    }
+
+    // Single DB query for running counts, shared by Prometheus and OTel. It runs ahead of the
+    // backlog read below, which gives up on the rest of the round when it fails.
+    let otel_running = otel_enabled;
+    #[cfg(feature = "prometheus")]
+    let need_running_counts = metrics_enabled || otel_running;
+    #[cfg(not(feature = "prometheus"))]
+    let need_running_counts = otel_running;
+
+    if need_running_counts {
+        let queue_running_counts = windmill_common::queue::get_queue_running_counts(db).await;
+
+        #[cfg(feature = "prometheus")]
+        if metrics_enabled {
+            for q in QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
+                if queue_running_counts.get(q).is_none() {
+                    (*QUEUE_RUNNING_COUNT).with_label_values(&[q]).set(0);
+                }
+            }
+        }
+
+        if otel_running {
+            for q in OTEL_QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
+                if queue_running_counts.get(q).is_none() {
+                    otel_set_queue_running_count(q, 0);
+                }
+            }
+        }
+
+        #[allow(unused_mut, unused_variables)]
+        let mut running_tags_to_watch: Vec<String> = vec![];
+        #[allow(unused_mut, unused_variables)]
+        let mut otel_running_tags_to_watch: Vec<String> = vec![];
+        for (tag, count) in &queue_running_counts {
+            #[cfg(feature = "prometheus")]
+            if metrics_enabled {
+                let metric = (*QUEUE_RUNNING_COUNT).with_label_values(&[tag]);
+                metric.set(*count as i64);
+                running_tags_to_watch.push(tag.to_string());
+            }
+
+            if otel_running {
+                otel_set_queue_running_count(tag, *count as i64);
+                otel_running_tags_to_watch.push(tag.to_string());
+            }
+        }
+
+        #[cfg(feature = "prometheus")]
+        if metrics_enabled {
+            let mut w = QUEUE_RUNNING_COUNT_TAGS.write().await;
+            *w = running_tags_to_watch;
+        }
+        if otel_running {
+            let mut w = OTEL_QUEUE_RUNNING_COUNT_TAGS.write().await;
+            *w = otel_running_tags_to_watch;
+        }
     }
 
     let queue_stats = match windmill_common::queue::get_queue_stats(db).await {
@@ -5383,62 +5442,6 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
     if otel_enabled {
         let mut w = OTEL_QUEUE_COUNT_TAGS.write().await;
         *w = otel_tags_to_watch;
-    }
-
-    // Single DB query for running counts, shared by Prometheus and OTel
-    let otel_running = otel_enabled;
-    #[cfg(feature = "prometheus")]
-    let need_running_counts = metrics_enabled || otel_running;
-    #[cfg(not(feature = "prometheus"))]
-    let need_running_counts = otel_running;
-
-    if need_running_counts {
-        let queue_running_counts = windmill_common::queue::get_queue_running_counts(db).await;
-
-        #[cfg(feature = "prometheus")]
-        if metrics_enabled {
-            for q in QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
-                if queue_running_counts.get(q).is_none() {
-                    (*QUEUE_RUNNING_COUNT).with_label_values(&[q]).set(0);
-                }
-            }
-        }
-
-        if otel_running {
-            for q in OTEL_QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
-                if queue_running_counts.get(q).is_none() {
-                    otel_set_queue_running_count(q, 0);
-                }
-            }
-        }
-
-        #[allow(unused_mut, unused_variables)]
-        let mut running_tags_to_watch: Vec<String> = vec![];
-        #[allow(unused_mut, unused_variables)]
-        let mut otel_running_tags_to_watch: Vec<String> = vec![];
-        for (tag, count) in &queue_running_counts {
-            #[cfg(feature = "prometheus")]
-            if metrics_enabled {
-                let metric = (*QUEUE_RUNNING_COUNT).with_label_values(&[tag]);
-                metric.set(*count as i64);
-                running_tags_to_watch.push(tag.to_string());
-            }
-
-            if otel_running {
-                otel_set_queue_running_count(tag, *count as i64);
-                otel_running_tags_to_watch.push(tag.to_string());
-            }
-        }
-
-        #[cfg(feature = "prometheus")]
-        if metrics_enabled {
-            let mut w = QUEUE_RUNNING_COUNT_TAGS.write().await;
-            *w = running_tags_to_watch;
-        }
-        if otel_running {
-            let mut w = OTEL_QUEUE_RUNNING_COUNT_TAGS.write().await;
-            *w = otel_running_tags_to_watch;
-        }
     }
 }
 
