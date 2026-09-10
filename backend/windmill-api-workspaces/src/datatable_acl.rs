@@ -32,7 +32,7 @@ use windmill_api_auth::ApiAuthed;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::datatable_roles::{
-    lock_role_catalog, read_role_catalog, read_role_catalog_tx, DatatableRoleCatalog,
+    lock_role_catalog, quote_ident, read_role_catalog, read_role_catalog_tx, DatatableRoleCatalog,
     ADMIN_DATATABLE_ROLE, CUSTOM_INSTANCE_USER,
 };
 use windmill_common::error::{pg_error_message, Error, JsonResult, Result};
@@ -443,7 +443,8 @@ pub(crate) struct FormerOwnerDefaults {
 }
 
 /// The default privileges schema `schema`'s owner holds there — `None` when it holds none, or is
-/// `new_owner` already.
+/// `new_owner` already. Refused when one was set by a role this connection cannot act for: only
+/// a member of the creating role may change its defaults, so the revoke would fail at apply.
 async fn read_former_owner_defaults(
     client: &tokio_postgres::Client,
     schema: &str,
@@ -452,7 +453,7 @@ async fn read_former_owner_defaults(
     let rows = client
         .query(
             "SELECT DISTINCT pg_get_userbyid(n.nspowner), pg_get_userbyid(d.defaclrole),
-                    d.defaclobjtype::text
+                    d.defaclobjtype::text, pg_has_role(d.defaclrole, 'USAGE')
              FROM pg_namespace n
              JOIN pg_default_acl d ON d.defaclnamespace = n.oid
              CROSS JOIN LATERAL aclexplode(d.defaclacl) a
@@ -472,19 +473,32 @@ async fn read_former_owner_defaults(
     let Some(first) = rows.first() else {
         return Ok(None);
     };
+    let pg_role: String = first.get(0);
+    let plural = |row: &tokio_postgres::Row| match row.get::<_, &str>(2) {
+        "r" => "TABLES",
+        "S" => "SEQUENCES",
+        _ => "FUNCTIONS",
+    };
+    if let Some(row) = rows.iter().find(|row| !row.get::<_, bool>(3)) {
+        let creator: String = row.get(1);
+        return Err(Error::BadRequest(format!(
+            "{} holds default privileges in schema {schema} from {creator}, which this data \
+             table's connection cannot act for, so they would outlive the change of owner. \
+             Revoke them as {creator} first: ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} \
+             REVOKE ALL PRIVILEGES ON {} FROM {}",
+            role_name_of(&pg_role),
+            quote_ident(&creator),
+            quote_ident(schema),
+            plural(row),
+            quote_ident(&pg_role)
+        )));
+    }
     Ok(Some(FormerOwnerDefaults {
-        pg_role: first.get(0),
         defaults: rows
             .iter()
-            .map(|row| {
-                let plural = match row.get::<_, &str>(2) {
-                    "r" => "TABLES",
-                    "S" => "SEQUENCES",
-                    _ => "FUNCTIONS",
-                };
-                (row.get::<_, String>(1), plural)
-            })
+            .map(|row| (row.get::<_, String>(1), plural(row)))
             .collect(),
+        pg_role,
     }))
 }
 
