@@ -43,10 +43,11 @@
 	async function startPreApprovedTrial() {
 		if (starting) return
 		starting = true
-		logFeatureUsage('cloud_trial_offer', 'go')
 		try {
 			// A POST, so nothing but this click can start the trial; the answer is where to go.
-			const { location } = await UserService.goCloudTrialOffer()
+			const { location, reason } = await UserService.goCloudTrialOffer()
+			logFeatureUsage('cloud_trial_offer', 'go')
+			if (reason) sendUserToast(`The trial could not be started: ${reason}`, true)
 			window.location.assign(location)
 		} catch (e) {
 			console.error('Could not start the pre-approved trial:', e)

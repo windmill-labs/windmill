@@ -1,4 +1,5 @@
 <script module lang="ts">
+	import { noteSessionEmail } from '$lib/onboardingProfile'
 	import type { LastLoginMethod } from '$lib/lastLoginMethod'
 
 	/** Feeds the login card a fixed instance configuration instead of the live one.
@@ -266,6 +267,9 @@
 
 		try {
 			await UserService.login({ requestBody })
+			// The session changed under a page that stays mounted: what was cached for the
+			// previous account must not be served to this one.
+			noteSessionEmail(email)
 		} catch (err) {
 			failLogin(loginErrorMessage(err), 'both', requestBody)
 			return

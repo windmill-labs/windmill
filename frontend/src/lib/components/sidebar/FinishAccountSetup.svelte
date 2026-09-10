@@ -25,12 +25,18 @@
 		gitlab: GitlabIcon
 	}
 	let logins = $state<{ type: string; displayName: string }[]>([])
+	// Where password login is off, a password would be a credential that cannot sign in;
+	// the backend refuses it too, this just keeps the dead end off the screen.
+	let passwordAllowed = $state(true)
 	let password = $state('')
 	let saving = $state(false)
 
 	const labels: Record<string, string> = { github: 'GitHub', google: 'Google', gitlab: 'GitLab' }
 	$effect(() => {
 		if (!open) return
+		UserService.isPasswordLoginDisabled()
+			.then((disabled) => (passwordAllowed = !disabled))
+			.catch(() => (passwordAllowed = true))
 		OauthService.listOauthLogins()
 			.then((r) => {
 				logins = (r.oauth ?? []).map((l) => ({
@@ -74,6 +80,11 @@
 			has no sign-in method of its own yet. Pick one so you can come back any time.
 		</p>
 
+		{#if logins.length === 0 && !passwordAllowed}
+			<p class="text-sm text-secondary">
+				No sign-in method is available on this instance right now; ask an administrator.
+			</p>
+		{/if}
 		{#if logins.length > 0}
 			<div class="flex flex-col gap-2">
 				<span class="text-xs font-semibold text-emphasis">Sign in with a provider</span>
@@ -100,13 +111,16 @@
 					signed in here.
 				</p>
 			</div>
-			<div class="flex items-center gap-3">
-				<div class="h-px flex-1 bg-border-light"></div>
-				<span class="text-2xs uppercase text-secondary">or</span>
-				<div class="h-px flex-1 bg-border-light"></div>
-			</div>
+			{#if passwordAllowed}
+				<div class="flex items-center gap-3">
+					<div class="h-px flex-1 bg-border-light"></div>
+					<span class="text-2xs uppercase text-secondary">or</span>
+					<div class="h-px flex-1 bg-border-light"></div>
+				</div>
+			{/if}
 		{/if}
 
+		{#if passwordAllowed}
 		<div class="flex flex-col gap-2">
 			<span class="text-xs font-semibold text-emphasis">Set a password</span>
 			<div class="flex flex-row gap-2 items-center">
@@ -126,5 +140,6 @@
 				>A password account keeps signing in with the password only.</p
 			>
 		</div>
+		{/if}
 	</div>
 </Modal>

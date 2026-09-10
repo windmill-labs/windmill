@@ -9,6 +9,9 @@
 	let newPassword = $state<string | undefined>(undefined)
 	let passwordError = $state<string | undefined>(undefined)
 	let login_type = $state<string>('none')
+	// A credential-less account may only take the password road where password login is
+	// on; the backend refuses otherwise, this keeps the form from offering a dead end.
+	let passwordAllowed = $state(true)
 
 	$effect(() => {
 		loadLoginType()
@@ -16,6 +19,9 @@
 
 	async function loadLoginType(): Promise<void> {
 		login_type = (await UserService.globalWhoami()).login_type
+		if (login_type == 'pending_oauth') {
+			passwordAllowed = !(await UserService.isPasswordLoginDisabled().catch(() => false))
+		}
 	}
 
 	async function setPassword(): Promise<void> {
@@ -49,7 +55,7 @@
 
 		<label class="flex flex-col gap-1 w-120">
 			<span class="text-xs text-emphasis font-semibold">Password</span>
-			{#if login_type == 'password' || login_type == 'pending_oauth'}
+			{#if login_type == 'password' || (login_type == 'pending_oauth' && passwordAllowed)}
 				<div class="flex flex-row gap-1 items-center">
 					<TextInput
 						inputProps={{ autocomplete: 'new-password', type: 'password' }}

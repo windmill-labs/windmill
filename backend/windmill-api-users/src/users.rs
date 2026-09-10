@@ -3511,10 +3511,6 @@ async fn get_cloud_trial_offer(
     }))
 }
 
-/// The one click that turns a cloud account's pre-approved offer into a trial: the portal
-/// is asked for a login that starts it, and the browser is handed over. The portal is the
-/// authority on whether the offer still stands; its refusal spends the offer here so the
-/// sidebar stops advertising it.
 /// Where the browser goes to start the pre-approved trial: a signed-in portal login, or
 /// the portal's front page with the reason it could not start one.
 #[derive(Serialize)]
@@ -3524,6 +3520,10 @@ pub struct CloudTrialOfferGo {
     pub reason: Option<String>,
 }
 
+/// The one click that turns a cloud account's pre-approved offer into a trial: the portal
+/// is asked for a login that starts it, and the browser is handed over. The portal is the
+/// authority on whether the offer still stands; its refusal spends the offer here so the
+/// sidebar stops advertising it.
 async fn go_cloud_trial_offer(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
