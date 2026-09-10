@@ -7,7 +7,7 @@
  */
 
 import { afterAll, beforeEach, expect, mock, test } from "bun:test";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,11 +16,14 @@ let deployedPolicy: any;
 /** No app deployed at the path: `getAppByPath` 404s and the push creates one. */
 let deployed = true;
 
-// `mock.module` replaces the module for the whole process, so both are handed
-// back at the end — `raw_app_svelte_plugin_unit.test.ts` drives the real
-// `createBundle`, and would silently bundle nothing under the stub.
+// Only the API is stubbed, and it is handed back in `afterAll` — `mock.module`
+// replaces a module for the whole process. `bundle.ts` is deliberately NOT
+// stubbed: every test file's imports resolve before any `afterAll` runs, so a
+// stub there reaches `raw_app_svelte_plugin_unit.test.ts` whenever the test
+// runner reaches this file first, and that suite then asserts against a bundle
+// containing nothing. The real bundler runs instead, on the app each push
+// writes below.
 const realServices = await import("../gen/services.gen.ts");
-const realBundle = await import("../src/commands/app/bundle.ts");
 
 mock.module("../gen/services.gen.ts", () => ({
   ...realServices,
@@ -41,14 +44,8 @@ mock.module("../gen/services.gen.ts", () => ({
   },
 }));
 
-mock.module("../src/commands/app/bundle.ts", () => ({
-  ...realBundle,
-  createBundle: async () => ({ js: "", css: "" }),
-}));
-
 afterAll(() => {
   mock.module("../gen/services.gen.ts", () => realServices);
-  mock.module("../src/commands/app/bundle.ts", () => realBundle);
 });
 
 const { pushRawApp } = await import("../src/commands/app/raw_apps.ts");
@@ -68,8 +65,16 @@ async function push(yamlTail: string, admin = true): Promise<any> {
     "utf-8",
   );
   // Any file the remote doesn't have, so the push isn't short-circuited as
-  // up to date.
+  // up to date. It is also the bundler's entry point, so it has to compile.
   await writeFile(join(dir, "index.tsx"), "export default 1\n", "utf-8");
+  await writeFile(
+    join(dir, "package.json"),
+    JSON.stringify({ name: "app", private: true }),
+    "utf-8",
+  );
+  // `ensureNodeModules` only checks the directory is there; borrowing the CLI's
+  // own skips an npm install per push.
+  await symlink(join(process.cwd(), "node_modules"), join(dir, "node_modules"));
   await pushRawApp("w", "f/test/raw", dir, undefined, "bun", admin ? ADMIN : undefined);
   expect(calls).toHaveLength(1);
   return calls[0].formData.app;
