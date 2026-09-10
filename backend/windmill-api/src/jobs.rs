@@ -73,6 +73,7 @@ use crate::{
     args::{self, RawWebhookArgs},
     auth::{OptTokened, Tokened},
     concurrency_groups::join_concurrency_key,
+    csrf::CrossSiteGetGuard,
     db::{ApiAuthed, DB},
     triggers::trigger_helpers::RunnableId,
     users::{
@@ -7447,6 +7448,7 @@ async fn log_job_view(
 }
 
 pub async fn run_wait_result_job_by_path_get(
+    cross_site: CrossSiteGetGuard,
     method: hyper::http::Method,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -7459,6 +7461,7 @@ pub async fn run_wait_result_job_by_path_get(
     check_license_key_valid().await?;
 
     let script_path = script_path.to_path();
+    let runnable_id = cross_site.script_runnable(script_path)?;
     check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;
 
     if method == http::Method::HEAD {
@@ -7471,12 +7474,7 @@ pub async fn run_wait_result_job_by_path_get(
     args.body = args::Body::HashMap(payload_as_args);
 
     let args = args
-        .to_args_from_runnable(
-            &db,
-            &w_id,
-            RunnableId::from_script_path(script_path),
-            run_query.skip_preprocessor,
-        )
+        .to_args_from_runnable(&db, &w_id, runnable_id, run_query.skip_preprocessor)
         .await?;
 
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
@@ -7895,6 +7893,7 @@ pub async fn stream_flow_by_version(
 }
 
 pub async fn stream_script_by_path(
+    cross_site: CrossSiteGetGuard,
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -7903,12 +7902,13 @@ pub async fn stream_script_by_path(
     method: hyper::http::Method,
     args: RawWebhookArgs,
 ) -> error::Result<Response> {
+    let runnable_id = cross_site.script_runnable(script_path.to_path())?;
     stream_job(
         authed,
         db,
         user_db,
         w_id,
-        RunnableId::from_script_path(script_path.to_path()),
+        runnable_id,
         args,
         run_query,
         method == http::Method::GET,
