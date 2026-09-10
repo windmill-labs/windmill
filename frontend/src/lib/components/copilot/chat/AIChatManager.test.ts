@@ -869,15 +869,26 @@ describe('AIChatManager autonomy mode', () => {
 
 		expect(jobId).toBe('job-flow-preview')
 		expect(testFlow).toHaveBeenCalledWith({ name: 'Ada' })
+		// A session chat resolves an editor by path, so it never names one.
+		expect(manager.flowAiChatHelpers).toBeUndefined()
 	})
 
-	// Session tabs keep every open flow editor mounted, so the last one to register is
-	// routinely a different flow than the one being tested.
-	it('tests the flow editor open on the path, not the last one registered', async () => {
+	// Session tabs keep every open flow editor mounted, so neither the last one to register nor
+	// the first one answering to the path is reliably the flow being tested.
+	it('tests the flow editor stored at the path, over a rename onto it and a later registration', async () => {
 		const manager = new AIChatManager()
 		const testTarget = vi.fn(async () => 'job-target-flow')
-		const testOther = vi.fn(async () => 'job-other-flow')
+		const testRenamed = vi.fn(async () => 'job-renamed-flow')
+		const testLast = vi.fn(async () => 'job-last-flow')
 
+		manager.setFlowHelpers(
+			createFlowHelpers({
+				hasPendingChanges: () => false,
+				acceptAllModuleActions: vi.fn(),
+				testFlow: testRenamed,
+				flowPaths: ['u/admin/renamed_flow', 'u/admin/live_flow']
+			})
+		)
 		manager.setFlowHelpers(
 			createFlowHelpers({
 				hasPendingChanges: () => false,
@@ -890,7 +901,7 @@ describe('AIChatManager autonomy mode', () => {
 			createFlowHelpers({
 				hasPendingChanges: () => false,
 				acceptAllModuleActions: vi.fn(),
-				testFlow: testOther,
+				testFlow: testLast,
 				flowPaths: ['u/admin/other_flow']
 			})
 		)
@@ -900,7 +911,8 @@ describe('AIChatManager autonomy mode', () => {
 
 		expect(jobId).toBe('job-target-flow')
 		expect(testTarget).toHaveBeenCalledWith({ name: 'Ada' })
-		expect(testOther).not.toHaveBeenCalled()
+		expect(testRenamed).not.toHaveBeenCalled()
+		expect(testLast).not.toHaveBeenCalled()
 	})
 })
 

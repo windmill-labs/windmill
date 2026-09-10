@@ -4691,7 +4691,13 @@ export class AIChatManager {
 	}
 
 	private flowEditorFor(path: string): FlowAIChatHelpers | undefined {
-		return [...this.#flowEditors].find((helpers) => helpers.getFlowPaths().includes(path))
+		const editors = [...this.#flowEditors]
+		// A staged rename makes an editor answer to a path it does not hold yet, which can be
+		// another open editor's own path. The editor stored there wins over the one typed there.
+		return (
+			editors.find((helpers) => helpers.getFlowPaths()[0] === path) ??
+			editors.find((helpers) => helpers.getFlowPaths().includes(path))
+		)
 	}
 
 	// Registered by the /pipeline editor while it is mounted. Rebuilds the global
