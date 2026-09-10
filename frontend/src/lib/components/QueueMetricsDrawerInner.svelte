@@ -74,12 +74,14 @@
 	let noMetrics = $state(false)
 
 	// The sampler only records a queue metric when its value moves, plus a heartbeat while a
-	// tag stays backlogged and a closing zero once it drains, so a gap means "unchanged" and
-	// the lines are drawn stepped. A series that went quiet for longer than the heartbeat
-	// allows never got its closing zero (no server was up when the tag drained), so it reads
-	// as zero from that point on. Must match QUEUE_METRIC_HEARTBEAT_SECS in backend/src/monitor.rs.
-	const HEARTBEAT_MS = 5 * 60 * 1000
+	// tag stays backlogged and a closing zero once it drains, so a gap means "unchanged". A
+	// series silent for longer than the heartbeat allows never got its closing zero (no server
+	// was up when the tag drained), so it reads as zero from there on.
+	const HEARTBEAT_MS = 5 * 60 * 1000 // QUEUE_METRIC_HEARTBEAT_SECS in backend/src/monitor.rs
 	const STALE_AFTER_MS = 2 * HEARTBEAT_MS
+	// Hold each value until the next point. `'after'` starts a value at the previous point
+	// instead, which draws a whole backlog at the height of the zero that closes it.
+	const STEPPED = 'before' as const
 
 	function toPoints(
 		data: {
@@ -156,7 +158,7 @@
 						label: m.id.slice(12),
 						backgroundColor: bgColor,
 						borderColor: color,
-						stepped: 'after' as const,
+						stepped: STEPPED,
 						data: toPoints(m.values, 0)
 					}
 				})
@@ -171,7 +173,7 @@
 						label: m.id.slice(12),
 						borderColor: color,
 						backgroundColor: bgColor,
-						stepped: 'after' as const,
+						stepped: STEPPED,
 						// Delay climbs on its own while a tag stays backlogged; the sampler stores a
 						// new row only once it has moved by 10%, so hold the chart to the same step.
 						data: asLogSafe(toPoints(m.values, 0.1))

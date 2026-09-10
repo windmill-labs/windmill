@@ -25,33 +25,34 @@ pub struct QueueStat {
 /// Same backlog as [`get_queue_counts`], plus the delay of the job at the head of each
 /// tag's queue. The head is picked with the same ordering the worker pull uses, so the
 /// delay reported is the one a worker is about to observe.
-pub async fn get_queue_stats(db: &Pool<Postgres>) -> HashMap<String, QueueStat> {
-    // The head of each queue is found through `queue_sort_v2` rather than with an ordered
-    // aggregate over the group, which would sort every backlogged row on every call.
-    sqlx::query!(
-        "SELECT c.tag AS \"tag!\", c.count AS \"count!\",
-            EXTRACT(EPOCH FROM now() - d.scheduled_for)::double precision AS \"delay!\"
+///
+/// Reads the queue of every workspace: a caller exposing the result MUST restrict it to
+/// devops users, as `GET /workers/queue_counts` does. Unlike [`get_queue_counts`], a failed
+/// read is an error rather than an empty map, which would read as every backlog draining.
+pub async fn get_queue_stats(
+    db: &Pool<Postgres>,
+) -> crate::error::Result<HashMap<String, QueueStat>> {
+    // Grouping by (tag, priority) first finds every head in the same single pass as the
+    // count. A per-tag `ORDER BY ... LIMIT 1` walks `queue_sort_v2`, whose `tag` column comes
+    // last, through every other tag's backlog queued ahead of it.
+    let rows = sqlx::query!(
+        "SELECT tag AS \"tag!\", sum(n)::bigint AS \"count!\",
+            EXTRACT(EPOCH FROM now() - (array_agg(head ORDER BY priority DESC NULLS LAST))[1])
+                ::double precision AS \"delay!\"
         FROM (
-            SELECT tag, count(*) AS count FROM v2_job_queue WHERE
+            SELECT tag, priority, count(*) AS n, min(scheduled_for) AS head
+            FROM v2_job_queue WHERE
                 scheduled_for <= now() - ('3 seconds')::interval AND running = false
-                GROUP BY tag
-        ) c
-        CROSS JOIN LATERAL (
-            SELECT scheduled_for FROM v2_job_queue
-            WHERE tag = c.tag AND running = false
-                AND scheduled_for <= now() - ('3 seconds')::interval
-            ORDER BY priority DESC NULLS LAST, scheduled_for LIMIT 1
-        ) d",
+                GROUP BY tag, priority
+        ) g
+        GROUP BY tag",
     )
     .fetch_all(db)
-    .await
-    .ok()
-    .map(|v| {
-        v.into_iter()
-            .map(|x| (x.tag, QueueStat { count: x.count as u32, delay: x.delay }))
-            .collect()
-    })
-    .unwrap_or_else(|| HashMap::new())
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|x| (x.tag, QueueStat { count: x.count as u32, delay: x.delay }))
+        .collect())
 }
 
 pub async fn get_queue_running_counts(db: &Pool<Postgres>) -> HashMap<String, u32> {

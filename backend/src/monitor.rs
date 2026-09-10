@@ -5107,7 +5107,8 @@ async fn vacuuming_tables(db: &Pool<Postgres>) -> error::Result<()> {
 }
 
 /// Shortest spacing between two stored samples of the same queue metric, so a tag whose
-/// value moves on every monitor round still writes at most one row per interval.
+/// value moves on every monitor round still writes at most one row per interval. Also how
+/// often each server samples the queue when no Prometheus or OTel gauge needs it sooner.
 const QUEUE_METRIC_MIN_INTERVAL_SECS: f64 = 25.0;
 /// A backlogged tag whose value has not moved is re-sampled only this often. The queue metrics
 /// drawer (`QueueMetricsDrawerInner.svelte`, which must be changed with it) treats a series
@@ -5302,10 +5303,36 @@ mod queue_metric_sampling {
     }
 }
 
-pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
-    let metrics_enabled = METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
+/// When this server last sampled the queue into `metrics`, in Unix milliseconds. It only paces
+/// how often the queue is scanned for that; whether a sample earns a row is decided from what
+/// is already stored, so servers sampling at the same moment still agree.
+static LAST_QUEUE_SAMPLE_MS: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
 
-    let queue_stats = windmill_common::queue::get_queue_stats(db).await;
+pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
+    // clean queue metrics older than 14 days
+    sqlx::query!(
+        "DELETE FROM metrics WHERE id LIKE 'queue_%' AND created_at < NOW() - INTERVAL '14 day'"
+    )
+    .execute(db)
+    .await
+    .ok();
+
+    let metrics_enabled = METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
+    let otel_enabled = OTEL_METRICS_ENABLED.load(Ordering::Relaxed);
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let save_metrics = now_ms - LAST_QUEUE_SAMPLE_MS.load(Ordering::Relaxed)
+        >= (QUEUE_METRIC_MIN_INTERVAL_SECS * 1000.0) as i64;
+    if !(metrics_enabled || otel_enabled || save_metrics) {
+        return;
+    }
+
+    let queue_stats = match windmill_common::queue::get_queue_stats(db).await {
+        Ok(queue_stats) => queue_stats,
+        Err(e) => {
+            tracing::error!("Failed to read queue stats: {e:#}");
+            return;
+        }
+    };
 
     #[cfg(feature = "prometheus")]
     if metrics_enabled {
@@ -5315,8 +5342,6 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
             }
         }
     }
-
-    let otel_enabled = OTEL_METRICS_ENABLED.load(Ordering::Relaxed);
 
     if otel_enabled {
         for q in OTEL_QUEUE_COUNT_TAGS.read().await.iter() {
@@ -5346,7 +5371,10 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
         otel_set_queue_count(tag, count as i64);
     }
 
-    save_queue_metrics(db, &queue_stats).await;
+    if save_metrics {
+        LAST_QUEUE_SAMPLE_MS.store(now_ms, Ordering::Relaxed);
+        save_queue_metrics(db, &queue_stats).await;
+    }
 
     if metrics_enabled {
         let mut w = QUEUE_COUNT_TAGS.write().await;
@@ -5412,14 +5440,6 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
             *w = otel_running_tags_to_watch;
         }
     }
-
-    // clean queue metrics older than 14 days
-    sqlx::query!(
-        "DELETE FROM metrics WHERE id LIKE 'queue_%' AND created_at < NOW() - INTERVAL '14 day'"
-    )
-    .execute(db)
-    .await
-    .ok();
 }
 
 pub async fn reload_smtp_config(db: &Pool<Postgres>) {
