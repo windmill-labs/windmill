@@ -32667,6 +32667,9 @@ components:
         type:
           type: string
           enum: [set_owner, grant, revoke]
+          description: >-
+            set_owner hands the target to role — for a schema, with everything already in it but
+            an extension's members, which stay with the extension.
         role:
           type: string
           description: a data table role of the instance, or admin
@@ -32730,8 +32733,9 @@ components:
         kind:
           type: string
           description: >-
-            TABLE, SEQUENCE, FUNCTION or PROCEDURE — what the object is. A revoke turns it into
-            the keyword it takes, ROUTINE for both routine kinds.
+            TABLE, SEQUENCE, FUNCTION, PROCEDURE or TYPE — what the object is. A revoke turns it
+            into the keyword it takes, ROUTINE for both routine kinds; a type's grants are read
+            only.
         args:
           type: string
           description: identity arguments of a routine, which is what tells two of the same name apart

@@ -146,7 +146,8 @@ impl GrantScope {
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AclChange {
-    /// Hand the target — and, for a schema, everything already in it — to another role.
+    /// Hand the target — and, for a schema, everything already in it but an extension's members,
+    /// which stay with the extension — to another role.
     SetOwner {
         role: String,
     },
@@ -192,8 +193,8 @@ pub struct AclChangeRequest {
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct AclObject {
     pub name: String,
-    /// `TABLE`, `SEQUENCE`, `FUNCTION` or `PROCEDURE`: what the object is. [`object_keyword`]
-    /// turns it into the keyword a revoke takes.
+    /// `TABLE`, `SEQUENCE`, `FUNCTION`, `PROCEDURE` or `TYPE`: what the object is.
+    /// [`object_keyword`] turns it into the keyword a revoke takes; a type has none.
     pub kind: String,
     /// A routine is identified by its argument types, not by its name: two `f` in one schema are
     /// two objects. Absent for everything else.
@@ -709,6 +710,29 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
             out.extend(
                 client
                     .query(
+                        // `USAGE` on a type is what lets a role use it in a column. Only a type the
+                        // schema holds in its own right has an acl: an array, a row type and a
+                        // multirange answer to their element, table or range.
+                        "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+                                a.privilege_type, t.typname, NULL::text, 'TYPE', NULL::text
+                         FROM pg_type t
+                         JOIN pg_depend d ON d.classid = 'pg_type'::regclass AND d.objid = t.oid
+                          AND d.refclassid = 'pg_namespace'::regclass AND d.deptype = 'n',
+                              aclexplode(COALESCE(t.typacl, acldefault('T', t.typowner))) a
+                         WHERE d.refobjid = (SELECT oid FROM pg_namespace WHERE nspname = $1)
+                           AND a.grantee <> t.typowner
+                           AND NOT EXISTS (
+                               SELECT 1 FROM pg_depend x
+                               WHERE x.classid = 'pg_type'::regclass AND x.objid = t.oid
+                                 AND x.objsubid = 0 AND x.deptype = 'i')",
+                        &[schema],
+                    )
+                    .await
+                    .map_err(grant_read_error)?,
+            );
+            out.extend(
+                client
+                    .query(
                         "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
                                 a.privilege_type, NULL::text,
                                 CASE d.defaclobjtype
@@ -1183,6 +1207,8 @@ mod tests {
                  CREATE TABLE moved.pt (id int) PARTITION BY RANGE (id);
                  CREATE TABLE moved.pt1 PARTITION OF moved.pt FOR VALUES FROM (0) TO (10);
                  CREATE TYPE moved.r AS RANGE (subtype = float8);
+                 CREATE TYPE moved.pair AS (a int, b int);
+                 CREATE TYPE moved.mood AS ENUM ('ok');
                  CREATE DOMAIN moved.tags AS text[];
                  CREATE COLLATION moved.coll (provider = libc, locale = 'C');",
             )
@@ -1202,6 +1228,8 @@ mod tests {
                 ("TABLE", "moved.pt"),
                 ("TABLE", "moved.pt1"),
                 ("TABLE", "moved.t"),
+                ("TYPE", "moved.mood"),
+                ("TYPE", "moved.pair"),
                 ("TYPE", "moved.r"),
                 ("TYPE", "moved.tags"),
             ]

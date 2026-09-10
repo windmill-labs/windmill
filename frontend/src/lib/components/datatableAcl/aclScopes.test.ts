@@ -80,5 +80,6 @@ describe('revoke of a row', () => {
 		expect(revokeScopeOf(row())).toBe('target')
 		expect(revokeScopeOf(row('TABLES'))).toBe('future_tables')
 		expect(revokeScopeOf(row('TYPES'))).toBeUndefined()
+		expect(revokeScopeOf({ ...row(), objects: [{ name: 'mood', kind: 'TYPE' }] })).toBeUndefined()
 	})
 })
