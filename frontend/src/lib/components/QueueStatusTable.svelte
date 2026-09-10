@@ -29,13 +29,17 @@
 
 	onMount(() => {
 		load()
-		const interval = setInterval(load, REFRESH_MS)
+		// A tick that lands while the last read is still running is skipped: the endpoint is slowest
+		// on the backlogged instance this table is opened for, and reads must not pile up.
+		const interval = setInterval(() => {
+			if (!loading) load()
+		}, REFRESH_MS)
 		return () => clearInterval(interval)
 	})
 
 	type TagStatus = GetQueueStatusResponse[number]
 
-	// A backlog nobody listens to never drains, so it leads the table.
+	// A backlog no worker currently pulls leads the table: it waits until one starts.
 	function unserved(s: TagStatus) {
 		return s.waiting > 0 && s.workers === 0
 	}
@@ -61,6 +65,7 @@
 			unifiedSize="sm"
 			startIcon={{ icon: RefreshCw, classes: twMerge(loading ? 'animate-spin' : '') }}
 			iconOnly
+			title="Refresh queue status"
 			onclick={load}
 			disabled={loading}
 		/>
@@ -96,7 +101,7 @@
 							{#if unserved(s)}
 								<span class="inline-flex items-center gap-1 text-yellow-600 dark:text-yellow-400">
 									<TriangleAlert size={14} />
-									None: add the tag to a worker group, or cancel its jobs
+									No worker currently pulls this tag
 								</span>
 							{:else}
 								{s.workers}

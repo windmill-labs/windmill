@@ -328,8 +328,9 @@ struct QueueTagStatus {
     workers: i64,
 }
 
-/// Every tag with jobs waiting or running, read live from the queue. A tag with a backlog and no
-/// worker listening is how a job pushed with a tag nobody serves shows up: it never drains.
+/// Every tag with jobs waiting or running, read live from the queue. A backlog on a tag no live
+/// worker pulls waits for one to start: a worker group scaling up from zero, or none at all for a
+/// tag nobody serves.
 async fn get_queue_status(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
