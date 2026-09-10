@@ -109,6 +109,10 @@ use windmill_common::{
         APP_WORKSPACED_ROUTE_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE,
         HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
     },
+    queue_metrics::{
+        QUEUE_COUNT_PREFIX, QUEUE_DELAY_PREFIX, QUEUE_METRIC_HEARTBEAT_SECS,
+        QUEUE_METRIC_STALE_SECS,
+    },
 };
 #[cfg(feature = "parquet")]
 use windmill_object_store::reload_object_store_setting;
@@ -5110,25 +5114,12 @@ async fn vacuuming_tables(db: &Pool<Postgres>) -> error::Result<()> {
 /// value moves on every monitor round still writes at most one row per interval. Also how
 /// often each server samples the queue when no Prometheus or OTel gauge needs it sooner.
 const QUEUE_METRIC_MIN_INTERVAL_SECS: f64 = 25.0;
-/// A backlogged tag whose value has not moved is re-sampled only this often. The queue metrics
-/// drawer (`QueueMetricsDrawerInner.svelte`, which must be changed with it) treats a series
-/// silent for longer as drained. That is how a tag whose drop to zero was never recorded
-/// (no server was up when it drained) stops being drawn as backlogged. A longer heartbeat
-/// writes fewer rows but keeps such a stale line up for longer.
-const QUEUE_METRIC_HEARTBEAT_SECS: f64 = 5.0 * 60.0;
-/// How far back the last-sample lookup reaches. Must exceed the real spacing of heartbeats,
-/// which land up to a monitor tick and a sampling slot late, so a tag that is still believed
-/// backlogged is always found and can be given its closing zero.
-const QUEUE_METRIC_LOOKBACK_SECS: f64 = 3.0 * QUEUE_METRIC_HEARTBEAT_SECS;
 /// Queue delay climbs on its own for as long as a tag stays backlogged, so an exact-value
 /// comparison would never dedup it. Only a move the chart would actually render is stored.
 const QUEUE_DELAY_TOLERANCE: f64 = 0.1;
 
-const QUEUE_COUNT_PREFIX: &str = "queue_count_";
-const QUEUE_DELAY_PREFIX: &str = "queue_delay_";
-
-/// Append the queue metrics the drawer at `GET /workers/queue_metrics` charts, skipping any
-/// sample that repeats what is already stored.
+/// Append the queue metrics the drawer at `GET /workers/queue_metrics_series` charts, skipping
+/// any sample that repeats what is already stored.
 ///
 /// Only tags with a backlog appear in `queue_stats`, and an arbitrary `?tag=` nobody serves
 /// stays backlogged forever, so writing every round would repeat the same pair of rows for
@@ -5150,9 +5141,9 @@ async fn save_queue_metrics(
         .collect::<Vec<_>>();
 
     // Last stored sample of every metric that either has a backlog now or was written
-    // recently enough to still be believed backlogged. Bounding the lookup by the window keeps
-    // it cheap at any `metrics` size; a per-id `ORDER BY created_at DESC LIMIT 1` does not,
-    // since the planner may serve it from `metrics_sort_idx` and walk the whole table.
+    // recently enough to still be believed backlogged. Bounding the lookup by the stale window
+    // keeps it cheap at any `metrics` size; a per-id `ORDER BY created_at DESC LIMIT 1` does
+    // not, since the planner may serve it from `metrics_sort_idx` and walk the whole table.
     let last_samples = match sqlx::query!(
         "SELECT COALESCE(c.id, r.id) AS \"id!\", r.value AS \"value?\",
             EXTRACT(EPOCH FROM now() - r.created_at)::double precision AS \"age?\"
@@ -5164,7 +5155,7 @@ async fn save_queue_metrics(
             ORDER BY id, created_at DESC
         ) r ON r.id = c.id",
         &sampled_ids[..],
-        QUEUE_METRIC_LOOKBACK_SECS,
+        QUEUE_METRIC_STALE_SECS,
     )
     .fetch_all(db)
     .await
@@ -5281,7 +5272,7 @@ mod queue_metric_sampling {
         // Including once the heartbeat is due: a tag that is gone stays silent.
         assert!(!should_store(
             QUEUE_COUNT_PREFIX,
-            Some((0.0, QUEUE_METRIC_LOOKBACK_SECS)),
+            Some((0.0, QUEUE_METRIC_STALE_SECS)),
             None
         ));
         assert!(!should_store(QUEUE_COUNT_PREFIX, None, None));

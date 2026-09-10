@@ -12,6 +12,8 @@ use axum::{
     Json, Router,
 };
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -19,6 +21,9 @@ use windmill_common::{
     db::UserDB,
     error::JsonResult,
     jobs::{HIDE_WORKERS_FOR_NON_ADMINS, TAGS_ARE_SENSITIVE},
+    queue_metrics::{
+        render_series, MetricSlot, QUEUE_COUNT_PREFIX, QUEUE_DELAY_PREFIX, QUEUE_METRIC_STALE_SECS,
+    },
     utils::{paginate, Pagination},
     worker::{ALL_TAGS, CUSTOM_TAGS_PER_WORKSPACE, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE},
     workspaces::workspace_with_fork_ancestors,
@@ -38,6 +43,8 @@ pub fn global_service() -> Router {
         )
         .route("/get_default_tags", get(get_default_tags))
         .route("/queue_metrics", get(get_queue_metrics))
+        .route("/queue_metrics_series", get(get_queue_metrics_series))
+        .route("/queue_status", get(get_queue_status))
         .route("/queue_counts", get(get_queue_counts))
         .route("/queue_running_counts", get(get_queue_running_counts))
         .route(
@@ -287,6 +294,185 @@ async fn get_queue_metrics(
     .await?;
 
     Ok(Json(queue_metrics))
+}
+
+#[derive(Deserialize)]
+struct QueueMetricsSeriesQuery {
+    window_secs: Option<i64>,
+}
+
+#[derive(Serialize)]
+struct QueueMetricsSeries {
+    /// The window drawn, in epoch milliseconds.
+    from: i64,
+    to: i64,
+    tags: Vec<QueueTagSeries>,
+}
+
+#[derive(Serialize)]
+struct QueueTagSeries {
+    tag: String,
+    /// Vertices `[epoch ms, value]` of a line joined by straight segments.
+    count: Vec<(i64, f64)>,
+    delay: Vec<(i64, f64)>,
+}
+
+const QUEUE_METRICS_DEFAULT_WINDOW_SECS: i64 = 24 * 3600;
+/// Retention of queue metrics, past which there is nothing left to read.
+const QUEUE_METRICS_MAX_WINDOW_SECS: i64 = 14 * 24 * 3600;
+/// Slots a series is split into, whatever the window. A slot draws at most four vertices, so a
+/// line stays near 500 points however many rows the window holds.
+const QUEUE_METRICS_SERIES_SLOTS: f64 = 120.0;
+
+/// The queue metrics of the last `window_secs`, each series aggregated per slot by the database
+/// and drawn by [`render_series`], so the payload is bounded by the number of tags rather than
+/// by how many rows they wrote.
+async fn get_queue_metrics_series(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Query(query): Query<QueueMetricsSeriesQuery>,
+) -> JsonResult<QueueMetricsSeries> {
+    require_devops_role(&db, &authed).await?;
+
+    let window = query
+        .window_secs
+        .unwrap_or(QUEUE_METRICS_DEFAULT_WINDOW_SECS)
+        .clamp(60, QUEUE_METRICS_MAX_WINDOW_SECS) as f64;
+    let to = sqlx::query_scalar!("SELECT EXTRACT(EPOCH FROM now())::double precision AS \"now!\"")
+        .fetch_one(&db)
+        .await?;
+    let from = to - window;
+
+    // Slot -1 holds the samples written before the window, of which only the last is used: it
+    // sets the value in force at the left edge. A series silent for longer than the stale window
+    // reads as zero, so nothing older can matter. Arrays compare element by element, so
+    // `max(ARRAY[t, v])` is the slot's latest sample, found without sorting every row.
+    let rows = sqlx::query!(
+        "SELECT id AS \"id!\", slot AS \"slot!\", min(t) AS \"first!\", max(t) AS \"last!\",
+            max(v) AS \"peak!\", (max(ARRAY[t, v]))[2] AS \"last_value!\"
+        FROM (
+            SELECT id, EXTRACT(EPOCH FROM created_at)::double precision AS t,
+                CASE WHEN jsonb_typeof(value) = 'number' THEN value::double precision END AS v,
+                greatest(floor(
+                    (EXTRACT(EPOCH FROM created_at)::double precision - $1::double precision)
+                        / $2::double precision
+                ), -1)::int AS slot
+            FROM metrics
+            WHERE id LIKE 'queue_%'
+                AND created_at > to_timestamp($1::double precision - $3::double precision)
+        ) s
+        WHERE v IS NOT NULL
+        GROUP BY id, slot
+        ORDER BY id, slot",
+        from,
+        window / QUEUE_METRICS_SERIES_SLOTS,
+        QUEUE_METRIC_STALE_SECS,
+    )
+    .fetch_all(&db)
+    .await?;
+
+    #[derive(Default)]
+    struct Stored {
+        carried: Option<(f64, f64)>,
+        slots: Vec<MetricSlot>,
+    }
+    // [count, delay] per tag.
+    let mut stored: BTreeMap<String, [Stored; 2]> = BTreeMap::new();
+    for row in rows {
+        let (series, tag) = if let Some(tag) = row.id.strip_prefix(QUEUE_COUNT_PREFIX) {
+            (0, tag)
+        } else if let Some(tag) = row.id.strip_prefix(QUEUE_DELAY_PREFIX) {
+            (1, tag)
+        } else {
+            continue;
+        };
+        let series = &mut stored.entry(tag.to_string()).or_default()[series];
+        if row.slot < 0 {
+            series.carried = Some((row.last, row.last_value));
+        } else {
+            series.slots.push(MetricSlot {
+                first: row.first,
+                last: row.last,
+                peak: row.peak,
+                last_value: row.last_value,
+            });
+        }
+    }
+
+    let tags = stored
+        .into_iter()
+        .map(|(tag, [count, delay])| QueueTagSeries {
+            tag,
+            count: render_series(count.carried, &count.slots, from, to),
+            delay: render_series(delay.carried, &delay.slots, from, to),
+        })
+        // A tag that drained before the window has nothing to draw in it.
+        .filter(|s| s.count.iter().chain(&s.delay).any(|(_, v)| *v != 0.0))
+        .collect();
+
+    Ok(Json(QueueMetricsSeries {
+        from: (from * 1000.0).round() as i64,
+        to: (to * 1000.0).round() as i64,
+        tags,
+    }))
+}
+
+#[derive(Serialize)]
+struct QueueTagStatus {
+    tag: String,
+    /// Jobs due for more than 3 seconds that no worker has picked up.
+    waiting: u32,
+    /// How long the job the next pull would take has been waiting, in seconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delay: Option<f64>,
+    running: i64,
+    /// Workers that pinged in the last minute and pull this tag.
+    workers: i64,
+}
+
+/// Every tag with jobs waiting or running, read live from the queue. A tag with a backlog and no
+/// worker listening is how a job pushed with a tag nobody serves shows up: it never drains.
+async fn get_queue_status(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<Vec<QueueTagStatus>> {
+    require_devops_role(&db, &authed).await?;
+
+    let backlog = windmill_common::queue::get_queue_stats(&db).await?;
+    let backlog_tags = backlog.keys().cloned().collect::<Vec<_>>();
+    // A job's tag is resolved before it is queued (per-workspace and dedicated worker tags
+    // included), and the pull matches it exactly against the worker's tags, so containment is
+    // exact here too.
+    let rows = sqlx::query!(
+        "WITH running AS (
+            SELECT tag, count(*) AS n FROM v2_job_queue WHERE running = true GROUP BY tag
+        )
+        SELECT t.tag AS \"tag!\", COALESCE(r.n, 0) AS \"running!\",
+            (SELECT count(*) FROM worker_ping w
+                WHERE w.ping_at > now() - interval '1 minute' AND w.custom_tags @> ARRAY[t.tag]
+            ) AS \"workers!\"
+        FROM (SELECT tag::text FROM running UNION SELECT unnest($1::text[])) t(tag)
+        LEFT JOIN running r ON r.tag = t.tag
+        ORDER BY t.tag",
+        &backlog_tags[..],
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|row| {
+                let stat = backlog.get(&row.tag);
+                QueueTagStatus {
+                    waiting: stat.map_or(0, |s| s.count),
+                    delay: stat.map(|s| s.delay),
+                    running: row.running,
+                    workers: row.workers,
+                    tag: row.tag,
+                }
+            })
+            .collect(),
+    ))
 }
 
 async fn get_queue_counts(
