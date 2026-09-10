@@ -73,6 +73,7 @@ use crate::{
     args::{self, RawWebhookArgs},
     auth::{OptTokened, Tokened},
     concurrency_groups::join_concurrency_key,
+    csrf::CrossSiteGetGuard,
     db::{ApiAuthed, DB},
     triggers::trigger_helpers::RunnableId,
     users::{
@@ -7416,6 +7417,7 @@ async fn log_job_view(
 }
 
 pub async fn run_wait_result_job_by_path_get(
+    _: CrossSiteGetGuard,
     method: hyper::http::Method,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -7522,6 +7524,7 @@ pub async fn run_wait_result_job_by_path_get(
 }
 
 pub async fn run_wait_result_flow_by_path_get(
+    _: CrossSiteGetGuard,
     method: hyper::http::Method,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -7820,6 +7823,7 @@ pub async fn run_wait_result_flow_by_path(
 }
 
 pub async fn stream_flow_by_path(
+    _: CrossSiteGetGuard,
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -7842,6 +7846,7 @@ pub async fn stream_flow_by_path(
 }
 
 pub async fn stream_flow_by_version(
+    _: CrossSiteGetGuard,
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -7864,6 +7869,7 @@ pub async fn stream_flow_by_version(
 }
 
 pub async fn stream_script_by_path(
+    _: CrossSiteGetGuard,
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -7886,6 +7892,7 @@ pub async fn stream_script_by_path(
 }
 
 pub async fn stream_script_by_hash(
+    _: CrossSiteGetGuard,
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -8078,6 +8085,7 @@ pub async fn run_wait_result_flow_by_path_internal(
 }
 
 pub async fn run_wait_result_flow_by_version_get(
+    _: CrossSiteGetGuard,
     method: hyper::http::Method,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
