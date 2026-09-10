@@ -116,11 +116,17 @@ test("a file the push never sends is not a change to the app", async () => {
   const sent = await precheck([change("f/test/myapp.raw_app/index.tsx")]);
   const meta = await precheck([change("f/test/myapp.raw_app/raw_app.yaml")]);
   const runnable = await precheck([change("f/test/myapp.raw_app/backend/a.ts")]);
+  // The runnable channel is not the bundle: the bundle's name exclusions don't
+  // reach into it, so a runnable file sharing one of those names still deploys.
+  const namesake = await precheck([
+    change("f/test/myapp.raw_app/backend/wmill.d.ts"),
+  ]);
 
   expect(artifacts).toBeUndefined();
   expect(sent).toContain("f/test/myapp.raw_app");
   expect(meta).toContain("f/test/myapp.raw_app");
   expect(runnable).toContain("f/test/myapp.raw_app");
+  expect(namesake).toContain("f/test/myapp.raw_app");
 });
 
 test("an app is listed once however many of its files changed", async () => {

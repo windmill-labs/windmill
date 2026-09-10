@@ -16,12 +16,11 @@ let deployedPolicy: any;
 /** No app deployed at the path: `getAppByPath` 404s and the push creates one. */
 let deployed = true;
 
-// Stub only what no other in-process suite imports (see "Module mocks" in
-// cli/TESTING.md): a `mock.module` stub is process-global and cannot be taken
-// back, since every file's imports resolve before any `afterAll` runs. These
-// three API functions qualify — nothing else in `test/` imports them. `bundle.ts`
-// did not: stubbing it made `raw_app_svelte_plugin_unit.test.ts` assert against
-// an empty bundle whenever the runner reached this file first, so the real
+// Stub only what no other in-process suite imports, and treat a stub as
+// permanent for the run (see "Module mocks" in cli/TESTING.md). These three API
+// functions qualify — nothing else in `test/` imports them. `bundle.ts` did not:
+// stubbing it left `raw_app_svelte_plugin_unit.test.ts` asserting against an
+// empty bundle, which an `afterAll` hand-back did not prevent. So the real
 // bundler runs instead, on the app each push writes below.
 const realServices = await import("../gen/services.gen.ts");
 
@@ -44,8 +43,8 @@ mock.module("../gen/services.gen.ts", () => ({
   },
 }));
 
-// Reaches only a consumer that imports the module dynamically, after these
-// tests; the static importers above are already bound either way.
+// Belt and braces: nothing else in-process calls these, and a hand-back is not
+// what makes that safe.
 afterAll(() => {
   mock.module("../gen/services.gen.ts", () => realServices);
 });

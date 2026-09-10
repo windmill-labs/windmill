@@ -1,4 +1,7 @@
-import { RECORDINGS_FOLDER } from "../commands/app/app_metadata.ts";
+import {
+  APP_BACKEND_FOLDER,
+  RECORDINGS_FOLDER,
+} from "../commands/app/app_metadata.ts";
 
 /** Directories under a raw app that no push ever sends — dependencies, build
  * output, editor state, and SQL staged for a datatable migration. */
@@ -37,6 +40,12 @@ export function deploysWithRawApp(relativePath: string): boolean {
   if (segments.length === 0) return false;
   const name = segments[segments.length - 1];
   const dirs = segments.slice(0, -1);
+  // The backend folder deploys as runnables, a channel of its own: the two sets
+  // below describe the bundle, which `collectAppFiles` never walks into here, so
+  // applying them would strip a runnable whose file happens to share a name (a
+  // `backend/wmill.d.ts` is the runnable `wmill.d`). `loadRunnablesFromBackend`
+  // reads that folder's top level only, so nothing deeper deploys either way.
+  if (dirs[0] === APP_BACKEND_FOLDER) return dirs.length === 1;
   if (NEVER_DEPLOYED_FILES.has(name)) return false;
   if (dirs.some((d) => NEVER_DEPLOYED_DIRS.has(d))) return false;
   // Session recordings are written at the app root only, so an app with a
