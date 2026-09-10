@@ -453,6 +453,95 @@ pub async fn drop_instance_role(
     Ok(())
 }
 
+/// `ALTER DEFAULT PRIVILEGES` binds only what its own creating role makes, so a role added after a
+/// "created later" grant would create objects that grant nobody anything. The ACL editor writes
+/// every such grant for `custom_instance_user` as well, which makes its default privileges the
+/// record of that intent: a new role is given the same ones in `dbname`.
+///
+/// Authorization: rewrites default privileges with the server's own credentials and checks
+/// nothing. Callers MUST restrict this to superadmin paths.
+pub async fn copy_default_privileges_to(db: &DB, dbname: &str, name: &str) -> Result<()> {
+    validate_role_name(name)?;
+    crate::validate_dbname(dbname)?;
+    let base = crate::PgDatabase::parse_uri(&crate::get_database_url().await?.as_str().await)?;
+    let creds = crate::PgDatabase { dbname: dbname.to_string(), ..base };
+    let (client, connection) = creds.connect(Some(db)).await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+    let result = async {
+        let rows = client
+            .query(
+                "SELECT n.nspname::text, d.defaclobjtype::text,
+                        CASE WHEN a.grantee = 0 THEN NULL ELSE pg_get_userbyid(a.grantee)::text END,
+                        a.privilege_type
+                 FROM pg_default_acl d JOIN pg_namespace n ON n.oid = d.defaclnamespace,
+                      aclexplode(d.defaclacl) a
+                 WHERE d.defaclrole = (SELECT oid FROM pg_roles WHERE rolname = $1)",
+                &[&CUSTOM_INSTANCE_USER],
+            )
+            .await?;
+        let entries: Vec<(String, String, Option<String>, String)> = rows
+            .iter()
+            .map(|row| (row.get(0), row.get(1), row.get(2), row.get(3)))
+            .collect();
+        for statement in default_privilege_copies(name, &entries) {
+            client.batch_execute(&statement).await?;
+        }
+        Ok::<(), tokio_postgres::Error>(())
+    }
+    .await;
+    drop(client);
+    crate::shutdown_pg_connection(join_handle).await?;
+    result.map_err(|e| {
+        Error::internal_err(format!(
+            "Copying default privileges to role '{name}' in '{dbname}': {}",
+            crate::error::pg_error_message(&e)
+        ))
+    })
+}
+
+/// The statements giving `role` the default privileges listed — (schema, `defaclobjtype`, grantee,
+/// privilege), grantee `None` for PUBLIC — one per schema, kind of object and grantee. Privileges
+/// are Postgres's own keywords, read back from its catalog.
+fn default_privilege_copies(
+    role: &str,
+    entries: &[(String, String, Option<String>, String)],
+) -> Vec<String> {
+    let mut grouped: BTreeMap<(&str, &str, Option<&str>), Vec<&str>> = BTreeMap::new();
+    for (schema, objtype, grantee, privilege) in entries {
+        let plural = match objtype.as_str() {
+            "r" => "TABLES",
+            "S" => "SEQUENCES",
+            "f" => "FUNCTIONS",
+            "T" => "TYPES",
+            _ => continue,
+        };
+        if grantee.as_deref() == Some(role) {
+            continue;
+        }
+        grouped
+            .entry((schema.as_str(), plural, grantee.as_deref()))
+            .or_default()
+            .push(privilege.as_str());
+    }
+    grouped
+        .into_iter()
+        .map(|((schema, plural, grantee), mut privileges)| {
+            privileges.sort();
+            privileges.dedup();
+            format!(
+                "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} GRANT {} ON {} TO {}",
+                quote_ident(role),
+                quote_ident(schema),
+                privileges.join(", "),
+                plural,
+                grantee
+                    .map(quote_ident)
+                    .unwrap_or_else(|| "PUBLIC".to_string())
+            )
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -488,5 +577,35 @@ mod tests {
         assert!(role_id_by_name(&catalog, "nope").is_err());
         catalog.get_mut("id1").unwrap().enabled = true;
         assert_eq!(role_id_by_name(&catalog, "analytics").unwrap(), "id1");
+    }
+
+    #[test]
+    fn a_new_role_is_given_the_admin_connections_default_privileges() {
+        let entry = |schema: &str, objtype: &str, grantee: Option<&str>, privilege: &str| {
+            (
+                schema.to_string(),
+                objtype.to_string(),
+                grantee.map(str::to_string),
+                privilege.to_string(),
+            )
+        };
+        let statements = default_privilege_copies(
+            "late",
+            &[
+                entry("public", "r", Some("analytics"), "SELECT"),
+                entry("public", "r", Some("analytics"), "INSERT"),
+                entry("public", "f", None, "EXECUTE"),
+                // A grant to itself says nothing, and `n` has no per-schema form.
+                entry("public", "S", Some("late"), "USAGE"),
+                entry("public", "n", Some("analytics"), "USAGE"),
+            ],
+        );
+        assert_eq!(
+            statements,
+            [
+                r#"ALTER DEFAULT PRIVILEGES FOR ROLE "late" IN SCHEMA "public" GRANT EXECUTE ON FUNCTIONS TO PUBLIC"#,
+                r#"ALTER DEFAULT PRIVILEGES FOR ROLE "late" IN SCHEMA "public" GRANT INSERT, SELECT ON TABLES TO "analytics""#,
+            ]
+        );
     }
 }

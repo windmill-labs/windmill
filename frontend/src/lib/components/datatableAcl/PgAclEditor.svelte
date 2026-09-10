@@ -13,6 +13,7 @@
 	import PgGrantBuilder from './PgGrantBuilder.svelte'
 	import {
 		ADMIN_ROLE,
+		grantKey,
 		grantScopeLabel,
 		groupGrants,
 		revocablePrivileges,
@@ -22,24 +23,30 @@
 	let {
 		workspace,
 		datatable,
-		target
+		target,
+		onLoaded
 	}: {
 		workspace: string
 		datatable: string
 		/** What owner and grants are read and written for. */
 		target: AclTarget
+		/** Each read, with the target it was made for: it also lists what the target holds. */
+		onLoaded?: (target: AclTarget, info: DatatableAclInfo) => void
 	} = $props()
 
 	const acl = resource(
 		() => [workspace, datatable, target] as const,
-		async ([ws, dt, t]) =>
-			await WorkspaceService.getDatatableAcl({
+		async ([ws, dt, t]) => {
+			const loaded = await WorkspaceService.getDatatableAcl({
 				workspace: ws,
 				datatableName: dt,
 				kind: t.kind,
 				schema: t.schema,
 				table: t.kind === 'table' ? t.table : undefined
 			})
+			onLoaded?.(t, loaded)
+			return loaded
+		}
 	)
 
 	// Nothing is written before its SQL has been shown, and the apply runs exactly that SQL: the
@@ -187,9 +194,7 @@
 						</tr>
 					</Head>
 					<tbody class="divide-y">
-						{#each grantRows as grant (grant.grantee + grant.objects
-								.map((o) => `${o.name}(${o.args ?? ''})`)
-								.join() + (grant.future ?? ''))}
+						{#each grantRows as grant (grantKey(grant))}
 							{@const revokeScope = revokeScopeOf(grant)}
 							{@const revocable = revocablePrivileges(grant, target)}
 							<Row>

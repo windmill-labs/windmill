@@ -1,8 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import type { AclGrant } from '$lib/gen'
-import { groupGrants, revocablePrivileges, revokeScopeOf } from './aclScopes'
+import { grantKey, groupGrants, revocablePrivileges, revokeScopeOf } from './aclScopes'
 
 const table = (name: string) => ({ name, kind: 'TABLE' })
+
+describe('grantKey', () => {
+	it('tells apart a table and a function of the same name', () => {
+		const row = (object: { name: string; kind: string; args?: string }) => ({
+			grantee: 'analytics',
+			privileges: ['SELECT'],
+			objects: [object]
+		})
+		expect(grantKey(row(table('orders')))).not.toBe(
+			grantKey(row({ name: 'orders', kind: 'FUNCTION', args: '' }))
+		)
+	})
+})
 
 describe('groupGrants', () => {
 	// A row's revoke names every object in it, so a row must only hold what one revoke may take.

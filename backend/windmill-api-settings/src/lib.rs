@@ -2635,6 +2635,7 @@ async fn create_datatable_role(
     catalog.insert(id.clone(), entry);
     tx.commit().await?;
     converge_connect_grants_everywhere(&db, &catalog).await;
+    copy_default_privileges_everywhere(&db, &req.name).await;
     windmill_common::feature_usage::log_feature_usage("datatable", "role_created", "");
 
     audit_log(
@@ -2747,6 +2748,28 @@ async fn delete_datatable_role(
     .await?;
 
     Ok(Json(()))
+}
+
+/// Best-effort, like the `CONNECT` convergence below: a database this misses leaves the new role's
+/// objects there granting nobody anything, which re-applying the "created later" grant in the ACL
+/// editor repairs.
+async fn copy_default_privileges_everywhere(db: &DB, name: &str) {
+    let dbnames = match windmill_common::datatable_roles::registered_instance_databases(db).await {
+        Ok(dbnames) => dbnames,
+        Err(e) => {
+            tracing::warn!("Could not list instance databases to copy default privileges: {e}");
+            return;
+        }
+    };
+    for dbname in dbnames {
+        if let Err(e) =
+            windmill_common::datatable_roles::copy_default_privileges_to(db, &dbname, name).await
+        {
+            tracing::warn!(
+                "Could not copy default privileges to data table role '{name}' on '{dbname}': {e}"
+            );
+        }
+    }
 }
 
 /// Best-effort `CONNECT` convergence over the instance database registry. A database that is

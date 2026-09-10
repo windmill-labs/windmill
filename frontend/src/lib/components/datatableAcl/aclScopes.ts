@@ -130,6 +130,17 @@ export function groupGrants(grants: AclGrant[]): GroupedGrant[] {
 	return rows
 }
 
+/** A row's identity. Two rows may share a grantee and an object name — a table `orders` and a
+ * function `orders()` — so the kind and the privileges are part of it too. */
+export function grantKey(grant: GroupedGrant): string {
+	return [
+		grant.grantee,
+		grant.future ?? '',
+		grant.privileges.join(','),
+		...grant.objects.map((o) => `${o.kind}:${o.name}(${o.args ?? ''})`)
+	].join('|')
+}
+
 /** The scope a revoke of this row takes, or `undefined` when the builder cannot express it —
  * Postgres also records default privileges on types, which nothing here grants and the API has no
  * scope for. */
@@ -141,8 +152,9 @@ export function revokeScopeOf(grant: GroupedGrant): AclScope | undefined {
 	)
 }
 
-/** The privileges of a row a revoke may take back. On the database that leaves out `CONNECT`,
- * which the role catalog grants and would grant again. */
+/** The privileges of a row a revoke may take back. On the database that is `CREATE` alone:
+ * `CONNECT` belongs to the role catalog, which would grant it again, and `TEMPORARY` is not one
+ * the editor hands out — a row holding only those has nothing to revoke here. */
 export function revocablePrivileges(grant: GroupedGrant, target: AclTarget): string[] {
 	if (target.kind === 'database' && grant.objects.length === 0) {
 		return grant.privileges.filter((p) => DATABASE_PRIVILEGES.includes(p))

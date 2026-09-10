@@ -420,7 +420,8 @@ pub(crate) fn object_keyword(kind: &str) -> Result<&'static str> {
     match kind.to_uppercase().as_str() {
         "TABLE" | "VIEW" | "MATERIALIZED VIEW" | "FOREIGN TABLE" => Ok("TABLE"),
         "SEQUENCE" => Ok("SEQUENCE"),
-        "FUNCTION" => Ok("FUNCTION"),
+        // `FUNCTION` names no procedure; `ROUTINE` names either.
+        "FUNCTION" | "PROCEDURE" | "ROUTINE" => Ok("ROUTINE"),
         other => Err(Error::BadRequest(format!("Unknown object kind '{other}'"))),
     }
 }
@@ -436,7 +437,8 @@ async fn read_schema_objects(
              FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
              WHERE n.nspname = $1 AND c.relkind = ANY(ARRAY['r','p','v','m','S','f']::\"char\"[])
              UNION ALL
-             SELECT 'FUNCTION', p.proname, pg_get_function_identity_arguments(p.oid)
+             SELECT CASE p.prokind WHEN 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END, p.proname,
+                    pg_get_function_identity_arguments(p.oid)
              FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
              WHERE n.nspname = $1",
             &[&schema],
@@ -624,13 +626,14 @@ async fn get_datatable_acl(
 
 async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Result<Vec<AclGrant>> {
     // `aclexplode` turns an acl array into one row per (grantee, privilege); grantee 0 is PUBLIC,
-    // which has no name to resolve.
+    // which has no name to resolve. A NULL acl is not "no access" but Postgres's built-in default —
+    // the owner holds everything and, on a routine, PUBLIC may EXECUTE — hence `acldefault`.
     let mut rows = match target {
         AclTarget::Database => client
             .query(
                 "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
                         a.privilege_type, NULL::text, NULL::text, NULL::text, NULL::text
-                 FROM pg_database d, aclexplode(d.datacl) a
+                 FROM pg_database d, aclexplode(COALESCE(d.datacl, acldefault('d', d.datdba))) a
                  WHERE d.datname = current_database()",
                 &[],
             )
@@ -641,7 +644,7 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
                 .query(
                     "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
                             a.privilege_type, NULL::text, NULL::text, NULL::text, NULL::text
-                     FROM pg_namespace n, aclexplode(n.nspacl) a
+                     FROM pg_namespace n, aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) a
                      WHERE n.nspname = $1",
                     &[schema],
                 )
@@ -656,7 +659,8 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
                                 NULL::text
                          FROM pg_class c
                          JOIN pg_namespace n ON n.oid = c.relnamespace,
-                              aclexplode(c.relacl) a
+                              aclexplode(COALESCE(c.relacl, acldefault(
+                                  CASE c.relkind WHEN 'S' THEN 's' ELSE 'r' END::\"char\", c.relowner))) a
                          WHERE n.nspname = $1",
                         &[schema],
                     )
@@ -669,11 +673,12 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
                         // Routines carry their own acl in `pg_proc`; without this a grant made here
                         // would vanish on the next read and could never be revoked back.
                         "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
-                                a.privilege_type, p.proname, NULL::text, 'FUNCTION',
+                                a.privilege_type, p.proname, NULL::text,
+                                CASE p.prokind WHEN 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END,
                                 pg_get_function_identity_arguments(p.oid)
                          FROM pg_proc p
                          JOIN pg_namespace n ON n.oid = p.pronamespace,
-                              aclexplode(p.proacl) a
+                              aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a
                          WHERE n.nspname = $1",
                         &[schema],
                     )
@@ -705,7 +710,8 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
                         a.privilege_type, NULL::text, NULL::text, NULL::text, NULL::text
                  FROM pg_class c
                  JOIN pg_namespace n ON n.oid = c.relnamespace,
-                      aclexplode(c.relacl) a
+                      aclexplode(COALESCE(c.relacl, acldefault(
+                          CASE c.relkind WHEN 'S' THEN 's' ELSE 'r' END::\"char\", c.relowner))) a
                  WHERE n.nspname = $1 AND c.relname = $2",
                 &[schema, table],
             )
@@ -1026,6 +1032,44 @@ async fn apply_datatable_acl(
                     notice.message()
                 )));
             }
+        }
+    }
+
+    // A schema's objects were listed before the transaction opened; one created since would stay
+    // with its old owner while the schema changes hands.
+    if let (AclChange::SetOwner { role }, AclTarget::Schema { schema }) = (&req.change, &req.target)
+    {
+        let new_owner = pg_role_of(role, &catalog)?;
+        let straggler = pg_tx
+            .query_opt(
+                "SELECT name FROM (
+                     SELECT c.relname::text AS name, c.relowner AS owner
+                     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                     WHERE n.nspname = $1
+                       AND c.relkind = ANY(ARRAY['r','p','v','m','S','f']::\"char\"[])
+                     UNION ALL
+                     SELECT p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')',
+                            p.proowner
+                     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+                     WHERE n.nspname = $1
+                 ) o
+                 WHERE owner <> (SELECT oid FROM pg_roles WHERE rolname = $2)
+                 ORDER BY name LIMIT 1",
+                &[schema, &new_owner],
+            )
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to check what the schema holds: {}",
+                    pg_error_message(&e)
+                ))
+            })?;
+        if let Some(row) = straggler {
+            return Err(Error::BadRequest(format!(
+                "{schema}.{} appeared while this ran and would keep its old owner, so nothing was \
+                 applied. Plan it again.",
+                row.get::<_, String>(0)
+            )));
         }
     }
 

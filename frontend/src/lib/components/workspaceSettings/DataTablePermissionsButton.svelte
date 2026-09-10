@@ -12,6 +12,7 @@
 		UserService,
 		WorkspaceService,
 		type AclTarget,
+		type DatatableAclInfo,
 		type DatatablePermissions,
 		type InstanceDatatableRole
 	} from '$lib/gen'
@@ -61,6 +62,17 @@
 				: { kind: 'schema', schema: aclSchema }
 			: { kind: 'database' }
 	)
+	let aclSchemas = $state<string[]>([])
+	let aclTables = $state<string[]>([])
+
+	// The editor's read of a database lists its schemas, and of a schema its tables — which is what
+	// the picker offers, so the picker reads nothing of its own. A read for a target since left
+	// behind is dropped.
+	function onAclLoaded(target: AclTarget, loaded: DatatableAclInfo) {
+		if (JSON.stringify(target) !== JSON.stringify(aclTarget)) return
+		if (target.kind === 'database') aclSchemas = loaded.children
+		else if (target.kind === 'schema') aclTables = loaded.children
+	}
 
 	async function load() {
 		loading = true
@@ -142,6 +154,8 @@
 	export function open() {
 		aclSchema = undefined
 		aclTable = undefined
+		aclSchemas = []
+		aclTables = []
 		drawer?.openDrawer()
 		load()
 	}
@@ -300,13 +314,19 @@
 							</span>
 						</div>
 						<AclTargetPicker
-							{workspace}
-							{datatable}
-							bind:schema={aclSchema}
+							schemas={aclSchemas}
+							tables={aclTables}
+							bind:schema={
+								() => aclSchema,
+								(s) => {
+									aclSchema = s
+									aclTables = []
+								}
+							}
 							bind:table={aclTable}
 						/>
 						{#key JSON.stringify(aclTarget)}
-							<PgAclEditor {workspace} {datatable} target={aclTarget} />
+							<PgAclEditor {workspace} {datatable} target={aclTarget} onLoaded={onAclLoaded} />
 						{/key}
 					</div>
 				{/if}
