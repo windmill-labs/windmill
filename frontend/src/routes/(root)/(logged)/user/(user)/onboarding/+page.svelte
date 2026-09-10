@@ -57,8 +57,6 @@
 	// answer rides along on submit. Resolved before first paint: rendering the source
 	// step and yanking it away a frame later reads as a glitch.
 	let invitedTouchPoint = $state<string | null>(null)
-	/** The invite named the company or a workspace name; the workspace step starts from it. */
-	let suggestedWorkspaceName = $state<string | undefined>(undefined)
 	let profileReady = $state(false)
 	async function loadInviteProfile() {
 		const profile = await onboardingProfile()
@@ -66,7 +64,6 @@
 			invitedTouchPoint = profile.touch_point
 			currentStep = STEP_USE_CASE
 		}
-		suggestedWorkspaceName = profile?.workspace_name ?? profile?.company
 		profileReady = true
 	}
 	loadInviteProfile()
@@ -344,7 +341,7 @@
 			<!-- The same one-field form the workspace picker falls back to, so a user who leaves
 			     onboarding early meets it again rather than something new. It owns the name, the
 			     id, the advanced form and the hand-over into the workspace. -->
-			<SimpleCreateWorkspace onCreated={leaveOnboarding} suggestedName={suggestedWorkspaceName}>
+			<SimpleCreateWorkspace onCreated={leaveOnboarding}>
 				{#snippet leading()}
 					{#if !skippedSurvey}
 						<Button

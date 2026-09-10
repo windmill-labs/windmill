@@ -5,6 +5,7 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import CreateWorkspaceInner from './CreateWorkspaceInner.svelte'
 	import { UserService, WorkspaceService } from '$lib/gen'
+	import { onboardingProfile } from '$lib/onboardingProfile'
 	import { usersWorkspaceStore } from '$lib/stores'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { sendUserToast } from '$lib/toast'
@@ -36,14 +37,9 @@
 		 * settings rather than stranded under the button that finishes the form.
 		 */
 		leading?: Snippet
-		/**
-		 * A name the host already knows — the company an invite named, say — which beats the
-		 * one derived from the account. Only ever a prefill: the person's own typing wins.
-		 */
-		suggestedName?: string
 	}
 
-	let { onCreated, leading, suggestedName }: Props = $props()
+	let { onCreated, leading }: Props = $props()
 
 	let name = $state('')
 	let creating = $state(false)
@@ -70,13 +66,21 @@
 		// Settled apart: the policy decides whether this form may submit at all, the suggested
 		// name is cosmetic, and neither failure should decide the other.
 		policyFailed = false
-		const [me, policy] = await Promise.allSettled([
+		const [me, policy, profile] = await Promise.allSettled([
 			UserService.globalWhoami(),
-			loadUsernamePolicy()
+			loadUsernamePolicy(),
+			onboardingProfile()
 		])
+		// An invited account may arrive knowing what its workspace is called — the company the
+		// invite named, or a name chosen for it — and that beats the one derived from the
+		// account. Read here rather than passed in, so every host of this form agrees.
+		const invited =
+			profile.status === 'fulfilled'
+				? (profile.value?.workspace_name ?? profile.value?.company)
+				: undefined
 		if (!nameEdited) {
 			name =
-				suggestedName?.trim() ||
+				invited ||
 				(me.status === 'fulfilled'
 					? defaultWorkspaceName(me.value.name, me.value.email)
 					: 'My workspace')
