@@ -599,6 +599,79 @@ async fn a_data_table_under_roles_is_not_copied_into_a_fork(
     Ok(())
 }
 
+/// The fork's `forked_from` for one of its entries; `None` whether it is absent or `null`.
+async fn forked_from_of(db: &Pool<Postgres>, name: &str) -> Option<Value> {
+    sqlx::query_scalar::<_, Option<Value>>(
+        "SELECT datatable->'datatables'->$1::text->'forked_from'
+         FROM workspace_settings WHERE workspace_id = 'wm-fork-dt'",
+    )
+    .bind(name)
+    .fetch_one(db)
+    .await
+    .unwrap()
+    .filter(|v| !v.is_null())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn a_clone_stamp_is_carried_but_its_schema_baseline_advances(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    // Whether an entry is a clone is what marks its database droppable, so a save can neither
+    // stamp nor unstamp one. The schema baseline inside the stamp is what the fork's schema diff
+    // advances after applying a change; dropping it would offer that same change again.
+    sqlx::query(
+        r#"UPDATE workspace_settings SET datatable = '{"datatables": {
+             "clone": {"database": {"resource_type": "instance", "resource_path": "wm_fork_dt__clone"},
+                       "forked_from": {"schema": {}}},
+             "plain": {"database": {"resource_type": "instance", "resource_path": "dt_plain"}}}}'::jsonb
+           WHERE workspace_id = 'wm-fork-dt'"#,
+    )
+    .execute(&db)
+    .await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let url = format!(
+        "http://localhost:{}/api/w/wm-fork-dt/workspaces/edit_datatable_config",
+        server.addr.port()
+    );
+    let clone_db = json!({"resource_type": "instance", "resource_path": "wm_fork_dt__clone"});
+    let plain_db = json!({"resource_type": "instance", "resource_path": "dt_plain"});
+    let baseline = json!({"schema": {"public": {"orders": {"id": "int4"}}}});
+
+    let resp = authed(client().post(&url), "SECRET_TOKEN_2")
+        .json(&json!({"settings": {"datatables": {
+            "clone": {"database": clone_db, "forked_from": baseline},
+            "plain": {"database": plain_db, "forked_from": {"schema": {}}}
+        }}}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    assert_eq!(
+        forked_from_of(&db, "clone").await,
+        Some(baseline.clone()),
+        "the schema diff's baseline did not advance"
+    );
+    assert_eq!(
+        forked_from_of(&db, "plain").await,
+        None,
+        "a save stamped a clone"
+    );
+
+    let resp = authed(client().post(&url), "SECRET_TOKEN_2")
+        .json(&json!({"settings": {"datatables": {
+            "clone": {"database": clone_db}, "plain": {"database": plain_db}
+        }}}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    assert_eq!(
+        forked_from_of(&db, "clone").await,
+        Some(baseline),
+        "a save unstamped a clone"
+    );
+    Ok(())
+}
+
 /// Live replication listeners on `main`: a fork's through its pointer, the governing workspace's
 /// own (in the `?role=` form), and a fork capture — plus one on another data table, which no
 /// deletion of `main` may touch. Each is held by a server, as a running stream would be.
@@ -659,7 +732,8 @@ async fn deleting_a_governing_data_table_bounces_the_streams_reading_it(
         )),
         "SECRET_TOKEN",
     )
-    .json(&json!({"settings": {"datatables": {}}, "renames": [], "deleted_datatables": ["main"]}))
+    // The way the settings-sync CLI saves: the new document alone, with no deletion hint.
+    .json(&json!({"settings": {"datatables": {}}}))
     .send()
     .await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
