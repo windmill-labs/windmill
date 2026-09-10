@@ -339,10 +339,11 @@ What the assistant should do when this skill applies.
 	 * are the composable's, and so is everything about the mouse — a scroll under a
 	 * resting pointer does not move the highlight, only a real movement does.
 	 *
-	 * Answered on the list rather than at `window`, so the keys belong to whatever has
-	 * focus inside it. Keys left unanswered keep their meaning: Left and Right with
-	 * nothing lit still step between this list and the editor, which is `PagedContent`
-	 * reading the same event. */
+	 * Answered at the `window`, not on the list: focus moves around this modal — the
+	 * page transition out of the editor parks it elsewhere — and a handler bound to the
+	 * list would go silent whenever it did. Keys left unanswered keep their meaning:
+	 * Left and Right with nothing lit still step between this list and the editor,
+	 * which is `PagedContent` reading the same event. */
 	function onListKeydown(event: KeyboardEvent) {
 		if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return
 		const target = event.target as HTMLElement | null
@@ -359,7 +360,7 @@ What the assistant should do when this skill applies.
 			// row while flipping another.
 			const row = control.closest('[id^="wm-skill-entry-"]')
 			const index = row ? (entryIndexByKey.get(row.id.replace('wm-skill-entry-', '')) ?? -1) : -1
-			if (index >= 0 && index !== highlight.index) highlight.move(index - highlight.index)
+			if (index >= 0) highlight.moveTo(index)
 			return
 		}
 		if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -370,9 +371,7 @@ What the assistant should do when this skill applies.
 			const focusedIndex = focusedRow
 				? (entryIndexByKey.get(focusedRow.id.replace('wm-skill-entry-', '')) ?? -1)
 				: -1
-			if (focusedIndex >= 0 && focusedIndex !== highlight.index) {
-				highlight.move(focusedIndex - highlight.index)
-			}
+			if (focusedIndex >= 0) highlight.moveTo(focusedIndex)
 			// Taking the highlight takes the keyboard with it: a control left focused
 			// would keep Space and act on its own row while another one is lit.
 			if (control) {
@@ -419,7 +418,7 @@ What the assistant should do when this skill applies.
 			} else if (current.parentKey !== undefined) {
 				answer()
 				const parent = entries.findIndex((e) => e.key === current.parentKey)
-				if (parent >= 0) highlight.move(parent - highlight.index)
+				if (parent >= 0) highlight.moveTo(parent)
 			}
 		} else {
 			highlight.onKeydown(event)
