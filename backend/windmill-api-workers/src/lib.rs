@@ -12,8 +12,6 @@ use axum::{
     Json, Router,
 };
 
-use std::collections::BTreeMap;
-
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -21,9 +19,7 @@ use windmill_common::{
     db::UserDB,
     error::JsonResult,
     jobs::{HIDE_WORKERS_FOR_NON_ADMINS, TAGS_ARE_SENSITIVE},
-    queue_metrics::{
-        render_series, MetricSlot, QUEUE_COUNT_PREFIX, QUEUE_DELAY_PREFIX, QUEUE_METRIC_STALE_SECS,
-    },
+    queue_metrics::{read_queue_metrics_series, QueueMetricsSeries},
     utils::{paginate, Pagination},
     worker::{ALL_TAGS, CUSTOM_TAGS_PER_WORKSPACE, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE},
     workspaces::workspace_with_fork_ancestors,
@@ -301,32 +297,10 @@ struct QueueMetricsSeriesQuery {
     window_secs: Option<i64>,
 }
 
-#[derive(Serialize)]
-struct QueueMetricsSeries {
-    /// The window drawn, in epoch milliseconds.
-    from: i64,
-    to: i64,
-    tags: Vec<QueueTagSeries>,
-}
-
-#[derive(Serialize)]
-struct QueueTagSeries {
-    tag: String,
-    /// Vertices `[epoch ms, value]` of a line joined by straight segments.
-    count: Vec<(i64, f64)>,
-    delay: Vec<(i64, f64)>,
-}
-
 const QUEUE_METRICS_DEFAULT_WINDOW_SECS: i64 = 24 * 3600;
 /// Retention of queue metrics, past which there is nothing left to read.
 const QUEUE_METRICS_MAX_WINDOW_SECS: i64 = 14 * 24 * 3600;
-/// Slots a series is split into, whatever the window. A slot draws at most four vertices, so a
-/// line stays near 500 points however many rows the window holds.
-const QUEUE_METRICS_SERIES_SLOTS: f64 = 120.0;
 
-/// The queue metrics of the last `window_secs`, each series aggregated per slot by the database
-/// and drawn by [`render_series`], so the payload is bounded by the number of tags rather than
-/// by how many rows they wrote.
 async fn get_queue_metrics_series(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -337,84 +311,8 @@ async fn get_queue_metrics_series(
     let window = query
         .window_secs
         .unwrap_or(QUEUE_METRICS_DEFAULT_WINDOW_SECS)
-        .clamp(60, QUEUE_METRICS_MAX_WINDOW_SECS) as f64;
-    let to = sqlx::query_scalar!("SELECT EXTRACT(EPOCH FROM now())::double precision AS \"now!\"")
-        .fetch_one(&db)
-        .await?;
-    let from = to - window;
-
-    // Slot -1 holds the samples written before the window, of which only the last is used: it
-    // sets the value in force at the left edge. A series silent for longer than the stale window
-    // reads as zero, so nothing older can matter. Arrays compare element by element, so
-    // `max(ARRAY[t, v])` is the slot's latest sample, found without sorting every row.
-    let rows = sqlx::query!(
-        "SELECT id AS \"id!\", slot AS \"slot!\", min(t) AS \"first!\", max(t) AS \"last!\",
-            max(v) AS \"peak!\", (max(ARRAY[t, v]))[2] AS \"last_value!\"
-        FROM (
-            SELECT id, EXTRACT(EPOCH FROM created_at)::double precision AS t,
-                CASE WHEN jsonb_typeof(value) = 'number' THEN value::double precision END AS v,
-                greatest(floor(
-                    (EXTRACT(EPOCH FROM created_at)::double precision - $1::double precision)
-                        / $2::double precision
-                ), -1)::int AS slot
-            FROM metrics
-            WHERE id LIKE 'queue_%'
-                AND created_at > to_timestamp($1::double precision - $3::double precision)
-        ) s
-        WHERE v IS NOT NULL
-        GROUP BY id, slot
-        ORDER BY id, slot",
-        from,
-        window / QUEUE_METRICS_SERIES_SLOTS,
-        QUEUE_METRIC_STALE_SECS,
-    )
-    .fetch_all(&db)
-    .await?;
-
-    #[derive(Default)]
-    struct Stored {
-        carried: Option<(f64, f64)>,
-        slots: Vec<MetricSlot>,
-    }
-    // [count, delay] per tag.
-    let mut stored: BTreeMap<String, [Stored; 2]> = BTreeMap::new();
-    for row in rows {
-        let (series, tag) = if let Some(tag) = row.id.strip_prefix(QUEUE_COUNT_PREFIX) {
-            (0, tag)
-        } else if let Some(tag) = row.id.strip_prefix(QUEUE_DELAY_PREFIX) {
-            (1, tag)
-        } else {
-            continue;
-        };
-        let series = &mut stored.entry(tag.to_string()).or_default()[series];
-        if row.slot < 0 {
-            series.carried = Some((row.last, row.last_value));
-        } else {
-            series.slots.push(MetricSlot {
-                first: row.first,
-                last: row.last,
-                peak: row.peak,
-                last_value: row.last_value,
-            });
-        }
-    }
-
-    let tags = stored
-        .into_iter()
-        .map(|(tag, [count, delay])| QueueTagSeries {
-            tag,
-            count: render_series(count.carried, &count.slots, from, to),
-            delay: render_series(delay.carried, &delay.slots, from, to),
-        })
-        // A tag that drained before the window has nothing to draw in it.
-        .filter(|s| s.count.iter().chain(&s.delay).any(|(_, v)| *v != 0.0))
-        .collect();
-
-    Ok(Json(QueueMetricsSeries {
-        from: (from * 1000.0).round() as i64,
-        to: (to * 1000.0).round() as i64,
-        tags,
-    }))
+        .clamp(60, QUEUE_METRICS_MAX_WINDOW_SECS);
+    Ok(Json(read_queue_metrics_series(&db, window as f64).await?))
 }
 
 #[derive(Serialize)]

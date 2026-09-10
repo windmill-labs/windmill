@@ -1,6 +1,11 @@
 //! The queue metrics the monitor samples into `metrics` (`queue_count_{tag}` and
 //! `queue_delay_{tag}`), and how a stored series is drawn back.
 
+use std::collections::BTreeMap;
+
+use serde::Serialize;
+use sqlx::{Pool, Postgres};
+
 pub const QUEUE_COUNT_PREFIX: &str = "queue_count_";
 pub const QUEUE_DELAY_PREFIX: &str = "queue_delay_";
 
@@ -13,6 +18,115 @@ pub const QUEUE_METRIC_HEARTBEAT_SECS: f64 = 5.0 * 60.0;
 /// closing zero will come, and it is drawn as zero from there. Heartbeats land up to a monitor
 /// tick and a sampling slot late, so this must stay well above their real spacing.
 pub const QUEUE_METRIC_STALE_SECS: f64 = 3.0 * QUEUE_METRIC_HEARTBEAT_SECS;
+
+/// Slots a series is split into, whatever the window. A slot draws at most four vertices, so a
+/// line stays near 500 points however many rows the window holds.
+const QUEUE_METRICS_SERIES_SLOTS: f64 = 120.0;
+
+#[derive(Serialize)]
+pub struct QueueMetricsSeries {
+    /// The window drawn, in epoch milliseconds.
+    pub from: i64,
+    pub to: i64,
+    pub tags: Vec<QueueTagSeries>,
+}
+
+#[derive(Serialize)]
+pub struct QueueTagSeries {
+    pub tag: String,
+    /// Vertices `[epoch ms, value]` of a line joined by straight segments.
+    pub count: Vec<(i64, f64)>,
+    pub delay: Vec<(i64, f64)>,
+}
+
+/// The queue metrics of the last `window_secs`, each series aggregated per slot by the database
+/// and drawn by [`render_series`], so the size is bounded by the number of tags rather than by
+/// how many rows they wrote.
+///
+/// Reads the metrics of every workspace's tags: a caller exposing the result MUST restrict it to
+/// devops users, as `GET /workers/queue_metrics_series` does.
+pub async fn read_queue_metrics_series(
+    db: &Pool<Postgres>,
+    window_secs: f64,
+) -> crate::error::Result<QueueMetricsSeries> {
+    let to = sqlx::query_scalar!("SELECT EXTRACT(EPOCH FROM now())::double precision AS \"now!\"")
+        .fetch_one(db)
+        .await?;
+    let from = to - window_secs;
+
+    // Slot -1 holds the samples written before the window, of which only the last is used: it
+    // sets the value in force at the left edge. A series silent for longer than the stale window
+    // reads as zero, so nothing older can matter. Arrays compare element by element, so
+    // `max(ARRAY[t, v])` is the slot's latest sample, found without sorting every row.
+    let rows = sqlx::query!(
+        "SELECT id AS \"id!\", slot AS \"slot!\", min(t) AS \"first!\", max(t) AS \"last!\",
+            max(v) AS \"peak!\", (max(ARRAY[t, v]))[2] AS \"last_value!\"
+        FROM (
+            SELECT id, EXTRACT(EPOCH FROM created_at)::double precision AS t,
+                CASE WHEN jsonb_typeof(value) = 'number' THEN value::double precision END AS v,
+                greatest(floor(
+                    (EXTRACT(EPOCH FROM created_at)::double precision - $1::double precision)
+                        / $2::double precision
+                ), -1)::int AS slot
+            FROM metrics
+            WHERE id LIKE 'queue_%'
+                AND created_at > to_timestamp($1::double precision - $3::double precision)
+        ) s
+        WHERE v IS NOT NULL
+        GROUP BY id, slot
+        ORDER BY id, slot",
+        from,
+        window_secs / QUEUE_METRICS_SERIES_SLOTS,
+        QUEUE_METRIC_STALE_SECS,
+    )
+    .fetch_all(db)
+    .await?;
+
+    #[derive(Default)]
+    struct Stored {
+        carried: Option<(f64, f64)>,
+        slots: Vec<MetricSlot>,
+    }
+    // [count, delay] per tag.
+    let mut stored: BTreeMap<String, [Stored; 2]> = BTreeMap::new();
+    for row in rows {
+        let (series, tag) = if let Some(tag) = row.id.strip_prefix(QUEUE_COUNT_PREFIX) {
+            (0, tag)
+        } else if let Some(tag) = row.id.strip_prefix(QUEUE_DELAY_PREFIX) {
+            (1, tag)
+        } else {
+            continue;
+        };
+        let series = &mut stored.entry(tag.to_string()).or_default()[series];
+        if row.slot < 0 {
+            series.carried = Some((row.last, row.last_value));
+        } else {
+            series.slots.push(MetricSlot {
+                first: row.first,
+                last: row.last,
+                peak: row.peak,
+                last_value: row.last_value,
+            });
+        }
+    }
+
+    let tags = stored
+        .into_iter()
+        .map(|(tag, [count, delay])| QueueTagSeries {
+            tag,
+            count: render_series(count.carried, &count.slots, from, to),
+            delay: render_series(delay.carried, &delay.slots, from, to),
+        })
+        // A tag that drained before the window has nothing to draw in it.
+        .filter(|s| s.count.iter().chain(&s.delay).any(|(_, v)| *v != 0.0))
+        .collect();
+
+    Ok(QueueMetricsSeries {
+        from: (from * 1000.0).round() as i64,
+        to: (to * 1000.0).round() as i64,
+        tags,
+    })
+}
 
 /// The stored samples of one series that fall in one time slot.
 #[derive(Debug, Clone, Copy)]

@@ -74,10 +74,13 @@
 	const metrics = resource(
 		() => windowKey,
 		async (key, _, { signal }) => {
-			const res = await WorkerService.getQueueMetricsSeries({ windowSecs: WINDOWS[key].secs })
-			// A slower response for a window no longer selected must not replace the current one.
-			signal.throwIfAborted()
-			return res
+			try {
+				return await WorkerService.getQueueMetricsSeries({ windowSecs: WINDOWS[key].secs })
+			} finally {
+				// A slower answer for a window no longer selected, success or failure, must not
+				// replace the current one: `resource` drops the abort error thrown in its place.
+				signal.throwIfAborted()
+			}
 		}
 	)
 
