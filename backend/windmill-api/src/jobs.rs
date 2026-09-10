@@ -73,6 +73,7 @@ use crate::{
     args::{self, RawWebhookArgs},
     auth::{OptTokened, Tokened},
     concurrency_groups::join_concurrency_key,
+    csrf::CrossSiteGetGuard,
     db::{ApiAuthed, DB},
     triggers::trigger_helpers::RunnableId,
     users::{
@@ -6511,7 +6512,7 @@ pub async fn run_flow_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: RawWebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let (args, trigger_metadata) = get_args_and_trigger_metadata(
+    let (args, trigger_metadata) = match get_args_and_trigger_metadata(
         &db,
         &authed,
         RunnableId::from_flow_path(flow_path.to_path()),
@@ -6519,7 +6520,15 @@ pub async fn run_flow_by_path(
         &w_id,
         args,
     )
-    .await?;
+    .await?
+    {
+        WebhookRun::Run(args, trigger_metadata) => (args, trigger_metadata),
+        // 200 rather than an error: services drop a webhook that keeps failing, and disabling a
+        // trigger in Windmill must not cost it its registration.
+        WebhookRun::TriggerDisabled => {
+            return Ok((StatusCode::OK, NATIVE_TRIGGER_DISABLED_MSG.to_string()))
+        }
+    };
 
     let (uuid, _, _, _) = push_flow_job_by_path_into_queue(
         authed,
@@ -6944,7 +6953,7 @@ pub async fn run_script_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: RawWebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let (args, trigger_metadata) = get_args_and_trigger_metadata(
+    let (args, trigger_metadata) = match get_args_and_trigger_metadata(
         &db,
         &authed,
         RunnableId::from_script_path(script_path.to_path()),
@@ -6952,7 +6961,13 @@ pub async fn run_script_by_path(
         &w_id,
         args,
     )
-    .await?;
+    .await?
+    {
+        WebhookRun::Run(args, trigger_metadata) => (args, trigger_metadata),
+        WebhookRun::TriggerDisabled => {
+            return Ok((StatusCode::OK, NATIVE_TRIGGER_DISABLED_MSG.to_string()))
+        }
+    };
 
     let (uuid, _, _) = push_script_job_by_path_into_queue(
         authed,
@@ -6970,6 +6985,16 @@ pub async fn run_script_by_path(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
+/// What a webhook delivery resolved to: the arguments to run with, or nothing to run.
+pub enum WebhookRun {
+    Run(PushArgsOwned, Option<TriggerMetadata>),
+    /// The native trigger this delivery belongs to is disabled.
+    TriggerDisabled,
+}
+
+const NATIVE_TRIGGER_DISABLED_MSG: &str =
+    "This trigger is disabled in Windmill, so no job was created";
+
 #[allow(unused)]
 pub async fn get_args_and_trigger_metadata(
     db: &DB,
@@ -6978,14 +7003,21 @@ pub async fn get_args_and_trigger_metadata(
     run_query: &RunJobQuery,
     w_id: &str,
     args: RawWebhookArgs,
-) -> error::Result<(PushArgsOwned, Option<TriggerMetadata>)> {
+) -> error::Result<WebhookRun> {
     use windmill_common::triggers::TriggerMetadata;
 
     // Build trigger metadata if this is a native trigger request
     #[cfg(feature = "native_trigger")]
     let (trigger_metadata, native_args) = if let Some(service_name_str) = &run_query.service_name {
-        use crate::native_triggers::{prepare_native_trigger_args, ServiceName};
+        use crate::native_triggers::{
+            native_trigger_is_enabled, prepare_native_trigger_args, ServiceName,
+        };
         let service_name = ServiceName::try_from(service_name_str.to_owned())?;
+        if let Some(external_id) = run_query.trigger_external_id.as_deref() {
+            if !native_trigger_is_enabled(db, w_id, service_name, external_id).await? {
+                return Ok(WebhookRun::TriggerDisabled);
+            }
+        }
         let metadata = Some(TriggerMetadata::new(
             run_query.trigger_external_id.clone(),
             service_name.as_job_trigger_kind(),
@@ -7021,7 +7053,7 @@ pub async fn get_args_and_trigger_metadata(
         .await?
     };
 
-    Ok((args, trigger_metadata))
+    Ok(WebhookRun::Run(args, trigger_metadata))
 }
 
 #[derive(Deserialize)]
@@ -7416,6 +7448,7 @@ async fn log_job_view(
 }
 
 pub async fn run_wait_result_job_by_path_get(
+    cross_site: CrossSiteGetGuard,
     method: hyper::http::Method,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -7428,6 +7461,7 @@ pub async fn run_wait_result_job_by_path_get(
     check_license_key_valid().await?;
 
     let script_path = script_path.to_path();
+    let runnable_id = cross_site.script_runnable(script_path)?;
     check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;
 
     if method == http::Method::HEAD {
@@ -7440,12 +7474,7 @@ pub async fn run_wait_result_job_by_path_get(
     args.body = args::Body::HashMap(payload_as_args);
 
     let args = args
-        .to_args_from_runnable(
-            &db,
-            &w_id,
-            RunnableId::from_script_path(script_path),
-            run_query.skip_preprocessor,
-        )
+        .to_args_from_runnable(&db, &w_id, runnable_id, run_query.skip_preprocessor)
         .await?;
 
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
@@ -7864,6 +7893,7 @@ pub async fn stream_flow_by_version(
 }
 
 pub async fn stream_script_by_path(
+    cross_site: CrossSiteGetGuard,
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -7872,12 +7902,13 @@ pub async fn stream_script_by_path(
     method: hyper::http::Method,
     args: RawWebhookArgs,
 ) -> error::Result<Response> {
+    let runnable_id = cross_site.script_runnable(script_path.to_path())?;
     stream_job(
         authed,
         db,
         user_db,
         w_id,
-        RunnableId::from_script_path(script_path.to_path()),
+        runnable_id,
         args,
         run_query,
         method == http::Method::GET,

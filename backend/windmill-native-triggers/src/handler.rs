@@ -1,8 +1,8 @@
 use crate::{
     classify_read_failure, decrypt_oauth_data, delete_native_trigger, delete_token_by_hash,
     get_native_trigger, list_native_triggers, lock::TriggerLock, map_external_error,
-    map_external_error_with, rotate_webhook_token, store_native_trigger,
-    sync::EXTERNAL_TRIGGER_MISSING_ERROR, update_native_trigger_error,
+    map_external_error_with, rotate_webhook_token, set_native_trigger_enabled,
+    store_native_trigger, sync::EXTERNAL_TRIGGER_MISSING_ERROR, update_native_trigger_error,
     update_native_trigger_if_runnable_unchanged, webhook_token_label, webhook_token_scopes,
     External, ExternalReadFailure, NativeTrigger, NativeTriggerConfig, NativeTriggerData,
     ServiceName,
@@ -239,6 +239,7 @@ async fn create_native_trigger<T: External>(
         &config,
         service_config,
         data.summary.as_deref(),
+        data.enabled,
     )
     .await?;
 
@@ -603,6 +604,87 @@ async fn delete_native_trigger_handler<T: External>(
     Ok(format!("Native trigger deleted"))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct SetEnabledPayload {
+    pub enabled: bool,
+}
+
+/// Pause or resume a trigger, without touching its registration on the external service.
+///
+/// Leaving the webhook registered is what makes this reversible: services drop or deactivate a
+/// subscription that keeps failing, so a paused trigger keeps answering deliveries normally and
+/// simply starts no job.
+async fn set_native_trigger_enabled_handler<T: External>(
+    Extension(service_name): Extension<ServiceName>,
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((workspace_id, external_id)): Path<(String, String)>,
+    Json(payload): Json<SetEnabledPayload>,
+) -> Result<String> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let existing = get_native_trigger(&mut *tx, &workspace_id, service_name, &external_id)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("Native trigger not found: {}", external_id)))?;
+
+    check_scopes(&authed, || {
+        format!("native_triggers:write:{}", &existing.script_path)
+    })?;
+    require_is_writer_on_runnable(
+        &authed,
+        &existing.script_path,
+        existing.is_flow,
+        &workspace_id,
+        db.clone(),
+    )
+    .await?;
+
+    let updated = set_native_trigger_enabled(
+        &mut *tx,
+        &workspace_id,
+        service_name,
+        &external_id,
+        payload.enabled,
+    )
+    .await?;
+
+    // The read above takes no row lock, so a concurrent delete can land in between; reporting
+    // success then would tell the caller a trigger that is gone had been paused.
+    if !updated {
+        return Err(Error::NotFound(format!(
+            "Native trigger not found: {}",
+            external_id
+        )));
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        &format!(
+            "native_triggers.{}.{}",
+            service_name,
+            if payload.enabled { "enable" } else { "disable" }
+        ),
+        ActionKind::Update,
+        &workspace_id,
+        Some(&external_id),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(format!(
+        "Native trigger {}",
+        if payload.enabled {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    ))
+}
+
 async fn list_native_triggers_handler<T: External>(
     Extension(service_name): Extension<ServiceName>,
     authed: ApiAuthed,
@@ -642,6 +724,10 @@ pub fn service_routes<T: External + 'static>(handler: T) -> Router {
         .route(
             "/delete/{external_id}",
             delete(delete_native_trigger_handler::<T>),
+        )
+        .route(
+            "/setenabled/{external_id}",
+            post(set_native_trigger_enabled_handler::<T>),
         );
 
     standard_routes

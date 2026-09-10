@@ -1,14 +1,15 @@
 <script lang="ts">
 	import { page } from '$app/state'
 	import { onDestroy, untrack } from 'svelte'
-	import { Globe } from 'lucide-svelte'
+	import { ArrowRight, Globe } from 'lucide-svelte'
+	import { base } from '$lib/base'
 	import type { Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { setViewToken } from '$lib/viewToken'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import { applyDarkModeVariant } from '$lib/darkModeVariant'
 	import { displayDate, isNotFlow, truncateRev } from '$lib/utils'
-	import { Alert, Badge, Skeleton } from '$lib/components/common'
+	import { Alert, Badge, Button, Skeleton } from '$lib/components/common'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
@@ -106,12 +107,20 @@
 
 <div class="min-h-screen bg-surface">
 	<div class="border-b bg-surface-secondary">
-		<div class="max-w-7xl mx-auto w-full px-4 py-3 flex items-center gap-3">
+		<div class="max-w-7xl mx-auto w-full px-4 py-3 flex flex-wrap items-center gap-3">
 			<WindmillIcon height="20px" width="20px" />
 			<span class="text-sm font-semibold text-primary">Run {truncateRev(jobId, 8)}</span>
 			<Badge color="blue" small>
 				<span class="flex items-center gap-1"><Globe size={12} /> Public read-only view</span>
 			</Badge>
+			<Button
+				unifiedSize="sm"
+				endIcon={{ icon: ArrowRight }}
+				wrapperClasses="ml-auto"
+				href={`${base}/run/${jobId}?workspace=${encodeURIComponent(workspace)}`}
+			>
+				Open full view
+			</Button>
 		</div>
 	</div>
 
