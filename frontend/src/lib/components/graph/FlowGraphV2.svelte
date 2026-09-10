@@ -734,11 +734,9 @@
 		return false
 	}
 
-	// Clear SvelteFlow's internal selection by creating new nodes array
 	function clearFlowSelection() {
-		// xyflow owns `selected` on the objects it was handed, and drops it only when it sees a
-		// node it does not recognise. Serving the cached mapping back would hand it the very
-		// object it marked selected, so the clear has to go through fresh objects.
+		// Resetting the cache and reassigning `nodes` hands xyflow objects it has not seen, the
+		// only lever on its selection available from our own array.
 		offsetNodeCache = new WeakMap<Node, Node>()
 		nodes = nodes.map((node) => {
 			if (node.selected) {
@@ -1410,7 +1408,7 @@
 				/>
 
 				<!-- SelectionTool for handling selection changes and filtering -->
-				<SelectionTool {selectionManager} clearGraphSelection={clearFlowSelection} />
+				<SelectionTool {selectionManager} />
 
 				{#if leftHeader}
 					<div class="absolute top-2 left-2 z-10">
