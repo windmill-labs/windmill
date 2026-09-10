@@ -3261,12 +3261,10 @@ async fn create_pg_database(
     // The copy this database is for is refused a call later, and nothing collects an instance
     // database that no data table entry names. Refuse here too, so the clone stops before one
     // exists rather than leaving an empty registered `wm_fork_…` behind.
-    let governing = match req.source.strip_prefix("datatable://") {
-        Some(reference) => {
-            Some(ensure_datatable_is_clonable(&db, &w_id, datatable_ref_name(reference)).await?)
-        }
-        None => None,
-    };
+    if let Some(reference) = req.source.strip_prefix("datatable://") {
+        let name = datatable_ref_name(reference);
+        ensure_datatable_is_clonable(&db, &w_id, name).await?;
+    }
 
     // Non-superadmin: restrict dbname to wm_fork_ prefix
     if !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
@@ -3279,21 +3277,6 @@ async fn create_pg_database(
     }
 
     if is_instance_datatable_source(&db, &w_id, &req.source).await? {
-        // A retry after a clone that failed past this point finds its own leftover here. Reclaiming
-        // it is a `DROP DATABASE`, so it is for whoever administers the source — not merely whoever
-        // reaches it, which on a data table without roles is every member. Anyone else gets the
-        // refusal an existing database always got.
-        let may_reclaim = match &governing {
-            Some(governing) => crate::datatable_permissions::ensure_governs_datatable(
-                &db, &authed, &w_id, governing,
-            )
-            .await
-            .is_ok(),
-            None => false,
-        };
-        if may_reclaim {
-            windmill_common::reclaim_orphaned_fork_database(&db, &req.target_dbname).await?;
-        }
         windmill_common::create_custom_instance_database(&db, &req.target_dbname, "datatable")
             .await?;
     } else {
