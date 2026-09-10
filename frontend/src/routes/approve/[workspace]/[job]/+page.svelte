@@ -220,7 +220,12 @@
 
 <ScheduleEditor bind:this={scheduleEditor} />
 
-<CenteredModal {title} loading={!approvalInfo && !error} centerVertically={false}>
+<CenteredModal
+	{title}
+	loading={!approvalInfo && !error}
+	centerVertically={false}
+	showVersion={false}
+>
 	{#if error}
 		<div class="space-y-6">
 			{#if error.includes('logged in') || error.includes('sign in') || error.includes('Not authorized')}
