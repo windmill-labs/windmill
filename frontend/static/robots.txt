@@ -1,7 +1,2 @@
-# Served as a real file from the frontend build; everything else falls back to
-# the app shell, which is why this instance answered /robots.txt with HTML before.
-# The login page is also marked noindex, since crawlers reach it with a
-# different `rd` from every page that links to it.
 User-agent: *
-Disallow: /user/
 Disallow: /api/

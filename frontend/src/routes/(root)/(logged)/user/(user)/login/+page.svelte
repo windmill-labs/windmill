@@ -142,9 +142,8 @@
 </script>
 
 <svelte:head>
-	<!-- Every page on the hub links here with itself in `rd`, so a crawler sees one
-	     login URL per page, all rendering this form: Search Console lists 4,300 of
-	     them as duplicates. Nothing about a login page belongs in an index. -->
+	<!-- Linked with a different `rd` from every page, so a crawler meets many URLs
+	     for this one form. Nothing about a login page belongs in an index. -->
 	<meta name="robots" content="noindex, nofollow" />
 </svelte:head>
 
