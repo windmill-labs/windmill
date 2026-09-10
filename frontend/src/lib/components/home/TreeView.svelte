@@ -32,8 +32,9 @@
 		// `all` pages the prefix to the end in one call instead of fetching a single page.
 		onExpandOwner?: (prefix: string, more?: boolean, opts?: { all?: boolean }) => void
 		onCollapseOwner?: (prefix: string) => void
-		// Position of this node among the rendered root nodes; "expand all" only
-		// auto-loads the first EXPAND_ALL_LOAD_LIMIT of them (see the effect below).
+		// This root owner's place in line for "expand all", which only auto-loads the first
+		// EXPAND_ALL_LOAD_LIMIT (see the effect below). Not always its rendered position:
+		// owners nested under a grouping row are ranked after the rest.
 		rootIndex?: number
 		showEditButton?: boolean
 		// Path prefix of the parent node, so this one can name its own (`ownerLoad` and

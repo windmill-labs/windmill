@@ -162,11 +162,7 @@
 
 	type RootNode = ReturnType<typeof groupItems>[number]
 	// `loadRank` is what "expand all" caps its requests by (see TreeView's rootIndex).
-	// Other users rank after every folder, so opening their row can't push the folders
-	// out of the auto-loaded set.
-	type RootRow =
-		| { kind: 'node'; node: RootNode; nested: boolean; loadRank: number }
-		| { kind: 'otherUsers'; users: number; items: number | undefined }
+	type RootRow = { kind: 'node'; node: RootNode; loadRank: number } | { kind: 'otherUsers' }
 
 	const OTHER_USERS_OPEN_SETTING_NAME = 'homeTreeOtherUsersOpen'
 	let otherUsersOpen = $state(getLocalSetting(OTHER_USERS_OPEN_SETTING_NAME) == 'true')
@@ -174,43 +170,43 @@
 		otherUsersOpen = !otherUsersOpen
 		storeLocalSetting(OTHER_USERS_OPEN_SETTING_NAME, otherUsersOpen ? 'true' : undefined)
 	}
+	// The group pages its rows separately from the root slice. Drawing from `nbDisplayed`
+	// instead, opening it would push folders past the slice and unmount them, dropping
+	// whatever they had expanded.
+	let nbOtherUsersDisplayed = $state(ROOT_PAGE)
 
 	function isOtherUser(node: RootNode): node is UserItem {
 		return 'username' in node && node.username !== selfUsername
 	}
 
+	let otherUsers: UserItem[] = $derived(
+		groupOtherUsers && selfUsername != undefined && Array.isArray(groupedItems)
+			? groupedItems.filter(isOtherUser)
+			: []
+	)
+	let otherUsersItemCount = $derived(
+		ownerCounts != undefined
+			? otherUsers.reduce(
+					(sum, u) => sum + Math.max(ownerCounts[`u/${u.username}`] ?? 0, countLeaves(u)),
+					0
+				)
+			: undefined
+	)
+
 	let rows: RootRow[] = $derived.by(() => {
 		if (!Array.isArray(groupedItems)) return []
-		const others =
-			groupOtherUsers && selfUsername != undefined ? groupedItems.filter(isOtherUser) : []
-		if (others.length === 0) {
-			return groupedItems.map(
-				(node, i): RootRow => ({ kind: 'node', node, nested: false, loadRank: i })
-			)
+		if (otherUsers.length === 0) {
+			return groupedItems.map((node, i): RootRow => ({ kind: 'node', node, loadRank: i }))
 		}
 		// `groupItems` orders users before folders, so with the others taken out the viewer's
 		// own space is what leads.
 		const main = groupedItems.filter((g) => !isOtherUser(g))
 		const lead = main.filter((g) => 'username' in g)
 		const rest = main.filter((g) => !('username' in g))
-		const items =
-			ownerCounts != undefined
-				? others.reduce(
-						(sum, u) => sum + Math.max(ownerCounts[`u/${u.username}`] ?? 0, countLeaves(u)),
-						0
-					)
-				: undefined
 		return [
-			...lead.map((node, i): RootRow => ({ kind: 'node', node, nested: false, loadRank: i })),
-			{ kind: 'otherUsers', users: others.length, items },
-			...(otherUsersOpen
-				? others.map(
-						(node, i): RootRow => ({ kind: 'node', node, nested: true, loadRank: main.length + i })
-					)
-				: []),
-			...rest.map(
-				(node, i): RootRow => ({ kind: 'node', node, nested: false, loadRank: lead.length + i })
-			)
+			...lead.map((node, i): RootRow => ({ kind: 'node', node, loadRank: i })),
+			{ kind: 'otherUsers' },
+			...rest.map((node, i): RootRow => ({ kind: 'node', node, loadRank: lead.length + i }))
 		]
 	})
 	// Owner rows only, for the footer: the "Other users" row is neither a folder nor a user.
@@ -242,6 +238,29 @@
 	})
 </script>
 
+{#snippet ownerNode(node: RootNode, loadRank: number, indent: number)}
+	<TreeView
+		rootIndex={loadRank}
+		{indent}
+		{isSearching}
+		{collapseAll}
+		item={node}
+		{pipelineFolders}
+		{ownerCounts}
+		ancestorHasMore={hasMoreServer}
+		{ownerLoad}
+		{onExpandOwner}
+		{onCollapseOwner}
+		on:scriptChanged
+		on:flowChanged
+		on:appChanged
+		on:rawAppChanged
+		on:reload
+		{showCode}
+		{showEditButton}
+	/>
+{/snippet}
+
 {#if groupedItems === 'loading'}
 	<div class="flex flex-row items-center justify-center">
 		<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 dark:border-gray-100"
@@ -268,45 +287,52 @@
 						<div>
 							<span class="whitespace-nowrap text-xs text-emphasis font-semibold">Other users</span>
 							<div class="text-2xs font-normal text-secondary whitespace-nowrap">
-								({pluralize(row.users, 'user')}{row.items != undefined
-									? ` · ${pluralize(row.items, 'item')}`
+								({pluralize(otherUsers.length, 'user')}{otherUsersItemCount != undefined
+									? ` · ${pluralize(otherUsersItemCount, 'item')}`
 									: ''})
 							</div>
 						</div>
 					</div>
-					<button
-						class="w-full flex flex-row-reverse"
+					<Button
+						iconOnly
+						unifiedSize="xs"
+						variant="subtle"
+						startIcon={{ icon: otherUsersOpen ? ChevronUp : ChevronDown }}
+						title={otherUsersOpen ? 'Hide other users' : 'Show other users'}
 						aria-label="Other users"
 						aria-expanded={otherUsersOpen}
-					>
-						{#if otherUsersOpen}
-							<ChevronUp size={16} />
-						{:else}
-							<ChevronDown size={16} />
-						{/if}
-					</button>
+						onClick={toggleOtherUsers}
+					/>
 				</div>
+				{#if otherUsersOpen}
+					<!-- Ranked after every root owner, so opening this row can't push folders out
+					     of what "expand all" auto-loads. -->
+					{#each otherUsers.slice(0, nbOtherUsersDisplayed) as user, i (user.username)}
+						{@render ownerNode(user, ownerRowCount + i, 1)}
+					{/each}
+					{#if nbOtherUsersDisplayed < otherUsers.length}
+						<div
+							class="pl-8 pr-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
+						>
+							<span class="text-xs text-secondary">
+								Showing {nbOtherUsersDisplayed} of {otherUsers.length} users
+							</span>
+							<Button
+								unifiedSize="sm"
+								variant="subtle"
+								onClick={() =>
+									(nbOtherUsersDisplayed = Math.min(
+										nbOtherUsersDisplayed + ROOT_PAGE,
+										otherUsers.length
+									))}
+							>
+								Show more
+							</Button>
+						</div>
+					{/if}
+				{/if}
 			{:else}
-				<TreeView
-					rootIndex={row.loadRank}
-					indent={row.nested ? 1 : 0}
-					{isSearching}
-					{collapseAll}
-					item={row.node}
-					{pipelineFolders}
-					{ownerCounts}
-					ancestorHasMore={hasMoreServer}
-					{ownerLoad}
-					{onExpandOwner}
-					{onCollapseOwner}
-					on:scriptChanged
-					on:flowChanged
-					on:appChanged
-					on:rawAppChanged
-					on:reload
-					{showCode}
-					{showEditButton}
-				/>
+				{@render ownerNode(row.node, row.loadRank, 0)}
 			{/if}
 		{/each}
 		{#if nbDisplayed < rows.length || hasMoreServer}
