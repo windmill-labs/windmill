@@ -35,6 +35,7 @@ import {
 	clearMcpToolsCache,
 	createMcpTools,
 	forgetLoadedMcpTools,
+	invalidateMcpRegistrations,
 	loadedMcpServers,
 	mcpRegistryGeneration,
 	loadedMcpTools,
@@ -416,6 +417,16 @@ describe('loaded remote tools', () => {
 		expect(loadedMcpTools(OWNER)).toEqual([])
 	})
 
+	// Turning a server off while a search is still awaiting its listing leaves nothing
+	// registered for the reconcile to find, so the registration itself has to be rejected.
+	it('drops results of a search that finished after the connected set changed', () => {
+		const generation = mcpRegistryGeneration(OWNER)
+		invalidateMcpRegistrations(OWNER)
+
+		expect(registerMcpTools(OWNER, generation, server, [TOOLS[0]])).toEqual([undefined])
+		expect(loadedMcpTools(OWNER)).toEqual([])
+	})
+
 	// The key is `${server}::${tool}` and a remote tool name is arbitrary — namespaced
 	// names are ordinary. Splitting on the last `::` reported a server that does not
 	// exist, so the reconcile dropped the tool at the start of every send.
@@ -596,6 +607,47 @@ describe('search_mcp_tools', () => {
 				mode: 'read'
 			}
 		])
+	})
+
+	// Registering the second server can evict tools the first one just registered, and a
+	// `call` name whose tool is gone answers `Unknown tool call` on the next iteration.
+	it('advertises no call name for a match a later server evicted', async () => {
+		const wide = (name: string) => ({
+			name,
+			description: 'issue',
+			inputSchema: {
+				type: 'object',
+				properties: { a: { type: 'string', description: 'x'.repeat(7_000) } }
+			}
+		})
+		const servers: McpServer[] = [{ path: 'u/hugo/a_mcp' }, { path: 'u/hugo/b_mcp' }]
+		getMcpToolsMock.mockImplementation(({ path }: { path: string }) =>
+			Promise.resolve(
+				Array.from({ length: 5 }, (_, i) => wide(`${path === 'u/hugo/a_mcp' ? 'a' : 'b'}_${i}`))
+			)
+		)
+		const tool = createMcpTools(OWNER, servers).find(
+			(entry) => entry.def.function.name === 'search_mcp_tools'
+		)!
+		const result = JSON.parse(
+			await tool.fn({
+				args: { query: 'issue' },
+				workspace: 'test-ws',
+				helpers: {},
+				toolCallbacks: createToolCallbacks(),
+				toolId: 'tool-1'
+			})
+		)
+
+		const registered = new Set(loadedMcpTools(OWNER).map((t) => t.def.function.name))
+		expect(registered.size).toBeLessThan(10)
+		const advertised = result.matches
+			.map((m: { call?: string }) => m.call)
+			.filter((c: string | undefined) => c !== undefined)
+		expect(advertised.length).toBe(registered.size)
+		for (const call of advertised) {
+			expect(registered.has(call)).toBe(true)
+		}
 	})
 
 	it('still returns matches when one server is unreachable', async () => {

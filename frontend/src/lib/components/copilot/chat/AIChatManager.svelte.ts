@@ -103,7 +103,12 @@ import {
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
-import { closeInterruptedToolBatch, runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
+import {
+	closeInterruptedToolBatch,
+	getErrorStatus,
+	runChatLoop,
+	truncateToToolPairedPrefix
+} from './chatLoop'
 import { sanitizeToolCallArguments } from './toolCallArguments'
 import { billedTokens, normalizeContextUsage, type ChatTokenUsage } from './tokenUsage'
 import { logAiUsage } from '$lib/utils/aiUsageReporter'
@@ -138,6 +143,7 @@ import { randomUUID } from '$lib/utils/uuid'
 import {
 	createMcpTools,
 	forgetLoadedMcpTools,
+	invalidateMcpRegistrations,
 	loadedMcpServers,
 	loadedMcpTools,
 	loadMcpServers,
@@ -1208,6 +1214,8 @@ export class AIChatManager {
 	 * the docked chat plus a warm runtime per session — and each is its own conversation. */
 	readonly mcpOwnerId = randomUUID()
 	private mcpServersRefreshId = 0
+	/** The connected set the last refresh settled on, to notice when it changes. */
+	private mcpServersSignature = ''
 
 	// The GLOBAL prompt's path conventions and folder ACLs, for this chat's operating
 	// workspace (`GlobalPromptIdentity`). Resolved asynchronously alongside skills, never
@@ -2255,11 +2263,40 @@ export class AIChatManager {
 		// a registered call bypasses the listing cache, so a connection edited elsewhere
 		// would otherwise keep running against the schema it was frozen with.
 		const live = new Map(this.mcpServers.map((s) => [s.path, s.editedAt]))
+		// The reconcile below only reaches servers that already registered something. A
+		// search still awaiting its listing has registered nothing yet, so a server turned
+		// off during that await would register after the fact and be advertised on the next
+		// iteration — bumping the generation makes that search drop its results instead.
+		const signature = this.mcpServers.map((s) => `${s.path}@${s.editedAt ?? ''}`).join(',')
+		if (signature !== this.mcpServersSignature) {
+			this.mcpServersSignature = signature
+			invalidateMcpRegistrations(this.mcpOwnerId)
+		}
 		for (const { path, editedAt } of loadedMcpServers(this.mcpOwnerId)) {
 			if (!live.has(path) || live.get(path) !== editedAt) {
 				forgetLoadedMcpTools(this.mcpOwnerId, path)
 			}
 		}
+		if (this.mode === AIMode.GLOBAL) {
+			this.configureGlobalMode()
+		}
+	}
+
+	/**
+	 * A registered MCP tool carries a schema a third party wrote, and a provider that
+	 * refuses it refuses every later request in the conversation the same way — with an
+	 * error naming the request, not the tool. So a rejection drops the registered tools:
+	 * the next send goes out with the search tool and the wrappers only, and the model
+	 * can register again. A false positive costs one re-search. Statuses about the
+	 * account rather than the body (auth, quota) are left alone.
+	 */
+	private dropMcpToolsOnRejectedRequest = (err: unknown) => {
+		const status = getErrorStatus(err)
+		if (status === undefined || status < 400 || status >= 500) return
+		if (status === 401 || status === 403 || status === 429) return
+		if (loadedMcpTools(this.mcpOwnerId).length === 0) return
+		console.warn('Dropping registered MCP tools after a rejected request', err)
+		forgetLoadedMcpTools(this.mcpOwnerId)
 		if (this.mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
 		}
@@ -2807,6 +2844,7 @@ export class AIChatManager {
 			console.error('chatRequest error', err)
 			callbacks.onMessageEnd()
 			this.cancelLoadingTools('Error')
+			this.dropMcpToolsOnRejectedRequest(err)
 			if (!abortController.signal.aborted) {
 				throw err
 			}

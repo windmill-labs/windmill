@@ -92,18 +92,15 @@ export function clearMcpToolsCache() {
 }
 
 /**
- * Remote tools promoted to first-class chat tools for the current conversation,
- * keyed `${server}::${tool}`. `chatLoop` re-reads its tool list on every iteration,
- * so one registered while a call is running is callable on the next one, and the
- * whole set is dropped when the conversation rotates — a tool the model was never
- * told about in a fresh chat should not be in its list, nor its schema in the bill.
+ * Remote tools promoted to first-class chat tools for the current conversation, keyed
+ * `${server}::${tool}`. `chatLoop` re-reads its tool list every iteration, so one
+ * registered mid-turn is callable on the next, and the whole set is dropped when the
+ * conversation rotates.
  *
- * A registered tool is a frozen copy of an input schema *and* of `readOnlyHint`,
- * which is the thing `TOOLS_CACHE_TTL_MS` exists to bound — so these are dropped
- * by the same triggers that drop a listing rather than left to age on a timer.
- * What keeps that safe in between is the backend, not this map: `executeTool`
- * asserts `read_only` against the live server, so a stale hint cannot turn into
- * an unconfirmed write.
+ * Each entry freezes an input schema and a `readOnlyHint`, which is what
+ * `TOOLS_CACHE_TTL_MS` bounds — so entries are dropped by the triggers that drop a
+ * listing rather than aged on a timer. `executeTool` re-asserts `read_only` against
+ * the live server in between, so a stale hint cannot become an unconfirmed write.
  */
 type OwnerRegistry = {
 	tools: Map<string, Tool<{}>>
@@ -117,11 +114,9 @@ type OwnerRegistry = {
 }
 
 /**
- * Keyed by owner, because several chats are live at once: the docked chat is a
- * singleton and every warm session runtime builds its own manager, all in GLOBAL
- * mode. One shared map would put a session's registrations into the docked chat's
- * request, and let either one's "New chat" wipe a tool the other advertised an
- * iteration ago.
+ * Keyed by owner: the docked chat and every warm session runtime each build a manager
+ * in GLOBAL mode. One shared map would put a session's registrations into the docked
+ * chat's request, and let either one's "New chat" wipe what the other advertised.
  */
 const registries = new Map<string, OwnerRegistry>()
 /**
@@ -140,6 +135,17 @@ export function mcpRegistryGeneration(owner: string): string {
 
 function invalidateOwner(owner: string) {
 	generations.set(owner, (generations.get(owner) ?? 0) + 1)
+}
+
+/**
+ * Reject the registrations of searches that are still awaiting their listing, without
+ * touching what is already registered. Called when the connected server set changes:
+ * a search started before a server was turned off has registered nothing yet, so the
+ * reconcile over registered tools cannot reach it, and it would otherwise install that
+ * server's tools after the fact.
+ */
+export function invalidateMcpRegistrations(owner: string) {
+	invalidateOwner(owner)
 }
 
 /**
@@ -617,8 +623,8 @@ function uniqueRegisteredName(
 
 /**
  * A remote server's `inputSchema`, made safe to send as a provider tool definition.
- * A schema a provider rejects fails the whole completion, not the one tool, and the
- * tool stays registered — so the chat keeps failing until it is dropped.
+ * A schema a provider rejects fails the whole completion, not the one tool; the manager
+ * drops the registered tools on a rejected request so the next send goes out clean.
  *
  * A guard, not a validator: anything it cannot make sense of collapses to "accepts any
  * object", which costs the model its argument names but keeps the chat alive.
@@ -839,6 +845,14 @@ export function createMcpTools(owner: string, servers: McpServer[]): Tool<{}>[] 
 						const name = registered[i]
 						if (name !== undefined) callNames.set(tool, name)
 					})
+				}
+				// Each registration checks its own names against eviction, but registering a
+				// later server can evict a name an earlier one just returned. Advertising an
+				// evicted name yields `Unknown tool call`; dropping it here sends that match
+				// to the wrapper instead.
+				const live = new Set(loadedMcpTools(owner).map((t) => t.def.function.name))
+				for (const [tool, name] of callNames) {
+					if (!live.has(name)) callNames.delete(tool)
 				}
 				const result = boundedSearch({
 					matches: top.map((s) => summarizeTool(s.server, s.tool, callNames.get(s.tool))),

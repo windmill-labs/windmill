@@ -240,7 +240,7 @@ function getErrorText(err: unknown): string {
 	}
 }
 
-function getErrorStatus(err: unknown): number | undefined {
+export function getErrorStatus(err: unknown): number | undefined {
 	if (!isRecord(err)) {
 		return undefined
 	}
