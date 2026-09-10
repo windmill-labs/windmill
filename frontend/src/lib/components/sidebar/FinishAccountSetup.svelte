@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Component } from 'svelte'
 	import { base } from '$lib/base'
 	import { UserService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
@@ -18,7 +19,7 @@
 		onDone
 	}: { open?: boolean; email: string; onDone: () => void } = $props()
 
-	const icons: Record<string, typeof GoogleIcon> = {
+	const icons: Record<string, Component<any>> = {
 		google: GoogleIcon,
 		github: GithubIcon,
 		gitlab: GitlabIcon
@@ -56,7 +57,10 @@
 			open = false
 			onDone()
 		} catch (err) {
-			sendUserToast('Could not set the password: ' + (err instanceof Error ? err.message : err), true)
+			sendUserToast(
+				'Could not set the password: ' + (err instanceof Error ? err.message : err),
+				true
+			)
 		} finally {
 			saving = false
 		}
@@ -66,8 +70,8 @@
 <Modal title="Finish setting up your account" bind:open cancelText="Later">
 	<div class="flex flex-col gap-5">
 		<p class="text-sm text-secondary">
-			Your account <span class="font-medium text-primary">{email}</span> was created from an
-			invite and has no sign-in method of its own yet. Pick one so you can come back any time.
+			Your account <span class="font-medium text-primary">{email}</span> was created from an invite and
+			has no sign-in method of its own yet. Pick one so you can come back any time.
 		</p>
 
 		{#if logins.length > 0}
@@ -92,8 +96,8 @@
 					{/each}
 				</div>
 				<p class="text-2xs text-secondary">
-					Use the same address ({email}); signing in under another address creates a
-					separate account.
+					Use the same address ({email}); signing in under another address creates a separate
+					account.
 				</p>
 			</div>
 			<div class="flex items-center gap-3">
@@ -107,14 +111,20 @@
 			<span class="text-xs font-semibold text-emphasis">Set a password</span>
 			<div class="flex flex-row gap-2 items-center">
 				<TextInput
-					inputProps={{ autocomplete: 'new-password', type: 'password', placeholder: 'At least 8 characters' }}
+					inputProps={{
+						autocomplete: 'new-password',
+						type: 'password',
+						placeholder: 'At least 8 characters'
+					}}
 					bind:value={password}
 				/>
 				<Button variant="accent" unifiedSize="md" disabled={saving} onClick={setPassword}>
 					Set password
 				</Button>
 			</div>
-			<p class="text-2xs text-secondary">A password account keeps signing in with the password only.</p>
+			<p class="text-2xs text-secondary"
+				>A password account keeps signing in with the password only.</p
+			>
 		</div>
 	</div>
 </Modal>

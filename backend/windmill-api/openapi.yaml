@@ -33754,7 +33754,7 @@ components:
           type: string
         login_type:
           type: string
-          enum: ["password", "github", "service_account"]
+          enum: ["password", "github", "service_account", "pending_oauth"]
         super_admin:
           type: boolean
         devops:
