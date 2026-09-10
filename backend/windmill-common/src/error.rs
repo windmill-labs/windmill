@@ -272,7 +272,7 @@ fn format_db_error(message: &str, detail: Option<&str>, hint: Option<&str>) -> S
     msg
 }
 
-fn error_source_chain(e: &dyn std::error::Error) -> String {
+pub fn error_source_chain(e: &dyn std::error::Error) -> String {
     let mut msg = e.to_string();
     let mut source = e.source();
     while let Some(cause) = source {

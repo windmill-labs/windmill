@@ -12,8 +12,8 @@
 
 use sqlx::{Pool, Postgres};
 use windmill_common::git_sync_ee::{
-    git_credential_for_url, repo_provider, repo_supports_managed_git_features, set_git_credential,
-    GitProvider,
+    create_repo_webhook, git_credential_for_url, repo_provider, repo_supports_managed_git_features,
+    set_git_credential, GitProvider,
 };
 use windmill_common::workspaces::GitCredentialProvider;
 
@@ -247,6 +247,28 @@ async fn a_credential_is_not_served_over_a_downgraded_transport(
     assert_eq!(
         git_credential_for_url(&db, "parent-ws", "http://gitlab.com/grp/proj.git").await?,
         None
+    );
+    Ok(())
+}
+
+/// A GitLab the server refuses to reach is the error reported, not the GitHub App
+/// lookup that runs after it: for a self-managed GitLab on a private network,
+/// "no GitHub App installation" names neither the host nor the setting that
+/// allows it.
+#[sqlx::test(fixtures("git_sync_fork_credential"))]
+async fn a_refused_gitlab_host_is_the_reported_error(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let err = create_repo_webhook(
+        &db,
+        "parent-ws",
+        "http://glpat-secret@10.0.0.5/grp/proj.git",
+        "https://windmill.example/api/w/parent-ws/git_sync/webhook/gitlab",
+        "hook-secret",
+    )
+    .await
+    .expect_err("a private host is refused");
+    assert!(
+        err.to_string().contains("ALLOW_LOCAL_GIT_REMOTES"),
+        "unexpected error: {err}"
     );
     Ok(())
 }
