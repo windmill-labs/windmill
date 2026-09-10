@@ -222,7 +222,7 @@ What the assistant should do when this skill applies.
 			if (entry === undefined) return
 			if (entry.kind === 'skill') openSkill(entry.skill)
 			else fold(entry.key, entry.node.path, !collapsed[entry.node.path])
-		},
+		}
 		// No `activateEnterFrom`: Enter is answered by `onListKeydown`, which does not
 		// depend on where focus happens to be.
 	})
@@ -854,7 +854,6 @@ What the assistant should do when this skill applies.
 	     height, and without the reserved space every row would jump sideways as the
 	     scrollbar came and went. Focusable so the keys have somewhere to belong — see
 	     the effect that focuses it. -->
-	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<div
@@ -1012,6 +1011,7 @@ What the assistant should do when this skill applies.
 		     nested in a button would fold the folder on every flip. `pr-14` clears the
 		     row menu column, so a folder's switch stands in the same column as the
 		     switches of the rows under it. -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			id={entryDomId(folderKey(node.path))}
 			class="w-full flex items-center gap-2 pr-14 rounded-md {entryIndexByKey.get(
@@ -1025,7 +1025,7 @@ What the assistant should do when this skill applies.
 				type="button"
 				class="grow min-w-0 flex items-center gap-2 px-2 py-2 text-left"
 				aria-expanded={!collapsed[node.path]}
-				onclick={() => (collapsed[node.path] = !collapsed[node.path])}
+				onclick={() => fold(folderKey(node.path), node.path, !collapsed[node.path])}
 			>
 				{#if collapsed[node.path]}
 					<ChevronRight size={14} class="text-tertiary shrink-0" />
