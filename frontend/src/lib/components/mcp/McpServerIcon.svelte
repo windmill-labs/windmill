@@ -7,15 +7,15 @@
 	 * published (`icons`, per the spec), then the icon Windmill ships for that
 	 * integration, then a generic plug.
 	 *
-	 * The server's own icon comes first because it is the only source that is both
-	 * authoritative and free of a third party — the bytes arrive over the MCP
-	 * connection the user already made.
+	 * The server's own icon comes first because it is the authoritative one and costs
+	 * nothing to show: `pickMcpIconSrc` admits only `data:` sources, so the bytes are
+	 * already here and no request leaves the browser to render them.
 	 */
 	let { src, icon, size = 16 }: { src?: string; icon?: Component<any>; size?: number } = $props()
 
 	// Keyed by src rather than a boolean so a server publishing a different icon
-	// retries instead of inheriting the previous one's failure. An `https:` src is
-	// usually blocked by the app's COEP require-corp anyway, which lands here.
+	// retries instead of inheriting the previous one's failure. A malformed data URI
+	// lands here and falls through to the icon below it.
 	let failedFor = $state<string | undefined>(undefined)
 
 	const px = $derived(`${size}px`)

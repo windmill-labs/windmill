@@ -16,17 +16,20 @@ describe('pickMcpIconSrc', () => {
 		)
 	})
 
-	it('refuses schemes the spec calls unsafe', () => {
+	// An https src would make the browser fetch from a host the server names, which is
+	// the disclosure the favicon lookup was removed for. COEP blocks the response, not
+	// the request, so it does not save us.
+	it('refuses a fetchable src, whatever the scheme', () => {
+		expect(pickMcpIconSrc([{ src: 'https://example.com/logo.png' }])).toBeUndefined()
+		expect(pickMcpIconSrc([{ src: 'http://example.com/i.png' }])).toBeUndefined()
 		expect(pickMcpIconSrc([{ src: 'javascript:alert(1)' }])).toBeUndefined()
 		expect(pickMcpIconSrc([{ src: 'file:///etc/passwd' }])).toBeUndefined()
 		expect(pickMcpIconSrc([{ src: 'ftp://example.com/i.png' }])).toBeUndefined()
-		expect(pickMcpIconSrc([{ src: 'http://example.com/i.png' }])).toBeUndefined()
 	})
 
 	// SVG can carry script, and sanitising it is not worth an icon.
-	it('refuses SVG in either form', () => {
+	it('refuses SVG', () => {
 		expect(pickMcpIconSrc([{ src: 'data:image/svg+xml;base64,PHN2Zz4=' }])).toBeUndefined()
-		expect(pickMcpIconSrc([{ src: 'https://example.com/logo.svg' }])).toBeUndefined()
 	})
 
 	// `mimeType` is advisory per the spec, so it must not launder the payload.
@@ -36,16 +39,13 @@ describe('pickMcpIconSrc', () => {
 		).toBeUndefined()
 	})
 
+	// The chosen src is persisted on a transcript row and re-cloned on every save.
 	it('refuses an oversized data URI', () => {
-		expect(pickMcpIconSrc([{ src: `data:image/png;base64,${'A'.repeat(70_000)}` }])).toBeUndefined()
+		expect(pickMcpIconSrc([{ src: `data:image/png;base64,${'A'.repeat(9_000)}` }])).toBeUndefined()
 	})
 
-	it('prefers the icon matching the theme, then an untagged one', () => {
-		const dark = 'data:image/png;base64,ZGFyaw=='
-		const icons = [{ src: png, theme: 'light' }, { src: dark, theme: 'dark' }, { src: png }]
-
-		expect(pickMcpIconSrc(icons, true)).toBe(dark)
-		expect(pickMcpIconSrc(icons, false)).toBe(png)
+	it('takes the first usable entry, skipping ones it refuses', () => {
+		expect(pickMcpIconSrc([{ src: 'https://example.com/a.png' }, { src: png }])).toBe(png)
 	})
 
 	it('returns nothing for a missing or malformed icons field', () => {

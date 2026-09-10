@@ -67,8 +67,8 @@
 		})()
 		if (!claimed) return undefined
 		// Both sources are ultimately a path the model wrote, and resolving one reads
-		// that resource and asks a third party for its host's favicon — so it has to be
-		// a server the user connected, not any path the model can name.
+		// that resource — so it has to name a server the user connected, not any
+		// workspace resource the model can point at.
 		if (aiChatManager.mcpServers.some((s) => s.path === claimed)) return claimed
 		// A session runtime does not populate `mcpServers` until its first send, so on a
 		// reloaded transcript the live list is empty and the rows this path was persisted
@@ -274,14 +274,17 @@
 	     Nothing is drawn until a mark resolves: a placeholder plug on every row would
 	     be noise. -->
 	{#snippet serverMark()}
-		{#if message.mcpIconSrc}
-			<McpServerIcon src={message.mcpIconSrc} size={14} />
-		{:else if mcpServerPath && aiChatManager.operatingWorkspace}
+		{#if mcpServerPath && aiChatManager.operatingWorkspace}
+			<!-- Both sources are resolved, not just the first: the component falls back to
+			     the shipped icon when a published one fails to render, and gating on the
+			     src would leave a plug where Windmill has an icon for the integration. -->
 			{#await resolveMcpServerMark(aiChatManager.operatingWorkspace, mcpServerPath) then mark}
-				{#if mark.icon}
-					<McpServerIcon icon={mark.icon} size={14} />
+				{#if message.mcpIconSrc || mark.icon}
+					<McpServerIcon src={message.mcpIconSrc} icon={mark.icon} size={14} />
 				{/if}
 			{/await}
+		{:else if message.mcpIconSrc}
+			<McpServerIcon src={message.mcpIconSrc} size={14} />
 		{/if}
 	{/snippet}
 
