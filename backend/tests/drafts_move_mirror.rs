@@ -16,16 +16,20 @@ use sqlx::{Pool, Postgres};
 use windmill_test_utils::*;
 
 async fn move_to(port: u16, from: &str, to: &str) -> anyhow::Result<String> {
-    Ok(reqwest::Client::new()
+    let resp = reqwest::Client::new()
         .post(format!(
             "http://localhost:{port}/api/w/test-workspace/drafts/move/script/{from}"
         ))
         .header("Authorization", "Bearer SECRET_TOKEN")
         .json(&serde_json::json!({ "new_path": to }))
         .send()
-        .await?
-        .text()
-        .await?)
+        .await?;
+    // Asserted here so a rejected move fails as itself, rather than as a JSON
+    // parse error in the read-back below.
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert!(status.is_success(), "move {from} -> {to} failed: {body}");
+    Ok(body)
 }
 
 /// The stored draft value at `path`, read back through the API so this test needs
