@@ -5198,18 +5198,21 @@ async fn save_queue_metrics(
             }
         });
 
+        let next_delay = stat
+            .filter(|_| prefix == QUEUE_DELAY_PREFIX)
+            .map(|stat| delay_sample(last.map(|(sample, at, _)| sample.head_since(at)), stat));
         let drawn_now = last.map(|(sample, at, age)| (sample.value_at(at + age), age));
-        if should_store(prefix, drawn_now, current) {
-            let (value, held_head) = match (stat, prefix) {
+        let redraws = last
+            .zip(next_delay)
+            .is_some_and(|((sample, ..), next)| redraws(sample, next));
+        if should_store(prefix, drawn_now, current, redraws) {
+            let (value, held_head) = match (stat, next_delay) {
                 (None, _) => (serde_json::json!(0), None),
-                (Some(stat), QUEUE_COUNT_PREFIX) => (serde_json::json!(stat.count), None),
-                (Some(stat), _) => {
-                    let last_head = last.map(|(sample, at, _)| sample.head_since(at));
-                    match delay_sample(last_head, stat) {
-                        QueueSample::Held(_) => (serde_json::Value::Null, Some(stat.head_since)),
-                        climbing => (climbing.to_json(), None),
-                    }
+                (Some(stat), None) => (serde_json::json!(stat.count), None),
+                (Some(stat), Some(QueueSample::Held(_))) => {
+                    (serde_json::Value::Null, Some(stat.head_since))
                 }
+                (Some(_), Some(climbing)) => (climbing.to_json(), None),
             };
             ids.push(row.id);
             values.push(value);
@@ -5255,10 +5258,22 @@ fn delay_sample(
     }
 }
 
+/// Whether the next delay sample is drawn differently from the last one even at the same value:
+/// a climb whose head left would otherwise go on climbing from the old head, and a held delay
+/// whose head stayed would stay flat while the wait grows.
+fn redraws(last: QueueSample, next: QueueSample) -> bool {
+    matches!(last, QueueSample::Climbing { .. }) != matches!(next, QueueSample::Climbing { .. })
+}
+
 /// Whether a reading deserves a row of its own, given the last one stored for that metric:
 /// the value it draws now and how many seconds ago it was written. `current` is `None` once
-/// the tag has no backlog left.
-fn should_store(prefix: &str, last: Option<(f64, f64)>, current: Option<f64>) -> bool {
+/// the tag has no backlog left; `redraws` is set when the reading must be drawn differently.
+fn should_store(
+    prefix: &str,
+    last: Option<(f64, f64)>,
+    current: Option<f64>,
+    redraws: bool,
+) -> bool {
     let Some((last_value, age)) = last else {
         // Nothing comparable within the lookback window: a tag that just backed up needs a
         // first sample, one that was already gone needs nothing.
@@ -5273,11 +5288,12 @@ fn should_store(prefix: &str, last: Option<(f64, f64)>, current: Option<f64>) ->
         return true;
     }
     age >= QUEUE_METRIC_MIN_INTERVAL_SECS
-        && if prefix == QUEUE_COUNT_PREFIX {
-            last_value != current
-        } else {
-            (current - last_value).abs() > last_value.abs() * QUEUE_DELAY_TOLERANCE
-        }
+        && (redraws
+            || if prefix == QUEUE_COUNT_PREFIX {
+                last_value != current
+            } else {
+                (current - last_value).abs() > last_value.abs() * QUEUE_DELAY_TOLERANCE
+            })
 }
 
 #[cfg(test)]
@@ -5289,36 +5305,33 @@ mod queue_metric_sampling {
     #[test]
     fn a_holding_backlog_writes_only_on_the_heartbeat() {
         let held = Some((3.0, RECENT));
-        assert!(!should_store(QUEUE_COUNT_PREFIX, held, Some(3.0)));
-        assert!(should_store(
-            QUEUE_COUNT_PREFIX,
-            Some((3.0, QUEUE_METRIC_HEARTBEAT_SECS)),
-            Some(3.0)
-        ));
-        // Delay climbs on its own, so only a move past the tolerance counts as a change.
-        assert!(!should_store(
-            QUEUE_DELAY_PREFIX,
-            Some((100.0, RECENT)),
-            Some(105.0)
-        ));
-        assert!(should_store(
-            QUEUE_DELAY_PREFIX,
-            Some((100.0, RECENT)),
-            Some(120.0)
-        ));
+        assert!(!should_store(QUEUE_COUNT_PREFIX, held, Some(3.0), false));
+        let due = Some((3.0, QUEUE_METRIC_HEARTBEAT_SECS));
+        assert!(should_store(QUEUE_COUNT_PREFIX, due, Some(3.0), false));
+        // A held delay hovers, so only a move past the tolerance counts as a change.
+        let delay = Some((100.0, RECENT));
+        assert!(!should_store(QUEUE_DELAY_PREFIX, delay, Some(105.0), false));
+        assert!(should_store(QUEUE_DELAY_PREFIX, delay, Some(120.0), false));
     }
 
     #[test]
     fn a_drained_tag_writes_one_zero_then_stops() {
-        assert!(should_store(QUEUE_COUNT_PREFIX, Some((3.0, RECENT)), None));
-        assert!(!should_store(QUEUE_COUNT_PREFIX, Some((0.0, RECENT)), None));
-        // Including once the heartbeat is due: a tag that is gone stays silent.
+        assert!(should_store(
+            QUEUE_COUNT_PREFIX,
+            Some((3.0, RECENT)),
+            None,
+            false
+        ));
         assert!(!should_store(
             QUEUE_COUNT_PREFIX,
-            Some((0.0, QUEUE_METRIC_STALE_SECS)),
-            None
+            Some((0.0, RECENT)),
+            None,
+            false
         ));
-        assert!(!should_store(QUEUE_COUNT_PREFIX, None, None));
+        // Including once the heartbeat is due: a tag that is gone stays silent.
+        let gone = Some((0.0, QUEUE_METRIC_STALE_SECS));
+        assert!(!should_store(QUEUE_COUNT_PREFIX, gone, None, false));
+        assert!(!should_store(QUEUE_COUNT_PREFIX, None, None, false));
     }
 
     #[test]
@@ -5326,38 +5339,64 @@ mod queue_metric_sampling {
         assert!(!should_store(
             QUEUE_COUNT_PREFIX,
             Some((3.0, 1.0)),
-            Some(9.0)
+            Some(9.0),
+            false
         ));
         assert!(should_store(
             QUEUE_COUNT_PREFIX,
             Some((3.0, RECENT)),
-            Some(9.0)
+            Some(9.0),
+            false
         ));
         // A tag that has just backed up is recorded at once.
-        assert!(should_store(QUEUE_COUNT_PREFIX, None, Some(9.0)));
+        assert!(should_store(QUEUE_COUNT_PREFIX, None, Some(9.0), false));
     }
 
     #[test]
     fn a_delay_climbs_while_the_same_job_stays_at_the_head() {
         let stat = windmill_common::queue::QueueStat { count: 3, delay: 330.0, head_since: 1000.0 };
-        // A held first sample written at 1200 saw the same head, which has since waited 130s more.
-        let first = QueueSample::Held(200.0);
+        // A held sample written at 1320 saw the same head: it switches to climbing at once,
+        // although the delay has not moved past the tolerance yet.
+        let first = QueueSample::Held(320.0);
+        let climbing = delay_sample(Some(first.head_since(1320.0)), &stat);
+        assert_eq!(climbing, QueueSample::Climbing { since: 1000.0 });
+        assert!(redraws(first, climbing));
+        let drawn = Some((first.value_at(1330.0), RECENT));
         assert!(should_store(
             QUEUE_DELAY_PREFIX,
-            Some((first.value_at(1330.0), 130.0)),
-            Some(stat.delay)
+            drawn,
+            Some(stat.delay),
+            true
         ));
-        let climbing = delay_sample(Some(first.head_since(1200.0)), &stat);
-        assert_eq!(climbing, QueueSample::Climbing { since: 1000.0 });
         // Stored climbing, it draws the delay exactly: nothing more until the heartbeat.
+        let drawn = Some((climbing.value_at(1600.0), RECENT));
+        assert!(!should_store(QUEUE_DELAY_PREFIX, drawn, Some(600.0), false));
+        assert_eq!(delay_sample(None, &stat), QueueSample::Held(330.0));
+    }
+
+    #[test]
+    fn a_climb_whose_head_left_is_held_even_within_the_tolerance() {
+        // The head waiting since 0 left at 3600 for one queued at 100: 3500s is within 10% of
+        // the 3600s the climb draws, but kept, the climb would go on from the old head.
+        let moved =
+            windmill_common::queue::QueueStat { count: 2, delay: 3500.0, head_since: 100.0 };
+        let climbing = QueueSample::Climbing { since: 0.0 };
+        let next = delay_sample(Some(climbing.head_since(3000.0)), &moved);
+        assert_eq!(next, QueueSample::Held(3500.0));
+        assert!(redraws(climbing, next));
+        let drawn = Some((climbing.value_at(3600.0), RECENT));
         assert!(!should_store(
             QUEUE_DELAY_PREFIX,
-            Some((climbing.value_at(1600.0), RECENT)),
-            Some(600.0)
+            drawn,
+            Some(moved.delay),
+            false
         ));
-        // A head that changed is a moving queue, whose delay is held.
-        assert_eq!(delay_sample(Some(700.0), &stat), QueueSample::Held(330.0));
-        assert_eq!(delay_sample(None, &stat), QueueSample::Held(330.0));
+        assert!(should_store(
+            QUEUE_DELAY_PREFIX,
+            drawn,
+            Some(moved.delay),
+            true
+        ));
     }
 }
 

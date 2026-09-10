@@ -29,8 +29,9 @@ pub const QUEUE_METRIC_STALE_SECS: f64 = 3.0 * QUEUE_METRIC_HEARTBEAT_SECS;
 /// leave the head one after another without the delay dropping.
 pub const QUEUE_DELAY_SAME_HEAD_SECS: f64 = 1.0;
 
-/// Slots a series is split into, whatever the window. A slot draws at most four vertices, so a
-/// line stays near 500 points however many rows the window holds.
+/// Slots a series is split into, whatever the window. A slot draws at most four vertices, and a
+/// climb one more at each slot boundary it crosses, so a line stays under about 600 points
+/// however many rows the window holds.
 const QUEUE_METRICS_SERIES_SLOTS: f64 = 120.0;
 
 /// A stored sample, as it is drawn from the moment it was written until the next one.
@@ -116,6 +117,9 @@ pub async fn read_queue_metrics_series(
     // (the tag drained, or its head moved), the climb's top is higher than any `v`. Looking the
     // next sample up for the slot's last climb, rather than ordering every row, keeps the pass a
     // plain aggregate; an earlier climb in the same slot still shows up to its last heartbeat.
+    // `t` round-trips through `to_timestamp` to within a microsecond either way, so both bounds
+    // carry a millisecond of slack, far less than two distinct samples of a series are apart:
+    // without it the climbing sample can match itself, or the one at `last` fall outside.
     let rows = sqlx::query!(
         "WITH slots AS (
             SELECT id, slot, min(t) AS first, max(t) AS last, max(v) AS peak,
