@@ -27,10 +27,7 @@
 		target?: string
 		// When set, render a link to the full AI settings page in the footer
 		settingsHref?: string
-		/** `viewport` by default: the prompt list is long and scrolls inside itself, so
-		 * a fixed height taller than the window would leave the dialog scrolling inside
-		 * the overlay and the list scrolling inside the dialog. */
-		fixedHeight?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl' | 'viewport'
+		fixedHeight?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
 	}
 
 	let {
@@ -46,7 +43,7 @@
 		title = 'Customize AI System Prompts',
 		target = '#content',
 		settingsHref = undefined,
-		fixedHeight = 'viewport'
+		fixedHeight = 'xxl'
 	}: Props = $props()
 
 	const placeholders: Record<AIMode, string> = {
@@ -102,7 +99,18 @@
 	}
 </script>
 
-<Modal2 bind:isOpen={open} {title} fixedWidth="md" {fixedHeight} {target}>
+<!-- `xxl` is 1000px, taller than a laptop window, and the dialog would then scroll
+     inside the overlay while this list scrolls inside the dialog. Capped here rather
+     than in `Modal2`: the height stays definite, which is what lets the list below
+     bound its own scroller, and no other modal is touched. -->
+<Modal2
+	bind:isOpen={open}
+	{title}
+	fixedWidth="md"
+	{fixedHeight}
+	{target}
+	css={{ popup: { class: 'max-h-[80vh]' } }}
+>
 	<div class="flex flex-col gap-6 h-full px-1 w-full">
 		<div class="grow min-h-0 overflow-y-auto" style="scrollbar-gutter: stable;">
 			{#if readOnly}
