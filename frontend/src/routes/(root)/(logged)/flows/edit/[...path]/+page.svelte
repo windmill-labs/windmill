@@ -521,6 +521,7 @@
 	{deployedAt}
 	{draftBaseVersion}
 	deployedHeadVersion={version}
+	onViewDiff={() => flowBuilder?.openDiffDrawer()}
 	onLoadLatestDeploy={async () => {
 		// stopSync-bracketed; see /scripts/edit's restoreDeployed for the race.
 		if (!$workspaceStore) return
@@ -571,6 +572,7 @@
 		{flowStore}
 		{flowStateStore}
 		bind:initialPath={flowInitialPath}
+		userDraftPath={page.params.path ?? ''}
 		liveEditorDraftStoragePath={flowDraftPath}
 		newFlow={isNewFlow}
 		{selectedId}

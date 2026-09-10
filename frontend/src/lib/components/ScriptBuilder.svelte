@@ -608,7 +608,11 @@
 	async function syncWithDeployed() {
 		const latestScript = await ScriptService.getScriptByPath({
 			workspace: opWorkspace!,
-			path: initialPath,
+			// The draft row's own path, not `initialPath` — that one tracks the path
+			// the user has typed, so after someone renames the item it still names
+			// the old location and this would compare against the archived row left
+			// there. Resolving by the row is what lets the diff show the rename.
+			path: userDraftPath || initialPath,
 			withStarredInfo: true
 		})
 
@@ -811,7 +815,51 @@
 	// top-bar button (rendered independently of the session pane), not here.
 	const inSessionPane = !!getContext('aiChatManager')
 
-	async function openDiffDrawer() {
+	/** Names the version on the deployed side of the diff. Without it the reader is
+	 *  shown two panes and told nothing about what the left one is — which matters
+	 *  most in the stale-draft case, where the whole question is "whose version am I
+	 *  about to overwrite". */
+	function deployedVersionLabel(deployed: any): string | undefined {
+		if (!deployed?.hash) return undefined
+		// `deployedBy` is captured in `syncWithDeployed` before it strips `created_by`.
+		// Only used when the version list is unavailable; otherwise the picker labels it.
+		return `Deployed${deployedBy ? ` by ${deployedBy}` : ''} · latest`
+	}
+
+	/** Deployed versions to offer in the diff picker, newest first. Best-effort: a
+	 *  failure here costs the picker, not the diff, so the drawer still opens on the
+	 *  head. `deployment_msg` is all the history endpoint carries besides the hash. */
+	async function deployedVersionOptions(headHash: string | undefined) {
+		if (!opWorkspace || !userDraftPath) return undefined
+		try {
+			const history = await ScriptService.getScriptHistoryByPath({
+				workspace: opWorkspace,
+				path: userDraftPath
+			})
+			// Numbered newest-first from the history order: the version number and hash
+			// identify it, and who deployed it drops to the subtitle so the number reads
+			// first. The hash stays because it is what the API and the CLI speak.
+			const total = history.length
+			return history.map((h, i) => {
+				const isHead = h.script_hash === headHash
+				const detail = [
+					h.created_by,
+					h.created_at ? new Date(h.created_at).toLocaleString() : undefined,
+					h.deployment_msg
+				].filter(Boolean)
+				return {
+					id: h.script_hash,
+					label: `v${total - i} · ${h.script_hash.slice(0, 8)}${isHead ? ' · latest' : ''}`,
+					subtitle: detail.length ? detail.join(' · ') : undefined,
+					isHead
+				}
+			})
+		} catch {
+			return undefined
+		}
+	}
+
+	export async function openDiffDrawer() {
 		if (!savedScript) {
 			return
 		}
@@ -833,9 +881,25 @@
 		if (current.assets && !current.assets.length) delete current.assets
 
 		diffDrawer?.openDrawer()
+		const headHash = (deployed as { hash?: string } | undefined)?.hash
 		diffDrawer?.setDiff({
 			mode: 'normal',
 			deployed,
+			deployedLabel: deployedVersionLabel(deployed),
+			versions: await deployedVersionOptions(headHash),
+			loadVersion: async (hash) => {
+				const v = await ScriptService.getScriptByHash({ workspace: opWorkspace!, hash })
+				return replaceFalseWithUndefined({
+					...v,
+					workspace_id: undefined,
+					created_at: undefined,
+					created_by: undefined,
+					extra_perms: undefined,
+					lock: undefined,
+					lock_error_logs: undefined,
+					parent_hashes: undefined
+				})
+			},
 			draft: savedScript['draft'],
 			current
 		})

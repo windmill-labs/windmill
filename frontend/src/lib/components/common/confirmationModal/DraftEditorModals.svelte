@@ -51,6 +51,10 @@
 		deployedHeadVersion?: number | string | undefined
 		/** Discard the draft and reload deployed (same as "Reset to deployed"). */
 		onLoadLatestDeploy?: () => void | Promise<void>
+		/** Opens the editor's Deployed↔Current diff from the stale prompt, so the
+		 *  choice between keeping and discarding is informed. Omit where the editor
+		 *  has no diff drawer; the action is then not rendered. */
+		onViewDiff?: () => void | Promise<void>
 		/** Defaults to true; set to false to suppress all modals. */
 		enabled?: boolean
 	}
@@ -70,6 +74,7 @@
 		draftBaseVersion = undefined,
 		deployedHeadVersion = undefined,
 		onLoadLatestDeploy,
+		onViewDiff,
 		enabled = true
 	}: Props = $props()
 
@@ -140,6 +145,7 @@
 			{draftSavedAt}
 			{deployedAt}
 			{onLoadLatestDeploy}
+			{onViewDiff}
 		/>
 	{/if}
 	<ConfirmationModal

@@ -119,6 +119,10 @@
 
 	let {
 		initialPath = $bindable(''),
+		/** The draft row's own path (the URL path). Unlike `initialPath`, which the
+		 *  route re-seeds from `draft_path` so the topbar shows the pending name,
+		 *  this stays where the item actually is. */
+		userDraftPath = '',
 		pathStoreInit = undefined,
 		newFlow,
 		selectedId,
@@ -188,6 +192,7 @@
 
 	// Used by multiplayer deploy collision warning
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
+	let deployedLabel: string | undefined = $state(undefined) // Names it in the diff
 	let deployedBy: string | undefined = $state(undefined) // Author
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
 	let open: boolean = $state(false) // Is confirmation modal open
@@ -417,7 +422,11 @@
 	async function syncWithDeployed() {
 		const flow = await FlowService.getFlowByPath({
 			workspace: opWorkspace!,
-			path: initialPath,
+			// The draft row's own path, not `initialPath` — the route re-seeds that from
+			// the draft's `draft_path` so the topbar shows the pending name, which after
+			// someone renames the item still names the old location. Comparing against
+			// that fetches the row left behind there instead of the live one.
+			path: userDraftPath || initialPath,
 			withStarredInfo: true
 		})
 		deployedValue = replaceFalseWithUndefined({
@@ -427,6 +436,11 @@
 			workspace_id: undefined
 		})
 		deployedBy = flow.edited_by
+		// Names the deployed side of the diff. Without it the reader is shown two panes
+		// and told nothing about what the left one is.
+		const versions = (flow as any).versions as number[] | undefined
+		const head = versions?.length ? versions[versions.length - 1] : undefined
+		deployedLabel = `Deployed${head ? ` v${head}` : ''}${flow.edited_by ? ` by ${flow.edited_by}` : ''}`
 	}
 
 	async function saveFlow(deploymentMsg?: string, triggersToDeploy?: Trigger[]): Promise<void> {
@@ -1020,7 +1034,34 @@
 		}
 	}
 
-	async function openDiffDrawer() {
+	/** Deployed versions for the diff picker, newest first. Best-effort: losing the
+	 *  list costs the picker, not the diff. */
+	async function deployedVersionOptions() {
+		const path = userDraftPath || initialPath
+		if (!opWorkspace || !path) return undefined
+		try {
+			const history = await FlowService.getFlowHistory({ workspace: opWorkspace, path })
+			const total = history.length
+			return history.map((h, i) => {
+				const detail = [
+					h.created_by,
+					h.created_at ? new Date(h.created_at).toLocaleString() : undefined,
+					h.deployment_msg
+				].filter(Boolean)
+				const isHead = i === 0
+				return {
+					id: String(h.id),
+					label: `v${total - i} · ${h.id}${isHead ? ' · latest' : ''}`,
+					subtitle: detail.length ? detail.join(' · ') : undefined,
+					isHead
+				}
+			})
+		} catch {
+			return undefined
+		}
+	}
+
+	export async function openDiffDrawer() {
 		if (!savedFlow) return
 		await syncWithDeployed()
 		const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
@@ -1029,6 +1070,20 @@
 		diffDrawer?.setDiff({
 			mode: 'normal',
 			deployed: deployedValue ?? savedFlow,
+			deployedLabel,
+			versions: await deployedVersionOptions(),
+			loadVersion: async (id) => {
+				const v = await FlowService.getFlowVersion({
+					workspace: opWorkspace!,
+					version: Number(id)
+				})
+				return replaceFalseWithUndefined({
+					...v,
+					edited_at: undefined,
+					edited_by: undefined,
+					workspace_id: undefined
+				})
+			},
 			current: {
 				...currentFlow,
 				path: $pathStore,

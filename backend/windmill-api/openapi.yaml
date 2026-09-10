@@ -27757,6 +27757,11 @@ components:
           type: string
         deployment_msg:
           type: string
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
       required:
         - script_hash
 
@@ -33433,6 +33438,11 @@ components:
           type: integer
         deployment_msg:
           type: string
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
       required:
         - version
 
@@ -33501,6 +33511,8 @@ components:
           type: string
           format: date-time
         deployment_msg:
+          type: string
+        created_by:
           type: string
       required:
         - id

@@ -479,6 +479,7 @@
 	{deployedAt}
 	draftBaseVersion={draftBaseHash}
 	deployedHeadVersion={deployedHeadHash}
+	onViewDiff={() => scriptBuilder?.openDiffDrawer()}
 	onLoadLatestDeploy={async () => {
 		// stopSync-bracketed; see restoreDeployed for the race.
 		if (!$workspaceStore) return

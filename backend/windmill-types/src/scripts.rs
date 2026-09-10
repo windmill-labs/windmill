@@ -507,6 +507,10 @@ pub struct ScriptHistory {
     pub deployment_msg: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Who deployed this version — the version picker names it, so a reader can
+    /// tell their own deploys from a teammate's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
 }
 
 #[derive(Deserialize)]

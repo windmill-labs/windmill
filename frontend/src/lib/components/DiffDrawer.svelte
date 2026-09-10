@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Alert, Button, Drawer, DrawerContent } from './common'
-	import { Loader2 } from 'lucide-svelte'
+	import { ArrowRight, Loader2 } from 'lucide-svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import Tabs from './common/tabs/Tabs.svelte'
 	import Tab from './common/tabs/Tab.svelte'
@@ -12,6 +12,8 @@
 		type Value
 	} from '$lib/utils'
 	import type { Script } from '$lib/gen'
+	import Select from './select/Select.svelte'
+	import type { DiffVersionOption } from './diff_drawer'
 
 	type DiffData = {
 		lang?: string
@@ -44,6 +46,10 @@
 		| {
 				mode: 'normal'
 				deployed: DiffData | undefined
+				/** Which deployed version the left side is — the reader otherwise has no
+				 *  way to tell what their draft is being compared against. */
+				deployedLabel?: string
+				versions?: DiffVersionOption[]
 				draft: DiffData | undefined
 				current: DiffData
 				path?: string
@@ -81,11 +87,39 @@
 		}
 	}
 
+	// Which deployed version the left pane shows. The drawer keeps the id opaque and
+	// hands it back to the editor, which knows how to fetch it for its own kind.
+	let selectedVersion: string | undefined = $state(undefined)
+	let versionLoader: ((id: string) => Promise<Value | undefined>) | undefined = $state(undefined)
+	let headLabel: string | undefined = $state(undefined)
+	let loadingVersion = $state(false)
+
+	async function selectVersion(id: string | undefined) {
+		if (!id || !versionLoader || !data || data.mode !== 'normal') return
+		selectedVersion = id
+		loadingVersion = true
+		try {
+			const value = await versionLoader(id)
+			if (!value || !data || data.mode !== 'normal') return
+			const opt = data.versions?.find((v) => v.id === id)
+			data = {
+				...data,
+				deployed: prepareDiff(value),
+				deployedLabel: opt?.isHead ? headLabel : opt?.label
+			}
+		} finally {
+			loadingVersion = false
+		}
+	}
+
 	export function setDiff(
 		diff:
 			| {
 					mode: 'normal'
 					deployed: Value
+					deployedLabel?: string
+					versions?: DiffVersionOption[]
+					loadVersion?: (id: string) => Promise<Value | undefined>
 					draft?: Value | undefined
 					current: Value
 					defaultDiffType?: 'deployed' | 'draft'
@@ -100,10 +134,15 @@
 			  }
 	) {
 		if (diff.mode === 'normal') {
-			const { deployed, draft, current, button } = diff
+			const { deployed, deployedLabel, versions, loadVersion, draft, current, button } = diff
+			versionLoader = loadVersion
+			headLabel = deployedLabel
+			selectedVersion = versions?.find((v) => v.isHead)?.id
 			data = {
 				mode: 'normal',
 				deployed: !deployed.draft_only ? prepareDiff(deployed) : undefined,
+				deployedLabel,
+				versions,
 				draft: draft ? prepareDiff(draft) : undefined,
 				current: prepareDiff(current),
 				path: draft?.path || deployed?.path,
@@ -130,19 +169,35 @@
 <Drawer bind:this={diffViewer} size="1200px" on:close>
 	<DrawerContent title="Diff" on:close={diffViewer.closeDrawer}>
 		<div class="flex flex-col gap-4 h-full">
-			{#if data?.mode === 'normal'}
-				<Button
-					unifiedSize="md"
-					variant="default"
-					wrapperClasses="self-start"
-					onClick={restoreDeployed}
-					disabled={!data.draft &&
-						orderedJsonStringify(data.deployed) === orderedJsonStringify(data.current)}
-				>
-					Restore to deployed{data.draft ? ' and discard draft' : ''}
-				</Button>
-			{/if}
 			{#if data}
+				<!-- Outside the `contentType` check on purpose: with no differences against
+				     the head, picking an older version is exactly how the reader finds one,
+				     so the picker has to outlive the "no changes" state. -->
+				{#if data.mode === 'normal' && (data.deployedLabel || data.versions?.length)}
+					<div class="flex gap-2 items-center text-xs text-secondary">
+						{#if data.versions?.length && versionLoader}
+							<div class="w-72">
+								<Select
+									items={data.versions.map((v) => ({
+										value: v.id,
+										label: v.label,
+										subtitle: v.subtitle
+									}))}
+									bind:value={() => selectedVersion, (v) => selectVersion(v as string)}
+									disabled={loadingVersion}
+									clearable={false}
+								/>
+							</div>
+							{#if loadingVersion}
+								<Loader2 size={12} class="animate-spin shrink-0" />
+							{/if}
+						{:else if data.deployedLabel}
+							<span class="font-medium text-primary">{data.deployedLabel}</span>
+						{/if}
+						<ArrowRight size={12} class="shrink-0" />
+						<span>your draft</span>
+					</div>
+				{/if}
 				{#if contentType}
 					{@const content =
 						data.mode === 'normal' ? data.deployed?.content : data.original?.content}
@@ -224,6 +279,17 @@
 			{/if}
 		</div>
 		{#snippet actions()}
+			{#if data?.mode === 'normal'}
+				<Button
+					unifiedSize="sm"
+					variant="default"
+					onClick={restoreDeployed}
+					disabled={!data.draft &&
+						orderedJsonStringify(data.deployed) === orderedJsonStringify(data.current)}
+				>
+					Restore to deployed{data.draft ? ' and discard draft' : ''}
+				</Button>
+			{/if}
 			{#if data?.button}
 				<Button
 					variant="subtle"

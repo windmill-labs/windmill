@@ -402,6 +402,35 @@
 		deployedValue = replaceFalseWithUndefined(stripRawAppDiffNoise(deployedApp))
 	}
 
+	/** Deployed versions for the diff picker, newest first. Best-effort: losing the
+	 *  list costs the picker, not the diff. */
+	async function deployedVersionOptions() {
+		if (!opWorkspace || !appPath) return undefined
+		try {
+			const history = await AppService.getAppHistoryByPath({
+				workspace: opWorkspace,
+				path: appPath
+			})
+			const total = history.length
+			return history.map((h, i) => {
+				const detail = [
+					h.created_by,
+					h.created_at ? new Date(h.created_at).toLocaleString() : undefined,
+					h.deployment_msg
+				].filter(Boolean)
+				const isHead = i === 0
+				return {
+					id: String(h.version),
+					label: `v${total - i} · ${h.version}${isHead ? ' · latest' : ''}`,
+					subtitle: detail.length ? detail.join(' · ') : undefined,
+					isHead
+				}
+			})
+		} catch {
+			return undefined
+		}
+	}
+
 	async function openDiffDrawer() {
 		if (!savedApp) {
 			return
@@ -414,6 +443,13 @@
 		diffDrawer?.setDiff({
 			mode: 'normal',
 			deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
+			versions: await deployedVersionOptions(),
+			loadVersion: async (id) => {
+				const v = await AppService.getAppByVersion({ workspace: opWorkspace!, id: Number(id) })
+				// Same normalization as `syncWithDeployed`, so switching versions doesn't
+				// reintroduce the post-deploy noise the head side already strips.
+				return replaceFalseWithUndefined(stripRawAppDiffNoise(v as any))
+			},
 			current: currentDiffValue
 		})
 	}

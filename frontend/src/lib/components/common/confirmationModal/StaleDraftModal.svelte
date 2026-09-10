@@ -17,7 +17,7 @@
 	 */
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { AlertTriangle } from 'lucide-svelte'
+	import { AlertTriangle, GitCompare } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 
 	type Props = {
@@ -30,9 +30,20 @@
 		 *  already has this callback for the AutosaveIndicator's "Reset to
 		 *  deployed" button; pass the same function in. */
 		onLoadLatestDeploy: () => void | Promise<void>
+		/** Opens the editor's own Deployed↔Current diff. Without it the user is
+		 *  asked to choose between keeping and discarding their draft with no way
+		 *  to see what actually differs — and after a rename the difference is
+		 *  often only the path. Omitted where the editor has no diff drawer. */
+		onViewDiff?: () => void | Promise<void>
 	}
 
-	let { isOpen = $bindable(), draftSavedAt, deployedAt, onLoadLatestDeploy }: Props = $props()
+	let {
+		isOpen = $bindable(),
+		draftSavedAt,
+		deployedAt,
+		onLoadLatestDeploy,
+		onViewDiff
+	}: Props = $props()
 
 	let loading = $state(false)
 
@@ -47,6 +58,13 @@
 		} finally {
 			loading = false
 		}
+	}
+
+	// Dismisses on the way out: the diff drawer opens behind this modal, so
+	// leaving it up would cover the thing the user asked to see.
+	async function viewDiff() {
+		isOpen = false
+		await onViewDiff?.()
 	}
 
 	function formatTs(ts: string | undefined): string {
@@ -74,13 +92,27 @@
 			</div>
 		</div>
 
-		<div class="flex justify-end gap-2 mt-2">
-			<Button variant="default" size="sm" on:click={() => (isOpen = false)}>
-				Keep editing my draft
-			</Button>
-			<Button variant="contained" color="dark" size="sm" {loading} on:click={loadLatestDeploy}>
-				Load latest deploy
-			</Button>
+		<div class="flex justify-between items-center gap-2 mt-2">
+			{#if onViewDiff}
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					startIcon={{ icon: GitCompare }}
+					on:click={viewDiff}
+				>
+					See what changed
+				</Button>
+			{:else}
+				<div></div>
+			{/if}
+			<div class="flex gap-2">
+				<Button variant="default" unifiedSize="sm" on:click={() => (isOpen = false)}>
+					Keep editing my draft
+				</Button>
+				<Button variant="accent" unifiedSize="sm" {loading} on:click={loadLatestDeploy}>
+					Load latest deploy
+				</Button>
+			</div>
 		</div>
 	</div>
 </Modal2>

@@ -273,6 +273,12 @@ pub struct AppHistory {
     pub version: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deployment_msg: Option<String>,
+    /// Who deployed this version, and when — the diff's version picker names them so
+    /// a reader can tell their own deploys from a teammate's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Deserialize)]
@@ -1055,10 +1061,11 @@ async fn get_app_history(
     check_scopes(&authed, || format!("apps:read:{}", &path))?;
     let mut tx = user_db.begin(&authed).await?;
     let query_result = sqlx::query!(
-        "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg
+        "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg,
+                av.created_by as created_by, av.created_at as created_at
         FROM app a LEFT JOIN app_version av ON a.id = av.app_id LEFT JOIN deployment_metadata dm ON av.id = dm.app_version
         WHERE a.workspace_id = $1 AND a.path = $2
-        ORDER BY created_at DESC",
+        ORDER BY av.created_at DESC",
         w_id,
         path,
     ).fetch_all(&mut *tx).await?;
@@ -1070,6 +1077,8 @@ async fn get_app_history(
             app_id: row.app_id,
             version: row.version_id,
             deployment_msg: row.deployment_msg,
+            created_by: Some(row.created_by),
+            created_at: Some(row.created_at),
         })
         .collect();
     return Ok(Json(result));
@@ -1084,10 +1093,11 @@ async fn get_latest_version(
     check_scopes(&authed, || format!("apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
     let row = sqlx::query!(
-        "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg
+        "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg,
+                av.created_by as created_by, av.created_at as created_at
         FROM app a LEFT JOIN app_version av ON a.id = av.app_id LEFT JOIN deployment_metadata dm ON av.id = dm.app_version
         WHERE a.workspace_id = $1 AND a.path = $2
-        ORDER BY created_at DESC",
+        ORDER BY av.created_at DESC",
         w_id,
         path,
     ).fetch_optional(&mut *tx).await?;
@@ -1098,6 +1108,8 @@ async fn get_latest_version(
             app_id: row.app_id,
             version: row.version_id,
             deployment_msg: row.deployment_msg,
+            created_by: Some(row.created_by),
+            created_at: Some(row.created_at),
         };
 
         return Ok(Json(Some(result)));

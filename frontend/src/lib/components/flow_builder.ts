@@ -10,6 +10,10 @@ import type { WorkspaceItem } from './workspacePicker'
 
 export type FlowBuilderProps = {
 	initialPath?: string
+	/** The draft row's own path (the URL path). `initialPath` is re-seeded from the
+	 *  draft's `draft_path` so the topbar shows the pending name, so it can't be used
+	 *  to resolve what is actually deployed. */
+	userDraftPath?: string
 	pathStoreInit?: string | undefined
 	newFlow: boolean
 	selectedId: string | undefined
