@@ -8,7 +8,7 @@
 	import { makeFlowCodec, makeScriptCodec, makeRawAppCodec } from './sessionDraftCodecs'
 	import { itemDisplayName } from './previewRouter'
 	import SessionItemNotFound from './SessionItemNotFound.svelte'
-	import { setEditorStoragePath } from './editorStoragePathContext'
+	import { setEditorStoragePath } from '../editorStoragePathContext'
 
 	let {
 		runtime,

@@ -705,10 +705,10 @@ export class AIChatManager {
 	>(undefined)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
 	scriptEditorGetLintErrors = $state<(() => ScriptLintResult) | undefined>(undefined)
-	/** The editor a FLOW-mode chat belongs to; that mode is the in-editor chat, so exactly one is
-	 * mounted there and this names it. Unset in a session chat, which keeps every open editor tab
-	 * mounted and could only name an arbitrary one — a session resolves an editor by its storage
-	 * path through `flowEditorFor`. */
+	/** The editor a FLOW-mode chat belongs to: the page owning the chat names itself here, and a
+	 * nested editor (a subflow drawer) takes it over while it is open. Unset in a session chat,
+	 * which keeps every open editor tab mounted and could only name an arbitrary one — a session
+	 * resolves an editor by its storage path through `flowEditorFor`. */
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	/** Every mounted flow editor. */
 	#flowEditors = new Set<FlowAIChatHelpers>()

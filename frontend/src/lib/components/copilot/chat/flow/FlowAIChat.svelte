@@ -14,7 +14,7 @@
 	import type { ScriptLintResult } from '../shared'
 	import { applyFlowJsonUpdate, updateRawScriptModuleContent } from './helperUtils'
 	import { findModuleInFlow } from '$lib/components/flows/flowTree'
-	import { getEditorStoragePath } from '$lib/components/sessions/editorStoragePathContext'
+	import { getEditorStoragePath } from '$lib/components/editorStoragePathContext'
 
 	const editorStoragePath = getEditorStoragePath()
 

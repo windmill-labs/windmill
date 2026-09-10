@@ -110,7 +110,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
-	import { getEditorStoragePath, setEditorStoragePath } from './sessions/editorStoragePathContext'
+	import { getEditorStoragePath, setEditorStoragePath } from './editorStoragePathContext'
 
 	let {
 		initialPath = $bindable(''),
