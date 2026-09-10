@@ -4938,19 +4938,25 @@ async fn get_approval_info(
         script_path: Option<String>,
         email: String,
         flow_status: Option<serde_json::Value>,
-        workflow_as_code_status: Option<serde_json::Value>,
-        // `v2_job_status` only holds a run that hasn't finished; these read the completed run's
-        // status too, so a finished run's page keeps the skin its approval step was given.
+        // `v2_job_status` only holds a run that hasn't finished, so the fields below also read
+        // the completed run's status: a finished run's page keeps its skin and, for workflows as
+        // code, its description, still gated by the approval conditions the run had.
         completed_flow_status: Option<serde_json::Value>,
-        wac_skin: Option<serde_json::Value>,
+        is_wac: bool,
+        wac_approval: Option<serde_json::Value>,
+        wac_approval_conditions: Option<serde_json::Value>,
         flow_summary: Option<String>,
     }
     let row = sqlx::query_as::<_, ApprovalJobRow>(
         "SELECT j.id, j.runnable_path as script_path, j.permissioned_as_email as email,
-                s.flow_status, s.workflow_as_code_status,
+                s.flow_status,
                 c.flow_status AS completed_flow_status,
-                COALESCE(s.workflow_as_code_status, c.workflow_as_code_status)->'_approval'->'skin'
-                    AS wac_skin,
+                COALESCE(s.workflow_as_code_status, c.workflow_as_code_status) IS NOT NULL
+                    AS is_wac,
+                COALESCE(s.workflow_as_code_status, c.workflow_as_code_status)->'_approval'
+                    AS wac_approval,
+                COALESCE(s.flow_status, c.flow_status)->'approval_conditions'
+                    AS wac_approval_conditions,
                 NULLIF(COALESCE(f.summary, sc.summary), '') AS flow_summary
          FROM v2_job j
          LEFT JOIN v2_job_status s ON s.id = j.id
@@ -4967,25 +4973,26 @@ async fn get_approval_info(
     .await?
     .ok_or_else(|| Error::NotFound(format!("Job {job_id} not found")))?;
 
-    let is_wac = row.workflow_as_code_status.is_some();
+    let is_wac = row.is_wac;
 
     // Extract approval info based on WAC vs classic flow
     let (form_schema, description, default_args, enums, approval_conditions, hide_cancel, step) =
         if is_wac {
-            let approval_meta = row
-                .workflow_as_code_status
-                .as_ref()
-                .and_then(|v| v.get("_approval"));
+            let approval_meta = row.wac_approval.as_ref();
             let form = approval_meta.and_then(|m| m.get("form").cloned());
             let default_args = approval_meta.and_then(|m| m.get("default_args").cloned());
             let enums = approval_meta.and_then(|m| m.get("enums").cloned());
             let description = approval_meta.and_then(|m| m.get("description").cloned());
+            let skin = approval_meta
+                .and_then(|m| m.get("skin"))
+                .and_then(|v| serde_json::from_value::<ApprovalSkin>(v.clone()).ok())
+                .unwrap_or_default();
             let ac = row
-                .flow_status
+                .wac_approval_conditions
                 .as_ref()
-                .and_then(|v| v.get("approval_conditions"))
                 .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok());
-            (form, description, default_args, enums, ac, None, None)
+            let step = Some(ApprovalStepView { skin, summary: None });
+            (form, description, default_args, enums, ac, None, step)
         } else {
             let fs = row
                 .flow_status
@@ -5094,10 +5101,7 @@ async fn get_approval_info(
             (form, desc, default_args, enums, ac, hc, step)
         };
 
-    let skin = match row.wac_skin {
-        Some(wac_skin) => serde_json::from_value::<ApprovalSkin>(wac_skin).unwrap_or_default(),
-        None => step.as_ref().map(|s| s.skin).unwrap_or_default(),
-    };
+    let skin = step.as_ref().map(|s| s.skin).unwrap_or_default();
     let step_summary = step.and_then(|s| s.summary);
 
     let user_auth_required = approval_conditions
