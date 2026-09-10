@@ -30,6 +30,7 @@ switch that decides whether this chat carries its tools.
 	import { untrack } from 'svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { clearMcpToolsCache } from './global/mcpTools'
+	import { forgetMcpServerMarks } from '$lib/components/mcp/serverMark'
 
 	let {
 		ws,
@@ -390,8 +391,10 @@ switch that decides whether this chat carries its tools.
 
 	async function refresh(target = ws) {
 		// A path can be reconnected to a different server, so the cached tool list
-		// (and the readOnlyHint the confirmation gate reads) must not survive.
+		// (and the readOnlyHint the confirmation gate reads) must not survive — nor the
+		// provider mark the transcript's call rows show.
 		clearMcpToolsCache()
+		forgetMcpServerMarks()
 		await loadServers(target)
 		// `refreshMcpServers` blanks the list when the workspace it is handed is not
 		// the one the chat is on, so a refresh landing after a switch would take B's

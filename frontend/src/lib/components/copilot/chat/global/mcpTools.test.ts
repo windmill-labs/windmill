@@ -37,6 +37,7 @@ import {
 	forgetLoadedMcpTools,
 	invalidateMcpRegistrations,
 	isRequestBodyRejection,
+	reconcileMcpRegistry,
 	withdrawMcpToolsAfterRejection,
 	loadedMcpServers,
 	mcpRegistryGeneration,
@@ -480,15 +481,59 @@ describe('request rejections that withdraw registered tools', () => {
 		expect(loadedMcpTools(OWNER)).toEqual([])
 	})
 
-	it('registers a refused tool again once its server is reconnected', () => {
+	// Two servers whose schemas the provider will not take: keeping only the latest
+	// refusal lets them take turns poisoning the conversation forever.
+	it('keeps refusing every tool a rejection withdrew, not just the last', () => {
+		const [a, b] = [{ path: 'u/hugo/a_mcp' }, { path: 'u/hugo/b_mcp' }]
+		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), a, [TOOLS[0]])
+		withdrawMcpToolsAfterRejection(OWNER)
+		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), b, [TOOLS[0]])
+		withdrawMcpToolsAfterRejection(OWNER)
+
+		expect(registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), a, [TOOLS[0]])).toEqual([
+			undefined
+		])
+		expect(registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), b, [TOOLS[0]])).toEqual([
+			undefined
+		])
+	})
+
+	// A refused tool is not registered, so the reconcile has to lift its refusal from the
+	// connected list rather than from the registry — turning the server off is the escape.
+	it('registers a refused tool again once its server is turned off and back on', () => {
 		const server = SERVERS[0]
 		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [TOOLS[0]])
 		withdrawMcpToolsAfterRejection(OWNER)
 
-		forgetLoadedMcpTools(OWNER, server.path)
+		reconcileMcpRegistry(OWNER, [])
+		reconcileMcpRegistry(OWNER, [server])
 
 		expect(registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [TOOLS[0]])).toEqual([
 			'mcp_u_hugo_github_mcp__get_issue'
+		])
+	})
+
+	it('registers a refused tool again once its server is edited', () => {
+		const server = { path: 'u/hugo/github_mcp', editedAt: '2026-01-01T00:00:00Z' }
+		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [TOOLS[0]])
+		withdrawMcpToolsAfterRejection(OWNER)
+
+		reconcileMcpRegistry(OWNER, [{ ...server, editedAt: '2026-01-02T00:00:00Z' }])
+
+		expect(registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [TOOLS[0]])).toEqual([
+			'mcp_u_hugo_github_mcp__get_issue'
+		])
+	})
+
+	it('keeps refusing while its server is unchanged', () => {
+		const server = SERVERS[0]
+		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [TOOLS[0]])
+		withdrawMcpToolsAfterRejection(OWNER)
+
+		reconcileMcpRegistry(OWNER, [server])
+
+		expect(registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [TOOLS[0]])).toEqual([
+			undefined
 		])
 	})
 

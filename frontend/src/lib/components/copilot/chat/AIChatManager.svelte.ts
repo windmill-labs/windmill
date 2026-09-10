@@ -145,8 +145,8 @@ import {
 	forgetLoadedMcpTools,
 	invalidateMcpRegistrations,
 	isRequestBodyRejection,
+	reconcileMcpRegistry,
 	withdrawMcpToolsAfterRejection,
-	loadedMcpServers,
 	loadedMcpTools,
 	loadMcpServers,
 	type McpServer
@@ -2261,16 +2261,10 @@ export class AIChatManager {
 		// workspace's servers installed would go on advertising its paths against
 		// the workspace switched to.
 		this.mcpServers = workspace === (this.operatingWorkspace ?? '') ? servers : []
-		// A tool registered from a server that has since been turned off, deleted, or
-		// left behind by a workspace switch would still be callable, and would run
-		// against whichever workspace the chat is on now. The revision is checked too:
-		// a registered call bypasses the listing cache, so a connection edited elsewhere
-		// would otherwise keep running against the schema it was frozen with.
-		const live = new Map(this.mcpServers.map((s) => [s.path, s.editedAt]))
-		// The reconcile below only reaches servers that already registered something. A
-		// search still awaiting its listing has registered nothing yet, so a server turned
-		// off during that await would register after the fact and be advertised on the next
-		// iteration — bumping the generation makes that search drop its results instead.
+		// A search still awaiting its listing has registered nothing yet, so the reconcile
+		// below cannot reach it: a server turned off during that await would register after
+		// the fact and be advertised on the next iteration. Bumping the generation makes
+		// that search drop its results instead.
 		const signature = this.mcpServers.map((s) => `${s.path}@${s.editedAt ?? ''}`).join(',')
 		if (signature !== this.mcpServersSignature) {
 			this.mcpServersSignature = signature
@@ -2278,17 +2272,14 @@ export class AIChatManager {
 		}
 		// A registered call runs against the workspace the chat is on when it is made, not
 		// the one it was registered in, and a fork carries the same resource path and
-		// `edited_at` as its parent — so the per-path reconcile below cannot tell those two
+		// `edited_at` as its parent — so the per-path reconcile cannot tell those two
 		// servers apart. A workspace change drops the lot instead.
 		if (this.mcpRegistryWorkspace !== undefined && this.mcpRegistryWorkspace !== workspace) {
 			forgetLoadedMcpTools(this.mcpOwnerId)
 		}
 		this.mcpRegistryWorkspace = workspace
-		for (const { path, editedAt } of loadedMcpServers(this.mcpOwnerId)) {
-			if (!live.has(path) || live.get(path) !== editedAt) {
-				forgetLoadedMcpTools(this.mcpOwnerId, path)
-			}
-		}
+		// Tools and refusals frozen against a server that is now gone or has changed.
+		reconcileMcpRegistry(this.mcpOwnerId, this.mcpServers)
 		if (this.mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
 		}

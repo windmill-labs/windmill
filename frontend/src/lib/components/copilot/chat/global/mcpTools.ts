@@ -125,8 +125,12 @@ const registries = new Map<string, OwnerRegistry>()
  * otherwise a rotation or disposal during that await is silently undone.
  */
 const generations = new Map<string, number>()
-/** Registry keys `withdrawMcpToolsAfterRejection` will not let an owner register again. */
-const refused = new Map<string, Set<string>>()
+/**
+ * Registry keys `withdrawMcpToolsAfterRejection` will not let an owner register again,
+ * against the server revision each was refused at — so the refusal lifts when that
+ * server is edited, turned off, or reconnected, and holds otherwise.
+ */
+const refused = new Map<string, Map<string, string | undefined>>()
 /** Bumped by the all-owner clear. Folded into the token below so it also invalidates an
  * owner that has registered nothing yet, and is therefore in neither map. */
 let allGeneration = 0
@@ -227,13 +231,46 @@ export function isRequestBodyRejection(status: number | undefined): boolean {
  * was just refused, and the next request fails the same way. Which schema was at fault
  * is not knowable from the error, so every tool that was loaded goes on the list — each
  * falls back to the free-form wrapper, which is how they were reached before they could
- * be registered at all. A server turned off, edited, or reconnected clears its entries,
- * as does a new conversation.
+ * be registered at all. Refusals accumulate across rejections: dropping the earlier ones
+ * would let two bad schemas take turns poisoning the conversation forever.
+ *
+ * `reconcileMcpRegistry` lifts a refusal when its server changes, and a new conversation
+ * clears the lot.
  */
 export function withdrawMcpToolsAfterRejection(owner: string) {
-	const keys = [...(registries.get(owner)?.tools.keys() ?? [])]
+	const registry = registries.get(owner)
+	const frozen = [...(registry?.tools.keys() ?? [])].map(
+		(key) => [key, registry?.editedAt.get(key)] as const
+	)
+	// Held across the drop, which clears the owner's refusals along with its tools.
+	const carried = refused.get(owner) ?? new Map<string, string | undefined>()
 	forgetLoadedMcpTools(owner)
-	if (keys.length > 0) refused.set(owner, new Set(keys))
+	for (const [key, editedAt] of frozen) carried.set(key, editedAt)
+	if (carried.size > 0) refused.set(owner, carried)
+}
+
+/**
+ * Drop what a change in the connected servers makes stale: tools registered from a server
+ * that is gone or has been edited since, and the refusals recorded against it. Both are
+ * frozen copies of what a server said — a registered call bypasses the listing cache, and
+ * a refusal outlives the registry it was taken from, so neither may survive its server.
+ *
+ * The refusals are reconciled here rather than through the registry: a refused tool is by
+ * construction not registered, so nothing else in the chat can reach it.
+ */
+export function reconcileMcpRegistry(owner: string, servers: McpServer[]) {
+	const live = new Map(servers.map((s) => [s.path, s.editedAt]))
+	const stale = (path: string, editedAt: string | undefined) =>
+		!live.has(path) || live.get(path) !== editedAt
+	for (const { path, editedAt } of loadedMcpServers(owner)) {
+		if (stale(path, editedAt)) forgetLoadedMcpTools(owner, path)
+	}
+	const keys = refused.get(owner)
+	if (!keys) return
+	for (const [key, editedAt] of [...keys]) {
+		if (stale(serverPathOfKey(key), editedAt)) keys.delete(key)
+	}
+	if (keys.size === 0) refused.delete(owner)
 }
 
 /** Drop one owner's loaded tools, or only those belonging to one server. */
@@ -270,7 +307,7 @@ function clearRefused(owner: string, serverPath?: string) {
 	const keys = refused.get(owner)
 	if (!keys) return
 	const prefix = `${serverPath}::`
-	for (const key of [...keys]) {
+	for (const key of [...keys.keys()]) {
 		if (key.startsWith(prefix)) keys.delete(key)
 	}
 	if (keys.size === 0) refused.delete(owner)

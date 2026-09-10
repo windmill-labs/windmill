@@ -26,6 +26,15 @@ export function resolveMcpServerMark(workspace: string, path: string): Promise<M
 	return pending
 }
 
+/**
+ * Forget what was resolved, for the settings section to call when it reloads the
+ * connections: a path can be reconnected to a different provider, and a mark held for
+ * the life of the page would go on marking new call rows with the old provider's icon.
+ */
+export function forgetMcpServerMarks() {
+	marks.clear()
+}
+
 async function load(workspace: string, path: string): Promise<McpServerMark> {
 	const cached = cachedProviderMark(workspace, path)
 	if (cached) return { icon: await loadProviderIcon(cached.key) }
