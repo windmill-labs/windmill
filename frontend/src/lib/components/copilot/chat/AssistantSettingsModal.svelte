@@ -170,11 +170,13 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	{/snippet}
 </Tooltip>
 
+<!-- Every section here is a list that scrolls inside itself, so the modal takes all the
+     height the window has rather than a fixed one it can exceed on a laptop. -->
 <Modal2
 	bind:isOpen
 	title="Assistant settings"
 	fixedWidth="md"
-	fixedHeight="lg"
+	fixedHeight="viewport"
 	closeOnOutsideClick={!blocksClose}
 	closeOnEscape={!blocksClose}
 >

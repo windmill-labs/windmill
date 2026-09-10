@@ -17,9 +17,12 @@
 		target?: string
 		isOpen?: boolean
 		fixedWidth?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
-		/** `adaptive` sizes the modal to its content (no fixed height,
-		 * still capped by max-h-screen-80). */
-		fixedHeight?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl' | 'adaptive'
+		/** A size is a height the modal stands at, whatever the window is — a tall one
+		 * on a laptop leaves the modal taller than the screen, and the overlay scrolls
+		 * to reach the rest of it. `viewport` stands as tall as the window allows
+		 * instead, and `adaptive` sizes to the content, which is unbounded: give that
+		 * one to a modal whose content is short, not to one that can grow. */
+		fixedHeight?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl' | 'viewport' | 'adaptive'
 		contentClasses?: string
 		/** Close when the user clicks outside the modal body. Default
 		 * true. Set false when the caller stacks a child modal on top
@@ -72,6 +75,11 @@
 		lg: '720px',
 		xl: '800px',
 		xxl: '1000px',
+		// As tall as the window allows. Still a definite height, which is what a body
+		// sizing itself with `h-full` / `grow min-h-0` needs to bound its own scroller —
+		// a `max-height` leaves it nothing to resolve against, and it grows past the
+		// surface instead while the overlay scrolls behind it.
+		viewport: 'min(1000px, 80vh)',
 		// Content-driven height — emit no `height:` rule at all.
 		adaptive: undefined
 	}
@@ -120,7 +128,7 @@
 						heightMap[fixedHeight] ? `height: ${heightMap[fixedHeight]}; ` : ''
 					}${css?.popup?.style || ''}`}
 					class={twMerge(
-						'max-h-screen-80 max-w-screen-80 rounded-lg relative bg-surface',
+						'rounded-lg relative bg-surface',
 						formStyling ? 'py-4 px-6' : 'p-4',
 						css?.popup?.class,
 						'wm-modal-form-popup'

@@ -27,7 +27,10 @@
 		target?: string
 		// When set, render a link to the full AI settings page in the footer
 		settingsHref?: string
-		fixedHeight?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
+		/** `viewport` by default: the prompt list is long and scrolls inside itself, so
+		 * a fixed height taller than the window would leave the dialog scrolling inside
+		 * the overlay and the list scrolling inside the dialog. */
+		fixedHeight?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl' | 'viewport'
 	}
 
 	let {
@@ -43,7 +46,7 @@
 		title = 'Customize AI System Prompts',
 		target = '#content',
 		settingsHref = undefined,
-		fixedHeight = 'xxl'
+		fixedHeight = 'viewport'
 	}: Props = $props()
 
 	const placeholders: Record<AIMode, string> = {
