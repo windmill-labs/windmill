@@ -37,6 +37,7 @@ import {
 	forgetLoadedMcpTools,
 	invalidateMcpRegistrations,
 	isRequestBodyRejection,
+	withdrawMcpToolsAfterRejection,
 	loadedMcpServers,
 	mcpRegistryGeneration,
 	loadedMcpTools,
@@ -464,6 +465,33 @@ describe('loaded remote tools', () => {
 // provider refuses, and it must not fire on an account problem: a quota error would
 // then cost the user every tool they had searched for.
 describe('request rejections that withdraw registered tools', () => {
+	// Dropping alone only moves the failure: the model is told to search again, registers
+	// the schema that was just refused, and the next request fails the same way.
+	it('will not register a refused tool again in the same conversation', () => {
+		const server = SERVERS[0]
+		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [TOOLS[0]])
+
+		withdrawMcpToolsAfterRejection(OWNER)
+
+		expect(loadedMcpTools(OWNER)).toEqual([])
+		expect(registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [TOOLS[0]])).toEqual([
+			undefined
+		])
+		expect(loadedMcpTools(OWNER)).toEqual([])
+	})
+
+	it('registers a refused tool again once its server is reconnected', () => {
+		const server = SERVERS[0]
+		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [TOOLS[0]])
+		withdrawMcpToolsAfterRejection(OWNER)
+
+		forgetLoadedMcpTools(OWNER, server.path)
+
+		expect(registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [TOOLS[0]])).toEqual([
+			'mcp_u_hugo_github_mcp__get_issue'
+		])
+	})
+
 	it('separates a refused body from a refused account', () => {
 		expect(isRequestBodyRejection(400)).toBe(true)
 		expect(isRequestBodyRejection(422)).toBe(true)

@@ -125,6 +125,8 @@ const registries = new Map<string, OwnerRegistry>()
  * otherwise a rotation or disposal during that await is silently undone.
  */
 const generations = new Map<string, number>()
+/** Registry keys `withdrawMcpToolsAfterRejection` will not let an owner register again. */
+const refused = new Map<string, Set<string>>()
 /** Bumped by the all-owner clear. Folded into the token below so it also invalidates an
  * owner that has registered nothing yet, and is therefore in neither map. */
 let allGeneration = 0
@@ -207,12 +209,42 @@ export function mcpServerForToolName(owner: string, toolName: string): string | 
 	return undefined
 }
 
+/**
+ * Whether a failed chat request was the provider refusing the body rather than the
+ * account. A remote schema this provider will not accept refuses every later request
+ * in the conversation the same way, so the registered tools are withdrawn on the first
+ * of these; auth and quota statuses say nothing about the schemas.
+ */
+export function isRequestBodyRejection(status: number | undefined): boolean {
+	if (status === undefined || status < 400 || status >= 500) return false
+	return status !== 401 && status !== 403 && status !== 429
+}
+
+/**
+ * Drop an owner's registered tools after the provider refused the request, and refuse
+ * to register those same tools again for the rest of the conversation. Dropping alone
+ * only moves the failure: the model is told to search again, registers the schema that
+ * was just refused, and the next request fails the same way. Which schema was at fault
+ * is not knowable from the error, so every tool that was loaded goes on the list — each
+ * falls back to the free-form wrapper, which is how they were reached before they could
+ * be registered at all. A server turned off, edited, or reconnected clears its entries,
+ * as does a new conversation.
+ */
+export function withdrawMcpToolsAfterRejection(owner: string) {
+	const keys = [...(registries.get(owner)?.tools.keys() ?? [])]
+	forgetLoadedMcpTools(owner)
+	if (keys.length > 0) refused.set(owner, new Set(keys))
+}
+
 /** Drop one owner's loaded tools, or only those belonging to one server. */
 export function forgetLoadedMcpTools(owner: string, serverPath?: string) {
 	// Before the empty-registry check: a conversation can rotate while its first search
 	// is still awaiting a listing, with nothing registered yet, and that search must
 	// still be rejected when it comes back.
 	invalidateOwner(owner)
+	// Whatever drops a tool also lifts its refusal: a new conversation, and a server
+	// turned off or edited, both mean the next listing is worth registering again.
+	clearRefused(owner, serverPath)
 	const registry = registries.get(owner)
 	if (!registry) return
 	if (serverPath === undefined) {
@@ -230,6 +262,20 @@ export function forgetLoadedMcpTools(owner: string, serverPath?: string) {
 	if (registry.tools.size === 0) registries.delete(owner)
 }
 
+function clearRefused(owner: string, serverPath?: string) {
+	if (serverPath === undefined) {
+		refused.delete(owner)
+		return
+	}
+	const keys = refused.get(owner)
+	if (!keys) return
+	const prefix = `${serverPath}::`
+	for (const key of [...keys]) {
+		if (key.startsWith(prefix)) keys.delete(key)
+	}
+	if (keys.size === 0) refused.delete(owner)
+}
+
 /**
  * Drop every owner's loaded tools. Used when a server resource itself changed, which
  * makes the frozen copy every chat holds stale at once — not for one chat rotating.
@@ -237,6 +283,7 @@ export function forgetLoadedMcpTools(owner: string, serverPath?: string) {
 function forgetAllLoadedMcpTools() {
 	allGeneration++
 	registries.clear()
+	refused.clear()
 }
 
 /**
@@ -591,17 +638,6 @@ function shortHash(text: string): string {
  * `list_issues` stay apart, and nothing parses it back: the registry keys on the
  * pair, so truncation only has to stay unique.
  */
-/**
- * Whether a failed chat request was the provider refusing the body rather than the
- * account. A remote schema this provider will not accept refuses every later request
- * in the conversation the same way, so the registered tools are dropped on the first
- * of these; auth and quota statuses say nothing about the schemas.
- */
-export function isRequestBodyRejection(status: number | undefined): boolean {
-	if (status === undefined || status < 400 || status >= 500) return false
-	return status !== 401 && status !== 403 && status !== 429
-}
-
 function registeredToolName(serverPath: string, toolName: string): string {
 	const full = `${MCP_TOOL_NAME_PREFIX}${sanitizeToolNamePart(serverPath)}__${sanitizeToolNamePart(toolName)}`
 	if (full.length <= MAX_TOOL_NAME_CHARS) return full
@@ -624,12 +660,24 @@ function uniqueRegisteredName(
 	toolName: string
 ): string {
 	const name = registeredToolName(serverPath, toolName)
-	for (const [otherKey, tool] of registry.tools) {
-		if (otherKey !== key && tool.def.function.name === name) {
-			return `${name.slice(0, MAX_TOOL_NAME_CHARS - 8)}_${shortHash(key)}`
+	const taken = (candidate: string) => {
+		for (const [otherKey, tool] of registry.tools) {
+			if (otherKey !== key && tool.def.function.name === candidate) return true
 		}
+		return false
 	}
-	return name
+	if (!taken(name)) return name
+	// A remote names its own tools, so the suffixed candidate can be taken too — by a
+	// tool that sanitizes to exactly it, or by another key whose hash collided. Salt
+	// until it is free; the registry holds MAX_LOADED_TOOLS entries, so this ends.
+	const stem = name.slice(0, MAX_TOOL_NAME_CHARS - 8)
+	for (let salt = 0; salt <= MAX_LOADED_TOOLS; salt++) {
+		const candidate = `${stem}_${shortHash(`${key}#${salt}`)}`
+		if (!taken(candidate)) return candidate
+	}
+	// More collisions than there are entries to collide with: the counter is unique
+	// within the registry by construction.
+	return `${stem}_${registry.counter}`
 }
 
 /**
@@ -721,8 +769,12 @@ export function registerMcpTools(
 	// conversation's tools into the new one, or resurrect a registry nothing can reach.
 	if (generation !== mcpRegistryGeneration(owner)) return tools.map(() => undefined)
 	const registry = registryFor(owner)
+	const refusedKeys = refused.get(owner)
 	const names = tools.map((tool) => {
 		const key = `${server.path}::${tool.name}`
+		// Registering this again is what made the last request fail; the wrapper still
+		// reaches it (see `withdrawMcpToolsAfterRejection`).
+		if (refusedKeys?.has(key)) return undefined
 		const name = uniqueRegisteredName(registry, key, server.path, tool.name)
 		const readOnly = isReadOnly(tool)
 		const parameters = safeInputSchema(tool.inputSchema)

@@ -145,6 +145,7 @@ import {
 	forgetLoadedMcpTools,
 	invalidateMcpRegistrations,
 	isRequestBodyRejection,
+	withdrawMcpToolsAfterRejection,
 	loadedMcpServers,
 	loadedMcpTools,
 	loadMcpServers,
@@ -1217,6 +1218,8 @@ export class AIChatManager {
 	private mcpServersRefreshId = 0
 	/** The connected set the last refresh settled on, to notice when it changes. */
 	private mcpServersSignature = ''
+	/** The workspace the registered tools were frozen against. */
+	private mcpRegistryWorkspace: string | undefined
 
 	// The GLOBAL prompt's path conventions and folder ACLs, for this chat's operating
 	// workspace (`GlobalPromptIdentity`). Resolved asynchronously alongside skills, never
@@ -2273,6 +2276,14 @@ export class AIChatManager {
 			this.mcpServersSignature = signature
 			invalidateMcpRegistrations(this.mcpOwnerId)
 		}
+		// A registered call runs against the workspace the chat is on when it is made, not
+		// the one it was registered in, and a fork carries the same resource path and
+		// `edited_at` as its parent — so the per-path reconcile below cannot tell those two
+		// servers apart. A workspace change drops the lot instead.
+		if (this.mcpRegistryWorkspace !== undefined && this.mcpRegistryWorkspace !== workspace) {
+			forgetLoadedMcpTools(this.mcpOwnerId)
+		}
+		this.mcpRegistryWorkspace = workspace
 		for (const { path, editedAt } of loadedMcpServers(this.mcpOwnerId)) {
 			if (!live.has(path) || live.get(path) !== editedAt) {
 				forgetLoadedMcpTools(this.mcpOwnerId, path)
@@ -2286,15 +2297,15 @@ export class AIChatManager {
 	/**
 	 * A registered MCP tool carries a schema a third party wrote, and a provider that
 	 * refuses it refuses every later request in the conversation the same way — with an
-	 * error naming the request, not the tool. So a rejection drops the registered tools:
-	 * the send that follows goes out with the search tool and the wrappers only, and the
-	 * model can register again. A false positive costs one re-search.
+	 * error naming the request, not the tool. So a rejection withdraws those tools: the
+	 * send that follows goes out with the search tool and the wrappers only, and a later
+	 * search leaves them to the wrappers rather than registering the same schema again.
 	 */
 	private dropMcpToolsOnRejectedRequest = (err: unknown) => {
 		if (!isRequestBodyRejection(getErrorStatus(err))) return
 		if (loadedMcpTools(this.mcpOwnerId).length === 0) return
-		console.warn('Dropping registered MCP tools after a rejected request', err)
-		forgetLoadedMcpTools(this.mcpOwnerId)
+		console.warn('Withdrawing registered MCP tools after a rejected request', err)
+		withdrawMcpToolsAfterRejection(this.mcpOwnerId)
 		if (this.mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
 		}

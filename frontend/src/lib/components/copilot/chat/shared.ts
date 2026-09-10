@@ -722,10 +722,12 @@ async function callTool<T>({
 		// A registered MCP tool is withdrawn whenever its registration is dropped — a
 		// server turned off, an eviction, a schema the provider refused — while the search
 		// result that advertised its name stays in the transcript. Searching again is the
-		// way back; the mode advice below would send the model after a tool it has not got.
+		// way back, through whichever name that search returns: the tool may come back
+		// registered, or only through the wrappers. The mode advice below would send the
+		// model after a tool it has not got.
 		if (functionName.startsWith(MCP_TOOL_NAME_PREFIX)) {
 			throw new Error(
-				`Unknown tool call: ${functionName}. That MCP tool is no longer loaded — call search_mcp_tools again to load it.`
+				`Unknown tool call: ${functionName}. That MCP tool is no longer loaded — call search_mcp_tools again and use the name it returns.`
 			)
 		}
 		throw new Error(
