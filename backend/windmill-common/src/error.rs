@@ -272,6 +272,9 @@ fn format_db_error(message: &str, detail: Option<&str>, hint: Option<&str>) -> S
     msg
 }
 
+/// `e` followed by each of its sources, `: `-separated. The result is meant for
+/// users, and a `reqwest::Error` renders its request URL: never pass one built
+/// from a URL carrying credentials in its userinfo.
 pub fn error_source_chain(e: &dyn std::error::Error) -> String {
     let mut msg = e.to_string();
     let mut source = e.source();

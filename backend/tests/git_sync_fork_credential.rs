@@ -270,5 +270,9 @@ async fn a_refused_gitlab_host_is_the_reported_error(db: Pool<Postgres>) -> anyh
         err.to_string().contains("ALLOW_LOCAL_GIT_REMOTES"),
         "unexpected error: {err}"
     );
+    assert!(
+        !err.to_string().contains("glpat-secret"),
+        "the URL credential leaked into the error: {err}"
+    );
     Ok(())
 }
