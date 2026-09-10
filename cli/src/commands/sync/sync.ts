@@ -152,6 +152,7 @@ import {
   generateAppLocksInternal,
   RECORDINGS_FOLDER,
 } from "../app/app_metadata.ts";
+import { deploysWithRawApp } from "../../utils/app_files.ts";
 import {
   isFlowPath,
   isAppPath,
@@ -2018,20 +2019,18 @@ export async function elementsToMap(
     }
 
     if (isRawAppFile(path)) {
-      // FSFSElement builds paths with the platform separator, while the checks
-      // below are written with "/": without normalizing, none of them match on
-      // Windows and the push collector's own exclusions become perpetual diffs.
+      // FSFSElement builds paths with the platform separator, while
+      // `deploysWithRawApp` is written with "/": without normalizing it matches
+      // nothing on Windows and the push collector's own exclusions become
+      // perpetual diffs.
       const suffix = path
         .split(getFolderSuffix("raw_app") + SEP)
         .pop()
         ?.replaceAll(SEP, "/");
-      if (
-        suffix?.startsWith("dist/") ||
-        suffix?.startsWith(RECORDINGS_FOLDER + "/") ||
-        suffix == "wmill.d.ts" ||
-        suffix == "package-lock.json" ||
-        suffix == "DATATABLES.md"
-      ) {
+      // A file no push sends is not a change to track. Listing it leaves it
+      // pending forever — nothing ever uploads it — and pushing it redeploys
+      // the whole app, reassigning its run-as user, to ship nothing.
+      if (suffix && !deploysWithRawApp(suffix)) {
         continue;
       }
     }
@@ -6142,7 +6141,7 @@ export async function push(
                         undefined,
                         opts.plainSecrets ?? false,
                         alreadySynced,
-                        { message: opts.message },
+                        { message: opts.message, permissionedAsContext },
                       );
                     } else {
                       // Flow folder doesn't exist locally — delete on server
