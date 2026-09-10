@@ -180,7 +180,6 @@
 		wideLayout = false,
 		emptyHint,
 		inputPreface,
-		footerControls,
 		footerSettings,
 		initialInstructions = undefined,
 		onDraftChange = undefined,
@@ -213,8 +212,6 @@
 		wideLayout?: boolean
 		emptyHint?: Snippet
 		inputPreface?: Snippet
-		/** Extra controls at the head of the composer's footer row. */
-		footerControls?: Snippet
 		/** The settings control at the footer's right edge, where the copilot puts its
 		 * model picker. A host that configures its turn elsewhere replaces it here. */
 		footerSettings?: Snippet
@@ -648,8 +645,7 @@
 	// nothing else would lose the group and the `+` with it.
 	const showFooterLeftControls = $derived(
 		!footerMessageShown &&
-			(footerControls !== undefined ||
-				canAttachFiles ||
+			(canAttachFiles ||
 				showContextPicker ||
 				showAutonomyModeSelector ||
 				(chatHost.mode === AIMode.SCRIPT && hasDiff))
@@ -973,7 +969,6 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			>
 				{#if showFooterLeftControls}
 					<div class="flex flex-row items-center gap-x-1.5 min-w-0 flex-wrap">
-						{@render footerControls?.()}
 						{#if showContextPicker && !disabled}
 							<Popover placement="bottom-start">
 								{#snippet trigger()}

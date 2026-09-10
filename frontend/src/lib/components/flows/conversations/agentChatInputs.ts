@@ -1,4 +1,6 @@
 import type { FlowModule, InputTransform } from '$lib/gen'
+import { parseExpressionAt } from 'acorn'
+
 /**
  * The flow's own AI agent steps, including those inside loops and branches but never one
  * carried as another agent's tool.
@@ -30,7 +32,6 @@ function agentSteps(modules: FlowModule[] | undefined): FlowModule[] {
 	walk(modules ?? [])
 	return found
 }
-import { parseExpressionAt } from 'acorn'
 
 /**
  * AI agent inputs the chat composer can drive, in footer display order.

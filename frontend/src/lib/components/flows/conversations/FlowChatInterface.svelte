@@ -78,8 +78,9 @@
 	const STORAGE_KEY_PREFIX = 'windmill_flow_chat_inputs_'
 
 	let showInputsModal = $state(false)
-	// Conversation settings, persisted per flow. Attachments are absent by construction:
-	// they ride the composer's own draft and are cleared with it on send.
+	// Conversation settings, persisted per flow. These can include a value for the
+	// attachments input, saved while the modal was its editor; `sendRequest` drops that one
+	// once the paperclip takes over, so a stored file never rides a later message.
 	let inputValues = $state<Record<string, any>>(loadInputsFromStorage() ?? {})
 	let modalDraft = $state<Record<string, any>>({})
 

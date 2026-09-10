@@ -10,6 +10,7 @@ import { ToolCallStore, type ToolCallDetails } from './toolCallContext.svelte'
 import { AttachedFilesStore } from '$lib/components/copilot/chat/files/attachedFiles.svelte'
 import { SessionArtifactsStore } from '$lib/components/copilot/chat/artifacts/artifactsState.svelte'
 import { dataUrlToBlob, type AttachedBlob } from '$lib/components/copilot/chat/blobUtils'
+import { storedAttachmentName } from './attachmentNames'
 import type { AttachedImage } from '$lib/components/copilot/chat/imageUtils'
 import type { AttachedTextFile } from '$lib/components/copilot/chat/textFileUtils'
 import { HelpersService } from '$lib/gen'
@@ -259,6 +260,13 @@ export class FlowChatViewHost implements ChatViewHost {
 		const text = options.instructions?.trim() ?? ''
 		const args = { ...(this.#options.additionalInputs?.() ?? {}) }
 		const target = this.#options.attachmentsTarget?.()
+		// Where the paperclip is the input's editor, the stored settings have no say over it:
+		// a value saved while the modal owned it — before this workspace had object storage —
+		// would otherwise ride along on every later message. Attachments are set below or not
+		// at all. Where the modal still owns it, what the reader typed there stands.
+		if (target && this.supportsMessageAttachments) {
+			delete args[target.name]
+		}
 		let images = options.images ?? []
 		let blobs = options.blobs ?? []
 		// The composer refuses an attachment-only send (requiresMessageText), so this is
@@ -354,8 +362,11 @@ export class FlowChatViewHost implements ChatViewHost {
 		const prefix = `windmill_chat_uploads/${randomUUID()}`
 		return Promise.all(
 			attachments.map(async (attachment, index) => {
-				const filename = attachment.name ?? `attachment-${index + 1}`
 				const blob = dataUrlToBlob(attachment.dataUrl, attachment.mediaType)
+				const filename = storedAttachmentName(
+					attachment.name ?? `attachment-${index + 1}`,
+					blob.type
+				)
 				const { file_key } = await HelpersService.fileUpload({
 					workspace,
 					fileKey: `${prefix}/${filename}`,
@@ -366,6 +377,7 @@ export class FlowChatViewHost implements ChatViewHost {
 			})
 		)
 	}
+
 	cancel = () => {
 		void this.#manager.cancelCurrentJob()
 	}

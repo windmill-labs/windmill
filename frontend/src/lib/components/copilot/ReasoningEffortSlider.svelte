@@ -33,9 +33,18 @@
 		overrideLabel
 	}: Props = $props()
 
-	// A `current` that names no stop is a real state — an agent that leaves the effort unset
-	// sends nothing and the provider decides — and the thumb then rests at the start. Only
-	// `overrideLabel` tells the two apart, since a range input always has a thumb somewhere.
+	/**
+	 * A `current` naming no stop is a real state, not a missing one: an agent that leaves the
+	 * effort unset sends nothing and the provider decides. Three things follow, and each has
+	 * been got wrong on its own — keep them together.
+	 *
+	 * The thumb rests at the start, because a range input always has one somewhere, and
+	 * `overrideLabel` is what tells the reader this is not the lowest stop. The track is
+	 * unfilled there, which index 0 gives for free. And since the input's value already reads
+	 * 0, picking the lowest stop by pointer fires no `input` event — so a click has to be
+	 * committed explicitly, or that stop is reachable only by keyboard.
+	 */
+	const hasPosition = $derived(stops.indexOf(current) >= 0)
 	const stopIndex = $derived(Math.max(0, stops.indexOf(current)))
 	// Percentage filled (accent) up to the thumb; the rest of the track stays surface-secondary.
 	const fillPct = $derived(
@@ -92,6 +101,15 @@
 				style="--fill: {fillPct}%"
 				{disabled}
 				oninput={(e) => onSelect(stops[+e.currentTarget.value])}
+				onclick={(e) => {
+					// `click`, not `pointerup`: it is the event that means pressed and released on
+					// the track, so a press that began on the row above cannot commit an effort
+					// nobody chose. Only the click that moved nothing — any other stop has already
+					// committed through `oninput`, and doing it again would write it twice.
+					if (!hasPosition && !disabled && +e.currentTarget.value === stopIndex) {
+						onSelect(stops[stopIndex])
+					}
+				}}
 				use:isolatePointer
 				class="lean-range no-default-style w-full"
 				aria-label="Reasoning effort"

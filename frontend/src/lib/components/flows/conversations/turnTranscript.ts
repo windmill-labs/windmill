@@ -52,7 +52,7 @@ function newRow(state: TurnState, id: string, patch: Partial<ChatMessage>): Chat
 }
 
 /** Everything still streaming is finished: nothing further will be appended to it. */
-export function settleStreamingRows(rows: ChatMessage[]): ChatMessage[] {
+function settleStreamingRows(rows: ChatMessage[]): ChatMessage[] {
 	return rows.map((row) => (row.streaming ? { ...row, streaming: false } : row))
 }
 
