@@ -328,6 +328,10 @@ What the assistant should do when this skill applies.
 	function fold(key: string, path: string, shut: boolean) {
 		stickyKey = key
 		collapsed[path] = shut
+		// Held only across the re-render this fold causes. Left set, it would pull the
+		// highlight back to this folder on the next change of any kind — another fold, a
+		// save, a delete, a workspace switch.
+		tick().then(() => (stickyKey = undefined))
 	}
 
 	/** The tree keys this list adds to `useListHighlight`: Left and Right fold a folder
@@ -349,10 +353,26 @@ What the assistant should do when this skill applies.
 			| HTMLElement
 			| null
 			| undefined
-		if ((event.key === ' ' || event.key === 'Enter') && control) return
+		if ((event.key === ' ' || event.key === 'Enter') && control) {
+			// The control answers the key, and the highlight follows it there: a switch
+			// holds focus after a plain click, and leaving another row lit would draw one
+			// row while flipping another.
+			const row = control.closest('[id^="wm-skill-entry-"]')
+			const index = row ? (entryIndexByKey.get(row.id.replace('wm-skill-entry-', '')) ?? -1) : -1
+			if (index >= 0 && index !== highlight.index) highlight.move(index - highlight.index)
+			return
+		}
 		if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-			// Walking away from a fold gives up the row it was holding on to.
-			stickyKey = undefined
+			// A row reached with Tab is where the walk carries on from. `useListHighlight`
+			// cannot see that itself: `ListRow` puts the row's id on its outer div while
+			// focus sits on the button inside it.
+			const focusedRow = target?.closest?.('[id^="wm-skill-entry-"]')
+			const focusedIndex = focusedRow
+				? (entryIndexByKey.get(focusedRow.id.replace('wm-skill-entry-', '')) ?? -1)
+				: -1
+			if (focusedIndex >= 0 && focusedIndex !== highlight.index) {
+				highlight.move(focusedIndex - highlight.index)
+			}
 			// Taking the highlight takes the keyboard with it: a control left focused
 			// would keep Space and act on its own row while another one is lit.
 			if (control) {
