@@ -7430,7 +7430,7 @@ pub async fn run_wait_result_job_by_path_get(
     check_license_key_valid().await?;
 
     let script_path = script_path.to_path();
-    cross_site.refuse_hub_script(&RunnableId::from_script_path(script_path))?;
+    let runnable_id = cross_site.script_runnable(script_path)?;
     check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;
 
     if method == http::Method::HEAD {
@@ -7443,12 +7443,7 @@ pub async fn run_wait_result_job_by_path_get(
     args.body = args::Body::HashMap(payload_as_args);
 
     let args = args
-        .to_args_from_runnable(
-            &db,
-            &w_id,
-            RunnableId::from_script_path(script_path),
-            run_query.skip_preprocessor,
-        )
+        .to_args_from_runnable(&db, &w_id, runnable_id, run_query.skip_preprocessor)
         .await?;
 
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
@@ -7876,8 +7871,7 @@ pub async fn stream_script_by_path(
     method: hyper::http::Method,
     args: RawWebhookArgs,
 ) -> error::Result<Response> {
-    let runnable_id = RunnableId::from_script_path(script_path.to_path());
-    cross_site.refuse_hub_script(&runnable_id)?;
+    let runnable_id = cross_site.script_runnable(script_path.to_path())?;
     stream_job(
         authed,
         db,

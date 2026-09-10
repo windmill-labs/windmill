@@ -15,15 +15,20 @@ use windmill_common::users::COOKIE_NAME;
 
 use crate::triggers::trigger_helpers::RunnableId;
 
-/// Whether a request is a cross-site GET authenticating on the session cookie alone, for the
-/// GET handlers that can run a Hub script to refuse one with [`Self::refuse_hub_script`].
+/// Whether a request is a cross-site GET authenticating on the session cookie alone. A GET
+/// handler that runs a script by path resolves it through [`Self::script_runnable`], which
+/// refuses a Hub script on such a request.
 ///
 /// The cookie is `SameSite=Lax`, so browsers attach it to cross-site top-level GET
 /// navigations. A `hub/` path runs any public Hub script, and an argument written
 /// `$var:<path>` or `$res:<path>` is resolved as the caller before the script sees it: such a
 /// GET lets any page pick a generic Hub script and hand it the victim's secrets, which the job
-/// can then send anywhere. Workspace scripts and flows are deliberately not refused — they
-/// only run code the workspace's own members deployed.
+/// can then send anywhere.
+///
+/// Workspace scripts and flows are not refused, by choice, so that GET links to them keep
+/// working. That is a scope decision, not a safety property: they still take attacker-chosen
+/// arguments, `$var:` and `$res:` included, resolved as the victim. What bounds the exposure
+/// is that the attacker needs a runnable path and can only run code the workspace deployed.
 ///
 /// The cookie is the only ambient credential. A bearer header is explicit, and so is the
 /// `token` query parameter the webhook URLs carry — a cross-origin `EventSource` has no other
@@ -35,12 +40,10 @@ use crate::triggers::trigger_helpers::RunnableId;
 pub struct CrossSiteGetGuard(Option<CrossSite>);
 
 impl CrossSiteGetGuard {
-    pub fn refuse_hub_script(
-        &self,
-        runnable_id: &RunnableId,
-    ) -> windmill_common::error::Result<()> {
-        let (Some(signal), RunnableId::HubScript(_)) = (&self.0, runnable_id) else {
-            return Ok(());
+    pub fn script_runnable(&self, script_path: &str) -> windmill_common::error::Result<RunnableId> {
+        let runnable_id = RunnableId::from_script_path(script_path);
+        let (Some(signal), RunnableId::HubScript(_)) = (&self.0, &runnable_id) else {
+            return Ok(runnable_id);
         };
         // The `Referer` leg is the one that can misfire, on a request that really was
         // same-host: it compares against the hosts the backend can see, and a proxy that
