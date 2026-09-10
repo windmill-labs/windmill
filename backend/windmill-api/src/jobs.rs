@@ -4880,14 +4880,16 @@ fn can_approve_step(
     }
 }
 
-/// The skin of the latest approval step the run has reached, which stays the page's skin once the
-/// run moves past that step or finishes.
+/// The skin of the latest approval step the run has passed: a step before the current `step`
+/// that ran rather than being skipped. Steps from `step` on don't count, because while an
+/// approval is pending the step after it already holds the `WaitingForEvents` status.
 fn last_reached_approval_skin(flow: &FlowValue, status: &FlowStatus) -> ApprovalSkin {
     flow.modules
         .iter()
         .zip(status.modules.iter())
+        .take(usize::try_from(status.step).unwrap_or(0))
         .rev()
-        .filter(|(_, m)| !matches!(m, FlowStatusModule::WaitingForPriorSteps { .. }))
+        .filter(|(_, m)| matches!(m, FlowStatusModule::Success { skipped: false, .. }))
         .find_map(|(module, _)| module.suspend.as_ref())
         .and_then(|suspend| suspend.skin)
         .unwrap_or_default()
@@ -4922,16 +4924,17 @@ async fn get_approval_info(
         email: String,
         flow_status: Option<serde_json::Value>,
         workflow_as_code_status: Option<serde_json::Value>,
-        // Also the completed run's, which `v2_job_status` no longer holds, so a finished run's
-        // page keeps the skin its approval step was given.
-        last_flow_status: Option<serde_json::Value>,
-        last_wac_status: Option<serde_json::Value>,
+        // `v2_job_status` only holds a run that hasn't finished; these read the completed run's
+        // status too, so a finished run's page keeps the skin its approval step was given.
+        completed_flow_status: Option<serde_json::Value>,
+        wac_skin: Option<serde_json::Value>,
     }
     let row = sqlx::query_as::<_, ApprovalJobRow>(
         "SELECT j.id, j.runnable_path as script_path, j.permissioned_as_email as email,
                 s.flow_status, s.workflow_as_code_status,
-                COALESCE(s.flow_status, c.flow_status) AS last_flow_status,
-                COALESCE(s.workflow_as_code_status, c.workflow_as_code_status) AS last_wac_status
+                c.flow_status AS completed_flow_status,
+                COALESCE(s.workflow_as_code_status, c.workflow_as_code_status)->'_approval'->'skin'
+                    AS wac_skin
          FROM v2_job j
          LEFT JOIN v2_job_status s ON s.id = j.id
          LEFT JOIN v2_job_completed c ON c.id = j.id
@@ -5027,13 +5030,14 @@ async fn get_approval_info(
                 .and_then(|s| s.resume_form.as_ref())
                 .map(|rf| serde_json::json!(rf));
             let hc = suspend_settings.map(|s| s.hide_cancel.unwrap_or(false));
-            let last_fs = row
-                .last_flow_status
+            let completed_fs = row
+                .completed_flow_status
                 .as_ref()
+                .filter(|_| fs.is_none())
                 .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok());
             let skin = raw_flow
                 .as_ref()
-                .zip(last_fs.as_ref())
+                .zip(fs.as_ref().or(completed_fs.as_ref()))
                 .map(|(flow, status)| last_reached_approval_skin(flow, status));
 
             // Fetch description, default_args, and enums from the step's completed job result
@@ -5061,12 +5065,8 @@ async fn get_approval_info(
             (form, desc, default_args, enums, ac, hc, skin)
         };
 
-    let skin = match row.last_wac_status.as_ref() {
-        Some(wac_status) => wac_status
-            .get("_approval")
-            .and_then(|m| m.get("skin"))
-            .and_then(|v| serde_json::from_value::<ApprovalSkin>(v.clone()).ok())
-            .unwrap_or_default(),
+    let skin = match row.wac_skin {
+        Some(wac_skin) => serde_json::from_value::<ApprovalSkin>(wac_skin).unwrap_or_default(),
         None => skin.unwrap_or_default(),
     };
 
@@ -11885,5 +11885,39 @@ mod approval_view_gate_tests {
             Some("f/team/flow"),
             "trigger@example.com"
         ));
+    }
+
+    #[test]
+    fn approval_skin_is_the_last_approval_step_passed() {
+        let flow: FlowValue = serde_json::from_value(serde_json::json!({ "modules": [
+            { "id": "a", "value": { "type": "identity" }, "suspend": { "skin": "approval" } },
+            { "id": "b", "value": { "type": "identity" }, "suspend": {} },
+            { "id": "c", "value": { "type": "identity" } }
+        ]}))
+        .unwrap();
+        let skin_at = |step: i32, types: [(&str, bool); 3]| {
+            let mut status = FlowStatus::new(&flow);
+            status.step = step;
+            status.modules = ["a", "b", "c"]
+                .into_iter()
+                .zip(types)
+                .map(|(id, (kind, skipped))| {
+                    serde_json::from_value(serde_json::json!({
+                        "type": kind, "id": id, "job": Uuid::nil(), "count": 1,
+                        "failed_retries": [], "skipped": skipped
+                    }))
+                    .unwrap()
+                })
+                .collect();
+            last_reached_approval_skin(&flow, &status)
+        };
+        let waiting = ("WaitingForEvents", false);
+        let pending = ("WaitingForPriorSteps", false);
+        let ran = ("Success", false);
+        let skipped = ("Success", true);
+        // Awaiting a's approval: b, itself an approval step, already holds `WaitingForEvents`.
+        assert_eq!(skin_at(1, [ran, waiting, pending]), ApprovalSkin::Approval);
+        assert_eq!(skin_at(2, [ran, ran, waiting]), ApprovalSkin::Default);
+        assert_eq!(skin_at(3, [ran, skipped, ran]), ApprovalSkin::Approval);
     }
 }

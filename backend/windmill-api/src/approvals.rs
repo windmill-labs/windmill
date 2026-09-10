@@ -278,7 +278,9 @@ pub async fn get_approval_form_details(
 
 /// The skin of the approval step `flow_step_id` of the flow running `job_id`. Falls back to
 /// the default skin when the step cannot be resolved, so a message is still sent.
-pub async fn get_approval_step_skin(
+/// Reads through the unrestricted pool without an authorization check of its own: only the
+/// skin, which is not sensitive, leaves this function.
+pub(crate) async fn get_approval_step_skin(
     db: &DB,
     w_id: &str,
     job_id: Uuid,
