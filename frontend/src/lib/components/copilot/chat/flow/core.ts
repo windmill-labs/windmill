@@ -137,8 +137,7 @@ export interface FlowAIChatHelpers {
 	testFlow: (args?: Record<string, any>, conversationId?: string) => Promise<string | undefined>
 
 	/** The paths this editor's flow answers to, storage path first, then any staged rename.
-	 * Tells a caller which of several mounted editors is open on the flow it was asked about;
-	 * the order breaks the tie when a rename names a path another editor is stored at. */
+	 * Tells a caller which of several mounted editors is open on the flow it was asked about. */
 	getFlowPaths: () => string[]
 
 	/** Get lint errors from a specific module (focuses it first, waits for Monaco to analyze) */

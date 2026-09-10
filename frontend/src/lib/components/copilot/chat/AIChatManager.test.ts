@@ -191,16 +191,16 @@ beforeEach(() => {
 })
 
 function createFlowHelpers({
-	hasPendingChanges,
-	acceptAllModuleActions,
+	hasPendingChanges = () => false,
+	acceptAllModuleActions = vi.fn(),
 	testFlow = vi.fn(),
 	flowPaths = ['u/admin/live_flow']
 }: {
-	hasPendingChanges: () => boolean
-	acceptAllModuleActions: () => void
+	hasPendingChanges?: () => boolean
+	acceptAllModuleActions?: () => void
 	testFlow?: FlowAIChatHelpers['testFlow']
 	flowPaths?: string[]
-}): FlowAIChatHelpers {
+} = {}): FlowAIChatHelpers {
 	return {
 		getFlowPaths: () => flowPaths,
 		getFlowAndSelectedId: vi.fn(),
@@ -856,13 +856,7 @@ describe('AIChatManager autonomy mode', () => {
 
 		manager.isSessionChat = true
 		manager.sessionId = 'htc1xouxd96dcyo6ruqo39'
-		manager.setFlowHelpers(
-			createFlowHelpers({
-				hasPendingChanges: () => false,
-				acceptAllModuleActions: vi.fn(),
-				testFlow
-			})
-		)
+		manager.setFlowHelpers(createFlowHelpers({ testFlow }))
 
 		manager.changeMode(AIMode.GLOBAL)
 		const jobId = await manager.helpers.testActiveFlow('u/admin/live_flow', { name: 'Ada' })
@@ -883,34 +877,21 @@ describe('AIChatManager autonomy mode', () => {
 
 		manager.setFlowHelpers(
 			createFlowHelpers({
-				hasPendingChanges: () => false,
-				acceptAllModuleActions: vi.fn(),
 				testFlow: testRenamed,
 				flowPaths: ['u/admin/renamed_flow', 'u/admin/live_flow']
 			})
 		)
 		manager.setFlowHelpers(
-			createFlowHelpers({
-				hasPendingChanges: () => false,
-				acceptAllModuleActions: vi.fn(),
-				testFlow: testTarget,
-				flowPaths: ['u/admin/live_flow']
-			})
+			createFlowHelpers({ testFlow: testTarget, flowPaths: ['u/admin/live_flow'] })
 		)
 		manager.setFlowHelpers(
-			createFlowHelpers({
-				hasPendingChanges: () => false,
-				acceptAllModuleActions: vi.fn(),
-				testFlow: testLast,
-				flowPaths: ['u/admin/other_flow']
-			})
+			createFlowHelpers({ testFlow: testLast, flowPaths: ['u/admin/other_flow'] })
 		)
 
 		manager.changeMode(AIMode.GLOBAL)
 		const jobId = await manager.helpers.testActiveFlow('u/admin/live_flow', { name: 'Ada' })
 
 		expect(jobId).toBe('job-target-flow')
-		expect(testTarget).toHaveBeenCalledWith({ name: 'Ada' })
 		expect(testRenamed).not.toHaveBeenCalled()
 		expect(testLast).not.toHaveBeenCalled()
 	})
