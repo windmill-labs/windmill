@@ -538,6 +538,20 @@ pub struct Suspend {
     pub hide_cancel: Option<bool>,
     #[serde(skip_serializing_if = "false_or_empty")]
     pub continue_on_disapprove_timeout: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skin: Option<ApprovalSkin>,
+}
+
+/// How an approval request is presented, on the approval page and in Slack/Teams messages.
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ApprovalSkin {
+    Approval,
+    /// A skin this server does not know renders as the default one rather than failing to
+    /// deserialize the whole flow, so a flow authored against a newer version still runs.
+    #[default]
+    #[serde(other)]
+    Default,
 }
 
 fn false_or_empty(v: &Option<bool>) -> bool {
@@ -1363,6 +1377,23 @@ mod tests {
         });
         let val: FlowValue = serde_json::from_value(input).unwrap();
         assert_eq!(val.modules.len(), 1);
+    }
+
+    #[test]
+    fn suspend_skin_unknown_value_falls_back_to_default() {
+        let skin_of = |skin: &str| {
+            let val: FlowValue = serde_json::from_value(json!({
+                "modules": [{
+                    "id": "a",
+                    "value": {"type": "identity"},
+                    "suspend": {"required_events": 1, "skin": skin}
+                }]
+            }))
+            .unwrap();
+            val.modules[0].suspend.as_ref().unwrap().skin
+        };
+        assert_eq!(skin_of("approval"), Some(ApprovalSkin::Approval));
+        assert_eq!(skin_of("not_a_skin_yet"), Some(ApprovalSkin::Default));
     }
 
     #[test]

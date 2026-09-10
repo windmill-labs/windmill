@@ -117,12 +117,15 @@ export async function sleep(seconds: number): Promise<void>
  * resume exactly this approval — route them through your own channel. Without a
  * key the steps are named `approval`, `approval_2`, ...
  *
+ * `skin: "approval"` shows approvers a focused request (form and approve/reject)
+ * instead of the default page with the workflow's details.
+ *
  * @example
  * const urls = await step("urls", () => getApprovalUrls("manager"));
  * await step("notify", () => sendEmail(urls.resume, urls.cancel));
  * const { value, approver } = await waitForApproval({ key: "manager", timeout: 3600 });
  */
-export function waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; key?: string; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+export function waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; key?: string; skin?: "default" | "approval"; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
 
 /**
  * Resume/cancel/approval-page URLs bound to one `waitForApproval` step.

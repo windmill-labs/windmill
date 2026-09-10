@@ -16,8 +16,13 @@
 	import SuspendDrawer from './SuspendDrawer.svelte'
 	import EditableSchemaDrawer from '$lib/components/schema/EditableSchemaDrawer.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { Pen, Plus } from 'lucide-svelte'
 	import { slideDynamic } from '$lib/transitions'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
+
+	type ApprovalSkin = NonNullable<NonNullable<FlowModule['suspend']>['skin']>
 
 	const { selectionManager, flowStateStore, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -81,6 +86,12 @@
 		}
 		formEditor?.openDrawer()
 	}
+
+	function setSkin(skin: ApprovalSkin) {
+		if (!flowModule.suspend) return
+		flowModule.suspend.skin = skin === 'default' ? undefined : skin
+		logFeatureUsage('flow_step', 'approval_skin', { key: skin })
+	}
 </script>
 
 <div class="flex w-full flex-col gap-2">
@@ -133,6 +144,34 @@
 						{:else}
 							<SecondsInput disabled />
 						{/if}
+					</Label>
+					<Label label="Approval page skin">
+						<ToggleButtonGroup
+							noWFull
+							selected={flowModule.suspend?.skin ?? 'default'}
+							disabled={!flowModule.suspend}
+							onSelected={setSkin}
+						>
+							{#snippet children({ item })}
+								<ToggleButton
+									value="default"
+									label="Default"
+									tooltip="Flow details: arguments, graph and approvers"
+									{item}
+									small
+								/>
+								<ToggleButton
+									value="approval"
+									label="Approval"
+									tooltip="Focused request: step description, form and approve/reject buttons"
+									{item}
+									small
+								/>
+							{/snippet}
+						</ToggleButtonGroup>
+						<span class="text-2xs font-normal text-secondary">
+							Slack and Teams approval messages use the same skin
+						</span>
 					</Label>
 
 					<Toggle

@@ -46,6 +46,8 @@ pub enum WacOutput {
         form: Option<Value>,
         #[serde(default)]
         self_approval_disabled: Option<bool>,
+        #[serde(default)]
+        skin: Option<windmill_common::flows::ApprovalSkin>,
     },
     /// Server-side sleep — suspend the workflow for a duration without holding a worker.
     #[serde(rename = "sleep")]

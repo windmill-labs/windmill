@@ -20,6 +20,7 @@
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
+	import ApprovalRequestSkin from '$lib/components/approvals/ApprovalRequestSkin.svelte'
 	import { page } from '$app/state'
 
 	$workspaceStore = page.params.workspace
@@ -163,6 +164,15 @@
 		return url
 	})
 	let isWac = $derived(!!(job as any)?.workflow_as_code_status)
+	let skin = $derived(approvalInfo?.skin ?? 'default')
+	// Left blank until the approval info names the skin, so neither skin flashes the other's title.
+	let title = $derived(
+		!approvalInfo && !error
+			? ''
+			: skin === 'approval'
+				? 'Approval request'
+				: `Approval for resuming of ${isWac ? 'workflow' : 'flow'}`
+	)
 	let filteredArgs = $derived.by(() => {
 		if (!job?.args) return job?.args
 		const args = { ...(job.args as any) }
@@ -210,10 +220,7 @@
 
 <ScheduleEditor bind:this={scheduleEditor} />
 
-<CenteredModal
-	title="Approval for resuming of {isWac ? 'workflow' : 'flow'}"
-	centerVertically={false}
->
+<CenteredModal {title} loading={!approvalInfo && !error} centerVertically={false}>
 	{#if error}
 		<div class="space-y-6">
 			{#if error.includes('logged in') || error.includes('sign in') || error.includes('Not authorized')}
@@ -237,6 +244,25 @@
 				<p class="text-sm">{error}</p>
 			{/if}
 		</div>
+	{:else if approvalInfo && skin === 'approval'}
+		<ApprovalRequestSkin
+			{approvalInfo}
+			{job}
+			{completed}
+			{actionTaken}
+			{loading}
+			{schema}
+			{hasForm}
+			bind:args={default_payload}
+			bind:valid
+			{isLocked}
+			isSelfApprovalBypass={!!isSelfApprovalBypass}
+			{isWorkspaceMember}
+			{runDetailsHref}
+			{rd}
+			onApprove={resume}
+			onReject={cancel}
+		/>
 	{:else if approvalInfo}
 		{#if !isLocked}
 			<div class="flex flex-row justify-between flex-wrap sm:flex-nowrap gap-x-4">

@@ -1061,8 +1061,7 @@
 						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
 						<li
 							>user usage (author count, operator count, the distinct guests of the last 30 days,
-							the seats they add past the free allowance, and the workspaces that allow
-							guests)</li
+							the seats they add past the free allowance, and the workspaces that allow guests)</li
 						>
 						<li>superadmin email addresses</li>
 						<li>development instance status</li>
@@ -1078,8 +1077,8 @@
 							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
 							membership, the plan tier and quota shown when the execution meter is opened, whether
 							app sandbox isolation is turned on, whether a step's workspace script is edited from
-							the flow editor, and how data tables and their migrations are set up and used, last 30
-							days)</li
+							the flow editor, which skin approval steps are given, and how data tables and their
+							migrations are set up and used, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger, worker and data table
@@ -1129,8 +1128,7 @@
 						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
 						<li
 							>user usage (author count, operator count, the distinct guests of the last 30 days,
-							the seats they add past the free allowance, and the workspaces that allow
-							guests)</li
+							the seats they add past the free allowance, and the workspaces that allow guests)</li
 						>
 						<li>development instance status</li>
 						<li
@@ -1140,8 +1138,8 @@
 							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
 							membership, the plan tier and quota shown when the execution meter is opened, whether
 							app sandbox isolation is turned on, whether a step's workspace script is edited from
-							the flow editor, and how data tables and their migrations are set up and used, last 30
-							days)</li
+							the flow editor, which skin approval steps are given, and how data tables and their
+							migrations are set up and used, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger, worker and data table

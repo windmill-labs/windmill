@@ -13,18 +13,23 @@ use sha2::Sha256;
 use sqlx::types::Uuid;
 use std::collections::HashMap;
 use windmill_common::error::{to_anyhow, Error};
+use windmill_common::flows::ApprovalSkin;
+use windmill_common::utils::truncate_with_ellipsis;
 use windmill_common::variables::{get_secret_value_as_admin, get_workspace_key};
 
 use crate::db::{ApiAuthed, DB};
 use crate::jobs::{QueryApprover, ResumeUrls};
 use crate::{
     approvals::{
-        extract_w_id_from_resume_url, handle_resume_action, ApprovalFormDetails, FieldType,
-        MessageFormat, QueryButtonText, QueryDefaultArgsJson, QueryDynamicEnumJson,
-        QueryFlowStepId, QueryMessage, ResumeFormField, ResumeSchema,
+        extract_w_id_from_resume_url, get_approval_step_skin, handle_resume_action,
+        ApprovalFormDetails, FieldType, MessageFormat, QueryButtonText, QueryDefaultArgsJson,
+        QueryDynamicEnumJson, QueryFlowStepId, QueryMessage, ResumeFormField, ResumeSchema,
     },
     auth::OptTokened,
 };
+
+// Slack rejects a section text over 3000 characters, which would drop the whole post.
+const CHANNEL_MESSAGE_PREVIEW_CHARS: usize = 2000;
 
 #[derive(Deserialize, Debug)]
 pub struct SlackFormData {
@@ -127,6 +132,9 @@ struct PrivateMetadata {
     // HMAC over (w_id, resource_path) keyed on the workspace key; minted when the modal is
     // built, required by `handle_submission` before the resource_path is decrypted.
     signature: Option<String>,
+    // Only selects the wording of the updated channel message, so it is left unsigned.
+    #[serde(default)]
+    skin: ApprovalSkin,
 }
 
 // Opportunistic transport-level check: when `SLACK_SIGNING_SECRET` is configured we verify
@@ -432,6 +440,7 @@ async fn handle_submission(
     let container: Container = private_metadata.container;
     let hide_cancel = private_metadata.hide_cancel;
     let signature = private_metadata.signature;
+    let skin = private_metadata.skin;
 
     // If hide_cancel is true, we don't need to extract information from the private_metadata
     if hide_cancel.unwrap_or(false) && action == "cancel" {
@@ -463,7 +472,7 @@ async fn handle_submission(
             tracing::warn!("Failed to resolve slack token for {w_id}/{resource_path}: {e:#}");
             Error::BadRequest("Invalid Slack callback request".to_string())
         })?;
-    update_original_slack_message(action, slack_token, container).await?;
+    update_original_slack_message(action, slack_token, container, skin).await?;
     Ok(())
 }
 
@@ -475,14 +484,19 @@ async fn transform_schemas(
     required: Option<Vec<String>>,
     default_args_json: Option<&serde_json::Value>,
     dynamic_enums_json: Option<&serde_json::Value>,
+    skin: ApprovalSkin,
 ) -> Result<serde_json::Value, Error> {
     tracing::debug!("Resume urls: {:#?}", urls);
 
+    let link_label = match skin {
+        ApprovalSkin::Default => "Flow suspension details",
+        ApprovalSkin::Approval => "View in Windmill",
+    };
     let mut blocks = vec![serde_json::json!({
         "type": "section",
         "text": {
             "type": "mrkdwn",
-            "text": format!("{}\n<{}|Flow suspension details>", text, urls.approvalPage),
+            "text": format!("{}\n<{}|{link_label}>", text, urls.approvalPage),
         }
     })];
 
@@ -950,33 +964,8 @@ async fn send_slack_message(
     .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
     value["signature"] = serde_json::json!(signature);
 
-    let payload = serde_json::json!({
-        "channel": channel_id,
-        "text": "A flow has been suspended. Please approve or reject the flow.",
-        "blocks": [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "A flow has been suspended. Please approve or reject the flow."
-                }
-            },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "View"
-                        },
-                        "action_id": "open_modal",
-                        "value": value.to_string()
-                    }
-                ]
-            }
-        ]
-    });
+    let skin = get_approval_step_skin(db, w_id, job_id, flow_step_id).await;
+    let payload = channel_message_payload(channel_id, skin, message, value.to_string());
 
     tracing::debug!("Payload: {:?}", payload);
 
@@ -998,6 +987,60 @@ async fn send_slack_message(
     }
 
     Ok(StatusCode::OK)
+}
+
+/// The channel post announcing the approval, with the button that opens the modal.
+fn channel_message_payload(
+    channel_id: &str,
+    skin: ApprovalSkin,
+    message: Option<&str>,
+    button_value: String,
+) -> serde_json::Value {
+    let (text, section, button_label) = match skin {
+        ApprovalSkin::Default => {
+            let text = "A flow has been suspended. Please approve or reject the flow.";
+            (text, text.to_string(), "View")
+        }
+        ApprovalSkin::Approval => {
+            let mut section = "*Approval requested*".to_string();
+            if let Some(message) = message {
+                section.push('\n');
+                section.push_str(&truncate_with_ellipsis(
+                    message,
+                    CHANNEL_MESSAGE_PREVIEW_CHARS,
+                ));
+            }
+            ("Approval requested", section, "Review")
+        }
+    };
+
+    serde_json::json!({
+        "channel": channel_id,
+        "text": text,
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": section
+                }
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": button_label
+                        },
+                        "action_id": "open_modal",
+                        "value": button_value
+                    }
+                ]
+            }
+        ]
+    })
 }
 
 async fn get_modal_blocks(
@@ -1034,7 +1077,7 @@ async fn get_modal_blocks(
     )
     .await?;
 
-    let ApprovalFormDetails { message_str, urls, schema } = approval_details;
+    let ApprovalFormDetails { message_str, urls, schema, skin } = approval_details;
 
     // Get the card content
     let card_content = transform_schemas(
@@ -1063,6 +1106,7 @@ async fn get_modal_blocks(
             }),
         default_args_json,
         dynamic_enums_json,
+        skin,
     )
     .await?;
 
@@ -1077,6 +1121,7 @@ async fn get_modal_blocks(
         resume_button_text,
         cancel_button_text,
         &private_metadata_signature,
+        skin,
     )))
 }
 
@@ -1090,27 +1135,32 @@ fn construct_payload(
     resume_button_text: Option<&str>,
     cancel_button_text: Option<&str>,
     signature: &str,
+    skin: ApprovalSkin,
 ) -> serde_json::Value {
+    let (title, resume_label, cancel_label) = match skin {
+        ApprovalSkin::Default => ("Workflow Suspended", "Resume Workflow", "Cancel Workflow"),
+        ApprovalSkin::Approval => ("Approval request", "Approve", "Reject"),
+    };
     let mut view = serde_json::json!({
         "type": "modal",
         "callback_id": "submit_form",
         "notify_on_close": true,
         "title": {
             "type": "plain_text",
-            "text": "Workflow Suspended"
+            "text": title
         },
         "blocks": blocks,
         "submit": {
             "type": "plain_text",
-            "text": resume_button_text.unwrap_or("Resume Workflow")
+            "text": resume_button_text.unwrap_or(resume_label)
         },
-        "private_metadata": serde_json::json!({ "resume_url": resume_url, "resource_path": resource_path, "container": container, "hide_cancel": hide_cancel, "signature": signature }).to_string(),
+        "private_metadata": serde_json::json!({ "resume_url": resume_url, "resource_path": resource_path, "container": container, "hide_cancel": hide_cancel, "signature": signature, "skin": skin }).to_string(),
     });
 
     if !hide_cancel {
         view["close"] = serde_json::json!({
             "type": "plain_text",
-            "text": cancel_button_text.unwrap_or("Cancel Workflow")
+            "text": cancel_button_text.unwrap_or(cancel_label)
         });
     }
 
@@ -1193,11 +1243,13 @@ async fn update_original_slack_message(
     action: &str,
     token: String,
     container: Container,
+    skin: ApprovalSkin,
 ) -> Result<(), Error> {
-    let message = if action == "resume" {
-        "\n\n*Workflow has been resumed!* :white_check_mark:"
-    } else {
-        "\n\n*Workflow has been canceled!* :x:"
+    let message = match (skin, action == "resume") {
+        (ApprovalSkin::Default, true) => "\n\n*Workflow has been resumed!* :white_check_mark:",
+        (ApprovalSkin::Default, false) => "\n\n*Workflow has been canceled!* :x:",
+        (ApprovalSkin::Approval, true) => "*Approved* :white_check_mark:",
+        (ApprovalSkin::Approval, false) => "*Rejected* :x:",
     };
 
     let final_blocks = vec![serde_json::json!({
@@ -1241,4 +1293,46 @@ async fn update_original_slack_message(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn approval_skin_channel_post_fits_slack_section_limit() {
+        let message = "x".repeat(10_000);
+        let payload = channel_message_payload(
+            "C1",
+            ApprovalSkin::Approval,
+            Some(&message),
+            "{}".to_string(),
+        );
+        let section = payload["blocks"][0]["text"]["text"].as_str().unwrap();
+        assert!(section.starts_with("*Approval requested*\n"));
+        assert!(section.chars().count() <= 3000);
+    }
+
+    #[test]
+    fn approval_skin_survives_the_modal_round_trip() {
+        let container = Container { message_ts: "1".to_string(), channel_id: "C1".to_string() };
+        let payload = construct_payload(
+            serde_json::json!([]),
+            false,
+            "trigger",
+            "https://example.com/resume",
+            "u/admin/slack",
+            container,
+            None,
+            None,
+            "signature",
+            ApprovalSkin::Approval,
+        );
+        let view = &payload["view"];
+        assert_eq!(view["submit"]["text"], "Approve");
+        assert_eq!(view["close"]["text"], "Reject");
+        let metadata: PrivateMetadata =
+            serde_json::from_str(view["private_metadata"].as_str().unwrap()).unwrap();
+        assert_eq!(metadata.skin, ApprovalSkin::Approval);
+    }
 }

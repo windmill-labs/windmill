@@ -106,7 +106,7 @@ use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error},
     flow_status::{Approval, ApprovalConditions, FlowStatus, FlowStatusModule},
-    flows::{add_virtual_items_if_necessary, resolve_maybe_value, FlowValue},
+    flows::{add_virtual_items_if_necessary, resolve_maybe_value, ApprovalSkin, FlowValue},
     jobs::{script_path_to_payload, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode},
     oauth2::HmacSha256,
     query_builders,
@@ -4826,6 +4826,7 @@ struct ApprovalInfo {
     user_auth_required: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     hide_cancel: Option<bool>,
+    skin: ApprovalSkin,
     approvers: Vec<Approval>,
     /// Share-read-link token for the flow, minted only for callers allowed to view this
     /// approval. Lets an authenticated workspace-member approver open the run details of
@@ -4879,6 +4880,19 @@ fn can_approve_step(
     }
 }
 
+/// The skin of the latest approval step the run has reached, which stays the page's skin once the
+/// run moves past that step or finishes.
+fn last_reached_approval_skin(flow: &FlowValue, status: &FlowStatus) -> ApprovalSkin {
+    flow.modules
+        .iter()
+        .zip(status.modules.iter())
+        .rev()
+        .filter(|(_, m)| !matches!(m, FlowStatusModule::WaitingForPriorSteps { .. }))
+        .find_map(|(module, _)| module.suspend.as_ref())
+        .and_then(|suspend| suspend.skin)
+        .unwrap_or_default()
+}
+
 async fn get_approval_info(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
@@ -4908,12 +4922,19 @@ async fn get_approval_info(
         email: String,
         flow_status: Option<serde_json::Value>,
         workflow_as_code_status: Option<serde_json::Value>,
+        // Also the completed run's, which `v2_job_status` no longer holds, so a finished run's
+        // page keeps the skin its approval step was given.
+        last_flow_status: Option<serde_json::Value>,
+        last_wac_status: Option<serde_json::Value>,
     }
     let row = sqlx::query_as::<_, ApprovalJobRow>(
         "SELECT j.id, j.runnable_path as script_path, j.permissioned_as_email as email,
-                s.flow_status, s.workflow_as_code_status
+                s.flow_status, s.workflow_as_code_status,
+                COALESCE(s.flow_status, c.flow_status) AS last_flow_status,
+                COALESCE(s.workflow_as_code_status, c.workflow_as_code_status) AS last_wac_status
          FROM v2_job j
          LEFT JOIN v2_job_status s ON s.id = j.id
+         LEFT JOIN v2_job_completed c ON c.id = j.id
          WHERE j.id = $1 AND j.workspace_id = $2",
     )
     .bind(&job_id)
@@ -4925,7 +4946,7 @@ async fn get_approval_info(
     let is_wac = row.workflow_as_code_status.is_some();
 
     // Extract approval info based on WAC vs classic flow
-    let (form_schema, description, default_args, enums, approval_conditions, hide_cancel) =
+    let (form_schema, description, default_args, enums, approval_conditions, hide_cancel, skin) =
         if is_wac {
             let approval_meta = row
                 .workflow_as_code_status
@@ -4940,7 +4961,7 @@ async fn get_approval_info(
                 .as_ref()
                 .and_then(|v| v.get("approval_conditions"))
                 .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok());
-            (form, description, default_args, enums, ac, None)
+            (form, description, default_args, enums, ac, None, None)
         } else {
             let fs = row
                 .flow_status
@@ -5006,6 +5027,14 @@ async fn get_approval_info(
                 .and_then(|s| s.resume_form.as_ref())
                 .map(|rf| serde_json::json!(rf));
             let hc = suspend_settings.map(|s| s.hide_cancel.unwrap_or(false));
+            let last_fs = row
+                .last_flow_status
+                .as_ref()
+                .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok());
+            let skin = raw_flow
+                .as_ref()
+                .zip(last_fs.as_ref())
+                .map(|(flow, status)| last_reached_approval_skin(flow, status));
 
             // Fetch description, default_args, and enums from the step's completed job result
             let step_job_id = fs
@@ -5029,8 +5058,17 @@ async fn get_approval_info(
                 (None, None, None)
             };
 
-            (form, desc, default_args, enums, ac, hc)
+            (form, desc, default_args, enums, ac, hc, skin)
         };
+
+    let skin = match row.last_wac_status.as_ref() {
+        Some(wac_status) => wac_status
+            .get("_approval")
+            .and_then(|m| m.get("skin"))
+            .and_then(|v| serde_json::from_value::<ApprovalSkin>(v.clone()).ok())
+            .unwrap_or_default(),
+        None => skin.unwrap_or_default(),
+    };
 
     let user_auth_required = approval_conditions
         .as_ref()
@@ -5061,6 +5099,7 @@ async fn get_approval_info(
             can_approve: false,
             user_auth_required,
             hide_cancel: None,
+            skin,
             approvers: vec![],
             view_token: None,
         }));
@@ -5096,6 +5135,7 @@ async fn get_approval_info(
         can_approve,
         user_auth_required,
         hide_cancel,
+        skin,
         approvers,
         view_token,
     }))

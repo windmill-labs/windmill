@@ -17,6 +17,7 @@ use std::str::FromStr;
 use uuid::Uuid;
 use windmill_common::cache;
 use windmill_common::error::Error;
+use windmill_common::flows::{ApprovalSkin, Suspend};
 use windmill_common::jobs::JobKind;
 use windmill_common::scripts::ScriptHash;
 
@@ -94,6 +95,17 @@ pub struct ApprovalFormDetails {
     pub message_str: String,
     pub urls: ResumeUrls,
     pub schema: Option<ResumeFormRow>,
+    pub skin: ApprovalSkin,
+}
+
+/// The suspended step an approval message is about, and the flow run it belongs to.
+struct ApprovalStep {
+    created_by: String,
+    created_at: chrono::NaiveDateTime,
+    script_path: Option<String>,
+    parent_job_id: Option<Uuid>,
+    args: Option<sqlx::types::Json<Box<RawValue>>>,
+    suspend: Option<Suspend>,
 }
 
 #[allow(dead_code)]
@@ -205,6 +217,88 @@ pub async fn get_approval_form_details(
 
     tracing::debug!("Job ID: {:?}", job_id);
 
+    let ApprovalStep { created_by, created_at, script_path, parent_job_id, args, suspend } =
+        fetch_approval_step(&db, w_id, job_id, flow_step_id).await?;
+
+    let schema = suspend.as_ref().map(|suspend| ResumeFormRow {
+        resume_form: suspend.resume_form.clone(),
+        hide_cancel: suspend.hide_cancel,
+    });
+    let skin = suspend.and_then(|s| s.skin).unwrap_or_default();
+
+    let bold_format = match format {
+        MessageFormat::Slack => "*{}*",
+        MessageFormat::Teams => "**{}**",
+    };
+
+    let message_str = match skin {
+        ApprovalSkin::Default => {
+            let args_str = args.map_or("None".to_string(), |a| {
+                serde_json::from_str::<serde_json::Value>(a.get())
+                    .ok()
+                    .and_then(|v| serde_json::to_string_pretty(&v).ok())
+                    .unwrap_or_else(|| a.get().to_string())
+            });
+            let parent_job_id_str = parent_job_id.map_or("None".to_string(), |id| id.to_string());
+            let script_path_str = script_path.as_deref().unwrap_or("None");
+
+            let created_at_formatted = created_at.format("%Y-%m-%d %H:%M:%S").to_string();
+
+            let mut message_str = format!(
+                "A workflow has been suspended and is waiting for approval:\n\n\
+                {}: {created_by}\n\n\
+                {}: {created_at_formatted}\n\n\
+                {}: {script_path_str}\n\n\
+                {}:\n```\n{args_str}\n```\n\n\
+                {}: {parent_job_id_str}\n\n",
+                bold_format.replace("{}", "Created by"),
+                bold_format.replace("{}", "Created at"),
+                bold_format.replace("{}", "Script path"),
+                bold_format.replace("{}", "Args"),
+                bold_format.replace("{}", "Flow ID")
+            );
+
+            // Append custom message if provided
+            if let Some(msg) = message {
+                message_str.push_str(msg);
+            }
+            message_str
+        }
+        ApprovalSkin::Approval => format!(
+            "{}\n\n{}: {created_by}",
+            message.unwrap_or("Your approval is requested."),
+            bold_format.replace("{}", "Requested by"),
+        ),
+    };
+
+    tracing::debug!("Schema: {:#?}", schema);
+
+    Ok(ApprovalFormDetails { message_str, urls, schema, skin })
+}
+
+/// The skin of the approval step `flow_step_id` of the flow running `job_id`. Falls back to
+/// the default skin when the step cannot be resolved, so a message is still sent.
+pub async fn get_approval_step_skin(
+    db: &DB,
+    w_id: &str,
+    job_id: Uuid,
+    flow_step_id: &str,
+) -> ApprovalSkin {
+    match fetch_approval_step(db, w_id, job_id, Some(flow_step_id)).await {
+        Ok(step) => step.suspend.and_then(|s| s.skin).unwrap_or_default(),
+        Err(e) => {
+            tracing::warn!("Could not resolve approval step {flow_step_id} of job {job_id}: {e}");
+            ApprovalSkin::default()
+        }
+    }
+}
+
+async fn fetch_approval_step(
+    db: &DB,
+    w_id: &str,
+    job_id: Uuid,
+    flow_step_id: Option<&str>,
+) -> Result<ApprovalStep, Error> {
     // TODO: do we have a helper function for this?
     let (job_kind, script_hash, raw_flow, parent_job_id, created_at, created_by, script_path, args) = sqlx::query!(
         "WITH job_info AS (
@@ -240,17 +334,17 @@ pub async fn get_approval_form_details(
         job_id,
         &w_id
     )
-    .fetch_optional(&db)
+    .fetch_optional(db)
     .await
     .map_err(|e| Error::BadRequest(e.to_string()))?
     .ok_or_else(|| Error::BadRequest("This workflow is no longer running and has either already timed out or been cancelled or completed.".to_string()))
     .map(|r| (r.job_kind, r.script_hash, r.raw_flow, r.parent_job, r.created_at, r.created_by, r.script_path, r.args))?;
 
-    let flow_data = match cache::job::fetch_flow(&db, &job_kind, script_hash).await {
+    let flow_data = match cache::job::fetch_flow(db, &job_kind, script_hash).await {
         Ok(data) => data,
         Err(_) => {
             if let Some(parent_job_id) = parent_job_id.as_ref() {
-                cache::job::fetch_preview_flow(&db, parent_job_id, raw_flow).await?
+                cache::job::fetch_preview_flow(db, parent_job_id, raw_flow).await?
             } else {
                 return Err(Error::BadRequest(
                     "This workflow is no longer running and has either already timed out or been cancelled or completed.".to_string(),
@@ -265,49 +359,12 @@ pub async fn get_approval_form_details(
 
     tracing::debug!("Module: {:#?}", module);
 
-    let schema = module.and_then(|module| {
-        module.suspend.as_ref().map(|suspend| ResumeFormRow {
-            resume_form: suspend.resume_form.clone(),
-            hide_cancel: suspend.hide_cancel,
-        })
-    });
-
-    let args_str = args.map_or("None".to_string(), |a| {
-        serde_json::from_str::<serde_json::Value>(a.get())
-            .ok()
-            .and_then(|v| serde_json::to_string_pretty(&v).ok())
-            .unwrap_or_else(|| a.get().to_string())
-    });
-    let parent_job_id_str = parent_job_id.map_or("None".to_string(), |id| id.to_string());
-    let script_path_str = script_path.as_deref().unwrap_or("None");
-
-    let created_at_formatted = created_at.format("%Y-%m-%d %H:%M:%S").to_string();
-
-    let bold_format = match format {
-        MessageFormat::Slack => "*{}*",
-        MessageFormat::Teams => "**{}**",
-    };
-
-    let mut message_str = format!(
-        "A workflow has been suspended and is waiting for approval:\n\n\
-        {}: {created_by}\n\n\
-        {}: {created_at_formatted}\n\n\
-        {}: {script_path_str}\n\n\
-        {}:\n```\n{args_str}\n```\n\n\
-        {}: {parent_job_id_str}\n\n",
-        bold_format.replace("{}", "Created by"),
-        bold_format.replace("{}", "Created at"),
-        bold_format.replace("{}", "Script path"),
-        bold_format.replace("{}", "Args"),
-        bold_format.replace("{}", "Flow ID")
-    );
-
-    // Append custom message if provided
-    if let Some(msg) = message {
-        message_str.push_str(msg);
-    }
-
-    tracing::debug!("Schema: {:#?}", schema);
-
-    Ok(ApprovalFormDetails { message_str, urls, schema })
+    Ok(ApprovalStep {
+        created_by,
+        created_at,
+        script_path,
+        parent_job_id,
+        args,
+        suspend: module.and_then(|m| m.suspend.clone()),
+    })
 }
