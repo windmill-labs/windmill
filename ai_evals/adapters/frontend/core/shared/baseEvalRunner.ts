@@ -48,6 +48,10 @@ export interface RunEvalParams<THelpers, TOutput> {
   isPlanModeActive?: () => boolean;
   /** Which of `tools` the model is offered on this request. Absent offers all of them. */
   isToolAvailable?: (name: string) => boolean;
+  /** Tools a previous call registered, re-read before every request as production's
+   * tools getter is: an MCP search registers the tools it matched, and the model has to
+   * be offered them on the very next request or the names it was just handed are dead. */
+  getDynamicTools?: () => ProductionTool<THelpers>[];
   /** Re-read before every request, as production's systemMessage getter is. Needed when a
    * tool changes what the prompt should say — plan mode's instructions have to come back
    * out once the plan is approved. Falls back to the fixed `systemMessage`. */
@@ -80,6 +84,7 @@ export async function runEval<THelpers, TOutput>(
     isPlanModeActive,
     isToolAvailable,
     getSystemMessage,
+    getDynamicTools,
   } = params;
   let shouldEmitMessageStart = true;
 
@@ -98,7 +103,7 @@ export async function runEval<THelpers, TOutput>(
   // Wrap tools to intercept fn calls for tracking.
   // Cast to ProductionTool since the eval Tool has a narrower toolCallbacks type
   // but the actual callbacks passed at runtime will satisfy both interfaces.
-  const wrappedTools = tools.map((tool) => ({
+  const trackCalls = (tool: ProductionTool<THelpers>) => ({
     ...tool,
     fn: async (p: any) => {
       toolCallsCount++;
@@ -122,7 +127,9 @@ export async function runEval<THelpers, TOutput>(
       });
       return tool.fn(p);
     },
-  }));
+  });
+
+  const wrappedTools = tools.map(trackCalls);
 
   // No-op callbacks for eval
   const callbacks: ToolCallbacks & {
@@ -160,9 +167,12 @@ export async function runEval<THelpers, TOutput>(
         // must leave the schema too, or the model keeps being offered a call the run has
         // moved past — and the token counts a case reports include a tool it cannot use.
         get tools() {
-          return isToolAvailable
-            ? wrappedTools.filter((t) => isToolAvailable(t.def.function.name))
+          const all = getDynamicTools
+            ? [...wrappedTools, ...getDynamicTools().map(trackCalls)]
             : wrappedTools;
+          return isToolAvailable
+            ? all.filter((t) => isToolAvailable(t.def.function.name))
+            : all;
         },
         helpers,
         abortController,

@@ -1,0 +1,15 @@
+{
+	"workspace": {
+		"resources": [
+			{
+				"path": "f/evals/global/linear_mcp",
+				"resource_type": "mcp",
+				"description": "Linear MCP server",
+				"value": {
+					"name": "linear",
+					"url": "https://mcp.linear.app/mcp"
+				}
+			}
+		]
+	}
+}

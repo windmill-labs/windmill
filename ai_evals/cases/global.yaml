@@ -2399,3 +2399,43 @@
   judgeChecklist:
     - runs the existing script rather than rewriting it
     - passes the GitHub resource as the bare string $res:f/evals/global/github_main
+
+# --- Connected MCP servers (search_mcp_tools + the tools it registers) ---
+# The harness serves one MCP server itself (mock getMcpTools/callMcpTool in
+# adapters/frontend), so this does not need a reachable third party.
+
+- id: global-test41-mcp-tool-argument-from-schema
+  prompt: |-
+    Show me my 3 most recently updated Linear issues.
+  initial: ai_evals/fixtures/frontend/global/initial/linear_mcp_server.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_mcp_tools
+      - mcp_f_evals_global_linear_mcp__list_issues
+    forbiddenToolsUsed:
+      # The free-form wrapper is the fallback for a tool that was not registered.
+      # Reaching for it here means the model is guessing arguments it could have read.
+      - call_mcp_read_tool
+      - call_mcp_write_tool
+      - write_script
+      - deploy_workspace_item
+    toolCallArgs:
+      # `orderBy` is an enum the server declares and the model cannot infer: the
+      # reported bug was inventing a plausible value ("priority") for it. Universal
+      # over calls, so a wrong first guess fails even if a retry recovers.
+      - tool: mcp_f_evals_global_linear_mcp__list_issues
+        field: orderBy
+        stringEqualsAnyOf:
+          - updatedAt
+          - createdAt
+  # A read-only question produces no draft, and the judge sees only drafts — the
+  # deliverable is the argument shape, checked deterministically above.
+  skipJudge: true
+  judgeChecklist:
+    - finds the Linear issue tool through search_mcp_tools
+    - calls it with arguments the server's schema accepts, first time
+    - reports the issues instead of writing a script to fetch them

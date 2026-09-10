@@ -3,7 +3,13 @@ import { expect, it, vi } from 'vitest'
 import { mkdir, writeFile } from 'fs/promises'
 // @ts-ignore - Node.js path
 import { dirname, resolve } from 'path'
-import { handleBenchmarkApiFetch, hasBenchmarkApiHandler } from './mockBackend'
+import {
+	BENCHMARK_MCP_SERVER_PATH,
+	callBenchmarkMcpServerTool,
+	handleBenchmarkApiFetch,
+	hasBenchmarkApiHandler,
+	listBenchmarkMcpServerTools
+} from './mockBackend'
 
 // The API catalog executor issues relative fetch('/api/...') calls, which have
 // no meaning in the vitest environment — serve the ones the benchmark handles.
@@ -26,6 +32,15 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
 	}
 	return ORIGINAL_FETCH(input as Parameters<typeof fetch>[0], init)
 }) as typeof fetch
+
+// Which MCP servers a chat may act through is a per-browser preference, and node has no
+// localStorage — so nothing is ever enabled and the MCP tools never register. The served
+// server stands in as the enabled set.
+vi.mock('$lib/components/mcp/enabledServers', () => ({
+	enabledMcpPaths: () => [BENCHMARK_MCP_SERVER_PATH],
+	isMcpEnabled: (_ws: string, path: string) => path === BENCHMARK_MCP_SERVER_PATH,
+	setMcpEnabled: () => true
+}))
 
 vi.mock('monaco-editor', () => ({
 	editor: {},
@@ -393,7 +408,19 @@ vi.mock('$lib/gen', async () => {
 				return value
 			},
 			queryResourceTypes: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.ResourceService.queryResourceTypes(data)
+				hasBenchmarkWorkspace(data.workspace) ? [] : actual.ResourceService.queryResourceTypes(data),
+			getMcpTools: async (data: { workspace: string; path: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? listBenchmarkMcpServerTools(data.path)
+					: actual.ResourceService.getMcpTools(data),
+			callMcpTool: async (data: {
+				workspace: string
+				path: string
+				requestBody: { tool: string; arguments?: unknown }
+			}) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? callBenchmarkMcpServerTool(data.path, data.requestBody.tool, data.requestBody.arguments)
+					: actual.ResourceService.callMcpTool(data)
 		}),
 		McpService: wrapService(actual.McpService, {
 			listMcpTools: async (data: { workspace: string }) =>

@@ -1318,3 +1318,87 @@ export function handleBenchmarkApiFetch(url: string, init?: RequestInit): Respon
 	}
 	return Response.json({ error: `no benchmark handler for ${path}` }, { status: 404 })
 }
+
+// ============= Connected MCP servers (ResourceService.getMcpTools / callMcpTool) =============
+// The chat reaches a connected MCP server through the backend, which opens a real
+// connection to a third party — no meaning here. One server is served instead, shaped
+// like a real listing: `list_issues` carries the constrained `orderBy` the model used to
+// guess at, which is what the eval measures.
+
+export const BENCHMARK_MCP_SERVER_PATH = 'f/evals/global/linear_mcp'
+
+const BENCHMARK_MCP_SERVER_TOOLS = [
+	{
+		name: 'list_issues',
+		description: 'List issues in the user\'s Linear workspace. For my issues, use "me" as the assignee.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				assignee: { type: 'string', description: 'User ID, name, email, or "me"' },
+				orderBy: {
+					type: 'string',
+					enum: ['createdAt', 'updatedAt'],
+					default: 'updatedAt',
+					description: 'Sort: createdAt | updatedAt'
+				},
+				limit: { type: 'number', default: 50, maximum: 250, description: 'Max results' }
+			}
+		},
+		annotations: { readOnlyHint: true }
+	},
+	{
+		name: 'create_issue',
+		description: 'Create a new issue in Linear.',
+		inputSchema: {
+			type: 'object',
+			properties: { title: { type: 'string' }, team: { type: 'string' } },
+			required: ['title']
+		},
+		annotations: { readOnlyHint: false }
+	}
+]
+
+export function listBenchmarkMcpServerTools(path: string) {
+	if (path !== BENCHMARK_MCP_SERVER_PATH) {
+		throw new Error(`No benchmark MCP server at "${path}"`)
+	}
+	return BENCHMARK_MCP_SERVER_TOOLS
+}
+
+const BENCHMARK_MCP_ISSUES = [
+	{ identifier: 'ENG-412', title: 'Retry webhook deliveries', updatedAt: '2026-01-14T09:12:00Z' },
+	{ identifier: 'ENG-408', title: 'Flaky worker restart', updatedAt: '2026-01-13T17:40:00Z' },
+	{ identifier: 'ENG-401', title: 'Paginate the runs table', updatedAt: '2026-01-12T08:05:00Z' },
+	{ identifier: 'ENG-399', title: 'Audit log filters', updatedAt: '2026-01-11T15:22:00Z' }
+]
+
+/** The result of calling one of the served tools. `list_issues` answers with issues so a
+ * model that asked correctly can report them instead of retrying through the wrapper;
+ * arguments are echoed so a case can assert on what it actually sent. */
+export function callBenchmarkMcpServerTool(path: string, tool: string, args: unknown) {
+	const known = listBenchmarkMcpServerTools(path).find((t) => t.name === tool)
+	if (!known) {
+		throw new Error(`Unknown tool "${tool}" on ${path}`)
+	}
+	const payload: Record<string, unknown> = { ok: true, tool, arguments: args ?? {} }
+	if (tool === 'list_issues') {
+		// The served schema constrains `orderBy`, and the real server refuses a value
+		// outside it — which is the failure the registered-schema path exists to avoid,
+		// so the fixture has to refuse it too rather than accept anything.
+		const orderBy = (args as { orderBy?: unknown } | undefined)?.orderBy
+		if (orderBy !== undefined && !['createdAt', 'updatedAt'].includes(orderBy as string)) {
+			return {
+				isError: true,
+				content: [
+					{
+						type: 'text',
+						text: `Invalid value "${String(orderBy)}" for orderBy. Expected createdAt or updatedAt.`
+					}
+				]
+			}
+		}
+		const limit = (args as { limit?: unknown } | undefined)?.limit
+		payload.issues = BENCHMARK_MCP_ISSUES.slice(0, typeof limit === 'number' ? limit : undefined)
+	}
+	return { content: [{ type: 'text', text: JSON.stringify(payload) }] }
+}

@@ -13,6 +13,12 @@ import {
   getGlobalDraft,
   listGlobalDrafts,
 } from "../../../../../frontend/src/lib/components/copilot/chat/global/userDraftAdapter";
+import {
+  createMcpTools,
+  forgetLoadedMcpTools,
+  loadedMcpTools,
+  loadMcpServers,
+} from "../../../../../frontend/src/lib/components/copilot/chat/global/mcpTools";
 import { appendPlanModeInstructions } from "../../../../../frontend/src/lib/components/copilot/chat/planMode";
 import type { Tool as ProductionTool } from "../../../../../frontend/src/lib/components/copilot/chat/shared";
 import { createEvalPlanTools } from "./planModeTools";
@@ -142,6 +148,10 @@ export async function runGlobalEval(
     options.workspaceRoot ??
     (await mkdtemp(join(tmpdir(), "wmill-frontend-global-benchmark-")));
 
+  // The MCP tool registry is keyed by owner so concurrent cases never see each
+  // other's registrations, as concurrent chat sessions don't in production.
+  const mcpOwnerId = `eval:${workspaceRoot}`;
+
   clearGlobalDrafts(workspaceRoot);
   registerBenchmarkWorkspaceRunnables(
     workspaceRoot,
@@ -178,11 +188,15 @@ export async function runGlobalEval(
           chatId: evalArtifacts.helpers.getChatId(),
         })
       : undefined;
+    // The `mcp` resources this case seeded; a case that seeds none gets no MCP tools
+    // and no MCP section in the prompt, exactly as a workspace with nothing connected.
+    const mcpServers = await loadMcpServers(workspaceRoot);
     // Pass the seeded identity straight to the prompt builder rather than mutating
     // the process-global `userStore`, so concurrent cases never race on it.
     const baseSystemMessage = prepareGlobalSystemMessage(undefined, {
       user: options.user,
       previewTools: options.sessionChat ?? false,
+      mcpServers,
     });
     const rawResult = await runEval({
       userPrompt,
@@ -205,7 +219,12 @@ export async function runGlobalEval(
       tools: [
         ...getGlobalEvalTools(options.sessionChat ?? false),
         ...(planMode?.tools ?? []),
+        ...createMcpTools(mcpOwnerId, mcpServers),
       ],
+      // A tool search registers the tools it matched under this owner; they are offered
+      // from the next request on, which is the behaviour the case measures.
+      getDynamicTools: () =>
+        loadedMcpTools(mcpOwnerId) as ProductionTool<unknown>[],
       helpers: panel
         ? { ...evalArtifacts.helpers, openArtifact: panel.openArtifact }
         : evalArtifacts.helpers,
@@ -243,6 +262,7 @@ export async function runGlobalEval(
     };
   } finally {
     panel?.dispose();
+    forgetLoadedMcpTools(mcpOwnerId);
     clearGlobalDrafts(workspaceRoot);
     clearLiveEditorDrafts(workspaceRoot, options.liveEditorDrafts ?? []);
     unregisterBenchmarkWorkspaceRunnables(workspaceRoot);
