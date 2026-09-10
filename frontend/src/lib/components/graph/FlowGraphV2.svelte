@@ -989,6 +989,9 @@
 		// FlowRunStatus instead.
 		flowJob
 		suspendStatus
+		// Dataflow edges hang off the selected step. Selection is otherwise xyflow's own state,
+		// so it only rebuilds the graph while those edges are shown.
+		if ($useDataflow) selectedId
 
 		const collapsedGroupIds = new Set(
 			allGroups
