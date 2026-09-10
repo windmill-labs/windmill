@@ -5,6 +5,8 @@
 -- role means reassigning what it owns in *every* instance database, and a migration runs in one.
 --
 -- Delete the roles through instance settings first; that path does the cluster work.
+LOCK TABLE datatable_role IN ACCESS EXCLUSIVE MODE;
+
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM datatable_role) THEN

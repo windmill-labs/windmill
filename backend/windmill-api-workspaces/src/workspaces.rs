@@ -49,8 +49,8 @@ use windmill_common::workspaces::{
     get_datatable_resource_from_db, get_datatable_resource_from_db_unchecked,
     resolve_governing_datatable, validate_dev_workspace_id, validate_fork_workspace_id,
     validate_workspace_name, DataTable, DataTableCatalogResourceType, DataTableForkBehavior,
-    DatatableAccess, ProtectionRuleKind, ProtectionRules, ProtectionRuleset, RuleCheckResult,
-    WorkspaceGitSyncSettings, DEV_WORKSPACE_LOCK_RULE_NAME,
+    DatatableAccess, GoverningDatatable, ProtectionRuleKind, ProtectionRules, ProtectionRuleset,
+    RuleCheckResult, WorkspaceGitSyncSettings, DEV_WORKSPACE_LOCK_RULE_NAME,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -3348,7 +3348,18 @@ struct ImportPgDatabaseRequest {
 /// exists, refusing is the honest answer. Dropping `permissions` from the clone instead would be
 /// the unsafe half: the copy holds the parent's rows, so an unpermissioned clone hands all of them
 /// to everyone in the fork.
-async fn ensure_datatable_is_clonable(db: &DB, w_id: &str, name: &str) -> Result<()> {
+/// Every reason a copy can be refused, answered here and nowhere else.
+///
+/// A clone is three stages a workspace apart: `create_pg_database`, `import_pg_database`, then
+/// `apply_forked_datatable` inside the fork transaction. Only the third can roll back, and the
+/// database the first created is not transactional — so a refusal that lives there strands a
+/// registered `wm_fork_*` that no entry names and whose name blocks the retry. Both endpoints call
+/// this before touching the cluster; the stage that writes the entry must only ever do the work.
+async fn ensure_datatable_is_clonable(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+) -> Result<GoverningDatatable> {
     let governing = resolve_governing_datatable(db, w_id, name).await?;
     if governing.datatable.permissions.is_some() {
         return Err(Error::BadRequest(format!(
@@ -3358,7 +3369,20 @@ async fn ensure_datatable_is_clonable(db: &DB, w_id: &str, name: &str) -> Result
              its roles off first."
         )));
     }
-    Ok(())
+    // The copy has to name a database of its own. A resource-backed entry reached through a
+    // pointer names one this workspace does not own, so there is nothing here to repoint.
+    let is_instance = governing
+        .datatable
+        .database
+        .as_ref()
+        .is_some_and(|d| d.resource_type == DataTableCatalogResourceType::Instance);
+    if governing.workspace_id != w_id && !is_instance {
+        return Err(Error::BadRequest(format!(
+            "Data table '{name}' points at a resource-backed data table in another workspace \
+             and cannot be copied; fork it from the workspace that owns it."
+        )));
+    }
+    Ok(governing)
 }
 
 /// Import (pg_dump/pg_import) from source to target
@@ -7883,7 +7907,7 @@ async fn apply_forked_datatable(
         &DatatableAccess::Authed(authed.to_authed_ref()),
     )
     .await?;
-    ensure_datatable_is_clonable(db, parent_w_id, &fdt.name).await?;
+    let governing = ensure_datatable_is_clonable(db, parent_w_id, &fdt.name).await?;
     windmill_common::validate_dbname(&fdt.new_dbname)?;
     if !fdt.new_dbname.starts_with("wm_fork_") {
         return Err(Error::BadRequest(format!(
@@ -7916,36 +7940,17 @@ async fn apply_forked_datatable(
         .map_err(|e| Error::internal_err(format!("Failed to parse datatable config: {}", e)))?;
 
     // A clone owns its copy, so the fork's entry has to be terminal. When the parent was itself a
-    // fork the settings clone hands down a pointer instead, and the database this clone just
-    // created is already filled — so resolve what it points at and name the copy, rather than
-    // refusing after the fact. Pointers are only ever written for instance databases
-    // (`point_kept_datatables_at_parent`), so the resolved entry is one.
+    // fork the settings clone hands down a pointer instead, and what it points at is what the copy
+    // was taken from. `ensure_datatable_is_clonable` already settled that this shape can be
+    // cloned, so there is nothing left to refuse here — by now the database exists and is filled.
     let database = match dt.database.clone() {
         Some(database) => database,
-        None => {
-            let resolved = resolve_governing_datatable(db, parent_w_id, &fdt.name)
-                .await?
-                .datatable
-                .database
-                .ok_or_else(|| {
-                    Error::internal_err(format!(
-                        "Data table '{}' resolves to an entry that owns no database",
-                        fdt.name
-                    ))
-                })?;
-            // The resource branch below rewrites a resource this workspace owns; a pointer names
-            // one it does not, so following it there would move the fork onto someone else's
-            // database. Checked rather than assumed: only `point_kept_datatables_at_parent`
-            // writes pointers and only for instance entries, but nothing here enforces that.
-            if resolved.resource_type != DataTableCatalogResourceType::Instance {
-                return Err(Error::BadRequest(format!(
-                    "Data table '{}' points at a resource-backed data table in another \
-                     workspace and cannot be cloned; fork it from the workspace that owns it.",
-                    fdt.name
-                )));
-            }
-            resolved
-        }
+        None => governing.datatable.database.clone().ok_or_else(|| {
+            Error::internal_err(format!(
+                "Data table '{}' resolves to an entry that owns no database",
+                fdt.name
+            ))
+        })?,
     };
 
     if database.resource_type == DataTableCatalogResourceType::Instance {
