@@ -1189,7 +1189,7 @@ What the assistant should do when this skill applies.
 >
 	<span class="text-xs text-primary">
 		This deletes the resource at <span class="font-semibold">{toDelete?.path}</span>, so everyone
-		who selected it loses the skill.
+		who can read it loses the skill.
 	</span>
 </ConfirmationModal>
 
