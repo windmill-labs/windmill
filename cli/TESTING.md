@@ -29,6 +29,24 @@ binary and starts a shared backend instance.
 
 Examples: `sync_pull_push`, `dev_server`, `standalone_commands`
 
+## Module mocks
+
+`mock.module` replaces a module for the **whole process**, and a stub cannot be taken
+back. Every test file's imports resolve before any `afterAll` runs, so a suite that binds
+a stub at import time keeps it however the file that installed it cleans up afterwards.
+An `afterAll` hand-back only reaches a consumer that imports dynamically, later.
+
+So the rule is about what you stub, not how you clean up: **stub only a module no other
+in-process suite imports.** Check with `grep -rl "<exported fn>" test/` before reaching
+for one. A suite that drives the CLI through a spawned process is out of reach of a
+module mock and doesn't count.
+
+`raw_app_push_policy_unit.test.ts` stubs `gen/services.gen.ts` (nothing else in `test/`
+imports the three API functions it replaces) but deliberately does **not** stub
+`bundle.ts`: doing so made `raw_app_svelte_plugin_unit.test.ts` assert against an empty
+bundle whenever the runner reached the two files in that order — green on Linux, red on
+Windows, because the ordering is `readdir` order.
+
 ## AI Benchmark Caveats
 
 The repo-level benchmark CLI lives under `ai_evals/`, but it currently depends on
