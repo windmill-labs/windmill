@@ -6,8 +6,10 @@
 		hubAppIcon,
 		hubBrowserUrl,
 		hubProjectCatalogue,
+		pinHubProjects,
 		type HubProjectPick
 	} from '$lib/hubProject'
+	import { onboardingProfile } from '$lib/onboardingProfile'
 	import { workspaceStore } from '$lib/stores'
 
 	interface Props {
@@ -40,9 +42,19 @@
 		untrack(() => {
 			list?.setLoader(async (page: number, perPage: number) => {
 				try {
-					const all = await hubProjectCatalogue(workspace)
+					const [all, profile] = await Promise.all([
+						hubProjectCatalogue(workspace),
+						onboardingProfile()
+					])
 					loadFailed = false
-					return all.slice((page - 1) * perPage, page * perPage)
+					const rows = pinHubProjects(all, profile)
+					const pinned = rows.filter((r) => r.pinned).length
+					// The snippet gets the row alone, not its index, so the row that opens the
+					// plain catalogue after the picks is flagged here.
+					return rows.slice((page - 1) * perPage, page * perPage).map((r, i) => ({
+						...r,
+						leadsCatalogue: pinned > 0 && (page - 1) * perPage + i === pinned
+					}))
 				} catch (error) {
 					loadFailed = true
 					throw error
@@ -88,10 +100,21 @@
 		<!-- The height comes from the flex chain above: DataTable's own container is `h-full`, so
 		     the scroll box inside it is bounded, which is what lets the list page. -->
 		<InfiniteList bind:this={list} noBorder rounded={false}>
-			{#snippet customRow({ item }: { item: HubProjectPick })}
+			{#snippet customRow({
+				item
+			}: {
+				item: HubProjectPick & { pinned: boolean; leadsCatalogue: boolean }
+			})}
 				{@const Icon = hubAppIcon(item.iconApps[0] ?? '')}
 				<tr>
 					<td class="p-0">
+						{#if item.leadsCatalogue}
+							<p
+								class="border-b border-border-light bg-surface-secondary px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-tertiary"
+							>
+								More from the hub
+							</p>
+						{/if}
 						<button
 							class="group flex w-full items-start gap-3 border-b border-border-light px-3 py-2.5 text-left hover:bg-surface-hover"
 							onclick={() => onPick(item)}
@@ -109,6 +132,13 @@
 							<div class="min-w-0 flex-1">
 								<div class="flex items-center gap-1.5">
 									<span class="truncate text-xs font-semibold text-emphasis">{item.name}</span>
+									{#if item.pinned}
+										<span
+											class="shrink-0 rounded bg-surface-accent-selected px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent"
+										>
+											Picked for you
+										</span>
+									{/if}
 									{#if item.stars > 0}
 										<span
 											class="flex shrink-0 items-center gap-0.5 text-2xs font-normal text-tertiary"

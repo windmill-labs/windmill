@@ -36,9 +36,14 @@
 		 * settings rather than stranded under the button that finishes the form.
 		 */
 		leading?: Snippet
+		/**
+		 * A name the host already knows — the company an invite named, say — which beats the
+		 * one derived from the account. Only ever a prefill: the person's own typing wins.
+		 */
+		suggestedName?: string
 	}
 
-	let { onCreated, leading }: Props = $props()
+	let { onCreated, leading, suggestedName }: Props = $props()
 
 	let name = $state('')
 	let creating = $state(false)
@@ -71,9 +76,10 @@
 		])
 		if (!nameEdited) {
 			name =
-				me.status === 'fulfilled'
+				suggestedName?.trim() ||
+				(me.status === 'fulfilled'
 					? defaultWorkspaceName(me.value.name, me.value.email)
-					: 'My workspace'
+					: 'My workspace')
 		}
 		if (policy.status === 'rejected') {
 			console.error('Could not read the username policy:', policy.reason)

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('./gen', () => ({ HubPublishService: {}, SettingService: {} }))
 vi.mock('./components/icons', () => ({ appIconComponent: () => undefined }))
 
-import { hubProjectDescription } from './hubProject'
+import { hubProjectDescription, pinHubProjects } from './hubProject'
 
 describe('hubProjectDescription', () => {
 	it('prefers the description field when the hub has one', () => {
@@ -47,5 +47,31 @@ describe('hubProjectDescription', () => {
 			'Short links'
 		)
 		expect(hubProjectDescription({})).toBe('')
+	})
+})
+
+describe('pinHubProjects', () => {
+	const pick = (slug: string, apps: string[], stars: number) =>
+		({ id: slug, slug, name: slug, summary: '', description: '', author: '', apps, iconApps: apps, stars }) as any
+	const all = [pick('a', ['slack'], 9), pick('b', ['hubspot'], 5), pick('c', ['hubspot', 'slack'], 2)]
+
+	it('hoists the named slugs in the invite order and skips ones the hub no longer lists', () => {
+		expect(pinHubProjects(all, { hub_projects: ['c', 'gone', 'a'] }).map((p) => [p.slug, p.pinned])).toEqual([
+			['c', true],
+			['a', true],
+			['b', false]
+		])
+	})
+
+	it('falls back to the best projects built on a known tool when no slugs are named', () => {
+		expect(pinHubProjects(all, { tools: ['hubspot'] }).map((p) => [p.slug, p.pinned])).toEqual([
+			['b', true],
+			['c', true],
+			['a', false]
+		])
+	})
+
+	it('leaves the catalogue as is, all unpinned, without a profile', () => {
+		expect(pinHubProjects(all, null).every((p) => !p.pinned)).toBe(true)
 	})
 })

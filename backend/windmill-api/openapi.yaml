@@ -6537,7 +6537,7 @@ paths:
                   type: string
                 profile:
                   type: object
-                  description: free-form context from the invite; today `touch_point` (answers onboarding's source question) and `company`
+                  description: free-form context from the invite, every key optional. The frontend reads `touch_point` (answers onboarding's source question), `company` and `workspace_name` (prefill the first workspace's name), `hub_projects` (slugs surfaced first on an empty workspace), `tools` (integrations, used to pick hub projects when none are named) and `starter_prompts` (`[{label, prompt}]`, replacing the home page's example prompts); unknown keys are kept and ignored
       responses:
         "200":
           description: profile recorded
