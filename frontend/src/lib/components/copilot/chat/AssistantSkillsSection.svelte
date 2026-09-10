@@ -298,21 +298,25 @@ What the assistant should do when this skill applies.
 		return `wm-skill-entry-${key}`
 	}
 
-	/** Moving the mouse over the list hands it back to hover, highlight and all.
-	 * Dropping the key as well as the drawing is the point: a highlight that is no
-	 * longer lit is still a target Space would act on, and the row under the pointer
-	 * is the one the user is looking at.
+	/** Moving the mouse over the list hands it back to hover: nothing is drawn as
+	 * highlighted any more, and Space and Enter stop acting, since the row they would
+	 * act on is no longer the row the user is looking at.
+	 *
+	 * The highlight moves to the row under the pointer rather than being dropped. It
+	 * is invisible while the mouse leads — drawing and acting both wait on
+	 * `keyboardActive` — and it is where the next arrow press carries on from, which
+	 * is the row the user was last on rather than the top of the list.
 	 *
 	 * Driven by a real movement rather than by `mouseenter`, which the browser also
 	 * fires when rows arrive under a stationary pointer — every scroll the keyboard
 	 * itself causes, and every collapse — and would hand control back to a mouse
-	 * nobody touched, restarting the walk at the top of the list. */
+	 * nobody touched. */
 	function releaseKeyboardOnMove(event: MouseEvent) {
 		if (!keyboardActive) return
-		const over = event.target as HTMLElement | null
-		if (!over?.closest?.('[id^="wm-skill-entry-"]')) return
+		const row = (event.target as HTMLElement | null)?.closest?.('[id^="wm-skill-entry-"]')
+		if (!row) return
 		keyboardActive = false
-		highlightedKey = undefined
+		highlightedKey = row.id.replace('wm-skill-entry-', '')
 	}
 
 	function setHighlight(key: string | undefined) {
