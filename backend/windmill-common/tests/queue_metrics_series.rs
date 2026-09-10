@@ -67,3 +67,47 @@ async fn a_series_starts_from_the_sample_before_the_window_and_keeps_each_slot_p
         );
     }
 }
+
+/// A delay stored as its head's wait start is drawn as that wait, growing a second per second,
+/// right up to the zero that closes it.
+#[sqlx::test(migrations = "../migrations")]
+async fn a_climbing_delay_is_drawn_as_the_wait_of_its_head(db: Pool<Postgres>) {
+    let now: f64 = sqlx::query_scalar("SELECT EXTRACT(EPOCH FROM now())::double precision")
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    // The head started waiting 30s before the window; heartbeats restate it until the drain.
+    let head = json!({ "since": now - WINDOW - 30.0 });
+    for at in [60.0, 360.0, 660.0] {
+        sample(&db, "queue_delay_t", head.clone(), at).await;
+    }
+    sample(&db, "queue_delay_t", json!(0), 900.0).await;
+
+    let series = read_queue_metrics_series(&db, WINDOW).await.unwrap();
+    let points = series.tags[0]
+        .delay
+        .iter()
+        .map(|(ms, value)| ((*ms - series.from) as f64 / 1000.0, *value))
+        .collect::<Vec<_>>();
+
+    let climb = points
+        .iter()
+        .filter(|(_, value)| *value > 0.0)
+        .collect::<Vec<_>>();
+    assert!(
+        climb.len() > 4,
+        "the climb has vertices along the way: {points:?}"
+    );
+    for (at, value) in &climb {
+        assert!(
+            (value - (at + 30.0)).abs() < 2.0,
+            "off the climb at {at}: {points:?}"
+        );
+    }
+    let (first, _) = climb[0];
+    let (top, _) = climb[climb.len() - 1];
+    assert!(
+        (first - 60.0).abs() < 2.0 && (top - 900.0).abs() < 2.0,
+        "{points:?}"
+    );
+}
