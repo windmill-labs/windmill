@@ -4832,7 +4832,10 @@ mod tests {
         assert!(validate_git_url("http://169.254.169.254/latest/meta-data/")
             .await
             .is_err());
-        assert!(validate_git_url("http://10.0.0.1/repo.git").await.is_err());
+        let err = validate_git_url("http://10.0.0.1/repo.git")
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("ALLOW_LOCAL_GIT_REMOTES"), "{err}");
         assert!(validate_git_url("http://172.16.0.1/repo.git")
             .await
             .is_err());
