@@ -627,3 +627,121 @@ async fn test_root_job_span_relocated_to_inbound_trace() {
         expected_uuid_trace
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// RESOURCE ATTRIBUTES (OTEL_RESOURCE_ATTRIBUTES)
+// ═══════════════════════════════════════════════════════════════════════
+
+fn resource_attrs() -> std::collections::HashMap<String, String> {
+    otlp_service_resource(
+        &windmill_common::utils::Mode::Worker,
+        "fallback-host",
+        "dev",
+    )
+    .iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect()
+}
+
+#[test]
+#[serial_test::serial]
+fn test_otlp_resource_merges_env_attributes_without_losing_windmill_identity() {
+    // These take precedence over the hostname argument and over OTEL_RESOURCE_ATTRIBUTES,
+    // so clear them or an ambient one fails the assertions below for an unrelated reason.
+    for var in [
+        "OTEL_HOST_NAME",
+        "OTEL_SERVICE_NAME",
+        "OTEL_SERVICE_VERSION",
+    ] {
+        std::env::remove_var(var);
+    }
+    std::env::set_var(
+        "OTEL_RESOURCE_ATTRIBUTES",
+        "k8s.pod.uid=abc-123,service.name=injected,host.name=injected",
+    );
+    let attrs = resource_attrs();
+    std::env::remove_var("OTEL_RESOURCE_ATTRIBUTES");
+
+    // Attributes the deployment injects reach the exporters.
+    assert_eq!(
+        attrs.get("k8s.pod.uid").map(String::as_str),
+        Some("abc-123")
+    );
+    // OTEL_RESOURCE_ATTRIBUTES is the secondary resource, so Windmill's own values still win.
+    assert_eq!(
+        attrs.get("service.name").map(String::as_str),
+        Some("windmill-worker")
+    );
+    assert_eq!(
+        attrs.get("host.name").map(String::as_str),
+        Some("fallback-host")
+    );
+}
+
+#[test]
+#[serial_test::serial]
+fn test_otlp_resource_dedicated_overrides_win() {
+    // A deployment sets these per pod, e.g. from Kubernetes downward-API labels. The
+    // competing service.name must lose: the spec ranks OTEL_SERVICE_NAME above it.
+    std::env::set_var("OTEL_RESOURCE_ATTRIBUTES", "service.name=should-lose");
+    std::env::set_var("OTEL_SERVICE_NAME", "windmill-workers");
+    std::env::set_var("OTEL_SERVICE_VERSION", "1.802.0");
+    std::env::set_var("OTEL_HOST_NAME", "pod-7");
+    let overridden = resource_attrs();
+
+    // An empty value means unset, which is what the downward API yields for a missing label.
+    for var in [
+        "OTEL_SERVICE_NAME",
+        "OTEL_SERVICE_VERSION",
+        "OTEL_HOST_NAME",
+    ] {
+        std::env::set_var(var, "");
+    }
+    let empty = resource_attrs();
+    for var in [
+        "OTEL_SERVICE_NAME",
+        "OTEL_SERVICE_VERSION",
+        "OTEL_HOST_NAME",
+        "OTEL_RESOURCE_ATTRIBUTES",
+    ] {
+        std::env::remove_var(var);
+    }
+    let unset = resource_attrs();
+
+    assert_eq!(
+        overridden.get("service.name").map(String::as_str),
+        Some("windmill-workers")
+    );
+    assert_eq!(
+        overridden.get("service.version").map(String::as_str),
+        Some("1.802.0")
+    );
+    assert_eq!(
+        overridden.get("host.name").map(String::as_str),
+        Some("pod-7")
+    );
+
+    assert_eq!(
+        empty.get("service.name").map(String::as_str),
+        Some("windmill-worker")
+    );
+    assert_eq!(
+        empty.get("host.name").map(String::as_str),
+        Some("fallback-host")
+    );
+    assert_eq!(
+        empty.get("service.version").map(String::as_str),
+        Some(windmill_common::utils::GIT_VERSION)
+    );
+
+    // With nothing set at all — the default deployment — SdkProvidedResourceDetector still
+    // contributes service.name = "unknown_service". Ours has to overwrite it.
+    assert_eq!(
+        unset.get("service.name").map(String::as_str),
+        Some("windmill-worker")
+    );
+    assert_eq!(
+        unset.get("service.version").map(String::as_str),
+        Some(windmill_common::utils::GIT_VERSION)
+    );
+}
