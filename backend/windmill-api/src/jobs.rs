@@ -7417,7 +7417,7 @@ async fn log_job_view(
 }
 
 pub async fn run_wait_result_job_by_path_get(
-    _: CrossSiteGetGuard,
+    cross_site: CrossSiteGetGuard,
     method: hyper::http::Method,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -7430,6 +7430,7 @@ pub async fn run_wait_result_job_by_path_get(
     check_license_key_valid().await?;
 
     let script_path = script_path.to_path();
+    cross_site.refuse_hub_script(&RunnableId::from_script_path(script_path))?;
     check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;
 
     if method == http::Method::HEAD {
@@ -7524,7 +7525,6 @@ pub async fn run_wait_result_job_by_path_get(
 }
 
 pub async fn run_wait_result_flow_by_path_get(
-    _: CrossSiteGetGuard,
     method: hyper::http::Method,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -7823,7 +7823,6 @@ pub async fn run_wait_result_flow_by_path(
 }
 
 pub async fn stream_flow_by_path(
-    _: CrossSiteGetGuard,
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -7846,7 +7845,6 @@ pub async fn stream_flow_by_path(
 }
 
 pub async fn stream_flow_by_version(
-    _: CrossSiteGetGuard,
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -7869,7 +7867,7 @@ pub async fn stream_flow_by_version(
 }
 
 pub async fn stream_script_by_path(
-    _: CrossSiteGetGuard,
+    cross_site: CrossSiteGetGuard,
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -7878,12 +7876,14 @@ pub async fn stream_script_by_path(
     method: hyper::http::Method,
     args: RawWebhookArgs,
 ) -> error::Result<Response> {
+    let runnable_id = RunnableId::from_script_path(script_path.to_path());
+    cross_site.refuse_hub_script(&runnable_id)?;
     stream_job(
         authed,
         db,
         user_db,
         w_id,
-        RunnableId::from_script_path(script_path.to_path()),
+        runnable_id,
         args,
         run_query,
         method == http::Method::GET,
@@ -7892,7 +7892,6 @@ pub async fn stream_script_by_path(
 }
 
 pub async fn stream_script_by_hash(
-    _: CrossSiteGetGuard,
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -8085,7 +8084,6 @@ pub async fn run_wait_result_flow_by_path_internal(
 }
 
 pub async fn run_wait_result_flow_by_version_get(
-    _: CrossSiteGetGuard,
     method: hyper::http::Method,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,

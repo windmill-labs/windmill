@@ -13,34 +13,70 @@ use url::Url;
 use windmill_common::error::Error;
 use windmill_common::users::COOKIE_NAME;
 
-/// Refuses a cross-site GET that would queue a job on the strength of the session cookie
-/// alone. Belongs on every GET handler that runs a script or a flow.
+use crate::triggers::trigger_helpers::RunnableId;
+
+/// Whether a request is a cross-site GET authenticating on the session cookie alone, for the
+/// GET handlers that can run a Hub script to refuse one with [`Self::refuse_hub_script`].
 ///
 /// The cookie is `SameSite=Lax`, so browsers attach it to cross-site top-level GET
-/// navigations: a GET that runs a job lets any page make a logged-in browser execute a
-/// deployed runnable with arguments of its choosing.
+/// navigations. A `hub/` path runs any public Hub script, and an argument written
+/// `$var:<path>` or `$res:<path>` is resolved as the caller before the script sees it: such a
+/// GET lets any page pick a generic Hub script and hand it the victim's secrets, which the job
+/// can then send anywhere. Workspace scripts and flows are deliberately not refused — they
+/// only run code the workspace's own members deployed.
 ///
 /// The cookie is the only ambient credential. A bearer header is explicit, and so is the
-/// `token` query parameter the webhook URLs carry — a cross-origin `EventSource` has no
-/// other way to authenticate, since it cannot set headers. The checks below run in
-/// `extract_token`'s order, header before cookie, because that is the order it resolves
-/// them in: a request carrying both a cookie and `token=` authenticates on the cookie and
-/// is therefore still ambient, which is also why a valid `token=` link opened cross-site
-/// while signed in is refused.
-pub struct CrossSiteGetGuard;
+/// `token` query parameter the webhook URLs carry — a cross-origin `EventSource` has no other
+/// way to authenticate, since it cannot set headers. The checks run in `extract_token`'s
+/// order, header before cookie, because that is the order it resolves them in: a request
+/// carrying both a cookie and `token=` authenticates on the cookie and is therefore still
+/// ambient, which is also why a valid `token=` link opened cross-site while signed in is
+/// refused.
+pub struct CrossSiteGetGuard(Option<CrossSite>);
+
+impl CrossSiteGetGuard {
+    pub fn refuse_hub_script(
+        &self,
+        runnable_id: &RunnableId,
+    ) -> windmill_common::error::Result<()> {
+        let (Some(signal), RunnableId::HubScript(_)) = (&self.0, runnable_id) else {
+            return Ok(());
+        };
+        // The `Referer` leg is the one that can misfire, on a request that really was
+        // same-host: it compares against the hosts the backend can see, and a proxy that
+        // rewrites `Host` without setting `X-Forwarded-Host` leaves none of them matching
+        // what the browser addressed. Name the comparison so that shows up as a
+        // misconfiguration rather than as an unexplained 403.
+        if let CrossSite::RefererMismatch { referer, instance_hosts } = signal {
+            tracing::warn!(
+                referer_host = %referer,
+                ?instance_hosts,
+                "refusing a cross-site GET Hub script run inferred from Referer; if the request \
+                 was same-host, set `X-Forwarded-Host` on the proxy or configure `BASE_URL`"
+            );
+        }
+        Err(Error::PermissionDenied(
+            "a cross-site GET request cannot run a Hub script with the session cookie, which takes \
+             precedence over a `token` query parameter: pass the token in the `Authorization` \
+             header, or open the link from the instance itself or from a browser with no Windmill \
+             session"
+                .to_string(),
+        ))
+    }
+}
 
 impl<S: Send + Sync> FromRequestParts<S> for CrossSiteGetGuard {
-    type Rejection = Error;
+    type Rejection = std::convert::Infallible;
 
     async fn from_request_parts(
         parts: &mut Parts,
         state: &S,
     ) -> std::result::Result<Self, Self::Rejection> {
         if parts.method != Method::GET {
-            return Ok(CrossSiteGetGuard);
+            return Ok(CrossSiteGetGuard(None));
         }
         let Some(signal) = cross_site_signal(parts) else {
-            return Ok(CrossSiteGetGuard);
+            return Ok(CrossSiteGetGuard(None));
         };
 
         let has_bearer = parts
@@ -49,43 +85,20 @@ impl<S: Send + Sync> FromRequestParts<S> for CrossSiteGetGuard {
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.starts_with("Bearer "));
         if has_bearer {
-            return Ok(CrossSiteGetGuard);
+            return Ok(CrossSiteGetGuard(None));
         }
 
         let has_session_cookie =
             Extension::<tower_cookies::Cookies>::from_request_parts(parts, state)
                 .await
                 .is_ok_and(|Extension(cookies)| cookies.get(COOKIE_NAME).is_some());
-        if has_session_cookie {
-            // The `Referer` leg is the one that can misfire, on a request that really was
-            // same-host: it compares against the hosts the backend can see, and a proxy
-            // that rewrites `Host` without setting `X-Forwarded-Host` leaves none of them
-            // matching what the browser addressed. Name the comparison so that shows up as
-            // a misconfiguration rather than as an unexplained 403.
-            if let CrossSite::RefererMismatch { referer } = &signal {
-                tracing::warn!(
-                    referer_host = %referer,
-                    instance_hosts = ?instance_hosts(parts).collect::<Vec<_>>(),
-                    "refusing a cross-site GET job run inferred from Referer; if the request was \
-                     same-host, set `X-Forwarded-Host` on the proxy or configure `BASE_URL`"
-                );
-            }
-            return Err(Error::PermissionDenied(
-                "a cross-site GET request cannot run a job with the session cookie, which takes \
-                 precedence over a `token` query parameter: pass the token in the `Authorization` \
-                 header, or open the link from the instance itself or from a browser with no \
-                 Windmill session"
-                    .to_string(),
-            ));
-        }
-
-        Ok(CrossSiteGetGuard)
+        Ok(CrossSiteGetGuard(has_session_cookie.then_some(signal)))
     }
 }
 
 enum CrossSite {
     Declared,
-    RefererMismatch { referer: String },
+    RefererMismatch { referer: String, instance_hosts: Vec<String> },
 }
 
 fn cross_site_signal(parts: &Parts) -> Option<CrossSite> {
@@ -107,8 +120,11 @@ fn cross_site_signal(parts: &Parts) -> Option<CrossSite> {
     // reads as not cross-site, matching how `Sec-Fetch-Site: none` (a bookmark, a typed
     // URL) is treated.
     let referer = referer_host(parts)?;
-    (!instance_hosts(parts).any(|host| host.eq_ignore_ascii_case(&referer)))
-        .then_some(CrossSite::RefererMismatch { referer })
+    let instance_hosts: Vec<String> = instance_hosts(parts).collect();
+    (!instance_hosts
+        .iter()
+        .any(|host| host.eq_ignore_ascii_case(&referer)))
+    .then_some(CrossSite::RefererMismatch { referer, instance_hosts })
 }
 
 /// Every host a legitimate same-host request can name. `Host` alone is not enough: a
@@ -160,7 +176,58 @@ fn host_of(value: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::host_of;
+    use super::{cross_site_signal, host_of, CrossSite};
+    use axum::http::{request::Parts, Request};
+
+    fn parts(headers: &[(&str, &str)]) -> Parts {
+        let mut req = Request::get("/api/w/ws/jobs/run_wait_result/p/hub/1/x");
+        for (name, value) in headers {
+            req = req.header(*name, *value);
+        }
+        req.body(()).unwrap().into_parts().0
+    }
+
+    #[test]
+    fn sec_fetch_site_decides_when_present() {
+        let declared = |site| cross_site_signal(&parts(&[("sec-fetch-site", site)]));
+        assert!(matches!(declared("cross-site"), Some(CrossSite::Declared)));
+        for site in ["same-origin", "same-site", "none"] {
+            assert!(declared(site).is_none(), "{site} is not cross-site");
+        }
+        // The header outranks a `Referer` that disagrees with it.
+        let with_referer = parts(&[
+            ("sec-fetch-site", "same-origin"),
+            ("host", "windmill.example"),
+            ("referer", "https://attacker.example/page"),
+        ]);
+        assert!(cross_site_signal(&with_referer).is_none());
+    }
+
+    #[test]
+    fn referer_stands_in_when_sec_fetch_site_is_absent() {
+        let signal = |headers: &[(&str, &str)]| cross_site_signal(&parts(headers));
+        assert!(matches!(
+            signal(&[
+                ("host", "windmill.example"),
+                ("referer", "https://attacker.example/p")
+            ]),
+            Some(CrossSite::RefererMismatch { .. })
+        ));
+        // Ports differ between the frontend and the API, and do not make a request cross-site.
+        assert!(signal(&[
+            ("host", "windmill.example:8000"),
+            ("referer", "http://windmill.example:3000/apps"),
+        ])
+        .is_none());
+        // A proxy that rewrote `Host` but forwarded the public name.
+        assert!(signal(&[
+            ("host", "windmill-server.internal"),
+            ("x-forwarded-host", "windmill.example"),
+            ("referer", "https://windmill.example/apps"),
+        ])
+        .is_none());
+        assert!(signal(&[("host", "windmill.example")]).is_none());
+    }
 
     #[test]
     fn host_of_strips_port_brackets_and_proxy_chain() {

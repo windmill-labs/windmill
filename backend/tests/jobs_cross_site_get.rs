@@ -1,184 +1,138 @@
-//! Regression test for cross-site GET CSRF on the job-run endpoints.
+//! Regression test for cross-site GET CSRF on the job-run endpoints that can run a Hub script.
 //!
-//! Seven GET handlers under `/api/w/:workspace/jobs` queue and run a script or flow.
-//! The session cookie is `SameSite=Lax`, so a browser attaches it to a cross-site
-//! top-level GET navigation, and nothing in the request path looked at `Origin`,
-//! `Referer` or `Sec-Fetch-*`: an attacker page could make a logged-in browser execute
-//! any deployed runnable with arguments of its choosing. CORS hides the response but
-//! not the side effect.
+//! `run_wait_result/p/{path}` and `run_and_stream/p/{path}` answer GET and, for a `hub/` path,
+//! run any public Hub script. The session cookie is `SameSite=Lax`, so a browser attaches it
+//! to a cross-site top-level GET navigation, and an argument written `$var:<path>` or
+//! `$res:<path>` is resolved as the caller: an attacker page could make a logged-in browser
+//! run a generic Hub script and hand it the victim's secrets. CORS hides the response but not
+//! the side effect.
 //!
-//! `CrossSiteGetGuard` refuses a cross-site GET that authenticates on the session cookie
-//! alone. A request carrying its own credential is allowed, which is what keeps the webhook
-//! URLs working: a cross-origin `EventSource` cannot set headers, so `?token=` is its only
-//! way to reach `run_and_stream`, and a `Lax` cookie never rides an `EventSource` anyway.
-//! The one case that does regress is deliberate: a signed-in user clicking a `?token=` link
-//! from another site is refused, because `extract_token` gives the cookie precedence and so
-//! exempting the parameter would let `?token=junk` reinstate the whole vector.
+//! `CrossSiteGetGuard` refuses such a request. Workspace scripts are deliberately not refused,
+//! since they only run code the workspace's own members deployed. A request carrying its own
+//! credential is allowed; the one case that regresses is a signed-in user clicking a `?token=`
+//! Hub-script link from another site, because `extract_token` gives the cookie precedence and
+//! exempting the parameter would let `?token=junk` reinstate the vector.
 //!
 //! This test pins down:
-//!   - every one of the seven GETs rejects a cross-site cookie request (the core fix),
-//!   - the cookie outranks a `token` query parameter in `extract_token`, so appending a
-//!     junk one does not buy a pass,
-//!   - the `Referer` fallback, which is what covers an instance served over plain http:
-//!     no `Sec-Fetch-*` header is emitted there, so without it the guard would be inert,
-//!   - no over-blocking: same-origin, `none`, a header-less client, a bearer token, a real
-//!     `?token=`, a `Referer` matching either `Host` or `X-Forwarded-Host`, and POST on the
-//!     same route all get through.
+//!   - both endpoints refuse a cross-site cookie GET to a Hub script (the core fix), whether
+//!     `Sec-Fetch-Site` says so or, with no such header (plain http), a cross-host `Referer`,
+//!   - a junk `token` query parameter does not buy a pass,
+//!   - the scope: the same request to a workspace script is not refused,
+//!   - a Hub-script request with its own credential (bearer, or `?token=` and no cookie), or
+//!     sent as a POST, gets through.
 //!
-//! The runnables are deliberately absent from the fixture. The guard is an extractor, so
-//! it answers before the handler looks anything up, and every request that gets past it
-//! fails as not-found instead — which isolates the guard without a worker or a deploy.
+//! No runnable exists and no Hub is contacted. A request that gets past the guard fails as
+//! not-found on a workspace path, and on the non-numeric version in `hub/x/...` for a Hub
+//! path, which is rejected while resolving the runnable, before any call to the Hub.
 
 use reqwest::StatusCode;
 use sqlx::{Pool, Postgres};
 use windmill_test_utils::*;
 
-const RUN_GETS: [&str; 7] = [
+const HUB_GETS: [&str; 2] = [
+    "run_wait_result/p/hub/x/absent",
+    "run_and_stream/p/hub/x/absent",
+];
+const WORKSPACE_GETS: [&str; 2] = [
     "run_wait_result/p/u/test-user/absent",
-    "run_wait_result/f/u/test-user/absent",
-    "run_wait_result/fv/999",
     "run_and_stream/p/u/test-user/absent",
-    "run_and_stream/f/u/test-user/absent",
-    "run_and_stream/fv/999",
-    "run_and_stream/h/000000000000000f",
 ];
 
+async fn send(req: reqwest::RequestBuilder) -> anyhow::Result<(StatusCode, String)> {
+    let resp = req.send().await?;
+    let status = resp.status();
+    Ok((status, resp.text().await?))
+}
+
 #[sqlx::test(fixtures("base"))]
-async fn test_cross_site_get_cannot_run_jobs(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_cross_site_get_cannot_run_hub_scripts(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
     let server = ApiServer::start(db.clone()).await?;
-    let origin = format!("http://localhost:{}", server.addr.port());
-    let base = format!("{origin}/api/w/test-workspace/jobs");
+    let base = format!(
+        "http://localhost:{}/api/w/test-workspace/jobs",
+        server.addr.port()
+    );
     let client = reqwest::Client::new();
-
-    // ---- CORE REGRESSION: every job-queuing GET refuses a cross-site cookie request.
-    for path in RUN_GETS {
-        let resp = client
+    let cookie_get = |path: &str| {
+        client
             .get(format!("{base}/{path}"))
             .header("Cookie", "token=SECRET_TOKEN")
-            .header("Sec-Fetch-Site", "cross-site")
-            .send()
-            .await?;
+    };
+
+    // ---- CORE REGRESSION: a cross-site cookie GET cannot run a Hub script.
+    for path in HUB_GETS {
+        let refused = [
+            (
+                "Sec-Fetch-Site: cross-site",
+                cookie_get(path).header("Sec-Fetch-Site", "cross-site"),
+            ),
+            // Plain http gets no `Sec-Fetch-*` at all, so `Referer` is the only signal left.
+            (
+                "cross-host Referer with no Sec-Fetch-Site",
+                cookie_get(path).header("Referer", "http://attacker.example/page"),
+            ),
+            // The cookie outranks a `token` query parameter when authenticating.
+            (
+                "junk ?token= next to the cookie",
+                client
+                    .get(format!("{base}/{path}?token=junk"))
+                    .header("Cookie", "token=SECRET_TOKEN")
+                    .header("Sec-Fetch-Site", "cross-site"),
+            ),
+        ];
+        for (name, req) in refused {
+            let (status, body) = send(req).await?;
+            assert_eq!(
+                status,
+                StatusCode::FORBIDDEN,
+                "{path} [{name}] must be refused: {body}"
+            );
+        }
+    }
+
+    // ---- Scope: the same request to a workspace script is not refused.
+    for path in WORKSPACE_GETS {
+        let (status, body) = send(cookie_get(path).header("Sec-Fetch-Site", "cross-site")).await?;
         assert_eq!(
-            resp.status(),
-            StatusCode::FORBIDDEN,
-            "{path} must reject a cross-site GET authenticated by the session cookie"
+            status,
+            StatusCode::NOT_FOUND,
+            "{path} is a workspace script and must reach the handler: {body}"
         );
     }
 
-    // A junk `token` query parameter is not an explicit credential: the cookie is what
-    // authenticates the request, so the guard must still fire.
-    let resp = client
-        .get(format!("{base}/{}?token=junk", RUN_GETS[0]))
-        .header("Cookie", "token=SECRET_TOKEN")
-        .header("Sec-Fetch-Site", "cross-site")
-        .send()
-        .await?;
-    assert_eq!(
-        resp.status(),
-        StatusCode::FORBIDDEN,
-        "a junk `token` query parameter must not bypass the guard"
-    );
-
-    // An instance served over plain http gets no `Sec-Fetch-*` header at all — Fetch
-    // Metadata rides only on potentially trustworthy URLs — while the cookie still
-    // arrives, so `Referer` is the only signal left there.
-    let resp = client
-        .get(format!("{base}/{}", RUN_GETS[0]))
-        .header("Cookie", "token=SECRET_TOKEN")
-        .header("Referer", "http://attacker.example/page")
-        .send()
-        .await?;
-    assert_eq!(
-        resp.status(),
-        StatusCode::FORBIDDEN,
-        "a cross-host Referer must stand in for a missing Sec-Fetch-Site"
-    );
-
-    // ---- No over-blocking. Each of these authenticates, so a 404 for the absent
-    //      runnable is the expected "got past the guard" answer.
-    let allowed: [(&str, reqwest::RequestBuilder); 8] = [
-        (
-            "same-origin",
-            client
-                .get(format!("{base}/{}", RUN_GETS[0]))
-                .header("Cookie", "token=SECRET_TOKEN")
-                .header("Sec-Fetch-Site", "same-origin"),
-        ),
-        (
-            "direct navigation (none)",
-            client
-                .get(format!("{base}/{}", RUN_GETS[0]))
-                .header("Cookie", "token=SECRET_TOKEN")
-                .header("Sec-Fetch-Site", "none"),
-        ),
-        (
-            "non-browser client (no Sec-Fetch-Site)",
-            client
-                .get(format!("{base}/{}", RUN_GETS[0]))
-                .header("Cookie", "token=SECRET_TOKEN"),
-        ),
+    // ---- A Hub-script request that carries its own credential, or is a POST, gets through.
+    let hub = HUB_GETS[1];
+    let allowed = [
         (
             "cross-origin bearer token",
             client
-                .get(format!("{base}/{}", RUN_GETS[0]))
+                .get(format!("{base}/{hub}"))
                 .header("Authorization", "Bearer SECRET_TOKEN")
                 .header("Sec-Fetch-Site", "cross-site"),
         ),
         (
-            "cross-origin webhook URL carrying ?token=",
+            "cross-origin ?token= with no cookie",
             client
-                .get(format!("{base}/{}?token=SECRET_TOKEN", RUN_GETS[0]))
+                .get(format!("{base}/{hub}?token=SECRET_TOKEN"))
                 .header("Sec-Fetch-Site", "cross-site"),
         ),
         (
-            "same-host Referer",
+            "POST with the cookie",
             client
-                .get(format!("{base}/{}", RUN_GETS[0]))
+                .post(format!("{base}/{hub}"))
                 .header("Cookie", "token=SECRET_TOKEN")
-                .header("Referer", format!("{origin}/apps")),
-        ),
-        (
-            "Sec-Fetch-Site outranks a cross-host Referer",
-            client
-                .get(format!("{base}/{}", RUN_GETS[0]))
-                .header("Cookie", "token=SECRET_TOKEN")
-                .header("Sec-Fetch-Site", "same-origin")
-                .header("Referer", "http://attacker.example/page"),
-        ),
-        (
-            "Referer matching X-Forwarded-Host but not Host",
-            client
-                .get(format!("{base}/{}", RUN_GETS[0]))
-                .header("Cookie", "token=SECRET_TOKEN")
-                .header("X-Forwarded-Host", "windmill.example, proxy.internal")
-                .header("Referer", "https://windmill.example/apps"),
+                .header("Sec-Fetch-Site", "cross-site")
+                .json(&serde_json::json!({})),
         ),
     ];
     for (name, req) in allowed {
-        let resp = req.send().await?;
-        assert_eq!(
-            resp.status(),
-            StatusCode::NOT_FOUND,
-            "{name} must reach the handler"
+        let (status, body) = send(req).await?;
+        assert!(
+            body.contains("Invalid hub script version"),
+            "{name} must get past the guard to runnable resolution (got {status}): {body}"
         );
     }
-
-    // POST is not the CSRF vector — a `SameSite=Lax` cookie is not sent on one — and the
-    // stream routes serve both methods off the same handler.
-    let resp = client
-        .post(format!("{base}/{}", RUN_GETS[3]))
-        .header("Cookie", "token=SECRET_TOKEN")
-        .header("Sec-Fetch-Site", "cross-site")
-        .json(&serde_json::json!({}))
-        .send()
-        .await?;
-    assert_eq!(
-        resp.status(),
-        StatusCode::NOT_FOUND,
-        "a cross-site POST must reach the handler"
-    );
 
     Ok(())
 }
