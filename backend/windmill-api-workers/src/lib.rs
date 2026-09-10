@@ -273,10 +273,16 @@ async fn get_queue_metrics(
 ) -> JsonResult<Vec<QueueMetric>> {
     require_devops_role(&db, &authed).await?;
 
+    // The API declares every `value` a number, so a climbing delay, stored as its head's wait
+    // start, is returned as the delay at the time of its sample.
     let queue_metrics = sqlx::query_as!(
         QueueMetric,
         "WITH queue_metrics as (
-            SELECT id, value, created_at
+            SELECT id, created_at,
+                CASE WHEN jsonb_typeof(value) = 'object'
+                    THEN to_jsonb(EXTRACT(EPOCH FROM created_at) - (value->>'since')::numeric)
+                    ELSE value
+                END AS value
             FROM metrics
             WHERE id LIKE 'queue_%'
                 AND created_at > now() - interval '14 day'
