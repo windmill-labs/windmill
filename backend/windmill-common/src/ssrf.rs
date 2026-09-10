@@ -8,6 +8,12 @@ pub const ALLOW_PRIVATE_SAML_METADATA_URLS_ENV: &str = "ALLOW_PRIVATE_SAML_METAD
 
 pub const ALLOW_PRIVATE_GUEST_JWKS_URLS_ENV: &str = "ALLOW_PRIVATE_GUEST_JWKS_URLS";
 
+/// Lets Windmill's own git calls reach hosts on a private network. Each process
+/// reads it for the calls it makes: the server for remote probes, auto-pull and
+/// the GitLab API, the worker that ran a git sync job for the merge request it
+/// opens afterwards. So a private git server needs it on both.
+pub const ALLOW_LOCAL_GIT_REMOTES_ENV: &str = "ALLOW_LOCAL_GIT_REMOTES";
+
 /// Why a URL failed SSRF validation.
 ///
 /// The distinction matters for callers that gate private endpoints behind a
@@ -201,6 +207,28 @@ pub fn allow_private_saml_metadata_urls() -> bool {
     std::env::var(ALLOW_PRIVATE_SAML_METADATA_URLS_ENV)
         .ok()
         .is_some_and(|v| v == "true" || v == "1")
+}
+
+pub fn allow_local_git_remotes() -> bool {
+    std::env::var(ALLOW_LOCAL_GIT_REMOTES_ENV)
+        .ok()
+        .is_some_and(|v| v == "true" || v == "1")
+}
+
+/// Appended to a refusal of a private git host, which on a self-hosted
+/// instance is usually the organization's own git server rather than an attack.
+pub fn local_git_remote_hint() -> String {
+    format!(
+        "If your git server is on a private network, set the {ALLOW_LOCAL_GIT_REMOTES_ENV}=true \
+         environment variable on the Windmill servers and workers"
+    )
+}
+
+pub fn git_remote_ssrf_error_message(e: &SsrfValidationError) -> String {
+    match e {
+        SsrfValidationError::Private { .. } => format!("{e}. {}", local_git_remote_hint()),
+        _ => e.to_string(),
+    }
 }
 
 pub async fn validate_saml_metadata_url(url: &str) -> Result<ValidatedTarget, SsrfValidationError> {
@@ -645,6 +673,23 @@ mod tests {
             .unwrap_err();
         assert!(
             !saml_ssrf_error_message(&invalid_error).contains(ALLOW_PRIVATE_SAML_METADATA_URLS_ENV)
+        );
+    }
+
+    #[tokio::test]
+    async fn git_remote_ssrf_error_message_includes_env_hint_only_for_private_urls() {
+        let private_error = validate_url_for_ssrf("http://10.0.0.5/api/v4")
+            .await
+            .unwrap_err();
+        assert!(
+            git_remote_ssrf_error_message(&private_error).contains("ALLOW_LOCAL_GIT_REMOTES=true")
+        );
+
+        let invalid_error = validate_url_for_ssrf("gitlab.example.com")
+            .await
+            .unwrap_err();
+        assert!(
+            !git_remote_ssrf_error_message(&invalid_error).contains(ALLOW_LOCAL_GIT_REMOTES_ENV)
         );
     }
 }

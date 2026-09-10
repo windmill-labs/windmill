@@ -110,6 +110,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
+	import { getEditorStoragePath, setEditorStoragePath } from './editorStoragePathContext'
 
 	let {
 		initialPath = $bindable(''),
@@ -818,6 +819,12 @@
 		}
 		return entries
 	}
+
+	// The storage path this editor is bound to, narrowing whatever an outer mount
+	// published (a session tab): the full-page editor holds its own, a drawer mount
+	// holds none.
+	const outerStoragePath = getEditorStoragePath()
+	setEditorStoragePath(() => liveEditorDraftStoragePath ?? outerStoragePath?.())
 
 	// "Open in AI session" target: the URL draft path the editor loads/saves by
 	// (which for a new flow differs from the live-edited friendly `$pathStore`),
