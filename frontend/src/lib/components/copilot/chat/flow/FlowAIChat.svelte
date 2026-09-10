@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { randomUUID } from '$lib/utils/uuid'
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
 	import { getContext, tick, untrack } from 'svelte'
 	import type { ExtendedOpenFlow, FlowEditorContext } from '$lib/components/flows/types'
@@ -167,8 +168,14 @@
 			if (args) {
 				previewArgs.val = args
 			}
+			// A chat-enabled flow is refused without a conversation to run the turn in, and
+			// that id is a query parameter no caller can reach through `args`. A test run has
+			// no conversation open, so it gets one of its own rather than appending a turn to
+			// a chat someone is reading.
+			const memoryId =
+				conversationId ?? (flowStore.val.value.chat_input_enabled ? randomUUID() : undefined)
 			// Call the UI test function which opens preview panel
-			return await onTestFlow?.(conversationId)
+			return await onTestFlow?.(memoryId)
 		},
 
 		getLintErrors: async (moduleId: string): Promise<ScriptLintResult> => {

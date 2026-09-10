@@ -9,10 +9,16 @@
 	 * offers a knob whose value it could not write back.
 	 */
 	import ChatModelSettings from '$lib/components/copilot/ChatModelSettings.svelte'
-	import type { ChatModelSettingsConfig } from '$lib/components/copilot/chatModelSettings'
+	import {
+		carriedReasoning,
+		type ChatModelSettingsConfig
+	} from '$lib/components/copilot/chatModelSettings'
 	import AppConnect from '$lib/components/AppConnectDrawer.svelte'
 	import { AI_PROVIDERS, fetchAvailableModels } from '$lib/components/copilot/lib'
-	import { explicitOffToken } from '$lib/components/copilot/reasoningRegistry'
+	import {
+		explicitOffToken,
+		getReasoningCapability
+	} from '$lib/components/copilot/reasoningRegistry'
 	import { ResourceService, type AIProvider } from '$lib/gen'
 	import type { Item } from '$lib/utils'
 	import { Plug, Plus } from 'lucide-svelte'
@@ -142,13 +148,32 @@
 		}
 	})
 
+	/**
+	 * The effort to write alongside a new model, which is `''` — the agent's "no effort" —
+	 * wherever that model has no such level. The composer owns this input, so it keeps it
+	 * runnable rather than leaving behind a level the provider would reject; the slider
+	 * shows the model cannot think, and the reader has nothing to clear by hand.
+	 */
+	function effortFor(nextModel: string | undefined): string {
+		if (!provider || !nextModel) return ''
+		return (
+			carriedReasoning(
+				typeof effort === 'string' ? effort : undefined,
+				explicitOffToken(provider, nextModel) ?? '',
+				getReasoningCapability(provider, nextModel)
+			) ?? ''
+		)
+	}
+
 	function selectResource(path: string, picked: AIProvider) {
 		setFields({
 			kind: picked,
 			resource: `$res:${path}`,
 			// The models of one provider mean nothing to another, and the new list only
-			// arrives async, so there is nothing to carry the current one against.
-			model: undefined
+			// arrives async, so there is nothing to carry the current one against — nor the
+			// effort, which only means something against a model.
+			model: undefined,
+			reasoning_effort: ''
 		})
 	}
 
@@ -197,7 +222,7 @@
 							key: m,
 							label: m,
 							selected: m === model,
-							onSelect: () => setFields({ model: m })
+							onSelect: () => setFields({ model: m, reasoning_effort: effortFor(m) })
 						})),
 						loading: models.loading,
 						emptyMessage: provider ? 'No model available' : 'Pick a provider first'

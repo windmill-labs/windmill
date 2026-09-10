@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+	carriedReasoning,
 	reasoningDisplay,
 	REASONING_PROVIDER_DEFAULT,
 	type ChatModelSettingsReasoning
@@ -112,5 +113,30 @@ describe('reasoningDisplay', () => {
 		const shown = display({ provider: 'openai', model: 'gpt-5', offToken: '' })
 		expect(shown.stops).not.toContain('')
 		expect(shown.label).toBe(REASONING_PROVIDER_DEFAULT)
+	})
+})
+
+describe('carriedReasoning', () => {
+	const cap = (model: string) => getReasoningCapability('openai', model)
+
+	// The bug this exists for: picking a model that cannot think left the old level in the
+	// flow input, and the run sent it anyway.
+	it('drops a level the new model does not have', () => {
+		expect(carriedReasoning('high', '', cap('gpt-4o'))).toBeUndefined()
+		expect(carriedReasoning('xhigh', '', cap('gpt-5.1'))).toBeUndefined()
+	})
+
+	it('keeps a level the new model does have', () => {
+		expect(carriedReasoning('high', '', cap('gpt-5.1'))).toBe('high')
+	})
+
+	it('carries off only onto a model that can truly stop thinking', () => {
+		expect(carriedReasoning(REASONING_OFF, REASONING_OFF, cap('gpt-5.1'))).toBe(REASONING_OFF)
+		expect(carriedReasoning(REASONING_OFF, REASONING_OFF, cap('gpt-5'))).toBeUndefined()
+	})
+
+	it('has nothing to carry when no effort is set', () => {
+		expect(carriedReasoning(undefined, '', cap('gpt-5.1'))).toBeUndefined()
+		expect(carriedReasoning('', '', cap('gpt-5.1'))).toBeUndefined()
 	})
 })

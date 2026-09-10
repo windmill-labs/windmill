@@ -6,7 +6,7 @@
 	 */
 	import { User, Building2, Settings, ExternalLink } from 'lucide-svelte'
 	import ChatModelSettings from '../ChatModelSettings.svelte'
-	import type { ChatModelSettingsConfig } from '../chatModelSettings'
+	import { carriedReasoning, type ChatModelSettingsConfig } from '../chatModelSettings'
 	import {
 		COPILOT_SESSION_MODEL_SETTING_NAME,
 		COPILOT_SESSION_PROVIDER_SETTING_NAME,
@@ -62,19 +62,15 @@
 	let freeRunningLow = $derived(!!freeTier && !freeTier.exhausted && freeUsedPct >= 80)
 
 	function selectModel(m: AIProviderModel) {
-		// Carry the effort onto the new model only if it supports that level ('off'
-		// only where the model can truly disable); otherwise drop it so the model's
-		// default applies.
-		const carried = providerModel.reasoning
-		const cap = getReasoningCapability(m.provider, m.model)
-		const keep =
-			carried === REASONING_OFF
-				? cap.canDisable
-				: carried !== undefined && cap.levels.includes(carried)
-		$copilotSessionModel = { ...m, ...(keep ? { reasoning: carried } : {}) }
+		const keep = carriedReasoning(
+			providerModel.reasoning,
+			REASONING_OFF,
+			getReasoningCapability(m.provider, m.model)
+		)
+		$copilotSessionModel = { ...m, ...(keep !== undefined ? { reasoning: keep } : {}) }
 		storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, m.model)
 		storeLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME, m.provider)
-		storeLocalSetting(COPILOT_SESSION_REASONING_SETTING_NAME, keep ? carried : undefined)
+		storeLocalSetting(COPILOT_SESSION_REASONING_SETTING_NAME, keep)
 	}
 
 	function selectReasoning(value: string) {

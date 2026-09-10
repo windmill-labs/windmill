@@ -1,3 +1,4 @@
+import { randomUUID } from '$lib/utils/uuid'
 import {
 	AppService,
 	AzureTriggerService,
@@ -920,6 +921,12 @@ const runScriptToolDef = createToolDef(
 const testRunFlowSchema = z.object({
 	path: z.string().describe('Workspace path of the flow to test.'),
 	args: testRunArgsSchema,
+	conversation_id: z
+		.string()
+		.optional()
+		.describe(
+			'Chat-mode flows only. A UUID naming the conversation this turn belongs to: reuse the same one across calls to test memory and follow-ups, and omit it for a one-off turn in a conversation of its own. Generate the UUID yourself so you can pass it again.'
+		),
 	background: backgroundArgSchema,
 	wait_seconds: waitSecondsArgSchema
 })
@@ -4367,7 +4374,12 @@ type WriteDraftCtx = {
 export type SessionToolHelpers = { sessionId?: string }
 
 export type GlobalToolHelpers = SessionToolHelpers & {
-	testActiveFlow?: (args?: Record<string, any>) => Promise<string | undefined>
+	/** `conversationId` names the chat-mode conversation the turn belongs to; the editor
+	 * mints one when it is omitted and the flow is chat-enabled. */
+	testActiveFlow?: (
+		args?: Record<string, any>,
+		conversationId?: string
+	) => Promise<string | undefined>
 	attachedFiles?: AttachedFilesStore
 	// Read/write the user-level Global instructions. `setUserInstructions` persists the
 	// value and rebuilds the system message so the change applies on the next chat-loop
@@ -5409,6 +5421,16 @@ function flowDraftValueForPreview(flowDraft: FlowDraftValue): FlowValue {
 	return flowDraftAsEditableInput(flowDraft).value
 }
 
+/**
+ * The conversation a test run of a chat-enabled flow belongs to. The server refuses such a
+ * run without one, and it is a query parameter rather than a flow argument, so there is no
+ * way for the caller to supply it through `args`. A fresh id each time is the right default:
+ * a test run is its own conversation, not a turn appended to one someone is reading.
+ */
+function chatMemoryId(value: FlowValue): string | undefined {
+	return value.chat_input_enabled ? randomUUID() : undefined
+}
+
 async function loadScriptForFlowStep(
 	moduleValue: { path: string; hash?: string },
 	workspace: string
@@ -5780,19 +5802,17 @@ async function testRunFlowByPath(
 	if (testActiveFlow) {
 		return executeTestRun({
 			jobStarter: async () => {
-				const jobId = await testActiveFlow(testArgs)
+				const jobId = await testActiveFlow(testArgs, args.conversation_id)
 				if (jobId) {
 					return jobId
 				}
 
 				const flow = await loadFlowDraftValue(args.path, workspace)
+				const value = flowDraftValueForPreview(flow.flow)
 				return JobService.runFlowPreview({
 					workspace,
-					requestBody: {
-						path: args.path,
-						value: flowDraftValueForPreview(flow.flow),
-						args: testArgs
-					}
+					memoryId: args.conversation_id ?? chatMemoryId(value),
+					requestBody: { path: args.path, value, args: testArgs }
 				})
 			},
 			workspace,
@@ -5809,15 +5829,14 @@ async function testRunFlowByPath(
 	const flow = await loadFlowDraftValue(args.path, workspace)
 
 	return executeTestRun({
-		jobStarter: () =>
-			JobService.runFlowPreview({
+		jobStarter: () => {
+			const value = flowDraftValueForPreview(flow.flow)
+			return JobService.runFlowPreview({
 				workspace,
-				requestBody: {
-					path: args.path,
-					value: flowDraftValueForPreview(flow.flow),
-					args: testArgs
-				}
-			}),
+				memoryId: args.conversation_id ?? chatMemoryId(value),
+				requestBody: { path: args.path, value, args: testArgs }
+			})
+		},
 		workspace,
 		toolCallbacks,
 		toolId,

@@ -146,19 +146,7 @@ describe('agentModelWiringInputs', () => {
 		const wiring = resolveAgentModelWiring([
 			agent(`({ kind: flow_input.k, resource: flow_input.r, model: flow_input.m })`)
 		])
-		expect(agentModelWiringInputs(wiring, true)?.sort()).toEqual(['k', 'm', 'r'])
-	})
-
-	// The slider only appears for a model that reasons, so on one that does not the effort
-	// input has no editor on the button and has to stay in the modal.
-	it('keeps a reasoning_effort input where the model cannot think', () => {
-		const wiring = resolveAgentModelWiring([
-			agent(
-				`({ "kind": "openai", "resource": "$res:u/admin/oai", "model": "gpt-4o", reasoning_effort: flow_input.thinking })`
-			)
-		])
-		expect(agentModelWiringInputs(wiring, false)).toEqual([])
-		expect(agentModelWiringInputs(wiring, true)).toEqual(['thinking'])
+		expect(agentModelWiringInputs(wiring)?.sort()).toEqual(['k', 'm', 'r'])
 	})
 })
 

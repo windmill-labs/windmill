@@ -2434,7 +2434,8 @@ export class AIChatManager implements ChatViewHost {
 						openArtifact: this.openArtifact
 					}
 				: {}),
-			testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args),
+			testActiveFlow: async (args?: Record<string, any>, conversationId?: string) =>
+				this.flowAiChatHelpers?.testFlow(args, conversationId),
 			getModifiedItems: () => (this.modifiedItems ? [...this.modifiedItems] : undefined),
 			attachedFiles: this.attachedFiles,
 			getUserInstructions: () => getUserCustomPrompts()[AIMode.GLOBAL] ?? '',

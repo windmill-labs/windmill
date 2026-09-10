@@ -289,23 +289,23 @@ export function agentModelGap(wiring: AgentModelWiring | undefined): string | un
  * The flow inputs the model button actually writes, so the modal does not ask for them a
  * second time — and, just as much, so it still asks for the ones the button cannot reach.
  *
- * Two fields are conditional. The button writes `kind` only alongside a resource, since a
- * provider is picked as a pair: a flow that wires `kind` while fixing the resource leaves
- * the button nothing to write it with. And it offers the thinking slider only where the
- * model reasons, so on a model that does not, a wired `reasoning_effort` has no editor
- * there either. Hiding either one would leave the run short of an input with nowhere to
- * supply it — and a required one would pass the modal's own completeness check.
+ * `kind` is the one to watch: the button writes it only alongside a resource, since a
+ * provider is picked as a pair. A flow that wires `kind` to an input while fixing the
+ * resource leaves the button nothing to write it with, and hiding it would leave the run
+ * without a provider kind and no way to supply one.
+ *
+ * `reasoning_effort` is unconditional by contrast. Once a model is chosen the button has a
+ * control for it — the slider, or the row saying the model cannot think — and on a model
+ * that cannot, the value is not a choice but a fact the button writes itself. Offering it in
+ * the modal as well would invite setting a level the provider then rejects. Before a model
+ * is chosen it is offered nowhere, which is the honest answer: an effort means nothing
+ * until there is something to spend it on, and picking a model writes one.
  */
-export function agentModelWiringInputs(
-	wiring: AgentModelWiring | undefined,
-	/** Whether the model in use reasons at all. False whenever it cannot be determined. */
-	effortEditable: boolean = false
-): string[] {
+export function agentModelWiringInputs(wiring: AgentModelWiring | undefined): string[] {
 	if (!wiring) return []
 	if (wiring.whole) return [wiring.whole]
-	const driven: ProviderField[] = ['resource', 'model']
+	const driven: ProviderField[] = ['resource', 'model', 'reasoning_effort']
 	if (wiring.fields.resource !== undefined) driven.push('kind')
-	if (effortEditable) driven.push('reasoning_effort')
 	return driven.map((field) => wiring.fields[field]).filter((name): name is string => !!name)
 }
 

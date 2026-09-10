@@ -8,8 +8,7 @@
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { type DynamicInput } from '$lib/utils'
-	import { type AIProvider, type FlowModule } from '$lib/gen'
-	import { getReasoningCapability } from '$lib/components/copilot/reasoningRegistry'
+	import { type FlowModule } from '$lib/gen'
 	import { useWorkspaceStorageConfigured } from '$lib/components/inputTransformEnv.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import FlowChatModelSettings from './FlowChatModelSettings.svelte'
@@ -102,20 +101,6 @@
 		...inputValues
 	})
 
-	// Whether the model button will offer the thinking slider, which it does only for a
-	// model that reasons. A provider kind or model we cannot read leaves it unknown, and
-	// the field then stays in the modal rather than behind a control that never appears.
-	const effortEditable = $derived.by(() => {
-		if (!modelWiring || modelWiring.whole) return false
-		const pick = (field: 'model' | 'kind') => {
-			const name = modelWiring.fields[field]
-			return name ? effectiveInputs[name] : modelWiring.fixed[field]
-		}
-		const [kind, model] = [pick('kind'), pick('model')]
-		if (typeof kind !== 'string' || !kind || typeof model !== 'string' || !model) return false
-		return getReasoningCapability(kind as AIProvider, model).supported
-	})
-
 	function getStorageKey(): string {
 		return `${STORAGE_KEY_PREFIX}${path}`
 	}
@@ -159,7 +144,7 @@
 		attachmentsTarget: () => attachmentsTarget,
 		workspace: () => chatWorkspace,
 		canAttach: () => workspaceStorage.current,
-		inputsShownInComposer: () => agentModelWiringInputs(modelWiring, effortEditable),
+		inputsShownInComposer: () => agentModelWiringInputs(modelWiring),
 		inputsSchema: () => additionalInputsSchema
 	})
 	setChatViewHost(chatHost)
@@ -177,7 +162,7 @@
 			// The paperclip's own condition, not half of it: an attachments input the composer
 			// has no editor for — no object storage in the workspace, say — stays askable here.
 			...(chatHost.supportsMessageAttachments && attachmentsTarget ? [attachmentsTarget.name] : []),
-			...agentModelWiringInputs(modelWiring, effortEditable)
+			...agentModelWiringInputs(modelWiring)
 		])
 		const properties = Object.fromEntries(
 			Object.entries(additionalInputsSchema.properties ?? {}).filter(([key]) => !promoted.has(key))

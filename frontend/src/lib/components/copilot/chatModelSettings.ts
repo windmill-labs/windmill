@@ -80,6 +80,24 @@ export type ChatModelSettingsReasoning = {
 export const REASONING_PROVIDER_DEFAULT = 'default'
 
 /**
+ * The effort to keep when the model changes, or nothing where the new model has no such
+ * level. Dropped rather than carried because a model that cannot think at that level either
+ * rejects the request or quietly runs at another one, and the button would name a level the
+ * run never used. Off survives only onto a model that can truly disable.
+ */
+export function carriedReasoning(
+	current: string | undefined,
+	offToken: string | undefined,
+	capability: { levels: string[]; canDisable: boolean }
+): string | undefined {
+	if (current === undefined || current === '') return undefined
+	if (offToken !== undefined && current === offToken) {
+		return capability.canDisable ? current : undefined
+	}
+	return capability.levels.includes(current) ? current : undefined
+}
+
+/**
  * What the menu shows for the reasoning ladder: the stops the slider offers, the one it
  * sits on, and the suffix on the trigger.
  *

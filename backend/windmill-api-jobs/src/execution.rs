@@ -671,9 +671,14 @@ pub async fn handle_chat_conversation_messages(
     job_id: Uuid,
     is_test: bool,
 ) -> error::Result<()> {
+    // Names the query parameter rather than the field: it is not a flow argument, and
+    // supplying it as one is the first thing tried on reading `memory_id is required`.
     let memory_id = run_query.memory_id.ok_or_else(|| {
         windmill_common::error::Error::BadRequest(
-            "memory_id is required for chat-enabled flows".to_string(),
+            "memory_id is required for chat-enabled flows. Pass it as the `memory_id` query \
+             parameter, not as a flow argument: it names the conversation the turn belongs to, \
+             so a fresh UUID starts one and reusing a UUID continues it."
+                .to_string(),
         )
     })?;
 
