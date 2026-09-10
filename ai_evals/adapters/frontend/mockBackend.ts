@@ -1366,10 +1366,30 @@ export function listBenchmarkMcpServerTools(path: string) {
 }
 
 const BENCHMARK_MCP_ISSUES = [
-	{ identifier: 'ENG-412', title: 'Retry webhook deliveries', updatedAt: '2026-01-14T09:12:00Z' },
-	{ identifier: 'ENG-408', title: 'Flaky worker restart', updatedAt: '2026-01-13T17:40:00Z' },
-	{ identifier: 'ENG-401', title: 'Paginate the runs table', updatedAt: '2026-01-12T08:05:00Z' },
-	{ identifier: 'ENG-399', title: 'Audit log filters', updatedAt: '2026-01-11T15:22:00Z' }
+	{
+		identifier: 'ENG-412',
+		title: 'Retry webhook deliveries',
+		createdAt: '2026-01-09T11:03:00Z',
+		updatedAt: '2026-01-14T09:12:00Z'
+	},
+	{
+		identifier: 'ENG-408',
+		title: 'Flaky worker restart',
+		createdAt: '2026-01-08T14:27:00Z',
+		updatedAt: '2026-01-13T17:40:00Z'
+	},
+	{
+		identifier: 'ENG-401',
+		title: 'Paginate the runs table',
+		createdAt: '2026-01-06T09:41:00Z',
+		updatedAt: '2026-01-12T08:05:00Z'
+	},
+	{
+		identifier: 'ENG-399',
+		title: 'Audit log filters',
+		createdAt: '2026-01-05T16:18:00Z',
+		updatedAt: '2026-01-11T15:22:00Z'
+	}
 ]
 
 /** The result of calling one of the served tools. `list_issues` answers with issues so a

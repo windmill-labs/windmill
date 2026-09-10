@@ -2406,7 +2406,7 @@
 
 - id: global-test41-mcp-tool-argument-from-schema
   prompt: |-
-    Show me my 3 most recently updated Linear issues.
+    Show me the 3 Linear issues I created most recently.
   initial: ai_evals/fixtures/frontend/global/initial/linear_mcp_server.json
   runtime:
     maxTurns: 8
@@ -2424,13 +2424,14 @@
       - write_script
       - deploy_workspace_item
     toolCallArgs:
-      # `orderBy` is an enum the server declares and the model cannot infer: the
-      # reported bug was inventing a plausible value ("priority") for it. Universal
-      # over calls, so a wrong first guess fails even if a retry recovers.
+      # `orderBy` is an enum the server declares and the model cannot infer: the reported
+      # bug was inventing a plausible value ("priority") for it. The prompt asks for
+      # creation order, which the schema's `updatedAt` default does not give, so the one
+      # correct value is `createdAt` — omitting the field is a failure too. Universal over
+      # calls, so a wrong first guess fails even if a retry recovers.
       - tool: mcp_f_evals_global_linear_mcp__list_issues
         field: orderBy
         stringEqualsAnyOf:
-          - updatedAt
           - createdAt
   # A read-only question produces no draft, and the judge sees only drafts — the
   # deliverable is the argument shape, checked deterministically above.
