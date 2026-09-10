@@ -333,71 +333,66 @@ async fn connect_as_admin_unchecked(
 /// An object whose ownership follows the schema's.
 #[derive(Debug, PartialEq)]
 pub(crate) struct OwnedObject {
-    pub(crate) name: String,
     /// The keyword `ALTER ... OWNER TO` takes for this kind of object.
     pub(crate) keyword: &'static str,
-    /// Identity arguments of a routine, which is what tells two of the same name apart. `None`
-    /// for everything else.
-    pub(crate) args: Option<String>,
+    /// How Postgres names the object (`pg_identify_object`): schema-qualified, quoted where
+    /// needed, with a routine's arguments or an operator class's access method. It goes into the
+    /// statement as it is.
+    pub(crate) identity: String,
 }
 
-/// Everything a schema's change of owner takes along, in schema `$1`, as (name, the keyword its
-/// `ALTER ... OWNER TO` takes, routine arguments, owner oid). The plan, the check of what this
+/// Everything a schema's change of owner takes along, in schema `$1`, as (kind, identity, owner
+/// oid), the first two as `pg_identify_object` gives them. The plan, the check of what this
 /// connection may move and the check after the move all read this one list, so what is moved and
 /// what is checked cannot differ.
 ///
-/// Left out, because they follow another object: indexes, TOAST tables and a table's row type
-/// (their table); array and multirange types (their element or range type); a routine Postgres
-/// made as part of another object, such as a range type's constructors, which belong to the
-/// bootstrap superuser (that object); and a sequence tied to a column — `serial`, identity,
-/// `OWNED BY` — which follows its table and refuses an `ALTER SEQUENCE ... OWNER` of its own.
-/// `ALTER ROUTINE` covers functions, procedures and aggregates alike.
+/// Read from what depends on the schema rather than catalog by catalog, so no kind of object is
+/// left out by omission; array types, row types and indexes depend on another object instead.
+/// Left out: an object's internal parts (a range type's constructors and multirange, an identity
+/// column's sequence), a sequence tied to a column (it follows its table, and refuses an owner of
+/// its own), an extension's members, and what has no `ALTER ... OWNER` at all (an extension, a text
+/// search parser or template). Postgres records no owner for the bootstrap superuser, oid 10.
 macro_rules! schema_owned_objects {
     () => {
-        "SELECT c.relname::text AS name,
-                CASE c.relkind WHEN 'v' THEN 'VIEW' WHEN 'm' THEN 'MATERIALIZED VIEW'
-                               WHEN 'S' THEN 'SEQUENCE' WHEN 'f' THEN 'FOREIGN TABLE'
-                               ELSE 'TABLE' END AS keyword,
-                NULL::text AS args, c.relowner AS owner
-         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-         WHERE n.nspname = $1 AND c.relkind = ANY(ARRAY['r','p','v','m','S','f']::\"char\"[])
-           AND NOT (c.relkind = 'S' AND EXISTS (
-               SELECT 1 FROM pg_depend d
-               WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid
-                 AND d.refclassid = 'pg_class'::regclass AND d.deptype IN ('a', 'i')))
-         UNION ALL
-         SELECT t.typname::text, CASE t.typtype WHEN 'd' THEN 'DOMAIN' ELSE 'TYPE' END, NULL::text,
-                t.typowner
-         FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
-         WHERE n.nspname = $1 AND t.typcategory <> 'A' AND t.typtype <> 'm'
-           AND (t.typtype <> 'c'
-                OR (SELECT r.relkind FROM pg_class r WHERE r.oid = t.typrelid) = 'c')
-         UNION ALL
-         SELECT p.proname::text, 'ROUTINE', pg_get_function_identity_arguments(p.oid), p.proowner
-         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-         WHERE n.nspname = $1
+        "SELECT o.type AS kind, o.identity, COALESCE(s.refobjid, 10::oid) AS owner
+         FROM pg_depend d
+         CROSS JOIN LATERAL pg_identify_object(d.classid, d.objid, 0) o
+         LEFT JOIN pg_shdepend s
+             ON s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+            AND s.classid = d.classid AND s.objid = d.objid AND s.deptype = 'o'
+         WHERE d.refclassid = 'pg_namespace'::regclass AND d.deptype = 'n'
+           AND d.refobjid = (SELECT oid FROM pg_namespace WHERE nspname = $1)
+           AND d.classid <> ALL(ARRAY['pg_extension'::regclass, 'pg_ts_parser'::regclass,
+                                      'pg_ts_template'::regclass]::oid[])
            AND NOT EXISTS (
-               SELECT 1 FROM pg_depend d
-               WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'i')"
+               SELECT 1 FROM pg_depend x
+               WHERE x.classid = d.classid AND x.objid = d.objid AND x.objsubid = 0
+                 AND (x.deptype IN ('i', 'e')
+                      OR (x.deptype = 'a' AND d.classid = 'pg_class'::regclass
+                          AND x.refobjsubid <> 0)))"
     };
 }
 
-/// The keyword [`schema_owned_objects`] names an object by, as the `'static` the planner takes.
-fn owned_keyword(keyword: &str) -> Result<&'static str> {
-    Ok(match keyword {
-        "TABLE" => "TABLE",
-        "VIEW" => "VIEW",
-        "MATERIALIZED VIEW" => "MATERIALIZED VIEW",
-        "SEQUENCE" => "SEQUENCE",
-        "FOREIGN TABLE" => "FOREIGN TABLE",
-        "TYPE" => "TYPE",
-        "DOMAIN" => "DOMAIN",
-        "ROUTINE" => "ROUTINE",
-        other => {
-            return Err(Error::internal_err(format!(
-                "Unexpected kind of object '{other}'"
-            )))
-        }
+/// The keyword `ALTER ... OWNER TO` takes for a kind of object, as `pg_identify_object` names the
+/// kind. A kind missing here is refused rather than skipped, which would leave it behind.
+fn owned_keyword(kind: &str) -> Option<&'static str> {
+    Some(match kind {
+        "table" => "TABLE",
+        "view" => "VIEW",
+        "materialized view" => "MATERIALIZED VIEW",
+        "sequence" => "SEQUENCE",
+        "foreign table" => "FOREIGN TABLE",
+        "type" => "TYPE",
+        "function" | "procedure" | "aggregate" => "ROUTINE",
+        "collation" => "COLLATION",
+        "conversion" => "CONVERSION",
+        "operator" => "OPERATOR",
+        "operator class" => "OPERATOR CLASS",
+        "operator family" => "OPERATOR FAMILY",
+        "statistics object" => "STATISTICS",
+        "text search dictionary" => "TEXT SEARCH DICTIONARY",
+        "text search configuration" => "TEXT SEARCH CONFIGURATION",
+        _ => return None,
     })
 }
 
@@ -408,9 +403,9 @@ async fn read_owned_objects(
     let rows = client
         .query(
             concat!(
-                "SELECT name, keyword, args FROM (",
+                "SELECT kind, identity FROM (",
                 schema_owned_objects!(),
-                ") o ORDER BY name, keyword, args"
+                ") o ORDER BY kind, identity"
             ),
             &[&schema],
         )
@@ -423,11 +418,15 @@ async fn read_owned_objects(
         })?;
     rows.into_iter()
         .map(|row| {
-            Ok(OwnedObject {
-                name: row.get(0),
-                keyword: owned_keyword(row.get::<_, &str>(1))?,
-                args: row.get(2),
-            })
+            let kind: &str = row.get(0);
+            let identity: String = row.get(1);
+            match owned_keyword(kind) {
+                Some(keyword) => Ok(OwnedObject { keyword, identity }),
+                None => Err(Error::BadRequest(format!(
+                    "{identity} is a {kind}, whose owner cannot be changed from here, and schema \
+                     {schema} would change hands without it. Move it to another schema first."
+                ))),
+            }
         })
         .collect()
 }
@@ -947,24 +946,23 @@ async fn unmanaged_owner(
             let row = client
                 .query_opt(
                     concat!(
-                        "SELECT ord, name, pg_get_userbyid(owner) FROM (
-                             SELECT 0 AS ord, NULL::text AS name, n.nspowner AS owner
+                        "SELECT ord, identity, pg_get_userbyid(owner) FROM (
+                             SELECT 0 AS ord, NULL::text AS identity, n.nspowner AS owner
                              FROM pg_namespace n WHERE n.nspname = $1
                              UNION ALL
-                             SELECT 1, name || COALESCE('(' || args || ')', ''), owner FROM (",
+                             SELECT 1, identity, owner FROM (",
                         schema_owned_objects!(),
                         ") m
-                         ) o WHERE NOT pg_has_role(owner, 'USAGE') ORDER BY ord, name LIMIT 1"
+                         ) o WHERE NOT pg_has_role(owner, 'USAGE') ORDER BY ord, identity LIMIT 1"
                     ),
                     &[schema],
                 )
                 .await
                 .map_err(read_error)?;
             Ok(row.map(|row| {
-                let label = match row.get::<_, Option<String>>(1) {
-                    Some(name) => format!("{schema}.{name}"),
-                    None => format!("schema {schema}"),
-                };
+                let label = row
+                    .get::<_, Option<String>>(1)
+                    .unwrap_or_else(|| format!("schema {schema}"));
                 (label, row.get(2))
             }))
         }
@@ -1070,7 +1068,7 @@ async fn apply_datatable_acl(
         let straggler = pg_tx
             .query_opt(
                 concat!(
-                    "SELECT name || COALESCE('(' || args || ')', '') FROM (",
+                    "SELECT identity FROM (",
                     schema_owned_objects!(),
                     ") m WHERE owner <> (SELECT oid FROM pg_roles WHERE rolname = $2)
                      ORDER BY 1 LIMIT 1"
@@ -1086,7 +1084,7 @@ async fn apply_datatable_acl(
             })?;
         if let Some(row) = straggler {
             return Err(Error::BadRequest(format!(
-                "{schema}.{} appeared while this ran and would keep its old owner, so nothing was \
+                "{} appeared while this ran and would keep its old owner, so nothing was \
                  applied. Plan it again.",
                 row.get::<_, String>(0)
             )));
@@ -1166,5 +1164,47 @@ mod tests {
                 "{unknown}"
             );
         }
+    }
+
+    /// A kind of object the list misses stays with its old owner while the schema changes hands,
+    /// which only a real catalog shows.
+    #[sqlx::test(migrations = false)]
+    async fn a_schemas_owner_change_takes_every_object_in_it(pool: sqlx::PgPool) {
+        let mut config: tokio_postgres::Config =
+            std::env::var("DATABASE_URL").unwrap().parse().unwrap();
+        config.dbname(pool.connect_options().get_database().unwrap());
+        let (client, connection) = config.connect(tokio_postgres::NoTls).await.unwrap();
+        tokio::spawn(connection);
+        client
+            .batch_execute(
+                "CREATE SCHEMA moved;
+                 CREATE TABLE moved.t (id serial PRIMARY KEY, a int, b int);
+                 CREATE STATISTICS moved.st ON a, b FROM moved.t;
+                 CREATE TABLE moved.pt (id int) PARTITION BY RANGE (id);
+                 CREATE TABLE moved.pt1 PARTITION OF moved.pt FOR VALUES FROM (0) TO (10);
+                 CREATE TYPE moved.r AS RANGE (subtype = float8);
+                 CREATE DOMAIN moved.tags AS text[];
+                 CREATE COLLATION moved.coll (provider = libc, locale = 'C');",
+            )
+            .await
+            .unwrap();
+        let owned = read_owned_objects(&client, "moved").await.unwrap();
+        // Not the serial's sequence, the range's constructors and multirange, or any array or row
+        // type: each follows the object it belongs to.
+        assert_eq!(
+            owned
+                .iter()
+                .map(|o| (o.keyword, o.identity.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                ("COLLATION", "moved.coll"),
+                ("STATISTICS", "moved.st"),
+                ("TABLE", "moved.pt"),
+                ("TABLE", "moved.pt1"),
+                ("TABLE", "moved.t"),
+                ("TYPE", "moved.r"),
+                ("TYPE", "moved.tags"),
+            ]
+        );
     }
 }
