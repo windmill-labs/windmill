@@ -334,10 +334,10 @@ pub struct SaveDraftResponse {
     /// `moved` only: who last deployed it at its new path. Best-effort.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub moved_by: Option<String>,
-    /// `moved` only: fields to merge into the refused draft before re-saving it
-    /// at `moved_to` — the typed target path, and the version the item now sits
-    /// at. Sent as a patch so the client never has to reproduce the per-kind
-    /// key names (`UserDraftItemKind::typed_path_field` / `base_version_field`).
+    /// `moved` only: the path keys to merge into the refused draft before
+    /// re-saving it at `moved_to`. Sent as a patch so the client never has to
+    /// reproduce the per-kind key names (`UserDraftItemKind::typed_path_field`
+    /// and `mirror_path_field`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub moved_patch: Option<serde_json::Value>,
 }
@@ -355,37 +355,6 @@ struct DraftBaseVersion {
     /// Apps / raw apps: `app_version.id`.
     #[serde(default)]
     parent_version: Option<i64>,
-    /// The user-typed target path — `UserDraftItemKind::typed_path_field`. Both
-    /// spellings live here so the one cheap parse answers the version question
-    /// and the staged-rename question together; serde skips every other key, and
-    /// an app draft's payload runs to hundreds of KB.
-    #[serde(default)]
-    path: Option<String>,
-    #[serde(default)]
-    draft_path: Option<String>,
-}
-
-impl DraftBaseVersion {
-    /// The typed path for this kind. Keyed off `typed_path_field()` rather than
-    /// re-matching the kind, so this stays one mapping: a kind that later spells
-    /// its typed path a third way lands on `None` here loudly instead of
-    /// silently reading `draft_path` and skipping the repoint.
-    fn typed_path(&self, kind: UserDraftItemKind) -> Option<&str> {
-        match kind.typed_path_field()? {
-            "path" => self.path.as_deref(),
-            "draft_path" => self.draft_path.as_deref(),
-            _ => None,
-        }
-    }
-
-    /// The mirror of the typed path, under the same mapping.
-    fn mirror_path(&self, kind: UserDraftItemKind) -> Option<&str> {
-        match kind.mirror_path_field()? {
-            "path" => self.path.as_deref(),
-            "draft_path" => self.draft_path.as_deref(),
-            _ => None,
-        }
-    }
 }
 
 /// The version this draft forked from, or `None` when it has no lineage to
@@ -438,7 +407,7 @@ async fn resolve_moved_to(
     // existence check in 3-4 round-trips. Callers keep that off a draft with
     // nothing to follow by having no `DraftBaseVersion` to pass.
     let mut tx = user_db.clone().begin(authed).await?;
-    let moved = resolve_moved_to_in(&mut tx, &authed.username, w_id, kind, path, base).await;
+    let moved = resolve_moved_to_in(&mut tx, w_id, kind, path, base).await;
     tx.commit().await?;
     moved
 }
@@ -452,7 +421,6 @@ async fn resolve_moved_to(
 /// about what the caller may see at the new one.
 async fn resolve_moved_to_in(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    saver_username: &str,
     w_id: &str,
     kind: UserDraftItemKind,
     path: &str,
@@ -567,47 +535,20 @@ async fn resolve_moved_to_in(
     // Same path back ⇒ nothing moved (a stale read, or a path reused).
     let moved = moved.filter(|(new_path, _, _)| new_path != path);
 
-    // The client re-points its in-flight draft with this patch rather than
-    // reproducing `typed_path_field` / `base_version_field` on its own side.
-    //
-    // The typed path is repointed only when it still names the old path: absent
-    // ⇒ omit, so the patch never manufactures a target the draft did not have;
-    // naming anywhere else ⇒ omit, so a rename staged in this very editor
-    // survives the relocation. Same rule as `move_drafts_for_path`.
-    //
-    // The version is restamped only for the LAST DEPLOYER AT THE NEW PATH, which
-    // is the strongest "did I put the content there?" test available without
-    // comparing payloads — nothing records who performed a move as distinct from
-    // who deployed. It is deliberately weaker than "the mover": if Alice moves
-    // A→B and Bob then deploys at B, Bob is spared the prompt for a head that
-    // also carries Alice's move-time edits. That residual is a missing prompt for
-    // someone who did deploy the head, not for a bystander.
-    //
-    // The point of the scoping is the bystander: the deploy that moved the item
-    // may have edited it in the same breath, and handing a teammate the new head
-    // would tell them they are up to date with content they have never seen, so
-    // their next deploy would silently revert it. Mirrors `restamp_email` on the
-    // passive carry in `move_drafts_for_path`.
-    let repoint_path = base.typed_path(kind) == Some(path);
-    Ok(moved.map(|(new_path, new_by, head)| {
-        let moved_by_me = new_by.as_deref() == Some(saver_username);
+    // "Continue at the new path" is the user explicitly relocating their edits, so
+    // both path keys are set to the destination — unlike the passive carry, which
+    // leaves the value alone because it is not the user's action. The version is
+    // NOT restamped: the draft really is behind the version the move created, and
+    // the editor's stale prompt shows the diff that says whether that matters.
+    // `create_missing` semantics are the client's: it merges this over the value,
+    // so a key the draft never had is added, which is what relocating means here.
+    Ok(moved.map(|(new_path, new_by, _head)| {
         let mut patch = serde_json::Map::new();
-        if let Some(field) = kind.typed_path_field().filter(|_| repoint_path) {
-            patch.insert(field.to_string(), json!(&new_path));
-        }
-        // The mirror the editors keep beside the typed path gets the same rule for
-        // the same reason as the second UPDATE in `move_drafts_for_path`: left
-        // naming the old location it wins at load and un-does the move.
-        if let Some(field) = kind
-            .mirror_path_field()
-            .filter(|_| base.mirror_path(kind) == Some(path))
+        for field in [kind.typed_path_field(), kind.mirror_path_field()]
+            .into_iter()
+            .flatten()
         {
             patch.insert(field.to_string(), json!(&new_path));
-        }
-        if moved_by_me {
-            if let Some(field) = kind.base_version_field() {
-                patch.insert(field.to_string(), head);
-            }
         }
         (new_path, new_by, serde_json::Value::Object(patch))
     }))
@@ -802,8 +743,7 @@ async fn update_draft(
             if let Some(base) = lineage.as_ref().filter(|_| applied.is_some()) {
                 if !deployed_still_at(&mut tx, &w_id, kind, path).await? {
                     if let Some((moved_to, moved_by, moved_patch)) =
-                        resolve_moved_to_in(&mut tx, &authed.username, &w_id, kind, path, base)
-                            .await?
+                        resolve_moved_to_in(&mut tx, &w_id, kind, path, base).await?
                     {
                         tx.rollback().await?;
                         let now = sqlx::query_scalar!(r#"SELECT now() as "now!""#)
@@ -911,7 +851,14 @@ pub struct MoveDraftRequest {
 /// Relocate the authed user's own DRAFT-ONLY item. Such an item is nothing but
 /// its draft row, so moving it is a rewrite of that row's path plus both path
 /// keys inside its value — there is no deployed row, schedule or trigger to
-/// cascade to, and no second party to notify (a draft is private to its owner).
+/// cascade to.
+///
+/// The owner's OWN open editor is not notified, and cannot be: the moved-item
+/// handshake in `update_draft` resolves through a deployed version chain, and a
+/// draft-only item has none by definition. An editor still open on the old path
+/// re-plants a row there on its next autosave, leaving two items. Closing that
+/// needs a stable identity for a draft-only item — a tombstone or a surrogate id
+/// — which is a larger change than this endpoint.
 ///
 /// Scoped to the caller's own row on purpose: two users can each have a draft
 /// at the same never-deployed path, and those are two separate items.

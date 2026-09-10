@@ -2144,13 +2144,6 @@ async fn create_script_internal<'c>(
                 &[UserDraftItemKind::Script],
                 p_path,
                 &ns.path,
-                UserDraftItemKind::Script.typed_path_field(),
-                UserDraftItemKind::Script.mirror_path_field(),
-                // Drafts store a hash the way the API serializes one: hex text.
-                UserDraftItemKind::Script
-                    .base_version_field()
-                    .map(|f| (f, format!("\"{}\"", hash))),
-                &authed.email,
             )
             .await?;
             if outcome.left_behind > 0 {

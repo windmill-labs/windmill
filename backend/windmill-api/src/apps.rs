@@ -3457,12 +3457,6 @@ async fn update_app_internal<'a>(
             &[UserDraftItemKind::App, UserDraftItemKind::RawApp],
             path,
             &npath,
-            UserDraftItemKind::App.typed_path_field(),
-            UserDraftItemKind::App.mirror_path_field(),
-            UserDraftItemKind::App
-                .base_version_field()
-                .map(|f| (f, v_id.to_string())),
-            &authed.email,
         )
         .await?;
         if outcome.left_behind > 0 {

@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE draft AS d\n           SET path = $3\n           WHERE d.workspace_id = $1\n             AND d.path = $2\n             AND d.typ::text = ANY($4::text[])\n             AND NOT EXISTS (\n                 SELECT 1 FROM draft o\n                 WHERE o.workspace_id = d.workspace_id\n                   AND o.path = $3\n                   AND o.typ = d.typ\n                   AND o.email IS NOT DISTINCT FROM d.email\n             )\n           RETURNING d.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d336ad22e1f7ddc06fd9a49ad3ac55f4c17a91c279f2b736e98ea9a0ac1ecaf9"
+}

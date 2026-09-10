@@ -1392,12 +1392,6 @@ async fn update_flow(
             &[UserDraftItemKind::Flow],
             flow_path,
             &nf.path,
-            UserDraftItemKind::Flow.typed_path_field(),
-            UserDraftItemKind::Flow.mirror_path_field(),
-            UserDraftItemKind::Flow
-                .base_version_field()
-                .map(|f| (f, version.to_string())),
-            &authed.email,
         )
         .await?;
         if outcome.left_behind > 0 {
