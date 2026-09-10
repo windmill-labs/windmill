@@ -204,8 +204,13 @@ What the assistant should do when this skill applies.
 	/** The row the highlight goes back to when the list changes shape under it.
 	 * Folding is the case: it changes the row count without reshuffling what the rows
 	 * mean, and the folder just folded is where someone still is — unlike a search,
-	 * which reranks everything and belongs back at its top hit. */
-	let stickyKey = $state<string | undefined>(undefined)
+	 * which reranks everything and belongs back at its top hit.
+	 *
+	 * Deliberately not `$state`. `useListHighlight` reads this through `restingIndex`
+	 * inside the effect that reacts to the row count, so a reactive write here would
+	 * re-run that effect and reset the highlight — clearing it on the next arrow would
+	 * undo the very move that cleared it. */
+	let stickyKey: string | undefined = undefined
 	const highlight = useListHighlight({
 		count: () => entries.length,
 		rowId: (index) => entryDomId(entries[index]?.key ?? ''),
