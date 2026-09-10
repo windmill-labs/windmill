@@ -14,7 +14,11 @@ import { providerKey } from './providerIcon'
 // value, which the list endpoint strips.
 type Entry = { key: string | null; editedAt?: string; host?: string }
 
-const STORE_KEY = 'mcp_provider_icons'
+// Versioned: entries written before `host` existed hold a key (often `null`, the
+// no-shipped-icon case the favicon fallback is for) and read as a cache hit, so they
+// would never learn a host and never draw a favicon. Bumping starts them over, at one
+// resource read each.
+const STORE_KEY = 'mcp_provider_icons_v2'
 
 function read(): Record<string, Record<string, Entry>> {
 	try {
@@ -49,14 +53,36 @@ export function cachedProviderMark(
 	return entry ? { key: entry.key, host: entry.host } : undefined
 }
 
-/** The url's host, when it has one worth drawing a favicon for. */
+/** Suffixes that only ever name something inside a network, so a favicon lookup for
+ * one would disclose an internal endpoint and could not succeed anyway. */
+const PRIVATE_HOST_SUFFIXES = [
+	'.local',
+	'.localhost',
+	'.internal',
+	'.intranet',
+	'.lan',
+	'.corp',
+	'.home',
+	'.localdomain'
+]
+
+/**
+ * The url's host, when it has one worth drawing a favicon for.
+ *
+ * Fetching a favicon tells the favicon service which host was asked about, so this
+ * withholds what it can recognise as private. It cannot recognise all of it: a public
+ * domain used internally (`mcp.internal.example.com`) is indistinguishable from any
+ * other, so a self-hosted instance still discloses that hostname when its server has
+ * no shipped icon.
+ */
 export function providerHost(url: unknown): string | undefined {
 	if (typeof url !== 'string') return undefined
 	try {
-		const { hostname } = new URL(url)
+		const hostname = new URL(url).hostname.toLowerCase()
 		// A loopback, a bare address, or an intranet single-label name has no favicon
 		// to fetch, and asking would disclose it to the favicon service for nothing.
 		if (!hostname.includes('.') || /^[\d.]+$/.test(hostname)) return undefined
+		if (PRIVATE_HOST_SUFFIXES.some((suffix) => hostname.endsWith(suffix))) return undefined
 		return hostname
 	} catch {
 		return undefined

@@ -2698,8 +2698,12 @@ export class AIChatManager {
 				},
 				get tools() {
 					// Re-read every iteration by `chatLoop`, so a remote MCP tool registered
-					// during one iteration is callable on the next.
-					return [...self.tools, ...self.planMode.tools, ...loadedMcpTools()]
+					// during one iteration is callable on the next. GLOBAL only: it is the
+					// only mode that installs the MCP tools or reconciles the loaded set, so
+					// anywhere else these would be schemas a mode never opted into and
+					// nothing would ever drop them.
+					const mcpTools = self.mode === AIMode.GLOBAL ? loadedMcpTools() : []
+					return [...self.tools, ...self.planMode.tools, ...mcpTools]
 				},
 				get helpers() {
 					return self.helpers

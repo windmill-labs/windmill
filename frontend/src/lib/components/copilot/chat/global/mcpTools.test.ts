@@ -183,6 +183,55 @@ describe('loaded remote tools', () => {
 		})
 	})
 
+	// A registered tool's schema goes into the request, where a provider rejects the
+	// whole completion over one bad tool — and the tool stays registered, so every
+	// later send fails too. These are shapes Windmill's own MCP server has emitted.
+	it('makes a request-breaking remote schema safe before registering it', () => {
+		registerMcpTools(server, [
+			{
+				name: 'broken',
+				description: 'x',
+				inputSchema: {
+					$schema: 'https://json-schema.org/draft/2020-12/schema',
+					type: 'string',
+					properties: { a: { type: 'string' } },
+					required: ['a', 'a', 'ghost']
+				}
+			} as any
+		])
+
+		const params = loadedMcpTools()[0].def.function.parameters as any
+		expect(params.type).toBe('object')
+		expect(params.required).toEqual(['a'])
+		expect(params.$schema).toBeUndefined()
+	})
+
+	it('falls back to an empty object schema when the remote sends no usable one', () => {
+		registerMcpTools(server, [{ name: 'nada', description: 'x', inputSchema: null } as any])
+
+		expect(loadedMcpTools()[0].def.function.parameters).toEqual({ type: 'object', properties: {} })
+	})
+
+	// The emitted list carries Anthropic's cache_control breakpoint on its last entry,
+	// so calling or re-registering a tool must not move it: a reorder re-processes the
+	// whole cached prefix on the next iteration.
+	it('keeps the emitted tool order stable across calls and re-registration', async () => {
+		registerMcpTools(server, [TOOLS[0], TOOLS[1]])
+		const before = loadedMcpTools().map((t) => t.def.function.name)
+
+		// Call the first-registered one, then re-register the pair.
+		await loadedMcpTools()[0].fn({
+			args: {},
+			workspace: 'test-ws',
+			helpers: {},
+			toolCallbacks: createToolCallbacks(),
+			toolId: 'tool-1'
+		})
+		registerMcpTools(server, [TOOLS[0], TOOLS[1]])
+
+		expect(loadedMcpTools().map((t) => t.def.function.name)).toEqual(before)
+	})
+
 	it('bounds the loaded set, evicting the least recently registered', () => {
 		for (let i = 0; i < 30; i++) {
 			registerMcpTools(server, [{ ...TOOLS[0], name: `tool_${i}` }])

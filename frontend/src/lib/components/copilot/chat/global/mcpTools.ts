@@ -91,12 +91,17 @@ export function clearMcpToolsCache() {
  */
 const loadedTools = new Map<string, Tool<{}>>()
 
-/** Insertion order is call order, so the first entry is the least recently used. */
+/**
+ * Recency for eviction, kept beside the map rather than as its order. The emitted
+ * tool list carries Anthropic's `cache_control` breakpoint on its last entry, so
+ * reordering it on every call would invalidate the cached prefix — system prompt,
+ * skills and transcript — for the rest of the turn.
+ */
+const lastUsed = new Map<string, number>()
+let useCounter = 0
+
 function touchLoadedTool(key: string) {
-	const tool = loadedTools.get(key)
-	if (!tool) return
-	loadedTools.delete(key)
-	loadedTools.set(key, tool)
+	if (loadedTools.has(key)) lastUsed.set(key, ++useCounter)
 }
 
 export function loadedMcpTools(): Tool<{}>[] {
@@ -124,11 +129,15 @@ export function mcpServerForToolName(toolName: string): string | undefined {
 export function forgetLoadedMcpTools(serverPath?: string) {
 	if (serverPath === undefined) {
 		loadedTools.clear()
+		lastUsed.clear()
 		return
 	}
 	const prefix = `${serverPath}::`
 	for (const key of [...loadedTools.keys()]) {
-		if (key.startsWith(prefix)) loadedTools.delete(key)
+		if (key.startsWith(prefix)) {
+			loadedTools.delete(key)
+			lastUsed.delete(key)
+		}
 	}
 }
 
@@ -486,11 +495,60 @@ function registeredToolName(serverPath: string, toolName: string): string {
 	return `${full.slice(0, MAX_TOOL_NAME_CHARS - 8)}_${shortHash(full)}`
 }
 
+/**
+ * A remote server's `inputSchema`, made safe to send as a provider tool definition.
+ *
+ * Until now a remote schema only ever reached the model as tool-result text; a
+ * registered tool puts it in the request itself, where a provider rejects the whole
+ * completion rather than the one bad tool — and the chat would keep failing, because
+ * the tool stays registered. Windmill's own MCP server has shipped both of the shapes
+ * guarded here, so "the server is trusted" is not an argument.
+ *
+ * Deliberately shallow: this is a guard against a request-breaking schema, not a
+ * validator. Anything it cannot make sense of collapses to "accepts any object",
+ * which costs the model its argument names but keeps the chat alive.
+ */
+function safeInputSchema(schema: unknown): Record<string, unknown> {
+	const empty = { type: 'object', properties: {} }
+	if (typeof schema !== 'object' || schema === null || Array.isArray(schema)) return empty
+	const { $schema: _dropped, ...rest } = schema as Record<string, unknown>
+	const properties =
+		typeof rest.properties === 'object' &&
+		rest.properties !== null &&
+		!Array.isArray(rest.properties)
+			? (rest.properties as Record<string, unknown>)
+			: {}
+	// `required` is `uniqueItems`, and must name properties that exist: a strict
+	// validator rejects a repeat, and a name with no property reads as a parameter
+	// the model can never satisfy.
+	const required = Array.isArray(rest.required)
+		? [
+				...new Set(
+					rest.required.filter(
+						(name): name is string => typeof name === 'string' && name in properties
+					)
+				)
+			]
+		: []
+	return { ...rest, type: 'object', properties, required }
+}
+
 function evictLoadedTools() {
 	while (loadedTools.size > MAX_LOADED_TOOLS) {
-		const oldest = loadedTools.keys().next()
-		if (oldest.done) return
-		loadedTools.delete(oldest.value)
+		let victim: string | undefined
+		let victimRank = Infinity
+		for (const key of loadedTools.keys()) {
+			// Never used since registering ranks by registration order, which is what
+			// `lastUsed` misses on purpose: an unused tool goes before a used one.
+			const rank = lastUsed.get(key) ?? -1
+			if (rank < victimRank) {
+				victimRank = rank
+				victim = key
+			}
+		}
+		if (victim === undefined) return
+		loadedTools.delete(victim)
+		lastUsed.delete(victim)
 	}
 }
 
@@ -507,15 +565,16 @@ export function registerMcpTools(server: McpServer, tools: McpToolDef[]): string
 		const key = `${server.path}::${tool.name}`
 		const name = registeredToolName(server.path, tool.name)
 		const readOnly = isReadOnly(tool)
-		// Re-registering refreshes the schema and counts as a use.
-		loadedTools.delete(key)
+		// Set without deleting first: re-registering refreshes the schema in place,
+		// and Map.set keeps an existing key's position, so the emitted tool list — and
+		// the cache breakpoint on its last entry — does not move.
 		loadedTools.set(key, {
 			def: {
 				type: 'function',
 				function: {
 					name,
 					description: `${tool.description ?? tool.name}\n(MCP server ${server.path})`,
-					parameters: tool.inputSchema ?? { type: 'object', properties: {} }
+					parameters: safeInputSchema(tool.inputSchema)
 				}
 			},
 			showDetails: true,
