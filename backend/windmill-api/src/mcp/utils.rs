@@ -114,7 +114,14 @@ pub async fn get_resources_types(
 ) -> Result<Vec<ResourceType>, ErrorData> {
     let mut sqlb = SqlBuilder::select_from("resource_type as o");
     sqlb.fields(&["o.name", "o.description"]);
-    sqlb.and_where("o.workspace_id = ?".bind(&workspace_id));
+    // Every built-in resource type (slack, postgres, openai, ...) lives in the `admins`
+    // workspace, so a workspace-only filter finds almost none of them and the tool
+    // builder falls back to describing the parameter as a plain object, dropping the
+    // `$res:<path>` instruction the model needs. Mirrors `list_resource_types`.
+    sqlb.and_where("(o.workspace_id = ? OR o.workspace_id = 'admins')".bind(&workspace_id));
+    // A workspace may redefine a built-in type name; its own row sorts first so the
+    // name lookup picks it over the `admins` one.
+    sqlb.order_asc("(o.workspace_id = 'admins')");
     let sql = sqlb.sql().map_err(|e| {
         tracing::error!("failed to build sql: {}", e);
         ErrorData::internal_error(format!("failed to build sql: {}", e), None)

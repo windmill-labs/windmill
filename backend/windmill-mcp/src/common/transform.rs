@@ -69,7 +69,11 @@ pub fn transform_hub_path(version_id: u64, summary: &str) -> String {
 /// Returns `(type_str, is_hub, is_hashed)`.
 /// Hashed names use an uppercase first character as the signal.
 pub fn parse_tool_prefix(name: &str) -> Result<(&str, bool, bool), String> {
-    let is_hashed = name.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false);
+    let is_hashed = name
+        .chars()
+        .next()
+        .map(|c| c.is_ascii_uppercase())
+        .unwrap_or(false);
     let lower = name.to_ascii_lowercase();
     let (type_str, is_hub) = if lower.starts_with("hs-") {
         ("script", true)
@@ -216,10 +220,6 @@ pub fn transform_property_keys(schema_obj: &mut SchemaType) {
         .map(|key| (key.clone(), apply_key_transformation(key)))
         .collect();
 
-    if renames.is_empty() {
-        return;
-    }
-
     for (old_key, new_key) in renames {
         if let Some(value) = schema_obj.properties.remove(&old_key) {
             schema_obj.properties.insert(new_key.clone(), value);
@@ -231,8 +231,10 @@ pub fn transform_property_keys(schema_obj: &mut SchemaType) {
         }
     }
 
-    // Two keys can collapse onto the same name (`a.b` and `ab`). `required` is
-    // `uniqueItems`, and a strict validator rejects the whole tool over a repeat.
+    // A repeat reaches here either from two keys collapsing onto the same name
+    // (`a.b` and `ab`) or straight out of the stored schema. `required` is
+    // `uniqueItems`, and a strict validator rejects the whole tool over a repeat --
+    // the tool then vanishes from the client's list rather than failing loudly.
     let mut seen = HashSet::new();
     schema_obj.required.retain(|name| seen.insert(name.clone()));
 }
@@ -430,7 +432,10 @@ mod tests {
     #[test]
     fn test_extract_path_prefix_handles_hs_prefix() {
         // Hs- is 3 chars, not 2 — ensure the prefix is stripped correctly
-        let hashed = transform_hub_path(12345, "a]very long hub script summary that exceeds the limit");
+        let hashed = transform_hub_path(
+            12345,
+            "a]very long hub script summary that exceeds the limit",
+        );
         let (_, is_hub, is_hashed) = parse_tool_prefix(&hashed).unwrap();
         assert!(is_hub);
         assert!(is_hashed);
@@ -487,5 +492,22 @@ mod tests {
         transform_property_keys(&mut schema);
 
         assert_eq!(schema.required, vec!["ab".to_string()]);
+    }
+
+    #[test]
+    fn transform_property_keys_dedupes_required_without_any_rename() {
+        // A duplicate straight out of the stored schema, with no key needing a
+        // rename. `required` is `uniqueItems`, so a repeat makes a strict client
+        // drop the whole tool from its list.
+        let mut schema: SchemaType = serde_json::from_value(serde_json::json!({
+            "type": "object",
+            "properties": { "user": { "type": "string" } },
+            "required": ["user", "user"],
+        }))
+        .unwrap();
+
+        transform_property_keys(&mut schema);
+
+        assert_eq!(schema.required, vec!["user".to_string()]);
     }
 }

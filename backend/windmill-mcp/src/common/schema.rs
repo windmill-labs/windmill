@@ -99,20 +99,26 @@ fn apply_resource_enrichment(
         .iter()
         .find(|rt| rt.name == resource_type_key);
     let resources_count = resource_cache.len();
+    let availability = if resources_count == 0 {
+        "This resource does not have any available instances, you should create one from your windmill workspace."
+    } else if resources_count > 1 {
+        "This resource has multiple available instances, you should precisely select the one you want to use."
+    } else {
+        "There is 1 resource available."
+    };
+    // The `$res:` sentence is the only thing telling the model how to fill this
+    // argument, so it is stated whether or not the workspace declares the type.
     let description = match resource_type {
         Some(rt) => format!(
             "This is a resource named `{}` with the following description: `{}`.\nPass it as the bare string `$res:<path>` — the whole value of this argument, never an object wrapper like {{\"$res\": \"<path>\"}} and never a plain path.\n{}",
             rt.name,
             rt.description.as_deref().unwrap_or("No description"),
-            if resources_count == 0 {
-                "This resource does not have any available instances, you should create one from your windmill workspace."
-            } else if resources_count > 1 {
-                "This resource has multiple available instances, you should precisely select the one you want to use."
-            } else {
-                "There is 1 resource available."
-            }
+            availability
         ),
-        None => "An object parameter.".to_string(),
+        None => format!(
+            "This is a resource of type `{}`.\nPass it as the bare string `$res:<path>` — the whole value of this argument, never an object wrapper like {{\"$res\": \"<path>\"}} and never a plain path.\n{}",
+            resource_type_key, availability
+        ),
     };
     prop_map.insert("type".to_string(), Value::String("string".to_string()));
     prop_map.insert("description".to_string(), Value::String(description));
@@ -120,6 +126,21 @@ fn apply_resource_enrichment(
     // regardless of whether `make_schema_compatible` runs after us. (Its strip
     // only fires while `type == "resource"`, which is no longer true here.)
     prop_map.remove("resourceType");
+    // The node now takes a `$res:` string. Leaving the resource's own object shape
+    // behind would make `make_schema_compatible` retype it back to "object" (its
+    // rule: a node with `properties` is an object), and the model would send `{}`.
+    prop_map.remove("properties");
+    prop_map.remove("required");
+    prop_map.remove("items");
+    // Windmill stores `""` as the empty default for a resource field; on a `$res:`
+    // string that reads as a usable value and the model passes it through.
+    if !prop_map
+        .get("default")
+        .and_then(Value::as_str)
+        .is_some_and(|s| s.starts_with("$res:"))
+    {
+        prop_map.remove("default");
+    }
     if prop_map
         .get("format")
         .and_then(Value::as_str)
@@ -828,6 +849,71 @@ mod tests {
         assert!(node["items"].get("resourceType").is_none());
         let desc = node["items"]["description"].as_str().unwrap();
         assert!(desc.contains("$res:f/platform/aws_dev"));
+    }
+
+    #[test]
+    fn enriched_resource_stays_a_string_through_make_schema_compatible() {
+        // A resource param is stored with the resource's own object shape. Enrichment
+        // retypes it to the `$res:` string, and the leftover `properties` used to make
+        // `make_schema_compatible` retype it back to "object" with nothing in it --
+        // the model then sent `{}` instead of a resource path.
+        let (cache, types) = aws_resources();
+        let mut node = json!({
+            "type": "object",
+            "format": "resource-c_aws_account",
+            "default": "",
+            "properties": {},
+            "required": []
+        });
+
+        enrich_resource_schemas(&mut node, &cache, &types);
+        make_schema_compatible(&mut node);
+
+        assert_eq!(node["type"], json!("string"));
+        assert!(node.get("properties").is_none());
+        assert!(node.get("default").is_none());
+        assert!(node["description"]
+            .as_str()
+            .unwrap()
+            .contains("$res:f/platform/aws_dev"));
+    }
+
+    #[test]
+    fn enriched_resource_keeps_a_res_default() {
+        let (cache, types) = aws_resources();
+        let mut node = json!({
+            "type": "object",
+            "format": "resource-c_aws_account",
+            "default": "$res:f/platform/aws_dev"
+        });
+
+        enrich_resource_schemas(&mut node, &cache, &types);
+
+        assert_eq!(node["default"], json!("$res:f/platform/aws_dev"));
+    }
+
+    #[test]
+    fn undeclared_resource_type_still_states_the_res_form() {
+        // The workspace has an instance but no `resource_type` row for it. The
+        // description is the only place the `$res:` form is stated, so it must
+        // survive the missing declaration.
+        let mut cache = HashMap::new();
+        cache.insert(
+            "slack".to_string(),
+            vec![ResourceInfo {
+                path: "f/examples/slack".to_string(),
+                description: None,
+                resource_type: "slack".to_string(),
+            }],
+        );
+        let mut node = json!({ "type": "object", "format": "resource-slack" });
+
+        enrich_resource_schemas(&mut node, &cache, &[]);
+
+        assert_eq!(node["type"], json!("string"));
+        let desc = node["description"].as_str().unwrap();
+        assert!(desc.contains("$res:f/examples/slack"), "{desc}");
+        assert!(desc.contains("`slack`"), "{desc}");
     }
 
     #[test]
