@@ -2,6 +2,7 @@ import { SvelteMap } from 'svelte/reactivity'
 import { get } from 'svelte/store'
 import { base } from '$lib/base'
 import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
+import { forgetLoadedMcpTools } from '$lib/components/copilot/chat/global/mcpTools'
 import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
 import { initFlow } from '$lib/components/flows/flowStore.svelte'
 import {
@@ -966,6 +967,10 @@ export function disposeRuntime(sessionId: string) {
 	if (!runtime) return
 	runtime.manager.cancel('runtime disposed')
 	runtime.manager.historyManager.close()
+	// The registry is keyed by the manager's own id, so nothing else can ever reach
+	// this entry once the runtime is gone — it would hold its remote tool schemas for
+	// the life of the page.
+	forgetLoadedMcpTools(runtime.manager.mcpOwnerId)
 	runtimes.delete(sessionId)
 }
 

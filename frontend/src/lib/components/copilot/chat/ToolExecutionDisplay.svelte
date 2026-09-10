@@ -41,6 +41,7 @@
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 	import McpServerIcon from '$lib/components/mcp/McpServerIcon.svelte'
 	import { resolveMcpServerMark } from '$lib/components/mcp/serverMark'
+	import { cachedProviderMark } from '$lib/components/mcp/iconCache'
 	import { mcpServerForToolName } from './global/mcpTools'
 
 	interface Props {
@@ -64,10 +65,18 @@
 			}
 			return mcpServerForToolName(aiChatManager.mcpOwnerId, name)
 		})()
+		if (!claimed) return undefined
 		// Both sources are ultimately a path the model wrote, and resolving one reads
-		// that resource and asks a third party for its host's favicon. Only a server
-		// the user actually connected gets marked.
-		return claimed && aiChatManager.mcpServers.some((s) => s.path === claimed) ? claimed : undefined
+		// that resource and asks a third party for its host's favicon — so it has to be
+		// a server the user connected, not any path the model can name.
+		if (aiChatManager.mcpServers.some((s) => s.path === claimed)) return claimed
+		// A session runtime does not populate `mcpServers` until its first send, so on a
+		// reloaded transcript the live list is empty and the rows this path was persisted
+		// for would go unmarked. The local icon cache is the second witness: it only ever
+		// holds servers this user's own MCP list resolved, and answering from it costs
+		// neither a read nor a request.
+		const workspace = aiChatManager.operatingWorkspace
+		return workspace && cachedProviderMark(workspace, claimed) ? claimed : undefined
 	})
 
 	const isPlanReview = $derived(message.toolName === EXIT_PLAN_MODE_TOOL)
