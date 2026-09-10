@@ -80,9 +80,23 @@ export function parseOnboardingProfile(raw: unknown): OnboardingProfile | null {
 }
 
 let cached: Promise<OnboardingProfile | null> | undefined
+let cachedFor: string | undefined
 
 /**
- * The signed-in account's profile, fetched once per page load. Off cloud the server answers
+ * The profile belongs to a session, not to the page: sign-in and sign-out are client-side
+ * navigations, so a cache keyed on nothing would hand account A's invite context to
+ * account B signing in on the same tab. The root layout reports the session's address
+ * whenever it learns it, and logout clears; a change drops what was cached.
+ */
+export function noteSessionEmail(email: string | undefined) {
+	if (email !== cachedFor) {
+		cached = undefined
+		cachedFor = email
+	}
+}
+
+/**
+ * The signed-in account's profile, fetched once per session. Off cloud the server answers
  * `null` without a lookup, so the cost is one request per session. A failed fetch reads as
  * "no profile" and is retried on the next call rather than cached.
  */

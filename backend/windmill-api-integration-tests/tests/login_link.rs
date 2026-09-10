@@ -134,8 +134,8 @@ async fn login_link_mint_can_require_a_login_type(db: Pool<Postgres>) -> anyhow:
     assert_eq!(resp.status(), 409);
     assert!(resp.text().await?.contains("login_type_mismatch"));
 
-    sqlx::query!(
-        "UPDATE password SET login_type = 'pending_oauth', password_hash = NULL WHERE email = 'test2@windmill.dev'"
+    sqlx::query(
+        "UPDATE password SET login_type = 'pending_oauth', password_hash = NULL WHERE email = 'test2@windmill.dev'",
     )
     .execute(&db)
     .await?;
@@ -152,7 +152,7 @@ async fn cloud_trial_offer_go_refuses_a_job_token(db: Pool<Postgres>) -> anyhow:
     let port = server.addr.port();
     let base = format!("http://localhost:{port}/api");
 
-    // The redirect is a signed-in portal login for the account, so the job-token check
+    // The answer is a signed-in portal login for the account, so the job-token check
     // must come before every other gate: a script holding `$WM_TOKEN` is refused outright,
     // where a browser session reaches the next check (off cloud, "no offer").
     let job_id = uuid::Uuid::new_v4();
@@ -178,7 +178,7 @@ async fn cloud_trial_offer_go_refuses_a_job_token(db: Pool<Postgres>) -> anyhow:
 
     let go = |token: String| {
         client()
-            .get(format!("{base}/users/cloud_trial_offer/go"))
+            .post(format!("{base}/users/cloud_trial_offer/go"))
             .header("Authorization", format!("Bearer {token}"))
             .send()
     };

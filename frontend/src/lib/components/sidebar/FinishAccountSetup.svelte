@@ -96,8 +96,8 @@
 					{/each}
 				</div>
 				<p class="text-2xs text-secondary">
-					Use the same address ({email}); signing in under another address creates a separate
-					account.
+					Sign in to the provider as {email}; a different address is refused and you stay
+					signed in here.
 				</p>
 			</div>
 			<div class="flex items-center gap-3">

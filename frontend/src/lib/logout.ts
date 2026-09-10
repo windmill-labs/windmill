@@ -1,3 +1,4 @@
+import { noteSessionEmail } from './onboardingProfile'
 import { UserService } from '$lib/gen'
 import { clearStores } from './storeUtils'
 
@@ -6,6 +7,7 @@ import { clearStores } from './storeUtils'
 
 export async function clearUser() {
 	try {
+		noteSessionEmail(undefined)
 		clearStores()
 		await UserService.logout()
 	} catch (error) {}

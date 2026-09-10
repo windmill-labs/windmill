@@ -145,7 +145,7 @@ pub fn global_service() -> Router {
             "/cloud_trial_offer",
             post(set_cloud_trial_offer).get(get_cloud_trial_offer),
         )
-        .route("/cloud_trial_offer/go", get(go_cloud_trial_offer))
+        .route("/cloud_trial_offer/go", post(go_cloud_trial_offer))
         .route(
             "/onboarding_profile",
             post(set_onboarding_profile).get(get_onboarding_profile),
@@ -3229,6 +3229,22 @@ mod same_origin_rd_tests {
     }
 }
 
+/// Both provisioning writes reference `password(email)`; a typo'd address from the
+/// provisioning script should read as "no such account", not as a foreign-key error.
+async fn require_account(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, email: &str) -> Result<()> {
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM password WHERE email = $1)",
+        email
+    )
+    .fetch_one(&mut **tx)
+    .await?
+    .unwrap_or(false);
+    if !exists {
+        return Err(Error::NotFound(format!("no account for {email}")));
+    }
+    Ok(())
+}
+
 fn login_link_redirect(location: String) -> Response {
     (
         StatusCode::FOUND,
@@ -3365,6 +3381,7 @@ async fn set_onboarding_profile(
     }
     let email = body.email.to_lowercase();
     let mut tx = db.begin().await?;
+    require_account(&mut tx, &email).await?;
     sqlx::query!(
         "INSERT INTO cloud_onboarding_profile (email, profile, created_by) VALUES ($1, $2, $3)
          ON CONFLICT (email) DO UPDATE SET profile = EXCLUDED.profile",
@@ -3432,6 +3449,7 @@ async fn set_cloud_trial_offer(
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let email = body.email.to_lowercase();
     let mut tx = db.begin().await?;
+    require_account(&mut tx, &email).await?;
     if body.consumed {
         sqlx::query!(
             "UPDATE cloud_trial_offer SET consumed_at = now() WHERE email = $1 AND consumed_at IS NULL",
@@ -3497,11 +3515,25 @@ async fn get_cloud_trial_offer(
 /// is asked for a login that starts it, and the browser is handed over. The portal is the
 /// authority on whether the offer still stands; its refusal spends the offer here so the
 /// sidebar stops advertising it.
-async fn go_cloud_trial_offer(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<Response> {
-    // The redirect carries a signed-in portal login for this account: a credential for
-    // another system. A script running as the offered user holds their identity through
-    // `$WM_TOKEN`, so a job token must not be able to fetch it (`redirect: manual`) and
-    // hand it to whoever wrote the script. Only a browser session goes.
+/// Where the browser goes to start the pre-approved trial: a signed-in portal login, or
+/// the portal's front page with the reason it could not start one.
+#[derive(Serialize)]
+pub struct CloudTrialOfferGo {
+    pub location: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+async fn go_cloud_trial_offer(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<CloudTrialOfferGo> {
+    // The answer carries a signed-in portal login for this account: a credential for
+    // another system, and asking for it starts the trial. A script running as the offered
+    // user holds their identity through `$WM_TOKEN`, so a job token must not be able to
+    // fetch it and hand it to whoever wrote the script. It is a POST answered as JSON, not
+    // a redirecting GET, so a cross-site top-level navigation cannot start the trial with
+    // the SameSite=Lax session cookie either; the frontend navigates to `location` itself.
     if authed.job_id.is_some() {
         return Err(Error::NotAuthorized(
             "This endpoint cannot be called with a job token ($WM_TOKEN).".to_string(),
@@ -3537,7 +3569,7 @@ async fn go_cloud_trial_offer(Extension(db): Extension<DB>, authed: ApiAuthed) -
     )
     .await?;
     tx.commit().await?;
-    Ok(login_link_redirect(location))
+    Ok(Json(CloudTrialOfferGo { location, reason }))
 }
 
 #[derive(Deserialize)]

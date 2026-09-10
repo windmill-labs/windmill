@@ -4,6 +4,7 @@
 	import { page } from '$app/state'
 	import { UserService, WorkspaceService } from '$lib/gen'
 	import { logoutWithRedirect } from '$lib/logoutKit'
+	import { noteSessionEmail } from '$lib/onboardingProfile'
 	import {
 		clearWorkspaceFromStorage,
 		userStore,
@@ -161,6 +162,7 @@
 					)
 				}
 				let user = await UserService.globalWhoami()
+				noteSessionEmail(user.email)
 				console.log(`Welcome back ${user.email}`)
 			}
 		} catch (e) {

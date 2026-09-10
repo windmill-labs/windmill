@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { accountSetup } from '$lib/components/sidebar/accountSetup.svelte'
 	import { usersWorkspaceStore } from '$lib/stores'
 	import { UserService } from '$lib/gen'
 	import { Button } from '$lib/components/common'
@@ -26,6 +27,9 @@
 			})
 			sendUserToast('Your password was successfully updated')
 			await loadLoginType()
+			// A credential-less account finishing here, rather than through the sidebar's
+			// prompt, must clear that prompt too.
+			await accountSetup.refresh()
 		} else {
 			sendUserToast('Specify a new password value to change your password', true)
 		}

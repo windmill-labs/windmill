@@ -44,6 +44,7 @@ Symbols, not line numbers, are cited: they drift less.
 - **`GET /api/oauth/login/{client}`** is an unauthenticated 302 to the provider — a plain link
   from any page starts SSO.
 - **`CLOUD_HOSTED`** is presence-tested (`windmill-common/src/worker.rs`): `CLOUD_HOSTED=false`
-  still enables cloud mode. None of the routes above are cloud-gated; cloud only adds quotas.
+  still enables cloud mode. Of the routes above only the cloud trial offer and onboarding
+  profile routes are cloud-gated; for the rest, cloud only adds quotas.
 - **`CREATE_WORKSPACE_REQUIRE_SUPERADMIN`** defaults to `true` when unset; only the literal
   `"true"` enables it when set.

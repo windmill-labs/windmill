@@ -2,7 +2,6 @@
 	import { resource } from 'runed'
 	import { goto } from '$lib/navigation'
 	import { isCloudHosted } from '$lib/cloud'
-	import { base } from '$lib/base'
 	import { Sparkles } from 'lucide-svelte'
 	import { UserService, WorkspaceService } from '$lib/gen'
 	import {
@@ -15,6 +14,7 @@
 	} from '$lib/stores'
 	import { refreshExecutions } from '$lib/usage.svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
+	import { sendUserToast } from '$lib/toast'
 	import { scopedValue, tagged } from '$lib/utils/scopedValue'
 	import { Button } from '$lib/components/common'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
@@ -39,9 +39,20 @@
 			.then((r) => (trialOffered = r.offered))
 			.catch(() => (trialOffered = false))
 	})
-	function startPreApprovedTrial() {
+	let starting = $state(false)
+	async function startPreApprovedTrial() {
+		if (starting) return
+		starting = true
 		logFeatureUsage('cloud_trial_offer', 'go')
-		window.location.assign(`${base}/api/users/cloud_trial_offer/go`)
+		try {
+			// A POST, so nothing but this click can start the trial; the answer is where to go.
+			const { location } = await UserService.goCloudTrialOffer()
+			window.location.assign(location)
+		} catch (e) {
+			console.error('Could not start the pre-approved trial:', e)
+			sendUserToast('Could not start the trial right now, please try again', true)
+			starting = false
+		}
 	}
 
 	// Seat count for a paid workspace, the basis of its included executions. The server
@@ -208,6 +219,7 @@
 					iconOnly
 					startIcon={{ icon: Sparkles }}
 					onclick={startPreApprovedTrial}
+					disabled={starting}
 					aria-label="Start your pre-approved Enterprise trial"
 				/>
 			{:else}
@@ -216,6 +228,7 @@
 					unifiedSize="sm"
 					startIcon={{ icon: Sparkles }}
 					onclick={startPreApprovedTrial}
+					disabled={starting}
 				>
 					Start your Enterprise trial
 				</Button>

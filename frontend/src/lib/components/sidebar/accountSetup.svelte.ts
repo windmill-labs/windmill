@@ -1,4 +1,5 @@
 import { UserService } from '$lib/gen'
+import { noteSessionEmail } from '$lib/onboardingProfile'
 
 // An account that entered through an invite's sign-in link has no credentials of its own
 // (`login_type` pending_oauth) until it sets a password or an OAuth login adopts it. Every
@@ -28,6 +29,7 @@ export const accountSetup = {
 		if (!inflight) {
 			inflight = UserService.globalWhoami()
 				.then((me) => {
+					noteSessionEmail(me.email)
 					pending = me.login_type === 'pending_oauth'
 				})
 				.catch(() => {
