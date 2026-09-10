@@ -209,11 +209,15 @@
 			...rest.map((node, i): RootRow => ({ kind: 'node', node, loadRank: lead.length + i }))
 		]
 	})
-	// Owner rows only, for the footer: the "Other users" row is neither a folder nor a user.
+	// Owner rows at the root: the "Other users" row is neither a folder nor a user.
 	let ownerRowCount = $derived(rows.filter((r) => r.kind === 'node').length)
-	let shownOwnerRowCount = $derived(
-		rows.slice(0, nbDisplayed).filter((r) => r.kind === 'node').length
-	)
+	// With the group present the viewer's own space is the only user left at the root, and
+	// the grouped users page inside their row, so the root footer counts folders.
+	function countsInFooter(r: RootRow): boolean {
+		return r.kind === 'node' && (otherUsers.length === 0 || !('username' in r.node))
+	}
+	let footerTotal = $derived(rows.filter(countsInFooter).length)
+	let footerShown = $derived(rows.slice(0, nbDisplayed).filter(countsInFooter).length)
 
 	let footerEl: HTMLDivElement | undefined = $state()
 	// Reveal the next slice of root nodes as the footer comes into view. Only the
@@ -344,7 +348,8 @@
 			>
 				<span class="text-xs text-secondary">
 					{#if nbDisplayed < rows.length}
-						Showing {shownOwnerRowCount} of {ownerRowCount} folders and users
+						Showing {footerShown} of {footerTotal}
+						{otherUsers.length > 0 ? 'folders' : 'folders and users'}
 					{:else}
 						<!-- Scoped to one owner: the tree groups the paged browse stream, so what
 						     is missing is items, not root nodes. -->
