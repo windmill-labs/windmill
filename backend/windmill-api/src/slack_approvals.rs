@@ -28,8 +28,9 @@ use crate::{
     auth::OptTokened,
 };
 
-// Slack rejects a section text over 3000 characters, which would drop the whole post.
-const CHANNEL_MESSAGE_PREVIEW_CHARS: usize = 2000;
+// Slack rejects a button value over 2000 characters, and with it the whole post. The button value
+// carries the message on to the modal, so the message is shortened to fit.
+const SLACK_BUTTON_VALUE_MAX_CHARS: usize = 2000;
 
 #[derive(Deserialize, Debug)]
 pub struct SlackFormData {
@@ -932,10 +933,6 @@ async fn send_slack_message(
         value["approver"] = serde_json::json!(approver);
     }
 
-    if let Some(message) = message {
-        value["message"] = serde_json::json!(message);
-    }
-
     if let Some(default_args_json) = default_args_json {
         value["default_args_json"] = default_args_json.clone();
     }
@@ -965,7 +962,7 @@ async fn send_slack_message(
     value["signature"] = serde_json::json!(signature);
 
     let skin = get_approval_step_skin(db, w_id, job_id, flow_step_id).await;
-    let payload = channel_message_payload(channel_id, skin, message, value.to_string());
+    let payload = channel_message_payload(channel_id, skin, message, value);
 
     tracing::debug!("Payload: {:?}", payload);
 
@@ -989,13 +986,18 @@ async fn send_slack_message(
     Ok(StatusCode::OK)
 }
 
-/// The channel post announcing the approval, with the button that opens the modal.
+/// The channel post announcing the approval. Its button hands `button_value` to the modal, with
+/// `message` added, shortened to what Slack's button value limit leaves room for.
 fn channel_message_payload(
     channel_id: &str,
     skin: ApprovalSkin,
     message: Option<&str>,
-    button_value: String,
+    mut button_value: serde_json::Value,
 ) -> serde_json::Value {
+    let message = message.map(|m| message_fitting_button_value(&button_value, m));
+    if let Some(message) = &message {
+        button_value["message"] = serde_json::json!(message);
+    }
     let (text, section, button_label) = match skin {
         ApprovalSkin::Default => {
             let text = "A flow has been suspended. Please approve or reject the flow.";
@@ -1003,12 +1005,9 @@ fn channel_message_payload(
         }
         ApprovalSkin::Approval => {
             let mut section = "*Approval requested*".to_string();
-            if let Some(message) = message {
+            if let Some(message) = &message {
                 section.push('\n');
-                section.push_str(&truncate_with_ellipsis(
-                    message,
-                    CHANNEL_MESSAGE_PREVIEW_CHARS,
-                ));
+                section.push_str(message);
             }
             ("Approval requested", section, "Review")
         }
@@ -1035,12 +1034,31 @@ fn channel_message_payload(
                             "text": button_label
                         },
                         "action_id": "open_modal",
-                        "value": button_value
+                        "value": button_value.to_string()
                     }
                 ]
             }
         ]
     })
+}
+
+/// `message`, shortened so that `button_value` carrying it stays within Slack's limit.
+fn message_fitting_button_value(button_value: &serde_json::Value, message: &str) -> String {
+    let mut with_message = button_value.clone();
+    let mut max_chars = message.chars().count();
+    loop {
+        let fitted = truncate_with_ellipsis(message, max_chars);
+        with_message["message"] = serde_json::json!(fitted);
+        let overflow = with_message
+            .to_string()
+            .chars()
+            .count()
+            .saturating_sub(SLACK_BUTTON_VALUE_MAX_CHARS);
+        if overflow == 0 || max_chars == 0 {
+            return fitted;
+        }
+        max_chars = max_chars.saturating_sub(overflow);
+    }
 }
 
 async fn get_modal_blocks(
@@ -1300,17 +1318,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn approval_skin_channel_post_fits_slack_section_limit() {
-        let message = "x".repeat(10_000);
-        let payload = channel_message_payload(
-            "C1",
-            ApprovalSkin::Approval,
-            Some(&message),
-            "{}".to_string(),
-        );
-        let section = payload["blocks"][0]["text"]["text"].as_str().unwrap();
-        assert!(section.starts_with("*Approval requested*\n"));
-        assert!(section.chars().count() <= 3000);
+    fn long_message_keeps_the_channel_post_within_slack_limits() {
+        let button_value = serde_json::json!({
+            "w_id": "demo",
+            "job_id": Uuid::nil(),
+            "path": "u/admin/slack",
+            "channel": "C0123456789",
+            "flow_step_id": "a",
+            "signature": "f".repeat(64),
+        });
+        let message = "Expense \"offsite\" line\n".repeat(1000);
+        for skin in [ApprovalSkin::Default, ApprovalSkin::Approval] {
+            let payload = channel_message_payload("C1", skin, Some(&message), button_value.clone());
+            let button = payload["blocks"][1]["elements"][0]["value"]
+                .as_str()
+                .unwrap();
+            assert!(button.chars().count() <= SLACK_BUTTON_VALUE_MAX_CHARS);
+            let carried: ModalActionValue = serde_json::from_str(button).unwrap();
+            let carried = carried.message.unwrap();
+            assert!(message.starts_with(carried.trim_end_matches("...")));
+            let section = payload["blocks"][0]["text"]["text"].as_str().unwrap();
+            assert!(section.chars().count() <= 3000);
+        }
     }
 
     #[test]
