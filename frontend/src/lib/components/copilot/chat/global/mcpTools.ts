@@ -646,7 +646,11 @@ function safeInputSchema(schema: unknown): Record<string, unknown> {
 				)
 			]
 		: []
-	const safe = { ...rest, type: 'object', properties, required }
+	// Cloned, not spread: the spread would leave `properties` and any `items`/`allOf`
+	// carried through `rest` pointing at the listing cache's own objects, and the
+	// normalize pass below rewrites nested nodes in place. A registered tool is
+	// supposed to be a frozen copy — sharing that structure makes it one in name only.
+	const safe = structuredClone({ ...rest, type: 'object', properties, required })
 	// The same pass `createToolDef` runs on every other tool, so a remote schema is not
 	// the one that reaches a provider unnormalized. It recurses, which this does not:
 	// Windmill's own MCP server emits `format: ""` on untyped fields.

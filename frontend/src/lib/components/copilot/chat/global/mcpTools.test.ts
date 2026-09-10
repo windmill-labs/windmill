@@ -260,6 +260,26 @@ describe('loaded remote tools', () => {
 		expect(loadedMcpTools(OWNER)).toEqual([])
 	})
 
+	// The sanitized schema must not alias the listing cache: the normalize pass rewrites
+	// nested nodes in place, so a shallow copy would edit the entry `summarizeTool` and
+	// the failed-call schema echo read from, and that every other chat shares.
+	it('does not mutate the remote schema it was given', () => {
+		const remote = {
+			name: 'aliased',
+			description: 'x',
+			inputSchema: {
+				type: 'object',
+				properties: { a: { type: 'string', format: '' } },
+				required: ['a', 'a']
+			}
+		} as any
+
+		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [remote])
+
+		expect(remote.inputSchema.properties.a.format).toBe('')
+		expect(remote.inputSchema.required).toEqual(['a', 'a'])
+	})
+
 	it('falls back to an empty object schema when the remote sends no usable one', () => {
 		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [
 			{ name: 'nada', description: 'x', inputSchema: null } as any
