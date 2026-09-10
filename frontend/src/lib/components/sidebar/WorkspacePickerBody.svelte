@@ -61,18 +61,25 @@
 		if ($workspaceStore === id) {
 			return
 		}
+		// Read before switchWorkspace: it swaps the stores this reads out from under us.
+		const landOnHome = landsOnHome(id)
 		workspaceAIClients.init(id)
 		switchWorkspace(id)
 		// The sessions page needs no navigation here: the item's link navigation
 		// (workspaceHref) keeps the route, and the page's family reconcile swaps
 		// out a chat that doesn't belong to the new workspace's family.
-		await fixupUrlAfterWorkspaceSwitch(id, { landOnHome: landsOnHome(id) })
+		await fixupUrlAfterWorkspaceSwitch(id, { landOnHome })
 	}
 
-	// An operator's pages are granted per workspace, so switching into one lands on home
-	// rather than on a page the target may refuse them.
+	// Operator page access is granted per workspace, so a switch lands on home rather than
+	// on a page either side may refuse. Both signals are positive: `userStore.operator` is
+	// an explicit flag for the workspace being left, and `isOperatorInWorkspace` only ever
+	// confirms the target (its NULL is ambiguous, so a `false` from it is never taken as
+	// proof of a developer on its own). Leaving one developer workspace for another keeps
+	// the page, as it always has.
 	function landsOnHome(id: string): boolean {
 		if (keepPageOnSwitch) return false
+		if ($userStore?.operator) return true
 		return isOperatorInWorkspace(($userWorkspaces ?? []).find((w) => w.id === id))
 	}
 
@@ -179,11 +186,12 @@
 
 	const ambiguousNames = $derived(ambiguousWorkspaceNames($userWorkspaces))
 
-	// The host menu creates this component on open and destroys it on close, so
-	// initialising here is what makes every open start from the active
-	// workspace's family alone: opening while a fork is active expands that
-	// fork's family, putting the tick on the active fork's own row instead of on
-	// its collapsed root.
+	// Seeded once per instance: opening while a fork is active expands that fork's family,
+	// putting the tick on the active fork's own row instead of on its collapsed root. The
+	// host menu renders this only while open, so in practice each open gets a fresh
+	// instance and therefore a fresh expansion state — except across a close and re-open
+	// inside the menu's 100ms outro, where Svelte resumes the same instance and whatever
+	// was expanded by hand survives.
 	untrack(() => {
 		if (lineageRoot && lineageRoot.id !== $workspaceStore) {
 			expandedFamilies.add(lineageRoot.id)
