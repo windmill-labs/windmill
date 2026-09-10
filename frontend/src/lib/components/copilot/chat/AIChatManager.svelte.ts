@@ -2253,7 +2253,16 @@ export class AIChatManager {
 	// a different server, and one the user has not opted into.
 	refreshMcpServers = async (workspace = this.operatingWorkspace ?? '') => {
 		const refreshId = ++this.mcpServersRefreshId
-		const servers = await loadMcpServers(workspace)
+		let servers: McpServer[]
+		try {
+			servers = await loadMcpServers(workspace)
+		} catch (e) {
+			// A listing that failed is not a workspace with nothing connected: reconciling
+			// against it would drop every registered tool and lift every refusal because a
+			// request happened to fail. Keep what the last good refresh settled on.
+			console.error('Failed to load MCP servers', e)
+			return
+		}
 		if (refreshId !== this.mcpServersRefreshId) {
 			return
 		}

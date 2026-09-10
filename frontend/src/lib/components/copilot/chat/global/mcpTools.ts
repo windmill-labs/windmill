@@ -185,8 +185,8 @@ export function loadedMcpTools(owner: string): Tool<{}>[] {
 }
 
 /**
- * The servers holding a registered tool, with the revision each was frozen at, for the
- * reconcile in `refreshMcpServers`. The revision matters as much as the path: a
+ * The servers holding a registered tool, with the revision each was frozen at, for
+ * `reconcileMcpRegistry`. The revision matters as much as the path: a
  * registered call bypasses the listing cache, so a connection edited elsewhere would
  * keep running against the schema it had before the edit.
  */
@@ -299,6 +299,15 @@ export function forgetLoadedMcpTools(owner: string, serverPath?: string) {
 	if (registry.tools.size === 0) registries.delete(owner)
 }
 
+function forgetRegisteredTool(owner: string, key: string) {
+	const registry = registries.get(owner)
+	if (!registry) return
+	registry.tools.delete(key)
+	registry.lastUsed.delete(key)
+	registry.editedAt.delete(key)
+	if (registry.tools.size === 0) registries.delete(owner)
+}
+
 function clearRefused(owner: string, serverPath?: string) {
 	if (serverPath === undefined) {
 		refused.delete(owner)
@@ -349,19 +358,17 @@ export async function loadMcpServers(workspace: string): Promise<McpServer[]> {
 	// without a request — this runs before every send.
 	const enabled = enabledMcpPaths(workspace)
 	if (enabled.length === 0) return []
-	try {
-		const resources = await ResourceService.listResource({
-			workspace,
-			resourceType: 'mcp',
-			perPage: 100
-		})
-		return resources
-			.filter((r) => enabled.includes(r.path))
-			.map((r) => ({ path: r.path, editedAt: r.edited_at }))
-	} catch (e) {
-		console.error('Failed to load MCP servers', e)
-		return []
-	}
+	// Throws rather than answering `[]`: the caller reconciles registered tools and
+	// refusals against this list, and a failed request read as "nothing connected"
+	// would drop both on a blip.
+	const resources = await ResourceService.listResource({
+		workspace,
+		resourceType: 'mcp',
+		perPage: 100
+	})
+	return resources
+		.filter((r) => enabled.includes(r.path))
+		.map((r) => ({ path: r.path, editedAt: r.edited_at }))
 }
 
 function tokenize(text: string): string[] {
@@ -444,6 +451,50 @@ async function resolveTool(
 		}
 	}
 	return { server, tool }
+}
+
+/**
+ * The current definition of a registered tool, or the reason not to run the call.
+ *
+ * A registration freezes a schema and a `readOnlyHint` for the conversation, but a remote
+ * can change or withdraw a tool without its Windmill resource being touched — which is
+ * what `TOOLS_CACHE_TTL_MS` bounds for every other path. So the listing decides what runs
+ * here too, as it does for the wrapper. Arguments the model built from the old schema are
+ * not sent to a new one: the registration is dropped and the model searches again.
+ */
+async function revalidateRegistration(
+	owner: string,
+	workspace: string,
+	server: McpServer,
+	key: string,
+	frozen: McpToolDef
+): Promise<{ tool: McpToolDef } | { error: string; schema?: unknown }> {
+	let tools: McpToolDef[]
+	try {
+		tools = await loadServerTools(workspace, server.path, server.editedAt)
+	} catch {
+		// Listing is a live call to a third party. One failure must not take down a call
+		// the frozen copy can still make — the backend re-asserts `read_only` regardless.
+		return { tool: frozen }
+	}
+	const current = tools.find((t) => t.name === frozen.name)
+	if (!current) {
+		forgetRegisteredTool(owner, key)
+		return {
+			error: `${frozen.name} is no longer exposed by ${server.path}. Use search_mcp_tools to find what is.`
+		}
+	}
+	if (
+		JSON.stringify(current.inputSchema) !== JSON.stringify(frozen.inputSchema) ||
+		isReadOnly(current) !== isReadOnly(frozen)
+	) {
+		forgetRegisteredTool(owner, key)
+		return {
+			error: `${frozen.name} changed on ${server.path} since it was loaded, so these arguments were not sent. Call search_mcp_tools again to load it as it is now.`,
+			schema: current.inputSchema
+		}
+	}
+	return { tool: current }
 }
 
 /** Flatten the MCP content blocks into the text the model can act on. */
@@ -846,7 +897,11 @@ export function registerMcpTools(
 					content: `Calling ${tool.name}...`,
 					mcpServer: server.path
 				})
-				const result = await executeTool(owner, workspace, server, tool, args ?? {}, readOnly)
+				const current = await revalidateRegistration(owner, workspace, server, key, tool)
+				const result =
+					'error' in current
+						? bounded({ success: false, ...current })
+						: await executeTool(owner, workspace, server, current.tool, args ?? {}, readOnly)
 				const ok = JSON.parse(result).success === true
 				toolCallbacks.setToolStatus(toolId, {
 					content: ok ? `Called ${tool.name}` : `Call to ${tool.name} failed`,

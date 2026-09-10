@@ -549,6 +549,65 @@ describe('request rejections that withdraw registered tools', () => {
 	})
 })
 
+// A registration freezes what the remote said, but the remote can change a tool without
+// its Windmill resource being touched — the listing TTL is what bounds that everywhere else.
+describe('registrations against a changed remote', () => {
+	const server = SERVERS[0]
+
+	function callArgs() {
+		return {
+			args: { owner: 'windmill-labs', repo: 'windmill' },
+			workspace: 'test-ws',
+			helpers: {},
+			toolCallbacks: createToolCallbacks(),
+			toolId: 'tool-1'
+		} as any
+	}
+
+	it('refuses to send arguments built from a schema the remote has changed', async () => {
+		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [TOOLS[0]])
+		const registered = loadedMcpTools(OWNER)[0]
+		getMcpToolsMock.mockResolvedValue([
+			{ ...TOOLS[0], inputSchema: { type: 'object', properties: { issue_id: { type: 'string' } } } }
+		])
+
+		const result = JSON.parse(await registered.fn(callArgs()))
+
+		expect(callMcpToolMock).not.toHaveBeenCalled()
+		expect(result.success).toBe(false)
+		expect(result.schema).toEqual({ type: 'object', properties: { issue_id: { type: 'string' } } })
+		// Dropped, so the next request stops advertising it and the model searches again.
+		expect(loadedMcpTools(OWNER)).toEqual([])
+	})
+
+	it('reports a tool the remote no longer exposes', async () => {
+		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [TOOLS[0]])
+		const registered = loadedMcpTools(OWNER)[0]
+		getMcpToolsMock.mockResolvedValue([TOOLS[1]])
+
+		const result = JSON.parse(await registered.fn(callArgs()))
+
+		expect(callMcpToolMock).not.toHaveBeenCalled()
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('no longer exposed')
+		expect(loadedMcpTools(OWNER)).toEqual([])
+	})
+
+	// The listing is a live call to a third party, and the backend re-asserts read_only
+	// on every call — so a blip must not take down a call the frozen copy can still make.
+	it('still calls on the frozen copy when the listing cannot be reached', async () => {
+		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [TOOLS[0]])
+		const registered = loadedMcpTools(OWNER)[0]
+		getMcpToolsMock.mockRejectedValue(new Error('connection refused'))
+		callMcpToolMock.mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] })
+
+		const result = JSON.parse(await registered.fn(callArgs()))
+
+		expect(result.success).toBe(true)
+		expect(callMcpToolMock).toHaveBeenCalled()
+	})
+})
+
 describe('read/write split', () => {
 	it('refuses a mutating tool on the read path', async () => {
 		const result = await run('call_mcp_read_tool', {
@@ -885,6 +944,15 @@ describe('loadMcpServers', () => {
 	it('advertises nothing while no server is enabled, without listing resources', async () => {
 		expect(await loadMcpServers('test-ws')).toEqual([])
 		expect(listResourceMock).not.toHaveBeenCalled()
+	})
+
+	// The caller reconciles registered tools and refusals against this list, so a failed
+	// request must not read as "nothing is connected".
+	it('fails rather than reporting an empty list when the resources cannot be read', async () => {
+		setMcpEnabled('test-ws', 'u/hugo/github_mcp', true)
+		listResourceMock.mockRejectedValue(new Error('503'))
+
+		await expect(loadMcpServers('test-ws')).rejects.toThrow()
 	})
 
 	it('advertises only the enabled server', async () => {
