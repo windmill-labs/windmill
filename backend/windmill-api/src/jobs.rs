@@ -109,6 +109,7 @@ use windmill_common::{
     flow_status::{Approval, ApprovalConditions, FlowStatus, FlowStatusModule},
     flows::{
         add_virtual_items_if_necessary, resolve_maybe_value, ApprovalSkin, FlowModule, FlowValue,
+        Suspend,
     },
     jobs::{script_path_to_payload, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode},
     oauth2::HmacSha256,
@@ -4904,6 +4905,25 @@ fn last_reached_approval_step<'a>(
         .find(|module| module.suspend.is_some())
 }
 
+/// The approval conditions a step's own settings give, as the worker records them when the step
+/// suspends. The worker drops them from the run once the step is approved, so a run that has
+/// moved on is gated by these. Groups computed by an expression can't be re-evaluated outside
+/// the run, so such a step falls back to any signed-in user.
+fn approval_conditions_from_settings(suspend: &Suspend) -> Option<ApprovalConditions> {
+    let user_auth_required = suspend.user_auth_required.unwrap_or(false);
+    let self_approval_disabled = suspend.self_approval_disabled.unwrap_or(false);
+    if !user_auth_required && !self_approval_disabled {
+        return None;
+    }
+    let user_groups_required = match &suspend.user_groups_required {
+        Some(InputTransform::Static { value }) if user_auth_required => {
+            serde_json::from_str(value.get()).unwrap_or_default()
+        }
+        _ => vec![],
+    };
+    Some(ApprovalConditions { user_auth_required, user_groups_required, self_approval_disabled })
+}
+
 /// How the approval step presents itself on the approval page.
 struct ApprovalStepView {
     skin: ApprovalSkin,
@@ -4944,7 +4964,7 @@ async fn get_approval_info(
         completed_flow_status: Option<serde_json::Value>,
         is_wac: bool,
         wac_approval: Option<serde_json::Value>,
-        wac_approval_conditions: Option<serde_json::Value>,
+        approval_conditions: Option<serde_json::Value>,
         flow_summary: Option<String>,
     }
     let row = sqlx::query_as::<_, ApprovalJobRow>(
@@ -4956,7 +4976,7 @@ async fn get_approval_info(
                 COALESCE(s.workflow_as_code_status, c.workflow_as_code_status)->'_approval'
                     AS wac_approval,
                 COALESCE(s.flow_status, c.flow_status)->'approval_conditions'
-                    AS wac_approval_conditions,
+                    AS approval_conditions,
                 NULLIF(COALESCE(f.summary, sc.summary), '') AS flow_summary
          FROM v2_job j
          LEFT JOIN v2_job_status s ON s.id = j.id
@@ -4974,6 +4994,10 @@ async fn get_approval_info(
     .ok_or_else(|| Error::NotFound(format!("Job {job_id} not found")))?;
 
     let is_wac = row.is_wac;
+    let run_ac = row
+        .approval_conditions
+        .as_ref()
+        .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok());
 
     // Extract approval info based on WAC vs classic flow
     let (form_schema, description, default_args, enums, approval_conditions, hide_cancel, step) =
@@ -4987,18 +5011,13 @@ async fn get_approval_info(
                 .and_then(|m| m.get("skin"))
                 .and_then(|v| serde_json::from_value::<ApprovalSkin>(v.clone()).ok())
                 .unwrap_or_default();
-            let ac = row
-                .wac_approval_conditions
-                .as_ref()
-                .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok());
             let step = Some(ApprovalStepView { skin, summary: None });
-            (form, description, default_args, enums, ac, None, step)
+            (form, description, default_args, enums, run_ac, None, step)
         } else {
             let fs = row
                 .flow_status
                 .as_ref()
                 .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok());
-            let ac = fs.as_ref().and_then(|s| s.approval_conditions.clone());
 
             // For classic flows, form/description come from the flow definition and step result
             let approval_step = fs.as_ref().map(|s| (s.step as usize).saturating_sub(1));
@@ -5063,18 +5082,23 @@ async fn get_approval_info(
                 .as_ref()
                 .filter(|_| fs.is_none())
                 .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok());
-            let step = raw_flow
+            let approval_module = raw_flow
                 .as_ref()
                 .zip(fs.as_ref().or(completed_fs.as_ref()))
-                .and_then(|(flow, status)| last_reached_approval_step(flow, status))
-                .map(|module| ApprovalStepView {
-                    skin: module
-                        .suspend
-                        .as_ref()
-                        .and_then(|s| s.skin)
-                        .unwrap_or_default(),
-                    summary: module.summary.clone().filter(|s| !s.trim().is_empty()),
-                });
+                .and_then(|(flow, status)| last_reached_approval_step(flow, status));
+            let ac = run_ac.or_else(|| {
+                approval_module
+                    .and_then(|module| module.suspend.as_ref())
+                    .and_then(approval_conditions_from_settings)
+            });
+            let step = approval_module.map(|module| ApprovalStepView {
+                skin: module
+                    .suspend
+                    .as_ref()
+                    .and_then(|s| s.skin)
+                    .unwrap_or_default(),
+                summary: module.summary.clone().filter(|s| !s.trim().is_empty()),
+            });
 
             // Fetch description, default_args, and enums from the step's completed job result
             let step_job_id = fs
@@ -11988,5 +12012,24 @@ mod approval_view_gate_tests {
         assert_eq!(step_at(2, [ran, ran, waiting]).as_deref(), Some("b"));
         assert_eq!(step_at(3, [ran, skipped, ran]).as_deref(), Some("a"));
         assert_eq!(step_at(0, [pending, pending, pending]), None);
+    }
+
+    #[test]
+    fn approved_step_stays_gated_by_its_settings() {
+        let from_settings = |suspend: serde_json::Value| {
+            approval_conditions_from_settings(&serde_json::from_value(suspend).unwrap())
+        };
+        let login = from_settings(serde_json::json!({
+            "user_auth_required": true,
+            "user_groups_required": { "type": "static", "value": ["approvers"] }
+        }));
+        assert!(!can_view(
+            &None,
+            &login,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
+        assert_eq!(login.unwrap().user_groups_required, ["approvers"]);
+        assert!(from_settings(serde_json::json!({})).is_none());
     }
 }
