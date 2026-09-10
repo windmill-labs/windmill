@@ -16851,6 +16851,7 @@ paths:
                   - can_approve
                   - user_auth_required
                   - approvers
+                  - skin
                 properties:
                   flow_id:
                     type: string
@@ -16883,6 +16884,16 @@ paths:
                   hide_cancel:
                     type: boolean
                     description: whether to hide the cancel button in the UI
+                  skin:
+                    type: string
+                    enum: [detailed, minimal]
+                    description: how the approval page presents the request
+                  step_summary:
+                    type: string
+                    description: summary of the approval step, for the page title
+                  flow_summary:
+                    type: string
+                    description: summary of the flow or workflow the approval belongs to
                   approvers:
                     type: array
                     items:
@@ -21833,6 +21844,98 @@ paths:
                   required:
                     - id
                     - values
+
+  /workers/queue_metrics_series:
+    get:
+      summary: get the queue metrics of a time window, as a bounded line per tag
+      operationId: getQueueMetricsSeries
+      tags:
+        - worker
+      parameters:
+        - name: window_secs
+          in: query
+          required: false
+          description: how far back to read, in seconds (defaults to one day, capped at the 14-day retention)
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: jobs waiting and queue delay per tag, as the vertices of lines joined by straight segments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  from:
+                    type: integer
+                    description: start of the window, in epoch milliseconds
+                  to:
+                    type: integer
+                    description: end of the window, in epoch milliseconds
+                  tags:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        tag:
+                          type: string
+                        count:
+                          type: array
+                          description: "[epoch ms, jobs waiting more than 3 seconds] vertices"
+                          items:
+                            type: array
+                            items:
+                              type: number
+                        delay:
+                          type: array
+                          description: "[epoch ms, seconds the next job has waited] vertices"
+                          items:
+                            type: array
+                            items:
+                              type: number
+                      required:
+                        - tag
+                        - count
+                        - delay
+                required:
+                  - from
+                  - to
+                  - tags
+
+  /workers/queue_status:
+    get:
+      summary: get the live queue status of every tag with jobs waiting or running
+      operationId: getQueueStatus
+      tags:
+        - worker
+      responses:
+        "200":
+          description: queue status per tag
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    tag:
+                      type: string
+                    waiting:
+                      type: integer
+                      description: jobs due for more than 3 seconds that no worker has picked up
+                    delay:
+                      type: number
+                      description: seconds the job the next pull would take has been waiting, absent when none is
+                    running:
+                      type: integer
+                    workers:
+                      type: integer
+                      description: workers that pinged in the last minute and pull this tag
+                  required:
+                    - tag
+                    - waiting
+                    - running
+                    - workers
 
   /workers/queue_counts:
     get:
