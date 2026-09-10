@@ -732,6 +732,8 @@ struct OtelSetting {
     otel_exporter_otlp_protocol: Option<String>,
     #[serde(default, deserialize_with = "empty_as_none")]
     otel_exporter_otlp_compression: Option<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    otel_exporter_otlp_metrics_temporality_preference: Option<String>,
 }
 
 pub async fn load_otel(db: &DB) {
@@ -786,6 +788,14 @@ pub async fn load_otel(db: &DB) {
                 if let Some(compression) = o.otel_exporter_otlp_compression {
                     unsafe {
                         std::env::set_var("OTEL_EXPORTER_OTLP_COMPRESSION", compression);
+                    }
+                }
+                if let Some(temporality) = o.otel_exporter_otlp_metrics_temporality_preference {
+                    unsafe {
+                        std::env::set_var(
+                            "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
+                            temporality,
+                        );
                     }
                 }
                 println!("OTEL settings loaded: tracing ({tracing_enabled}), logs ({logs_enabled}), metrics ({metrics_enabled}), endpoint ({:?}), headers defined: ({})",

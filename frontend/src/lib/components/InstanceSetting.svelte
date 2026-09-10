@@ -31,6 +31,7 @@
 	import IndexerJobIndexSettings from './instanceSettings/IndexerJobIndexSettings.svelte'
 	import IndexerLogIndexSettings from './instanceSettings/IndexerLogIndexSettings.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import Select from './select/Select.svelte'
 	import SettingCard from './instanceSettings/SettingCard.svelte'
 
 	interface Props {
@@ -693,6 +694,30 @@
 									<option value={undefined}>grpc (default)</option>
 									<option value="http/protobuf">http/protobuf</option>
 								</select>
+							</div>
+							<div class="flex flex-col gap-1">
+								<label
+									for="OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE"
+									class="block text-xs font-semibold text-emphasis">Metrics temporality</label
+								>
+								<Select
+									id="OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE"
+									items={[
+										{ value: 'cumulative', label: 'cumulative' },
+										{ value: 'delta', label: 'delta' },
+										{ value: 'lowmemory', label: 'lowmemory' }
+									]}
+									placeholder="cumulative (default)"
+									clearable
+									disabled={!$enterpriseLicense}
+									bind:value={
+										$values[setting.key].otel_exporter_otlp_metrics_temporality_preference
+									}
+								/>
+								<span class="text-2xs font-normal text-secondary">
+									For delta-only intakes such as Datadog's, use lowmemory: counters and histograms
+									go out as delta, while gauges stay cumulative and keep reporting between updates.
+								</span>
 							</div>
 						{/if}
 					</div>
