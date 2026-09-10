@@ -7,7 +7,7 @@ import type { UserDraftItemKind } from '$lib/gen'
 // The gate's two refusals, from a module that holds prose and one size limit: under the
 // shallow-import rule below, the rest of plan mode is not reachable from here.
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
-import { normalizeToolParameterSchema } from './toolSchema'
+import { MCP_TOOL_NAME_PREFIX, normalizeToolParameterSchema } from './toolSchema'
 // Import-free leaf, so it satisfies the shallow-import rule below.
 import {
 	openItemPreviewAction,
@@ -719,6 +719,15 @@ async function callTool<T>({
 }): Promise<string> {
 	const tool = tools.find((t) => t.def.function.name === functionName)
 	if (!tool) {
+		// A registered MCP tool is withdrawn whenever its registration is dropped — a
+		// server turned off, an eviction, a schema the provider refused — while the search
+		// result that advertised its name stays in the transcript. Searching again is the
+		// way back; the mode advice below would send the model after a tool it has not got.
+		if (functionName.startsWith(MCP_TOOL_NAME_PREFIX)) {
+			throw new Error(
+				`Unknown tool call: ${functionName}. That MCP tool is no longer loaded — call search_mcp_tools again to load it.`
+			)
+		}
 		throw new Error(
 			`Unknown tool call: ${functionName}. Probably not in the correct mode, use the change_mode tool to switch to the correct mode.`
 		)

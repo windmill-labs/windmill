@@ -1,4 +1,11 @@
 /**
+ * Marks a chat tool name as a remote MCP tool registered for the conversation; built by
+ * `registeredToolName` in `global/mcpTools`. Here rather than there so `shared` can read
+ * it without an import cycle.
+ */
+export const MCP_TOOL_NAME_PREFIX = 'mcp_'
+
+/**
  * Recursively normalizes JSON Schema quirks that specific providers reject.
  *
  * Its own module rather than part of `shared`: a tool schema can come from a third

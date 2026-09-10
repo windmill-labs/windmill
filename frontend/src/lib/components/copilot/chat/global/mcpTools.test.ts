@@ -36,6 +36,7 @@ import {
 	createMcpTools,
 	forgetLoadedMcpTools,
 	invalidateMcpRegistrations,
+	isRequestBodyRejection,
 	loadedMcpServers,
 	mcpRegistryGeneration,
 	loadedMcpTools,
@@ -456,6 +457,22 @@ describe('loaded remote tools', () => {
 		])
 
 		expect(loadedMcpServers(OWNER)).toEqual([{ path: 'u/hugo/github_mcp', editedAt: 'v1' }])
+	})
+})
+
+// Dropping the registered tools is how a conversation recovers from a schema the
+// provider refuses, and it must not fire on an account problem: a quota error would
+// then cost the user every tool they had searched for.
+describe('request rejections that withdraw registered tools', () => {
+	it('separates a refused body from a refused account', () => {
+		expect(isRequestBodyRejection(400)).toBe(true)
+		expect(isRequestBodyRejection(422)).toBe(true)
+		expect(isRequestBodyRejection(401)).toBe(false)
+		expect(isRequestBodyRejection(403)).toBe(false)
+		expect(isRequestBodyRejection(429)).toBe(false)
+		expect(isRequestBodyRejection(500)).toBe(false)
+		// An abort carries no status.
+		expect(isRequestBodyRejection(undefined)).toBe(false)
 	})
 })
 

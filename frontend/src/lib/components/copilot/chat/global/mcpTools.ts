@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { ResourceService, type GetMcpToolsResponse } from '$lib/gen'
 import { createToolDef, type Tool } from '../shared'
-import { normalizeToolParameterSchema } from '../toolSchema'
+import { MCP_TOOL_NAME_PREFIX, normalizeToolParameterSchema } from '../toolSchema'
 import { enabledMcpPaths } from '$lib/components/mcp/enabledServers'
 
 /**
@@ -591,8 +591,19 @@ function shortHash(text: string): string {
  * `list_issues` stay apart, and nothing parses it back: the registry keys on the
  * pair, so truncation only has to stay unique.
  */
+/**
+ * Whether a failed chat request was the provider refusing the body rather than the
+ * account. A remote schema this provider will not accept refuses every later request
+ * in the conversation the same way, so the registered tools are dropped on the first
+ * of these; auth and quota statuses say nothing about the schemas.
+ */
+export function isRequestBodyRejection(status: number | undefined): boolean {
+	if (status === undefined || status < 400 || status >= 500) return false
+	return status !== 401 && status !== 403 && status !== 429
+}
+
 function registeredToolName(serverPath: string, toolName: string): string {
-	const full = `mcp_${sanitizeToolNamePart(serverPath)}__${sanitizeToolNamePart(toolName)}`
+	const full = `${MCP_TOOL_NAME_PREFIX}${sanitizeToolNamePart(serverPath)}__${sanitizeToolNamePart(toolName)}`
 	if (full.length <= MAX_TOOL_NAME_CHARS) return full
 	return `${full.slice(0, MAX_TOOL_NAME_CHARS - 8)}_${shortHash(full)}`
 }

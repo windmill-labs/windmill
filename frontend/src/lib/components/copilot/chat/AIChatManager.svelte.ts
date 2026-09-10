@@ -144,6 +144,7 @@ import {
 	createMcpTools,
 	forgetLoadedMcpTools,
 	invalidateMcpRegistrations,
+	isRequestBodyRejection,
 	loadedMcpServers,
 	loadedMcpTools,
 	loadMcpServers,
@@ -2286,14 +2287,11 @@ export class AIChatManager {
 	 * A registered MCP tool carries a schema a third party wrote, and a provider that
 	 * refuses it refuses every later request in the conversation the same way — with an
 	 * error naming the request, not the tool. So a rejection drops the registered tools:
-	 * the next send goes out with the search tool and the wrappers only, and the model
-	 * can register again. A false positive costs one re-search. Statuses about the
-	 * account rather than the body (auth, quota) are left alone.
+	 * the send that follows goes out with the search tool and the wrappers only, and the
+	 * model can register again. A false positive costs one re-search.
 	 */
 	private dropMcpToolsOnRejectedRequest = (err: unknown) => {
-		const status = getErrorStatus(err)
-		if (status === undefined || status < 400 || status >= 500) return
-		if (status === 401 || status === 403 || status === 429) return
+		if (!isRequestBodyRejection(getErrorStatus(err))) return
 		if (loadedMcpTools(this.mcpOwnerId).length === 0) return
 		console.warn('Dropping registered MCP tools after a rejected request', err)
 		forgetLoadedMcpTools(this.mcpOwnerId)
