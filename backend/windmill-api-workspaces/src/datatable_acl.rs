@@ -357,11 +357,17 @@ async fn read_owned_objects(
     client: &tokio_postgres::Client,
     schema: &str,
 ) -> Result<Vec<OwnedObject>> {
+    // A sequence tied to a column — `serial`, identity, `OWNED BY` — follows its table's owner and
+    // refuses an `ALTER SEQUENCE ... OWNER` of its own, so it is left to the table's statement.
     let rows = client
         .query(
             "SELECT c.relname, c.relkind
              FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
              WHERE n.nspname = $1 AND c.relkind = ANY(ARRAY['r','p','v','m','S','f']::\"char\"[])
+               AND NOT (c.relkind = 'S' AND EXISTS (
+                   SELECT 1 FROM pg_depend d
+                   WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid
+                     AND d.refclassid = 'pg_class'::regclass AND d.deptype IN ('a', 'i')))
              ORDER BY c.relname",
             &[&schema],
         )
@@ -814,6 +820,14 @@ async fn build_plan(
         }
         _ => vec![],
     };
+    if matches!(change, AclChange::SetOwner { .. }) {
+        if let Some((object, owner)) = unmanaged_owner(client, target).await? {
+            return Err(Error::BadRequest(format!(
+                "{object} is owned by {owner}, which this data table's connection cannot act \
+                 for, so its owner cannot be changed from here"
+            )));
+        }
+    }
     let mut plan = crate::datatable_acl_oss::plan_statements(
         target,
         &change,
@@ -870,6 +884,58 @@ async fn missing_owner_privilege(
         })?
         .get(0);
     Ok((!has).then_some(missing))
+}
+
+/// The first thing a change of owner would move that this connection cannot act for, with its
+/// owner. Postgres lets only a member of the current owner move an object, and every change runs as
+/// `custom_instance_user`, so an object it does not hold the owner of — `public`, owned by the
+/// database's owner, above all — is refused here rather than at apply. Running as the instance's
+/// own user instead would reach objects Windmill never created.
+async fn unmanaged_owner(
+    client: &tokio_postgres::Client,
+    target: &AclTarget,
+) -> Result<Option<(String, String)>> {
+    let row = match target {
+        AclTarget::Database => return Ok(None),
+        AclTarget::Table { schema, table } => {
+            client
+                .query_opt(
+                    "SELECT n.nspname || '.' || c.relname, pg_get_userbyid(c.relowner)
+                     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                     WHERE n.nspname = $1 AND c.relname = $2 AND NOT pg_has_role(c.relowner, 'USAGE')",
+                    &[schema, table],
+                )
+                .await
+        }
+        AclTarget::Schema { schema } => {
+            client
+                .query_opt(
+                    "SELECT label, pg_get_userbyid(owner) FROM (
+                         SELECT 0 AS ord, 'schema ' || n.nspname AS label, n.nspowner AS owner
+                         FROM pg_namespace n WHERE n.nspname = $1
+                         UNION ALL
+                         SELECT 1, n.nspname || '.' || c.relname, c.relowner
+                         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                         WHERE n.nspname = $1
+                           AND c.relkind = ANY(ARRAY['r','p','v','m','S','f']::\"char\"[])
+                         UNION ALL
+                         SELECT 1, n.nspname || '.' || p.proname || '('
+                                   || pg_get_function_identity_arguments(p.oid) || ')', p.proowner
+                         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+                         WHERE n.nspname = $1
+                     ) o WHERE NOT pg_has_role(owner, 'USAGE') ORDER BY ord, label LIMIT 1",
+                    &[schema],
+                )
+                .await
+        }
+    }
+    .map_err(|e| {
+        Error::internal_err(format!(
+            "Failed to read who owns what the change moves: {}",
+            pg_error_message(&e)
+        ))
+    })?;
+    Ok(row.map(|row| (row.get(0), row.get(1))))
 }
 
 async fn plan_datatable_acl(
