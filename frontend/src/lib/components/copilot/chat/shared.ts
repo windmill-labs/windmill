@@ -580,7 +580,6 @@ export type ToolDisplayMessage = {
 	 * both sources — the loaded-tool registry and the server listing — live only in
 	 * memory, and a reloaded transcript has neither. */
 	mcpServer?: string
-	mcpIconSrc?: string
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay

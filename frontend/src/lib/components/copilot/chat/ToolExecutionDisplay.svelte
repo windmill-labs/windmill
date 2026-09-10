@@ -251,19 +251,13 @@
 	{/snippet}
 
 	<!-- Which system a call reaches is the first thing to know about it, so an MCP call
-	     is marked before its label. Nothing is drawn until a mark resolves: a
-	     placeholder plug on every row would be noise. -->
+	     is marked before its label. Awaited rather than drawn immediately: the MCP logo
+	     appearing first and being replaced would flicker on every row. -->
 	{#snippet serverMark()}
 		{#if mcpServerPath && aiChatManager.operatingWorkspace}
-			<!-- Both sources are resolved so the component can fall back to the shipped
-			     icon when a published one fails to render. -->
 			{#await resolveMcpServerMark(aiChatManager.operatingWorkspace, mcpServerPath) then mark}
-				{#if message.mcpIconSrc || mark.icon}
-					<McpServerIcon src={message.mcpIconSrc} icon={mark.icon} size={14} />
-				{/if}
+				<McpServerIcon icon={mark.icon} size={14} />
 			{/await}
-		{:else if message.mcpIconSrc}
-			<McpServerIcon src={message.mcpIconSrc} size={14} />
 		{/if}
 	{/snippet}
 
@@ -283,7 +277,7 @@
 		labelClass={showPreviewChip ? 'truncate' : ''}
 		contentClass="space-y-3"
 		headerRight={showPreviewChip ? previewChip : undefined}
-		headerLeft={message.mcpIconSrc || mcpServerPath ? serverMark : undefined}
+		headerLeft={mcpServerPath ? serverMark : undefined}
 	>
 		<!-- Image a tool produced (e.g. take_screenshot) — shown inline, not gated on expand. -->
 		{#snippet belowHeader()}

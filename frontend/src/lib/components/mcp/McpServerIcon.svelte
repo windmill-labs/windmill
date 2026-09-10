@@ -1,38 +1,20 @@
 <script lang="ts">
 	import type { Component } from 'svelte'
-	import { Plug } from 'lucide-svelte'
+	import McpIcon from '$lib/components/icons/McpIcon.svelte'
 
 	/**
-	 * A connected server's mark, best available first: the icon the MCP server itself
-	 * published (`icons`, per the spec), then the icon Windmill ships for that
-	 * integration, then a generic plug.
-	 *
-	 * The server's own icon comes first because it is the authoritative one and costs
-	 * nothing to show: `pickMcpIconSrc` admits only `data:` sources, so the bytes are
-	 * already here and no request leaves the browser to render them.
+	 * A connected server's mark: the icon Windmill ships for that integration, or the
+	 * MCP logo for a server it has none for — which still says what kind of thing the
+	 * row reaches, where a generic plug did not.
 	 */
-	let { src, icon, size = 16 }: { src?: string; icon?: Component<any>; size?: number } = $props()
-
-	// Keyed by src rather than a boolean so a server publishing a different icon
-	// retries instead of inheriting the previous one's failure. A malformed data URI
-	// lands here and falls through to the icon below it.
-	let failedFor = $state<string | undefined>(undefined)
+	let { icon, size = 16 }: { icon?: Component<any>; size?: number } = $props()
 
 	const px = $derived(`${size}px`)
 </script>
 
-{#if src && failedFor !== src}
-	<img
-		{src}
-		alt=""
-		width={size}
-		height={size}
-		class="rounded-sm"
-		onerror={() => (failedFor = src)}
-	/>
-{:else if icon}
+{#if icon}
 	{@const Icon = icon}
 	<Icon width={px} height={px} />
 {:else}
-	<Plug {size} class="text-tertiary" />
+	<McpIcon width={size} height={size} />
 {/if}

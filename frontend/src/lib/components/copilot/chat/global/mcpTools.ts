@@ -3,7 +3,6 @@ import { ResourceService, type GetMcpToolsResponse } from '$lib/gen'
 import { createToolDef, type Tool } from '../shared'
 import { normalizeToolParameterSchema } from '../toolSchema'
 import { enabledMcpPaths } from '$lib/components/mcp/enabledServers'
-import { pickMcpIconSrc } from '$lib/components/mcp/mcpIcon'
 
 /**
  * Access to the MCP servers the user has connected (resources of type `mcp`),
@@ -550,10 +549,7 @@ function createCallTool(owner: string, servers: McpServer[], mode: 'read' | 'wri
 				toolCallbacks.setToolStatus(toolId, { content: error, error })
 				return bounded({ success: false, error })
 			}
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Calling ${parsed.tool}...`,
-				mcpIconSrc: pickMcpIconSrc((resolved.tool as { icons?: unknown }).icons)
-			})
+			toolCallbacks.setToolStatus(toolId, { content: `Calling ${parsed.tool}...` })
 			const result = await executeTool(
 				owner,
 				workspace,
@@ -742,8 +738,7 @@ export function registerMcpTools(
 				touchLoadedTool(owner, key)
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Calling ${tool.name}...`,
-					mcpServer: server.path,
-					mcpIconSrc: pickMcpIconSrc((tool as { icons?: unknown }).icons)
+					mcpServer: server.path
 				})
 				const result = await executeTool(owner, workspace, server, tool, args ?? {}, readOnly)
 				const ok = JSON.parse(result).success === true
