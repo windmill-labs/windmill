@@ -2,8 +2,16 @@
 	import { onMount } from 'svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import type { HubProjectPick } from '$lib/hubProject'
-	import { disableHubStore } from '$lib/stores'
+	import { Button } from '$lib/components/common'
+	import { ArrowRight, LayoutGrid } from 'lucide-svelte'
+	import {
+		hubAppIcon,
+		hubProjectCatalogue,
+		pinHubProjects,
+		type HubProjectPick
+	} from '$lib/hubProject'
+	import { onboardingProfile } from '$lib/onboardingProfile'
+	import { disableHubStore, workspaceStore } from '$lib/stores'
 	import CreateActionsMenu from './CreateActionsMenu.svelte'
 	import HubTemplatePicker from './HubTemplatePicker.svelte'
 
@@ -47,7 +55,30 @@
 
 	// The catalogue is fetched when the picker opens, never on render: `disable_hub` says an
 	// instance makes no hub requests at all, and it loads asynchronously, so anything fired
-	// from here goes out before the setting that forbids it is known.
+	// from here goes out before the setting that forbids it is known. The one exception is an
+	// invited account whose invite picked projects: the profile (a Windmill call, not a hub
+	// one) is read first, and only a profile that names picks reaches for the catalogue.
+	const PICKS_SHOWN = 2
+	let picks = $state<HubProjectPick[]>([])
+	$effect(() => {
+		const workspace = $workspaceStore
+		if (!workspace || archivedOnly || !canCreate || $disableHubStore) return
+		let live = true
+		onboardingProfile()
+			.then(async (profile) => {
+				if (!profile?.hub_projects?.length && !profile?.tools?.length) return
+				const all = await hubProjectCatalogue(workspace)
+				if (live) {
+					picks = pinHubProjects(all, profile)
+						.filter((p) => p.pinned)
+						.slice(0, PICKS_SHOWN)
+				}
+			})
+			.catch((e) => console.error('Could not load the picked projects:', e))
+		return () => {
+			live = false
+		}
+	})
 </script>
 
 <div
@@ -55,21 +86,62 @@
 	role="status"
 	aria-label={archivedOnly ? 'Everything here is archived' : 'Your workspace is empty'}
 >
-	{#each rowOpacities as opacity, i (i)}
-		<div
-			aria-hidden="true"
-			class="flex items-center gap-[14px] px-4 py-[13px] {i > 0
-				? 'border-t border-dashed border-border-light'
-				: ''}"
-			style="opacity: {opacity}"
-		>
-			<div class="size-4 shrink-0 rounded bg-border-light"></div>
-			<div>
-				<div class="h-[9px] w-[140px] rounded-full bg-border-light"></div>
-				<div class="mt-[5px] h-[7px] w-[70px] rounded-full bg-border-light/60"></div>
+	{#if picks.length}
+		<!-- The projects the invite picked stand where the placeholder rows would: the first
+		     concrete thing this workspace could hold, one click from holding it. The first pick
+		     gets the stronger button; the rest are there without competing with it. -->
+		<p class="px-4 pt-3 text-[10px] font-semibold uppercase tracking-wide text-tertiary">
+			Picked for you
+		</p>
+		{#each picks as project, i (project.id)}
+			{@const Icon = hubAppIcon(project.iconApps[0] ?? '')}
+			<div
+				class="flex items-center gap-[14px] px-4 py-3 {i > 0
+					? 'border-t border-dashed border-border-light'
+					: ''}"
+			>
+				<div class="flex size-[22px] shrink-0 items-center justify-center">
+					{#if project.logoUrl}
+						<img src={project.logoUrl} alt="" class="max-h-[22px] max-w-[22px] object-contain" />
+					{:else if Icon}
+						<Icon size={20} />
+					{:else}
+						<LayoutGrid size={18} class="text-tertiary" />
+					{/if}
+				</div>
+				<div class="min-w-0 flex-1">
+					<div class="truncate text-xs font-semibold text-emphasis">{project.name}</div>
+					<p class="mt-0.5 line-clamp-2 text-[11.5px] leading-relaxed text-secondary">
+						{project.description || project.summary}
+					</p>
+				</div>
+				<Button
+					variant={i === 0 ? 'accent-secondary' : 'default'}
+					unifiedSize="sm"
+					endIcon={{ icon: ArrowRight }}
+					onClick={() => onPick(project)}
+				>
+					Import
+				</Button>
 			</div>
-		</div>
-	{/each}
+		{/each}
+	{:else}
+		{#each rowOpacities as opacity, i (i)}
+			<div
+				aria-hidden="true"
+				class="flex items-center gap-[14px] px-4 py-[13px] {i > 0
+					? 'border-t border-dashed border-border-light'
+					: ''}"
+				style="opacity: {opacity}"
+			>
+				<div class="size-4 shrink-0 rounded bg-border-light"></div>
+				<div>
+					<div class="h-[9px] w-[140px] rounded-full bg-border-light"></div>
+					<div class="mt-[5px] h-[7px] w-[70px] rounded-full bg-border-light/60"></div>
+				</div>
+			</div>
+		{/each}
+	{/if}
 
 	<!-- A <div>, not a <p>: CreateActionsMenu wraps its trigger in an element, which a
 	     paragraph may not contain. -->
