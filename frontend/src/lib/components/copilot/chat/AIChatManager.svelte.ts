@@ -134,6 +134,7 @@ import {
 } from './global/core'
 import { formatChatJobCompletion } from './datatableTools'
 import { isGlobalAiEnabled } from './global/gate'
+import { randomUUID } from '$lib/utils/uuid'
 import {
 	createMcpTools,
 	forgetLoadedMcpTools,
@@ -1203,6 +1204,9 @@ export class AIChatManager {
 	// this is non-empty, so a workspace with no connection pays no schema cost
 	// for them on every chat-loop iteration.
 	mcpServers = $state<McpServer[]>([])
+	/** Scopes this manager's registered MCP tools. Several managers are live at once —
+	 * the docked chat plus a warm runtime per session — and each is its own conversation. */
+	readonly mcpOwnerId = randomUUID()
 	private mcpServersRefreshId = 0
 
 	// The GLOBAL prompt's path conventions and folder ACLs, for this chat's operating
@@ -2173,7 +2177,7 @@ export class AIChatManager {
 			}
 		}
 		const pipeline = this.pipelineAiChatHelpers
-		const mcpTools = createMcpTools(this.mcpServers)
+		const mcpTools = createMcpTools(this.mcpOwnerId, this.mcpServers)
 		if (pipeline) {
 			systemMessage.content += getPipelinePromptSection(pipeline.getPipelineContext())
 			this.tools = [
@@ -2242,8 +2246,8 @@ export class AIChatManager {
 		// left behind by a workspace switch would still be callable, and would run
 		// against whichever workspace the chat is on now.
 		const live = new Set(this.mcpServers.map((s) => s.path))
-		for (const path of loadedMcpServerPaths()) {
-			if (!live.has(path)) forgetLoadedMcpTools(path)
+		for (const path of loadedMcpServerPaths(this.mcpOwnerId)) {
+			if (!live.has(path)) forgetLoadedMcpTools(this.mcpOwnerId, path)
 		}
 		if (this.mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
@@ -2702,7 +2706,7 @@ export class AIChatManager {
 					// only mode that installs the MCP tools or reconciles the loaded set, so
 					// anywhere else these would be schemas a mode never opted into and
 					// nothing would ever drop them.
-					const mcpTools = self.mode === AIMode.GLOBAL ? loadedMcpTools() : []
+					const mcpTools = self.mode === AIMode.GLOBAL ? loadedMcpTools(self.mcpOwnerId) : []
 					return [...self.tools, ...self.planMode.tools, ...mcpTools]
 				},
 				get helpers() {
@@ -4174,7 +4178,7 @@ export class AIChatManager {
 		// Carrying them forward would put their schemas in the next conversation's tool
 		// list — the cost the search indirection exists to avoid — and offer the model a
 		// remote tool nobody there asked for.
-		forgetLoadedMcpTools()
+		forgetLoadedMcpTools(this.mcpOwnerId)
 		this.onChatRotated?.(this.historyManager.getCurrentChatId())
 	}
 
@@ -4226,7 +4230,7 @@ export class AIChatManager {
 			this.#automaticScroll = true
 			this.syncArtifactsSession()
 			this.planMode.resetRound()
-			forgetLoadedMcpTools()
+			forgetLoadedMcpTools(this.mcpOwnerId)
 			this.onChatRotated?.(id)
 		}
 	}

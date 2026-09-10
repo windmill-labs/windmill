@@ -34,6 +34,9 @@ const MAX_TOOL_NAME_CHARS = 64
 // controls. Past this, the tool is left unregistered and the model reaches it through
 // `call_mcp_*` instead — the schema still arrives, but only when a call fails.
 const MAX_TOOL_SCHEMA_CHARS = 8_000
+// Same reasoning for the description, which rides alongside it. Roomier than the
+// search summary's 200: this one is what the model chooses the tool from.
+const MAX_TOOL_DESCRIPTION_CHARS = 2_000
 const MAX_RESULT_CHARS = 20_000
 // A server writes its own error text, and every enabled server can contribute
 // one, so search results are capped the same way call results are.
@@ -80,7 +83,7 @@ async function loadServerTools(
 export function clearMcpToolsCache() {
 	cacheGeneration++
 	toolsCache = {}
-	forgetLoadedMcpTools()
+	forgetAllLoadedMcpTools()
 }
 
 /**
@@ -97,28 +100,49 @@ export function clearMcpToolsCache() {
  * asserts `read_only` against the live server, so a stale hint cannot turn into
  * an unconfirmed write.
  */
-const loadedTools = new Map<string, Tool<{}>>()
-
-/**
- * Recency for eviction, kept beside the map rather than as its order. The emitted
- * tool list carries Anthropic's `cache_control` breakpoint on its last entry, so
- * reordering it on every call would invalidate the cached prefix — system prompt,
- * skills and transcript — for the rest of the turn.
- */
-const lastUsed = new Map<string, number>()
-let useCounter = 0
-
-function touchLoadedTool(key: string) {
-	if (loadedTools.has(key)) lastUsed.set(key, ++useCounter)
+type OwnerRegistry = {
+	tools: Map<string, Tool<{}>>
+	/**
+	 * Recency for eviction, kept beside the map rather than as its order. The emitted
+	 * tool list carries Anthropic's `cache_control` breakpoint on its last entry, so
+	 * reordering it on every call would invalidate the cached prefix — system prompt,
+	 * skills and transcript — for the rest of the turn.
+	 */
+	lastUsed: Map<string, number>
+	counter: number
 }
 
-export function loadedMcpTools(): Tool<{}>[] {
-	return [...loadedTools.values()]
+/**
+ * Keyed by owner, because several chats are live at once: the docked chat is a
+ * singleton and every warm session runtime builds its own manager, all in GLOBAL
+ * mode. One shared map would put a session's registrations into the docked chat's
+ * request, and let either one's "New chat" wipe a tool the other advertised an
+ * iteration ago.
+ */
+const registries = new Map<string, OwnerRegistry>()
+
+function registryFor(owner: string): OwnerRegistry {
+	let registry = registries.get(owner)
+	if (!registry) {
+		registry = { tools: new Map(), lastUsed: new Map(), counter: 0 }
+		registries.set(owner, registry)
+	}
+	return registry
+}
+
+function touchLoadedTool(owner: string, key: string) {
+	const registry = registryFor(owner)
+	if (registry.tools.has(key)) registry.lastUsed.set(key, ++registry.counter)
+}
+
+export function loadedMcpTools(owner: string): Tool<{}>[] {
+	return [...(registries.get(owner)?.tools.values() ?? [])]
 }
 
 /** The servers that currently have a tool registered, for reconciling against the live list. */
-export function loadedMcpServerPaths(): string[] {
-	return [...new Set([...loadedTools.keys()].map((key) => key.slice(0, key.lastIndexOf('::'))))]
+export function loadedMcpServerPaths(owner: string): string[] {
+	const keys = [...(registries.get(owner)?.tools.keys() ?? [])]
+	return [...new Set(keys.map((key) => key.slice(0, key.lastIndexOf('::'))))]
 }
 
 /**
@@ -126,27 +150,37 @@ export function loadedMcpServerPaths(): string[] {
  * the provider. Resolved through the registry rather than by parsing the name, which
  * a long path truncates.
  */
-export function mcpServerForToolName(toolName: string): string | undefined {
-	for (const [key, tool] of loadedTools) {
+export function mcpServerForToolName(owner: string, toolName: string): string | undefined {
+	for (const [key, tool] of registries.get(owner)?.tools ?? []) {
 		if (tool.def.function.name === toolName) return key.slice(0, key.lastIndexOf('::'))
 	}
 	return undefined
 }
 
-/** Drop every loaded tool, or only those belonging to one server. */
-export function forgetLoadedMcpTools(serverPath?: string) {
+/** Drop one owner's loaded tools, or only those belonging to one server. */
+export function forgetLoadedMcpTools(owner: string, serverPath?: string) {
+	const registry = registries.get(owner)
+	if (!registry) return
 	if (serverPath === undefined) {
-		loadedTools.clear()
-		lastUsed.clear()
+		registries.delete(owner)
 		return
 	}
 	const prefix = `${serverPath}::`
-	for (const key of [...loadedTools.keys()]) {
+	for (const key of [...registry.tools.keys()]) {
 		if (key.startsWith(prefix)) {
-			loadedTools.delete(key)
-			lastUsed.delete(key)
+			registry.tools.delete(key)
+			registry.lastUsed.delete(key)
 		}
 	}
+	if (registry.tools.size === 0) registries.delete(owner)
+}
+
+/**
+ * Drop every owner's loaded tools. Used when a server resource itself changed, which
+ * makes the frozen copy every chat holds stale at once — not for one chat rotating.
+ */
+export function forgetAllLoadedMcpTools() {
+	registries.clear()
 }
 
 /**
@@ -155,13 +189,13 @@ export function forgetLoadedMcpTools(serverPath?: string) {
  * rejected by the same stale `readOnlyHint`, leaving it with nowhere to go until
  * the entry expires.
  */
-function forgetServerTools(workspace: string, path: string) {
+function forgetServerTools(owner: string, workspace: string, path: string) {
 	cacheGeneration++
 	const prefix = `${workspace}:${path}:`
 	for (const key of Object.keys(toolsCache)) {
 		if (key.startsWith(prefix)) delete toolsCache[key]
 	}
-	forgetLoadedMcpTools(path)
+	forgetLoadedMcpTools(owner, path)
 }
 
 /**
@@ -286,6 +320,7 @@ function extractResultData(result: unknown): unknown {
 }
 
 async function executeTool(
+	owner: string,
 	workspace: string,
 	server: McpServer,
 	tool: McpToolDef,
@@ -313,7 +348,7 @@ async function executeTool(
 		// write tool the model is sent to must not be handed the same answer. Matching
 		// loosely is safe: the worst a false positive costs is one extra listing.
 		if (skippedConfirmation && status === 400 && /read-only/i.test(error)) {
-			forgetServerTools(workspace, server.path)
+			forgetServerTools(owner, workspace, server.path)
 		}
 		return bounded({
 			success: false,
@@ -420,7 +455,7 @@ const callMcpToolSchema = z.object({
  * split they accept, and that check is what keeps a mutating call behind the
  * user's confirmation — building both from one body keeps them from drifting.
  */
-function createCallTool(servers: McpServer[], mode: 'read' | 'write'): Tool<{}> {
+function createCallTool(owner: string, servers: McpServer[], mode: 'read' | 'write'): Tool<{}> {
 	const isRead = mode === 'read'
 	return {
 		def: createToolDef(
@@ -464,6 +499,7 @@ function createCallTool(servers: McpServer[], mode: 'read' | 'write'): Tool<{}> 
 			}
 			toolCallbacks.setToolStatus(toolId, { content: `Calling ${parsed.tool}...` })
 			const result = await executeTool(
+				owner,
 				workspace,
 				resolved.server,
 				resolved.tool,
@@ -546,7 +582,8 @@ function safeInputSchema(schema: unknown): Record<string, unknown> {
 	return safe
 }
 
-function evictLoadedTools() {
+function evictLoadedTools(registry: OwnerRegistry) {
+	const { tools: loadedTools, lastUsed } = registry
 	while (loadedTools.size > MAX_LOADED_TOOLS) {
 		let victim: string | undefined
 		let victimRank = Infinity
@@ -573,7 +610,12 @@ function evictLoadedTools() {
  * Each tool carries its own `readOnlyHint`, so the confirmation gate is per tool
  * and the read/write wrappers' "you used the wrong one" failure cannot arise.
  */
-export function registerMcpTools(server: McpServer, tools: McpToolDef[]): (string | undefined)[] {
+export function registerMcpTools(
+	owner: string,
+	server: McpServer,
+	tools: McpToolDef[]
+): (string | undefined)[] {
+	const registry = registryFor(owner)
 	const names = tools.map((tool) => {
 		const key = `${server.path}::${tool.name}`
 		const name = registeredToolName(server.path, tool.name)
@@ -587,12 +629,15 @@ export function registerMcpTools(server: McpServer, tools: McpToolDef[]): (strin
 		// Set without deleting first: re-registering refreshes the schema in place,
 		// and Map.set keeps an existing key's position, so the emitted tool list — and
 		// the cache breakpoint on its last entry — does not move.
-		loadedTools.set(key, {
+		registry.tools.set(key, {
 			def: {
 				type: 'function',
 				function: {
 					name,
-					description: `${tool.description ?? tool.name}\n(MCP server ${server.path})`,
+					// Bounded like the schema above and like every other payload the server
+					// controls: this rides in the request on every iteration, for up to
+					// MAX_LOADED_TOOLS tools, and servers do ship multi-KB descriptions.
+					description: `${truncate(tool.description ?? tool.name, MAX_TOOL_DESCRIPTION_CHARS)}\n(MCP server ${server.path})`,
 					parameters
 				}
 			},
@@ -604,12 +649,12 @@ export function registerMcpTools(server: McpServer, tools: McpToolDef[]): (strin
 						confirmationMessage: `Call ${tool.name} on ${server.path}`
 					}),
 			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-				touchLoadedTool(key)
+				touchLoadedTool(owner, key)
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Calling ${tool.name}...`,
 					mcpServer: server.path
 				})
-				const result = await executeTool(workspace, server, tool, args ?? {}, readOnly)
+				const result = await executeTool(owner, workspace, server, tool, args ?? {}, readOnly)
 				const ok = JSON.parse(result).success === true
 				toolCallbacks.setToolStatus(toolId, {
 					content: ok ? `Called ${tool.name}` : `Call to ${tool.name} failed`,
@@ -621,7 +666,7 @@ export function registerMcpTools(server: McpServer, tools: McpToolDef[]): (strin
 		})
 		return name
 	})
-	evictLoadedTools()
+	evictLoadedTools(registry)
 	return names
 }
 
@@ -630,7 +675,7 @@ export function registerMcpTools(server: McpServer, tools: McpToolDef[]): (strin
  * are not registered at all, so a workspace without an MCP connection pays no
  * per-iteration schema cost for them.
  */
-export function createMcpTools(servers: McpServer[]): Tool<{}>[] {
+export function createMcpTools(owner: string, servers: McpServer[]): Tool<{}>[] {
 	if (servers.length === 0) return []
 	const serverList = servers.map((s) => s.path).join(', ')
 
@@ -696,7 +741,7 @@ export function createMcpTools(servers: McpServer[]): Tool<{}>[] {
 					perServerMatches.set(match.server.path, entry)
 				}
 				for (const { server, tools } of perServerMatches.values()) {
-					const registered = registerMcpTools(server, tools)
+					const registered = registerMcpTools(owner, server, tools)
 					// A tool whose schema was too large to register has no `call` name, and
 					// the summary then advertises the wrapper for it instead.
 					tools.forEach((tool, i) => {
@@ -721,7 +766,7 @@ export function createMcpTools(servers: McpServer[]): Tool<{}>[] {
 				return result
 			}
 		},
-		createCallTool(servers, 'read'),
-		createCallTool(servers, 'write')
+		createCallTool(owner, servers, 'read'),
+		createCallTool(owner, servers, 'write')
 	]
 }

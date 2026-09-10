@@ -54,14 +54,20 @@
 	// arguments, and a registered tool is resolved through the in-memory registry.
 	const MCP_CALL_TOOLS = ['call_mcp_read_tool', 'call_mcp_write_tool']
 	const mcpServerPath = $derived.by(() => {
-		if (message.mcpServer) return message.mcpServer
-		const name = message.toolName
-		if (!name) return undefined
-		if (MCP_CALL_TOOLS.includes(name)) {
-			const server = message.parameters?.server
-			return typeof server === 'string' ? server : undefined
-		}
-		return mcpServerForToolName(name)
+		const claimed = (() => {
+			if (message.mcpServer) return message.mcpServer
+			const name = message.toolName
+			if (!name) return undefined
+			if (MCP_CALL_TOOLS.includes(name)) {
+				const server = message.parameters?.server
+				return typeof server === 'string' ? server : undefined
+			}
+			return mcpServerForToolName(aiChatManager.mcpOwnerId, name)
+		})()
+		// Both sources are ultimately a path the model wrote, and resolving one reads
+		// that resource and asks a third party for its host's favicon. Only a server
+		// the user actually connected gets marked.
+		return claimed && aiChatManager.mcpServers.some((s) => s.path === claimed) ? claimed : undefined
 	})
 
 	const isPlanReview = $derived(message.toolName === EXIT_PLAN_MODE_TOOL)
