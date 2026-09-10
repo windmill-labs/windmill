@@ -1,14 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { existsVariable, getVariable, createVariable, updateVariable, deleteVariable, existsResource } =
-	vi.hoisted(() => ({
-		existsVariable: vi.fn(),
-		getVariable: vi.fn(),
-		createVariable: vi.fn(),
-		updateVariable: vi.fn(),
-		deleteVariable: vi.fn(),
-		existsResource: vi.fn()
-	}))
+const {
+	existsVariable,
+	getVariable,
+	createVariable,
+	updateVariable,
+	deleteVariable,
+	existsResource
+} = vi.hoisted(() => ({
+	existsVariable: vi.fn(),
+	getVariable: vi.fn(),
+	createVariable: vi.fn(),
+	updateVariable: vi.fn(),
+	deleteVariable: vi.fn(),
+	existsResource: vi.fn()
+}))
 
 vi.mock('$lib/gen', () => ({
 	VariableService: { existsVariable, getVariable, createVariable, updateVariable, deleteVariable },

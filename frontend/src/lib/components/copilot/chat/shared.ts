@@ -580,6 +580,10 @@ export type ToolDisplayMessage = {
 	 * Recorded here rather than looked up from the tool name: the registry of loaded
 	 * remote tools lives only in memory, so a reloaded transcript could not resolve it. */
 	mcpServer?: string
+	/** Icon the MCP server published for the tool this row called (`icons`, per the
+	 * spec), already validated. Recorded here for the same reason as `mcpServer`: the
+	 * listing it came from is not available to a reloaded transcript. */
+	mcpIconSrc?: string
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay

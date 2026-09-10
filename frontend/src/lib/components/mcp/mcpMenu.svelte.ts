@@ -7,7 +7,7 @@ import { sendUserToast } from '$lib/toast'
 import type { Item } from '$lib/utils'
 import type { AIChatManager } from '../copilot/chat/AIChatManager.svelte'
 import { isMcpEnabled, setMcpEnabled } from './enabledServers'
-import { cachedProviderHost, cachedProviderKey, rememberProviderKey } from './iconCache'
+import { cachedProviderKey, rememberProviderKey } from './iconCache'
 import { loadProviderIcon } from './providerIcon'
 import McpServerIcon from './McpServerIcon.svelte'
 
@@ -16,7 +16,6 @@ type Row = {
 	editedAt?: string
 	enabled: boolean
 	icon?: Component<any>
-	iconHost?: string
 }
 
 // A menu is a shortcut, not a directory: past this many the list stops being
@@ -105,7 +104,6 @@ export class McpMenu {
 				const icon = await loadProviderIcon(key)
 				if (seq !== this.#seq) return
 				server.icon = icon
-				server.iconHost = cachedProviderHost(ws, server.path, server.editedAt)
 			})
 		)
 	}
@@ -171,11 +169,11 @@ export class McpMenu {
 				// to read through the live list rather than the row captured here, since
 				// a reload replaces every row object and a getter bound to the old one
 				// would go on reporting the state it was built with.
-				// One component for every row, so a shipped icon, a favicon and the plug
-				// all land at the same size and nothing pulls its label out of line.
+				// One component for every row, so the server's own icon, Windmill's and the
+				// plug all land at the same size and nothing pulls its label out of line.
 				icon: McpServerIcon,
 				get iconProps() {
-					return { icon: row(path)?.icon, host: row(path)?.iconHost, size: 14 }
+					return { icon: row(path)?.icon, size: 14 }
 				},
 				get toggle() {
 					return row(path)?.enabled ?? false

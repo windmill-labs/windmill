@@ -269,13 +269,17 @@
 	{/snippet}
 
 	<!-- Which system a call reaches is the first thing to know about it, so an MCP
-	     call is marked with its provider before the label. Nothing is drawn until the
-	     mark resolves: a placeholder plug on every row would be noise. -->
+	     call is marked before the label — with the icon the server published for that
+	     tool where there is one, and Windmill's icon for the integration otherwise.
+	     Nothing is drawn until a mark resolves: a placeholder plug on every row would
+	     be noise. -->
 	{#snippet serverMark()}
-		{#if mcpServerPath && aiChatManager.operatingWorkspace}
+		{#if message.mcpIconSrc}
+			<McpServerIcon src={message.mcpIconSrc} size={14} />
+		{:else if mcpServerPath && aiChatManager.operatingWorkspace}
 			{#await resolveMcpServerMark(aiChatManager.operatingWorkspace, mcpServerPath) then mark}
-				{#if mark.icon || mark.host}
-					<McpServerIcon icon={mark.icon} host={mark.host} size={14} />
+				{#if mark.icon}
+					<McpServerIcon icon={mark.icon} size={14} />
 				{/if}
 			{/await}
 		{/if}
@@ -297,7 +301,7 @@
 		labelClass={showPreviewChip ? 'truncate' : ''}
 		contentClass="space-y-3"
 		headerRight={showPreviewChip ? previewChip : undefined}
-		headerLeft={mcpServerPath ? serverMark : undefined}
+		headerLeft={message.mcpIconSrc || mcpServerPath ? serverMark : undefined}
 	>
 		<!-- Image a tool produced (e.g. take_screenshot) — shown inline, not gated on expand. -->
 		{#snippet belowHeader()}
