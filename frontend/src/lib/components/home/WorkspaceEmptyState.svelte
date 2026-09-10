@@ -88,8 +88,8 @@
 >
 	{#if picks.length}
 		<!-- The projects the invite picked stand where the placeholder rows would: the first
-		     concrete thing this workspace could hold, one click from holding it. The first pick
-		     gets the stronger button; the rest are there without competing with it. -->
+		     concrete thing this workspace could hold, one click from holding it. Equal rows in
+		     the invite's order: the ranking is the order, not a louder button on one of them. -->
 		<p class="px-4 pt-3 text-[10px] font-semibold uppercase tracking-wide text-tertiary">
 			Picked for you
 		</p>
@@ -116,7 +116,7 @@
 					</p>
 				</div>
 				<Button
-					variant={i === 0 ? 'accent-secondary' : 'default'}
+					variant="default"
 					unifiedSize="sm"
 					endIcon={{ icon: ArrowRight }}
 					onClick={() => onPick(project)}
