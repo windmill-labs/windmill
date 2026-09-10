@@ -438,7 +438,12 @@ async fn set_datatable_permissions(
 
     // A live replication stream holds a connection it opened under the old decision. Bouncing the
     // rows makes every listener reconnect and re-authorize.
-    restart_streams_reaching(&db, &governing).await?;
+    restart_streams_reaching(
+        &mut *db.acquire().await?,
+        &governing.workspace_id,
+        &governing.name,
+    )
+    .await?;
 
     windmill_common::feature_usage::log_feature_usage(
         "datatable",
@@ -456,29 +461,43 @@ async fn set_datatable_permissions(
 /// Make every Postgres trigger and capture reading this data table reconnect, so a revoked tenant
 /// stops streaming rather than living on inside an already-open replication connection.
 pub(crate) async fn restart_streams_reaching(
-    db: &DB,
-    governing: &GoverningDatatable,
+    conn: &mut sqlx::PgConnection,
+    governing_workspace_id: &str,
+    governing_name: &str,
 ) -> Result<()> {
     // Every workspace holding an entry that resolves here, under the name it calls it: the
     // governing one, plus each fork pointing at it. A fork's trigger names its own local entry, so
     // filtering on the governing workspace alone would leave its stream running on the connection
     // it already opened under the old decision — which is the one window this function exists to
     // close.
-    let mut reached = vec![(governing.workspace_id.clone(), governing.name.clone())];
+    let mut reached = vec![(
+        governing_workspace_id.to_string(),
+        governing_name.to_string(),
+    )];
     let pointers = sqlx::query!(
         r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "datatable!"
            FROM workspace_settings ws
            CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
            WHERE dt.value->'reference'->>'workspace_id' = $1
              AND dt.value->'reference'->>'datatable' = $2"#,
-        &governing.workspace_id,
-        &governing.name,
+        governing_workspace_id,
+        governing_name,
     )
-    .fetch_all(db)
+    .fetch_all(&mut *conn)
     .await?;
     reached.extend(pointers.into_iter().map(|r| (r.workspace_id, r.datatable)));
+    restart_streams_named(conn, reached).await
+}
 
-    for (w_id, name) in reached {
+/// Make every Postgres trigger and capture reading one of `entries` — each a workspace and the name
+/// that workspace gives the data table — drop its connection and re-resolve the data table as it
+/// now stands. A caller deciding inside a transaction passes it, so the bounce and the decision
+/// become visible together and no listener reconnects in between.
+pub(crate) async fn restart_streams_named(
+    conn: &mut sqlx::PgConnection,
+    entries: Vec<(String, String)>,
+) -> Result<()> {
+    for (w_id, name) in entries {
         let reference = format!("datatable://{name}");
         let prefix = format!("{reference}?%");
 
@@ -490,7 +509,7 @@ pub(crate) async fn restart_streams_reaching(
             &reference,
             &prefix,
         )
-        .execute(db)
+        .execute(&mut *conn)
         .await?;
 
         // A capture keeps the reference inside its `trigger_config` blob rather than in a column
@@ -504,7 +523,7 @@ pub(crate) async fn restart_streams_reaching(
             &reference,
             &prefix,
         )
-        .execute(db)
+        .execute(&mut *conn)
         .await?;
     }
 

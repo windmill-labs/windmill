@@ -3876,6 +3876,24 @@ async fn edit_datatable_config(
         );
     }
 
+    // A stream reading a deleted entry keeps the connection it opened while the entry resolved —
+    // this workspace's own, and every fork's through its pointer. Bounced in this transaction, so
+    // a listener that reconnects finds the entry gone instead of streaming on.
+    crate::datatable_permissions::restart_streams_named(
+        &mut *tx,
+        new_config
+            .deleted_datatables
+            .iter()
+            .map(|name| (w_id.clone(), name.clone()))
+            .chain(
+                stranded
+                    .iter()
+                    .map(|s| (s.workspace_id.clone(), s.datatable.clone())),
+            )
+            .collect(),
+    )
+    .await?;
+
     tx.commit().await?;
 
     for substrate in created_substrates {

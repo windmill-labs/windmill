@@ -598,3 +598,123 @@ async fn a_data_table_under_roles_is_not_copied_into_a_fork(
     );
     Ok(())
 }
+
+/// Live replication listeners on `main`: a fork's through its pointer, the governing workspace's
+/// own (in the `?role=` form), and a fork capture — plus one on another data table, which no
+/// deletion of `main` may touch. Each is held by a server, as a running stream would be.
+async fn plant_live_streams(db: &Pool<Postgres>) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"INSERT INTO postgres_trigger (path, script_path, is_flow, workspace_id, edited_by,
+             postgres_resource_path, replication_slot_name, publication_name, permissioned_as,
+             server_id)
+           VALUES
+             ('u/test-user-2/fork_stream', 'u/test-user-2/s', false, 'wm-fork-dt', 'test-user-2',
+              'datatable://main', 'slot_fork', 'pub_fork', 'u/test-user-2', 'srv'),
+             ('u/test-user/own_stream', 'u/test-user/s', false, 'test-workspace', 'test-user',
+              'datatable://main?role=admin', 'slot_own', 'pub_own', 'u/test-user', 'srv'),
+             ('u/test-user-2/unrelated', 'u/test-user-2/s', false, 'wm-fork-dt', 'test-user-2',
+              'datatable://other', 'slot_other', 'pub_other', 'u/test-user-2', 'srv')"#,
+    )
+    .execute(db)
+    .await?;
+    sqlx::query(
+        r#"INSERT INTO capture_config (workspace_id, path, is_flow, trigger_kind, owner, email,
+             trigger_config, server_id)
+           VALUES ('wm-fork-dt', 'u/test-user-2/s', false, 'postgres', 'u/test-user-2',
+                   'test2@windmill.dev', '{"postgres_resource_path": "datatable://main"}', 'srv')"#,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Which server holds each planted listener; `None` is a bounced one, free for a reconnect.
+async fn stream_servers(
+    db: &Pool<Postgres>,
+) -> anyhow::Result<std::collections::HashMap<String, Option<String>>> {
+    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT path, server_id FROM postgres_trigger
+         UNION ALL
+         SELECT 'capture:' || path, server_id FROM capture_config",
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().collect())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn deleting_a_governing_data_table_bounces_the_streams_reading_it(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    // A replication stream keeps the connection it opened while its entry resolved. Unbounced, a
+    // fork's stream reads on through a pointer that no longer resolves to anything.
+    plant_live_streams(&db).await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let resp = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/test-workspace/workspaces/edit_datatable_config"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({"settings": {"datatables": {}}, "renames": [], "deleted_datatables": ["main"]}))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    let servers = stream_servers(&db).await?;
+    for bounced in [
+        "u/test-user-2/fork_stream",
+        "u/test-user/own_stream",
+        "capture:u/test-user-2/s",
+    ] {
+        assert_eq!(
+            servers[bounced], None,
+            "{bounced} kept streaming: {servers:?}"
+        );
+    }
+    assert_eq!(
+        servers["u/test-user-2/unrelated"].as_deref(),
+        Some("srv"),
+        "a stream on another data table was bounced: {servers:?}"
+    );
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn deleting_a_governing_workspace_bounces_its_forks_streams(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    // The governing workspace's own listeners go with it; each fork's stays behind on the
+    // connection it opened while this workspace still governed the pointer.
+    plant_live_streams(&db).await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let resp = authed(
+        client().delete(format!(
+            "http://localhost:{port}/api/workspaces/delete/test-workspace"
+        )),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    let servers = stream_servers(&db).await?;
+    for bounced in ["u/test-user-2/fork_stream", "capture:u/test-user-2/s"] {
+        assert_eq!(
+            servers[bounced], None,
+            "{bounced} kept streaming: {servers:?}"
+        );
+    }
+    assert_eq!(
+        servers["u/test-user-2/unrelated"].as_deref(),
+        Some("srv"),
+        "a stream on another data table was bounced: {servers:?}"
+    );
+    Ok(())
+}
