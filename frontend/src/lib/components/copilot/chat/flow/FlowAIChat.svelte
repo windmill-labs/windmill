@@ -14,6 +14,9 @@
 	import type { ScriptLintResult } from '../shared'
 	import { applyFlowJsonUpdate, updateRawScriptModuleContent } from './helperUtils'
 	import { findModuleInFlow } from '$lib/components/flows/flowTree'
+	import { getEditorStoragePath } from '$lib/components/sessions/editorStoragePathContext'
+
+	const editorStoragePath = getEditorStoragePath()
 
 	let {
 		flowModuleSchemaMap,
@@ -162,11 +165,7 @@
 			selectionManager.selectId(id, { openPanel: true })
 		},
 
-		getFlowPaths: () => {
-			// `path` is the storage key, `draft_path` the name a staged rename typed.
-			const v = flowStore.val as { path?: string; draft_path?: string }
-			return [v.path, v.draft_path].filter((p): p is string => !!p)
-		},
+		getStoragePath: () => editorStoragePath?.(),
 
 		testFlow: async (args, conversationId) => {
 			// Set preview args if provided

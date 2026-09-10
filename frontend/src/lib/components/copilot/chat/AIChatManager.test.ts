@@ -194,15 +194,15 @@ function createFlowHelpers({
 	hasPendingChanges = () => false,
 	acceptAllModuleActions = vi.fn(),
 	testFlow = vi.fn(),
-	flowPaths = ['u/admin/live_flow']
+	storagePath = 'u/admin/live_flow'
 }: {
 	hasPendingChanges?: () => boolean
 	acceptAllModuleActions?: () => void
 	testFlow?: FlowAIChatHelpers['testFlow']
-	flowPaths?: string[]
+	storagePath?: string
 } = {}): FlowAIChatHelpers {
 	return {
-		getFlowPaths: () => flowPaths,
+		getStoragePath: () => storagePath,
 		getFlowAndSelectedId: vi.fn(),
 		getRootModules: vi.fn(),
 		inlineScriptSession: { get: vi.fn(), set: vi.fn(), clear: vi.fn() },
@@ -863,36 +863,28 @@ describe('AIChatManager autonomy mode', () => {
 
 		expect(jobId).toBe('job-flow-preview')
 		expect(testFlow).toHaveBeenCalledWith({ name: 'Ada' })
-		// A session chat resolves an editor by path, so it never names one.
+		// A session chat resolves an editor by its storage path, so it never names one.
 		expect(manager.flowAiChatHelpers).toBeUndefined()
 	})
 
-	// Session tabs keep every open flow editor mounted, so neither the last one to register nor
-	// the first one answering to the path is reliably the flow being tested.
-	it('tests the flow editor stored at the path, over a rename onto it and a later registration', async () => {
+	// Session tabs keep every open flow editor mounted, so the last one to register is routinely
+	// a different flow than the one being tested.
+	it('tests the flow editor mounted on the storage path, not the last one registered', async () => {
 		const manager = new AIChatManager()
 		const testTarget = vi.fn(async () => 'job-target-flow')
-		const testRenamed = vi.fn(async () => 'job-renamed-flow')
 		const testLast = vi.fn(async () => 'job-last-flow')
 
 		manager.setFlowHelpers(
-			createFlowHelpers({
-				testFlow: testRenamed,
-				flowPaths: ['u/admin/renamed_flow', 'u/admin/live_flow']
-			})
+			createFlowHelpers({ testFlow: testTarget, storagePath: 'u/admin/live_flow' })
 		)
 		manager.setFlowHelpers(
-			createFlowHelpers({ testFlow: testTarget, flowPaths: ['u/admin/live_flow'] })
-		)
-		manager.setFlowHelpers(
-			createFlowHelpers({ testFlow: testLast, flowPaths: ['u/admin/other_flow'] })
+			createFlowHelpers({ testFlow: testLast, storagePath: 'u/admin/other_flow' })
 		)
 
 		manager.changeMode(AIMode.GLOBAL)
 		const jobId = await manager.helpers.testActiveFlow('u/admin/live_flow', { name: 'Ada' })
 
 		expect(jobId).toBe('job-target-flow')
-		expect(testRenamed).not.toHaveBeenCalled()
 		expect(testLast).not.toHaveBeenCalled()
 	})
 })

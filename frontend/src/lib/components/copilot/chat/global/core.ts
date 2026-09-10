@@ -288,6 +288,8 @@ const ACTIVE_GLOBAL_EDITOR_DRAFTS: readonly {
 export type GlobalActiveEditorContext = {
 	type: ActiveGlobalEditorType
 	path: string
+	/** The key the draft is stored under, which `path` leaves behind on a rename. */
+	storagePath: string
 	isLiveDraft: true
 }
 
@@ -4367,7 +4369,8 @@ type WriteDraftCtx = {
 export type SessionToolHelpers = { sessionId?: string }
 
 export type GlobalToolHelpers = SessionToolHelpers & {
-	testActiveFlow?: (path: string, args?: Record<string, any>) => Promise<string | undefined>
+	/** Runs the flow editor mounted on `storagePath`, if one is. */
+	testActiveFlow?: (storagePath: string, args?: Record<string, any>) => Promise<string | undefined>
 	attachedFiles?: AttachedFilesStore
 	// Read/write the user-level Global instructions. `setUserInstructions` persists the
 	// value and rebuilds the system message so the change applies on the next chat-loop
@@ -4398,16 +4401,19 @@ function operatingWorkspaceFromHelpers(helpers: unknown): string | undefined {
 
 // Drive a live editor only for the flow on screen: several can be open at once (session tabs),
 // and a run painted into a background tab is a side effect the user never sees. Undefined
-// sends the caller to a preview run, which reports into the chat alone.
+// sends the caller to a preview run, which reports into the chat alone. The hook is bound to
+// that editor's storage path — the same key reads and edits of `path` resolve through, so a
+// staged rename cannot send the run to a different editor than the one being edited.
 function liveFlowTestHookFromCtx(
 	ctx: { workspace: string; helpers?: unknown },
 	path: string
-): GlobalToolHelpers['testActiveFlow'] | undefined {
+): ((args?: Record<string, any>) => Promise<string | undefined>) | undefined {
 	const activeEditor = getActiveGlobalEditorContext(ctx.workspace)
 	if (activeEditor?.type !== 'flow' || activeEditor.path !== path) {
 		return undefined
 	}
-	return (ctx.helpers as GlobalToolHelpers | undefined)?.testActiveFlow
+	const testActiveFlow = (ctx.helpers as GlobalToolHelpers | undefined)?.testActiveFlow
+	return testActiveFlow && ((args) => testActiveFlow(activeEditor.storagePath, args))
 }
 
 export type OpenPreviewHandler = (req: {
@@ -5783,7 +5789,7 @@ async function testRunFlowByPath(
 	if (testActiveFlow) {
 		return executeTestRun({
 			jobStarter: async () => {
-				const jobId = await testActiveFlow(args.path, testArgs)
+				const jobId = await testActiveFlow(testArgs)
 				if (jobId) {
 					return jobId
 				}
@@ -8174,9 +8180,10 @@ export function getActiveGlobalEditorContext(
 ): GlobalActiveEditorContext | undefined {
 	for (const { itemKind, type } of ACTIVE_GLOBAL_EDITOR_DRAFTS) {
 		const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
-		const path = liveDraft?.effectivePath || liveDraft?.storagePath
+		if (!liveDraft) continue
+		const path = liveDraft.effectivePath || liveDraft.storagePath
 		if (!path) continue
-		return { type, path, isLiveDraft: true }
+		return { type, path, storagePath: liveDraft.storagePath, isLiveDraft: true }
 	}
 }
 

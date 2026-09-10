@@ -4806,10 +4806,12 @@ describe('global AI tools', () => {
 		})
 	})
 
-	it('test_run_flow uses the live flow editor test hook for the path', async () => {
+	// The editor is driven by the key its draft is stored under, which reads and edits of the
+	// path resolve through too: a staged rename leaves that key where it was.
+	it('test_run_flow drives the live flow editor by its storage path', async () => {
 		seedBackendDraft(
 			'flow',
-			'',
+			'u/admin/live_flow_storage',
 			{
 				path: 'u/admin/live_flow',
 				summary: 'Live flow',
@@ -4825,7 +4827,7 @@ describe('global AI tools', () => {
 		UserDraft.setLiveEditorDraft({
 			workspace: WORKSPACE,
 			itemKind: 'flow',
-			storagePath: '',
+			storagePath: 'u/admin/live_flow_storage',
 			effectivePath: 'u/admin/live_flow'
 		})
 		const testActiveFlow = vi.fn(async () => 'job-live-flow')
@@ -4842,7 +4844,7 @@ describe('global AI tools', () => {
 			)
 		)
 
-		expect(testActiveFlow).toHaveBeenCalledWith('u/admin/live_flow', { name: 'Ada' })
+		expect(testActiveFlow).toHaveBeenCalledWith('u/admin/live_flow_storage', { name: 'Ada' })
 		expect(FlowService.getFlowByPath).not.toHaveBeenCalled()
 		expect(JobService.runFlowPreview).not.toHaveBeenCalled()
 		expect(result).toContain('Result (SUCCESS)')
@@ -4851,7 +4853,7 @@ describe('global AI tools', () => {
 	it('test_run_flow falls back to preview when the live flow editor test hook returns undefined', async () => {
 		seedBackendDraft(
 			'flow',
-			'',
+			'u/admin/live_flow_fallback',
 			{
 				path: 'u/admin/live_flow_fallback',
 				summary: 'Live flow fallback',
@@ -4867,7 +4869,7 @@ describe('global AI tools', () => {
 		UserDraft.setLiveEditorDraft({
 			workspace: WORKSPACE,
 			itemKind: 'flow',
-			storagePath: '',
+			storagePath: 'u/admin/live_flow_fallback',
 			effectivePath: 'u/admin/live_flow_fallback'
 		})
 		const testActiveFlow = vi.fn(async () => undefined)
@@ -4917,7 +4919,7 @@ describe('global AI tools', () => {
 		UserDraft.setLiveEditorDraft({
 			workspace: WORKSPACE,
 			itemKind: 'flow',
-			storagePath: '',
+			storagePath: 'u/admin/flow_on_screen',
 			effectivePath: 'u/admin/flow_on_screen'
 		})
 		const testActiveFlow = vi.fn(async () => 'job-live-flow')

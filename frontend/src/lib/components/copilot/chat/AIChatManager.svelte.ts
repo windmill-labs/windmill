@@ -707,10 +707,10 @@ export class AIChatManager {
 	scriptEditorGetLintErrors = $state<(() => ScriptLintResult) | undefined>(undefined)
 	/** The editor a FLOW-mode chat belongs to; that mode is the in-editor chat, so exactly one is
 	 * mounted there and this names it. Unset in a session chat, which keeps every open editor tab
-	 * mounted and could only name an arbitrary one — a session resolves an editor by path through
-	 * `flowEditorFor`. */
+	 * mounted and could only name an arbitrary one — a session resolves an editor by its storage
+	 * path through `flowEditorFor`. */
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
-	/** Every mounted flow editor, in mount order. */
+	/** Every mounted flow editor. */
 	#flowEditors = new Set<FlowAIChatHelpers>()
 	appAiChatHelpers = $state<AppAIChatHelpers | undefined>(undefined)
 	/** Datatable creation policy: enabled flag, datatable name, and optional schema */
@@ -2421,8 +2421,8 @@ export class AIChatManager {
 						openArtifact: this.openArtifact
 					}
 				: {}),
-			testActiveFlow: async (path: string, args?: Record<string, any>) =>
-				this.flowEditorFor(path)?.testFlow(args),
+			testActiveFlow: async (storagePath: string, args?: Record<string, any>) =>
+				this.flowEditorFor(storagePath)?.testFlow(args),
 			getModifiedItems: () => (this.modifiedItems ? [...this.modifiedItems] : undefined),
 			attachedFiles: this.attachedFiles,
 			getUserInstructions: () => getUserCustomPrompts()[AIMode.GLOBAL] ?? '',
@@ -4690,14 +4690,8 @@ export class AIChatManager {
 		}
 	}
 
-	private flowEditorFor(path: string): FlowAIChatHelpers | undefined {
-		const editors = [...this.#flowEditors]
-		// A staged rename makes an editor answer to a path it does not hold yet, which can be
-		// another open editor's own path. The editor stored there wins over the one typed there.
-		return (
-			editors.find((helpers) => helpers.getFlowPaths()[0] === path) ??
-			editors.find((helpers) => helpers.getFlowPaths().includes(path))
-		)
+	private flowEditorFor(storagePath: string): FlowAIChatHelpers | undefined {
+		return [...this.#flowEditors].find((helpers) => helpers.getStoragePath() === storagePath)
 	}
 
 	// Registered by the /pipeline editor while it is mounted. Rebuilds the global
