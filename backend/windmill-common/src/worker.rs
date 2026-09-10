@@ -1105,9 +1105,10 @@ impl SqlAnnotations {
             if !line.starts_with("--") {
                 break;
             }
-            // `role`, `Role`, `role:` and `role:name` all open an attempt; `rolexyz` does not.
-            // The colon is worth accepting rather than skipping past: `-- role: x` is the likelier
-            // spelling, and skipping it is exactly the silent fallback this refuses.
+            // The keyword may be followed by whitespace, `:` or `=` — `role x`, `role: x`,
+            // `role=x`, `Role = x` all open an attempt, while `rolexyz` does not. Each accepted
+            // separator is one spelling that would otherwise take the `continue` below and run the
+            // query as the data table's default role, which is the silence this exists to remove.
             let body = line[2..].trim_start();
             let Some(after) = body
                 .get(..4)
@@ -1116,15 +1117,18 @@ impl SqlAnnotations {
             else {
                 continue;
             };
-            let colon = after.starts_with(':');
-            let after = after.strip_prefix(':').unwrap_or(after);
-            if !after.is_empty() && !colon && !after.starts_with(char::is_whitespace) {
+            if !after.is_empty()
+                && !after.starts_with(char::is_whitespace)
+                && !after.starts_with([':', '='])
+            {
                 continue;
             }
 
             // Past this point the line is an attempt to name a role, so a malformed one is an
             // error rather than a miss. Falling through would run the query as the data table's
             // default role — quietly, and under a login the author did not choose.
+            let after = after.trim_start();
+            let after = after.strip_prefix([':', '=']).unwrap_or(after);
             let mut tokens = after.split_whitespace();
             let role = tokens
                 .next()
@@ -2750,6 +2754,8 @@ mod tests {
             "-- role operator;\nSELECT 1",
             "-- role: operator\nSELECT 1",
             "-- role:operator\nSELECT 1",
+            "-- role=operator\nSELECT 1",
+            "-- Role = operator\nSELECT 1",
         ] {
             assert_eq!(
                 role(accepted).unwrap(),

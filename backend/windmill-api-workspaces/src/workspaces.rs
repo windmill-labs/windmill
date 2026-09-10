@@ -45,12 +45,12 @@ use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
-    check_deploy_rules, check_user_against_rule, get_datatable_resource_from_db,
-    datatable_ref_name, get_datatable_resource_from_db_unchecked, resolve_governing_datatable,
-    validate_dev_workspace_id, validate_fork_workspace_id, validate_workspace_name, DataTable,
-    DataTableCatalogResourceType, DataTableForkBehavior, DatatableAccess, ProtectionRuleKind,
-    ProtectionRules, ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
-    DEV_WORKSPACE_LOCK_RULE_NAME,
+    check_deploy_rules, check_user_against_rule, datatable_ref_name,
+    get_datatable_resource_from_db, get_datatable_resource_from_db_unchecked,
+    resolve_governing_datatable, validate_dev_workspace_id, validate_fork_workspace_id,
+    validate_workspace_name, DataTable, DataTableCatalogResourceType, DataTableForkBehavior,
+    DatatableAccess, ProtectionRuleKind, ProtectionRules, ProtectionRuleset, RuleCheckResult,
+    WorkspaceGitSyncSettings, DEV_WORKSPACE_LOCK_RULE_NAME,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -7915,29 +7915,44 @@ async fn apply_forked_datatable(
     let dt: DataTable = serde_json::from_value(config_val)
         .map_err(|e| Error::internal_err(format!("Failed to parse datatable config: {}", e)))?;
 
-    // A cloned data table owns its copy, so the fork's entry must be terminal. It arrived that way
-    // from the settings clone; a pointer here would mean the parent's own entry was one, and the
-    // clone has to name its new database rather than follow anything.
-    let database = dt.database.as_ref().ok_or_else(|| {
-        Error::BadRequest(format!(
-            "Data table '{}' points at another workspace's data table and cannot be cloned; \
-             fork it from the workspace that owns it.",
-            fdt.name
-        ))
-    })?;
+    // A clone owns its copy, so the fork's entry has to be terminal. When the parent was itself a
+    // fork the settings clone hands down a pointer instead, and the database this clone just
+    // created is already filled — so resolve what it points at and name the copy, rather than
+    // refusing after the fact. Pointers are only ever written for instance databases
+    // (`point_kept_datatables_at_parent`), so the resolved entry is one.
+    let database = match dt.database.clone() {
+        Some(database) => database,
+        None => resolve_governing_datatable(db, parent_w_id, &fdt.name)
+            .await?
+            .datatable
+            .database
+            .ok_or_else(|| {
+                Error::internal_err(format!(
+                    "Data table '{}' resolves to an entry that owns no database",
+                    fdt.name
+                ))
+            })?,
+    };
 
     if database.resource_type == DataTableCatalogResourceType::Instance {
-        // Instance: update resource_path to the new dbname
+        // The whole `database` object, not just its `resource_path`: a pointer entry has none to
+        // patch. `reference` goes with it — exactly one of the two may be set.
+        let new_database = serde_json::json!({
+            "resource_type": "instance",
+            "resource_path": &fdt.new_dbname,
+        });
         sqlx::query!(
             r#"UPDATE workspace_settings
                SET datatable = jsonb_set(
-                   jsonb_set(datatable, ARRAY['datatables', $2, 'database', 'resource_path'], to_jsonb($3::text)),
+                   jsonb_set(
+                       datatable #- ARRAY['datatables', $2, 'reference'],
+                       ARRAY['datatables', $2, 'database'], $3::jsonb),
                    ARRAY['datatables', $2, 'forked_from'], $4::jsonb
                )
                WHERE workspace_id = $1"#,
             forked_w_id,
             &fdt.name,
-            &fdt.new_dbname,
+            new_database,
             forked_from,
         )
         .execute(&mut **tx)
