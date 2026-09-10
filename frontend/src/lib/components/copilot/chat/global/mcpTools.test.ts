@@ -356,6 +356,27 @@ describe('loaded remote tools', () => {
 		expect(loadedMcpTools(OWNER)).toEqual([])
 	})
 
+	// The key is `${server}::${tool}` and a remote tool name is arbitrary — namespaced
+	// names are ordinary. Splitting on the last `::` reported a server that does not
+	// exist, so the reconcile dropped the tool at the start of every send.
+	it('derives the server path from a tool name containing ::', () => {
+		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [
+			{ ...TOOLS[0], name: 'issues::list' }
+		])
+
+		expect(loadedMcpServers(OWNER).map((s) => s.path)).toEqual(['u/hugo/github_mcp'])
+	})
+
+	// The all-owner clear must reject a first search still in flight, which is in
+	// neither the registry map nor the per-owner generation map.
+	it('drops results of a search that finished after every registry was cleared', () => {
+		const generation = mcpRegistryGeneration(OWNER)
+		clearMcpToolsCache()
+
+		expect(registerMcpTools(OWNER, generation, server, [TOOLS[0]])).toEqual([undefined])
+		expect(loadedMcpTools(OWNER)).toEqual([])
+	})
+
 	// A registered call bypasses the listing cache, so an edit made elsewhere has to
 	// invalidate the frozen schema — the path alone cannot tell the two apart.
 	it('reports the revision each server was registered at', () => {

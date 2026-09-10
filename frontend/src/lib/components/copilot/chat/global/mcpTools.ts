@@ -129,13 +129,28 @@ const registries = new Map<string, OwnerRegistry>()
  * otherwise a rotation or disposal during that await is silently undone.
  */
 const generations = new Map<string, number>()
+/** Bumped by the all-owner clear. Folded into the token below so it also invalidates an
+ * owner that has registered nothing yet, and is therefore in neither map. */
+let allGeneration = 0
 
-export function mcpRegistryGeneration(owner: string): number {
-	return generations.get(owner) ?? 0
+export function mcpRegistryGeneration(owner: string): string {
+	return `${allGeneration}:${generations.get(owner) ?? 0}`
 }
 
 function invalidateOwner(owner: string) {
-	generations.set(owner, mcpRegistryGeneration(owner) + 1)
+	generations.set(owner, (generations.get(owner) ?? 0) + 1)
+}
+
+/**
+ * The server half of a `${server}::${tool}` key. Split on the FIRST `::`: a resource
+ * path cannot contain `:` (the backend's path validation forbids it), but a remote
+ * tool name is arbitrary and namespaced names like `ns::op` are ordinary — splitting
+ * on the last one would report a server that does not exist, and the reconcile would
+ * then drop that tool at the start of every send.
+ */
+function serverPathOfKey(key: string): string {
+	const at = key.indexOf('::')
+	return at === -1 ? key : key.slice(0, at)
 }
 
 function registryFor(owner: string): OwnerRegistry {
@@ -167,7 +182,7 @@ export function loadedMcpServers(owner: string): { path: string; editedAt?: stri
 	if (!registry) return []
 	const seen = new Map<string, string | undefined>()
 	for (const key of registry.tools.keys()) {
-		const path = key.slice(0, key.lastIndexOf('::'))
+		const path = serverPathOfKey(key)
 		if (!seen.has(path)) seen.set(path, registry.editedAt.get(key))
 	}
 	return [...seen].map(([path, editedAt]) => ({ path, editedAt }))
@@ -180,7 +195,7 @@ export function loadedMcpServers(owner: string): { path: string; editedAt?: stri
  */
 export function mcpServerForToolName(owner: string, toolName: string): string | undefined {
 	for (const [key, tool] of registries.get(owner)?.tools ?? []) {
-		if (tool.def.function.name === toolName) return key.slice(0, key.lastIndexOf('::'))
+		if (tool.def.function.name === toolName) return serverPathOfKey(key)
 	}
 	return undefined
 }
@@ -212,7 +227,7 @@ export function forgetLoadedMcpTools(owner: string, serverPath?: string) {
  * makes the frozen copy every chat holds stale at once — not for one chat rotating.
  */
 export function forgetAllLoadedMcpTools() {
-	for (const owner of registries.keys()) invalidateOwner(owner)
+	allGeneration++
 	registries.clear()
 }
 
@@ -672,7 +687,7 @@ function evictLoadedTools(registry: OwnerRegistry) {
  */
 export function registerMcpTools(
 	owner: string,
-	generation: number,
+	generation: string,
 	server: McpServer,
 	tools: McpToolDef[]
 ): (string | undefined)[] {
