@@ -7922,16 +7922,30 @@ async fn apply_forked_datatable(
     // (`point_kept_datatables_at_parent`), so the resolved entry is one.
     let database = match dt.database.clone() {
         Some(database) => database,
-        None => resolve_governing_datatable(db, parent_w_id, &fdt.name)
-            .await?
-            .datatable
-            .database
-            .ok_or_else(|| {
-                Error::internal_err(format!(
-                    "Data table '{}' resolves to an entry that owns no database",
+        None => {
+            let resolved = resolve_governing_datatable(db, parent_w_id, &fdt.name)
+                .await?
+                .datatable
+                .database
+                .ok_or_else(|| {
+                    Error::internal_err(format!(
+                        "Data table '{}' resolves to an entry that owns no database",
+                        fdt.name
+                    ))
+                })?;
+            // The resource branch below rewrites a resource this workspace owns; a pointer names
+            // one it does not, so following it there would move the fork onto someone else's
+            // database. Checked rather than assumed: only `point_kept_datatables_at_parent`
+            // writes pointers and only for instance entries, but nothing here enforces that.
+            if resolved.resource_type != DataTableCatalogResourceType::Instance {
+                return Err(Error::BadRequest(format!(
+                    "Data table '{}' points at a resource-backed data table in another \
+                     workspace and cannot be cloned; fork it from the workspace that owns it.",
                     fdt.name
-                ))
-            })?,
+                )));
+            }
+            resolved
+        }
     };
 
     if database.resource_type == DataTableCatalogResourceType::Instance {
