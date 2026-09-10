@@ -36,9 +36,12 @@ impl<S: Send + Sync> FromRequestParts<S> for CrossSiteGetGuard {
         parts: &mut Parts,
         state: &S,
     ) -> std::result::Result<Self, Self::Rejection> {
-        if parts.method != Method::GET || !is_cross_site(parts) {
+        if parts.method != Method::GET {
             return Ok(CrossSiteGetGuard);
         }
+        let Some(signal) = cross_site_signal(parts) else {
+            return Ok(CrossSiteGetGuard);
+        };
 
         let has_bearer = parts
             .headers
@@ -54,6 +57,19 @@ impl<S: Send + Sync> FromRequestParts<S> for CrossSiteGetGuard {
                 .await
                 .is_ok_and(|Extension(cookies)| cookies.get(COOKIE_NAME).is_some());
         if has_session_cookie {
+            // The `Referer` leg is the one that can misfire, on a request that really was
+            // same-host: it compares against the hosts the backend can see, and a proxy
+            // that rewrites `Host` without setting `X-Forwarded-Host` leaves none of them
+            // matching what the browser addressed. Name the comparison so that shows up as
+            // a misconfiguration rather than as an unexplained 403.
+            if let CrossSite::RefererMismatch { referer } = &signal {
+                tracing::warn!(
+                    referer_host = %referer,
+                    instance_hosts = ?instance_hosts(parts).collect::<Vec<_>>(),
+                    "refusing a cross-site GET job run inferred from Referer; if the request was \
+                     same-host, set `X-Forwarded-Host` on the proxy or configure `BASE_URL`"
+                );
+            }
             return Err(Error::PermissionDenied(
                 "a cross-site GET request cannot run a job with the session cookie, which takes \
                  precedence over a `token` query parameter: pass the token in the `Authorization` \
@@ -67,21 +83,32 @@ impl<S: Send + Sync> FromRequestParts<S> for CrossSiteGetGuard {
     }
 }
 
-fn is_cross_site(parts: &Parts) -> bool {
+enum CrossSite {
+    Declared,
+    RefererMismatch { referer: String },
+}
+
+fn cross_site_signal(parts: &Parts) -> Option<CrossSite> {
     if let Some(site) = parts.headers.get("sec-fetch-site") {
-        return site.as_bytes().eq_ignore_ascii_case(b"cross-site");
+        return site
+            .as_bytes()
+            .eq_ignore_ascii_case(b"cross-site")
+            .then_some(CrossSite::Declared);
     }
-    // Fetch Metadata is attached only to potentially trustworthy URLs, so an instance
-    // served over plain http never receives `Sec-Fetch-Site` (nor does Safari before
-    // 16.4) while the cookie, not being `Secure` there either, still arrives. `Referer`
-    // is the only other thing a top-level GET navigation carries — `Origin` is not sent
-    // on one — and a page can suppress it, so this leg narrows the window on those
-    // deployments rather than closing it. An absent `Referer` reads as not cross-site,
-    // matching how `Sec-Fetch-Site: none` (a bookmark, a typed URL) is treated.
-    let Some(referer) = referer_host(parts) else {
-        return false;
-    };
-    !instance_hosts(parts).any(|host| host.eq_ignore_ascii_case(&referer))
+    // Fetch Metadata rides only on potentially trustworthy URLs, so an instance served
+    // over plain http never receives `Sec-Fetch-Site` (nor does Safari before 16.4) while
+    // the cookie, not being `Secure` there either, still arrives. `Referer` is the only
+    // other thing a top-level GET navigation carries — `Origin` is not sent on one — so it
+    // is all that is left there, and it is weak: the default `strict-origin-when-cross-
+    // origin` policy already drops `Referer` on an https-to-http downgrade, so an https
+    // attacker page pointing a victim at a plain-http instance sends neither header. This
+    // leg catches an http-served attacker page and pre-16.4 Safari on https; the guard is
+    // load-bearing on https and best-effort at best on plain http. An absent `Referer`
+    // reads as not cross-site, matching how `Sec-Fetch-Site: none` (a bookmark, a typed
+    // URL) is treated.
+    let referer = referer_host(parts)?;
+    (!instance_hosts(parts).any(|host| host.eq_ignore_ascii_case(&referer)))
+        .then_some(CrossSite::RefererMismatch { referer })
 }
 
 /// Every host a legitimate same-host request can name. `Host` alone is not enough: a
@@ -116,14 +143,39 @@ fn request_host(parts: &Parts) -> Option<String> {
 }
 
 fn header_host(parts: &Parts, name: impl header::AsHeaderName) -> Option<String> {
-    // The value is `host[:port]`, where `host` may be a bracketed IPv6 literal, and a
-    // chain of proxies appends to `X-Forwarded-Host` so only the first entry is the one
-    // the browser addressed. Let the URL parser split the port rather than hand-rolling
-    // the bracket rules.
-    let host = parts.headers.get(name)?.to_str().ok()?;
-    let host = host.split(',').next()?.trim();
+    host_of(parts.headers.get(name)?.to_str().ok()?)
+}
+
+/// The host in a `Host`-shaped header value: `host[:port]`, where `host` may be a bracketed
+/// IPv6 literal, and where a chain of proxies appends to `X-Forwarded-Host` so only the
+/// first entry is the one the browser addressed. The port is split off by the URL parser
+/// rather than by hand-rolling the bracket rules.
+fn host_of(value: &str) -> Option<String> {
+    let host = value.split(',').next()?.trim();
     Url::parse(&format!("http://{host}"))
         .ok()?
         .host_str()
         .map(str::to_owned)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::host_of;
+
+    #[test]
+    fn host_of_strips_port_brackets_and_proxy_chain() {
+        assert_eq!(host_of("windmill.example"), Some("windmill.example".into()));
+        assert_eq!(
+            host_of("windmill.example:8000"),
+            Some("windmill.example".into())
+        );
+        assert_eq!(host_of("[::1]:8000"), Some("[::1]".into()));
+        assert_eq!(host_of("[::1]"), Some("[::1]".into()));
+        assert_eq!(
+            host_of("windmill.example, proxy.internal"),
+            Some("windmill.example".into())
+        );
+        assert_eq!(host_of(""), None);
+        assert_eq!(host_of("not a host"), None);
+    }
 }
