@@ -2259,8 +2259,21 @@ export class AIChatManager {
 		} catch (e) {
 			// A listing that failed is not a workspace with nothing connected: reconciling
 			// against it would drop every registered tool and lift every refusal because a
-			// request happened to fail. Keep what the last good refresh settled on.
+			// request happened to fail. Keep what the last good refresh settled on — but
+			// only while the chat is still on the workspace that answer came from. The same
+			// path in another workspace is a different server, and one the user has not
+			// opted into, so a failure after a switch withdraws everything instead.
 			console.error('Failed to load MCP servers', e)
+			if (refreshId !== this.mcpServersRefreshId || this.mcpRegistryWorkspace === workspace) {
+				return
+			}
+			this.mcpServers = []
+			this.mcpServersSignature = ''
+			this.mcpRegistryWorkspace = workspace
+			forgetLoadedMcpTools(this.mcpOwnerId)
+			if (this.mode === AIMode.GLOBAL) {
+				this.configureGlobalMode()
+			}
 			return
 		}
 		if (refreshId !== this.mcpServersRefreshId) {
