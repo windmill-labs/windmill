@@ -41,7 +41,6 @@
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 	import McpServerIcon from '$lib/components/mcp/McpServerIcon.svelte'
 	import { resolveMcpServerMark } from '$lib/components/mcp/serverMark'
-	import { cachedProviderMark } from '$lib/components/mcp/iconCache'
 	import { mcpServerForToolName } from './global/mcpTools'
 
 	interface Props {
@@ -50,34 +49,17 @@
 
 	let { message }: Props = $props()
 
-	// A call records its server on the row, which is what survives a reload. The rest
-	// is for rows written before it did: the generic wrappers name their server in the
-	// arguments, and a registered tool is resolved through the in-memory registry.
-	const MCP_CALL_TOOLS = ['call_mcp_read_tool', 'call_mcp_write_tool']
-	const mcpServerPath = $derived.by(() => {
-		const claimed = (() => {
-			if (message.mcpServer) return message.mcpServer
-			const name = message.toolName
-			if (!name) return undefined
-			if (MCP_CALL_TOOLS.includes(name)) {
-				const server = message.parameters?.server
-				return typeof server === 'string' ? server : undefined
-			}
-			return mcpServerForToolName(aiChatManager.mcpOwnerId, name)
-		})()
-		if (!claimed) return undefined
-		// Both sources are ultimately a path the model wrote, and resolving one reads
-		// that resource — so it has to name a server the user connected, not any
-		// workspace resource the model can point at.
-		if (aiChatManager.mcpServers.some((s) => s.path === claimed)) return claimed
-		// A session runtime does not populate `mcpServers` until its first send, so on a
-		// reloaded transcript the live list is empty and the rows this path was persisted
-		// for would go unmarked. The local icon cache is the second witness: it only ever
-		// holds servers this user's own MCP list resolved, and answering from it costs
-		// neither a read nor a request.
-		const workspace = aiChatManager.operatingWorkspace
-		return workspace && cachedProviderMark(workspace, claimed) ? claimed : undefined
-	})
+	const mcpServerPath = $derived(
+		// `mcpServer` is written by the call itself, from the connected-server list rather
+		// than from the model's arguments, so it needs no second opinion here — which is
+		// what lets a reloaded transcript resolve it. Nothing else is consulted: the live
+		// server list is empty on a session until its first send, and the model's own
+		// `parameters.server` is a path it could point anywhere.
+		message.mcpServer ??
+			(message.toolName
+				? mcpServerForToolName(aiChatManager.mcpOwnerId, message.toolName)
+				: undefined)
+	)
 
 	const isPlanReview = $derived(message.toolName === EXIT_PLAN_MODE_TOOL)
 	const isPlanCard = $derived(isPlanCardTool(message.toolName))

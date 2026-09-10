@@ -523,10 +523,12 @@ function createCallTool(owner: string, servers: McpServer[], mode: 'read' | 'wri
 				}),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = callMcpToolSchema.parse(args)
-			// Recorded from the arguments, before resolution: resolving needs a live
-			// listing, so a server that cannot be reached would otherwise leave its own
-			// failure row unmarked.
-			toolCallbacks.setToolStatus(toolId, { mcpServer: parsed.server })
+			// Matched against the connected list rather than taken from the arguments, so
+			// what lands on the row is a server the user connected and the transcript can
+			// resolve it without re-deciding that. Done before the listing, which needs the
+			// server to be reachable — an unreachable one still marks its own failure row.
+			const named = servers.find((s) => s.path === parsed.server)
+			if (named) toolCallbacks.setToolStatus(toolId, { mcpServer: named.path })
 			// Listing is a live call to a third party: a server that has gone away
 			// must fail this tool, not the chat loop around it.
 			let resolved: Awaited<ReturnType<typeof resolveTool>>

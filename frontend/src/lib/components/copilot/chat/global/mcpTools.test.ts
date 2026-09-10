@@ -173,10 +173,9 @@ describe('loaded remote tools', () => {
 		expect(registered?.def.function.parameters).toEqual(TOOLS[0].inputSchema)
 	})
 
-	// The row's provider icon is resolved from this, and the registry of loaded tools
-	// lives only in memory — so without it on the message, a reloaded transcript loses
-	// every mark. Recorded before the server is resolved, so an unreachable server
-	// still marks its own failure row.
+	// The row's provider mark is resolved from this alone — the registry lives only in
+	// memory and the live server list is empty on a reloaded session — so it has to land
+	// on the message, and before the listing, which an unreachable server never answers.
 	it('records the server on the row, even when it cannot be reached', async () => {
 		getMcpToolsMock.mockRejectedValue(new Error('connection refused'))
 		const callbacks = createToolCallbacks()
@@ -192,6 +191,24 @@ describe('loaded remote tools', () => {
 		expect(callbacks.setToolStatus).toHaveBeenCalledWith('tool-1', {
 			mcpServer: 'u/hugo/github_mcp'
 		})
+	})
+
+	// The transcript trusts this field without re-checking it, so it must come from the
+	// connected list rather than from the arguments — otherwise a path the model made up
+	// would be resolved, and resolving one reads that workspace resource.
+	it('records nothing for a server the user has not connected', async () => {
+		const callbacks = createToolCallbacks()
+
+		await getTool('call_mcp_read_tool').fn({
+			args: { server: 'u/hugo/not_connected', tool: 'get_issue', arguments: {} },
+			workspace: 'test-ws',
+			helpers: {},
+			toolCallbacks: callbacks,
+			toolId: 'tool-1'
+		})
+
+		const recorded = callbacks.setToolStatus.mock.calls.map(([, meta]: [string, any]) => meta)
+		expect(recorded.some((m: any) => m?.mcpServer !== undefined)).toBe(false)
 	})
 
 	// Several chats are live at once — the docked one plus a warm runtime per session,
