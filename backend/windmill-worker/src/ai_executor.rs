@@ -1457,12 +1457,9 @@ pub async fn run_agent(
                             let step_name = step_name.clone();
                             // The thinking is streamed and never returned in a response
                             // body, so the answer's row is the only place it can be kept.
-                            let extras = response_reasoning
-                                .clone()
-                                .map(|reasoning| MessageExtras {
-                                    reasoning: Some(reasoning),
-                                    ..Default::default()
-                                });
+                            let extras = response_reasoning.clone().map(|reasoning| {
+                                MessageExtras { reasoning: Some(reasoning), ..Default::default() }
+                            });
 
                             // Spawn task because we do not need to wait for the result
                             tokio::spawn(async move {

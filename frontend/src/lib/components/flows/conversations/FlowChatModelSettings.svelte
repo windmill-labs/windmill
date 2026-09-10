@@ -213,8 +213,13 @@
 						model,
 						value: typeof effort === 'string' ? effort : undefined,
 						// An agent writes the provider-native token straight into its step, so
-						// there is no sentinel to translate later.
-						offToken: explicitOffToken(provider, model),
+						// there is no sentinel to translate later. Where a model disables by
+						// omission instead, the empty string is that off: the run reads an
+						// empty `reasoning_effort` as absent (types.rs `get_reasoning_effort`).
+						offToken: explicitOffToken(provider, model) ?? '',
+						// An agent step omits `reasoning_effort` when it is unset, so the provider
+						// picks — naming a level would claim something the run does not do.
+						sendsDefaultWhenUnset: false,
 						onSelect: (token) => setFields({ reasoning_effort: token })
 					}
 				: undefined

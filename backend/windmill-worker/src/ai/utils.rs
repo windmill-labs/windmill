@@ -13,7 +13,7 @@ use windmill_common::flows::FlowModuleValue;
 use windmill_common::{
     db::DB,
     error::Error,
-    flow_conversations::{add_message_to_conversation_tx, MessageType, MessageExtras},
+    flow_conversations::{add_message_to_conversation_tx, MessageExtras, MessageType},
     flow_status::AgentAction,
     flows::{InputTransform, Step},
     jobs::JobKind,

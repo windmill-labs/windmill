@@ -10,12 +10,20 @@
  * The rules live here; what to fetch and how to read it is the caller's.
  */
 
+/**
+ * Fetches allowed out at once. A page of conversation rows asks for all of its jobs in the
+ * same render, and the answers only fill chips in below text that is already on screen.
+ */
+const MAX_CONCURRENT = 6
+
 export class JobBackedStore<T> {
 	#workspace: () => string | undefined
 	#load: (workspace: string, jobId: string) => Promise<T>
 	#empty: T
 	#byJob = $state<Record<string, T>>({})
 	#inFlight = new Set<string>()
+	#waiting: string[] = []
+	#running = 0
 
 	constructor(
 		workspace: () => string | undefined,
@@ -32,14 +40,35 @@ export class JobBackedStore<T> {
 		if (!jobId) return this.#empty
 		const cached = this.#byJob[jobId]
 		if (cached) return cached
-		void this.#fetch(jobId)
+		this.#enqueue(jobId)
 		return this.#empty
+	}
+
+	#enqueue(jobId: string) {
+		if (this.#inFlight.has(jobId)) return
+		this.#inFlight.add(jobId)
+		this.#waiting.push(jobId)
+		this.#pump()
+	}
+
+	#pump() {
+		while (this.#running < MAX_CONCURRENT && this.#waiting.length > 0) {
+			const jobId = this.#waiting.shift()!
+			this.#running++
+			void this.#fetch(jobId).finally(() => {
+				this.#running--
+				this.#pump()
+			})
+		}
 	}
 
 	async #fetch(jobId: string) {
 		const workspace = this.#workspace()
-		if (!workspace || this.#inFlight.has(jobId)) return
-		this.#inFlight.add(jobId)
+		if (!workspace) {
+			// Neither cached nor in flight, so the row asks again once a workspace is known.
+			this.#inFlight.delete(jobId)
+			return
+		}
 		try {
 			this.#byJob = { ...this.#byJob, [jobId]: await this.#load(workspace, jobId) }
 		} catch {

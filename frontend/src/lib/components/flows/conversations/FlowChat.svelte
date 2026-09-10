@@ -45,6 +45,8 @@
 	const manager = createFlowChatManager()
 	manager.operatingWorkspace = () => flowEditorContext?.opWorkspace?.()
 	manager.conversationKind = conversationKind
+	// The filter moves; what this surface runs does not.
+	manager.surfaceKind = conversationKind === 'test' ? 'test' : 'deployed'
 	// The editor is the only surface with both kinds in play, and it is the one that opens
 	// on test chats. A deployed flow lists what its users started, with no way to ask for
 	// anything else.
@@ -54,7 +56,10 @@
 	$effect(() => {
 		if ($workspaceStore) {
 			manager.initialize(onRunFlow, path, useStreaming)
-			void manager.selectLatestConversation()
+			// Reads the open conversation, and this effect tears down with `cleanup()`: tracked,
+			// the first send of a fresh chat would select the conversation it just created and
+			// so abort its own turn.
+			untrack(() => manager.selectLatestConversation())
 		}
 
 		return () => {

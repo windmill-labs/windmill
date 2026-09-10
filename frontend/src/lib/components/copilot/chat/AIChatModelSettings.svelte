@@ -256,6 +256,9 @@
 			model: providerModel.model,
 			value: providerModel.reasoning,
 			offToken: REASONING_OFF,
+			// The copilot fills an unset effort in before it calls the provider, so unset
+			// really does run at the default level and the button may name it.
+			sendsDefaultWhenUnset: true,
 			onSelect: selectReasoning
 		},
 		// A reading preference rather than a model parameter: it applies to every chat in

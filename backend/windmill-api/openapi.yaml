@@ -27603,7 +27603,7 @@ components:
     FlowConversation:
       type: object
       required:
-        [id, workspace_id, flow_path, created_at, updated_at, created_by]
+        [id, workspace_id, flow_path, created_at, updated_at, created_by, is_test]
       properties:
         id:
           type: string

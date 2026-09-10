@@ -33,6 +33,9 @@
 		overrideLabel
 	}: Props = $props()
 
+	// A `current` that names no stop is a real state — an agent that leaves the effort unset
+	// sends nothing and the provider decides — and the thumb then rests at the start. Only
+	// `overrideLabel` tells the two apart, since a range input always has a thumb somewhere.
 	const stopIndex = $derived(Math.max(0, stops.indexOf(current)))
 	// Percentage filled (accent) up to the thumb; the rest of the track stays surface-secondary.
 	const fillPct = $derived(

@@ -1,5 +1,6 @@
 import type { AIProvider } from '$lib/gen'
 import type { Item } from '$lib/utils'
+import { REASONING_OFF } from './reasoningRegistry'
 
 /**
  * The contract between a chat and its model button.
@@ -57,11 +58,67 @@ export type ChatModelSettingsConfig = {
 	 * sentinel and translates when it calls the provider, an agent writes the
 	 * provider-native token straight into its step.
 	 */
-	reasoning?: {
-		provider: AIProvider
-		model: string
-		value: string | undefined
-		offToken: string | undefined
-		onSelect: (token: string) => void
+	reasoning?: ChatModelSettingsReasoning
+}
+
+export type ChatModelSettingsReasoning = {
+	provider: AIProvider
+	model: string
+	value: string | undefined
+	offToken: string | undefined
+	/**
+	 * What an unset value means on the wire. The copilot fills one in before calling the
+	 * provider, so unset really runs at the default effort and the button says so. An agent
+	 * step omits the field entirely, so unset means whatever the provider does by itself —
+	 * naming a level there would state something the run does not do.
+	 */
+	sendsDefaultWhenUnset: boolean
+	onSelect: (token: string) => void
+}
+
+/** What an unset agent effort reads as: the provider decides, and we do not know what. */
+export const REASONING_PROVIDER_DEFAULT = 'default'
+
+/**
+ * What the menu shows for the reasoning ladder: the stops the slider offers, the one it
+ * sits on, and the suffix on the trigger.
+ *
+ * Pure and here rather than in the component because these three have to agree — a stop
+ * the slider renders as `off` must not read as the provider's own `none` on the button —
+ * and because the rules are provider-shaped enough to be worth testing directly.
+ */
+export function reasoningDisplay(
+	reasoning: ChatModelSettingsReasoning | undefined,
+	capability: { supported: boolean; levels: string[]; canDisable: boolean },
+	effective: string | undefined
+): {
+	stops: string[]
+	currentStop: string
+	/** Trigger suffix, or undefined when there is nothing truthful to say. */
+	label: string | undefined
+} {
+	if (!reasoning || !capability.supported) {
+		return { stops: [], currentStop: '', label: undefined }
 	}
+	// An off position only where the model can truly disable, else the provider would
+	// coerce it to the lowest level; then the provider-native levels.
+	const offToken = capability.canDisable ? reasoning.offToken : undefined
+	const stops = [...(offToken !== undefined ? [offToken] : []), ...capability.levels]
+	// An agent whose model disables by omission stores the empty string, which the run
+	// treats as no effort at all — so an unset value already sits on that stop.
+	const isOff = offToken !== undefined && (reasoning.value ?? '') === offToken
+	if (isOff) {
+		// The off token is provider-native and can read as anything ('none', 'disabled');
+		// on the button and on the slider it always reads as off.
+		return { stops, currentStop: offToken as string, label: REASONING_OFF }
+	}
+	if (reasoning.value === undefined || reasoning.value === '') {
+		// Where the provider takes an explicit disable, unset is a third state — the
+		// provider's own level, above off — that the ladder has no position for. The
+		// button still names it, and every stop the ladder does offer stays reachable.
+		return reasoning.sendsDefaultWhenUnset
+			? { stops, currentStop: effective ?? '', label: effective ?? REASONING_OFF }
+			: { stops, currentStop: '', label: REASONING_PROVIDER_DEFAULT }
+	}
+	return { stops, currentStop: reasoning.value, label: reasoning.value }
 }

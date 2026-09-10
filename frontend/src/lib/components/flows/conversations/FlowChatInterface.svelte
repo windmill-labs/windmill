@@ -8,13 +8,15 @@
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { type DynamicInput } from '$lib/utils'
-	import { type FlowModule } from '$lib/gen'
+	import { type AIProvider, type FlowModule } from '$lib/gen'
+	import { getReasoningCapability } from '$lib/components/copilot/reasoningRegistry'
 	import { useWorkspaceStorageConfigured } from '$lib/components/inputTransformEnv.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import FlowChatModelSettings from './FlowChatModelSettings.svelte'
 	import {
 		agentModelGap,
 		agentModelWiringInputs,
+		attachmentsTargetFor,
 		isEmptyAgentChatInputValue,
 		PER_TURN_AGENT_CHAT_INPUT_KEY,
 		resolveAgentChatInputs,
@@ -50,19 +52,14 @@
 		return undefined
 	})
 
-	// Inputs an AI agent step reads straight out of the flow input get a composer chip
-	// instead of a modal field; the rest stay in the modal.
+	// The flow inputs an AI agent step reads straight out of `flow_input`, which the
+	// composer may then edit itself instead of asking for them in the modal.
 	const agentChatInputs = $derived(resolveAgentChatInputs(flowModules, additionalInputsSchema))
-	// The composer's attachments feed this input; it never appears as a chip or a
-	// modal field, because the paperclip is its editor.
+	// The composer's attachments feed this input, and the paperclip is its whole editor.
 	const attachmentsInput = $derived(
 		agentChatInputs.find((input) => input.key === PER_TURN_AGENT_CHAT_INPUT_KEY)
 	)
-	const attachmentsTarget = $derived(
-		attachmentsInput
-			? { name: attachmentsInput.name, multiple: attachmentsInput.property?.type === 'array' }
-			: undefined
-	)
+	const attachmentsTarget = $derived(attachmentsTargetFor(attachmentsInput))
 
 	const chatWorkspace = $derived(manager.operatingWorkspace?.() ?? $workspaceStore)
 
@@ -76,26 +73,6 @@
 	// An agent with nothing to call cannot answer, and the composer cannot fix it, so the
 	// chat says what to go and do instead of offering controls that write nowhere.
 	const modelGap = $derived(agentModelGap(modelWiring))
-
-	const modalSchema = $derived.by(() => {
-		if (!additionalInputsSchema) return undefined
-		const promoted = new Set([
-			...agentChatInputs.map((input) => input.name),
-			...agentModelWiringInputs(modelWiring)
-		])
-		const properties = Object.fromEntries(
-			Object.entries(additionalInputsSchema.properties ?? {}).filter(([key]) => !promoted.has(key))
-		)
-		if (Object.keys(properties).length === 0) return undefined
-		const required: string[] = Array.isArray(additionalInputsSchema.required)
-			? additionalInputsSchema.required
-			: []
-		return {
-			...additionalInputsSchema,
-			properties,
-			required: required.filter((key) => !promoted.has(key))
-		}
-	})
 
 	// LocalStorage helpers
 	const STORAGE_KEY_PREFIX = 'windmill_flow_chat_inputs_'
@@ -122,6 +99,20 @@
 	const effectiveInputs = $derived({
 		...schemaDefaults(additionalInputsSchema),
 		...inputValues
+	})
+
+	// Whether the model button will offer the thinking slider, which it does only for a
+	// model that reasons. A provider kind or model we cannot read leaves it unknown, and
+	// the field then stays in the modal rather than behind a control that never appears.
+	const effortEditable = $derived.by(() => {
+		if (!modelWiring || modelWiring.whole) return false
+		const pick = (field: 'model' | 'kind') => {
+			const name = modelWiring.fields[field]
+			return name ? effectiveInputs[name] : modelWiring.fixed[field]
+		}
+		const [kind, model] = [pick('kind'), pick('model')]
+		if (typeof kind !== 'string' || !kind || typeof model !== 'string' || !model) return false
+		return getReasoningCapability(kind as AIProvider, model).supported
 	})
 
 	function getStorageKey(): string {
@@ -167,15 +158,39 @@
 		attachmentsTarget: () => attachmentsTarget,
 		workspace: () => chatWorkspace,
 		canAttach: () => workspaceStorage.current,
-		inputsShownInComposer: () => agentModelWiringInputs(modelWiring)
+		inputsShownInComposer: () => agentModelWiringInputs(modelWiring, effortEditable),
+		inputsSchema: () => additionalInputsSchema
 	})
 	setChatViewHost(chatHost)
 
-	// A message held mid-run goes out once the run settles. Attachments count as a
-	// message of their own, so a queue with files and no text still has to flush.
-	const hasQueuedTurn = $derived(
-		!!chatHost.queuedMessage || chatHost.queuedImages.length > 0 || chatHost.queuedBlobs.length > 0
-	)
+	// A message held mid-run goes out once the run settles. Keyed on the text alone, as
+	// `flushQueuedMessage` is: a turn here cannot run without one, so the composer refuses
+	// an attachment-only send rather than queueing files nothing would ever drain.
+	const hasQueuedTurn = $derived(!!chatHost.queuedMessage.trim())
+
+	// What the Configure-inputs modal asks for: every flow input the composer does not
+	// edit itself. Below the host, because whether the paperclip is offered is its answer.
+	const modalSchema = $derived.by(() => {
+		if (!additionalInputsSchema) return undefined
+		const promoted = new Set([
+			// The paperclip's own condition, not half of it: an attachments input the composer
+			// has no editor for — no object storage in the workspace, say — stays askable here.
+			...(chatHost.supportsMessageAttachments && attachmentsTarget ? [attachmentsTarget.name] : []),
+			...agentModelWiringInputs(modelWiring, effortEditable)
+		])
+		const properties = Object.fromEntries(
+			Object.entries(additionalInputsSchema.properties ?? {}).filter(([key]) => !promoted.has(key))
+		)
+		if (Object.keys(properties).length === 0) return undefined
+		const required: string[] = Array.isArray(additionalInputsSchema.required)
+			? additionalInputsSchema.required
+			: []
+		return {
+			...additionalInputsSchema,
+			properties,
+			required: required.filter((key) => !promoted.has(key))
+		}
+	})
 	$effect(() => {
 		if (!chatHost.loading && hasQueuedTurn) {
 			chatHost.flushQueuedMessage()
@@ -268,8 +283,10 @@
 		{emptyHint}
 		footerSettings={modalSchema || modelWiring ? footerSettings : undefined}
 		placeholder="Send a message to run the flow"
-		disabled={deploymentInProgress || !!modelGap}
-		disabledMessage={deploymentInProgress ? 'Deployment in progress' : (modelGap ?? '')}
+		disabled={deploymentInProgress || !!modelGap || !!manager.wrongKindReason}
+		disabledMessage={deploymentInProgress
+			? 'Deployment in progress'
+			: (modelGap ?? manager.wrongKindReason ?? '')}
 		loadPastChat={() => {}}
 		deletePastChat={() => {}}
 		saveAndClear={() => {}}

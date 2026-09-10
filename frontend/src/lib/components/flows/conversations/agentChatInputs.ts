@@ -284,10 +284,55 @@ export function agentModelGap(wiring: AgentModelWiring | undefined): string | un
 		: undefined
 }
 
-/** Every flow input the wiring reads, so the modal does not ask for them a second time. */
-export function agentModelWiringInputs(wiring: AgentModelWiring | undefined): string[] {
+/**
+ * The flow inputs the model button actually writes, so the modal does not ask for them a
+ * second time — and, just as much, so it still asks for the ones the button cannot reach.
+ *
+ * Two fields are conditional. The button writes `kind` only alongside a resource, since a
+ * provider is picked as a pair: a flow that wires `kind` while fixing the resource leaves
+ * the button nothing to write it with. And it offers the thinking slider only where the
+ * model reasons, so on a model that does not, a wired `reasoning_effort` has no editor
+ * there either. Hiding either one would leave the run short of an input with nowhere to
+ * supply it — and a required one would pass the modal's own completeness check.
+ */
+export function agentModelWiringInputs(
+	wiring: AgentModelWiring | undefined,
+	/** Whether the model in use reasons at all. False whenever it cannot be determined. */
+	effortEditable: boolean = false
+): string[] {
 	if (!wiring) return []
-	return [...(wiring.whole ? [wiring.whole] : []), ...Object.values(wiring.fields)]
+	if (wiring.whole) return [wiring.whole]
+	const driven: ProviderField[] = ['resource', 'model']
+	if (wiring.fields.resource !== undefined) driven.push('kind')
+	if (effortEditable) driven.push('reasoning_effort')
+	return driven.map((field) => wiring.fields[field]).filter((name): name is string => !!name)
+}
+
+/** Whether a schema entry holds an s3 file, as the flow input editor recognises one. */
+function holdsS3File(property: Record<string, any> | undefined): boolean {
+	return (
+		property?.format === 'resource-s3_object' ||
+		property?.resourceType === 's3object' ||
+		property?.resourceType === 's3_object'
+	)
+}
+
+/**
+ * Where the composer's attachments go, or nothing when there is nowhere they fit.
+ *
+ * The agent reads `user_attachments` through a transform that may reshape what it takes, so
+ * the flow input feeding it is not necessarily an s3 field: an expression building the s3
+ * object itself promotes a plain string. Writing `{ s3, filename }` into that input fails at
+ * run time, so the paperclip appears only where the schema says the value belongs.
+ */
+export function attachmentsTargetFor(
+	input: AgentChatInput | undefined
+): { name: string; multiple: boolean } | undefined {
+	if (!input) return undefined
+	if (holdsS3File(input.property)) return { name: input.name, multiple: false }
+	return input.property?.type === 'array' && holdsS3File(input.property.items)
+		? { name: input.name, multiple: true }
+		: undefined
 }
 
 export function isEmptyAgentChatInputValue(value: any): boolean {

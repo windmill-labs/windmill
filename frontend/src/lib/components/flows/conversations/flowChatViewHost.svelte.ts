@@ -32,8 +32,6 @@ export type AttachmentsTarget = { name: string; multiple: boolean }
 
 export type FlowChatViewHostOptions = {
 	additionalInputs?: () => Record<string, any> | undefined
-	/** Called once the turn is dispatched, to clear anything that rides one message. */
-	onSent?: () => void
 	attachmentsTarget?: () => AttachmentsTarget | undefined
 	workspace?: () => string | undefined
 	/** Off when the workspace has no object storage — there is nowhere to upload to. */
@@ -41,6 +39,8 @@ export type FlowChatViewHostOptions = {
 	/** Flow inputs the composer renders a control of its own for, so a message does not
 	 * repeat them as context chips. */
 	inputsShownInComposer?: () => string[]
+	/** The flow's input schema, which says which of a run's arguments are secret. */
+	inputsSchema?: () => { properties?: Record<string, any> } | undefined
 }
 
 /**
@@ -177,6 +177,7 @@ export class FlowChatViewHost implements ChatViewHost {
 
 	#messageInputs = new MessageInputsStore(
 		() => this.#options.workspace?.(),
+		() => this.#options.inputsSchema?.(),
 		() => new Set(this.#options.inputsShownInComposer?.() ?? [])
 	)
 	#toolCalls = new ToolCallStore(() => this.#options.workspace?.())
@@ -263,6 +264,14 @@ export class FlowChatViewHost implements ChatViewHost {
 		// The composer refuses an attachment-only send (requiresMessageText), so this is
 		// the same rule at the other end: nothing runs without a message.
 		if (!text) return false
+		// And nothing runs into a conversation belonging to the other surface: the composer
+		// is shut for it, but a queued turn could have been written before it was opened.
+		const wrongKind = this.#manager.wrongKindReason
+		if (wrongKind) {
+			sendUserToast(wrongKind, true)
+			this.#restoreToComposer(options)
+			return false
+		}
 		// The per-turn cap again, at the place the truncation would happen: the composer
 		// enforces it as files are attached, but a queue built over several turns arrives
 		// here as one send, and a scalar input keeps `uploaded[0]` — uploading the rest
@@ -306,8 +315,7 @@ export class FlowChatViewHost implements ChatViewHost {
 		}
 
 		this.#manager.inputMessage = text
-		this.#options.onSent?.()
-		await this.#manager.sendMessage(
+		const started = await this.#manager.sendMessage(
 			Object.keys(args).length > 0 || this.#options.additionalInputs?.() ? args : undefined,
 			(rowId) => {
 				if (!sentInputs) return
@@ -321,6 +329,13 @@ export class FlowChatViewHost implements ChatViewHost {
 			},
 			conversationId
 		)
+		if (!started) {
+			// The upload succeeded and the run did not, so the composer's draft was spent on
+			// nothing. The uploaded objects stay where they are — a resend uploads its own,
+			// under its own prefix — but what the reader wrote comes back.
+			this.#restoreToComposer(options)
+			return false
+		}
 		return true
 	}
 

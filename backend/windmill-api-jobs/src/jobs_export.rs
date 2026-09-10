@@ -692,7 +692,9 @@ pub async fn delete_jobs(
     .await?
     .rows_affected();
 
-    let emptied_conversations: Vec<Uuid> = sqlx::query_scalar!(
+    // One row per message deleted, so the conversation of a chat losing several appears
+    // several times: the count is taken before the dedup below.
+    let mut conversation_ids: Vec<Uuid> = sqlx::query_scalar!(
         "DELETE FROM flow_conversation_message m
          USING flow_conversation c
          WHERE m.conversation_id = c.id AND c.workspace_id = $1 AND m.job_id = ANY($2)
@@ -702,11 +704,10 @@ pub async fn delete_jobs(
     )
     .fetch_all(&mut *tx)
     .await?;
-    let conversation_message_deleted = emptied_conversations.len() as u64;
+    let conversation_message_deleted = conversation_ids.len() as u64;
 
     // Same rule as retention (windmill_common::jobs::delete_jobs): a conversation with no
     // messages left goes, and the agent's memory for it with it.
-    let mut conversation_ids = emptied_conversations;
     conversation_ids.sort_unstable();
     conversation_ids.dedup();
     if !conversation_ids.is_empty() {

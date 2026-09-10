@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
 	agentModelGap,
+	agentModelWiringInputs,
+	attachmentsTargetFor,
 	parseProviderTransform,
 	resolveAgentChatInputs,
 	resolveAgentModelWiring
@@ -130,6 +132,36 @@ describe('resolveAgentChatInputs', () => {
 	})
 })
 
+describe('agentModelWiringInputs', () => {
+	// The button writes `kind` only alongside a resource, since a provider is picked as a
+	// pair. Hiding a kind input it cannot write would leave the run without one.
+	it('keeps a kind input the model button cannot write', () => {
+		const wiring = resolveAgentModelWiring([
+			agent(`({ kind: flow_input.k, "resource": "$res:u/admin/claude", model: flow_input.m })`)
+		])
+		expect(agentModelWiringInputs(wiring)).toEqual(['m'])
+	})
+
+	it('hides a kind input it writes with the resource', () => {
+		const wiring = resolveAgentModelWiring([
+			agent(`({ kind: flow_input.k, resource: flow_input.r, model: flow_input.m })`)
+		])
+		expect(agentModelWiringInputs(wiring, true)?.sort()).toEqual(['k', 'm', 'r'])
+	})
+
+	// The slider only appears for a model that reasons, so on one that does not the effort
+	// input has no editor on the button and has to stay in the modal.
+	it('keeps a reasoning_effort input where the model cannot think', () => {
+		const wiring = resolveAgentModelWiring([
+			agent(
+				`({ "kind": "openai", "resource": "$res:u/admin/oai", "model": "gpt-4o", reasoning_effort: flow_input.thinking })`
+			)
+		])
+		expect(agentModelWiringInputs(wiring, false)).toEqual([])
+		expect(agentModelWiringInputs(wiring, true)).toEqual(['thinking'])
+	})
+})
+
 describe('resolveAgentModelWiring', () => {
 	const fixedResource = `"kind": "anthropic", "resource": "$res:u/admin/claude"`
 
@@ -238,5 +270,33 @@ describe('resolveAgentModelWiring', () => {
 				agent(`({ ${fixedResource}, model: flow_input.model })`)
 			])
 		).toBeUndefined()
+	})
+})
+
+describe('attachmentsTargetFor', () => {
+	const input = (property: Record<string, any>) =>
+		({ name: 'files', key: 'user_attachments', property, required: false }) as any
+
+	it('takes a list of s3 files, and says it holds several', () => {
+		expect(
+			attachmentsTargetFor(input({ type: 'array', items: { resourceType: 's3object' } }))
+		).toEqual({ name: 'files', multiple: true })
+	})
+
+	it('takes a single s3 file', () => {
+		expect(attachmentsTargetFor(input({ format: 'resource-s3_object' }))).toEqual({
+			name: 'files',
+			multiple: false
+		})
+	})
+
+	// The transform can build the s3 object itself, promoting an input that holds a key
+	// rather than a file. Uploading into it would write an object where a string is declared.
+	it('offers no paperclip where the input cannot hold a file', () => {
+		expect(attachmentsTargetFor(input({ type: 'string' }))).toBeUndefined()
+		expect(
+			attachmentsTargetFor(input({ type: 'array', items: { type: 'string' } }))
+		).toBeUndefined()
+		expect(attachmentsTargetFor(undefined)).toBeUndefined()
 	})
 })

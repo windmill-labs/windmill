@@ -12,12 +12,12 @@
 	import MenuItemWrapper from '$lib/components/meltComponents/MenuItemWrapper.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import ReasoningEffortSlider from './ReasoningEffortSlider.svelte'
+	import { getReasoningCapability, resolveEffectiveReasoning } from './reasoningRegistry'
 	import {
-		getReasoningCapability,
-		resolveEffectiveReasoning,
-		REASONING_OFF
-	} from './reasoningRegistry'
-	import type { ChatModelSettingsConfig, ChoiceSection } from './chatModelSettings'
+		reasoningDisplay,
+		type ChatModelSettingsConfig,
+		type ChoiceSection
+	} from './chatModelSettings'
 	import type { Item } from '$lib/utils'
 	import type { MenubarMenuElements, createDropdownMenu } from '@melt-ui/svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -33,12 +33,6 @@
 			? getReasoningCapability(reasoning.provider, reasoning.model)
 			: { supported: false, levels: [] as string[], canDisable: false }
 	)
-	// An off position only where the model can truly disable, else the provider would
-	// coerce it to the lowest level; then the provider-native levels.
-	const stops = $derived([
-		...(capability.canDisable && reasoning?.offToken !== undefined ? [reasoning.offToken] : []),
-		...capability.levels
-	])
 	// Effective effort accounts for the default-on level on capable models.
 	const effective = $derived(
 		reasoning
@@ -49,15 +43,12 @@
 				})
 			: undefined
 	)
-	const currentStop = $derived(
-		reasoning && reasoning.value === reasoning.offToken
-			? (reasoning.offToken ?? '')
-			: (effective ?? stops[stops.length - 1] ?? '')
-	)
-	// Trigger suffix: the effort token, or 'off' when disabled. Omitted entirely for
-	// models with no reasoning support. The off token is provider-native and can read as
-	// anything ('none', 'disabled'); on the button it always reads as off.
-	const effortLabel = $derived(capability.supported ? (effective ?? REASONING_OFF) : undefined)
+	// The stops, the one in use and the trigger's suffix are decided together, in one
+	// tested place: they have to agree, and three rounds of review found them disagreeing.
+	const display = $derived(reasoningDisplay(reasoning, capability, effective))
+	const stops = $derived(display.stops)
+	const currentStop = $derived(display.currentStop)
+	const effortLabel = $derived(display.label)
 
 	let effortSlider: ReasoningEffortSlider | undefined = $state(undefined)
 
@@ -197,7 +188,7 @@
 				{/each}
 				{#if reasoning}
 					<div class={BLOCK_CLASS}>
-						{#if capability.supported && stops.length > 1}
+						{#if capability.supported}
 							<!-- Registered as a melt item so it joins the roving focus/highlight (and arrow
 						     up/down navigation), and so hovering it takes the highlight off the row
 						     above. Left/right adjust the effort; the slider's input handler also drives it. -->
@@ -212,9 +203,12 @@
 									current={currentStop}
 									onSelect={reasoning.onSelect}
 									format={(stop) => (stop === reasoning?.offToken ? 'off' : stop)}
+									overrideLabel={stops.includes(currentStop) ? undefined : effortLabel}
 								/>
 							</MenuItemWrapper>
 						{:else}
+							<!-- Kept in place rather than dropped: the row saying the model cannot think
+							     is the answer to why there is no slider. -->
 							<ReasoningEffortSlider
 								stops={[]}
 								current=""

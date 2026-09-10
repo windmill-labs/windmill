@@ -276,13 +276,8 @@ async fn test_workspace_delete_removes_side_rows(db: Pool<Postgres>) -> anyhow::
     Ok(())
 }
 
-/// The `/jobs/delete` purge endpoint must scope every side-table delete to the path
-/// workspace. A `test-workspace` admin passing a job id from another workspace must not be
-/// able to delete that workspace's job or side rows (the side tables no longer cascade, so
-/// the scoping has to live in each explicit delete).
 /// The purge endpoint carries its own copy of the emptied-conversation rule, so it gets the
-/// same guard: the conversation and its memory go only with the last message, and only in
-/// the caller's workspace.
+/// same guard: the conversation and its memory go with the last message, and not before.
 #[sqlx::test(fixtures("base"))]
 async fn test_jobs_export_delete_removes_a_conversation_once_its_last_message_goes(
     db: Pool<Postgres>,
@@ -349,6 +344,10 @@ async fn test_jobs_export_delete_removes_a_conversation_once_its_last_message_go
     Ok(())
 }
 
+/// The `/jobs/delete` purge endpoint must scope every side-table delete to the path
+/// workspace. A `test-workspace` admin passing a job id from another workspace must not be
+/// able to delete that workspace's job or side rows (the side tables no longer cascade, so
+/// the scoping has to live in each explicit delete).
 #[sqlx::test(fixtures("base"))]
 async fn test_jobs_export_delete_is_workspace_scoped(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
