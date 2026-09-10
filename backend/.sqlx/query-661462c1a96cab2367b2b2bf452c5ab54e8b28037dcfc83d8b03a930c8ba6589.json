@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n               COALESCE(value->'databases'->$1::text->>'tag' = 'datatable', false)\n               AND NOT EXISTS (\n                   SELECT 1 FROM workspace_settings ws\n                   CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt\n                   WHERE dt.value->'database'->>'resource_type' = 'instance'\n                     AND dt.value->'database'->>'resource_path' = $1::text)\n               AND NOT EXISTS (\n                   SELECT 1 FROM workspace_settings ws\n                   CROSS JOIN LATERAL jsonb_each(COALESCE(ws.ducklake->'ducklakes', '{}'::jsonb)) dl\n                   WHERE dl.value->'catalog'->>'resource_type' = 'instance'\n                     AND dl.value->'catalog'->>'resource_path' = $1::text)\n               AS \"reclaimable!\"\n           FROM global_settings WHERE name = 'custom_instance_pg_databases'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "reclaimable!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "661462c1a96cab2367b2b2bf452c5ab54e8b28037dcfc83d8b03a930c8ba6589"
+}
