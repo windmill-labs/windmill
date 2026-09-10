@@ -4416,7 +4416,14 @@ async fn count_completed_jobs(
         ))
 }
 
-const LIST_JOBS_STATEMENT_TIMEOUT_SECS: u64 = 30;
+lazy_static::lazy_static! {
+    /// 0 keeps the connection-wide statement_timeout.
+    static ref LIST_JOBS_STATEMENT_TIMEOUT_SECS: u64 =
+        std::env::var("LIST_JOBS_STATEMENT_TIMEOUT_SECS")
+            .ok()
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(30);
+}
 
 async fn list_jobs(
     authed: ApiAuthed,
@@ -4537,22 +4544,25 @@ async fn list_jobs(
 
     // A client that gives up does not cancel its query, so without this bound every retry of a
     // slow filter stacks another scan running until the connection-wide 5min timeout.
-    sqlx::query(&format!(
-        "SET LOCAL statement_timeout = '{LIST_JOBS_STATEMENT_TIMEOUT_SECS}s'"
-    ))
-    .execute(&mut *tx)
-    .await?;
+    let timeout_secs = *LIST_JOBS_STATEMENT_TIMEOUT_SECS;
+    if timeout_secs > 0 {
+        sqlx::query(&format!("SET LOCAL statement_timeout = '{timeout_secs}s'"))
+            .execute(&mut *tx)
+            .await?;
+    }
 
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql)
         .fetch_all(&mut *tx)
         .warn_after_seconds_with_sql(5, format!("list_jobs: {}", sql))
         .await
         .map_err(|e| match e {
-            sqlx::Error::Database(ref db_err) if db_err.code().as_deref() == Some("57014") => {
+            sqlx::Error::Database(ref db_err)
+                if timeout_secs > 0 && db_err.code().as_deref() == Some("57014") =>
+            {
                 Error::Generic(
                     StatusCode::BAD_REQUEST,
                     format!(
-                        "Listing jobs took more than {LIST_JOBS_STATEMENT_TIMEOUT_SECS}s and was stopped. Set a start date or narrow the filters."
+                        "Listing jobs took more than {timeout_secs}s and was stopped. Set a start date or narrow the filters."
                     ),
                 )
             }

@@ -18,6 +18,9 @@ import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
 import type { Timeframe } from './timeframes'
 import { allowWildcards as _allowWildcards, type RunsFilterInstance } from './runsFilter'
 
+// windmill_common::utils::MAX_PER_PAGE: the server silently caps per_page at this value
+const MAX_PER_PAGE = 10000
+
 export function computeJobKinds(jobKindsCat: string | null): string {
 	if (jobKindsCat == 'all') {
 		return ''
@@ -219,14 +222,18 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			lastFetchWentToEnd = true
 			return CancelablePromiseUtils.pure<void>(undefined as void)
 		}
-		// The cursor is inclusive and keeps the API's microsecond precision, so jobs sharing the
-		// boundary timestamp (e.g. a bulk cancel) are refetched instead of skipped. Widening the page
-		// by the ones already listed leaves room for a full batch of new jobs.
-		const pageSize = batchSize + jobs.filter((j) => sortKey(j) === cursorTs).length
+		// Inclusive cursor at the API's microsecond precision: jobs sharing the boundary timestamp (e.g.
+		// a bulk cancel) are refetched rather than skipped, and the page grows by those already listed,
+		// up to the server's MAX_PER_PAGE. Once the listed part of the group fills that cap, the cursor
+		// steps just below the group, dropping its remainder instead of ending the list early.
+		const tied = jobs.filter((j) => sortKey(j) === cursorTs).length
+		const stepOver = tied >= MAX_PER_PAGE
+		const cursor = stepOver ? new Date(new Date(cursorTs).getTime() - 1).toISOString() : cursorTs
+		const pageSize = stepOver ? batchSize : Math.min(batchSize + tied, MAX_PER_PAGE)
 		return CancelablePromiseUtils.map(
 			byCompletedAt
-				? fetchJobs(cursorTs, minTs, undefined, undefined, pageSize)
-				: fetchJobs(null, minTs, undefined, cursorTs, pageSize),
+				? fetchJobs(cursor, minTs, undefined, undefined, pageSize)
+				: fetchJobs(null, minTs, undefined, cursor, pageSize),
 			(olderJobs) => {
 				jobs = updateWithNewJobs(olderJobs ?? [], jobs ?? [])
 				if (extendedJobs) {
@@ -414,7 +421,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		overrideBatchSize?: number
 	): CancelablePromise<void> {
 		const { minTs, maxTs } = timeframe?.computeMinMax() ?? { minTs: null, maxTs: null }
-		listLoadedAt = new Date(Date.now() - 60_000).toISOString()
+		listLoadedAt = new Date(Date.now() - 5 * 60_000).toISOString()
 		if (shouldGetCount) {
 			getCount()
 		}
